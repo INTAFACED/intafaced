@@ -19,7 +19,7 @@
  *   one typed refusal, and nothing here moves value.
  */
 import { createPublicKey, verify } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import type { Context } from '@intafaced/contracts';
 import {
@@ -79,7 +79,7 @@ function requireOperator(context: Context): Operator {
 }
 
 /** The operator's own session must still be live and carry its second factor, read in the transaction that acts. */
-async function lockOperatorSession(tx: Sql, actor: Operator, now: Date): Promise<void> {
+async function lockOperatorSession(tx: Queryable, actor: Operator, now: Date): Promise<void> {
   const [session] = await tx<Array<{ revoked: boolean; mfa: boolean; expires_at: Date }>>`
     SELECT revoked, mfa, expires_at FROM sessions WHERE id = ${actor.sessionId} AND user_id = ${actor.userId} FOR UPDATE`;
   if (!session || session.revoked || session.expires_at.getTime() <= now.getTime()) throw new DeathNoticeError('operator.denied');
@@ -190,7 +190,7 @@ export async function listDeathNotices(deps: DeathNoticeDeps, context: Context, 
 }
 
 /** The account row first, then the notice, in the order every writer of the account takes them. */
-async function lockNotice(tx: Sql, noticeId: string): Promise<{ row: NoticeRow; status: string }> {
+async function lockNotice(tx: Queryable, noticeId: string): Promise<{ row: NoticeRow; status: string }> {
   const [named] = await tx<Array<{ subject_user_id: string }>>`SELECT subject_user_id FROM death_notices WHERE id = ${noticeId}`;
   if (!named) throw new DeathNoticeError('identity.death_notice_not_found');
   const [account] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${named.subject_user_id} FOR UPDATE`;

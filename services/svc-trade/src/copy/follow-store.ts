@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { CopyError } from './errors.js';
@@ -991,10 +992,10 @@ export class SqlCopyFollowStore implements CopyFollowStore {
    * Exclusive already holds the session (advisory lock); issue BEGIN/COMMIT
    * as SQL on that connection.
    */
-  private async withSessionTxn<T>(run: (sql: Sql) => Promise<T>): Promise<T> {
+  private async withSessionTxn<T>(run: (sql: Queryable) => Promise<T>): Promise<T> {
     const begin = (this.sql as { begin?: Sql['begin'] }).begin;
     if (typeof begin === 'function') {
-      return (await begin(async (tx) => run(tx as unknown as Sql))) as T;
+      return (await begin(async (tx) => run(tx))) as T;
     }
     try {
       await this.sql.unsafe('BEGIN');

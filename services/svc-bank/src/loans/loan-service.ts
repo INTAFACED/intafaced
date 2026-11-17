@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   InsufficientFundsError,
   LedgerError,
@@ -733,7 +733,7 @@ export class LoanService {
    * response is a zero here plus a shortfall of nothing — not a figure that would
    * quietly credit the borrower on the next repayment.
    */
-  async outstanding(loanId: string, tx: Sql = this.sql): Promise<LoanDebt> {
+  async outstanding(loanId: string, tx: Queryable = this.sql): Promise<LoanDebt> {
     const rows = await tx<Array<{ principal: string; interest: string }>>`
       WITH drawn AS (
         SELECT principal FROM bank.loans WHERE id = ${loanId}
@@ -3436,7 +3436,7 @@ export class LoanService {
     await this.clearMarginCalls(loan.id, now);
   }
 
-  private async hasPendingLiquidation(loanId: string, tx: Sql = this.sql): Promise<boolean> {
+  private async hasPendingLiquidation(loanId: string, tx: Queryable = this.sql): Promise<boolean> {
     const rows = await tx<Array<{ n: string }>>`
       SELECT COUNT(*)::text AS n FROM bank.loan_liquidations WHERE loan_id = ${loanId} AND status = 'pending'
     `;
@@ -3503,7 +3503,7 @@ export class LoanService {
    * else is skipped.
    */
   private async reclaimPending(
-    tx: Sql,
+    tx: Queryable,
     table: 'loan_repayments' | 'loan_collateral_events',
     id: string,
   ): Promise<{ claimed: false; id: string; ledgerTxId: string | null }> {
@@ -3564,7 +3564,7 @@ export class LoanService {
    * reason, and the ledger key gives the money a guarantee.
    */
   private async drivenPost(input: {
-    claim: (tx: Sql) => Promise<{ claimed: boolean; id: string; ledgerTxId?: string | null }>;
+    claim: (tx: Queryable) => Promise<{ claimed: boolean; id: string; ledgerTxId?: string | null }>;
     post: () => Promise<{ id: string }>;
     table: string;
     /**
@@ -3681,7 +3681,7 @@ export class LoanService {
     return this.nextSequence('loan_collateral_events', loanId);
   }
 
-  private async nextSequence(table: string, loanId: string, column = 'sequence', db: Sql = this.sql): Promise<number> {
+  private async nextSequence(table: string, loanId: string, column = 'sequence', db: Queryable = this.sql): Promise<number> {
     const rows = await db.unsafe<Array<{ next: number | null }>>(
       `SELECT COALESCE(MAX("${column}") + 1, 0) AS next FROM bank.${table} WHERE loan_id = $1`,
       [loanId],

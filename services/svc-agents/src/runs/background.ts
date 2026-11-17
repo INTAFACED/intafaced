@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { EventBus } from '@intafaced/events';
 import { STEP_STATES, type RunNotice, type SessionRun, type SessionRunState, type StopResult } from '@intafaced/contracts/agents-runs';
@@ -120,7 +121,7 @@ export function stepMessages(run: Pick<RunRow, 'ask' | 'follow_ups' | 'steps_tot
   return messages;
 }
 
-async function lockRun(tx: Sql, runId: string, userId: string | null, skipLocked = false): Promise<RunRow | null> {
+async function lockRun(tx: Queryable, runId: string, userId: string | null, skipLocked = false): Promise<RunRow | null> {
   const rows = await tx<RunRow[]>`
     SELECT ${tx.unsafe(RUN_COLUMNS)} FROM agents.session_background_runs
      WHERE id = ${runId} ${userId === null ? tx`` : tx`AND user_id = ${userId}`}
@@ -129,7 +130,7 @@ async function lockRun(tx: Sql, runId: string, userId: string | null, skipLocked
   return rows[0] ?? null;
 }
 
-async function stepsOf(tx: Sql, runId: string): Promise<StepRow[]> {
+async function stepsOf(tx: Queryable, runId: string): Promise<StepRow[]> {
   return tx<StepRow[]>`
     SELECT n, state, reply, cost, started_at, finished_at FROM agents.session_background_run_steps
      WHERE run_id = ${runId} ORDER BY n
@@ -141,7 +142,13 @@ async function stepsOf(tx: Sql, runId: string): Promise<StepRow[]> {
  * the run meanwhile). A refused call stores the step as `refused` and fails the run on its code. Called under the run's
  * row lock, so the ticker and a stop never make the same call twice.
  */
-async function finishStep(tx: Sql, runtime: AgentRuntime, run: RunRow, steps: StepRow[], afterStop: boolean): Promise<'done' | 'refused'> {
+async function finishStep(
+  tx: Queryable,
+  runtime: AgentRuntime,
+  run: RunRow,
+  steps: StepRow[],
+  afterStop: boolean,
+): Promise<'done' | 'refused'> {
   const step = steps.at(-1)!;
   try {
     const result = await runtime.think({
@@ -258,8 +265,7 @@ export class SessionRunStore {
    * settled once. The answer is kept: a second stop returns it and settles nothing again (`repeated`).
    */
   async stop(runId: string, userId: string): Promise<{ run: SessionRun; repeated: boolean } | null> {
-    const outcome = await this.sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+    const outcome = await this.sql.begin(async (tx) => {
       const run = await lockRun(tx, runId, userId);
       if (!run) return null;
       if (run.stop_result) return { repeated: true };
@@ -303,9 +309,8 @@ export class SessionRunStore {
     return { stoppedAt, billed: formatAmount(billed), assetId: this.feeAssetId, settlements, unpaid };
   }
 
-  private async change(runId: string, userId: string, fn: (tx: Sql, run: RunRow) => Promise<void>): Promise<SessionRun | null> {
-    const found = await this.sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+  private async change(runId: string, userId: string, fn: (tx: Queryable, run: RunRow) => Promise<void>): Promise<SessionRun | null> {
+    const found = await this.sql.begin(async (tx) => {
       const run = await lockRun(tx, runId, userId);
       if (!run) return false;
       if (ENDED.includes(run.state)) throw new SessionRunConflict('agents.run.ended');
@@ -330,8 +335,7 @@ export async function advanceSessionRuns(sql: Sql, runtime: AgentRuntime, stepMs
   `;
   let touched = 0;
   for (const { id } of live) {
-    const moved = await sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+    const moved = await sql.begin(async (tx) => {
       const run = await lockRun(tx, id, null, true);
       if (!run || ENDED.includes(run.state)) return false;
       const steps = await stepsOf(tx, id);

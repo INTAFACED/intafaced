@@ -1,3 +1,4 @@
+import { type Queryable, requireConnection } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { OWN_AGENT_DATA_CLASSES, OWN_AGENT_RULE_CHOICES, type OwnAgentApprovalStatus } from '@intafaced/contracts/agents-own';
 import { OWN_TOOLS, OwnAgentRefusal, type OwnDataClass } from './catalog.js';
@@ -329,7 +330,7 @@ export type ApprovedCall = { readonly request: OwnApprovalRequestView; readonly 
  * so nothing decided is decided again, and an expired request can never be approved (it fails closed).
  */
 export class OwnApprovalRequestStore {
-  constructor(private readonly sql: Sql) {}
+  constructor(private readonly sql: Queryable) {}
 
   /** Every column as read, with a waiting request past its expiry read as `expired`. */
   private readonly columns = () => this.sql`
@@ -517,8 +518,8 @@ export class OwnApprovalRequestStore {
     args: Readonly<Record<string, string>>,
     ttlSeconds: number,
   ): Promise<{ replaced: OwnApprovalRequestView; request: OwnApprovalRequestView }> {
-    return this.sql.begin(async (tx) => {
-      const store = new OwnApprovalRequestStore(tx as unknown as Sql);
+    return requireConnection(this.sql).begin(async (tx) => {
+      const store = new OwnApprovalRequestStore(tx);
       const locked = await tx<Array<RequestRow & { agent_id: string; owner_id: string }>>`
         SELECT ${store.columns()}, agent_id::text AS agent_id FROM agents.own_agent_approval_requests
          WHERE owner_id = ${ownerId} AND id = ${id} FOR UPDATE

@@ -467,6 +467,9 @@ importers:
 
   packages/execution-arb:
     dependencies:
+      '@intafaced/config':
+        specifier: workspace:*
+        version: link:../config
       '@intafaced/ledger-client':
         specifier: workspace:*
         version: link:../ledger-client
@@ -507,6 +510,9 @@ importers:
 
   packages/execution-mm:
     dependencies:
+      '@intafaced/config':
+        specifier: workspace:*
+        version: link:../config
       '@intafaced/ledger-client':
         specifier: workspace:*
         version: link:../ledger-client

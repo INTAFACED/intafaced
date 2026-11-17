@@ -17,14 +17,13 @@ import {
   supportHealthHonesty,
   supportStoreHonesty,
 } from './identity-grounding-honesty.js';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const COMPOSE = join(here, '../../../docker-compose.apps.yml');
 
 function serviceBlock(source: string, name: string): string {
-  const match = source.match(new RegExp(`^  ${name}:\\n(?:.*\\n)*?(?=^  [a-z]|\\Z)`, 'm'));
-  if (!match) throw new Error(`${name} service block missing from docker-compose.apps.yml`);
-  return match[0];
+  return composeServiceBlock(source, name);
 }
 
 describe('identity grounding honesty — secret-set is not wired', () => {

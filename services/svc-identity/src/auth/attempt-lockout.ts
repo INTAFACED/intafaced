@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { PendingQuery, Row, Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
 
@@ -180,7 +181,7 @@ export async function assertNotLocked(sql: Sql, userId: string, kind: AttemptKin
  * `reserveAttempt` counts before verifying, this is what turns a reservation
  * into "not a failure".
  */
-export async function recordSuccess(sql: Sql, userId: string, ...kinds: AttemptKind[]): Promise<void> {
+export async function recordSuccess(sql: Queryable, userId: string, ...kinds: AttemptKind[]): Promise<void> {
   // Deleting the row resets BOTH the window counter and `consecutive_failures`.
   if (kinds.length === 0) return;
   await sql`DELETE FROM auth_attempts WHERE user_id = ${userId} AND kind IN ${sql(kinds)}`;

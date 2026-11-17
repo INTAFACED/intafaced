@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -115,7 +116,7 @@ export class AuditLog {
    * means the loser waits instead of failing, which is the difference between
    * a queued action and a lost one.
    */
-  async append(tx: Sql, entry: AuditEntry): Promise<AuditedAction> {
+  async append(tx: Queryable, entry: AuditEntry): Promise<AuditedAction> {
     // Re-entrant within a transaction, so callers that already locked the
     // session pay nothing and callers that did not are made safe.
     await tx`SELECT id FROM agents.agent_sessions WHERE id = ${entry.sessionId} FOR UPDATE`;

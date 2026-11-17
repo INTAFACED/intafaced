@@ -16,6 +16,7 @@ import {
   type UserVenueBalance,
   type UserVenueArrival,
   type UserVenueDeposit,
+  type UserVenueWithdrawalTerms,
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
   type UserVenueFill,
@@ -307,6 +308,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>> {
     return this.read('/withdrawal', { account, nonce });
+  }
+
+  withdrawalTerms(asset: string): Promise<AsOf<UserVenueWithdrawalTerms>> {
+    return this.read('/withdrawal-terms', { asset });
   }
 
   deposits(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>> {

@@ -9,7 +9,7 @@ import { customerStepUpPayloadHash } from '@intafaced/contracts';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { ActionApprovalError } from '../auth/action-approval-service.js';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { userCopy } from '../user-copy.js';
 
 export const SUB_ACCOUNT_EDIT_SCOPE = 'identity.step_up.sub_account_edit';
@@ -85,7 +85,7 @@ export class SubAccountEditService {
     });
   }
 
-  private async owned(q: Sql, userId: string, subAccountId: string): Promise<{ label: string; purpose: string | null }> {
+  private async owned(q: Queryable, userId: string, subAccountId: string): Promise<{ label: string; purpose: string | null }> {
     const rows = await q<Array<{ label: string; purpose: string | null; revoked: boolean }>>`
       SELECT label, purpose, revoked FROM sub_accounts WHERE id = ${subAccountId} AND parent_user_id = ${userId} LIMIT 1 FOR UPDATE`;
     const row = rows[0];

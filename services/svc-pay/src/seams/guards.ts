@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { TRPCError } from '@intafaced/contracts';
 import type { Amount } from '@intafaced/ledger-client';
@@ -194,7 +195,7 @@ export const FRESH: GuardReplay = Object.freeze({ kind: 'fresh' as const });
 
 /** Context for `beforePaymentAdmit`; runs inside the admission transaction. */
 export interface PaymentAdmitContext {
-  readonly tx: Sql;
+  readonly tx: Queryable;
   readonly kind: 'payment.create' | 'payment.authorize' | 'payment.capture';
   readonly paymentId: string;
   readonly merchantId: string;
@@ -212,7 +213,7 @@ export interface PaymentAdmitContext {
  * a recovery). Counting must be idempotent by `paymentId`.
  */
 export interface PaymentCaptureBookedContext {
-  readonly tx: Sql;
+  readonly tx: Queryable;
   readonly paymentId: string;
   readonly merchantId: string;
   readonly assetId: string;
@@ -276,7 +277,7 @@ export interface SettlementRunContext {
  */
 export interface ConversionContext {
   readonly sql: Sql;
-  readonly tx: Sql;
+  readonly tx: Queryable;
   readonly merchantId: string;
   readonly settlementId: string;
   readonly fromAsset: string;
@@ -291,7 +292,7 @@ export interface ConversionContext {
  * A refusal rolls that transaction back: nothing is recorded or moved.
  */
 export interface RefundContext {
-  readonly tx: Sql;
+  readonly tx: Queryable;
   readonly paymentId: string;
   readonly merchantId: string;
   readonly assetId: string;

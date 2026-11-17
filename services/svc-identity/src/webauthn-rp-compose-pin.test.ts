@@ -19,6 +19,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
 const ENV_TS = resolve(import.meta.dirname, './env.ts');
@@ -28,9 +29,7 @@ const RP_NAME = 'WEBAUTHN_RP_NAME';
 const ORIGIN = 'WEBAUTHN_ORIGIN';
 
 function identityServiceBlock(source: string): string {
-  const match = source.match(/^  svc-identity:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-identity service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-identity');
 }
 
 function countAssignments(source: string, name: string): number {

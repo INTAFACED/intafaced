@@ -16,6 +16,7 @@
  * file are later parts of this slice. No money moves here.
  */
 import { createHash } from 'node:crypto';
+import type { Queryable } from '@intafaced/db';
 import type { Sql, TransactionSql } from 'postgres';
 import { isDeepStrictEqual } from 'node:util';
 import type {
@@ -43,8 +44,6 @@ export const getOverHttp: GetObjectFn = async (url) => {
   }
   return { status: res.status, bytes: new Uint8Array(await res.arrayBuffer()) };
 };
-
-type Db = Sql | TransactionSql;
 
 type StepsRow = {
   revision: number;
@@ -82,7 +81,7 @@ export function rubricTotal(marks: readonly string[]): string {
 }
 
 /** The review steps of one assignment as staff see them, with the waiting list; null until first saved. */
-export async function reviewStepsOf(sql: Db, itemId: string): Promise<AcademyReviewSteps | null> {
+export async function reviewStepsOf(sql: Queryable, itemId: string): Promise<AcademyReviewSteps | null> {
   const [row] = await sql<StepsRow[]>`
     SELECT s.revision, s.peer, s.peer_count, s.self, s.rubric_id, r.criteria
     FROM academy.assignment_review_steps s LEFT JOIN academy.assignment_rubrics r ON r.id = s.rubric_id
@@ -121,7 +120,7 @@ export async function reviewStepsOf(sql: Db, itemId: string): Promise<AcademyRev
 }
 
 /** Throws `academy.peer_count_unset` when an assignment of the course has peer review on and no count. */
-export async function assertPeerCountsSet(sql: Db, courseId: string): Promise<void> {
+export async function assertPeerCountsSet(sql: Queryable, courseId: string): Promise<void> {
   const [unset] = await sql<Array<{ title: string }>>`
     SELECT i.title FROM academy.assignment_review_steps s JOIN academy.course_items i ON i.id = s.item_id
     WHERE i.course_id = ${courseId} AND s.peer AND s.peer_count IS NULL

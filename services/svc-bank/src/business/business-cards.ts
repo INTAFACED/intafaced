@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import {
@@ -636,7 +636,7 @@ export class BusinessCardsService {
   }
 
   private async insertPurchase(
-    sql: Sql,
+    sql: Queryable,
     card: CardRow,
     purchaseId: string,
     merchant: string,
@@ -656,7 +656,7 @@ export class BusinessCardsService {
   }
 
   private async insertReceipt(
-    sql: Sql,
+    sql: Queryable,
     accountId: string,
     input: { userId: string; receiptId: string; fileName: string; contentType: string; contentBase64: string },
   ): Promise<void> {

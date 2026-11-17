@@ -502,13 +502,16 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   const settle = await me.post('/api/trade/trpc/otc.settle', { quoteId: settledId });
   expect(settle.status, JSON.stringify(settle.body).slice(0, 300)).toBe(200);
   expect((await read(settledId)).lifecycle).toBe('settled');
+  // The founders sign in first: each sign-in can wait for a fresh authenticator step, which once outlasted the open
+  // quote's TEST time to live (60 s) and read it back expired (PR #8754's full run, 17 Nov).
+  const reads = await founderReads();
+  await moduleRoom(page);
   // An open quote: asked and left alone, read inside its time to live.
   const openId = await ask();
   expect((await read(openId)).lifecycle).toBe('open');
-
-  const reads = await founderReads();
-  await moduleRoom(page);
-  await page.getByRole('tab', { name: 'Quote desk' }).click();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Copy, bots and OTC', level: 1, exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Quote desk', exact: true }).click();
   const quotes = page.getByRole('table', { name: 'Quotes', exact: true });
   await expect(cellOf(quotes, openId, 3)).toHaveText(/\S/);
   // svc-trade's own desk read, as the room showed it: each quote's status, and the one exception with its saga key.

@@ -84,6 +84,14 @@ export interface PartnerBalance {
   readonly label: string;
 }
 
+/** One order the partner reports still open for a person, in the currency it reserves. */
+export interface PartnerOpenOrder {
+  /** The partner's own reference for the order. */
+  readonly id: string;
+  readonly assetId: string;
+  readonly label: string;
+}
+
 /** One recipient of a payout the partner carries out to outside bank accounts (J-bank-21): who, where and how much. */
 export interface PartnerPayee {
   readonly name: string;
@@ -159,6 +167,11 @@ export interface PartnerBank {
   moves(userId: string, query: PartnerMovesQuery): Promise<PartnerMove[]>;
   /** The partner's send limit and fee for the person in one currency (J-bank-16 #6). */
   limits(userId: string, assetId: string): Promise<PartnerSendLimits>;
+  /**
+   * The person's orders the partner still has open (an exchange it has not filled), each in the currency it reserves.
+   * A partner that takes no orders leaves it out, and has none.
+   */
+  openOrders?(userId: string): Promise<readonly PartnerOpenOrder[]>;
   /**
    * The partner's own statement of one account over `[from, to)` (J-bank-23 #3). A partner that offers none leaves it out,
    * and a statement export refuses `bank.partner_statement_unavailable`. Refuses `bank.partner_unavailable` when down.
@@ -391,6 +404,7 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
+        ...(bank.openOrders ? { openOrders: (userId: string) => bank.openOrders!(userId) } : {}),
         ...(bank.statement
           ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }
           : {}),

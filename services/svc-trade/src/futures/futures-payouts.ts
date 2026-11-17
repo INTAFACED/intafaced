@@ -20,6 +20,7 @@
  * ledger posts a key once: a close retried after its profit already posted
  * returns the original transaction, and the tick does the same.
  */
+import type { Queryable } from '@intafaced/db';
 import {
   InsufficientFundsError,
   LedgerError,
@@ -30,7 +31,7 @@ import {
   type LedgerClient,
   type PostRequest,
 } from '@intafaced/ledger-client';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 
 export const CLEARING_POT_SHORT = 'trade.clearing_pot_short' as const;
 
@@ -59,8 +60,6 @@ interface PayoutRow {
   created_at: Date;
   paid_at: Date | null;
 }
-
-type Db = Sql | TransactionSql;
 
 /** The profit leg of a close plan, if it has one. */
 export function profitLegOf(posts: readonly PostRequest[]): PostRequest | undefined {
@@ -94,7 +93,7 @@ export function payoutRecipe(row: { profitId: string; positionId: string; userId
  * recognised by its key and marked paid.
  */
 export async function payOrOweProfit(input: {
-  tx: Db;
+  tx: Queryable;
   ledger: Pick<LedgerClient, 'post' | 'balance'>;
   profitId: string;
   positionId: string;
@@ -216,7 +215,7 @@ function present(row: PayoutRow): FuturesPayout {
 }
 
 /** A trader's own payouts, newest first: what was paid and what is still owed. */
-export async function listPayoutsForUser(sql: Db, userId: string, limit = 100): Promise<readonly FuturesPayout[]> {
+export async function listPayoutsForUser(sql: Queryable, userId: string, limit = 100): Promise<readonly FuturesPayout[]> {
   const rows = await sql<PayoutRow[]>`
     SELECT * FROM trade.futures_payouts
     WHERE user_id = ${userId}
@@ -230,7 +229,7 @@ export async function listPayoutsForUser(sql: Db, userId: string, limit = 100): 
  * What the platform owes winners, per asset, to show beside the clearing pot's
  * ledger balance (ADR section 4 item 5). The ledger alone cannot show it.
  */
-export async function pendingPayoutTotals(sql: Db): Promise<readonly { assetId: string; owed: string; count: number }[]> {
+export async function pendingPayoutTotals(sql: Queryable): Promise<readonly { assetId: string; owed: string; count: number }[]> {
   const rows = await sql<{ asset_id: string; owed: string; n: string }[]>`
     SELECT asset_id, sum(amount)::text AS owed, count(*)::text AS n
     FROM trade.futures_payouts

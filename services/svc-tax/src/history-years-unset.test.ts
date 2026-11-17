@@ -22,15 +22,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
 
 function taxServiceBlock(source: string): string {
-  const match = source.match(/^  svc-tax:\n(?:.*\n)*?(?=^  [a-z#]|\Z)/m);
-  if (!match) throw new Error('svc-tax service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-tax');
 }
 
 const LINE = /^\s+TAX_HISTORY_YEARS:\s*\$\{TAX_HISTORY_YEARS:-\}\s*$/gm;

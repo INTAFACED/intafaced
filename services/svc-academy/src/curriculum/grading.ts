@@ -12,6 +12,7 @@
  * refuses `academy.revision_stale`. The newest event is the grade, released to the learner when it is saved; the learner
  * never sees who graded. A learner marking the feedback read is its own row and changes no grade. No money moves here.
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql, TransactionSql } from 'postgres';
 import { createHash } from 'node:crypto';
 import type {
@@ -32,8 +33,6 @@ import { hundredths } from './peer-review.js';
 import { dueFor } from './course-item-rules.js';
 import { lateScore, policyOf } from './late-policy.js';
 import { readBulkGradeFile, type BulkGradeBadRow } from './bulk-grade-file.js';
-
-type Db = Sql | TransactionSql;
 
 type QueueRow = {
   submission_id: string;
@@ -92,7 +91,7 @@ type HandIn = {
  * The learner's newest grade, with when they read it. Null before staff grade. The score is after the course's late policy
  * (the hand-in's time against its due date, a learner's extension included); the entered grade is kept beside it.
  */
-export async function learnerGradeOf(sql: Db, itemId: string, userId: string): Promise<AcademyLearnerGrade | null> {
+export async function learnerGradeOf(sql: Queryable, itemId: string, userId: string): Promise<AcademyLearnerGrade | null> {
   const [row] = await sql<
     Array<{
       version: number;
@@ -442,7 +441,7 @@ export class AssignmentGrading {
     return row;
   }
 
-  private async queueIn(sql: Db, itemId: string, operatorId: string, now: Date): Promise<AcademyGradingQueue> {
+  private async queueIn(sql: Queryable, itemId: string, operatorId: string, now: Date): Promise<AcademyGradingQueue> {
     const view = await this.assignments.adminView(itemId);
     if (!view.brief) throw new AcademyError('the assignment has no brief', 'academy.assignment_not_found');
     const rows = await sql<QueueRow[]>`

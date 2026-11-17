@@ -2,7 +2,7 @@ import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
-import { CHAIN_HOST, CHAIN_PORTS, LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
+import { CHAIN_HOST, CHAIN_PORTS, LOCAL_TEST_SANCTIONED_ADDRESS, TEST_CHAIN_ID } from '../local-test-facts.mjs';
 
 export { LOCAL_TEST_SANCTIONED_ADDRESS };
 const LOCAL_TEST_SANCTIONED_DESTINATION = `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`;
@@ -237,6 +237,16 @@ function accountDetailsCurrencies() {
   throw new Error(`LOCAL_STACK_BANK_ACCOUNT_DETAILS_CURRENCIES is "${asked}"; leave it unset for the TEST list, or set it to off.`);
 }
 
+/** The TEST partner's USDC pay-in settings on the stack's TEST chain, or none when the stack has no TEST chain or TEST USD. */
+function testPayIn(chain) {
+  if (!chain?.usdToken) return {};
+  return {
+    BANK_TEST_PAY_IN_RPC_URL: `http://${CHAIN_HOST}:${CHAIN_PORTS.anvil}`,
+    BANK_TEST_PAY_IN_CHAIN_ID: String(TEST_CHAIN_ID),
+    BANK_TEST_PAY_IN_TOKEN: chain.usdToken,
+  };
+}
+
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
 function depositCustody(urlOf) {
   const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
@@ -245,7 +255,7 @@ function depositCustody(urlOf) {
   throw new Error(`LOCAL_STACK_BANK_DEPOSIT_CUSTODY is "${asked}"; leave it unset for custody connected, or set it to off.`);
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN, testChain }) => ({
   name: 'bank',
   env: () => ({
     ...c('svc-bank', PORTS.bank),
@@ -398,6 +408,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_PAYROLL_SIM_RECORDS_DIR: path.join(STATE, 'test-payroll-records'),
     // LOCAL TEST value from the bank profile (J-bank-30 #7): how many days an employer may reverse a salary credit.
     BANK_DIRECT_DEPOSIT_REVERSAL_DAYS: testValue('BANK_DIRECT_DEPOSIT_REVERSAL_DAYS'),
+    // LOCAL TEST USDC pay-in at the TEST partner bank (J-bank-31; pays nobody, refused without the TEST partner bank): the
+    // TEST partner gives each person a TEST address on the stack's TEST chain that a venue withdrawal can pay, and credits
+    // the TEST USD that arrives there once, as USDC. With no TEST chain (or its TEST USD) there is no pay-in.
+    ...testPayIn(testChain?.()),
     // LOCAL TEST stand-in for a direct debit scheme (BK-xfer-11; no network, pays nobody, refused under live posture): its
     // TEST creditors set up mandates and present collections only through the signed job doors, as J-bank-06 #4 does.
     BANK_DD_SCHEME: 'dd-sim',

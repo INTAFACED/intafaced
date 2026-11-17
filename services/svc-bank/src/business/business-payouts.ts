@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import {
@@ -1132,7 +1132,7 @@ export class BusinessPayoutsService {
   }
 
   private async insertContractor(
-    sql: Sql,
+    sql: Queryable,
     input: {
       accountId: string;
       userId: string;
@@ -1179,7 +1179,7 @@ export class BusinessPayoutsService {
     }
   }
 
-  private async accountRow(sql: Sql, accountId: string): Promise<AccountRow> {
+  private async accountRow(sql: Queryable, accountId: string): Promise<AccountRow> {
     const row = (
       await sql<AccountRow[]>`
       SELECT id, name, asset_id, status, spend_threshold, owner_user_id FROM bank.business_accounts WHERE id = ${accountId}::uuid
@@ -1189,27 +1189,27 @@ export class BusinessPayoutsService {
     return row;
   }
 
-  private async runRowOrNull(sql: Sql, runId: string, lock = false): Promise<RunRow | null> {
+  private async runRowOrNull(sql: Queryable, runId: string, lock = false): Promise<RunRow | null> {
     const rows = lock
       ? await sql<RunRow[]>`SELECT * FROM bank.business_bulk_runs WHERE id = ${runId}::uuid FOR UPDATE`
       : await sql<RunRow[]>`SELECT * FROM bank.business_bulk_runs WHERE id = ${runId}::uuid`;
     return rows[0] ?? null;
   }
 
-  private async runRow(sql: Sql, runId: string, lock = false): Promise<RunRow> {
+  private async runRow(sql: Queryable, runId: string, lock = false): Promise<RunRow> {
     const row = await this.runRowOrNull(sql, runId, lock);
     if (!row) throw new BankError('No bulk payment run of this business has that id.', 'bank.bulk_run_not_found');
     return row;
   }
 
-  private async batchRowOrNull(sql: Sql, batchId: string, lock = false): Promise<BatchRow | null> {
+  private async batchRowOrNull(sql: Queryable, batchId: string, lock = false): Promise<BatchRow | null> {
     const rows = lock
       ? await sql<BatchRow[]>`SELECT * FROM bank.business_contractor_batches WHERE id = ${batchId}::uuid FOR UPDATE`
       : await sql<BatchRow[]>`SELECT * FROM bank.business_contractor_batches WHERE id = ${batchId}::uuid`;
     return rows[0] ?? null;
   }
 
-  private async batchRow(sql: Sql, batchId: string, lock = false): Promise<BatchRow> {
+  private async batchRow(sql: Queryable, batchId: string, lock = false): Promise<BatchRow> {
     const row = await this.batchRowOrNull(sql, batchId, lock);
     if (!row) throw new BankError('No contractor batch of this business has that id.', 'bank.contractor_not_found');
     return row;
