@@ -55,8 +55,9 @@
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
  *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
  *   … --reach                                                 (product paths by the touched-journeys map; GH_TOKEN for its age)
- *   node tooling/ci/journey-touch.mjs --reuse               (env TARGET, HEAD_SHA: the target less what runs by hand on
- *                                                              that head already run; real-app-journeys.yml's reuse step)
+ *   node tooling/ci/journey-touch.mjs --reuse               (env TARGET, HEAD_SHA: the target less what runs by hand, or
+ *                                                              this pull request's earlier run, on that head already run;
+ *                                                              real-app-journeys.yml's reuse step)
  *   node tooling/ci/journey-touch.mjs --dispatch            (env JOURNEYS_TARGET: a run by hand's input with every file of
  *                                                              each journey it names; real-app-journeys.yml's pick step)
  *   … --title <t> --branch <b>                                (the journeys the pull request names; with --reach, the
@@ -64,7 +65,9 @@
  *                                                              how real-app-journeys.yml's touch step passes them)
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
 import { SUBSCRIBES, builtMap, headWanted, loadMap, newerMap, reachSelect, readHead, runsBehind } from './journey-reach-map.mjs';
@@ -534,15 +537,62 @@ export function reusableRuns(runs, { sha, repo, journeyFiles, ranShards, workflo
  * `target`: the touch job's journey file names separated by spaces; '' (the full suite) is never narrowed. Returns
  * { target, mode: 'run'|'none', why }.
  */
-export function afterReuse(target, reused) {
+export function afterReuse(target, reused, how = 'by hand') {
   const want = String(target ?? '')
     .split(/\s+/)
     .filter(Boolean);
   const rest = want.filter((f) => !reused.has(f));
   if (!want.length || rest.length === want.length) return { target: want.join(' '), mode: 'run', why: '' };
   const ids = [...new Set(want.filter((f) => reused.has(f)).map((f) => reused.get(f)))];
-  const why = `${want.length - rest.length} of its ${want.length} journey file(s) already run by hand on this head (run ${ids.join(', ')}), so this run leaves them out`;
+  const why = `${want.length - rest.length} of its ${want.length} journey file(s) already run ${how} on this head (run ${ids.join(', ')}), so this run leaves them out`;
   return rest.length ? { target: rest.join(' '), mode: 'run', why } : { target: '', mode: 'none', why: `${why} and runs nothing` };
+}
+
+/** What a pull request's journeys run runs, kept with the run (real-app-journeys.yml "Keep what this run runs"): JSON
+ *  { head, mode: 'run', target } in PICK_FILE, written only once the run is sure to run its shards (not deferred). */
+export const PICK_ARTIFACT = 'real-app-journeys-pick';
+export const PICK_FILE = 'pick.json';
+
+/**
+ * A draft runs its journeys from its first push (#8707), so marking it ready on the same head runs again only what that
+ * run does not already run. Before this a draft ran nothing and its ready run started only after the draft round: on the
+ * 20 builds to 16 Nov 2026 that held the pull request's journeys back 1 to 27 minutes on 5 of them (#8705, #8702, #8695).
+ * An earlier run counts when it is this pull request's own (event pull_request, this repository's, this workflow) on this
+ * exact head, started before this run (`self`, its run id), still going or finished `success` (a red, cancelled or skipped
+ * one counts for nothing, so its journeys run again), and kept what it runs for its current attempt (`picks`: Map(run id
+ * → the PICK_ARTIFACT's JSON); a run with none, an older run before this rule or a deferred attempt, counts for nothing).
+ * Its pick covers the full suite when its target is empty, else its journey files, each a journey file at the head. The
+ * seal still reads every run on the head by its report (journey-seal.mjs): one still going holds it, and a red stands.
+ * Returns { full: run id | null, files: Map(file → run id) }.
+ */
+export function pullRunsCover(runs, { sha, repo, self, picks, journeyFiles, workflow = '.github/workflows/real-app-journeys.yml' }) {
+  let full = null;
+  const files = new Map();
+  for (const r of [...(runs ?? [])].sort((a, b) => Number(a?.id) - Number(b?.id))) {
+    if (r?.event !== 'pull_request' || r?.head_sha !== sha || r?.path !== workflow) continue;
+    if (r?.repository?.full_name !== repo || r?.head_repository?.full_name !== repo) continue;
+    if (!(Number(r.id) < Number(self))) continue;
+    if (r.status === 'completed' && r.conclusion !== 'success') continue;
+    const p = picks?.get(r.id);
+    if (!p || p.head !== sha || p.mode !== 'run' || typeof p.target !== 'string') continue;
+    const names = p.target.split(/\s+/).filter(Boolean);
+    if (!names.length) {
+      full ??= r.id;
+      continue;
+    }
+    if (!journeyFiles || !names.every((f) => JOURNEY_FILE_NAME.test(f) && journeyFiles.has(f))) continue;
+    for (const f of names) if (!files.has(f)) files.set(f, r.id);
+  }
+  return { full, files };
+}
+
+/** The PICK_ARTIFACT a run kept during its current attempt (made at or after the attempt started, not expired), or null. */
+export function currentPickArtifact(run, artifacts) {
+  const start = Date.parse(run?.run_started_at ?? run?.created_at ?? '');
+  const fits = (artifacts ?? []).filter(
+    (a) => a?.name === PICK_ARTIFACT && !a.expired && Number.isFinite(start) && Date.parse(a.created_at ?? '') >= start,
+  );
+  return fits.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
 }
 
 /** The .mjs files directly in a checkout's real-app folder, name to text, or null when they can't be read. */
@@ -675,11 +725,69 @@ function reuseMain() {
         const jobs = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?per_page=100`)).jobs ?? [];
         if (jobs.some((j) => SHARD_JOB.test(String(j?.name)) && ['success', 'failure'].includes(j?.conclusion))) ranShards.add(r.id);
       }
-    out = afterReuse(target, reusableRuns(runs, { sha, repo, journeyFiles: checkoutJourneyFiles(), ranShards }));
+    const journeyFiles = checkoutJourneyFiles();
+    const reused = reusableRuns(runs, { sha, repo, journeyFiles, ranShards });
+    // This pull request's earlier run on the same head (a draft's run, before `ready_for_review`; pullRunsCover). Any
+    // read that fails leaves it out, so only the runs by hand count, as before.
+    let how = 'by hand';
+    try {
+      const prRuns = pullRunsOnHead(repo, sha);
+      const self = Number(process.env.GITHUB_RUN_ID);
+      const cover = pullRunsCover(prRuns, { sha, repo, self, picks: readPicks(repo, sha, prRuns, self), journeyFiles });
+      if (cover.full) {
+        console.log(
+          JSON.stringify({
+            target: '',
+            mode: 'none',
+            why: `run ${cover.full}, this pull request's own run on this exact head, already runs the full suite, so this run runs nothing`,
+          }),
+        );
+        return;
+      }
+      for (const [f, id] of cover.files)
+        if (!reused.has(f)) {
+          reused.set(f, id);
+          how = "by hand or by this pull request's earlier run";
+        }
+    } catch (e) {
+      console.error(`this pull request's earlier runs on this head couldn't be read (${printable(e.message).slice(0, 200)})`);
+    }
+    out = afterReuse(target, reused, how);
   } catch (e) {
     out.why = `the runs by hand on this head couldn't be read (${printable(e.message).slice(0, 200)}), so nothing is left out`;
   }
   console.log(JSON.stringify(out));
+}
+
+/** This workflow's pull request runs on `sha` (GH_TOKEN). */
+function pullRunsOnHead(repo, sha) {
+  return (
+    JSON.parse(ghApi(`repos/${repo}/actions/workflows/real-app-journeys.yml/runs?head_sha=${sha}&event=pull_request&per_page=100`))
+      .workflow_runs ?? []
+  );
+}
+
+/** Map(run id → kept pick) for this workflow's pull request runs on `sha` that could count (pullRunsCover's own filters
+ *  come first, so no artifact is read for a run that can't). A pick that can't be read is left out. */
+function readPicks(repo, sha, runs, self) {
+  const picks = new Map();
+  const dir = mkdtempSync(join(tmpdir(), 'pick-'));
+  try {
+    for (const r of runs) {
+      if (r?.head_sha !== sha || !(Number(r.id) < self) || (r.status === 'completed' && r.conclusion !== 'success')) continue;
+      try {
+        const arts = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/artifacts?name=${PICK_ARTIFACT}&per_page=20`)).artifacts;
+        const art = currentPickArtifact(r, arts);
+        if (!art) continue;
+        const zip = join(dir, `${Number(r.id)}.zip`);
+        writeFileSync(zip, ghApi(`repos/${repo}/actions/artifacts/${Number(art.id)}/zip`, 'buffer'));
+        picks.set(r.id, JSON.parse(execFileSync('unzip', ['-p', zip, PICK_FILE], { encoding: 'utf8' })));
+      } catch {}
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  return picks;
 }
 
 async function main() {
