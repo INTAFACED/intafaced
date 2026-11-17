@@ -510,7 +510,7 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   const openId = await ask();
   expect((await read(openId)).lifecycle).toBe('open');
   await page.goto(`${ADMIN}/trade-ops/copy-bots-otc`);
-  await expect(page.getByRole('heading', { name: 'Copy, bots and OTC', level: 1 })).toBeVisible(UNBUILT);
+  await expect(page.getByRole('heading', { name: 'Copy, bots and OTC', level: 1, exact: true })).toBeVisible(UNBUILT);
   await page.getByRole('tab', { name: 'Quote desk' }).click();
   const quotes = page.getByRole('table', { name: 'Quotes', exact: true });
   await expect(cellOf(quotes, openId, 3)).toHaveText(/\S/);
