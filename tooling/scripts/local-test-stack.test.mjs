@@ -1433,8 +1433,11 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   // An absent service doesn't fail the start, but a service that is DOWN still does.
   assert.match(source, /const absent = r\.status !== 200 \? absentWhy\(n, chain\) : null;/);
-  assert.match(source, /every\(\(r\) => \/\^\(ok\|absent\)\\b\/\.test\(String\(r\[3\]\)\)\)/);
-  assert.equal(/^(ok|absent)\b/.test('DOWN (0)'), false);
+  assert.match(source, /every\(\(r\) => \/\^\(ok\|absent\|off\)\\b\/\.test\(String\(r\[3\]\)\)\)/);
+  assert.equal(/^(ok|absent|off)\b/.test('DOWN (0)'), false);
+  // "off" is written only for a TEST adapter this start never recorded; a recorded one is checked, so DOWN still fails.
+  assert.match(source, /if \(!procs\[name\]\) \{\s*rows\.push\(\[`\$\{name\} \(TEST\)`, PORTS\[name\], '-', 'off \(not started\)'\]\);/);
+  assert.equal((source.match(/'off \(not started\)'/g) ?? []).length, 1);
   // `restart <service>` is a stop and a full start, so it takes the same path.
   assert.match(source, /await cmdStop\(names\);\s*await cmdStart\(\[\]\);/);
   console.log('local-test-stack: with no TEST chain the indexer is left out and named, and the start still passes');
