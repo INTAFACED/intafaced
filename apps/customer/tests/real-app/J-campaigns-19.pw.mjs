@@ -48,7 +48,7 @@ const CAT_DEFICIT = '80';
 const CAT_EQUITY = '-30';
 // DAN holds 10 USDC, but the TEST venue refuses every read of his account at the snapshot: named and held out.
 const DAN_FUNDS = '10';
-const VENUE_DOWN = 'venue_down';
+const VENUE_DOWN = 'trade.venue.venue_down';
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 test.describe.configure({ mode: 'default' });

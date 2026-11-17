@@ -41,6 +41,9 @@ describe('payout board', () => {
     expect(fn.mock.calls[0]![0]).toContain('http://edge:4000/api/campaigns/trpc/ops.payouts.board');
     expect((fn.mock.calls[0]![1]!.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
     expect(out.reply).toMatchObject({ ok: true, data: board });
+    // The whole board is asked for with an explicit empty input: the procedure's object input refuses a missing one.
+    await loadPayoutBoard(ctx, {});
+    expect(fn.mock.calls[1]![0]).toContain(`ops.payouts.board?input=${encodeURIComponent('{}')}`);
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ok({ ...board, counts: { owed: '1' } })),

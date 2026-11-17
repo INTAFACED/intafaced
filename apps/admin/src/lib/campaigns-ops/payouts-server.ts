@@ -24,7 +24,7 @@ const readPlan = parseWith(distributionPlanSchema);
 const readRun = parseWith(distributionRunSchema);
 
 export async function loadPayoutBoard(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.payouts.board', 'GET', input, readBoard));
+  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.payouts.board', 'GET', input, readBoard, { sendEmptyInput: true }));
 }
 
 export async function loadDistributionPlan(ctx: FounderCallContext, input: unknown) {
