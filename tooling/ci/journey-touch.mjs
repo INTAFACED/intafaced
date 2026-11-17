@@ -196,8 +196,6 @@ export const FACTORY_SCRIPTS = [
   'tooling/scripts/services-map.mjs',
   'tooling/scripts/services-map.test.mjs',
   'tooling/scripts/setup-github.mjs',
-  'tooling/scripts/truth-check.mjs',
-  'tooling/scripts/truth-check.test.mjs',
 ];
 
 const FULL_RULES = [
