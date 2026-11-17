@@ -4,7 +4,7 @@ import { createWalletClient, encodeFunctionData, http, parseAbi, parseUnits } fr
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, restartWithSetting } from './stack.mjs';
-import { confirm, signUp, verify } from './desk.mjs';
+import { confirm, reviewSheet, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
@@ -423,6 +423,11 @@ async function sellOnDesk(page, owner) {
   await page.getByRole('textbox', { name: 'Amount', exact: true }).nth(1).fill(SELL.amount);
   expect((await preview).status()).toBe(200);
   await page.getByRole('button', { name: 'Sell BTC', exact: true }).click();
+  // A sell carries the builder fee: the review asks the wallet to approve it first, and Confirm sell waits for that.
+  const sheet = reviewSheet(page);
+  await sheet.getByRole('button', { name: 'Approve our builder fee in your wallet', exact: true }).click();
+  await continueInWallet(page);
+  await expect(sheet.locator('[data-line="builder-fee"]')).not.toContainText('Not signed', { timeout: 20_000 });
   await confirm(page, 'sell');
   await continueInWallet(page);
   await expect(page.getByTestId('venue-bottom').getByTestId('venue-outcome')).toContainText('Open on the venue.');
@@ -440,7 +445,6 @@ test(`${J} #3 places a TEST limit order on the venue, then opens the balance bre
   const before = await venueRowAgrees(page, owner, 'BTC');
   const beforeSplit = await splitShown(before.row);
 
-  await withWallet(page).catch(() => {});
   const sold = await sellOnDesk(page, owner);
   run.write({ sold: sold.venueClientOrderId });
   expect(sold.lockedAsset).toBe('BTC');
