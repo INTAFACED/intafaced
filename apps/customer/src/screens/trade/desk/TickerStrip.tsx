@@ -5,7 +5,7 @@ import { ChangeText, CoinIcon, direction as signOf, fmtAmount, Skeleton, type Lo
 import { useFlash, useTickDirection } from './hooks';
 import { tradingMode, type DeskMarket } from './market';
 import { changeLine, dollarPrice, partialWindowStart, placesOf, turnoverText } from './text';
-import { clockMinutes } from './time';
+import { clockMinutes, dayTime } from './time';
 import { maintenanceWhen } from '../../../shared/market-maintenance';
 import { useMarketLifecycle } from '../../charts/market-state';
 import { TEST_EVIDENCE_PREFIX } from '../../charts/data-status';
@@ -73,8 +73,12 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
   const loading = ticker.status === 'loading';
   const pair = `${market.base}/${market.quote}`;
   const mode = tradingMode(market);
-  const modeText =
-    mode.kind === 'open'
+  // A shut session is said as itself, with when it opens: never the lifecycle's bare refusal (J-cex-spot-14 #6).
+  const modeText = market.sessionShut
+    ? market.opensAt != null
+      ? t('Trading mode session shut opens', { time: dayTime(market.opensAt, zone) })
+      : t('Trading mode session shut')
+    : mode.kind === 'open'
       ? t('Trading mode value', { state: t('Mode OPEN') })
       : mode.kind === 'named'
         ? t(mode.newOrders ? 'Trading mode value' : 'Trading mode no orders', { state: t(`Mode ${mode.mode}`) })
@@ -127,6 +131,13 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
         {/* First, so a narrow strip clips a volume figure before it hides that the market is halted. */}
         <Stat label={t('Trading mode')} value={modeText} loading={false} />
         {market.maintenance ? <MaintenanceStat window={market.maintenance} zone={zone} /> : null}
+        {market.openingWindowEndsAt != null && market.openingWindowEndsAt > Date.now() ? (
+          // A new listing's opening window (J-cex-spot-14 #7): limit orders only until it ends.
+          <div className="dk-stat" data-testid="dk-opening-window">
+            <span className="dk-stat-label">{t('Opening window')}</span>
+            <span className="dk-stat-value">{t('Opening window until', { time: dayTime(market.openingWindowEndsAt, zone) })}</span>
+          </div>
+        ) : null}
         <Stat
           label={since ? t('Low since', { time: since }) : t('24h low')}
           value={dollarPrice(row?.low24h ?? null, market)}

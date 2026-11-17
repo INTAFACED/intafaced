@@ -134,7 +134,9 @@ test(`${J} #1 the markets list shows open, upcoming and delisting markets with l
   const rows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker') });
   const drawn = await rows.count();
   expect(drawn, 'the list draws rows').toBeGreaterThan(0);
-  const tradeable = (m) => m.orderable && (m.lifecycle ? m.lifecycle.state === 'OPEN' : true) && (m.listing ?? 'open') === 'open';
+  // A market whose session is shut is not open now (#6): an order there is refused and not queued, so it is no tradeable row.
+  const tradeable = (m) =>
+    m.orderable && m.sessionOpen !== false && (m.lifecycle ? m.lifecycle.state === 'OPEN' : true) && (m.listing ?? 'open') === 'open';
   const seen = new Set();
   for (let i = 0; i < drawn; i++) {
     const row = rows.nth(i);
@@ -347,36 +349,109 @@ test(`${J} #5 a market with scheduled maintenance an hour away says "Maintenance
 test(`${J} #6 an order while the market session is closed: the closed-market rule is applied and explained`, async ({ page }) => {
   const who = await account(page);
   const client = await api(who);
-  // A session market (commodities keep exchange hours). When its session is shut the list reads "Closed, opens at" and an
-  // order refuses `trade.market_closed`, with no order stored and nothing held.
+  // A session market whose session is shut now: the stack lists one TEST commodity on hours open one minute a week
+  // (`seed-spot-test-listing.mjs`, TSES/USD). Its published lifecycle refuses placement with the closed-session reason,
+  // the list reads "Closed, opens at", and an order refuses `trade.market_closed` with no order stored and nothing held.
   const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  const shut = markets.find((m) => m.sessionOpen === false && m.lifecycle && m.lifecycle.state !== 'REFUSED');
-  expect(shut, 'a session market with a published lifecycle whose session is shut now').toBeTruthy();
-  await page.goto('/trade');
-  await expect(page.getByRole('grid', { name: 'Markets' }).getByRole('row').filter({ hasText: shut.base })).toContainText(/Closed.*Opens/, {
-    timeout: UNBUILT_MS,
-  });
-  const before = await client.balances();
-  const res = await client.post('/api/v1/orders', { symbol: shut.symbol, side: 'buy', type: 'limit', amount: '1', price: '1' });
-  expect(JSON.stringify(res.body)).toContain('trade.market_closed');
-  expect(await client.balances()).toEqual(before);
+  const shut = markets.find((m) => m.spot && !m.paper && m.sessionOpen === false && m.lifecycle?.reasonCode === 'trade.market_closed');
+  expect(shut, 'a session market whose published lifecycle says its session is shut now').toBeTruthy();
+  expect(shut.nextSessionChange?.open, 'the read names when it next opens').toBe(true);
   await signIn(page, who);
+  // A market that is not open now is listed among the paused rows, so the list is asked to include them (as in #10).
+  await page.goto(`/trade?q=${encodeURIComponent(shut.base)}`);
+  await expect(page.getByRole('grid', { name: 'Markets' })).toBeVisible({ timeout: UNBUILT_MS });
+  const includePaused = page.getByRole('group', { name: 'Filter by status' }).getByRole('button', { name: 'Include paused' });
+  await includePaused.click();
+  await expect(includePaused).toHaveAttribute('aria-pressed', 'true');
+  const row = page
+    .getByRole('grid', { name: 'Markets' })
+    .getByRole('row')
+    .filter({ hasText: `${shut.base}/${shut.quote}` });
+  await expect(row).toContainText(/Closed.*Opens/, { timeout: UNBUILT_MS });
+  // Not a tradeable row: its action is disabled, says why, and links nowhere.
+  const button = row.getByRole('button', { name: new RegExp(`^(Trade|Buy) `) });
+  await expect(button).toBeDisabled();
+  await expect(button).toHaveAttribute('title', 'This market is closed. Orders are not queued while it is closed');
+  const before = await client.balances();
+  const clientOrderId = `${J}-6-${who.handle}`;
+  const res = await client.post('/api/v1/orders', {
+    symbol: shut.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '1',
+    price: '1',
+    clientOrderId,
+  });
+  expect(res.status).toBeGreaterThanOrEqual(400);
+  expect(JSON.stringify(res.body)).toContain('trade.market_closed');
+  // Nothing held, and the order was not stored to wait for the open.
+  expect(await client.balances()).toEqual(before);
+  expect((await openOrders(who, shut.symbol)).filter((o) => o.clientOrderId === clientOrderId)).toHaveLength(0);
+  // The desk says so before any order: closed, when it opens, and that orders are not queued.
   await page.goto(deskPath(shut.symbol));
+  await expect(page.getByTestId('dk-ticker')).toContainText('Closed, opens', { timeout: UNBUILT_MS });
   await expect(page.getByText(/Orders are not queued while it is closed/)).toBeVisible({ timeout: UNBUILT_MS });
 });
 
 test(`${J} #7 a market inside its opening window or the higher-risk zone shows a badge; a market order is refused with the window reason and a limit is accepted`, async ({
   page,
 }) => {
+  // A new listing inside its opening window: the stack lists one TEST market whose window ends weeks after the seed
+  // (TWIN/USDC). The read names when the window ends.
   const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  const windowed = markets.find((m) => m.listing?.openingWindowEndsAt || m.listing?.zone);
-  expect(windowed, 'a market inside its opening window or in the higher-risk zone').toBeTruthy();
+  const windowed = markets.find(
+    (m) => m.spot && !m.paper && m.orderable && m.openingWindowEndsAt && Date.parse(m.openingWindowEndsAt) > Date.now(),
+  );
+  expect(windowed, 'a market inside its opening window').toBeTruthy();
   const who = await account(page);
-  await openDesk(page, who, windowed.symbol);
-  await expect(page.getByTestId('dk-ticker')).toContainText(/Opening window|Higher-risk zone/, { timeout: UNBUILT_MS });
   const client = await api(who);
-  const res = await client.post('/api/v1/orders', { symbol: windowed.symbol, side: 'buy', type: 'market', amount: '0.001' });
-  expect(JSON.stringify(res.body)).toContain('trade.opening_window');
+  await openDesk(page, who, windowed.symbol);
+  // The badge on the desk names the window and what it allows.
+  await expect(page.getByTestId('dk-opening-window')).toContainText('Opening window', { timeout: UNBUILT_MS });
+  await expect(page.getByTestId('dk-opening-window')).toContainText('Limit orders only until');
+  const quote = windowed.quote;
+  const before = held(await client.balances(), quote);
+  const sent = placements(page);
+  // A market buy: the desk's own preview says why before Confirm, and nothing is sent or held.
+  await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
+  await page.getByRole('textbox', { name: 'Amount' }).first().fill('1');
+  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+  await expect(form).toContainText('This market is in its opening window', { timeout: UNBUILT_MS });
+  await expect(form).toContainText('Place a limit order instead');
+  await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code
+  await expect(page.getByRole('button', { name: `Buy ${windowed.base}` })).toBeDisabled();
+  await page.waitForTimeout(1000);
+  expect(sent.filter((body) => body?.symbol === windowed.symbol)).toHaveLength(0);
+  // The door refuses the same market order with the window reason, before any hold.
+  const market = await client.post('/api/v1/orders', {
+    symbol: windowed.symbol,
+    side: 'buy',
+    type: 'market',
+    amount: '1',
+    clientOrderId: `${J}-7m-${who.handle}`,
+  });
+  expect(market.status).toBe(400);
+  expect(JSON.stringify(market.body)).toContain('trade.opening_window');
+  expect(held(await client.balances(), quote)).toBe(before);
+  // A limit buy is accepted and rests, holding exactly its price x amount; it is then cancelled, so nothing stays held.
+  const price = '1';
+  const amount = '1';
+  const limit = await client.post('/api/v1/orders', {
+    symbol: windowed.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount,
+    price,
+    clientOrderId: `${J}-7-${who.handle}`,
+  });
+  expect(limit.status, JSON.stringify(limit.body).slice(0, 300)).toBeLessThan(300);
+  const resting = (await openOrders(who, windowed.symbol)).find((o) => o.id === limit.body.id);
+  expect(resting, 'the limit order rests on the book').toBeTruthy();
+  expect(held(await client.balances(), quote) - before).toBe((toUnits(price) * toUnits(amount)) / toUnits('1'));
+  const cancel = await client.delete(`/api/v1/orders/${encodeURIComponent(limit.body.id)}`);
+  expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeLessThan(300);
+  await expect.poll(async () => (await openOrders(who, windowed.symbol)).map((o) => o.id)).not.toContain(limit.body.id);
+  await expect.poll(async () => held(await client.balances(), quote)).toBe(before);
 });
 
 test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordered updates, and a reconnect resumes from the last sequence`, async () => {
