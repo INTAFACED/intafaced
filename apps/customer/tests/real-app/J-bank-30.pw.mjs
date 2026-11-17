@@ -23,6 +23,15 @@ const CURRENCY = 'USD';
 const SAVINGS = 'Savings';
 const EMPLOYER = 'TEST Employer Ltd';
 const PARTNER_BANK = 'TEST partner bank';
+// The account-details fields as the room names them (account-details-copy.ts), each with its own Copy.
+const FIELD_LABELS = {
+  accountNumber: 'Account number',
+  sortCode: 'Sort code',
+  routingNumber: 'Routing number',
+  bsb: 'BSB',
+  iban: 'IBAN',
+  bic: 'BIC',
+};
 const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
 const PAYOUTS = 'partner:outbound-payments';
 const PAY_INS = 'partner:incoming-payments';
@@ -198,7 +207,9 @@ test(`${J} #1 with the direct-deposit currency list switched off for one restart
 
 test(`${J} #2 with the TEST list back, Salary shows the partner's TEST account details with Copy on each field, and the employer form with the person's name and those details`, async ({
   page,
+  context,
 }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ORIGIN });
   const { who } = state();
   const details = await (await bank(who)).query('salary.details', {});
   expect(details.ok, JSON.stringify(details.body ?? {}).slice(0, 300)).toBe(true);
@@ -213,8 +224,18 @@ test(`${J} #2 with the TEST list back, Salary shows the partner's TEST account d
   await expect(shown.getByTestId('account-details-set')).toContainText(set.accountNumber);
   // Labelled TEST: the number and the bank both say so.
   await expect(shown).toContainText(PARTNER_BANK);
-  await expect(shown.getByRole('button', { name: /Copy/ })).toHaveCount(1);
-  await expect(room.getByTestId('salary-holder')).toContainText(who.holderName);
+  // Copy on each field the partner gave: one button per field, named for it, and each copies that field's value.
+  const fields = Object.entries(FIELD_LABELS).filter(([key]) => set[key] !== null);
+  expect(fields.length).toBeGreaterThan(0);
+  await expect(shown.getByRole('button', { name: /^Copy / })).toHaveCount(fields.length);
+  for (const [key, label] of fields) {
+    await shown.getByRole('button', { name: `Copy ${label}`, exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(set[key]);
+  }
+  const holder = room.getByTestId('salary-holder');
+  await expect(holder).toContainText(who.holderName);
+  await holder.getByRole('button', { name: 'Account holder', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(who.holderName);
   const form = room.getByTestId(`salary-form-${CURRENCY}`);
   await expect(form.getByTestId('salary-form-text')).toContainText(`Account holder: ${who.holderName}`);
   await expect(form.getByTestId('salary-form-text')).toContainText(`Account number: ${set.accountNumber}`);
@@ -352,6 +373,11 @@ test(`${J} #7 with the split removed, a TEST 500.00 credit arrives and the emplo
   const paid = await credit(who, networkId, '500.00');
   expect(paid.body.credit).toMatchObject({ state: 'received', amount: '500', legs: [] });
   expect(toUnits((await usdSpaces(who)).main.balance)).toBe(toUnits(afterSalary.main) + toUnits('500'));
+  // Before the employer reverses it, the 500.00 credit's own row reads Received.
+  await page.reload();
+  const before = feedRow(page.getByTestId('salary-room'), networkId);
+  await expect(before.getByTestId('salary-credit-state')).toHaveText('Received');
+  await expect(before.getByTestId('salary-credit-amount')).toContainText('500');
 
   const reversed = await network('reverse', { networkId });
   expect(reversed.status, JSON.stringify(reversed.body).slice(0, 300)).toBe(200);
