@@ -2200,14 +2200,24 @@ export async function setPairRisk(ctx, symbol, changes, sessions = null) {
   if (fields.every((f) => limits[f] === (current[f] ?? null)))
     return { symbol, marketId: market.id, version: current.version, changed: false, limits };
   const body = { market: market.id, limits, expectedVersion: current.version, reason: `${MARKERS.label}: TEST pair limits` };
-  const ids = await twoPerson(ctx, pair, riskSetProposal(body));
-  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
-  const res = await ctx.edge.mutate(
-    'trade',
-    'admin.risk.set',
-    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
-    await pair.a.tradeOpsToken(),
-  );
+  const write = async () => {
+    const ids = await twoPerson(ctx, pair, riskSetProposal(body));
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate(
+      'trade',
+      'admin.risk.set',
+      { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+      await pair.a.tradeOpsToken(),
+    );
+    return { ids, res };
+  };
+  let { ids, res } = await write();
+  // 503: identity did not answer svc-trade's consume in time, and svc-trade wrote nothing (#8686). One more try with a
+  // fresh approval; the first one is left unused or spent, never reused.
+  if (res.status === 503) {
+    ctx.log(`pair limits ${symbol}: identity did not answer the approval consume (${refusalText(res)}); one more try with a new approval`);
+    ({ ids, res } = await write());
+  }
   const row = data(res);
   if (!row?.version) throw new Error(`trade admin.risk.set for ${symbol} refused (${res.status}): ${refusalText(res)}`);
   ctx.log(
