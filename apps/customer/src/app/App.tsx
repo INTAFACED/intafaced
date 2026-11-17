@@ -146,7 +146,7 @@ export function App() {
     !isQuantPreviewPath(path);
   // Someone signed out who opens a new support request gets the same form with an email field (SP-tickets-01), and live chat
   // as a guest (SP-chat-01), in the public frame, once the boot refresh says there is no session.
-  const guestRequest = (path === '/support/new' || path === '/support/chat') && !session && !restoring && !restoreFailed;
+  const guestRequest = (path === '/support/new' || path === '/support/chat') && !session && !restoreFailed;
   // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
   // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
   // a private room only sees "Sign in", so nothing is fetched for it.
@@ -176,8 +176,6 @@ export function App() {
         <DevFeatures />
       </Suspense>
     );
-  // A private room never paints, and never shows "Sign in to continue", until the boot refresh has answered.
-  else if (needsSession && !session && restoring) body = fallback;
   // The service did not answer: the cookie is untouched, so offer Retry instead of pretending the person is signed out.
   else if (needsSession && !session && restoreFailed)
     body = (
@@ -211,8 +209,9 @@ export function App() {
         </Page>
       </div>
     );
-  // `/` sends a signed-in person to /home, so it waits for the boot refresh instead of flashing the signed-out landing page.
-  const content = redirectTo ? null : path === '/' && restoring && !session ? (
+  // No room renders until the boot refresh has answered (#8658): a room that opens signed in and signed out would
+  // otherwise draw its signed-out view and run its reads as signed out, then swap. The rooms never read `restoring`.
+  const content = redirectTo ? null : restoring ? (
     fallback
   ) : room?.area === 'public' || guestRequest ? (
     <div className="legacy-room">

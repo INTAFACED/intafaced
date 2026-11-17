@@ -2,7 +2,6 @@
 // old rows on screen (marked) while a refresh is under way or has failed.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
-import { useSession } from '../../../features/session/session';
 import type { Failure } from './guard';
 
 export type Live<T> = {
@@ -15,10 +14,8 @@ export type Live<T> = {
 };
 
 export function useLive<T>(load: (signal: AbortSignal) => Promise<ApiResult<T>>, key: string, intervalMs: number | null): Live<T> {
-  // Trade rooms paint before the boot refresh has answered. A read sent then carries no token, svc-edge answers
-  // UNAUTHORIZED, and that refusal stood until the next refresh (60 s on a leader's page; issue 7355). So no read goes out until
-  // the session is known; the room shows loading meanwhile.
-  const { restoring } = useSession();
+  // No room renders before the boot refresh has answered (App, #8658), so the first read already carries the session's
+  // token; a read sent without one drew UNAUTHORIZED until the next refresh (issue 7355).
   const [state, setState] = useState<{
     data: T | null;
     asOf: number | null;
@@ -56,14 +53,13 @@ export function useLive<T>(load: (signal: AbortSignal) => Promise<ApiResult<T>>,
     // A new key is a different read, so its old rows go; a reload of the same key keeps them on screen while it runs.
     if (shownKey.current !== key) setState({ data: null, asOf: null, failure: null, settled: false, refreshing: true });
     shownKey.current = key;
-    if (restoring) return;
     void tick();
     return () => {
       stopped = true;
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [key, revision, intervalMs, restoring]);
+  }, [key, revision, intervalMs]);
 
   const reload = useCallback(() => setRevision((value) => value + 1), []);
   const status = !state.settled ? 'loading' : state.data === null && state.failure ? 'error' : 'ready';
