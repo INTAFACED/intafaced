@@ -74,6 +74,9 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // VenueFeeTier and VenueAccountFees (J-cex-spot-10 #2 #6)
   'fromVolume',
   'volume',
+  // UserVenueLockSplit (J-portfolio-01 #4); `margin` is above
+  'inOrders',
+  'staked',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
