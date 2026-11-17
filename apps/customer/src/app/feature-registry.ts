@@ -212,6 +212,16 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-salary',
+    label: 'Salary',
+    paths: ['/bank/salary'],
+    status: 'blocked',
+    reason:
+      "Salary by direct deposit is rail.bank: the partner bank's account details and the payroll network's credits and reversals; with no network wired every salary read refuses rail.bank, and the reversal window is an owner value: blank, a reversal refuses bank.direct_deposit_reversal_window_unset",
+    unlock: 'J-bank-30 passing on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-account',
     label: 'Your bank account',
     paths: ['/bank/account'],

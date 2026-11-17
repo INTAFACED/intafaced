@@ -82,6 +82,7 @@ import { ScheduledNoticeService, type ScheduledNoticeSink } from './rules/schedu
 import { unsetDirectDebitScheme, type DirectDebitScheme } from './direct-debits/scheme.js';
 import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
+import { composeSalaryServices, type SalaryServiceOptions, type SalaryServices } from './salary/compose.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
@@ -100,7 +101,7 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  * spreads it; `bank-service.compose.test.ts` holds the line.
  */
 
-export interface BankServices extends BusinessServices, DeveloperApiServices, CardProgrammeServices {
+export interface BankServices extends BusinessServices, DeveloperApiServices, CardProgrammeServices, SalaryServices {
   /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
   readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
@@ -196,7 +197,11 @@ export interface BankServices extends BusinessServices, DeveloperApiServices, Ca
   };
 }
 
-export interface BankServiceOptions extends BusinessServiceOptions, DeveloperApiServiceOptions, CardProgrammeServiceOptions {
+/** Each area's own options, composed in its own `compose.ts`. */
+interface AreaServiceOptions
+  extends BusinessServiceOptions, DeveloperApiServiceOptions, CardProgrammeServiceOptions, SalaryServiceOptions {}
+
+export interface BankServiceOptions extends AreaServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
   /** `BANK_REQUEST_REMIND_POLICY_JSON`, parsed: the owner's reminder cap per window. Null refuses every reminder. */
@@ -611,6 +616,7 @@ export function createBankServices(
     statements,
     statementJobs,
     accountDetails,
+    ...composeSalaryServices({ sql, accountDetails, sorter }, options),
     accountTerms,
     accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
     dormancy: new DormancyService(sql, custody, parseDormancyRules(options.dormancyRules)),

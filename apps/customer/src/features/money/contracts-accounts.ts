@@ -227,7 +227,55 @@ export const recoveryWrites = {
 };
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
+/** `bank.salary.*` (J-bank-30): the details salary is paid to, the employer form, and the salary credits. */
+export const salaryDetailsSchema = z.object({
+  partnerBank: z.string(),
+  network: z.string(),
+  holderName: z.string().nullable(),
+  currencies: z.array(accountDetailsRowSchema),
+});
+export const salaryFormSchema = z.object({
+  currency: z.string(),
+  holderName: z.string(),
+  partnerBank: z.string(),
+  accountNumber: z.string().nullable(),
+  sortCode: z.string().nullable(),
+  routingNumber: z.string().nullable(),
+  iban: z.string().nullable(),
+  bic: z.string().nullable(),
+  reference: z.string(),
+  text: z.string(),
+});
+export const salaryCreditSchema = z.object({
+  networkId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  originatorName: z.string(),
+  state: z.enum(['pending', 'received', 'returned', 'reversed']),
+  refusalCode: z.string().nullable(),
+  creditMoveId: z.string().nullable(),
+  reversalMoveId: z.string().nullable(),
+  createdAt: z.string(),
+  receivedAt: z.string().nullable(),
+  reversedAt: z.string().nullable(),
+  legs: z.array(
+    z.object({
+      position: z.number().int(),
+      spaceId: z.string(),
+      amount: money,
+      status: z.enum(['pending', 'settled', 'rejected', 'unsplit']),
+      moveId: z.string().nullable(),
+      rejectionCode: z.string().nullable(),
+      unsplitMoveId: z.string().nullable(),
+    }),
+  ),
+});
+export type SalaryCredit = z.infer<typeof salaryCreditSchema>;
+
 export const accountsReads = {
+  'salary.details': salaryDetailsSchema,
+  'salary.form': salaryFormSchema,
+  'salary.credits': z.array(salaryCreditSchema),
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
   'addMoney.methods': addMoneyMethodsSchema,
