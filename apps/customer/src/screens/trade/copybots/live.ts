@@ -14,7 +14,7 @@ export type Live<T> = {
 };
 
 export function useLive<T>(load: (signal: AbortSignal) => Promise<ApiResult<T>>, key: string, intervalMs: number | null): Live<T> {
-  // No room renders before the boot refresh has answered (App, #8658), so the first read already carries the session's
+  // No room renders before the boot refresh has answered (App, issue 8658), so the first read already carries the session's
   // token; a read sent without one drew UNAUTHORIZED until the next refresh (issue 7355).
   const [state, setState] = useState<{
     data: T | null;

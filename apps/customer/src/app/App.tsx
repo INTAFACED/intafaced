@@ -209,7 +209,7 @@ export function App() {
         </Page>
       </div>
     );
-  // No room renders until the boot refresh has answered (#8658): a room that opens signed in and signed out would
+  // No room renders until the boot refresh has answered (issue 8658): a room that opens signed in and signed out would
   // otherwise draw its signed-out view and run its reads as signed out, then swap. The rooms never read `restoring`.
   const content = redirectTo ? null : restoring ? (
     fallback
