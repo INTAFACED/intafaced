@@ -23,14 +23,16 @@ import { fillsProveNoFill } from './internal.js';
  * | orphan pending | `pending` + hold 0 + older than the in-flight bound | delete row (never held) |
  * | pending in flight | `pending` + hold 0 + inside the bound | no action (a hold may still commit) |
  * | open+hold, engine live | `open` + hold > 0 + list hit | cancel then release remainder once |
- * | open+hold, engine miss, proven empty fills | list miss + `trade.fills` empty + `filled_qty` 0 | cancel remainder (existing path, fills are the evidence) |
+ * | open+hold, engine miss, proven empty fills | list miss + `trade.fills` empty + `filled_qty` 0 | first sighting: record it, hold stays; a sighting the owner's floor old with no listing since: cancel remainder |
  * | open+hold, engine miss, unknown fills | list miss + fills do not prove no fill | **fail closed** — named break, hold stays |
  * | open+engine no hold | `open` + hold 0 | **fail closed** — do not invent hold; cancel free book risk if live |
  *
  * Liveness is **list first** (`GET` engine orders). Cancel is repair, not probe
  * (W6/W7 residual: cancel-as-probe emptied the book to ask if it was live).
  * Fail closed means: never mint a hold from this path; never mark filled without fills;
- * never auto-release on funded engine-miss when `trade.fills` cannot prove no fill.
+ * never auto-release on funded engine-miss when `trade.fills` cannot prove no fill, and never on the first look at a
+ * miss: an order the engine filled in full leaves the book at once and its fill reaches `trade.fills` later (#8560), so
+ * the release waits for a miss first sighted the owner's floor ago (`finalize`'s `engineMissSighted`).
  */
 export interface ReconcileOptions {
   /**
@@ -38,6 +40,38 @@ export interface ReconcileOptions {
    * Only an order the book no longer has is repaired, and then only when `trade.fills` prove it never filled.
    */
   readonly leaveLive?: boolean;
+  /**
+   * The owner's floor (TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS): an engine miss is released only once it was first
+   * sighted at least this long ago with no listing since. Absent or null, an engine miss is never released here.
+   */
+  readonly engineMissFloorSeconds?: number | null;
+  /** Who records a first sighting (`trade.operator_sweep_sightings.sweep_request_id`). */
+  readonly sightedBy?: string;
+}
+
+/**
+ * Release an order the engine's book does not list, only on `finalize`'s engine-miss evidence: the first look records
+ * the sighting and keeps the hold; a later look, the owner's floor after it with no listing in between, releases if
+ * trade.fills still show no fill. Returns why the hold stays, or null when it was released.
+ */
+async function releaseEngineMiss(svc: TradeServiceInternal, orderId: string, opts: ReconcileOptions): Promise<string | null> {
+  const floor = opts.engineMissFloorSeconds ?? null;
+  if (floor === null) {
+    return 'trade.engine_miss_unproven: TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS is not set, and an engine miss is released only after a sighting that old; hold retained';
+  }
+  await svc.sql`
+    INSERT INTO trade.operator_sweep_sightings (order_id, first_seen_at, sweep_request_id)
+    VALUES (${orderId}, now(), ${opts.sightedBy ?? 'reconcile'})
+    ON CONFLICT (order_id) DO NOTHING
+  `;
+  try {
+    await svc.finalize(orderId, 'cancelled', undefined, { engineMissSighted: { floorSeconds: floor } });
+  } catch (err) {
+    if (!(err instanceof TradeError && err.code === 'trade.engine_miss_unproven')) throw err;
+    return `trade.engine_miss_unproven: ${err.message}; hold retained, reconcile again after the floor`;
+  }
+  await svc.sql`DELETE FROM trade.operator_sweep_sightings WHERE order_id = ${orderId}`;
+  return null;
 }
 
 export async function reconcileOrder(svc: TradeServiceInternal, orderId: string, opts: ReconcileOptions = {}): Promise<ReconcileResult> {
@@ -116,6 +150,8 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
     // Non-destructive liveness: list before any cancel.
     const listed = await svc.matching.listOrders(order.marketId, orderId);
     const engineLive = listed.orders.some((o) => settlementOrderId(o.orderId) === orderId);
+    // Listed: whatever miss was sighted before was not continuous, so a later miss starts its wait from zero.
+    if (engineLive) await svc.sql`DELETE FROM trade.operator_sweep_sightings WHERE order_id = ${orderId}`;
     if (opts.leaveLive && engineLive) {
       return {
         orderId,
@@ -165,7 +201,17 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
           detail: `trade.reconcile_unknown_engine_miss: recovery-required (${order.recoveryReason ?? 'unknown'}) absent from engine; trade.fills count=${recoveryFills.count} qty=${formatAmount(recoveryFills.qty)} filled_qty=${formatAmount(order.filledQty)} — hold retained`,
         };
       }
-      await svc.finalize(orderId, 'cancelled', undefined, { noEngineFill: 'fills_prove_none' });
+      const keptRecovery = await releaseEngineMiss(svc, orderId, opts);
+      if (keptRecovery !== null) {
+        return {
+          orderId,
+          case: 'open_hold_no_engine_unknown',
+          action: 'fail_closed',
+          holdBefore,
+          engineLive: false,
+          detail: `recovery-required (${order.recoveryReason ?? 'unknown'}) absent from engine; ${keptRecovery}`,
+        };
+      }
       return {
         orderId,
         case: 'recovery_required_absent',
@@ -286,14 +332,24 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
       };
     }
 
-    await svc.finalize(orderId, 'cancelled', undefined, { noEngineFill: 'fills_prove_none' });
+    const kept = await releaseEngineMiss(svc, orderId, opts);
+    if (kept !== null) {
+      return {
+        orderId,
+        case: 'open_hold_no_engine_unknown',
+        action: 'fail_closed',
+        holdBefore,
+        engineLive: false,
+        detail: `open+hold; engine list miss; ${kept}`,
+      };
+    }
     return {
       orderId,
       case: 'open_hold_no_engine',
       action: 'released',
       holdBefore,
       engineLive: false,
-      detail: 'open+hold; engine list miss; trade.fills prove empty; remainder released once',
+      detail: 'open+hold; engine list miss sighted the floor ago with no listing since; trade.fills prove empty; remainder released once',
     };
   });
 }

@@ -17,7 +17,7 @@ import { SessionRelay } from './session/relay.js';
 import { ChainObserver } from './events.js';
 import { protocolHealthHonesty } from './health-honesty.js';
 import { createPeers } from './blockers/peers.js';
-import { createProtocolRouter, type ProtocolRouter } from './router.js';
+import { createProtocolRouter } from './router.js';
 import { parseGasPercentileSetting } from './chain/gas-price.js';
 import { badgeChainIsMainnet, badgeChainIsRestartable, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';

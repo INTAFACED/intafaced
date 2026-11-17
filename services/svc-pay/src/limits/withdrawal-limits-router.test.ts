@@ -52,7 +52,7 @@ const VIEW = {
 };
 
 function api(allowance: UserMoneyService['withdrawalAllowance'], scopes = ['trade:read']) {
-  const money = { withdrawalAllowance: allowance } as unknown as UserMoneyService;
+  const money = { withdrawalAllowance: allowance } as UserMoneyService;
   return createPayRouter({} as PayService, rails, money).createCaller(signed(scopes));
 }
 
@@ -87,7 +87,7 @@ describe('withdrawal.tierLimits', () => {
   // TEST figures, illustrative only.
   const PUBLISHED = { enforced: true, limits: [{ tier: 'basic', assetId: 'USDT', perTx: '10', rolling24h: '15' }] };
   const caller = (scopes = ['trade:read']) => {
-    const money = { withdrawalTierLimits: async () => PUBLISHED } as unknown as UserMoneyService;
+    const money = { withdrawalTierLimits: async () => PUBLISHED } as UserMoneyService;
     return createPayRouter({} as PayService, rails, money).createCaller(signed(scopes));
   };
 

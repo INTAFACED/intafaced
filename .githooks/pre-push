@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require format:check and truth-check before any push. CI's checks run on GitHub.
+# Refuse direct push to main + require format:check, truth-check and the Doctrine gates before any push. The rest of CI runs on GitHub.
 # Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
 #
 # P1: format:check covers tooling/scripts/*.mjs (what red-trunked main via #471).
@@ -123,9 +123,12 @@ fi
 
 # CI's lint ratchet (a Doctrine gate), the same command on the files this push touches against origin/main, with main's
 # rules: under 2 seconds. A push that raised a rule was otherwise first seen as a red Doctrine gates job minutes after it
-# (J-campaigns-03 and J-agents-01 on 14 Nov, each a push spent on garden/no-promise-copy in a copy file). It needs this
-# worktree's oxlint; without it (before the install) it is skipped, never refused, and CI still runs it.
-if [ -x "$TOP/node_modules/.bin/oxlint" ] && [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ]; then
+# (J-campaigns-03 and J-agents-01 on 14 Nov, each a push spent on garden/no-promise-copy in a copy file).
+if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ] && [ ! -x "$TOP/node_modules/.bin/oxlint" ]; then
+  echo "  ✖ lint-ratchet needs this worktree's oxlint — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
+  exit 1
+fi
+if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ]; then
   # --rules-ref: this hook runs on the Mac against origin/main; without it, under GITHUB_ACTIONS (its own tests in CI)
   # the gate fetches the repository's main, which shares no history with a test's planted repository.
   if ! (CDPATH= cd -- "$TOP" && node tooling/ci/lint-ratchet.mjs --rules-ref origin/main) </dev/null; then
@@ -138,8 +141,6 @@ if [ -x "$TOP/node_modules/.bin/oxlint" ] && [ -f "$TOP/tooling/ci/lint-ratchet.
 MSG
     exit 1
   fi
-else
-  echo "lint-ratchet — no oxlint in this worktree; skipped (pnpm install --frozen-lockfile --prefer-offline); CI checks it" >&2
 fi
 
 # CI's cross-package read scan (1.6 s on CI) when a test or what it checks changed: else a red after the push (4, 13-14 Nov).
@@ -178,12 +179,38 @@ MESSAGE
   fi
 done < "$PUSHED"
 
-# CI's checks (gates, build, typecheck, tests) run on GitHub, not here: on the branch before the pull request
-# (`gh workflow run ci.yml --ref <branch>`, which prints the run's URL), then on the pull request. On the Mac they took
-# 13 to 91 minutes a push under three builders and 8 of 17 tries ended for reasons outside the change; GitHub runs them
-# in 9 to 20. This hook keeps only what takes seconds: formatting of the pushed files, the agent-rule check, the
-# tooling tests that read journey files (when one is pushed), the lint ratchet on the pushed files and the refusal of
-# main. `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
+# CI's Doctrine gates that read the pushed tree, all at once, as CI would fail them (#8616's first red, the boundary scan).
+if grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED" && [ -f "$TOP/tooling/ci/gates.mjs" ]; then
+  if [ ! -d "$TOP/node_modules" ]; then
+    echo "  ✖ the Doctrine gates need this worktree's install — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
+    rm -f "$PUSHED"
+    exit 1
+  elif ! (CDPATH= cd -- "$TOP" && node tooling/ci/gates.mjs --before-push) </dev/null; then
+    echo "  ✖ a Doctrine gate failed — push refused. Its name, its message and why it exists are above; CI's Doctrine gates job runs it too." >&2
+    rm -f "$PUSHED"
+    exit 1
+  fi
+fi
+
+# The CI review's size rule, by the review's own diff step on local git (review-before-push.mjs --size): the bytes it
+# will count and its refusal, before the push. #8463 and #8491 were each refused for size after a whole round (15 Nov).
+if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
+  while read -r _lref lsha rref _rsha; do
+    [ "$lsha" = "0000000000000000000000000000000000000000" ] && continue
+    if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/review-before-push.mjs --size --head "$lsha" --branch "${rref#refs/heads/}") </dev/null; then
+      rm -f "$PUSHED"
+      exit 1
+    fi
+  done < "$PUSHED"
+fi
+
+# What runs here takes seconds: formatting of the pushed files, the agent-rule check, the tooling tests that read
+# journey files (when one is pushed), the lint ratchet on the pushed files, the cross-package read scan, the Doctrine
+# gates that read the pushed tree, the CI review's size count and the refusal of main. Only on GitHub: build, typecheck,
+# unit tests, the other tooling tests and the gates gates.mjs leaves to CI (on the Mac CI's checks took 13 to 91 minutes
+# a push under three builders; GitHub runs them in 9 to 20): on the branch before the pull request
+# (`gh workflow run ci.yml --ref <branch>`, which prints the run's URL), then on the pull request.
+# `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
 if [ -z "${CI:-}" ] && grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED"; then
   echo "CI's checks run on GitHub: gh workflow run ci.yml -R INTAFACED/intafaced --ref <branch>, before the pull request" >&2
 fi

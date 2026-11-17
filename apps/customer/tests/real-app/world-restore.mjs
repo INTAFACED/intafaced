@@ -1,5 +1,9 @@
+import { execFile } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
-import { EDGE, ORIGIN, DEVICE_KEY, json, tool, worldState } from './stack.mjs';
+import net from 'node:net';
+import path from 'node:path';
+import { EDGE, ORIGIN, DEVICE_KEY, ROOT, json, stackUrl, tool, worldState } from './stack.mjs';
 import { declaredWorld, marketLive } from './world-line.mjs';
 import { STATUS_MS, healStack } from './services.mjs';
 import { MAKER_SETTLE_MS, makerEmails, makerRecordArgs, makerSettled } from './market.mjs';
@@ -10,6 +14,8 @@ import { MAKER_SETTLE_MS, makerEmails, makerRecordArgs, makerSettled } from './m
  *
  * - book: every open order, running algo and running grid bot of the TEST accounts the file signed up or acted as;
  * - market: every TEST price `move`, and the market maker started again if it was running when the file began.
+ *
+ * The TEST venue is not put back: each file gets one of its own (`ownVenueFor`, below), whatever its line says.
  *
  * Failure it prevents: J-copy-bots-otc-30 #1 left a TEST bid resting on BTC/USDT, J-ops-console-08 #7 restarted the
  * market maker over it, and J-portfolio-04 #1 timed out on main (run 1247), though its code passed alone (run 1262).
@@ -195,17 +201,91 @@ export function marketFor(file) {
   }
 }
 
+/** The setting the stack names its TEST venues by (local-test-stack.mjs startTestVenue; local-test-venue.mjs testVenueId). */
+export const VENUE_ID_SETTING = 'LOCAL_STACK_TEST_VENUE_ID';
+/** The stack's TEST venues (local-test-facts.mjs ports): the one every venue file uses, and J-derivatives-28's second. */
+const VENUES = ['test-venue', 'test-venue-b'];
+/** What stopping a venue may take: the stack's stop waits 10 s for it before it kills it. Within journey.mjs's 150 s. */
+export const VENUE_STOP_MS = 10_000;
+
+/** A venue id no other file has had: `test-venue-sim-` and 8 hex digits (local-test-venue.mjs testVenueId). */
+export const freshVenueId = () => `test-venue-sim-${randomBytes(4).toString('hex')}`;
+
+/** Whether something listens on one of the stack's ports: a bare connect, so no file's reach records it (journey-reach.mjs). */
+export function listening(name) {
+  const { hostname, port } = new URL(stackUrl(name));
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: hostname, port: Number(port) });
+    const done = (yes) => {
+      socket.destroy();
+      resolve(yes);
+    };
+    socket.setTimeout(1_000, () => done(false));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
+}
+
+/** The stack's own stop of the named services, awaited, so the worker keeps answering Playwright while it runs. */
+const stopServices = (names) =>
+  new Promise((resolve, reject) =>
+    execFile(
+      process.execPath,
+      [path.join(ROOT, 'tooling/scripts/local-test-stack.mjs'), 'stop', ...names],
+      { cwd: ROOT, encoding: 'utf8', timeout: VENUE_STOP_MS },
+      (err, stdout, stderr) => (err ? reject(Object.assign(err, { stderr })) : resolve(stdout)),
+    ),
+  );
+
+/**
+ * A TEST venue of the file's own. The venue is one process that keeps all its state in memory (its books, every order
+ * left resting, its seeded ladders as earlier files took them, its venue-wide TEST switches, marks and caps, its accounts
+ * and our builder account on it), so a file that met the venue another file used met that file's leftovers. Failures it
+ * prevents: J-cex-spot-02 #7 met the bid J-bank-13 left resting on BTC-USDC (#8546), and J-campaigns-11 #3 met the
+ * seeded 59,990 bid J-agents-18 had sold into (#8594 to #8596).
+ *
+ * So, entering a file: the venue is stopped if it is running, and the file gets a fresh venue id. The file's own first
+ * door-on restart of trade then starts a freshly seeded venue under that id (local-test-stack.mjs startTestVenue), and a
+ * restart later in the same file keeps it, since a running venue is left as it is. A fresh id, not only a fresh process:
+ * what svc-trade and the ledger keep by venue id (its listings, builder-fee versions, the builder-fee receivable) would
+ * otherwise carry earlier files' records into this file's venue (J-derivatives-17 #1 compares the venue's own all-time
+ * builder-fee total with the ledger's). Returns the id and what could not be done, in words.
+ */
+export async function ownVenueFor({ up = listening, stop = stopServices, newId = freshVenueId, env = process.env } = {}) {
+  const said = [];
+  const running = [];
+  for (const name of VENUES) if (await up(name)) running.push(name);
+  if (running.length)
+    try {
+      await stop(running);
+    } catch (err) {
+      said.push(
+        `TEST venue not stopped (${running.join(', ')}), so this file meets the last file's venue: ${String(err.stderr || err.message)
+          .trim()
+          .slice(0, 200)}`,
+      );
+    }
+  const id = newId();
+  env[VENUE_ID_SETTING] = id;
+  return { id, said };
+}
+
 /**
  * Entering journey file `file` in this worker: when the last file this worker ran was another one, put back what that
- * one changed first, then start the new file's record. The same file again (a worker started again after a failed
- * step) changes nothing.
+ * one changed first, then give the new file its own TEST venue and start its record. The same file again (a worker
+ * started again after a failed step) changes nothing, and keeps the file's venue id.
  */
 export async function enterFile(file) {
   const last = worldState.read();
-  if (last.file === file) return;
+  if (last.file === file) {
+    if (last.venueId) process.env[VENUE_ID_SETTING] = last.venueId;
+    return;
+  }
   // Before the last file's restore, so the restore's own wait for a settled book (or a maker it starts again) is
   // already still or live as this file needs.
   marketFor(file);
   if (last.file) await restoreWorld(last.file, last);
-  worldState.write({ file, makerArgs: worldOf(file).has('market') ? marketArgs() : null, accounts: [] });
+  const venue = await ownVenueFor();
+  for (const line of venue.said) console.log(`WORLD RESTORE before ${file.split('/').at(-1)}: ${line}`);
+  worldState.write({ file, makerArgs: worldOf(file).has('market') ? marketArgs() : null, accounts: [], venueId: venue.id });
 }

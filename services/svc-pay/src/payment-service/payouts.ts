@@ -32,7 +32,6 @@ import {
 } from '../payout-admission.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
 import type {
-  PayService,
   PayServiceInternal,
   SettlementDetailRow,
   SettlementLinePage,

@@ -46,7 +46,7 @@ const clientFor = (respond: () => Response) => {
     calls.push({ url, init });
     return respond();
   });
-  return { client: createApiClient({ fetch: fetchMock as unknown as typeof fetch, token: () => 't' }), calls };
+  return { client: createApiClient({ fetch: fetchMock as typeof fetch, token: () => 't' }), calls };
 };
 
 describe('resendOrder', () => {

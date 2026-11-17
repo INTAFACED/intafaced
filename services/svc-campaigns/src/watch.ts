@@ -49,9 +49,9 @@ import { effectiveState, type CampaignService } from './campaigns.js';
 type Sql = postgres.Sql;
 
 /** Reward states that hold budget but are not booked yet; and those that booked it. The rest hold none. */
-const RESERVED: readonly RewardState[] = ['held', 'qualified', 'posting', 'pending_funding', 'pending_retry', 'unknown'];
-const SPENT: readonly RewardState[] = ['posted', 'owed', 'paid', 'locked', 'settling'];
-const HOLDS_NOTHING: readonly RewardState[] = ['failed', 'forfeited', 'withheld'];
+const RESERVED: readonly RewardState[] = ['held', 'review', 'qualified', 'posting', 'pending_funding', 'pending_retry', 'unknown'];
+const SPENT: readonly RewardState[] = ['posted', 'owed', 'reclaiming', 'paid', 'locked', 'settling'];
+const HOLDS_NOTHING: readonly RewardState[] = ['failed', 'forfeited', 'withheld', 'cancelled'];
 /** Campaigns that went live: what the desk watches. */
 const RUNNING: readonly CampaignState[] = ['scheduled', 'active', 'paused', 'ended', 'closed'];
 

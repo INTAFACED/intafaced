@@ -48,38 +48,41 @@ describe('matching venue incident consume', () => {
       expect(url).toBe('http://matching.test/markets');
       return new Response(JSON.stringify({ markets: ['m1'], venueHalted: false, halted: [] }), { status: 200 });
     });
-    await expect(
-      loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: fetchFn as unknown as typeof fetch }),
-    ).resolves.toEqual({ kind: 'board', board: { venueHalted: false, haltedMarkets: [] } });
+    await expect(loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: fetchFn as typeof fetch })).resolves.toEqual({
+      kind: 'board',
+      board: { venueHalted: false, haltedMarkets: [] },
+    });
 
     const haltAll = vi.fn(async () => new Response(JSON.stringify({ venueHalted: true, halted: [] }), { status: 200 }));
-    await expect(
-      loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: haltAll as unknown as typeof fetch }),
-    ).resolves.toEqual({ kind: 'board', board: { venueHalted: true, haltedMarkets: [] } });
+    await expect(loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: haltAll as typeof fetch })).resolves.toEqual({
+      kind: 'board',
+      board: { venueHalted: true, haltedMarkets: [] },
+    });
 
     const one = vi.fn(async () => new Response(JSON.stringify({ venueHalted: false, halted: ['btc-usd'] }), { status: 200 }));
-    await expect(
-      loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: one as unknown as typeof fetch }),
-    ).resolves.toEqual({ kind: 'board', board: { venueHalted: false, haltedMarkets: ['btc-usd'] } });
+    await expect(loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: one as typeof fetch })).resolves.toEqual({
+      kind: 'board',
+      board: { venueHalted: false, haltedMarkets: ['btc-usd'] },
+    });
   });
 
   it('missing venueHalted / transport / non-OK is unavailable — not live', async () => {
     const missing = vi.fn(async () => new Response(JSON.stringify({ markets: [] }), { status: 200 }));
-    await expect(
-      loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: missing as unknown as typeof fetch }),
-    ).resolves.toEqual({ kind: 'unavailable' });
+    await expect(loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: missing as typeof fetch })).resolves.toEqual({
+      kind: 'unavailable',
+    });
 
     const down = vi.fn(async () => new Response('nope', { status: 503 }));
-    await expect(
-      loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: down as unknown as typeof fetch }),
-    ).resolves.toEqual({ kind: 'unavailable' });
+    await expect(loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: down as typeof fetch })).resolves.toEqual({
+      kind: 'unavailable',
+    });
 
     const boom = vi.fn(async () => {
       throw new Error('econnrefused');
     });
-    await expect(
-      loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: boom as unknown as typeof fetch }),
-    ).resolves.toEqual({ kind: 'unavailable' });
+    await expect(loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: boom as typeof fetch })).resolves.toEqual({
+      kind: 'unavailable',
+    });
   });
 
   it('does not POST /halt-all or invent an operator', async () => {
@@ -88,7 +91,7 @@ describe('matching venue incident consume', () => {
       seen.push(`${init?.method ?? 'GET'} ${url}`);
       return new Response(JSON.stringify({ venueHalted: false, halted: [] }), { status: 200 });
     });
-    await loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: fetchFn as unknown as typeof fetch });
+    await loadMatchingVenueIncident({ matchingUrl: 'http://matching.test', fetch: fetchFn as typeof fetch });
     expect(seen.join(' ')).not.toMatch(/halt-all|operator|POST/i);
     expect(seen).toEqual(['GET http://matching.test/markets']);
   });

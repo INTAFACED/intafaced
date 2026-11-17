@@ -114,7 +114,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A paper strategy fill under the person's own fill alert (J-algo-dev-04 #6) adds a title and a body key.
     // The agent dashboard's range refusals, a blank From, a blank To or not a range of days (J-agents-13 #1), add three refusal keys.
     // An operator's agent alert in the inbox (J-agents-16 #3) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(336);
+    // A copy skipped at the follower's most per contract or most per day (J-copy-bots-otc-02 #3) adds two reason bodies.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(338);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(
@@ -156,7 +157,7 @@ describe('catalog — the key set is closed and complete', () => {
   });
 
   it('accepts a complete catalog through defineCatalog', () => {
-    const clone = defineCatalog(structuredClone(en) as unknown as Catalog);
+    const clone = defineCatalog(structuredClone(en) as Catalog);
     expect(coverage(clone).missing).toEqual([]);
   });
 

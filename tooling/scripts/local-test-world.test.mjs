@@ -307,7 +307,7 @@ try {
   assert.equal(new Set(POPULATE_TRANSFERS.map((t) => populateTransferId('xfer', uid, t.n))).size, POPULATE_TRANSFERS.length);
 
   // ── populate: spaces and internal transfers ──
-  assert.ok(POPULATE_SPACES.every((s) => /\(test\)$/.test(s.name))); // every name says it is test data
+  assert.ok(POPULATE_SPACES.every((s) => s.name.endsWith('(test)'))); // every name says it is test data
   assert.equal(planSpaces([]).length, POPULATE_SPACES.length);
   assert.equal(planSpaces(POPULATE_SPACES.map((s) => ({ name: s.name }))).length, 0); // idempotent
   assert.deepEqual(
@@ -637,7 +637,9 @@ try {
     ],
   );
   assert.ok(
-    MERCHANT_TIERS.every((t) => /^LOCAL TEST tier/.test(t.tier.name) && t.tier.approvalTtlSeconds === 86_400 && t.tier.reserve === null),
+    MERCHANT_TIERS.every(
+      (t) => t.tier.name.startsWith('LOCAL TEST tier') && t.tier.approvalTtlSeconds === 86_400 && t.tier.reserve === null,
+    ),
   );
   const [tier1, tier2] = MERCHANT_TIERS.map((t) => t.tier);
   assert.deepEqual(

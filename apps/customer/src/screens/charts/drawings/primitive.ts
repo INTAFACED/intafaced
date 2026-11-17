@@ -5,6 +5,7 @@
  * what is under a pixel (`hit`).
  */
 import { planDrawing, hitTest, type Hit, type Op, type Plan, type View } from './render';
+import { chartValue } from '../../../shared/chart-value';
 import { barIndexAt, type Drawing } from './model';
 import type { Decimal } from './decimal';
 
@@ -126,7 +127,7 @@ export class DrawingsPrimitive {
         return index === null ? null : timeScale.timeToCoordinate(state.barTimes[index]!);
       },
       y: (price) => {
-        const value = Number(price);
+        const value = chartValue(price);
         return Number.isFinite(value) ? series.priceToCoordinate(value) : null;
       },
       indexOf: (time) => barIndexAt(state.barTimes, time),

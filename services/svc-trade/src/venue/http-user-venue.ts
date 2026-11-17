@@ -11,6 +11,7 @@ import {
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
+  type UserVenueScheduledCancel,
   type UserVenueAgent,
   type UserVenueBalance,
   type UserVenueArrival,
@@ -341,6 +342,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
   marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
     return this.read('/market-margin', { account, symbol });
+  }
+
+  /** The account's scheduled cancel as the venue records it (J-cex-spot-07). */
+  scheduledCancel(account: UserVenueAccount): Promise<AsOf<UserVenueScheduledCancel>> {
+    return this.read('/scheduled-cancel', { account });
   }
 
   /** The account's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */

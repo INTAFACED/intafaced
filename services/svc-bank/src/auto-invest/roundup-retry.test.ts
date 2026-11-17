@@ -67,7 +67,7 @@ function roundUpSql(prior: { id: string; status: PriorStatus; position_id: strin
     }
     throw new Error(`unexpected query: ${query}`);
   };
-  return { sql: Object.assign(fn, { json: (v: unknown) => v }) as unknown as Sql, updates };
+  return { sql: Object.assign(fn, { json: (v: unknown) => v }) as Sql, updates };
 }
 
 function serviceFor(
@@ -81,7 +81,7 @@ function serviceFor(
       calls.push(input);
       return deposit(input);
     },
-  } as unknown as EarnService;
+  } as EarnService;
   const svc = new AutoInvestService(sql, {} as LedgerClient, earn, {} as SpaceService);
   return { svc, calls, updates };
 }
@@ -118,7 +118,7 @@ describe('applyRoundUp duplicate client run id', () => {
   it('a person whose bank money the partner holds never deposits into a savings pool from the ledger', async () => {
     const calls: DepositCall[] = [];
     const { sql, updates } = roundUpSql({ id: RUN_ID, status: 'pending', position_id: null });
-    const earn = { deposit: async (input: DepositCall) => (calls.push(input), { id: input.positionId }) } as unknown as EarnService;
+    const earn = { deposit: async (input: DepositCall) => (calls.push(input), { id: input.positionId }) } as EarnService;
     const spaces = { custody: { bankFor: () => ({}) } } as unknown as SpaceService;
     const outcome = await new AutoInvestService(sql, {} as LedgerClient, earn, spaces).applyRoundUp({
       userId: USER_ID,

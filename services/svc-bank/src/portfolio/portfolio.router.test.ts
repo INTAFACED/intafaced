@@ -66,7 +66,7 @@ function fakeLedger(rows: Balance[]) {
       asked.push([ownerType, ownerId]);
       return rows.filter((r) => r.account.ownerType === ownerType && r.account.ownerId === ownerId);
     },
-  } as unknown as Pick<LedgerClient, 'balances'>;
+  } as Pick<LedgerClient, 'balances'>;
   return { ledger, asked };
 }
 
@@ -115,7 +115,7 @@ function mapOf(map: Record<string, { last: string | null; open: string | null; w
 }
 
 function callerFor(service: PortfolioService, p: Principal) {
-  const bank = { portfolio: service } as unknown as BankServices;
+  const bank = { portfolio: service } as BankServices;
   return createBankRouter(bank).createCaller(signed(p));
 }
 
@@ -160,7 +160,7 @@ describe('bank.portfolio.summary', () => {
     expect(asked).toEqual([['user', BOB]]);
 
     // The procedure takes no input: a smuggled owner is stripped before it can matter.
-    const caller = callerFor(svc, principal(ALICE)) as unknown as {
+    const caller = callerFor(svc, principal(ALICE)) as {
       portfolio: { summary: (i?: unknown) => Promise<{ totalUsd: string | null }> };
     };
     const alices = await caller.portfolio.summary({ userId: BOB });
@@ -171,7 +171,7 @@ describe('bank.portfolio.summary', () => {
   it('refuses an anonymous caller and a token without bank:read, and reads nothing', async () => {
     const { ledger, asked } = fakeLedger(rows);
     const svc = new PortfolioService(ledger, noSpaces, { tickers: fakeTrade({}).source });
-    const bank = { portfolio: svc } as unknown as BankServices;
+    const bank = { portfolio: svc } as BankServices;
 
     await expect(createBankRouter(bank).createCaller(anonymous()).portfolio.summary()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     await expect(callerFor(svc, principal(ALICE, ['trade:read'])).portfolio.summary()).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -239,7 +239,7 @@ describe('httpTickerSource, the cross-service call to svc-trade', () => {
     (async (u: string) => {
       urls.push(u);
       return u.includes('/api/v1/tickers') ? tickers() : markets();
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
   it('reads /api/v1/tickers and /api/v1/markets (limit 500) and parses prices and the listed set', async () => {
     const urls: string[] = [];
@@ -278,7 +278,7 @@ describe('httpTickerSource, the cross-service call to svc-trade', () => {
       new Promise((resolve, reject) => {
         init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
         if (u.includes('/markets')) resolve(json([]));
-      })) as unknown as typeof fetch;
+      })) as typeof fetch;
     const src = httpTickerSource({ baseUrl: 'http://trade.test', fetchImpl, timeoutMs: 20 });
     await expect(src.prices()).rejects.toMatchObject({ code: 'bank.prices_unavailable', message: COPY });
 
@@ -286,7 +286,7 @@ describe('httpTickerSource, the cross-service call to svc-trade', () => {
       new Promise((resolve, reject) => {
         init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
         if (u.includes('/tickers')) resolve(json({}));
-      })) as unknown as typeof fetch;
+      })) as typeof fetch;
     await expect(httpTickerSource({ baseUrl: 'http://trade.test', fetchImpl: slowMarkets, timeoutMs: 20 }).prices()).rejects.toMatchObject({
       code: 'bank.prices_unavailable',
     });
@@ -302,7 +302,7 @@ describe('httpTickerSource, the cross-service call to svc-trade', () => {
     await expect(
       make((async () => {
         throw new TypeError('fetch failed');
-      }) as unknown as typeof fetch).prices(),
+      }) as typeof fetch).prices(),
     ).rejects.toMatchObject(refused);
     await expect(make(trade(() => json([1, 2]), okMarkets)).prices()).rejects.toMatchObject(refused);
     await expect(make(trade(ok, () => json({ not: 'a list' }))).prices()).rejects.toMatchObject(refused);
@@ -316,7 +316,7 @@ describe('httpTickerSource, the cross-service call to svc-trade', () => {
         baseUrl: 'http://trade.test',
         fetchImpl: (async () => {
           throw new TypeError('fetch failed');
-        }) as unknown as typeof fetch,
+        }) as typeof fetch,
       }),
     });
     const err = await callerFor(svc, principal(ALICE))

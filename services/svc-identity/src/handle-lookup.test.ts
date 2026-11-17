@@ -55,7 +55,7 @@ function setup(limiter?: HandleLookupLimiter) {
   const handleOf = vi.fn(async (userId: string) => (userId === ME ? 'Me_Self' : null));
   const selfView = vi.fn(async (userId: string) => (userId === ME ? { handle: 'Me_Self', emailVerified: false } : null));
   const auth = { findActiveByHandle, handleOf, selfView } as unknown as AuthService;
-  const router = createIdentityRouter(auth, {} as unknown as RankService, {
+  const router = createIdentityRouter(auth, {} as RankService, {
     registrationOpen: true,
     ...(limiter ? { handleLookupLimiter: limiter } : {}),
   });
@@ -168,7 +168,7 @@ describe('identity.users.resolveHandle', () => {
     const payeeCardOf = vi.fn(async () => ({ name: 'Luffy', memberSince: '2026-03', discoverable: true }));
     const searchPayee = vi.fn(async () => ({ userId: FRIEND, handle: 'Luffy' }));
     const auth = { findActiveByHandle, payeeCardOf, searchPayee } as unknown as AuthService;
-    const router = createIdentityRouter(auth, {} as unknown as RankService, { registrationOpen: true, handleLookupLimiter: limiter });
+    const router = createIdentityRouter(auth, {} as RankService, { registrationOpen: true, handleLookupLimiter: limiter });
     const narrow = router.createCaller(await ctx({ scopes: ['trade:read'] }));
 
     await expect(narrow.users.resolveHandle({ handle: 'luffy' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -218,7 +218,7 @@ describe('identity.users.payeeCard (J-pay-01 #2)', () => {
   function cardSetup() {
     const payeeCardOf = vi.fn(async (userId: string) => cards.get(userId) ?? null);
     const auth = { payeeCardOf } as unknown as AuthService;
-    return { router: createIdentityRouter(auth, {} as unknown as RankService, { registrationOpen: true }), payeeCardOf };
+    return { router: createIdentityRouter(auth, {} as RankService, { registrationOpen: true }), payeeCardOf };
   }
 
   it('answers exactly the chosen name and the month joined for a findable account, never more', async () => {

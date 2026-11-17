@@ -2311,7 +2311,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
 describe('the at-mark open is retired while matched mode is on', () => {
   it('a new at-mark open refuses before anything is read or locked when the matching switch is on', async () => {
     const { PositionService: Positions } = await import('./position-service.js');
-    const fake = {} as unknown as LedgerClient;
+    const fake = {} as LedgerClient;
     const positions = new Positions({} as never, fake, {
       marks: memoryMarkBook().source(),
       profitSource: null,

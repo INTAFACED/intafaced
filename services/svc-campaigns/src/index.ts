@@ -5,6 +5,7 @@ import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { parseAmount } from '@intafaced/ledger-client';
+import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { CampaignService, parseTimeZone } from './campaigns.js';
 import { createCompetitionFillSource } from './competition-fills.js';
@@ -20,6 +21,7 @@ import { createMarketNames } from './markets.js';
 import { ReferralService } from './referrals.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
+import { RiskService } from './risk.js';
 import { RewardPayer, rewardsPaidToWallet } from './reward-payer.js';
 import { ledgerPostingEnabled, testRewardChain } from './test-chain.js';
 import { TaskService } from './tasks.js';
@@ -29,6 +31,7 @@ import { WatchService } from './watch.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
+import { ageReward } from './test-age-door.js';
 import { parseTgeSchedule } from './tge.js';
 
 registerProcessHooks(
@@ -46,6 +49,9 @@ registerProcessHooks(
  * CAMPAIGNS_PLATFORM_TIME_ZONE boots and refuses every activation and join `campaigns.timezone_unset`.
  */
 const tgeSchedule = parseTgeSchedule(env.CAMPAIGNS_TGE_SCHEDULE_JSON);
+// The TEST age door (packages/service-kit test-age.ts): off unless TEST_AGE_DOOR=on, which refuses to start outside a
+// TEST stack, so it is read before anything opens.
+const testAgeDoor = testAgeDoorOpen(process.env);
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
@@ -73,7 +79,16 @@ const rewardCeiling = {
   perCampaign: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN),
   total: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_TOTAL),
 };
-const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds, rewardCeiling }) : null;
+// The risk review (J-campaigns-18): every reward passes its account check before anything is owed or posted.
+const risk = new RiskService({
+  sql,
+  ledger,
+  participants: participantsWired ? participants : null,
+  threshold: env.CAMPAIGNS_RISK_SIGNAL_THRESHOLD ?? null,
+  appealWindowSeconds: env.CAMPAIGNS_RISK_APPEAL_WINDOW_SECONDS ?? null,
+});
+const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds, rewardCeiling, gate: risk }) : null;
+if (saga) risk.useSaga(saga);
 const markets = env.TRADE_URL ? createMarketNames({ tradeUrl: env.TRADE_URL }) : null;
 // The welcome deposit task's reads (J-campaigns-04 #2): the person's connected wallets and the venue's deposits.
 const venueDeposits =
@@ -210,6 +225,7 @@ const appRouter = createCampaignsRouter(
   distributions,
   pools,
   trialPasses,
+  risk,
 );
 // svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
 // or by the shared secret where keys are not wired.
@@ -238,11 +254,24 @@ app.get('/ready', async (_req, reply) => {
       voucherAttempts: attemptLimits ? 'set' : 'campaigns.attempt_limit_unset',
       ledger: saga ? 'set' : 'campaigns.reward_saga_unwired',
       reconciler: saga && reconcileAfterSeconds ? 'set' : 'campaigns.reconcile_unset',
+      riskThreshold: risk.threshold === null ? 'campaigns.risk_threshold_unset' : 'set',
+      appealWindow: risk.appealWindowSeconds === null ? 'campaigns.appeal_window_unset' : 'set',
       bus: bus ? 'attached' : 'unreachable',
     };
   } catch {
     return reply.code(503).send({ ok: false, service: env.SERVICE_NAME, database: 'unavailable' });
   }
+});
+
+// Its own plugin scope: the raw body its signature check needs is kept for this one route, and every other route reads
+// JSON as before.
+await app.register(async (scope) => {
+  registerTestAgeDoor(scope, {
+    open: testAgeDoor,
+    internalSecret: env.INTERNAL_SERVICE_SECRET,
+    s2s: s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined,
+    subjects: { reward: ageReward(sql) },
+  });
 });
 
 await app.register(fastifyTRPCPlugin, {

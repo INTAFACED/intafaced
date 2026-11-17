@@ -274,6 +274,7 @@ export async function createOnramp(
     assetId: quote.asset_id,
     amount: formatAmount(parseAmount(quote.amount)),
     ...(input.walletAddress ? { walletAddress: input.walletAddress } : {}),
+    quoteExpiresAt: quote.expires_at,
   });
   if (!instruction) {
     throw new BankError(

@@ -10,7 +10,7 @@ import {
   currentSharedCardRoute as currentReadRoute,
   subscribeSharedCardRoute as subscribeReadRoute,
 } from '../more/blueprint-shared-card-contract';
-import { apiKeyReadWindows, readApiKeyRecords, type ApiKeyReadWindow, type ApiKeyRecord } from './api-key-records-api';
+import { readApiKeyRecords, type ApiKeyReadWindow, type ApiKeyRecord } from './api-key-records-api';
 import { copy } from './copy';
 import { ApiKeyRevocation, useApiKeyRevocation } from './ApiKeyRevocation';
 import { canReviewApiKeyRevoke } from './api-key-revoke-contract';
@@ -115,17 +115,6 @@ export function ApiKeyRecords() {
     }
     if (!requestCurrent(request)) return;
     show(result.ok ? { status: 'ready', request, rows: result.data } : { status: 'failed', request, failure: result });
-  }
-  function chooseWindow(value: string) {
-    if (!actionCurrent()) return;
-    const next = apiKeyReadWindows.find((choice) => String(choice) === value);
-    if (!next || next === limit) return;
-    discard();
-    leaseRef.current = null;
-    flushSync(() => {
-      show({ status: 'idle' });
-      setLimit(next);
-    });
   }
   const revocation = useApiKeyRevocation({
     api,

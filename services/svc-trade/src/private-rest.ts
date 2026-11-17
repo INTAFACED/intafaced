@@ -1,3 +1,4 @@
+import type { VenueStatements } from './venue/venue-statements.js';
 import { attachApiKeyRotationRoutes, type ApiKeyRotationClient } from './account/api-key-rotation-rest.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
@@ -109,7 +110,6 @@ import type { LiveRuns } from './quant/live-run/live-runs.js';
 import type { OwnAgentTrading } from './venue/own-agent-trading.js';
 import type { AgentAccounts } from './venue/agent-account.js';
 import type { AgentOrders } from './venue/agent-orders.js';
-import type { UserVenueDoor } from './venue/user-venue-door.js';
 import type { UserVenueRouter } from './venue/venue-router.js';
 import type { VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import type { GridService } from './grid/grid-service.js';
@@ -242,6 +242,8 @@ export interface PrivateRestDeps {
   liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
+  /** The statement export on the venue's own records (J-cex-spot-07 #5). Absent: its routes answer 503. */
+  venueStatements?: VenueStatements | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -1464,6 +1466,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     spreadLimitBps: deps.userVenueSpreadLimitBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
+    venueStatements: deps.venueStatements ?? null,
     agentKeyConfined,
   });
   attachAgentAccountRoutes(

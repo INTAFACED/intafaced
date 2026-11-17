@@ -56,7 +56,7 @@ const buy = (amount = '0.01'): PlaceUserOrderIntent =>
     timeInForce: 'GTC',
     reduceOnly: false,
     builderFee: null,
-  }) as unknown as PlaceUserOrderIntent;
+  }) as PlaceUserOrderIntent;
 
 describe('UserVenueDoor: an order over the API with an Idempotency-Key (J-developer-05)', () => {
   let server: http.Server;

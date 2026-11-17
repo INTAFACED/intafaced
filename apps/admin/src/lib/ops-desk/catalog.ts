@@ -382,6 +382,11 @@ const bankSections: readonly DeskSection[] = [
         label: 'Card disputes',
         why: 'The dispute queue and each case are on their own pages.',
       },
+      {
+        href: '/bank-ops/cards',
+        label: 'Card programme',
+        why: 'The set-up checklist, configuration, authorisation rules, 3DS, cardholders, the decision log, reports, staff roles and bulk issue are on their own page.',
+      },
     ],
   },
   {
@@ -2248,6 +2253,11 @@ const moreSections: readonly DeskSection[] = [
         href: '/more-ops/campaigns/watch',
         label: 'Campaign watch',
         why: 'Running campaigns counted from svc-campaigns: KPIs, trends, alerts, and each campaign’s participation, vouchers, redemptions, code batches and exports.',
+      },
+      {
+        href: '/more-ops/campaigns/risk',
+        label: 'Risk review',
+        why: 'Accounts with duplicate-account, device and anti-churn signals: held rewards, withholding, revoking and appeals decided by a second person.',
       },
       {
         href: '/more-ops/campaigns',

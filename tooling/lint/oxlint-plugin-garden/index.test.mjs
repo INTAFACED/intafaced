@@ -57,10 +57,20 @@ test('the six garden rules fire on their weeds and name the fix', { skip: !exist
   assert.ok(has(out, 'reasonless.ts', 'garden(require-suppression-reason)'), out.join('\n'));
   assert.ok(has(out, 'src/wait.test.ts', 'garden(no-real-clock-wait-in-tests)'), out.join('\n'));
   assert.ok(
-    out.some((l) => l.includes('no-real-clock-wait-in-tests') && l.includes('useFakeTimers')),
-    'the wait message names the fix',
+    out.some((l) => l.includes('no-real-clock-wait-in-tests') && l.includes('useFakeTimers') && l.includes('agePast')),
+    'the wait message names the fix: a fake clock in a unit test, the TEST age door in a journey',
   );
   assert.ok(has(out, 'page.pw.mjs', 'garden(no-wait-for-timeout)'), out.join('\n'));
+  assert.ok(
+    out.some(
+      (l) =>
+        l.includes('no-wait-for-timeout') &&
+        l.includes('agePast (the test-age helper in apps/customer/tests/real-app; svc-trade and svc-campaigns have the door today') &&
+        l.includes('locator, response or event') &&
+        l.includes('oxlint-disable-next-line garden/no-wait-for-timeout -- why'),
+    ),
+    'the waitForTimeout message names the TEST age door, the event, and how to keep a wait that proves nothing happens',
+  );
   assert.ok(has(out, 'any.ts', 'no-explicit-any'), out.join('\n'));
 });
 
@@ -71,6 +81,8 @@ test('the clean forms pass', { skip: !existsSync(OXLINT) && 'no node_modules' },
     'src/fake.test.ts': 'export function t(vi) {\n  vi.useFakeTimers();\n}\n',
     'imports.ts': "import { isRecord } from '@intafaced/contracts/guards';\nexport const ok = isRecord({});\n",
     'prod-wait.ts': 'export const later = () => new Promise((r) => setTimeout(r, 50));\n',
+    'kept.pw.mjs':
+      'export async function t(page) {\n  // oxlint-disable-next-line garden/no-wait-for-timeout -- proves no second toast arrives\n  await page.waitForTimeout(500);\n}\n',
   });
   const garden = out.filter((l) => l.includes('garden('));
   assert.deepEqual(garden, [], garden.join('\n'));
@@ -301,6 +313,119 @@ test('no-number-money: a money field accepted as a number and converted fires; a
   assert.ok(!has(out, 'services/svc-x/src/refuse.ts', 'garden(no-number-money)'), out.join('\n'));
   assert.ok(!has(out, 'services/svc-x/src/count.ts', 'garden(no-number-money)'), 'not a money word');
   assert.ok(!has(out, 'services/svc-x/src/desk.test.ts', 'garden(no-number-money)'), 'tests are not judged');
+});
+
+// What apps/customer/src/{data,screens/trade/desk,screens/trade/options}/money-paths.test.ts judge, held at the moment of
+// writing, and the customer app beyond.
+test('no-number-money: the customer app never makes money a float, and chartValue() is the one way onto a chart', skip, () => {
+  const C = 'apps/customer/src/';
+  const out = lint({
+    // #8644's two cases: the chart's float sent as an order's amount, and a money value made a float in shared/.
+    [`${C}screens/trade/desk/Ticket.tsx`]:
+      "import { chartValue } from '../../../shared/chart-value';\nexport const intent = (a: string) => ({ kind: 'place_order', amount: String(chartValue(a)) });\n",
+    [`${C}shared/send.ts`]: 'export function amountToSend(amount: string): number {\n  return Number(amount);\n}\n',
+    [`${C}features/x/body.ts`]: 'export const body = (a: string) => JSON.stringify({ amount: chartValue(a) });\n',
+    [`${C}features/x/label.ts`]: 'export const label = (p: string) => `${chartValue(p)} USD`;\n',
+    [`${C}features/x/held.ts`]: 'export function f(p: string) {\n  const y = chartValue(p) * 2;\n  return y.toFixed(2);\n}\n',
+    [`${C}features/x/names.ts`]:
+      'export const a = (o: { price: string }) => parseFloat(o.price);\nexport const b = (amount: string) => +amount;\nexport const c = (t: string) => Number(t.trim()) + Number.parseFloat(feeTotal);\n',
+    [`${C}features/x/parts.ts`]:
+      'export const a = (o: { priceUsd: string }) => Number(o.priceUsd);\nexport const b = (amount_in: string) => Number(amount_in);\nexport const c = (bar: { c: string }) => Number(bar.c);\nexport const d = (prices: string[]) => prices.map(Number);\n',
+    [`${C}features/x/venue.ts`]:
+      'export const a = (o: { px: string; markPx: string }) => Number(o.px) + Number(o.markPx);\nexport const b = (prices: string[]) => prices.map((p) => Number(p));\nexport const c = (amount: string) => parseInt(amount, 10);\n',
+    [`${C}features/x/callbacks.ts`]: [
+      'export const a = (amounts: string[]) => amounts.map((p) => {\n  return Number(p);\n});',
+      'export const b = (amounts: string[]) => amounts.map(function (p) {\n  return Number(p);\n});',
+      'export const c = (amounts: string[]) => amounts.reduce((s, x) => s + Number(x), 0);',
+      'export const d = (amounts: string[]) => Array.from(amounts, Number);',
+      'export const e = (amounts: string[]) => amounts.map(Number.parseFloat);',
+      'export const f = (amount: string) => Number(String(amount));',
+      'export const g = (ids: string[], amounts: string[]) => ids.map((p) => Number(p)).concat(amounts.length);',
+      '',
+    ].join('\n'),
+    [`${C}features/x/alias.ts`]:
+      "import { chartValue as cv } from '../../shared/chart-value';\nexport const s = (a: string) => String(cv(a));\n",
+    [`${C}features/x/space.ts`]:
+      "import * as ns from '../../shared/chart-value';\nexport const s = (a: string) => String(ns.chartValue(a));\n",
+    [`${C}features/x/shown.tsx`]:
+      'import { chartValue } from \'../../shared/chart-value\';\nexport const P = ({ a }: { a: string }) => <span title="x">{chartValue(a)}</span>;\nexport const L = ({ a }: { a: string }) => <Line price={chartValue(a)} />;\n',
+    [`${C}features/x/book.ts`]: [
+      'export const a = (bids: [string, string][]) => bids.map(([p, s]) => Number(p) * Number(s));',
+      'export function b(amounts: string[]) {\n  let t = 0;\n  for (const p of amounts) t += Number(p);\n  return t;\n}',
+      'export const c = (p: string) => Number(p);',
+      '',
+    ].join('\n'),
+    [`${C}features/x/counts.ts`]:
+      'export const a = (o: { widthPx: string; lastSeenAt: string; totalPages: string; pageSize: string }) =>\n  Number(o.widthPx) + Number(o.lastSeenAt) + Number(o.totalPages) + Number(o.pageSize);\n',
+    [`${C}features/x/rates.ts`]:
+      'export const a = (feeBps: string) => Number(feeBps);\nexport const b = (m: { open: boolean }) => Number(m.open);\nexport const c = (ids: string[]) => ids.map(Number);\nexport const d = (ids: string[]) => ids.map((id) => Number(id));\nexport const e = (page: string) => parseInt(page, 10);\n',
+    [`${C}data/poll.spec.ts`]: 'export const ms = (s: string) => Number(s);\n',
+    // The folders the scanner tests judged: every float conversion, whatever it is called.
+    [`${C}data/poll.ts`]: 'export const ms = (s: string) => Number(s);\n',
+    [`${C}data/deep/fixed.ts`]: 'export const f = (n: number) => n.toFixed(2);\n',
+    [`${C}screens/trade/desk/Book.tsx`]: 'export const n = (s: string) => +s;\n',
+    [`${C}screens/trade/options/Chain.tsx`]:
+      'export const n = (s: string) => new Number(s);\nexport const chartValue = (v: string) => Number(v);\n',
+    // Quiet: the exit itself, chart math on its result, names that are not money, the scanners' own exemptions, prose.
+    [`${C}shared/chart-value.ts`]: 'export function chartValue(value: string): number {\n  return Number(value);\n}\n',
+    [`${C}screens/trade/chart/depth.ts`]:
+      "import { chartValue } from '../../../shared/chart-value';\nexport const d = (h: { y(p: number): number }, price: string) => {\n  const y = h.y(chartValue(price));\n  return `M ${y.toFixed(1)}`;\n};\n",
+    [`${C}features/x/plain.ts`]:
+      'export const m = (minutes: string) => Number(minutes.trim()) * 60;\nexport const ok = (ms: number) => Number.isFinite(ms);\n',
+    [`${C}data/sparkline.ts`]: 'export const y = (s: string) => Number(s);\n',
+    [`${C}data/__fixtures__/book.ts`]: 'export const y = (s: string) => Number(s);\n',
+    [`${C}screens/trade/desk/chart/axis.ts`]: 'export const y = (s: string) => Number(s);\n',
+    [`${C}data/prose.ts`]:
+      "// never parseFloat(x) or Number(x)\nexport const s = 'Number(x) .toFixed(2)';\nexport const t = (a: number, b: number) => a + b;\n",
+    [`${C}data/poll.test.ts`]: 'export const ms = (amount: string) => Number(amount);\n',
+    'services/svc-x/src/rate.ts': 'export const r = (amount: string) => Number(amount);\n',
+  });
+  const fires = (file, n = 1) =>
+    assert.equal(
+      out.filter((l) => l.startsWith(`${file}:`) && l.includes('garden(no-number-money)')).length,
+      n,
+      `${file}\n${out.join('\n')}`,
+    );
+  fires(`${C}screens/trade/desk/Ticket.tsx`);
+  assert.ok(
+    out.some((l) => l.startsWith(`${C}screens/trade/desk/Ticket.tsx:`) && l.includes('send or show the decimal string it was made from')),
+    'the chart case names the fix',
+  );
+  fires(`${C}shared/send.ts`);
+  assert.ok(
+    out.some((l) => l.startsWith(`${C}shared/send.ts:`) && l.includes('`amount` is money') && l.includes('parseAmount/formatAmount')),
+    'the float case names the fix',
+  );
+  fires(`${C}features/x/body.ts`);
+  fires(`${C}features/x/label.ts`);
+  fires(`${C}features/x/held.ts`);
+  fires(`${C}features/x/names.ts`, 3);
+  fires(`${C}features/x/parts.ts`, 4);
+  fires(`${C}features/x/venue.ts`, 4);
+  fires(`${C}features/x/callbacks.ts`, 6);
+  fires(`${C}features/x/alias.ts`);
+  fires(`${C}features/x/space.ts`);
+  fires(`${C}features/x/shown.tsx`);
+  fires(`${C}features/x/book.ts`, 3);
+  fires(`${C}features/x/counts.ts`, 0);
+  fires(`${C}features/x/rates.ts`, 0);
+  fires(`${C}data/poll.spec.ts`);
+  fires(`${C}data/poll.ts`);
+  fires(`${C}data/deep/fixed.ts`);
+  fires(`${C}screens/trade/desk/Book.tsx`);
+  fires(`${C}screens/trade/options/Chain.tsx`, 2);
+  for (const quiet of [
+    'shared/chart-value.ts',
+    'screens/trade/chart/depth.ts',
+    'features/x/plain.ts',
+    'data/sparkline.ts',
+    'data/__fixtures__/book.ts',
+    'screens/trade/desk/chart/axis.ts',
+    'data/prose.ts',
+    'data/poll.test.ts',
+  ])
+    fires(`${C}${quiet}`, 0);
+  fires('services/svc-x/src/rate.ts', 0);
 });
 
 test('no-random-request-key: a random key fires directly, in a template and through a const; a held key does not', skip, () => {

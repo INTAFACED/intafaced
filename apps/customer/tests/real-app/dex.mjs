@@ -101,6 +101,17 @@ export async function connectWallet(page, dex, { tokens = [], chainId = CHAIN_ID
   return wallet;
 }
 
+/**
+ * The TEST wallet connected in the open room, until `connected` shows: Connect is pressed once when the room asks for it,
+ * and not at all when the room restored the wallet itself. `within` is the part of the page whose Connect is meant.
+ */
+export async function connectWhenAsked(page, connected, within = page) {
+  const connect = within.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  await expect(connect.or(connected).first()).toBeVisible({ timeout: 30_000 });
+  if (!(await connected.isVisible())) await connect.click();
+  await expect(connected).toBeVisible();
+}
+
 /** Opens one section of the wallet room (Overview, Activity, Approvals, Session keys, Accounts, Safety, ...) by its tab. */
 export async function walletSection(page, name) {
   await page.getByRole('button', { name, exact: true }).click(UNBUILT);

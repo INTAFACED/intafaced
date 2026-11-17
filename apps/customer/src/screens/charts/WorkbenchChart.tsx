@@ -8,6 +8,7 @@
  * tokens (`--if-*`), never from literals here.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { chartValue } from '../../shared/chart-value';
 import { usePreferences } from '../../shared/preferences';
 import type { Candle } from '../../data/types';
 import { legendValues, planUpdate, priceFormat } from '../trade/chart/chart-data';
@@ -247,7 +248,7 @@ export function WorkbenchChart({
     const colour = readColors(scheme).text;
     const lines = priceLines.map((line) =>
       series.createPriceLine({
-        price: Number(line.price),
+        price: chartValue(line.price),
         color: colour,
         lineWidth: 1,
         lineStyle: 2,

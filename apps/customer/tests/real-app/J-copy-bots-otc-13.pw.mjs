@@ -10,6 +10,7 @@ import { api, bestPrices, fund, journeyState, STACK_PORTS, tool, toUnits } from 
 import { fundedTrader, signIn } from './desk.mjs';
 import { followOnScreen, listLeader, userIdOf } from './copy.mjs';
 import { staffSignIn } from './staff.mjs';
+import { agePast } from './test-age.mjs';
 
 // J-copy-bots-otc-13, in the running app (docs/roadmap/journeys.json): support finds a customer's follows, bots and OTC
 // quotes and reads the module numbers, on the founder console. One test per step, titled "J-copy-bots-otc-13 #<n>", run
@@ -478,10 +479,21 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   };
   const quoteId = await ask();
   await acceptQuote(quoteId);
+  const accepted = await read(quoteId);
+  expect(accepted.lifecycle).toBe('bound');
+  expect(accepted.settleBy).toBeTruthy();
+  const { agedMs } = await agePast('trade', 'otc-quote', quoteId, accepted.settleBy);
+  // Past its deadline: still bound at the same price, with its times all moved back by the same amount.
   const bound = await read(quoteId);
-  expect(bound.lifecycle).toBe('bound');
-  expect(bound.settleBy).toBeTruthy();
-  await page.waitForTimeout(Math.max(0, Date.parse(bound.settleBy) - Date.now()) + 1_000);
+  const back = (at) => new Date(Date.parse(at) - agedMs).toISOString();
+  expect(bound).toEqual({
+    ...accepted,
+    createdAt: back(accepted.createdAt),
+    expiresAt: back(accepted.expiresAt),
+    acceptedAt: back(accepted.acceptedAt),
+    settleBy: back(accepted.settleBy),
+  });
+  expect(Date.parse(bound.settleBy)).toBeLessThan(Date.now());
   // A settled quote: asked, accepted and settled now, inside its window.
   const settledId = await ask();
   await acceptQuote(settledId);

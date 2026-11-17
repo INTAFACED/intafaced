@@ -21,6 +21,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, testChain }) => ({
     // campaign windows and calendar are read in. Production stays blank and every campaign activation and join refuses
     // campaigns.timezone_unset until the owner sets it. J-campaigns-01 makes its TEST campaigns through the founders.
     CAMPAIGNS_PLATFORM_TIME_ZONE: 'UTC',
+    // The TEST age door (packages/service-kit test-age.ts): a journey makes one TEST reward's hold or lock end now instead
+    // of waiting it out (J-campaigns-03 #3 #4 #6). svc-campaigns refuses to start with it outside APP_ENV dev/test or under
+    // NODE_ENV=production.
+    TEST_AGE_DOOR: 'on',
     // The participant read for exclusions and region lists (CM-eligibility-rules-01, J-campaigns-01 #4-#5), signed with
     // the stack's shared service secret from c().
     IDENTITY_URL: urlOf('identity'),
@@ -53,6 +57,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, testChain }) => ({
     // each alert reads "not set" and refuses to be switched on. Production leaves all of them blank until the owner sets them.
     ...(process.env.LOCAL_STACK_CAMPAIGNS_CODE_BATCH_MAX === 'off' ? {} : { CAMPAIGNS_CODE_BATCH_MAX: '5' }),
     CAMPAIGNS_EXPORT_LINK_SECONDS: '20',
+    // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the risk review (J-campaigns-18). Two
+    // distinct signals hold an account's rewards for review, and a customer may appeal for 15 minutes after a revocation.
+    // `LOCAL_STACK_CAMPAIGNS_RISK_THRESHOLD=off` and `LOCAL_STACK_CAMPAIGNS_APPEAL_WINDOW=off` leave each blank, so its
+    // refusal can be seen too. Production leaves both blank until the owner sets them.
+    ...(process.env.LOCAL_STACK_CAMPAIGNS_RISK_THRESHOLD === 'off' ? {} : { CAMPAIGNS_RISK_SIGNAL_THRESHOLD: '2' }),
+    ...(process.env.LOCAL_STACK_CAMPAIGNS_APPEAL_WINDOW === 'off' ? {} : { CAMPAIGNS_RISK_APPEAL_WINDOW_SECONDS: '900' }),
     // Paying owed rewards to the customer's own wallet (J-campaigns-03 #2 #3): LOCAL TEST only, from the TEST rewards wallet
     // our collected TEST builder fees are swept to, on the stack's anvil straight (not the gate, which a journey may close
     // for svc-protocol alone), in its TEST USD (6 decimals). The wallet and the interval are labelled in

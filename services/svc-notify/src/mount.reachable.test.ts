@@ -162,7 +162,7 @@ async function call(
 
   const response = await fetch(url, {
     method,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: { 'content-type': 'application/json', ...init.headers },
     ...(method === 'POST' ? { body: JSON.stringify(init.input ?? {}) } : {}),
   });
   const text = await response.text();

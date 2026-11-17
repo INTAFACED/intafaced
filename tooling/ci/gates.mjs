@@ -40,11 +40,13 @@
  *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
  *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
  *        keep the full run (U4, project-state #1574).
+ *   node tooling/ci/gates.mjs --before-push
+ *        what .githooks/pre-push runs: every gate but LEFT_TO_CI_BEFORE_PUSH, all at once.
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 
 const ROOT = process.cwd();
 const CI_DIR = join(ROOT, 'tooling', 'ci');
@@ -349,6 +351,10 @@ export const NOT_GATES = {
     "not a gate: the node:test file that a workflow step running main's copy of a script runs it from a worktree of main, never from single files copied out with `git show` (their imports went stale and the Test-diff guard died with ERR_MODULE_NOT_FOUND, INTAFACED/project-state#2284), with planted faults. tooling-tests.mjs runs it with every other tooling test.",
   'workflow-concurrency.test.mjs':
     "not a gate: the node:test file of the workflows' concurrency shape (one run per pull request; a main journeys run never cancelled and in one group, OWNER 206; a superseded branch journeys run cancelled), with planted faults for each. tooling-tests.mjs runs it with every other tooling test.",
+  'model-check.mjs':
+    "the plan of model-check.yml: which TLA+ models a change is checked against (every model, when a modelled service, a path a COVERS.md names or the check itself changes), failing on a model nothing runs. Not a doctrine gate: it needs the pull request's changed files, and the models need Java and minutes, so the Model check workflow runs it; its tests are model-check.test.mjs.",
+  'model-check.test.mjs':
+    'not a gate: the node:test file of model-check.mjs (every model found, the plan on the repo and on planted trees, the workflow shape). tooling-tests.mjs runs it.',
   'journey-verdict.mjs':
     "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
   'journey-verdict.test.mjs':
@@ -386,7 +392,7 @@ export const NOT_GATES = {
   'journey-list-guard.test.mjs':
     'not a gate: the node:test file of journey-list-guard.mjs, its planted cases (a dropped journey, a dropped step, a newly parked step, an unknown slice id, a regenerated ROADMAP.md hiding a drop, a stale ROADMAP.md and a retirement line without an OWNER number each fail; main’s list passes; a merge built on an older main passes after main adds a journey, and still fails when it drops one of its own base’s). tooling-tests.mjs runs it with every other tooling test.',
   'lint-ratchet.test.mjs':
-    "not a gate: the node:test file of lint-ratchet.mjs, its planted pull requests in a throwaway repository (a rise fails and names the rule, a rise paid for in the same file passes, a rule switched off in the pull request's own config still fails, a moved function passes, a printOnly rule only prints, a rule that replaced a test of added files fails there even when paid for). The tooling tests run it.",
+    "not a gate: the node:test file of lint-ratchet.mjs, its planted pull requests in a throwaway repository (a rise fails and names the rule, a rise paid for in the same file passes, a rule switched off in the pull request's own config still fails, a moved function passes, a printOnly rule only prints, a new fixed wait in a journey or a unit test fails under the repository's own ratchet.json while one kept with a reason passes, a rule that replaced a test of added files fails there even when paid for). The tooling tests run it.",
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. A test deleted or loosened after it failed on an earlier head of the PR fails with no line that clears it. It covers unit tests, the browser harnesses and look sweeps (`*.pw.mjs`; a changed journey step file `J-*.pw.mjs` on a pull request the test judge runs for is the judge’s, `judged-paths.mjs` leftToJudge) and look baselines (`look-baselines/<room>/*.png`, which need a `Baseline-change: <room>` line and the independent review). `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'look-drift.mjs':
@@ -399,6 +405,8 @@ export const NOT_GATES = {
     'not a gate: the node:test file of ci-review.mjs and of review-marker.mjs ciReviewVerdict, the planted cases of the CI review (a reviewed gate-file PR seals; no verdict, a PASS comment, an older head, a FAIL re-run and a branch copy of the workflow do not) and of which changes need it (gate files and look baselines do; money-only and security-only changes do not), and the third FAIL in a row (a re-run on one head counts once, a PASS ends the row). tooling-tests.mjs runs it with every other tooling test.',
   'ci-review-parts.test.mjs':
     "not a gate: the node:test file of ci-review.mjs splitDiff, readableDiff, exactReverse and automaticRevert, the planted cases of a diff over the cap reviewed in parts (any part FAIL is a FAIL; a part with no answer is no verdict; one hunk over the cap still fails), an empty diff (no verdict) and main-bisect's automatic revert (a hand edit, another author or branch, or a culprit main lacks gets no trusted fact). tooling-tests.mjs runs it with every other tooling test.",
+  'ci-review-classes.test.mjs':
+    "not a gate: the node:test file of ci-review.mjs findingClass and findingClasses, the planted cases of a FAIL's findings read as their correction classes (the closed list from project-state #2582 and other, the most specific first, each listed once) and of judge printing one `CI review classes` annotation with no finding text on a FAIL and none on a PASS, with the same exit as before. tooling-tests.mjs runs it with every other tooling test.",
   'ci-review-owner.test.mjs':
     "not a gate: the node:test file of ci-review.mjs citedOwnerItems, ownerItems, ownerRecordSection, readOwnerRecord and writeReviewInputs' loadOwner, the planted cases of a REVIEW.md entry's cited project-state OWNER.md items given to the review as trusted input (an author's own copy stays quoted in the diff; no record reader is no verdict; a finding that repeats the record's private words is withheld). tooling-tests.mjs runs it with every other tooling test.",
   'reviewer-error.mjs':
@@ -409,6 +417,8 @@ export const NOT_GATES = {
     'runs only inside ci-review.yml, in steps that can\'t fail their job: when the judge is down (reviewer-error.mjs `down`), the pending `judge` commit status with its one action and one project-state issue "Judge down: CI review"; when a reviewer call succeeds, the status cleared, the issue closed and the CI review re-run on the oldest 10 open PR heads with no verdict (OWNER 289 point 11). Nothing that seals reads its status. Needs the event, GitHub tokens and the App\'s issues token, so a laptop verify has no input; `tooling/ci/judge-down.test.mjs` tests it.',
   'judge-down.test.mjs':
     "not a gate: the node:test file of the judge-down rule end to end: a planted bad key's and the weekly limit's answers through the Review step's own shell from ci-review.yml, the job they leave read by the seal (review-marker.mjs ciReviewVerdict: never a pass) and its wait (journey-seal.mjs inputsGoing and readGoing: waits, only for a change that needs the review), a real FAIL still blocking and a real PASS still passing, the catch-up order and cap, and the status and issue text. tooling-tests.mjs runs it with every other tooling test.",
+  'step-pictures.mjs':
+    "not a gate: runs only inside ci-review.yml's proof read, before the reader's call, and blocks nothing: it waits for the head's Real-app journeys runs, unpacks their shard artifacts and adds each step's end picture to the read's prompts (project-state #2693). Needs a GitHub token and a pull request's head, so a laptop verify has no input; `fetch` gets one run's pictures for a read made off CI. step-read.test.mjs tests it.",
   'step-read.mjs':
     "not a gate: runs only inside ci-review.yml, after the CI review's verdict steps, and blocks nothing (OWNER 257): it asks the proof reader's question (test-judge/READ.md, project-state READER.md step 3) of the steps a PR claims or whose own test it changes, on the readers' model, and publishes the answers as the proof v2 read artifact and the `proof v2 read` commit status, which no required check reads. Needs the event payload, a GitHub token, the project-state read token and the review key, so a laptop verify has no input; `local` replays a commit range from a clone.",
   'step-read.test.mjs':
@@ -452,7 +462,7 @@ export const NOT_GATES = {
   'app-token.test.mjs':
     'not a gate: the node:test file of app-token.mjs (the JWT verifies only with its key; a token granted more or other permissions than asked is refused). tooling-tests.mjs runs it with every other tooling test.',
   'gates.test.mjs':
-    'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged). tooling-tests.mjs runs it with every other tooling test.',
+    'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged) and --before-push (every gate but LEFT_TO_CI_BEFORE_PUSH, each a gate with its reason). tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
     'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
@@ -507,6 +517,11 @@ function manifestCheck() {
     if (!existsSync(join(ROOT, gate.script))) problems.push(`gate "${gate.id}" points at ${gate.script}, which does not exist.`);
   }
 
+  const ids = new Set(GATES.map((g) => g.id));
+  for (const id of Object.keys(LEFT_TO_CI_BEFORE_PUSH)) {
+    if (!ids.has(id)) problems.push(`LEFT_TO_CI_BEFORE_PUSH names "${id}", which is not a gate. Remove the entry.`);
+  }
+
   // The other half of the drift: CI must consume THIS list, not its own copy.
   const workflow = join(ROOT, '.github', 'workflows', 'ci.yml');
   if (existsSync(workflow) && !/pnpm\s+gates\b/.test(readFileSync(workflow, 'utf8'))) {
@@ -529,6 +544,23 @@ export function gatesToRun(gates, changed) {
   if (changed === null) return gates;
   const reachesTooling = changed.some((p) => TOOLING_TEST_PATHS.some((prefix) => p.startsWith(prefix)));
   return reachesTooling ? gates : gates.filter((g) => g.id !== 'tooling-tests');
+}
+
+// ── --before-push: the gates .githooks/pre-push runs, all at once ───────────
+/** The gates a push leaves to CI, each with why. Every other gate reads the pushed tree in seconds and runs before it. */
+export const LEFT_TO_CI_BEFORE_PUSH = {
+  'tooling-tests': 'about four minutes on the Mac; the hook runs the ones that read journey files itself',
+  'truth-check': 'the hook runs it itself, on every push',
+  'lint-ratchet': "the hook runs it itself, on the pushed files with main's rules",
+  'cross-package-reads': 'the hook runs it itself when a test or what it checks changed',
+  'secret-scan-mutation': 'proves secret-scan on planted files (19 s on the Mac): only a change to the scanner reaches it',
+  'money-property-mutation':
+    'rewrites packages/ledger-client/src/money.ts in place and runs vitest per mutant (15 s): only a change to the money primitives reaches it',
+  'empty-denominator': 'runs every gate against an empty tree (21 s on the Mac): only a change to a gate reaches it',
+};
+
+export function gatesBeforePush(gates) {
+  return gates.filter((g) => !Object.hasOwn(LEFT_TO_CI_BEFORE_PUSH, g.id));
 }
 
 /**
@@ -568,15 +600,37 @@ export const GATE_OUTPUT_MAX = 64 * 1024 * 1024;
 
 const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 
-if (RUN_AS_SCRIPT) main();
+if (RUN_AS_SCRIPT) await main();
 
-function main() {
+/** One gate as its own process: whether it passed, what it printed and how long it took. */
+export function runGate(gate) {
+  const started = process.hrtime.bigint();
+  return new Promise((done) => {
+    // The default 1 MB cut the tooling tests' output before its `not ok` lines (CI run 43623577056, 14 Nov).
+    execFile(
+      process.execPath,
+      [join(ROOT, gate.script), ...(gate.args ?? [])],
+      { encoding: 'utf8', cwd: ROOT, maxBuffer: GATE_OUTPUT_MAX },
+      (err, stdout, stderr) => {
+        if (!err && stderr) process.stderr.write(stderr);
+        done({
+          ok: !err,
+          output: err ? (stdout ?? '') + (stderr ?? '') : stdout,
+          ms: Number((process.hrtime.bigint() - started) / 1000000n),
+        });
+      },
+    );
+  });
+}
+
+async function main() {
+  const beforePush = process.argv.includes('--before-push');
   const changedOnly = process.argv.includes('--changed');
   // `--base <ref>` for a branch stacked on another (default origin/main).
   const baseAt = process.argv.indexOf('--base');
   const base = baseAt > 0 ? process.argv[baseAt + 1] : 'origin/main';
   const changed = changedOnly ? changedSinceMain(ROOT, base) : null;
-  const gates = gatesToRun(GATES, changed);
+  const gates = beforePush ? gatesBeforePush(GATES) : gatesToRun(GATES, changed);
 
   if (process.argv.includes('--list')) {
     for (const gate of gates) console.log(gate.id);
@@ -592,31 +646,22 @@ function main() {
 
   console.log(`\n══ DOCTRINE GATES (${gates.length}) ══\n`);
   if (changedOnly && changed === null) console.log(`  --changed: the diff against ${base} is unreadable, so every gate runs\n`);
+  else if (beforePush) console.log(`  --before-push: all at once; left to CI: ${Object.keys(LEFT_TO_CI_BEFORE_PUSH).join(', ')}\n`);
   else if (gates.length < GATES.length)
     console.log('  --changed: nothing under tooling/ or .github/ changed, so the tooling tests are left to CI\n');
 
   const failed = [];
   const advisoryNoise = [];
   let totalMs = 0;
+  const runStarted = process.hrtime.bigint();
 
-  for (const gate of gates) {
-    const started = process.hrtime.bigint();
-    let ok = true;
-    let output = '';
+  // CI runs one gate at a time; a push runs its gates at once and still reports them in the list's order.
+  const results = [];
+  if (beforePush) results.push(...(await Promise.all(gates.map(runGate))));
+  else for (const gate of gates) results.push(await runGate(gate));
 
-    try {
-      output = execFileSync(process.execPath, [join(ROOT, gate.script), ...(gate.args ?? [])], {
-        encoding: 'utf8',
-        cwd: ROOT,
-        // The default 1 MB cut the tooling tests' output before its `not ok` lines (CI run 43623577056, 14 Nov).
-        maxBuffer: GATE_OUTPUT_MAX,
-      });
-    } catch (err) {
-      ok = false;
-      output = (err.stdout ?? '') + (err.stderr ?? '');
-    }
-
-    const ms = Number((process.hrtime.bigint() - started) / 1000000n);
+  for (const [i, gate] of gates.entries()) {
+    const { ok, output, ms } = results[i];
     totalMs += ms;
 
     // Every gate is run. None is skipped because an earlier one failed — you
@@ -658,5 +703,6 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total\n`);
+  const wallMs = Number((process.hrtime.bigint() - runStarted) / 1000000n);
+  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total${beforePush ? `, ${wallMs}ms at once` : ''}\n`);
 }

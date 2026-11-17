@@ -31,7 +31,7 @@ import { SandboxView } from './Sandbox';
 import type { ApiKey, Delivery, Endpoint, Health } from './schemas';
 
 // TEST DATA only.
-const api = {} as unknown as SettingsBApi;
+const api = {} as SettingsBApi;
 const ready = <T,>(data: T) => ({ status: 'ready' as const, data });
 const key = (patch: Partial<ApiKey> = {}): ApiKey => ({
   id: 'TEST-key-1',

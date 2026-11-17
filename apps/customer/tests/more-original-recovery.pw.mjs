@@ -228,20 +228,6 @@ async function stage(page, mode) {
     await page.getByRole('button', { name: text('en', 'cancel.access'), exact: true }).click();
   } else await page.getByRole('button', { name: text('en', mode === 'release' ? 'release.2' : 'archive'), exact: true }).click();
 }
-function expected(mode, input) {
-  if (mode === 'purchase') return { listingId, purchaseId: input.purchaseId };
-  if (mode === 'application') return { displayName: rawTitle, description: rawDescription };
-  if (mode === 'release') return { ref: listingId };
-  if (mode === 'archive' || mode === 'cancel') return { listingId };
-  return {
-    title: rawTitle,
-    description: rawDescription,
-    assetId: asset,
-    price: exactPrice,
-    periodSeconds: 3600,
-    ...(mode === 'listing' ? { offerType: 'subscription' } : {}),
-  };
-}
 
 const observations = [];
 test.beforeEach(async ({ page }, info) => {

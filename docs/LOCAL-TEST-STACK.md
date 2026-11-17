@@ -15,6 +15,7 @@ One command starts a private copy of the INTAFACED backend and the Customer app 
 | `pnpm local:stack:plan`                              | Read-only: every service, port, database schema and where Edge sends each route. Changes nothing (`--json` for a machine-readable copy).                                                                                         |
 | `pnpm local:stack --only token,p2p`                  | Start only the named services (plus Postgres and NATS). Anything already running is left alone.                                                                                                                                  |
 | `pnpm local:stack:restart edge`                      | Stop the named services, then start whatever is not running. Use after Edge's wiring changes; other services and their data stay up.                                                                                             |
+| `pnpm local:stack verify <command>`                  | Prove a change in the running app, one command per step: `launch`, `doctor`, `drive <J-id> '#n'`, `look <path>`, `evidence`, `stop`. The steps, the feature map and the evidence: `.claude/skills/verify-intafaced/SKILL.md`.    |
 | `pnpm local:stack customer-dist <abs path>`          | Serve the Customer app from another folder (for example a redesign build under review). Saved, so `start` and `restart` keep it. `customer-dist` alone shows it; `customer-dist --clear` goes back to this checkout's own build. |
 
 ### Serving a different Customer build

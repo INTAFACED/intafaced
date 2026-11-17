@@ -1,5 +1,5 @@
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import { Amount, ChangeText, EmptyState, KeyValue, Price, Table, type TableColumn } from '@intafaced/ui';
+import { Amount, ChangeText, EmptyState, KeyValue, Table, type TableColumn } from '@intafaced/ui';
 import { fmtAmount, fmtPct, fmtPrice } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import { usePreferences } from '../../../shared/preferences';

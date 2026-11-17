@@ -17,6 +17,7 @@ import {
   type AmendUserOrderIntent,
   type ReplaceUserOrderIntent,
   type CancelUserOrdersIntent,
+  type ScheduleCancelIntent,
   venueClientOrderId,
   ordersTakenTogether,
   cancelsTakenTogether,
@@ -194,6 +195,8 @@ const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
 export type UserVenueDoorCode =
   | 'trade.user_venue_off'
+  | 'trade.cancel_all_after_rejected'
+  | 'trade.cancel_all_after_unset'
   | 'trade.venue.withdraw_own_wallet_only'
   | 'trade.venue_request_invalid'
   | 'trade.venue_together_owner_only'
@@ -412,6 +415,12 @@ export interface UserVenueDoorDeps {
    * and a fee-saver coupon (svc-campaigns). Absent: every order carries the builder fee in force.
    */
   readonly feeDiscounts?: BuilderFeeDiscounts;
+  /**
+   * The owner's published dead-man timeouts in seconds (TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC), or null/absent when blank
+   * (J-cex-spot-07): a venue scheduled cancel is armed only with one of them, and blank refuses
+   * `trade.cancel_all_after_unset`. Timeout 0 (remove it) is always allowed. Never a default.
+   */
+  readonly scheduledCancelTimeouts?: readonly number[] | null;
 }
 
 /**
@@ -703,6 +712,11 @@ export class UserVenueDoor {
       // and how many it cancels in one signed action (0: one cancel per signature).
       amendsInPlace: venue.venue.amendsInPlace === true,
       cancelsPerAction: cancelsTakenTogether(venue.venue),
+      // The venue's own scheduled cancel (J-cex-spot-07), with the owner's published timeouts (null: blank); null where the
+      // venue offers none.
+      scheduledCancel: venue.venue.scheduledCancel
+        ? { minLeadMs: venue.venue.scheduledCancel.minLeadMs, timeoutsSec: this.publishedTimeouts() }
+        : null,
       test,
       ...(test ? { label: 'TEST' } : {}),
       chainId: venue.chainId ?? null,
@@ -710,6 +724,65 @@ export class UserVenueDoor {
       deposit: venue.depositRoute ?? null,
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
     };
+  }
+
+  /** The owner's published dead-man timeouts, or null when blank. */
+  private publishedTimeouts(): number[] | null {
+    const t = this.deps.scheduledCancelTimeouts;
+    return t && t.length > 0 ? [...t] : null;
+  }
+
+  /**
+   * A venue scheduled cancel as it is signed (J-cex-spot-07): offered by this venue, one of the owner's published timeouts
+   * (or 0, which removes it), its time `timeoutSec` from now. The same key asked again keeps the time it was prepared with,
+   * so a retry re-sends the same bytes.
+   */
+  private scheduleCancelIntent(venue: ConnectedUserVenue, intent: ScheduleCancelIntent, stored: VenueIntent | null): ScheduleCancelIntent {
+    if (!venue.venue.scheduledCancel) {
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'not_offered',
+        detail: `${venue.venue.displayName} offers no scheduled cancel`,
+      });
+    }
+    const timeoutSec = intent.timeoutSec;
+    if (!Number.isSafeInteger(timeoutSec) || timeoutSec < 0)
+      throw new UserVenueDoorError('the timeout must be a whole number of seconds', 'trade.cancel_all_after_rejected', 400);
+    if (timeoutSec !== 0) {
+      const published = this.publishedTimeouts();
+      if (published === null)
+        throw new UserVenueDoorError('dead-man timeouts are not published; trade does not invent one', 'trade.cancel_all_after_unset', 503);
+      if (!published.includes(timeoutSec))
+        throw new UserVenueDoorError(
+          `${timeoutSec} seconds is not a published timeout; choose one of ${published.join(', ')}`,
+          'trade.cancel_all_after_rejected',
+          400,
+        );
+    }
+    if (stored?.kind === 'schedule_cancel' && stored.timeoutSec === timeoutSec) return stored;
+    return {
+      kind: 'schedule_cancel',
+      timeoutSec,
+      time: timeoutSec === 0 ? null : new Date(this.deps.now().getTime() + timeoutSec * 1000).toISOString(),
+    };
+  }
+
+  /**
+   * The nonces of this person's withdrawals from `account` signed through this door (J-cex-spot-07 #5: a statement lists
+   * each as the venue records it). The venue keeps no list of them; the signed actions are our own record of which exist.
+   */
+  async withdrawalNonces(principal: Principal, account: UserVenueAccount): Promise<string[]> {
+    const rows = await this.deps.store.listByPrefix(principal.userId, '');
+    return rows
+      .filter(
+        (r) =>
+          r.signature !== null &&
+          r.prepared.intent.kind === 'withdraw' &&
+          r.prepared.account.venueId === account.venueId &&
+          r.prepared.account.owner.toLowerCase() === account.owner &&
+          (r.prepared.account.subAccount ?? null) === (account.subAccount ?? null),
+      )
+      .map((r) => r.prepared.nonce);
   }
 
   async account(owner: string, subAccount?: string | null): Promise<UserVenueAccount> {
@@ -1215,6 +1288,8 @@ export class UserVenueDoor {
     }
 
     const existing = await this.deps.store.find(principal.userId, key);
+    if (finalIntent.kind === 'schedule_cancel')
+      finalIntent = this.scheduleCancelIntent(venue, finalIntent, existing?.prepared.intent ?? null);
     if (existing) {
       // A stored order is repriced with the coupon use it already took, never a new one.
       finalIntent = await eachOrder(

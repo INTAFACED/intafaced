@@ -122,7 +122,7 @@ export function createDevelopersMock(ctx) {
               requireNonEmptyIpAllowlist: false,
               ipAllowlist: [],
               ...k,
-              ...(dev.signing.get(k.id) ?? {}),
+              ...dev.signing.get(k.id),
               ipAllowlist: dev.ips.get(k.id) ?? k.ipAllowlist ?? [],
             })),
           );

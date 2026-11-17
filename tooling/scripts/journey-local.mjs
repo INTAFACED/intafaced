@@ -23,6 +23,10 @@
  * Exit: 0 every test passed; 1 a test failed or the stack could not be readied; 2 a usage error; 3 no local stack (every
  * slot held, or the start refused): the line says what to do instead; 130 interrupted.
  *
+ * It writes `.jr/run.json`: the tree of the checkout it ran (tracked and untracked files, as `git add -A` would commit
+ * them), the files, when it started and its exit code (null until it ends). The Mac refuses a journey branch's first
+ * push without a PASS of the tree pushed (a PreToolUse hook on the Mac).
+ *
  * A local pass never counts as proof: the proof is the Real-app journeys run on the pull request's exact head.
  * Why one command (project-state #2561, rows 13 and 20): the words for doing this by hand were rewritten seven times in
  * four days, and 1 of 24 builders on 15 Nov ran a local journey it could trust.
@@ -122,6 +126,41 @@ export function readReport(report) {
 }
 
 /**
+ * Readies a started stack as a Real-app journeys shard is readied (.github/workflows/real-app-journeys.yml, "Open the TEST
+ * markets ..."): matching restarted, the TEST gates, the TEST market maker, the chart history when `files` read the past,
+ * the TEST content. Throws on the first step that fails. Shared by `journey` and `verify launch` (verify-app.mjs).
+ * `files` null writes no chart history (a launch for no journey in particular); returns whether it wrote it.
+ */
+export async function readyStack(io, files) {
+  let history = false;
+  const step = async (argv, what) => {
+    const r = await io.run(argv, { capture: false });
+    if (r.code !== 0) throw new Error(`${what} exited ${r.code}`);
+  };
+  await step(['node', STACK, 'restart', 'matching'], 'restart matching');
+  await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'apply'], 'local-test-gates apply');
+  const custody = await io.run(['node', STACK, 'custody'], { capture: true });
+  await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
+  if (custody.text.trim() !== 'off') {
+    await io.waitForTaker();
+    await step(['node', path.join(HERE, 'local-test-market.mjs'), 'stop'], 'local-test-market stop');
+    await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
+    const past = files === null ? null : await io.run(['node', path.join(HERE, 'journey-market-past.mjs'), ...files], { capture: true });
+    if (past && (past.code !== 0 || past.text.trim() !== 'none')) {
+      await step(['node', path.join(HERE, 'local-test-market.mjs'), 'history', '--markets', 'journeys'], 'TEST chart history');
+      history = true;
+    }
+    await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
+  } else await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
+  const seed = await io.run(['node', path.join(HERE, 'local-test-seed.mjs'), 'apply', '--state', io.state()], {
+    capture: false,
+    env: { LOCAL_TEST: '1' },
+  });
+  if (seed.code !== 0) throw new Error(`local-test-seed apply exited ${seed.code}`);
+  return { history };
+}
+
+/**
  * The whole run, with every outside effect passed in so the test can drive it: `run(argv, { env, capture })` starts a
  * child and resolves { code, text }, `say` prints a line, `ourStack()` says whether this checkout already has a live
  * stack, `slot()` reads this checkout's slot after the start, `readJson`, `branch`, `onSignal(fn)`.
@@ -155,7 +194,14 @@ export async function journeyLocal(opts, io) {
         return 130;
       })()),
   );
+  // What this run ran and how it ended, for the Mac's first-push check (a PreToolUse hook on the Mac): the first push
+  // of a journey branch goes after a PASS (or a refused start) on the exact tree pushed. `code` stays null until the
+  // run ends, so an interrupted or crashed run never reads as a pass; `pid` lets the check tell a run still going from
+  // one that died without its end record.
+  const ran = { tree: io.tree?.() ?? null, files, startedAt: io.now?.() ?? Date.now(), pid: process.pid, code: null };
+  io.record?.(ran);
   const code = await body();
+  if (!interrupted) io.record?.({ ...ran, code });
   return interrupted ? interrupted : code;
 
   async function body() {
@@ -184,33 +230,9 @@ export async function journeyLocal(opts, io) {
     const customer = `http://127.0.0.1:${slotPorts(slot).stack.customer}`;
     say(`local:stack journey: stack up on slot ${slot} (${customer})`);
 
-    // 2. Readied as a Real-app journeys shard is (.github/workflows/real-app-journeys.yml, "Open the TEST markets ...").
-    const step = async (argv, what) => {
-      const r = await io.run(argv, { capture: false });
-      if (r.code !== 0) throw new Error(`${what} exited ${r.code}`);
-    };
+    // 2. Readied as a Real-app journeys shard is (readyStack).
     try {
-      await step(['node', STACK, 'restart', 'matching'], 'restart matching');
-      await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'apply'], 'local-test-gates apply');
-      const custody = await io.run(['node', STACK, 'custody'], { capture: true });
-      await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
-      if (custody.text.trim() !== 'off') {
-        await io.waitForTaker();
-        await step(['node', path.join(HERE, 'local-test-market.mjs'), 'stop'], 'local-test-market stop');
-        await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
-        const past = await io.run(['node', path.join(HERE, 'journey-market-past.mjs'), ...files], { capture: true });
-        if (past.code !== 0 || past.text.trim() !== 'none')
-          await step(['node', path.join(HERE, 'local-test-market.mjs'), 'history', '--markets', 'journeys'], 'TEST chart history');
-        await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
-      } else await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
-      await io
-        .run(['node', path.join(HERE, 'local-test-seed.mjs'), 'apply', '--state', io.state()], {
-          capture: false,
-          env: { LOCAL_TEST: '1' },
-        })
-        .then((r) => {
-          if (r.code !== 0) throw new Error(`local-test-seed apply exited ${r.code}`);
-        });
+      await readyStack(io, files);
     } catch (e) {
       say(`local:stack journey: the stack could not be readied: ${e.message}`);
       await stop();
@@ -247,15 +269,10 @@ export async function journeyLocal(opts, io) {
 
 // ── The real outside world ──────────────────────────────────────────────────
 
-export async function main(argv) {
-  const opts = parseArgs(argv);
-  if (opts.error) {
-    process.stdout.write(`local:stack journey: ${opts.error}\n`);
-    process.exit(2);
-  }
+/** The outside world journeyLocal and verify-app.mjs act on: this checkout, its slot's stack, child processes. */
+export function realIo() {
   let child = null;
-  let onSignal = null;
-  const io = {
+  return {
     dir: JOURNEY_DIR,
     exists: fs.existsSync,
     out: OUT,
@@ -272,6 +289,14 @@ export async function main(argv) {
       }
     },
     rm: (f) => fs.rmSync(f, { force: true }),
+    tree: () => workTree(),
+    now: () => Date.now(),
+    record: (ran) => {
+      try {
+        fs.mkdirSync(OUT, { recursive: true });
+        fs.writeFileSync(path.join(OUT, 'run.json'), `${JSON.stringify(ran)}\n`);
+      } catch {}
+    },
     // Its own process group, so a signal reaches the start's own re-run of itself on its slot, and Ctrl-C reaches it
     // only through this script (which then stops the stack).
     run: (argv, { capture, env = {} }) =>
@@ -310,9 +335,6 @@ export async function main(argv) {
       } catch {}
       await Promise.race([gone, new Promise((r) => setTimeout(r, 15_000))]);
     },
-    onSignal: (fn) => {
-      onSignal = fn;
-    },
     waitForTaker: async () => {
       const log = path.join(localStackStateFor(localStackSlot()), 'logs', 'market.log');
       for (let i = 0; i < 30; i++) {
@@ -321,6 +343,21 @@ export async function main(argv) {
         } catch {}
         await new Promise((r) => setTimeout(r, 2000));
       }
+    },
+  };
+}
+
+export async function main(argv) {
+  const opts = parseArgs(argv);
+  if (opts.error) {
+    process.stdout.write(`local:stack journey: ${opts.error}\n`);
+    process.exit(2);
+  }
+  let onSignal = null;
+  const io = {
+    ...realIo(),
+    onSignal: (fn) => {
+      onSignal = fn;
     },
   };
   let signalled = false;
@@ -332,6 +369,23 @@ export async function main(argv) {
     });
   const code = await journeyLocal(opts, io);
   if (!signalled) process.exit(code); // else the signal's handler exits 130 once its stop ends
+}
+
+/** The tree `git add -A` would commit now, built in a copy of the index so the real one is untouched; null outside git. */
+export function workTree(cwd = CHECKOUT, out = OUT) {
+  const tmp = path.join(out, `index.${process.pid}`);
+  try {
+    const git = (args, env = {}) =>
+      execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    fs.mkdirSync(out, { recursive: true });
+    fs.copyFileSync(path.resolve(cwd, git(['rev-parse', '--git-path', 'index'])), tmp);
+    git(['add', '-A'], { GIT_INDEX_FILE: tmp });
+    return git(['write-tree'], { GIT_INDEX_FILE: tmp });
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 }
 
 function gitBranch() {

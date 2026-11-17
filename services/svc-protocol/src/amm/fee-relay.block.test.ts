@@ -33,7 +33,7 @@ function node() {
       return null;
     },
     value: undefined,
-  })) as unknown as Transport;
+  })) as Transport;
   const chain = defineChain({
     id: 31337,
     name: 'TEST dev chain',
@@ -44,7 +44,7 @@ function node() {
   const client = createPublicClient({ chain, transport, pollingInterval: 4_000 });
   return {
     client,
-    chain: client as unknown as FeeRelayChain,
+    chain: client as FeeRelayChain,
     deploy: () => {
       block = DEPLOYED_AT;
     },

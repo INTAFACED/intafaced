@@ -93,7 +93,7 @@ describe('loan servicing previews (BK-loan-09)', () => {
 
   it('is mounted under loans and touches no bank service', async () => {
     const bankRouter = createBankRouter(untouchable);
-    const c = bankRouter.createCaller(await ctx(['bank:read', 'bank:write'])) as unknown as {
+    const c = bankRouter.createCaller(await ctx(['bank:read', 'bank:write'])) as {
       loans: { repayFromExternalBank(i: { loanId: string }): Promise<unknown>; missedPaymentPolicy(): Promise<unknown> };
     };
     const err = await refusalOf(c.loans.repayFromExternalBank({ loanId: LOAN }));

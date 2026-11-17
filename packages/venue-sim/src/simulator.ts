@@ -22,6 +22,7 @@ import {
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueScheduledCancel,
   type UserVenueArrival,
   type UserVenueDeposit,
   type UserVenueDescriptor,
@@ -296,6 +297,11 @@ export interface SimOptions {
   readonly amendsInPlace?: boolean;
   /** The most orders this TEST venue cancels in one signed action (`cancel_orders`). Default: none declared. */
   readonly cancelsPerAction?: number;
+  /**
+   * The least time ahead this TEST venue takes a scheduled cancel (`schedule_cancel`, J-cex-spot-07), in ms. Default: none
+   * declared, so it offers no scheduled cancel.
+   */
+  readonly scheduledCancelMinLeadMs?: number;
 }
 
 interface AccountState {
@@ -322,6 +328,8 @@ interface AccountState {
   readonly marketMargins: Map<string, { free: Amount; locked: Amount }>;
   /** Its settlements in market events (a deployer's halt, a split), oldest first. */
   readonly settlements: UserVenueSettlement[];
+  /** Its scheduled cancel (J-cex-spot-07): when the venue cancels every open order, and what it last did. */
+  scheduled: { cancelsAt: Date | null; lastFired: { firedAt: Date; canceled: number } | null };
 }
 
 interface OrderState {
@@ -400,6 +408,38 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const { cancelsPerAction: _dropped, ...rest } = this.venue;
     this.venue = n === null ? rest : { ...rest, cancelsPerAction: n };
   }
+  /**
+   * TEST: whether the descriptor declares a scheduled cancel, and the least time ahead it takes one (J-cex-spot-07 #1:
+   * "not offered by this venue" where it has none). `null` declares none. A door reads it when it connects.
+   */
+  declareScheduledCancel(minLeadMs: number | null): void {
+    const { scheduledCancel: _dropped, ...rest } = this.venue;
+    this.venue = minLeadMs === null ? rest : { ...rest, scheduledCancel: { minLeadMs } };
+  }
+
+  /**
+   * The venue's own scheduled cancels that reached their time: every open order of each such account is cancelled once
+   * and its lock released, whatever placed it, and the schedule is cleared. Run on every call to the venue and on the
+   * server's own timer, so it fires when nobody is talking to the venue. Returns how many orders it cancelled.
+   */
+  runScheduledCancels(): number {
+    const now = this.clock();
+    let total = 0;
+    for (const state of this.accounts.values()) {
+      const at = state.scheduled.cancelsAt;
+      if (at === null || at.getTime() > now.getTime()) continue;
+      let canceled = 0;
+      for (const order of state.orders.values()) {
+        if (!isLive(order)) continue;
+        this.release(order, 'canceled', 'scheduled_cancel');
+        canceled += 1;
+      }
+      state.scheduled = { cancelsAt: null, lastFired: { firedAt: now, canceled } };
+      total += canceled;
+    }
+    return total;
+  }
+
   /** The chain id every action's EIP-712 domain names. */
   readonly chainId: number;
   private readonly clock: () => Date;
@@ -475,6 +515,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       ...(options.ordersPerAction !== undefined ? { ordersPerAction: options.ordersPerAction } : {}),
       ...(options.amendsInPlace ? { amendsInPlace: true } : {}),
       ...(options.cancelsPerAction !== undefined ? { cancelsPerAction: options.cancelsPerAction } : {}),
+      ...(options.scheduledCancelMinLeadMs !== undefined ? { scheduledCancel: { minLeadMs: options.scheduledCancelMinLeadMs } } : {}),
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -1317,6 +1358,27 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         this.market(intent.symbol);
         venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
         return;
+      case 'schedule_cancel': {
+        const offered = this.venue.scheduledCancel;
+        if (!offered) refuse(this.venue.id, 'not_offered', `${this.venue.displayName} offers no scheduled cancel`);
+        if (!Number.isSafeInteger(intent.timeoutSec) || intent.timeoutSec < 0)
+          refuse(this.venue.id, 'venue_rejected', 'a scheduled cancel names its timeout in whole seconds');
+        if (intent.time === null) {
+          if (intent.timeoutSec !== 0) refuse(this.venue.id, 'venue_rejected', 'removing a scheduled cancel has timeout 0');
+          return;
+        }
+        const at = new Date(intent.time);
+        if (typeof intent.time !== 'string' || Number.isNaN(at.getTime()))
+          refuse(this.venue.id, 'venue_rejected', 'a scheduled cancel names its time');
+        const lead = at.getTime() - this.clock().getTime();
+        if (lead < offered.minLeadMs)
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `a scheduled cancel must be at least ${offered.minLeadMs / 1000} seconds ahead; this one is ${Math.max(0, Math.floor(lead / 1000))}`,
+          );
+        return;
+      }
       case 'approve_agent':
         this.checkAgentApproval(account, state, intent.agentAddress, intent.agentName, intent.validUntil);
         return;
@@ -1639,6 +1701,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return this.asOf(this.account(account).settlements.filter((s) => s.settledAt.getTime() >= since.getTime()));
   }
 
+  /** The account's scheduled cancel as the venue records it (J-cex-spot-07); refused where none is offered. */
+  async scheduledCancel(account: UserVenueAccount): Promise<AsOf<UserVenueScheduledCancel>> {
+    this.up();
+    if (!this.venue.scheduledCancel) refuse(this.venue.id, 'not_offered', `${this.venue.displayName} offers no scheduled cancel`);
+    const { cancelsAt, lastFired } = this.account(account).scheduled;
+    return this.asOf({ cancelsAt, lastFired });
+  }
+
   /** The owner's balance in the margin account `symbol`'s deployer keeps for it, read on the main account. */
   async marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
     this.up();
@@ -1748,6 +1818,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   private up(): void {
     if (this.switches.venueDown) refuse(this.venue.id, 'venue_down', `${this.venue.displayName} is down (TEST switch)`);
+    this.runScheduledCancels();
   }
 
   private asOf<T>(value: T): AsOf<T> {
@@ -1778,6 +1849,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         retiredAgents: new Set(),
         marketMargins: new Map(),
         settlements: [],
+        scheduled: { cancelsAt: null, lastFired: null },
       };
       this.accounts.set(key, state);
     }
@@ -2092,6 +2164,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         }
         return this.place(state, intent, cloid, builderFee, refused, accepted);
       }
+      case 'schedule_cancel':
+        state.scheduled = { ...state.scheduled, cancelsAt: intent.time === null ? null : new Date(intent.time) };
+        return accepted(null, null);
       case 'cancel_order': {
         const cloid = cloidOf(intent.clientOrderKey);
         const existing = state.orders.get(cloid);
@@ -2139,6 +2214,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           status: 'pending',
           fee: this.switches.withdrawalFee,
           networkFee,
+          requestedAt: this.clock(),
         };
         state.withdrawals.set(prepared.nonce, withdrawal);
         return accepted(prepared.nonce, null);
@@ -2864,7 +2940,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   /** End an order's remaining lock exactly once. */
-  private release(order: OrderState, status: UserVenueOrder['status'], cancelReason: 'position_closed' | 'linked' | null = null): void {
+  private release(
+    order: OrderState,
+    status: UserVenueOrder['status'],
+    cancelReason: 'position_closed' | 'linked' | 'scheduled_cancel' | null = null,
+  ): void {
     const o = order.order;
     if (o.locked !== ZERO) {
       const balance = this.lockBalance(order.account, order.marginAccount, o.lockedAsset);

@@ -1603,19 +1603,26 @@ function reviewerCallFaults(wf) {
   }
   const READ_ONLY = '--tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \\';
   const ADD_DIR = '--add-dir "$GITHUB_WORKSPACE" \\';
+  // The proof reader (the third call) also reads the steps' end pictures (step-pictures.mjs, project-state #2693): one
+  // more folder, the one the job names below, holding the journeys run's shards and nothing of the checkout or the key.
+  const READ_ADD_DIR = '--add-dir "$GITHUB_WORKSPACE" --add-dir "$pics" \\';
+  const PICS = /^ {10}pics="\$HOME\/journey-pictures"$/gm;
   const DENIES =
     '--disallowedTools "Read(/$GITHUB_WORKSPACE/.git/**)" "Read(/$GITHUB_WORKSPACE/**/.env*)" "Read(//proc/**)" "Read(/$RUNNER_TEMP/**)" \\';
   const NO_SETTINGS = `--setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \\`;
   const faults = [];
   if (calls.length !== 3) faults.push(`${calls.length} reviewer calls, not the review's two and the reader's one`);
+  if ((wf.match(PICS) ?? []).length !== 1) faults.push('the pictures folder is not set once, as pics="$HOME/journey-pictures"');
   calls.forEach((call, n) => {
     const at = `call ${n + 1}`;
     const own = call.split('\n').map((l) => l.trim());
-    for (const line of [READ_ONLY, ADD_DIR, DENIES, NO_SETTINGS]) if (!own.includes(line)) faults.push(`${at} lacks the line ${line}`);
+    const reader = n === 2;
+    for (const line of [READ_ONLY, reader ? READ_ADD_DIR : ADD_DIR, DENIES, NO_SETTINGS])
+      if (!own.includes(line)) faults.push(`${at} lacks the line ${line}`);
     const count = (flag) => call.split(flag).length - 1;
+    if (count('--add-dir') !== (reader ? 2 : 1)) faults.push(`${at} has --add-dir ${count('--add-dir')} times, not ${reader ? 2 : 1}`);
     for (const flag of [
       '--tools',
-      '--add-dir',
       '--disallowedTools',
       '--permission-mode',
       '--setting-sources',
@@ -1668,6 +1675,15 @@ test('the reviewer-call check fails on each planted fault', async () => {
     'the /proc deny dropped': once('"Read(//proc/**)" ', ''),
     'the RUNNER_TEMP deny dropped': once(' "Read(/$RUNNER_TEMP/**)"', ''),
     'a second directory': once('--add-dir "$GITHUB_WORKSPACE" \\', '--add-dir "$GITHUB_WORKSPACE" "$HOME" \\'),
+    'the pictures folder widened': once('pics="$HOME/journey-pictures"', 'pics="$HOME"'),
+    'the pictures folder added to the review': once(
+      '--add-dir "$GITHUB_WORKSPACE" \\',
+      '--add-dir "$GITHUB_WORKSPACE" --add-dir "$pics" \\',
+    ),
+    'a third folder for the reader': once(
+      '--add-dir "$GITHUB_WORKSPACE" --add-dir "$pics" \\',
+      '--add-dir "$GITHUB_WORKSPACE" --add-dir "$pics" --add-dir "$HOME" \\',
+    ),
     'an allow rule': once('--append-system-prompt "$reads"', '--allowedTools "Bash(*)" --append-system-prompt "$reads"'),
     'inline settings': once('--append-system-prompt "$reads"', `--settings '{}' --append-system-prompt "$reads"`),
     'settings sources back': once(`--setting-sources "" --strict`, `--setting-sources "user,project" --strict`),

@@ -24,7 +24,7 @@ const load = async (): Promise<ApiResult<string>> => {
   seen.push(session.token);
   return session.token
     ? ({ ok: true, data: 'profile' } as ApiResult<string>)
-    : ({ ok: false, reason: 'unauthorized', message: 'no', code: 'UNAUTHORIZED' } as unknown as ApiResult<string>);
+    : ({ ok: false, reason: 'unauthorized', message: 'no', code: 'UNAUTHORIZED' } as ApiResult<string>);
 };
 
 function Probe() {

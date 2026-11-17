@@ -95,7 +95,7 @@ export function registerVipRest(app: FastifyInstance, deps: VipRestDeps): void {
       return reply.code(created ? 201 : 200).send({ application });
     } catch (error) {
       if (error instanceof VipError) {
-        return reply.code(VIP_ERROR_STATUS[error.code]).send({ code: error.code, message: error.message, ...(error.data ?? {}) });
+        return reply.code(VIP_ERROR_STATUS[error.code]).send({ code: error.code, message: error.message, ...error.data });
       }
       throw error;
     }

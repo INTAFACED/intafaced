@@ -56,6 +56,12 @@ export const venueStatusSchema = z.union([
     // J-cex-spot-05: whether the venue lowers an order in place, and how many it cancels in one signed action (0: one each).
     amendsInPlace: z.boolean().optional(),
     cancelsPerAction: z.number().int().min(0).optional(),
+    // J-cex-spot-07: the venue's own scheduled cancel with the owner's published timeouts (null: blank); null where the
+    // venue offers none.
+    scheduledCancel: z
+      .object({ minLeadMs: z.number().int().min(0), timeoutsSec: z.array(z.number().int().positive()).nullable() })
+      .nullable()
+      .optional(),
     // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
     routes: z.boolean().optional(),
   }),
@@ -136,6 +142,10 @@ export const venueMarketSchema = z.object({
     z.array(z.object({ fromNotional: decimalSchema, maxLeverageBps: z.number().int().positive(), maintenanceRate: decimalSchema })),
   ).optional(),
   collateral: maybeKnown(z.array(z.object({ asset: z.string(), haircut: maybeKnown(decimalSchema) }))).optional(),
+  // The venue's own trading state for the market, null where it reports none, and our listing's routing beside it
+  // (J-charts-desk-15 #6: the chart refuses order entry naming either). Absent from an older door: not reported.
+  status: z.enum(['trading', 'halted', 'cancel_only', 'delisted']).nullable().optional(),
+  listing: z.object({ routing: z.enum(['show', 'close_only', 'stop']), delisted: z.boolean().optional() }).optional(),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
 /** One of the venue's published margin tiers (J-derivatives-02 #2). */
@@ -158,6 +168,30 @@ export const venueMarketMarginSchema = z.object({
   total: decimalSchema,
 });
 export type VenueMarketMargin = z.infer<typeof venueMarketMarginSchema>;
+/** The venue's scheduled cancel on one account (J-cex-spot-07): its time, or null, and its last firing. */
+export const venueScheduledCancelSchema = z.object({
+  cancelsAt: isoTime.nullable(),
+  lastFired: z.object({ firedAt: isoTime, canceled: z.number().int().min(0) }).nullable(),
+});
+export type VenueScheduledCancel = z.infer<typeof venueScheduledCancelSchema>;
+
+/** One statement job on the venue's own records (J-cex-spot-07 #5; svc-trade venue-statements.ts). */
+export const venueStatementJobSchema = z.object({
+  id: z.string(),
+  requestKey: z.string(),
+  venueId: z.string(),
+  owner: z.string(),
+  from: isoTime,
+  to: isoTime,
+  status: z.enum(['pending', 'finished', 'failed']),
+  rows: z.object({ orders: z.number().int(), trades: z.number().int(), movements: z.number().int() }).nullable(),
+  sha256: z.string().nullable(),
+  error: z.string().nullable(),
+  createdAt: isoTime,
+  finishedAt: isoTime.nullable(),
+});
+export type VenueStatementJob = z.infer<typeof venueStatementJobSchema>;
+
 /** One of the owner's settlements in a deployer's halt or a split, as the venue records it (J-derivatives-27 #9 #10). */
 export const venueSettlementSchema = z.object({
   symbol: z.string(),
@@ -626,6 +660,8 @@ export type VenueIntent =
   | { kind: 'amend_order'; symbol: string; venueClientOrderId: string; amount: string; price: string }
   | { kind: 'replace_order'; symbol: string; venueClientOrderId: string; order: OrderIntent }
   | { kind: 'cancel_orders'; orders: Array<{ symbol: string; venueClientOrderId: string }> }
+  // J-cex-spot-07: the venue's own scheduled cancel; the door times it from now (`time` is set there), timeout 0 removes it.
+  | { kind: 'schedule_cancel'; timeoutSec: number; time: null }
   | { kind: 'update_leverage'; symbol: string; leverageBps: number; marginMode: VenueMarginMode }
   | { kind: 'approve_builder_fee'; builder: string; maxFeeBps: string }
   | { kind: 'withdraw'; asset: string; amount: string; destination: string; withdrawalKey: string }
@@ -686,6 +722,8 @@ export const keys = {
   replacement: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:replace-${draft}`,
   /** One confirmed batch cancel. */
   cancelBatch: (owner: string, draft: string) => `cancel-batch:${part(owner)}:${draft}`,
+  /** One press of the dead-man switch: arming, refreshing or removing the venue's scheduled cancel (J-cex-spot-07). */
+  scheduleCancel: (owner: string, draft: string) => `schedule-cancel:${part(owner)}:${draft}`,
   marketMargin: (owner: string, symbol: string, direction: 'into_market' | 'out_of_market', draft: string) =>
     `market-margin:${part(owner)}:${part(symbol)}:${direction === 'into_market' ? 'in' : 'out'}:${draft}`,
 };
@@ -811,6 +849,18 @@ export function venueApi(api: ApiClient) {
     /** The owner's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
     settlements: (owner: string, since: string, signal?: AbortSignal) =>
       read('/settlements', asOf(z.array(venueSettlementSchema)), { owner, since }, signal),
+    /** The venue's scheduled cancel on the owner's account: when it cancels, and when it last did (J-cex-spot-07). */
+    scheduledCancel: (owner: string, signal?: AbortSignal) =>
+      read('/scheduled-cancel', asOf(venueScheduledCancelSchema), { owner }, signal),
+    /** The statement job for this request key: created once and built once from the venue's own records (J-cex-spot-07 #5). */
+    statement: (input: { owner: string; from: string; to: string; requestKey: string }) =>
+      write('/statements', venueStatementJobSchema, input),
+    statementFile: (id: string) =>
+      api.rest(
+        `/venue/statements/${encodeURIComponent(id)}/file`,
+        z.object({ filename: z.string(), sha256: z.string(), csv: z.string() }),
+        {},
+      ),
     leverage: (owner: string, symbol: string, signal?: AbortSignal, venueId?: string) =>
       read('/leverage', asOf(venueLeverageSchema.nullable()), { owner, symbol, venueId }, signal),
     builderFeeApproval: (owner: string, signal?: AbortSignal, venueId?: string) =>

@@ -8,7 +8,7 @@ import {
   wireAccountAdapter,
   wireExecutionVenueAccountAdapter,
 } from './venue-account-adapters.js';
-import { ExecutionVenueCredentialsUnsetError, ExecutionVenueUnknownError, loadExecutionVenueCredentials } from './venue-adapters.js';
+import { ExecutionVenueCredentialsUnsetError, ExecutionVenueUnknownError } from './venue-adapters.js';
 
 const CREDS: VenueCredentials = {
   venueId: 'binance-spot',

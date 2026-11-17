@@ -130,6 +130,17 @@ function cardPartner() {
 }
 
 /**
+ * The add-money pay-in partner: the profile's TEST stand-in, or none when a restart asks
+ * `LOCAL_STACK_BANK_ONRAMP_PARTNER=off`, so the finance desk's ramp metrics read "no data" (J-bank-28 #3).
+ */
+function onrampPartnerSetting() {
+  const asked = process.env.LOCAL_STACK_BANK_ONRAMP_PARTNER;
+  if (asked === undefined || asked === '') return 'payin-sim';
+  if (asked === 'off') return 'none';
+  throw new Error(`LOCAL_STACK_BANK_ONRAMP_PARTNER is "${asked}"; leave it unset for the TEST pay-in partner, or set it to off.`);
+}
+
+/**
  * The card dispute cap (J-bank-27 #4): the profile's TEST cap, or blank when a restart asks
  * `LOCAL_STACK_BANK_CARD_DISPUTE_CAP=off`, so a journey can see a credit and a cardholder decision refused
  * bank.card_dispute_cap_unset.
@@ -347,7 +358,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // ways to pay its TEST catalogue lists it opens a TEST payment page on svc-bank's own address and sends the payer back
     // to the app; saying paid is its signed job call, which only a test makes here. Value arrives from its own TEST rail
     // boundary, through the deposit recipe.
-    BANK_ONRAMP_PARTNER: 'payin-sim',
+    // A restart with LOCAL_STACK_BANK_ONRAMP_PARTNER=off runs with no pay-in partner at all (J-bank-28 #3 "no data").
+    BANK_ONRAMP_PARTNER: onrampPartnerSetting(),
     BANK_PAYIN_SIM_JSON: testValue('BANK_PAYIN_SIM_JSON'),
     BANK_PAYIN_SIM_PAGE_URL: urlOf('bank'),
     BANK_PAYIN_SIM_RETURN_URL: `${CUSTOMER_ORIGIN}/bank/ramps/new`,
@@ -398,6 +410,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     ...moneyOutStepUp(),
     ...cardPartner(),
     ...disputeCap(),
+    BANK_CARDHOLDER_SANCTIONS: testValue('BANK_CARDHOLDER_SANCTIONS'),
     // No send review rule unless `LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW=on` on a restart (J-pay-01 #6).
     ...sendReview(),
     // Nothing moves money in the background of a test stack.

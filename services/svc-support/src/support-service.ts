@@ -10,8 +10,6 @@ import {
   SUPPORT_FRAUD_ROUTE_UNSET,
   supportTicketCategorySchema,
   type SupportCategories,
-  SUPPORT_KB_STORED_BODY_KEY,
-  SUPPORT_KB_STORED_TITLE_KEY,
   supportKbBodyProblem,
   supportKbTitleProblem,
   SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
@@ -35,12 +33,10 @@ import {
   type SupportMergePreview,
   type SupportMergeResult,
   type SupportAttachmentStatus,
-  type SupportTicketPriority,
   type SupportAwaitingMine,
   type SupportTicketLifecycle,
   type SupportTicketProperties,
   type SupportTicketPropertyChange,
-  type SupportTicketType,
   supportMacroUnfilled,
 } from '@intafaced/contracts';
 import type {
@@ -87,7 +83,6 @@ import {
   assertKbTopic,
   getKb,
   KbCatalogError,
-  kbVersionOf,
   namesVendor,
   relatedPublished,
   searchKb,
@@ -121,7 +116,6 @@ import {
 import { SUPPORT_SETTLE_REFUSE, checkSupportSettlement, type SupportForbiddenSettlementAct } from './settlement-refuse.js';
 import {
   FEEDBACK_COMMENT_MAX,
-  READER_ACTOR_PREFIX,
   SEARCH_QUERY_CONTRACT_MAX,
   SUPPORT_ASSISTANT_MODEL_UNSET,
   SUPPORT_FEEDBACK_RATE_EXCEEDED,

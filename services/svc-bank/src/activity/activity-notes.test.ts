@@ -70,7 +70,7 @@ describe('report description and the has-note filter', () => {
       forItems: async () => {
         throw new Error('db down');
       },
-    } as unknown as Records;
+    } as Records;
     await expect(service(broken).list(ALICE, { hasNote: true })).rejects.toMatchObject({ name: 'ActivityUnavailableError' });
     expect((await service(broken).list(ALICE, {})).items).toHaveLength(3);
     await expect(service().list(ALICE, { hasNote: true })).rejects.toMatchObject({ name: 'ActivityUnavailableError' });

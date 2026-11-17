@@ -74,6 +74,8 @@ import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './u
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
 import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
+import { StatementError } from '../statements/statement-export.js';
+import type { VenueStatements } from './venue-statements.js';
 
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
@@ -97,6 +99,8 @@ export interface UserVenueRestDeps {
    * 403 `auth.scope_denied` (no move, withdraw or read of another account). Absent: no key is confined.
    */
   agentKeyConfined?: (principal: Principal) => Promise<boolean>;
+  /** The statement export on the venue's own records (J-cex-spot-07 #5); absent, its routes answer 503 `trade.statements_unmounted`. */
+  venueStatements?: VenueStatements | null;
 }
 
 /** The refusal a connected agent key gets on any venue route but the assistant's own (J-agents-21 #9). */
@@ -411,6 +415,17 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.settlements(a, since);
     },
+    // J-cex-spot-07: the venue's own scheduled cancel for this account; a venue that offers none refuses not_offered.
+    '/api/v1/venue/scheduled-cancel': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.venue.scheduledCancel || !venue.scheduledCancel)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} offers no scheduled cancel`,
+        });
+      return venue.scheduledCancel(a);
+    },
     '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
       const status = await d.status();
       const builder = 'builder' in status ? status.builder : null;
@@ -435,6 +450,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/leverage',
     '/api/v1/venue/market-margin',
     '/api/v1/venue/settlements',
+    '/api/v1/venue/scheduled-cancel',
     '/api/v1/venue/builder-fee-approval',
   ]) {
     const read = accountReads[path]!;
@@ -447,6 +463,59 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       );
     });
   }
+
+  // J-cex-spot-07 #5: a statement of the venue account's orders, trades and money movements for a range, from the venue's
+  // own records. `POST` creates the job for its request key once and builds it once; the file is read by the job's id.
+  const statementRefused = (reply: FastifyReply, err: unknown) => {
+    if (err instanceof StatementError) {
+      const code =
+        err.status === 404 ? 'NotFound' : err.status === 409 ? 'InvalidOrder' : err.status === 429 ? 'RateLimitExceeded' : 'BadRequest';
+      return reply.code(err.status).send({ code, message: err.message, intafacedCode: err.code });
+    }
+    return venueRefusalReply(reply, err);
+  };
+  const statementsUnmounted = (reply: FastifyReply) =>
+    reply.code(503).send({
+      code: 'ExchangeNotAvailable',
+      message: 'venue statement export is not mounted',
+      intafacedCode: 'trade.statements_unmounted',
+    });
+  app.post('/api/v1/venue/statements', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    const statements = deps.venueStatements ?? null;
+    if (!statements) return statementsUnmounted(reply);
+    try {
+      if (!router)
+        throw new UserVenueDoorError(
+          'the user-venue door is off on this deployment (TRADE_USER_VENUE_URL unset)',
+          'trade.user_venue_off',
+          404,
+        );
+      const b = (req.body ?? {}) as { owner?: unknown; venueId?: unknown; from?: unknown; to?: unknown; requestKey?: unknown };
+      const d = await router.door(typeof b.venueId === 'string' ? b.venueId : null);
+      const job = await statements.request(principal, { from: b.from, to: b.to, requestKey: b.requestKey }, async () => {
+        const account = await d.account(typeof b.owner === 'string' ? b.owner : '');
+        return { venue: await d.venue(), account, withdrawalNonces: await d.withdrawalNonces(principal, account) };
+      });
+      return reply.code(200).send(job);
+    } catch (err) {
+      return statementRefused(reply, err);
+    }
+  });
+  app.get<{ Params: { id: string } }>('/api/v1/venue/statements/:id/file', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    const statements = deps.venueStatements ?? null;
+    if (!statements) return statementsUnmounted(reply);
+    try {
+      const file = await statements.file(principal, req.params.id);
+      // JSON, for a browser client that reads JSON only and saves the bytes itself. A statement is personal: no cache.
+      return reply.code(200).header('cache-control', 'private, no-store').send(file);
+    } catch (err) {
+      return statementRefused(reply, err);
+    }
+  });
 
   app.get<{ Params: { nonce: string }; Querystring: Query }>('/api/v1/venue/withdrawals/:nonce', privateRead, async (req, reply) => {
     if (!(await admit(req, reply, 'trade:read'))) return;

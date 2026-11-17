@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Chip } from '@/components/chip';
 import { shortId } from '@/lib/desk/desk-model';
 import { orderIdsIn } from '@/lib/trade-ops/order-read';
-import type { Part } from '@/lib/desk/part';
 import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, postClaimNext, type ClaimReply } from '@/lib/support/browser';
 import { claimGate, DESK_COMMENTS_READ, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
 import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';

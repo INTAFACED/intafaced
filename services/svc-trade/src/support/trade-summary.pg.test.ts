@@ -156,7 +156,7 @@ describe('support.tradeSummary', () => {
   }
 
   function app(reader: SupportTradeSummaryReader | undefined) {
-    const router = createTradeRouter({} as unknown as TradeService, undefined, undefined, undefined, undefined, undefined, reader);
+    const router = createTradeRouter({} as TradeService, undefined, undefined, undefined, undefined, undefined, reader);
     return (async () => {
       const server = Fastify({ logger: false });
       // As svc-trade boots: the raw bytes are kept, so a service call binds its (empty) body.

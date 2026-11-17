@@ -40,7 +40,7 @@ async function ctx(opts: { anonymous?: boolean; apiKeyId?: string } = {}): Promi
 function setup(found: { userId: string; handle: string } | null = { userId: FRIEND, handle: 'Luffy' }) {
   const searchPayee = vi.fn(async () => found);
   const auth = { searchPayee, findActiveByHandle: vi.fn(), selfView: vi.fn(), handleOf: vi.fn() } as unknown as AuthService;
-  const router = createIdentityRouter(auth, {} as unknown as RankService, { registrationOpen: true });
+  const router = createIdentityRouter(auth, {} as RankService, { registrationOpen: true });
   return { router, searchPayee };
 }
 
@@ -87,7 +87,7 @@ describe('identity.users.searchPayees', () => {
       selfView: vi.fn(),
       handleOf: vi.fn(),
     } as unknown as AuthService;
-    const api = createIdentityRouter(auth, {} as unknown as RankService, {
+    const api = createIdentityRouter(auth, {} as RankService, {
       registrationOpen: true,
       handleLookupLimiter: limiter,
     }).createCaller(await ctx());
