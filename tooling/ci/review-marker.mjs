@@ -59,7 +59,7 @@ export const VERDICT_STEP = 'Verdict';
  * blocked: a review FAIL on a test-only change doesn't block, and a test FAIL blocks whatever the review says. Both are
  * in one run, so the tree index and "a FAIL stands for its code" cover both. (Failure the test part prevents: proof
  * v2's post-merge reach reads voided 545 proofs over one harness change that altered nothing the tests observe;
- * project-state research/system-design-2026-11-07/E1-RESULT.md.)
+ * project-state product/E1-RESULT.md.)
  */
 export const REVIEW_CHECK = { job: REVIEW_JOB, step: VERDICT_STEP, label: 'CI review' };
 export const TEST_VERDICT_STEP = 'Test verdict';
