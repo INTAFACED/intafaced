@@ -1,3 +1,4 @@
+// World: freeze, gates
 import { createPublicClient, erc20Abi, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
