@@ -1161,7 +1161,8 @@ export function testPartnerAccountDetails(partner: TestPartner): (userId: string
  */
 export function testPartnerDetailsOwner(partner: TestPartner, detailsId: string): { userId: string; currency: string } | null {
   const found = /^test-partner:([^:]{1,64}):([A-Z]{3})$/.exec(detailsId);
-  if (!found) return null;
-  const [, userId, currency] = found as unknown as [string, string, string];
+  const userId = found?.[1];
+  const currency = found?.[2];
+  if (!userId || !currency) return null;
   return partner.switches(userId).accountDetails === 'issued' ? { userId, currency } : null;
 }

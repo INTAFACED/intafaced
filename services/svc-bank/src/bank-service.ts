@@ -225,6 +225,8 @@ export interface BankServiceOptions extends BusinessServiceOptions, DeveloperApi
   payrollPartner?: PayrollPartner | null;
   /** `BANK_DIRECT_DEPOSIT_REVERSAL_DAYS`: how long an employer may reverse a salary credit. Blank refuses every reversal. */
   directDepositReversalDays?: string | undefined;
+  /** The salary credits' clock, which the reversal window reads. Unset: the wall clock. Tests move it. */
+  salaryNow?: () => Date;
   /** The tax-effect map (`activity/tax-effects.ts`). Unset: `activity.taxEffects` refuses by name. */
   taxEffects?: TaxEffectMap | null;
   /**
@@ -473,6 +475,7 @@ export function createBankServices(
     accountDetails,
     sorter,
     reversalDays: () => options.directDepositReversalDays,
+    ...(options.salaryNow ? { now: options.salaryNow } : {}),
   });
   const accountTerms = () => parseAccountTerms(options.accountTerms);
   const currencies = new CurrencyService(sql, ledger, spaces, { currencies: options.accountCurrencies });

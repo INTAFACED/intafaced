@@ -57,13 +57,13 @@ describe('salary by direct deposit (J-bank-30)', () => {
       testPartner: partner,
       payrollPartner: payroll,
       directDepositReversalDays: 'reversalDays' in over ? over.reversalDays : '5',
+      // The service reads its clock through this option; the test moves `now` for the window.
+      salaryNow: () => now,
       accountDetails: {
         currencies: 'currencies' in over ? over.currencies : 'EUR,GBP,USD',
         partnerFor: testPartnerAccountDetails(partner),
       },
     });
-    // The service reads its clock through the options; the test moves it for the window.
-    (bank.salary as unknown as { options: { now?: () => Date } }).options.now = () => now;
   }
 
   beforeAll(async () => {
@@ -217,8 +217,8 @@ describe('salary by direct deposit (J-bank-30)', () => {
     await send('net-6', '50');
     now = new Date(Date.now() + 6 * 86_400_000);
     expect(await codeOf(bank.salary.reverse('net-6'))).toBe('bank.direct_deposit_reversal_window');
+    now = new Date();
     make({ reversalDays: '' });
-    (bank.salary as unknown as { options: { now?: () => Date } }).options.now = () => new Date();
     expect(await codeOf(bank.salary.reverse('net-6'))).toBe('bank.direct_deposit_reversal_window_unset');
 
     await send('net-7', '5', 'TEST Nobody');
