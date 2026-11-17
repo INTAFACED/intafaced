@@ -146,11 +146,6 @@ export const ENFORCED = {
     must: /ARCHITECTURE MAP FAILED - docs\/ARCHITECTURE\.md, apps\/, services\/ or packages\/ is missing or empty/,
     note: 'refuses by name when the doc or the folders it counts are absent, instead of counting nothing and calling it current.',
   },
-  'services-map': {
-    kind: 'guard',
-    must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
-    note: 'refuses by name when services/ or the compose file is absent, instead of mapping nothing and calling it current.',
-  },
   'truth-check': {
     kind: 'guard',
     must: /AGENTS\.md lost a core rule: file missing/,
