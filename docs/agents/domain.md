@@ -22,7 +22,7 @@ Single-context repo (most repos):
 └── src/
 ```
 
-This repo is single-context. ADRs are dated slugs in `docs/adr/`. Match the files already there: title, Status, Date, then Decision and Consequences. Do not start a numbered `0001-` series. `GLOSSARY.md` is created at the root when the first term is resolved.
+This repo is single-context. ADRs are dated slugs in `docs/adr/`. Match the files already there: title, Status, Date, then Decision and Consequences. Do not start a numbered `0001-` series. `GLOSSARY.md` is at the root.
 
 Multi-context repo (presence of `GLOSSARY-MAP.md` at the root):
 
