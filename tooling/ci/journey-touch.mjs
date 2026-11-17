@@ -144,7 +144,6 @@ export const DOCS_READ = [
   'docs/OPS-KILL-SWITCH-RUNBOOK.md',
   'docs/OWNER-OPS-CHECKLIST-2026-07-31.md',
   'docs/OWNER-SETTINGS.md',
-  'docs/ROADMAP.md',
   'docs/RUNNING.md',
   'docs/THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md',
 ];
