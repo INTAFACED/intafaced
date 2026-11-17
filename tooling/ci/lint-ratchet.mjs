@@ -104,6 +104,8 @@ export function lintSide(files, config, dir, oxlint, found = {}) {
     cwd: dir,
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
+    // A rule that compares a file with its untouched neighbours (garden/no-copied-journey-function) reads them here.
+    env: { ...process.env, GARDEN_TREE: ROOT },
   });
   let parsed;
   try {
