@@ -296,7 +296,7 @@ export const reconciliationAssetEvidenceSchema = z
     reconcilingItems: reconciliationSignedDecimalSchema.optional(),
     residual: reconciliationSignedDecimalSchema.optional(),
     /**
-     * The side that holds no record for this asset (OWNER 288, the honest reconcile): a break named "missing", never read
+     * The side that holds no record for this asset (the honest reconcile): a break named "missing", never read
      * as a zero. A row that names a missing side always fails its run.
      */
     missing: z.enum(['ledger', 'outside']).optional(),

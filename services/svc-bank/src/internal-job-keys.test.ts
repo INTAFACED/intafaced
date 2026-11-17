@@ -18,13 +18,13 @@ const SECRET = 'bank-internal-job-test-secret-0123456789abcdef';
 const PATH = '/internal/jobs/run-risk-sweep';
 const BODY = '{"limit":10}';
 
-function fleet() {
+function fleet(service: ServiceName = 'svc-ops') {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const pkcs8 = privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url');
   const x = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url');
-  const keyring: Keyring = [{ kid: 'svc-ops.a', svc: 'svc-ops', use: 's2s', x }];
+  const keyring: Keyring = [{ kid: `${service}.a`, svc: service, use: 's2s', x }];
   return {
-    signer: createServiceSigner({ service: 'svc-ops', kid: 'svc-ops.a', privateKey: pkcs8, keyring }),
+    signer: createServiceSigner({ service, kid: `${service}.a`, privateKey: pkcs8, keyring }),
     verifier: () => createServiceVerifier({ self: 'svc-bank', keyring, bootSecond: 0 }),
   };
 }
@@ -77,5 +77,14 @@ describe('svc-bank job doors with service keys', () => {
     const f = fleet();
     const req = { ...request(keyedHeaders(f)), body: '{"limit":99}' };
     expect(requireInternalJobHmac(req.headers, SECRET, raw, { req, verifier: f.verifier(), mode: 'keypair' })).toBe(false);
+  });
+
+  it('a call signed as svc-edge is refused: the edge never runs a bank job', () => {
+    for (const mode of ['dual', 'keypair'] as const) {
+      const edge = fleet('svc-edge');
+      expect(call(keyedHeaders(edge), edge, mode), mode).toBe(false);
+    }
+    const shared = { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-edge', SECRET, BODY) };
+    expect(call(shared, fleet())).toBe(false);
   });
 });

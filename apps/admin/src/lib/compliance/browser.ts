@@ -2,6 +2,7 @@
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { ComplianceRead, Disposition } from './model';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export type DisposeReply =
   { readonly ok: true; readonly itemId: string; readonly status: Disposition } | { readonly ok: false; readonly refusal: RefusalView };
@@ -16,10 +17,6 @@ const UNKNOWN: DisposeReply = {
     changed: 'unknown',
   },
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 export function readDisposeReply(raw: unknown): DisposeReply {
   if (!isRecord(raw)) return UNKNOWN;

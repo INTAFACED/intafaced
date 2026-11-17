@@ -84,6 +84,7 @@ import { contractChain, createContractSourceRouter, type ContractChain } from '.
 import { createBridgeRouter } from './bridge/router.js';
 import { bridgeRoutesLoader } from './bridge/routes.js';
 import { createVenueFundsRouter } from './venue/router.js';
+import { createLendingRouter } from './lending/position.js';
 import { createWalletTxRouters } from './wallet-tx/router.js';
 import type { ReplacementSetting } from './wallet-tx/replacement.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
@@ -500,6 +501,11 @@ export interface ProtocolRouterDeps {
   /** `PROTOCOL_VENUE_ADDRESS` (D-bridge-chain-04). Null, zero or absent: venue funds refuse `protocol.venue_unset`. */
   venue?: () => Address | null;
   /**
+   * `PROTOCOL_LENDING_MARKET_ADDRESS` (D-portfolio-wallet-04). Null, zero or absent: a lending position refuses
+   * `protocol.lending_market_unset`.
+   */
+  lendingMarket?: () => Address | null;
+  /**
    * `PROTOCOL_TX_FEE_BUMP_BPS` and `PROTOCOL_TX_FEE_CEILING_WEI` (RC-dex-protocol-01). Absent or null: speed up and cancel
    * refuse `protocol.fee_bump_unset` / `protocol.fee_ceiling_unset`.
    */
@@ -607,6 +613,9 @@ const unwiredTrustDeskStore: ComplianceDeps['trustDesk'] = {
   checklists: notWired,
   openChecklist: notWired,
   approveChecklist: notWired,
+  nameTags: notWired,
+  requestNameTag: notWired,
+  approveNameTag: notWired,
 };
 
 /** Never reached with a setting: an unwired representation has none, so it refuses `compliance.representation_unset` first. */
@@ -1393,6 +1402,13 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       chain: () => chain.client,
       venue: () => deps.venue?.() ?? null,
       directApproveReverts: (token, owner, spender, amount) => chain.directApproveReverts(token, owner, spender, amount),
+      toTrpcError,
+    }),
+
+    // ── Lending position (D-portfolio-wallet-04): src/lending/position.ts ──
+    lending: createLendingRouter({
+      chain: () => chain.client,
+      market: () => deps.lendingMarket?.() ?? null,
       toTrpcError,
     }),
 

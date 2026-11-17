@@ -1,6 +1,8 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type {
   HumanTokenTier,
+  ProtocolNameTagRequest,
   ProtocolOnboardingChecklist,
   ProtocolOnboardingOpenInput,
   ProtocolTierAudit,
@@ -8,6 +10,7 @@ import type {
 } from '@intafaced/contracts/protocol-address-risk';
 import {
   missingItems,
+  type NameTagApproveOutcome,
   type OnboardingApproveOutcome,
   type TierApproveOutcome,
   type TierAskOutcome,
@@ -107,13 +110,62 @@ const toChecklist = (r: ChecklistRow): ProtocolOnboardingChecklist => {
     approvedAt: isoOrNull(r.approved_at),
   };
 };
+type NameTagRow = {
+  id: string;
+  address: string;
+  tag: string;
+  reason: string;
+  status: ProtocolNameTagRequest['status'];
+  requester_id: string;
+  first_approver_id: string | null;
+  first_approved_at: Date | string | null;
+  second_approver_id: string | null;
+  published_at: Date | string | null;
+  asked_at: Date | string;
+  proof_nonce: string | null;
+  proof_signer: string | null;
+  proof_block: string | null;
+  proof_at: Date | string | null;
+};
+const toNameTag = (r: NameTagRow): ProtocolNameTagRequest => {
+  const approvals: ProtocolNameTagRequest['approvals'] = [];
+  if (r.first_approver_id) approvals.push({ approverId: r.first_approver_id, at: iso(r.first_approved_at!) });
+  if (r.second_approver_id) approvals.push({ approverId: r.second_approver_id, at: iso(r.published_at!) });
+  return {
+    id: r.id,
+    address: r.address,
+    tag: r.tag,
+    reason: r.reason,
+    status: r.status,
+    requesterId: r.requester_id,
+    proof: r.proof_signer === null ? null : { signer: r.proof_signer, blockNumber: String(r.proof_block), verifiedAt: iso(r.proof_at!) },
+    approvals,
+    askedAt: iso(r.asked_at),
+    publishedAt: isoOrNull(r.published_at),
+  };
+};
+/**
+ * A request with its proof: the one it was published on, or while pending the newest proof stored for its address. A tag
+ * carries no reputation of its own (UNKNOWN), so it never raises or lowers the address's risk.
+ */
+const NAME_TAG_SELECT = `
+  SELECT n.id, n.address, n.tag, n.reason, n.status, n.requester_id, n.first_approver_id, n.first_approved_at,
+         n.second_approver_id, n.published_at, n.asked_at,
+         p.nonce AS proof_nonce, p.signer AS proof_signer, p.block_number::text AS proof_block, p.verified_at AS proof_at
+  FROM protocol.name_tag_requests n
+  LEFT JOIN LATERAL (
+    SELECT nonce, signer, block_number, verified_at FROM protocol.listing_ownership_proofs o
+    WHERE (n.proof_nonce IS NOT NULL AND o.nonce = n.proof_nonce)
+       OR (n.proof_nonce IS NULL AND o.chain_id = n.chain_id AND lower(o.token) = n.address)
+    ORDER BY o.verified_at DESC LIMIT 1) p ON true`;
+
 const CHECKLIST_COLUMNS =
   'id, pool, legal_entity, token_contract, checker_address, wrapper_address, routing_registration, status, opened_by, approved_by, approval_reason, opened_at, approved_at';
 
 export class PostgresTrustDeskStore implements TrustDeskStore {
   constructor(private readonly sql: Sql) {}
 
-  private async tierOf(q: Sql, chainId: number, token: string): Promise<ProtocolTokenTier> {
+  private async tierOf(q: Queryable, chainId: number, token: string): Promise<ProtocolTokenTier> {
     const rows = await q<TierRow[]>`
       SELECT k.token, t.tier, t.prior_tier, t.reason, t.since, r.requester_id, r.approver_id,
              p.id AS p_id, p.tier AS p_tier, p.reason AS p_reason, p.requester_id AS p_requester_id, p.asked_at AS p_asked_at
@@ -149,8 +201,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
     reason: string;
     requesterId: string;
   }): Promise<TierAskOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const rows = await q<{ id: string }[]>`
         INSERT INTO protocol.token_tier_requests (chain_id, token, tier, reason, requester_id)
         VALUES (${input.chainId}, ${input.token}, ${input.tier}, ${input.reason}, ${input.requesterId})
@@ -164,8 +215,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async approveTier(input: { chainId: number; requestId: string; approverId: string }): Promise<TierApproveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [request] = await q<{ id: string; token: string; tier: HumanTokenTier; reason: string; requester_id: string }[]>`
         SELECT id, token, tier, reason, requester_id FROM protocol.token_tier_requests
         WHERE id = ${input.requestId} AND chain_id = ${input.chainId} AND status = 'pending' FOR UPDATE`;
@@ -188,8 +238,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async removeTier(input: { chainId: number; token: string; reason: string; actorId: string }): Promise<TierRemoveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [current] = await q<{ tier: HumanTokenTier; prior_tier: HumanTokenTier | null; request_id: string }[]>`
         SELECT tier, prior_tier, request_id FROM protocol.token_tiers
         WHERE chain_id = ${input.chainId} AND token = ${input.token} FOR UPDATE`;
@@ -240,8 +289,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
     approverId: string;
     reason: string;
   }): Promise<OnboardingApproveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [row] = await q<ChecklistRow[]>`
         SELECT ${q.unsafe(CHECKLIST_COLUMNS)} FROM protocol.pool_onboarding
         WHERE id = ${input.checklistId} AND chain_id = ${input.chainId} AND status = 'open' FOR UPDATE`;
@@ -254,6 +302,61 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
           approval_reason = ${input.reason}, approved_at = now()
         WHERE id = ${row.id} RETURNING ${q.unsafe(CHECKLIST_COLUMNS)}`;
       return { kind: 'approved', checklist: toChecklist(done!) } as const;
+    });
+  }
+
+  async nameTags(chainId: number): Promise<ProtocolNameTagRequest[]> {
+    const rows = await this.sql<NameTagRow[]>`
+      ${this.sql.unsafe(NAME_TAG_SELECT)} WHERE n.chain_id = ${chainId} ORDER BY n.asked_at DESC, n.id LIMIT 200`;
+    return rows.map(toNameTag);
+  }
+
+  private async nameTagOf(q: Queryable, id: string): Promise<ProtocolNameTagRequest> {
+    const [row] = await q<NameTagRow[]>`${q.unsafe(NAME_TAG_SELECT)} WHERE n.id = ${id}`;
+    return toNameTag(row!);
+  }
+
+  async requestNameTag(input: { chainId: number; address: string; tag: string; reason: string; requesterId: string }) {
+    const rows = await this.sql<{ id: string }[]>`
+      INSERT INTO protocol.name_tag_requests (chain_id, address, tag, reason, requester_id)
+      VALUES (${input.chainId}, ${input.address}, ${input.tag}, ${input.reason}, ${input.requesterId})
+      ON CONFLICT (chain_id, address) WHERE status = 'pending' DO NOTHING RETURNING id`;
+    if (rows.length === 0) return { kind: 'pending' } as const;
+    return { kind: 'requested', request: await this.nameTagOf(this.sql, rows[0]!.id) } as const;
+  }
+
+  async approveNameTag(input: { chainId: number; requestId: string; approverId: string }): Promise<NameTagApproveOutcome> {
+    return this.sql.begin(async (q) => {
+      const [row] = await q<{ id: string; address: string; tag: string; reason: string; first_approver_id: string | null }[]>`
+        SELECT id, address, tag, reason, first_approver_id FROM protocol.name_tag_requests
+        WHERE id = ${input.requestId} AND chain_id = ${input.chainId} AND status = 'pending' FOR UPDATE`;
+      if (!row) return { kind: 'unknown' } as const;
+      const [proof] = await q<{ nonce: string }[]>`
+        SELECT nonce FROM protocol.listing_ownership_proofs
+        WHERE chain_id = ${input.chainId} AND lower(token) = ${row.address} ORDER BY verified_at DESC LIMIT 1`;
+      if (!proof) return { kind: 'no_proof' } as const;
+      if (row.first_approver_id === input.approverId) return { kind: 'same_approver' } as const;
+      if (row.first_approver_id === null) {
+        await q`
+          UPDATE protocol.name_tag_requests SET first_approver_id = ${input.approverId}, first_approved_at = now()
+          WHERE id = ${row.id}`;
+        return { kind: 'approved', request: await this.nameTagOf(q, row.id) } as const;
+      }
+      await q`
+        UPDATE protocol.name_tag_requests SET status = 'public', second_approver_id = ${input.approverId},
+          proof_nonce = ${proof.nonce}, published_at = now()
+        WHERE id = ${row.id}`;
+      const [label] = await q<{ id: string; version: number }[]>`
+        INSERT INTO protocol.address_labels (chain_id, address, kind, value, source, reputation, reason, evidence_url, set_by)
+        VALUES (${input.chainId}, ${row.address}, 'name', ${row.tag}, 'owner_proof', 'UNKNOWN', ${row.reason}, NULL, ${input.approverId})
+        ON CONFLICT (chain_id, lower(address), kind) DO UPDATE SET value = EXCLUDED.value, source = EXCLUDED.source,
+          reputation = EXCLUDED.reputation, reason = EXCLUDED.reason, evidence_url = EXCLUDED.evidence_url,
+          set_by = EXCLUDED.set_by, version = protocol.address_labels.version + 1, updated_at = now()
+        RETURNING id, version`;
+      await q`
+        INSERT INTO protocol.address_label_history (label_id, version, value, reputation, reason, evidence_url, set_by)
+        VALUES (${label!.id}, ${label!.version}, ${row.tag}, 'UNKNOWN', ${row.reason}, NULL, ${input.approverId})`;
+      return { kind: 'approved', request: await this.nameTagOf(q, row.id) } as const;
     });
   }
 }

@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import type { BankApproverEligibility } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   IDEMPOTENCY_CONFLICT_CODE,
   LedgerError,
@@ -381,8 +381,8 @@ export class BusinessService {
 
     const account = await transaction(this.sql, async (tx) => {
       const inserted = await tx<AccountRow[]>`
-        INSERT INTO bank.business_accounts (id, name, asset_id, spend_threshold, status)
-        VALUES (${input.accountId}::uuid, ${name}, ${input.assetId}, ${threshold}::numeric, 'active')
+        INSERT INTO bank.business_accounts (id, name, asset_id, spend_threshold, status, owner_user_id)
+        VALUES (${input.accountId}::uuid, ${name}, ${input.assetId}, ${threshold}::numeric, 'active', ${input.creatorUserId})
         ON CONFLICT (id) DO NOTHING
         RETURNING id, name, asset_id, spend_threshold, status, created_at
       `;
@@ -426,7 +426,8 @@ export class BusinessService {
       const rows = await tx<MemberRow[]>`
         INSERT INTO bank.business_members (account_id, user_id, role)
         VALUES (${input.accountId}::uuid, ${input.userId}, ${input.role})
-        ON CONFLICT (account_id, user_id) DO UPDATE SET role = EXCLUDED.role
+        -- A built-in role set here is the member's whole role: a named role (J-bank-19) or advisor seat no longer applies.
+        ON CONFLICT (account_id, user_id) DO UPDATE SET role = EXCLUDED.role, custom_role_id = NULL, advisor = false
         RETURNING account_id, user_id, role
       `;
       return toMember(rows[0]!);
@@ -799,7 +800,7 @@ export class BusinessService {
         return { accountId: input.accountId, userId: input.userId, role: input.role };
       }
       await tx`
-        UPDATE bank.business_members SET role = ${input.role}
+        UPDATE bank.business_members SET role = ${input.role}, custom_role_id = NULL, advisor = false
          WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.userId}
       `;
       return { accountId: input.accountId, userId: input.userId, role: input.role };
@@ -1120,7 +1121,7 @@ export class BusinessService {
   }
 
   private async completePayrollLines(
-    tx: Sql,
+    tx: Queryable,
     existing: BusinessPayrollRun,
     input: { payrollId: string; accountId: string; fromSpaceId: string; recipients: ReadonlyArray<BusinessPayrollLine> },
   ): Promise<BusinessPayrollRun> {
@@ -1217,7 +1218,7 @@ export class BusinessService {
     }
   }
 
-  private async payrollRunRow(id: string, sql: Sql = this.sql, lock = false): Promise<PayrollRunRow | null> {
+  private async payrollRunRow(id: string, sql: Queryable = this.sql, lock = false): Promise<PayrollRunRow | null> {
     const rows = lock
       ? await sql<PayrollRunRow[]>`
           SELECT id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
@@ -1231,7 +1232,7 @@ export class BusinessService {
     return rows[0] ?? null;
   }
 
-  private async payrollRun(id: string, sql: Sql = this.sql, lock = false): Promise<BusinessPayrollRun | null> {
+  private async payrollRun(id: string, sql: Queryable = this.sql, lock = false): Promise<BusinessPayrollRun | null> {
     const row = await this.payrollRunRow(id, sql, lock);
     if (!row) return null;
     const lines = await sql<PayrollLineRow[]>`
@@ -1656,7 +1657,7 @@ export class BusinessService {
     return new Map(unique.map((id) => [id, found.get(id)!]));
   }
 
-  private async lockMembers(sql: Sql, accountId: string): Promise<MemberRow[]> {
+  private async lockMembers(sql: Queryable, accountId: string): Promise<MemberRow[]> {
     return sql<MemberRow[]>`
       SELECT account_id, user_id, role FROM bank.business_members
        WHERE account_id = ${accountId}
@@ -1675,7 +1676,7 @@ export class BusinessService {
     }
   }
 
-  private async memberCommand(sql: Sql, id: string, lock: boolean): Promise<MemberCommandRow | null> {
+  private async memberCommand(sql: Queryable, id: string, lock: boolean): Promise<MemberCommandRow | null> {
     const rows = lock
       ? await sql<MemberCommandRow[]>`
           SELECT id, account_id, actor_user_id, target_user_id, action, role
@@ -1790,7 +1791,7 @@ export class BusinessService {
     });
   }
 
-  private async assertNoPendingPayment(sql: Sql, accountId: string, kind: 'set_threshold' | 'close'): Promise<void> {
+  private async assertNoPendingPayment(sql: Queryable, accountId: string, kind: 'set_threshold' | 'close'): Promise<void> {
     if (kind !== 'close') return;
     const waiting = await sql<Array<{ id: string }>>`
       SELECT id FROM bank.business_approvals
@@ -1806,7 +1807,7 @@ export class BusinessService {
   }
 
   private async applyControl(
-    sql: Sql,
+    sql: Queryable,
     accountId: string,
     actorUserId: string,
     change: { requestId: string; kind: 'set_threshold' | 'close'; spendThreshold: Amount | null },
@@ -1837,7 +1838,7 @@ export class BusinessService {
     if (!recorded[0]) throw new BankError('The change is no longer waiting', 'bank.business_approval_inactive');
   }
 
-  private async controlRow(sql: Sql, id: string, lock: boolean): Promise<ControlRow | null> {
+  private async controlRow(sql: Queryable, id: string, lock: boolean): Promise<ControlRow | null> {
     const rows = lock
       ? await sql<ControlRow[]>`
           SELECT id, account_id, kind, spend_threshold, proposed_by, confirmed_by, status, created_at, decided_at
@@ -1865,7 +1866,7 @@ export class BusinessService {
     }
   }
 
-  private async accountIn(sql: Sql, id: string): Promise<BusinessAccount> {
+  private async accountIn(sql: Queryable, id: string): Promise<BusinessAccount> {
     const rows = await sql<AccountRow[]>`
       SELECT id, name, asset_id, spend_threshold, status, created_at
         FROM bank.business_accounts WHERE id = ${id}

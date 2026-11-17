@@ -5,7 +5,6 @@
  * one that changes a journey test or shared test code only when the same job passed its `Test verdict` step there
  * (JUDGE_CHECK; one model call answers both).
  *
- *   node tooling/ci/review-marker.mjs --self-test
  *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name PR_NUMBER=... node tooling/ci/review-marker.mjs
  *
  * What counts (ciReviewVerdict), read from GitHub's Actions API, never from a comment or a status: a workflow run of
@@ -34,7 +33,7 @@
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
+import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { BASELINE } from './look-baselines.mjs';
 import { judgeReason } from './test-judge.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
@@ -59,7 +58,7 @@ export const VERDICT_STEP = 'Verdict';
  * blocked: a review FAIL on a test-only change doesn't block, and a test FAIL blocks whatever the review says. Both are
  * in one run, so the tree index and "a FAIL stands for its code" cover both. (Failure the test part prevents: proof
  * v2's post-merge reach reads voided 545 proofs over one harness change that altered nothing the tests observe;
- * project-state research/system-design-2026-11-07/E1-RESULT.md.)
+ * project-state product/E1-RESULT.md.)
  */
 export const REVIEW_CHECK = { job: REVIEW_JOB, step: VERDICT_STEP, label: 'CI review' };
 export const TEST_VERDICT_STEP = 'Test verdict';
@@ -162,7 +161,7 @@ export function indexesFirst(text) {
  * REVIEW_WORKFLOW at this head; `attempts(run)` gives, for one run, the jobs of each of its attempts (arrays of
  * GitHub's job objects with `steps`). `runs` may also hold runs on other heads (any branch), and `tree(sha)`
  * gives a commit's tree sha (one GET per head): a FAIL on another head with the same tree stands here too, so an empty
- * commit can't ask again. Pure apart from `attempts` and `tree`, so the self-test and ci-review.test.mjs run offline.
+ * commit can't ask again. Pure apart from `attempts` and `tree`, so review-marker.test.mjs and ci-review.test.mjs run offline.
  * `base` is the pull request's base now: anything but REVIEW_BASE is no verdict. A passing run counts only when its
  * `pull_requests` names a pull request into REVIEW_BASE (`number`, when given, must be this one): a PASS reviewed
  * against a side branch saw only the diff from that branch, so retargeting the pull request to main can't carry it.
@@ -270,7 +269,7 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
 }
 
 /**
- * Why this change needs the independent review, or null when it does not: a gate file (gate-file-guard.mjs GATE_PATHS),
+ * Why this change needs the independent review, or null when it does not: a gate file (gate-files.mjs GATE_PATHS),
  * or a look baseline. Money and security code alone does not (owner decision
  * 2026-11-06). An empty file list fails closed.
  */
@@ -362,7 +361,7 @@ export async function lookForSignoff({ sha, io, branch, base, number, check = RE
  * applied (reviewReason): one that needs the independent review must carry a passing CI review for its current head,
  * or the group fails. Nothing waits: the queue only takes a pull request whose required
  * checks passed (the seal included), so a missing review here means something changed, and waiting would stall the
- * queue. `io` reads GitHub (injected so the self-test runs offline); `dryRun` also reads pull requests already closed.
+ * queue. `io` reads GitHub (injected so the tests run offline); `dryRun` also reads pull requests already closed.
  * Returns { ok, lines }.
  */
 export async function sealMergeGroup({ commits, headRef, io, dryRun = false }) {
@@ -409,54 +408,6 @@ export async function sealMergeGroup({ commits, headRef, io, dryRun = false }) {
   return { ok, lines };
 }
 
-async function selfTest() {
-  // Gate files and look baselines need the review; money and security code alone no longer does
-  // (2026-11-06). Every case the old rule had is kept, with its expected result under the new one.
-  const reasonCases = [
-    [['docs/x.md'], false],
-    [['services/svc-support/src/a.ts', 'docs/x.md'], false],
-    [['services/svc-pay/src/a.ts'], false], // money: depends on ledger-client
-    [['apps/admin/src/a.tsx'], false], // money on the head or on the default branch
-    [['services/svc-edge/src/a.ts'], false], // security
-    [['packages/ledger-client/src/a.ts'], false],
-    [['packages/config/src/freeze-authority.ts'], false],
-    [['packages/db/src/migrate.ts'], false],
-    [['services/svc-new/src/a.ts'], false], // no package.json: was money by fail-closed, now no money check runs
-    [['services/svc-unread/src/a.ts'], false], // unreadable package.json: likewise
-    [['tooling/scripts/local-test-gates.mjs'], false], // tooling without a package.json: likewise
-    [['tooling/pay-sim/src/cli.ts'], false],
-    [['tooling/coverage.yaml'], false],
-    [['apps/customer/src/assets/logo.png'], false],
-    [['apps/customer/src/screens/home/index.tsx'], false],
-    [['.github/CODEOWNERS'], true], // gate files
-    [['.github/workflows/ci.yml'], true],
-    [['tooling/ci/dependency-audit.mjs'], true],
-    [['AGENTS.md'], true],
-    [['services/svc-support/CLAUDE.md'], true],
-    [['services/svc-pay/src/a.ts', 'services/svc-pay/CLAUDE.md'], true], // money plus a gate file
-    [['pnpm-lock.yaml'], false], // security code in AGENTS.md (owner decision 2026-11-06)
-    [['.npmrc'], false], // the seal's old security list
-    [['apps/customer/Dockerfile'], false],
-    [['docker-compose.apps.yml'], false],
-    [['tsconfig.base.json'], false],
-    [['.github/actions/test-infra/action.yml'], false], // .github/ outside GATE_PATHS
-    [['pnpm-workspace.yaml'], false],
-    [['tooling/infra/migrate-all.mjs'], false],
-    [['services/svc-edge/src/a.ts', 'pnpm-lock.yaml'], false], // security plus the lockfile
-    [['apps/customer/look-baselines/home/390x844.png'], true], // look baselines
-    [['packages/ui/look-baselines/kit-buttons/phone/a.png'], true],
-    [[], true],
-  ];
-  for (const [files, want] of reasonCases) {
-    if ((reviewReason(files) !== null) !== want) {
-      console.error('review-marker review-reason self-test failed for', JSON.stringify(files));
-      process.exit(1);
-    }
-  }
-  await mergeGroupSelfTest(['nino']); // a PASS comment from a reviewer login, which counts for nothing
-  console.log('review-marker self-test ok');
-}
-
 /**
  * A `CI review` job object as GitHub's jobs API returns it, with its Verdict step's conclusion and, when `tests` is
  * given, its Test verdict step's (without it, a job from before the test part was folded in).
@@ -475,94 +426,6 @@ export function reviewJob(sha, verdict = 'success', { status = 'completed', test
     conclusion: done ? (steps.every((s) => s.conclusion === 'success') ? 'success' : 'failure') : null,
     steps,
   };
-}
-
-/** The merge queue seal, offline: a fake GitHub per case. */
-async function mergeGroupSelfTest(reviewers) {
-  const fail = (what) => {
-    console.error('review-marker merge-group self-test failed:', what);
-    process.exit(1);
-  };
-  const base = 'b'.repeat(40);
-  const ref = (n) => `refs/heads/gh-readonly-queue/main/pr-${n}-${base}`;
-  const sq = (title, n) => ({ commit: { message: `${title} (#${n})\n\nbody (#9)` } });
-  if (squashPrNumber('test(customer): J-cex-spot-01 #8 (#7108) (#7109)') !== 7109) fail('the last (#N) is the squash');
-  if (squashPrNumber('Merge pull request #5 from x/y') !== null) fail('a merge commit names no squash');
-  if (queueRefPr(ref(12)) !== 12 || queueRefPr('refs/heads/main') !== null) fail('queue ref');
-  if (queueRefPr(`refs/heads/gh-readonly-queue/release/2.0/pr-7-${base}`) !== 7) fail('a base branch with a slash');
-  if (JSON.stringify(groupPulls([sq('a', 1), sq('b', 2)], ref(2))) !== '[1,2]') fail('a group of two');
-  if (groupPulls([sq('a', 1), { commit: { message: 'no number' } }], ref(1)) !== null) fail('an unnamed commit');
-  if (groupPulls([sq('a', 1), sq('b', 1)], ref(1)) !== null) fail('a repeated number');
-  if (groupPulls([sq('a', 1)], ref(3)) !== null) fail('the queue ref names a pull request the commits do not');
-  if (groupPulls([sq('a', 1), sq('b', 2)], ref(1)) !== null) fail('the queue ref names the group head, the last commit');
-  if (groupPulls([], ref(1)) !== null) fail('an empty group');
-
-  const shaOf = (n) => String(n).padStart(40, 'c');
-  const reviewed = (n, verdict = 'success', base = REVIEW_BASE) => [
-    {
-      id: 900 + n,
-      path: REVIEW_WORKFLOW,
-      event: 'pull_request_target',
-      head_sha: shaOf(n),
-      pull_requests: [{ number: n, base: { ref: base } }],
-      jobs: [[reviewJob(shaOf(n), verdict)]],
-    },
-  ];
-  // 1: docs only. 2: a gate file (tooling/ci), CI review passed. 3: a workflow (.github), CI review passed.
-  // 4: a gate file with no review. 5: a gate file with only a PASS comment and an `Independent review` status from the
-  // shared login. 6: closed. 7: a gate file whose CI review said FAIL. 8: a gate file reviewed against a side branch.
-  // 9: money (svc-pay) and 10: security (svc-edge), no review: sealed on their checks alone. 11: a look baseline and
-  // 12: the lockfile, no review (security code).
-  const world = {
-    1: { files: ['docs/x.md'] },
-    2: { files: ['tooling/ci/x.mjs'], runs: reviewed(2) },
-    3: { files: ['.github/workflows/ci.yml'], runs: reviewed(3) },
-    4: { files: ['tooling/ci/x.mjs'] },
-    5: {
-      files: ['tooling/ci/x.mjs'],
-      comments: [{ user: { login: reviewers[0] }, body: `Independent review: PASS ${shaOf(5)}\nReviewer session: session_R1` }],
-      statuses: [{ context: STATUS_CONTEXT, state: 'success' }],
-    },
-    6: { files: ['docs/x.md'], state: 'closed' },
-    7: { files: ['tooling/ci/x.mjs'], runs: reviewed(7, 'failure') },
-    8: { files: ['tooling/ci/x.mjs'], runs: reviewed(8, 'success', 'side/b') },
-    9: { files: ['services/svc-pay/src/a.ts'] },
-    10: { files: ['services/svc-edge/src/a.ts', 'packages/auth/src/a.ts'] },
-    11: { files: ['apps/customer/look-baselines/home/390x844.png'] },
-    12: { files: ['pnpm-lock.yaml'] },
-  };
-  const io = {
-    pull: async (n) => ({
-      state: world[n].state ?? 'open',
-      head: { sha: shaOf(n) },
-      base: { ref: REVIEW_BASE },
-      user: { login: 'author' },
-    }),
-    files: async (n) => world[n].files,
-    reviewRuns: async (sha) => world[Number(sha.replace(/^c+/, ''))].runs ?? [],
-    attempts: async (run) => run.jobs,
-  };
-  const group = async (numbers, opts = {}) =>
-    sealMergeGroup({ commits: numbers.map((n) => sq(`t${n}`, n)), headRef: ref(numbers.at(-1)), io, ...opts });
-  const cases = [
-    [[1, 2, 3], true, 'docs, a reviewed gate-file PR and a reviewed workflow PR'],
-    [[1, 9, 10], true, 'a money PR and a security PR with no review merge through the queue'],
-    [[1, 4], false, 'a gate-file PR with no review never merges through the queue'],
-    [[9, 11], false, 'nor does a look-baseline PR with no review'],
-    [[9, 12], true, 'a lockfile PR with no review merges through the queue too'],
-    [[4, 1], false, 'nor when it is not the last in the group'],
-    [[2, 5], false, 'a PASS comment and status from the shared login count for nothing in the queue either'],
-    [[2, 7], false, 'a FAIL verdict holds in the queue'],
-    [[6], false, 'a closed pull request is no queue entry'],
-    [[8], false, 'a PASS reviewed against a side branch counts for nothing in the queue'],
-  ];
-  for (const [numbers, want, what] of cases) {
-    const got = await group(numbers);
-    if (got.ok !== want) fail(`${what}: ${got.lines.join(' | ')}`);
-  }
-  if (!(await group([6], { dryRun: true })).ok) fail('a dry run reads a closed pull request');
-  const bad = await sealMergeGroup({ commits: [{ commit: { message: 'Merge pull request #4' } }], headRef: ref(4), io });
-  if (bad.ok || !bad.lines[0].includes('could not be read whole')) fail('an unreadable group fails closed');
 }
 
 /**
@@ -932,7 +795,6 @@ async function mainMergeGroup({ repo, token, base, head, headRef, dryRun }) {
 }
 
 async function main() {
-  if (process.argv.includes('--self-test')) return selfTest();
   const dry = process.argv.indexOf('--merge-group-dry-run');
   if (dry > 0) {
     const [base, head, pr] = process.argv.slice(dry + 1).filter((a) => !a.startsWith('--'));

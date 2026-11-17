@@ -427,7 +427,7 @@ describe('futures orders through the book: REST', () => {
     });
   });
   describe('one-tap reverse (J-derivatives-03 #9)', () => {
-    const view = { clientRequestId: 'reverse:1', status: 'done' } as unknown as ReverseView;
+    const view = { clientRequestId: 'reverse:1', status: 'done' } as ReverseView;
 
     it('passes the position, the request id, the accepted tier, the signed account and the edge region', async () => {
       const seen: { userId: string; input: ReverseInput; region: string | null | undefined }[] = [];

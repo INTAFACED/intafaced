@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { PayGuardRefusal, type GuardReplay, type PartialPayGuards } from '../seams/guards.js';
 import { merchantIdsWithLegacySettlement, type SettlementBookReader } from '../settlement-book.js';
@@ -65,7 +66,7 @@ const passesRailSend = (replay: GuardReplay): boolean => replay.kind === 'replay
  * `railSend` marks work that would call a rail: a recovery is then refused too.
  */
 export async function assertNotHalted(
-  conn: Sql,
+  conn: Queryable,
   scope: PayHaltScope,
   merchantId: string | undefined,
   replay: GuardReplay,

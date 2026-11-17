@@ -25,7 +25,7 @@ function recorder(handler: (url: string) => Response) {
     const url = String(input);
     calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
     return handler(url);
-  }) as unknown as typeof globalThis.fetch;
+  }) as typeof globalThis.fetch;
   return { calls, fetchImpl };
 }
 

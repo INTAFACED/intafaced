@@ -28,6 +28,7 @@ describe('backtest run log', () => {
       ignoredInputs: [],
       account: null,
       marginEvents: [{ ts: at(7), kind: 'stop_out', price: '1', marginLevelPercent: '50' }],
+      riskEvents: [],
       simulated: true,
       live: false,
       claimLabel: 'Historical simulation — not a forecast',

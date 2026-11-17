@@ -9,7 +9,6 @@ import type {
   ClaimRow,
   CostBreakdown,
   PaperSettings,
-  RunCounts,
   RunKind,
   RunResultBody,
   StoredPaperRun,

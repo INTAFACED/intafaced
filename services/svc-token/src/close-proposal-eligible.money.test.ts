@@ -61,7 +61,7 @@ function sqlClose(opts: {
   return Object.assign(fn, {
     json: (v: unknown) => v,
     begin: async (_isolation: string, cb: (tx: unknown) => Promise<unknown>) => cb(fn),
-  }) as unknown as Sql;
+  }) as Sql;
 }
 
 async function fundedCloseService(

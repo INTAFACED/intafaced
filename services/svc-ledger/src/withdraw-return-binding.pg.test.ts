@@ -94,7 +94,7 @@ describe('returned withdrawal bound to its posted settle (Postgres)', () => {
       post: (req: PostRequest) => engine.post(req),
       getTxByKey: (key: string) => engine.getTxByKey(key),
       balance: (ref: Parameters<PostgresLedger['balance']>[0]) => engine.balance(ref),
-    } as unknown as LedgerService;
+    } as LedgerService;
     // Someone else's 1000 USDT already came in on the same rail.
     await engine.post(recipes.deposit({ userId: OTHER, assetId: 'USDT', amount: amt('1000'), rail: RAIL, railRef: 'other-in' }));
   }, 120_000);

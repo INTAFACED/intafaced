@@ -7,7 +7,8 @@
  * every score refuses `academy.grading_policy_invalid`. The gradebook is worked out on each read from stored grades
  * (course-gradebook-math.ts): nothing here stores a learner's score. No money moves.
  */
-import type { Sql, TransactionSql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
+import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, SCALE } from '@intafaced/ledger-client';
 import type {
   AcademyCourseGradebook,
@@ -22,7 +23,6 @@ import { dueFor } from './course-item-rules.js';
 import { canonicalPrice } from './courses.js';
 import { lateScore, policyOf } from './late-policy.js';
 
-type Db = Sql | TransactionSql;
 type ItemRow = { id: string; title: string; kind: 'assignment' | 'quiz'; scoring_policy: string | null };
 type Cell = { state: 'graded' | 'pending' | 'not_attempted'; score: Fraction | null; entered: Fraction | null };
 type LateRow = {
@@ -151,7 +151,7 @@ export class CourseGradebook {
   }
 
   /** The course's assignments with a brief and its graded quizzes (not surveys), in outline order. */
-  private items(sql: Db, courseId: string) {
+  private items(sql: Queryable, courseId: string) {
     return sql<ItemRow[]>`
       SELECT i.id, i.title, i.kind, q.scoring_policy
       FROM academy.course_items i
@@ -165,7 +165,7 @@ export class CourseGradebook {
   }
 
   /** The gradebook read on a connection the caller holds (a report reads it inside its own transaction). */
-  async viewIn(sql: Db, courseId: string): Promise<AcademyCourseGradebook> {
+  async viewIn(sql: Queryable, courseId: string): Promise<AcademyCourseGradebook> {
     const [course] = await sql`SELECT id FROM academy.courses WHERE id = ${courseId}`;
     if (!course) throw new AcademyError('no course has that id', 'academy.course_not_found');
     const [policy] = await sql<Array<{ revision: number; types: AcademyGradeType[]; set_by: string; set_at: Date; reason: string }>>`

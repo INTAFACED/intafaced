@@ -144,7 +144,16 @@ test(`${J} #1 /campaigns with nothing running shows the full catalogue layout an
 test(`${J} #2 two active campaigns show their state, time frame and who can join; parked types show the blocker`, async ({ browser }) => {
   const { me } = state('me');
   const first = await liveCampaign(`TEST tasks ${tag}`);
-  const second = await liveCampaign(`TEST referral ${tag}`, { type: 'referral' });
+  // A referral campaign goes live only with its whole programme set (CM-referral-02): TEST criteria and a TEST reward per side.
+  const second = await liveCampaign(`TEST referral ${tag}`, {
+    type: 'referral',
+    reward: null,
+    referral: {
+      sides: 'double',
+      criteria: { verification: 'full', asset: 'USDT', depositMin: '20', tradeVolumeMin: '0.01', windowSeconds: 7 * 86_400 },
+      rewards: { referrer: { asset: 'USDT', amount: '1' }, referee: { asset: 'USDT', amount: '1' } },
+    },
+  });
   const page = await customer(browser);
   await signIn(page, me);
   await openCatalogue(page);

@@ -593,9 +593,7 @@ describe('declared wiring sockets', () => {
    *
    * A written reason proves somebody thought about it; the class is where they
    * say what the answer was. `satisfies readonly WiringSocket[]` already makes a
-   * missing class a compile error — this asserts the runtime value too, because
-   * `tooling/ci/event-wiring.mjs` parses this file as TEXT, and a rule that only
-   * one of those two readers enforces is a rule with a hole in it.
+   * missing class a compile error — this asserts the runtime value too.
    */
   it('classifies every socket A, B or C', () => {
     for (const socket of WIRING_SOCKETS) {
@@ -616,9 +614,7 @@ describe('declared wiring sockets', () => {
    * defect had been fixed by code that has never run. A test written to match a
    * wrong answer is worse than no test: it is a second voice agreeing.
    *
-   * Pinned by name and in order, matching `CLASS_B_AWAITING_A_DECISION` in
-   * `tooling/ci/event-wiring.mjs` — so quietly downgrading it to A to make the
-   * gate green fails here as well as there. Two readers, one rule.
+   * Pinned by name and in order, so quietly downgrading it to A fails here.
    */
   it('records exactly the Class B wiring defects that are pinned for a named decision', () => {
     const b = WIRING_SOCKETS.filter((s) => s.class === 'B').map((s) => `${s.event}::${s.missing}`);
@@ -934,6 +930,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     rankUpdated: { userId: uid(), rank: 2, previousRank: 1, xp: '100' },
     userCreated: { userId: uid(), handle: 'sovereign' },
     kycApproved: { userId: uid(), tier: 'basic', jurisdiction: 'SG' },
+    referralCreated: { userId: uid(), referrerId: uid(), attachedAt: ts() },
     kycSubmitted: { userId: uid(), caseId: uid(), version: 1, previousCaseId: null, submittedAt: ts() },
     kycRejected: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'doc_blurry', rejectedAt: ts() },
     kycInfoRequested: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'need_address', requestedAt: ts() },
@@ -1308,6 +1305,17 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       assetId: 'USDT',
       email: false,
     },
+    agentAlertFired: {
+      alertKey: 'agents.alert:r1:2026-11-15T14:00:00.000Z',
+      alertId: uid(),
+      userId: uid(),
+      ruleName: 'TEST refusals',
+      measure: 'refusal_rate',
+      value: '25',
+      threshold: '0',
+      windowStart: '2026-11-15T14:00:00.000Z',
+      windowEnd: '2026-11-15T15:00:00.000Z',
+    },
     agentApprovalRequested: {
       requestId: uid(),
       userId: uid(),
@@ -1315,6 +1323,14 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       sessionId: uid(),
       tool: 'support.ticket.comment',
       expiresAt: '2026-11-05T21:00:00.000Z',
+    },
+    agentRunCompleted: {
+      runId: uid(),
+      userId: uid(),
+      sessionId: uid(),
+      agentId: 'navigator',
+      notice: 'email',
+      finishedAt: '2026-11-14T09:00:00.000Z',
     },
     personalRequestCreated: {
       requestId: uid(),
@@ -1381,6 +1397,17 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       assetId: 'USDT',
       reasonCode: 'ledger.insufficient_funds',
       failedAt: ts(),
+    },
+    bankCardCashbackEarned: {
+      authorizationId: uid(),
+      cardId: uid(),
+      userId: uid(),
+      spend: '4',
+      cashback: '0.04',
+      assetId: 'USDC',
+      tier: 'none',
+      rateBps: 100,
+      earnedAt: ts(),
     },
     p2pOfferCreated: {
       offerId: uid(),
@@ -1480,6 +1507,22 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       ticketId: uid(),
       userId: uid(),
       resolvedAt: ts(),
+    },
+    quantOrderFilled: {
+      eventId: 'quant.fill:alert-1:run-1:0',
+      userId: uid(),
+      strategyId: 'strategy-1',
+      strategyVersion: 1,
+      runId: 'run-1',
+      alertId: 'alert-1',
+      mode: 'paper',
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      qty: '0.01',
+      price: '100.5',
+      filledAt: ts(),
+      message: 'TEST bought 0.01 BTC/USDT at 100.5',
+      channels: ['email'],
     },
     projectionUpdated: {
       marketId: 'IFC-USD',

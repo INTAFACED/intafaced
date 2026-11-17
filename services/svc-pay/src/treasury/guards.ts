@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { compare, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayGuardRefusal, type PartialPayGuards } from '../seams/guards.js';
@@ -40,7 +41,7 @@ export function createTreasuryGuards(deps: {
   limits: TreasuryLimits;
   inventory: ConversionInventorySource;
 }): PartialPayGuards {
-  async function admit(conn: Sql, assetId: string, candidate: Amount, alreadyCounted: Amount = 0n): Promise<void> {
+  async function admit(conn: Queryable, assetId: string, candidate: Amount, alreadyCounted: Amount = 0n): Promise<void> {
     const limit = deps.limits.byAsset.get(assetId);
     if (limit === undefined) throw new PayGuardRefusal(GUARD_TREASURY_LIMIT_UNSET, 'refused');
     await conn`SELECT pg_advisory_xact_lock(hashtext(${`pay.treasury:${assetId}`}))`;

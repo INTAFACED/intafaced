@@ -174,7 +174,7 @@ services:
       # It hid for so long because a running container keeps the environment it
       # started with: the fleet looked healthy until an unrelated
       # `--force-recreate` of another service pulled the dependency chain with
-      # it. workspace-sync check 3b now fails on this shape.
+      # it.
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing — copy .env.example to .env}
       # Operator JWT lifetime + iss/aud. authEnvSchema already defaults these
       # (900 / intafaced / intafaced.api). Without compose pass-through a host
@@ -758,6 +758,10 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      # CB-copy-06 the owner's minimum investment per follow. Empty = every Start copying refuses.
+      TRADE_COPY_MIN_INVESTMENT: ${TRADE_COPY_MIN_INVESTMENT:-}
+      # CB-copy-06 when a copy day starts, minutes east of UTC. Empty = a follow with a daily cap refuses.
+      TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES: ${TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES:-}
       TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
       TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
@@ -957,6 +961,9 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-pay
       HTTP_PORT: '4006'
+      # The custody switch (OWNER 226), the same value as svc-ledger's. Off: hosted checkout pays the business's own wallet
+      # or the partner, and svc-pay books only our fee.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       DATABASE_URL: postgres://svc_pay:${SVC_PAY_DB_PASSWORD:-svc_pay}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
@@ -998,6 +1005,8 @@ services:
       # exactly dev or test. `required` for every real deployment.
       PAY_MERCHANT_CONTROLS: ${PAY_MERCHANT_CONTROLS:-}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
+      # Our fee rate with each payment partner, `<partner>=<bps>,…`: the owner's contract numbers, blank until set.
+      PAY_PARTNER_FEE_BPS: ${PAY_PARTNER_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git
       # default — blank refuses (never 25). Owner may set 25 explicitly (see
@@ -1415,6 +1424,10 @@ services:
       # Background test runs of an own agent; unset refuses a new one.
       AGENTS_BACKGROUND_TEST_STEPS:
       AGENTS_BACKGROUND_STEP_MS:
+      # Background runs of sessions (J-agents-06): the most steps one may take; unset refuses a new one.
+      AGENTS_SESSION_RUN_MAX_STEPS:
+      # Research answers (J-agents-10 #4): the uncertainty scale, lowest first; unset refuses an answer about a market.
+      AGENTS_RESEARCH_UNCERTAINTY_SCALE:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:
@@ -1878,6 +1891,17 @@ services:
       ACADEMY_UPLOAD_MAX_BYTES: ${ACADEMY_UPLOAD_MAX_BYTES:-}
       ACADEMY_TOPICS_LIST_LIMIT: ${ACADEMY_TOPICS_LIST_LIMIT:-}
       ACADEMY_GRANT_AUDIT_PAGE_SIZE: ${ACADEMY_GRANT_AUDIT_PAGE_SIZE:-}
+      # J-academy-07 course payments: owner values, blank until set (nothing is sold while any is blank).
+      ACADEMY_PAYMENT_RPC_URL: ${ACADEMY_PAYMENT_RPC_URL:-}
+      ACADEMY_PAYMENT_CHAIN_ID: ${ACADEMY_PAYMENT_CHAIN_ID:-}
+      ACADEMY_PAYMENT_TOKEN_ADDRESS: ${ACADEMY_PAYMENT_TOKEN_ADDRESS:-}
+      ACADEMY_PAYMENT_TOKEN_DECIMALS: ${ACADEMY_PAYMENT_TOKEN_DECIMALS:-}
+      ACADEMY_PAYMENT_ASSET: ${ACADEMY_PAYMENT_ASSET:-}
+      ACADEMY_PAYMENT_RECEIVER: ${ACADEMY_PAYMENT_RECEIVER:-}
+      ACADEMY_PAYMENT_CONFIRMATIONS: ${ACADEMY_PAYMENT_CONFIRMATIONS:-}
+      ACADEMY_REFUND_SIGNER_URL: ${ACADEMY_REFUND_SIGNER_URL:-}
+      ACADEMY_PURCHASE_RECONCILE_SECONDS: ${ACADEMY_PURCHASE_RECONCILE_SECONDS:-}
+      LEDGER_URL: http://svc-ledger:4001
       ACADEMY_GRADER_LEASE_SECONDS: ${ACADEMY_GRADER_LEASE_SECONDS:-}
       ACADEMY_CERT_ISSUE_SWEEP_SECONDS: ${ACADEMY_CERT_ISSUE_SWEEP_SECONDS:-}
       ACADEMY_PROGRAMME_MAX_COURSES: ${ACADEMY_PROGRAMME_MAX_COURSES:-}
@@ -1917,7 +1941,7 @@ services:
       LEDGER_URL: http://svc-ledger:4001
       # Role svc_mining_pool and schema mining_pool come from postgres-init.
       # The drizzle files are applied by migrate-all. Without this URL the
-      # fleet never creates windows/shares (workspace-sync).
+      # fleet never creates windows/shares.
       DATABASE_URL: postgres://svc_mining_pool:${SVC_MINING_POOL_DB_PASSWORD:-svc_mining_pool}@postgres:5432/intafaced
     expose: ['4023']
     healthcheck: *healthcheck
@@ -2136,10 +2160,9 @@ services:
   # doc: "Do not connect 04_Web_Admin webpack to monorepo services without edge
   # auth." The staff surface we DO serve is `admin` below, on 3100.
   #
-  # This line exists because `workspace-sync` check 7 forbids SILENCE, not
-  # absence. Until 2026-08-03 the check could not see anything under `vendor/`
-  # at all, so this directory was absent AND silent — the exact state that let
-  # the trading shell take 48 commits with nobody able to look at it.
+  # This line says why it is absent, so the directory is never absent AND
+  # silent — the exact state that let the trading shell take 48 commits with
+  # nobody able to look at it.
   #
   # Not permanent. ADMIN-0 phase A2 ports the screens that must move (withdraw
   # examine, fee manage) one at a time through contracts; phase A3 is the

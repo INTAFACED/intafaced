@@ -68,7 +68,7 @@ function build(options: ConstructorParameters<typeof AccountDetailsService>[0]) 
   const accountDetails = new AccountDetailsService(options);
   // Every call here is Personal, which the profile check answers without a database (business profiles: profile.db.test.ts).
   const profiles = new ProfileService(undefined as never);
-  const router = createBankRouter({ accountDetails, profiles } as unknown as BankServices);
+  const router = createBankRouter({ accountDetails, profiles } as BankServices);
   return {
     as: (scopes: string[], region?: string) => router.createCaller(signed(USER, scopes, region)),
     anonymous: () => router.createCaller(anonymous()),

@@ -3,6 +3,7 @@ import {
   type OnboardingItem,
   type ProtocolComplianceReport,
   type ProtocolComplianceReview,
+  type ProtocolNameTagRequest,
   type ProtocolTokenTier,
 } from '@intafaced/contracts/protocol-address-risk';
 
@@ -26,7 +27,6 @@ export type TrustTab = (typeof TRUST_TABS)[number];
 /** The tabs this console cannot act on yet, each with what it waits for. */
 export const TRUST_TAB_WAITS: Readonly<Partial<Record<TrustTab, string>>> = {
   Blocklist: 'Not built yet: svc-protocol and svc-dex keep no token blocklist (D-launch-listing-02), so nothing can be blocked here.',
-  'Name tags': 'Not built yet: svc-protocol keeps no public name tag request (D-launch-listing-01), so none can be approved here.',
   'Pool halts': 'Not built yet: no pool halt record reaches routing (D-launch-listing-07), so no pool can be halted here.',
 };
 
@@ -54,6 +54,12 @@ const REFUSAL_WORDS: Readonly<Record<string, string>> = {
   'protocol.onboarding.same_approver': 'You opened this checklist, so a different person must approve it. Nothing was approved.',
   'protocol.onboarding.unknown': 'That checklist is not open on this network.',
   'protocol.onboarding.duplicate': 'A checklist for this pool is already on this network.',
+  'protocol.nametags.no_proof':
+    'No proof of ownership is stored for this address, so its name tag cannot be approved. Nothing was approved.',
+  'protocol.nametags.same_approver':
+    'You already approved this name tag, so a different person must give the second approval. Nothing was changed.',
+  'protocol.nametags.request_unknown': 'That name tag is not waiting for approval on this network.',
+  'protocol.nametags.request_pending': 'A name tag for this address is already waiting for approval.',
 };
 export const trustRefusalWords = (code: string | null): string | null =>
   code !== null && Object.hasOwn(REFUSAL_WORDS, code) ? REFUSAL_WORDS[code]! : null;
@@ -80,3 +86,10 @@ const ITEM_WORDS: Readonly<Record<OnboardingItem, string>> = {
 };
 export const onboardingItemWords = (item: OnboardingItem): string => ITEM_WORDS[item];
 export const missingItemWords = (missing: readonly OnboardingItem[]): string[] => missing.map((m) => `${ITEM_WORDS[m]} missing`);
+
+/** A name tag's state: public, or how many of its two approvals it has, and whether a proof of ownership is on file. */
+export function nameTagWords(r: Pick<ProtocolNameTagRequest, 'status' | 'approvals' | 'proof'>): string {
+  const proof = r.proof ? `Ownership proven by ${r.proof.signer} at block ${r.proof.blockNumber}` : 'No proof of ownership';
+  if (r.status === 'public') return `Public · ${proof}`;
+  return `${r.approvals.length} of 2 approvals · ${proof}`;
+}

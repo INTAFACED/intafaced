@@ -15,6 +15,8 @@ const J = 'J-identity-08';
 const UNBUILT = { timeout: 5_000 };
 const LEVELS = ['none', 'basic', 'full', 'institutional'];
 const GATED = ['deposit', 'withdraw', 'trade', 'card', 'earn'];
+/** Every capability the TEST mapping gives level Full (tooling/profiles/test-owner-values/identity.json). */
+const CAPABILITIES = ['custody_crypto', 'transfer_crypto', 'trade_crypto', 'custody_fiat', 'transfer_fiat'];
 /** The stack's one TEST reason from an owner reason list in identity's TEST owner values, as account status returns it. */
 function ownerReason(setting) {
   const raw = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/identity.json', import.meta.url), 'utf8'));
@@ -594,8 +596,10 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
   await page.reload();
   await expect(cases).toHaveCount(1);
   await expect(cases.first()).toHaveAttribute('data-state', 'submitted');
-  await expect(capability('custody_fiat')).toHaveAttribute('data-state', 'pending');
-  await expect(capability('trade_crypto')).toContainText('Pending review');
+  for (const name of CAPABILITIES) {
+    await expect(capability(name)).toHaveAttribute('data-state', 'pending');
+    await expect(capability(name)).toContainText('Pending review');
+  }
 
   // Approved: the same case reads approved with its two steps, and every mapped capability is active at once.
   tool('local-test-gates.mjs', 'verify');
@@ -626,7 +630,10 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
     await other.reload();
     await expect(otherCases).toHaveCount(1);
     await expect(otherCases.first()).toHaveAttribute('data-state', 'submitted');
-    await expect(otherCapability('custody_fiat')).toHaveAttribute('data-state', 'pending');
+    for (const name of CAPABILITIES) {
+      await expect(otherCapability(name)).toHaveAttribute('data-state', 'pending');
+      await expect(otherCapability(name)).toContainText('Pending review');
+    }
     expect(tool('local-test-gates.mjs', 'kyc-reject', second.who.handle, 'document_unreadable')).toContain(
       'rejected (document_unreadable)',
     );

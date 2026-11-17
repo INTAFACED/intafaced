@@ -67,7 +67,7 @@ function signed(p: Principal = principal()) {
 const anonymous = () => edgeContext({ headers: { 'x-intafaced-region': 'SG' }, id: 'req-copy-anon' });
 
 function stubTrade() {
-  return {} as unknown as TradeService;
+  return {} as TradeService;
 }
 
 function deferred() {

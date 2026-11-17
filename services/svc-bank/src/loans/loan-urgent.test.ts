@@ -13,7 +13,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { MemoryLedger, parseAmount as amt, recipes, userAvailable, type PostRequest } from '@intafaced/ledger-client';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
@@ -194,7 +194,7 @@ describe('N4: a crash between the call row and the loan update heals on the next
 describe('N5: a ticker with no timestamp gives no mark', () => {
   it('omits the mark instead of stamping it with the current time', async () => {
     const fetchImpl = (async () =>
-      new Response(JSON.stringify({ bid: '9990', ask: '10010', last: '10000' }), { status: 200 })) as unknown as typeof fetch;
+      new Response(JSON.stringify({ bid: '9990', ask: '10010', last: '10000' }), { status: 200 })) as typeof fetch;
     const source = tickerPriceSource({ baseUrl: 'http://trade.test', fetchImpl });
     const marks = await source.marks(['BTC'], 'USDT');
     expect(marks.has('BTC')).toBe(false);
@@ -205,7 +205,7 @@ describe('N5: a ticker with no timestamp gives no mark', () => {
     const fetchImpl = (async () =>
       new Response(JSON.stringify({ bid: '9990', ask: '10010', last: '10000', timestamp: stamp }), {
         status: 200,
-      })) as unknown as typeof fetch;
+      })) as typeof fetch;
     const marks = await tickerPriceSource({ baseUrl: 'http://trade.test', fetchImpl }).marks(['BTC'], 'USDT');
     expect(marks.get('BTC')?.asOf.getTime()).toBe(stamp);
   });

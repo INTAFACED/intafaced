@@ -5,8 +5,16 @@ import { useCallback, useState } from 'react';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchCertDesigns, fetchIssuedCerts, postCertDeskChange } from '@/lib/academy/cert-designs-browser';
-import type { AcademyCertDesign, CertDeskReply, CertDesignsView, IssuedCertsView } from '@/lib/academy/cert-designs-model';
+import type {
+  AcademyCertDesign,
+  AcademyCertIssueRule,
+  CertDeskReply,
+  CertDesignsView,
+  IssuedCertsView,
+} from '@/lib/academy/cert-designs-model';
+import type { Part } from '@/lib/desk/part';
 import { Failed } from '@/components/academy-courses-desk';
+import { ControlDesk, type ControlAction } from '@/components/control-desk';
 
 /**
  * CERTIFICATE DESIGNS AND THE ISSUED LIST (AC-certificates-03).
@@ -18,6 +26,10 @@ import { Failed } from '@/components/academy-courses-desk';
  * under, which this page says before and after the save. The issued list counts every certificate by status, and an
  * export is a stored snapshot of the whole list with its time and SHA-256. Logo, template and serial-number format are
  * later parts.
+ *
+ * AC-certificates-02: each design card also sets how its certificate is issued (manual, automatic, or after the owner's
+ * delay), with a reason. The issued list revokes one certificate, or issues one learner a certificate as an exception,
+ * each with a reason under the two-founder flow every Academy control uses; svc-academy binds the reason to the approval.
  */
 
 function Outcome({ reply }: { reply: CertDeskReply | null }) {
@@ -68,7 +80,107 @@ const draftOf = (row: AcademyCertDesign): Draft => {
   };
 };
 
-function DesignCard({ row, busy, send }: { row: AcademyCertDesign; busy: boolean; send: (body: Record<string, unknown>) => void }) {
+const MODE_LABEL: Record<AcademyCertIssueRule['mode'], string> = {
+  manual: 'Manual: the learner claims it once every required item is recorded',
+  automatic: 'Automatic: issued when the last required item is recorded',
+  delayed: 'Delayed: issued a set number of minutes after the course is complete',
+};
+
+function ruleNow(rule: AcademyCertIssueRule | null): string {
+  if (!rule) return 'No issue rule is set: the learner claims the certificate once every required item is recorded.';
+  const wait =
+    rule.delayMinutes === null ? '' : `, ${rule.delayMinutes} minute${rule.delayMinutes === 1 ? '' : 's'} after the course is complete`;
+  return `Issue rule revision ${rule.revision}, set ${formatWhen(new Date(rule.updatedAt).toISOString())}: ${rule.mode}${wait}.`;
+}
+
+/** How this certificate is issued, and the form that changes it with a reason. */
+function IssueRuleForm({
+  certId,
+  rule,
+  busy,
+  send,
+}: {
+  certId: string;
+  rule: Part<AcademyCertIssueRule | null> | undefined;
+  busy: boolean;
+  send: (body: Record<string, unknown>) => void;
+}) {
+  const stored = rule?.kind === 'ok' ? rule.data : null;
+  const [mode, setMode] = useState<AcademyCertIssueRule['mode']>(stored?.mode ?? 'manual');
+  const [delay, setDelay] = useState(stored?.delayMinutes === null || stored === null ? '' : String(stored.delayMinutes));
+  const [reason, setReason] = useState('');
+  return (
+    <div className="dk-stack" data-testid="cert-issue-rule" data-mode={stored?.mode ?? 'none'}>
+      <h3>How it is issued</h3>
+      {!rule && <p className="dk-why">The issue rule was not read. Nothing is shown rather than a guess.</p>}
+      {rule?.kind === 'failed' && <Failed title="Could not read the issue rule" message={rule.message} code={rule.code} />}
+      {rule?.kind === 'ok' && (
+        <p className="dk-muted" data-testid="cert-issue-rule-now">
+          {ruleNow(rule.data)}
+        </p>
+      )}
+      <form
+        className="dk-stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const minutes = delay.trim();
+          send({
+            op: 'setIssueRule',
+            certId,
+            mode,
+            // A blank delay is sent as none: svc-academy refuses a delayed rule without one, in words.
+            delayMinutes: mode === 'delayed' && minutes !== '' ? Number(minutes) : null,
+            reason,
+          });
+        }}
+      >
+        <label>
+          Issue rule
+          <select value={mode} onChange={(e) => setMode(e.target.value as AcademyCertIssueRule['mode'])} aria-label="Issue rule">
+            {(Object.keys(MODE_LABEL) as AcademyCertIssueRule['mode'][]).map((m) => (
+              <option key={m} value={m}>
+                {MODE_LABEL[m]}
+              </option>
+            ))}
+          </select>
+        </label>
+        {mode === 'delayed' && (
+          <label>
+            Delay in minutes
+            <input
+              value={delay}
+              onChange={(e) => setDelay(e.target.value)}
+              inputMode="numeric"
+              aria-label="Delay in minutes"
+              placeholder="The owner's wait"
+            />
+          </label>
+        )}
+        <label>
+          Reason
+          <input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} aria-label="Issue rule reason" />
+        </label>
+        <div className="dk-row">
+          <button type="submit" className="adm-btn" disabled={busy}>
+            Save issue rule
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function DesignCard({
+  row,
+  rule,
+  busy,
+  send,
+}: {
+  row: AcademyCertDesign;
+  rule: Part<AcademyCertIssueRule | null> | undefined;
+  busy: boolean;
+  send: (body: Record<string, unknown>) => void;
+}) {
   const [draft, setDraft] = useState<Draft>(draftOf(row));
   const [reason, setReason] = useState('');
   const [activateReason, setActivateReason] = useState('');
@@ -252,6 +364,13 @@ function DesignCard({ row, busy, send }: { row: AcademyCertDesign; busy: boolean
           </button>
         </form>
       )}
+      <IssueRuleForm
+        key={rule?.kind === 'ok' ? `${rule.data?.revision ?? 0}` : 'unread'}
+        certId={row.certId}
+        rule={rule}
+        busy={busy}
+        send={send}
+      />
     </section>
   );
 }
@@ -273,7 +392,7 @@ function useDesk<T>(initial: T | null, reload: () => Promise<T | null>) {
     setReply(answer);
     setBusy(false);
   };
-  return { view, busy, reply, send };
+  return { view, busy, reply, send, read };
 }
 
 export function AcademyCertDesigns({ initial }: { initial: CertDesignsView | null }) {
@@ -302,6 +421,7 @@ export function AcademyCertDesigns({ initial }: { initial: CertDesignsView | nul
             <DesignCard
               key={`${row.certId}:${row.design?.current.revision ?? 0}:${row.design?.activeRevision ?? 0}`}
               row={row}
+              rule={view?.issueRules[row.certId]}
               busy={busy}
               send={(b) => void send(b)}
             />
@@ -311,10 +431,97 @@ export function AcademyCertDesigns({ initial }: { initial: CertDesignsView | nul
   );
 }
 
-export function AcademyIssuedCerts({ initial }: { initial: IssuedCertsView | null }) {
+const TWO_PEOPLE =
+  'Two different operators must agree: you ask here, a second founder approves the packet on their own console, then you run it. svc-academy spends the approval once and records who asked, who approved and why.';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CERT_ID = /^[a-z0-9:_-]{1,64}$/;
+
+/** Revoke one issued certificate, with a reason, under the two-founder flow. */
+function RevokeCertAction({ publicId, userId, onChanged }: { publicId: string; userId: string; onChanged: () => void }) {
+  const action: ControlAction = {
+    heading: `Revoke certificate ${publicId}`,
+    submitLabel: 'Ask a second founder to approve the revoke',
+    needsReason: true,
+    reasonLabel: 'Why this certificate is revoked (kept with the revoke and shown in the grant audit)',
+    build: (reason) => ({ kind: 'academy.cert.revoke', publicId, reason }),
+    danger: true,
+  };
+  return (
+    <div className="dk-stack" data-testid="cert-revoke" data-public-id={publicId}>
+      <ControlDesk
+        endpoint="/api/academy-ops"
+        userId={userId}
+        blockedReason={null}
+        action={action}
+        consequence={`Its public check says revoked, the learner can no longer claim it, and the revoke is listed in the grant audit with who did it and why. The certificate row stays. ${TWO_PEOPLE}`}
+        blockedButtonLabel="Revoke unavailable"
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
+/** Issue one learner a certificate without every required item, with a reason, under the two-founder flow. */
+function CertExceptionAction({ userId, onChanged }: { userId: string; onChanged: () => void }) {
+  const [learner, setLearner] = useState('');
+  const [certId, setCertId] = useState('');
+  const person = learner.trim().toLowerCase();
+  const cert = certId.trim();
+  const ready = UUID.test(person) && CERT_ID.test(cert);
+  const action: ControlAction = {
+    heading: 'Issue this learner the certificate as an exception',
+    submitLabel: 'Ask a second founder to approve the exception',
+    needsReason: true,
+    reasonLabel: 'Why this learner is issued the certificate without every required item (kept with it and shown on the list)',
+    build: (reason) => ({ kind: 'academy.cert.exception', userId: person, certId: cert, reason }),
+  };
+  return (
+    <section className="dk-stack" aria-labelledby="h-exception" data-testid="cert-exception">
+      <h2 id="h-exception">Grant an exception</h2>
+      <div className="adm-field">
+        <label htmlFor="exception-learner">Learner&rsquo;s user id</label>
+        <input
+          id="exception-learner"
+          className="adm-input"
+          value={learner}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          onChange={(e) => setLearner(e.target.value)}
+        />
+      </div>
+      <div className="adm-field">
+        <label htmlFor="exception-cert">Certificate id</label>
+        <input
+          id="exception-cert"
+          className="adm-input"
+          value={certId}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="foundations-v1"
+          onChange={(e) => setCertId(e.target.value)}
+        />
+      </div>
+      <ControlDesk
+        key={ready ? `${person}:${cert}` : 'not-ready'}
+        endpoint="/api/academy-ops"
+        userId={userId}
+        blockedReason={null}
+        formHold={ready ? null : 'Enter the learner’s user id and the certificate id above first.'}
+        action={action}
+        consequence={`It is the learner's one grant of that certificate: it prints, verifies and can be revoked like any other, and the list below and the grant audit show it with your reason. A learner who already holds it is refused before any approval is spent. ${TWO_PEOPLE}`}
+        blockedButtonLabel="Exception unavailable"
+        onChanged={onChanged}
+      />
+    </section>
+  );
+}
+
+export function AcademyIssuedCerts({ initial, userId }: { initial: IssuedCertsView | null; userId: string }) {
   const certificate = initial?.certificate ?? null;
   const reload = useCallback(() => fetchIssuedCerts(certificate), [certificate]);
-  const { view, busy, reply, send } = useDesk(initial, reload);
+  const { view, busy, reply, send, read } = useDesk(initial, reload);
+  const [revoking, setRevoking] = useState<string | null>(null);
   const issued = view?.issued;
   const exports = view?.exports;
   const next = exports?.kind === 'ok' ? (exports.data.exports[0]?.n ?? 0) + 1 : null;
@@ -394,6 +601,8 @@ export function AcademyIssuedCerts({ initial }: { initial: IssuedCertsView | nul
                         <th>Status</th>
                         <th>Issued</th>
                         <th>Design revision</th>
+                        <th>Exception</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -411,6 +620,21 @@ export function AcademyIssuedCerts({ initial }: { initial: IssuedCertsView | nul
                           <td data-status={r.status}>{r.status === 'revoked' ? 'Revoked' : 'Valid'}</td>
                           <td>{formatWhen(r.grantedAt)}</td>
                           <td>{r.designRevision ?? 'none'}</td>
+                          <td data-testid="issued-exception">{r.exceptionReason ?? 'none'}</td>
+                          <td>
+                            {r.status === 'valid' ? (
+                              <button
+                                type="button"
+                                className="adm-btn"
+                                aria-pressed={revoking === r.publicId}
+                                onClick={() => setRevoking(revoking === r.publicId ? null : r.publicId)}
+                              >
+                                Revoke {r.publicId.slice(0, 8)}
+                              </button>
+                            ) : (
+                              <span className="dk-muted">Revoked</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -418,7 +642,9 @@ export function AcademyIssuedCerts({ initial }: { initial: IssuedCertsView | nul
                 </div>
               </>
             )}
+            {revoking && <RevokeCertAction key={revoking} publicId={revoking} userId={userId} onChanged={() => void read()} />}
           </section>
+          <CertExceptionAction userId={userId} onChanged={() => void read()} />
         </>
       )}
       <section className="dk-stack" aria-labelledby="h-exports">

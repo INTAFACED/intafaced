@@ -3,7 +3,7 @@
  * Exact IPv4/IPv6 after trim. No invented CIDR. Empty list stays open.
  * Invalid IPs refuse before create — no leftover unbound key.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
 import { ApiKeyIpError, bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { normalizeIp } from './api-key-ip.js';
@@ -25,7 +25,7 @@ export type ApiKeyMinter = {
 
 export async function mintApiKeyWithIpAllowlist(
   minter: ApiKeyMinter,
-  sql: Sql,
+  sql: Queryable,
   input: {
     userId: string;
     name: string;

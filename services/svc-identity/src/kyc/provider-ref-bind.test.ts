@@ -46,7 +46,7 @@ function fakeSql(state: { records: Map<string, Row> }) {
   };
   const sql = Object.assign(run, {
     begin: async (_iso: string, fn: (tx: typeof run) => Promise<unknown>) => fn(run),
-  }) as unknown as import('postgres').Sql;
+  }) as import('postgres').Sql;
   return sql;
 }
 

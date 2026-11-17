@@ -13,7 +13,7 @@ function portAnswering(answer: () => Promise<Response>, seen: Array<{ url: strin
     fetchImpl: (async (url: URL, init: RequestInit) => {
       seen.push({ url: String(url), init });
       return answer();
-    }) as unknown as typeof fetch,
+    }) as typeof fetch,
   });
 }
 

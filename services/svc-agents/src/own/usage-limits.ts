@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, MoneyError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
@@ -50,7 +50,7 @@ function parseOptional(value: string | null | undefined): Amount | null {
 }
 
 /** The person's usage limits for one own agent, or null when they set none. Read on the caller's transaction. */
-export async function readOwnUsageLimits(sql: Sql, ownerId: string, agentId: string): Promise<OwnUsageLimits | null> {
+export async function readOwnUsageLimits(sql: Queryable, ownerId: string, agentId: string): Promise<OwnUsageLimits | null> {
   if (!UUID_RE.test(agentId)) return null;
   const rows = await sql<Array<{ alert_at: string | null; hard_limit: string | null; email: boolean }>>`
     SELECT alert_at::text, hard_limit::text, email
@@ -77,7 +77,7 @@ function nextMonth(since: Date): Date {
  * `held`, runs still held count at their worst case too: what the hard limit admits new runs against.
  */
 export async function ownAgentSpent(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
   agentId: string,
   since: Date,
@@ -104,7 +104,7 @@ export async function ownAgentSpent(
  * limit. Called only where a run is held, never where one commits: a run held before the limit was lowered finishes.
  */
 export async function assertBelowHardLimit(
-  tx: Sql,
+  tx: Queryable,
   input: { userId: string; agentId: string; assetId: string; used: Amount; amount: Amount; now: Date },
 ): Promise<void> {
   const { userId, agentId, assetId, used, amount, now } = input;
@@ -125,7 +125,7 @@ export async function assertBelowHardLimit(
  * person set. Runs in the commit's transaction, after the reservation is committed, so the alert and the spend that
  * crossed it land together or not at all. Once per agent and month: a second crossing writes nothing.
  */
-export async function noteUsageAlert(tx: Sql, input: { userId: string; reservationKey: string }): Promise<void> {
+export async function noteUsageAlert(tx: Queryable, input: { userId: string; reservationKey: string }): Promise<void> {
   const rows = await tx<Array<{ agent_id: string; asset_id: string; created_at: Date }>>`
     SELECT s.agent_id, r.asset_id, r.created_at
       FROM agents.spend_reservations r
@@ -147,7 +147,7 @@ export async function noteUsageAlert(tx: Sql, input: { userId: string; reservati
  * Records the month's alert when this agent's committed spend in the month of `at` reached the alert the person set.
  * Once per agent and month: a month already recorded is not summed again, and a second crossing writes nothing.
  */
-async function recordUsageAlert(tx: Sql, input: { userId: string; agentId: string; assetId: string; at: Date }): Promise<void> {
+async function recordUsageAlert(tx: Queryable, input: { userId: string; agentId: string; assetId: string; at: Date }): Promise<void> {
   const { userId, agentId, assetId, at } = input;
   const month = usageMonth(at);
   const key = usageAlertKey(agentId, month);
@@ -231,8 +231,7 @@ export class OwnUsageLimitsStore {
    * alert write failed is caught up here, even when the hard limit means no further commit comes.
    */
   async get(ownerId: string, agentId: string, assetId: string, now: Date = new Date()): Promise<OwnUsageLimitsView> {
-    return transaction(this.sql, async (tx) => {
-      const sql = tx as unknown as Sql;
+    return transaction(this.sql, async (sql) => {
       await this.assertOwned(sql, ownerId, agentId);
       await recordUsageAlert(sql, { userId: ownerId, agentId, assetId, at: now });
       return this.view(sql, ownerId, agentId, now);
@@ -254,8 +253,7 @@ export class OwnUsageLimitsStore {
     if (alertAt !== null && hardLimit !== null && alertAt >= hardLimit) {
       throw new OwnAgentRefusal('agents.usage.alert_above_limit', { limit: formatAmount(hardLimit) });
     }
-    return transaction(this.sql, async (tx) => {
-      const sql = tx as unknown as Sql;
+    return transaction(this.sql, async (sql) => {
       await this.assertOwned(sql, ownerId, agentId, true);
       await sql`
         INSERT INTO agents.own_agent_usage_limits (agent_id, owner_id, alert_at, hard_limit, email)
@@ -273,7 +271,7 @@ export class OwnUsageLimitsStore {
     });
   }
 
-  private async assertOwned(sql: Sql, ownerId: string, agentId: string, lock = false): Promise<void> {
+  private async assertOwned(sql: Queryable, ownerId: string, agentId: string, lock = false): Promise<void> {
     if (!UUID_RE.test(agentId)) throw new OwnAgentRefusal('agents.own.not_found');
     const rows = lock
       ? await sql`SELECT 1 FROM agents.own_agents WHERE owner_id = ${ownerId} AND id = ${agentId} FOR UPDATE`
@@ -281,7 +279,7 @@ export class OwnUsageLimitsStore {
     if (!rows[0]) throw new OwnAgentRefusal('agents.own.not_found');
   }
 
-  private async view(sql: Sql, ownerId: string, agentId: string, now: Date): Promise<OwnUsageLimitsView> {
+  private async view(sql: Queryable, ownerId: string, agentId: string, now: Date): Promise<OwnUsageLimitsView> {
     const limits = await readOwnUsageLimits(sql, ownerId, agentId);
     const month = usageMonth(now);
     const spent = await ownAgentSpent(sql, ownerId, agentId, periodStart('month', now));

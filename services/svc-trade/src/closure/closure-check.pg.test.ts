@@ -295,8 +295,8 @@ it('fails closed with 503 and no partial blockers when only the convert_quotes r
     const text = strings.join('?');
     reads.push(text);
     if (text.includes('trade.convert_quotes')) return Promise.reject(new Error('convert_quotes unreadable'));
-    return (db.sql as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
-  }) as unknown as typeof db.sql;
+    return (db.sql as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
+  }) as typeof db.sql;
   const failing = Fastify();
   retainRawBody(failing);
   registerClosureCheck(failing, { sql: flaky, secret: SECRET });

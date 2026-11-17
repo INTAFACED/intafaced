@@ -509,7 +509,7 @@ describe('matching health read without the signing secret (J-cex-spot-20 #1)', (
     const fake = (async (url: string, init: RequestInit) => {
       seen.push({ url, init });
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     const read = httpMatchingHealthRead('http://matching:4005/', 1000, fake);
     const out = await read({ method: 'POST', path: '/halt-all', body: { x: 1 } });
     expect(out).toMatchObject({ kind: 'answered', status: 200 });

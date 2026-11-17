@@ -42,8 +42,7 @@ export function parseSepoliaDeployEnv(env: NodeJS.ProcessEnv = process.env): Sep
 
   const rpcUrl = requireNonEmpty(env, 'PROTOCOL_RPC_URL');
   try {
-    // eslint-disable-next-line no-new
-    new URL(rpcUrl);
+    new URL(rpcUrl); // parsed only to refuse a malformed address
   } catch {
     throw new Error('PROTOCOL_RPC_URL must be a URL');
   }

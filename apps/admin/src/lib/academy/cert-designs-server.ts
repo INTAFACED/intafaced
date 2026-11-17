@@ -13,10 +13,16 @@ import {
   academySaveCertDesignResultSchema,
   type AcademyCertExportFile,
 } from '@intafaced/contracts/academy-cert-designs';
+import {
+  academyCertIssueRuleSchema,
+  academySetCertIssueRuleInputSchema,
+  type AcademyCertIssueRule,
+} from '@intafaced/contracts/academy-certificates';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
-import type { CertDesignsView, CertDeskReply, IssuedCertsView } from './cert-designs-model';
+import type { CertDesignsView, CertDeskReply, CertIssueRules, IssuedCertsView } from './cert-designs-model';
+import type { Part } from '@/lib/desk/part';
 
 /**
  * Certificate designs and the issued list as the signed-in founder (AC-certificates-03). svc-academy records the founder
@@ -33,7 +39,18 @@ const ACADEMY: PartLabels = {
 
 export async function loadCertDesigns(ctx: FounderCallContext): Promise<CertDesignsView> {
   const read = await founderCall(ctx, 'academy', 'admin.certDesigns', 'GET', {}, parseWith(academyCertDesignsSchema));
-  return { designs: partFrom(read, (d) => d, ACADEMY), asOf: new Date().toISOString() };
+  const designs = partFrom(read, (d) => d, ACADEMY);
+  const issueRules: Record<string, Part<AcademyCertIssueRule | null>> = {};
+  if (designs.kind === 'ok') {
+    const rule = parseWith(academyCertIssueRuleSchema.nullable());
+    await Promise.all(
+      designs.data.items.map(async (row) => {
+        const answer = await founderCall(ctx, 'academy', 'admin.certIssueRule', 'GET', { certId: row.certId }, rule);
+        issueRules[row.certId] = partFrom(answer, (d) => d, ACADEMY);
+      }),
+    );
+  }
+  return { designs, issueRules: issueRules satisfies CertIssueRules, asOf: new Date().toISOString() };
 }
 
 export async function loadIssuedCerts(ctx: FounderCallContext, certificate: string | null): Promise<IssuedCertsView> {
@@ -82,9 +99,11 @@ function refusal(result: FounderCallResult<unknown>): { status: number; reply: C
 const SAVE_WHY =
   'A design needs a title (up to 200 characters), body text (up to 2000), a language such as en, a size (A4 or Letter), signatories with a name and a role each, hours of effort as a number with up to two places or nothing, and a reason in up to 500 characters.';
 
-export type CertDeskOp = 'saveDesign' | 'activateDesign' | 'deactivateDesign' | 'makeExport';
+export type CertDeskOp = 'saveDesign' | 'activateDesign' | 'deactivateDesign' | 'makeExport' | 'setIssueRule';
 export const isCertDeskOp = (op: unknown): op is CertDeskOp =>
-  op === 'saveDesign' || op === 'activateDesign' || op === 'deactivateDesign' || op === 'makeExport';
+  op === 'saveDesign' || op === 'activateDesign' || op === 'deactivateDesign' || op === 'makeExport' || op === 'setIssueRule';
+
+const MODE_WORDS = { manual: 'the learner claims it', automatic: 'issued automatically', delayed: 'issued after the wait' } as const;
 
 export async function changeCertDesk(
   ctx: FounderCallContext,
@@ -99,6 +118,24 @@ export async function changeCertDesk(
     return {
       status: 200,
       reply: { ok: true, what: `export ${made.data.n} made at ${made.data.madeAt}, ${made.data.rows} rows`, warning: null },
+    };
+  }
+  if (op === 'setIssueRule') {
+    const asked = academySetCertIssueRuleInputSchema.safeParse(input);
+    if (!asked.success)
+      return {
+        why: 'Which certificate, which rule (manual, automatic or delayed), a delay in whole minutes for a delayed rule only, and why, in up to 500 characters?',
+      };
+    const done = await founderCall(ctx, 'academy', 'admin.setCertIssueRule', 'POST', asked.data, parseWith(academyCertIssueRuleSchema));
+    if (done.kind !== 'ok' || !done.data) return refusal(done);
+    const r = done.data;
+    return {
+      status: 200,
+      reply: {
+        ok: true,
+        what: `issue rule revision ${r.revision}: ${MODE_WORDS[r.mode]}${r.delayMinutes === null ? '' : `, ${r.delayMinutes} minute${r.delayMinutes === 1 ? '' : 's'} after the course is complete`}`,
+        warning: null,
+      },
     };
   }
   if (op === 'activateDesign') {

@@ -2,10 +2,7 @@
 import { DESKS } from './catalog';
 import { fetchOutcome, isReadOutcome, type OwnFetch } from './own-server';
 import type { DeskView, OpsDeskId, ReadOutcome } from './types';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchDesk(deskId: OpsDeskId, signal?: AbortSignal, sections?: readonly string[]): Promise<DeskView | null> {
   const query = sections && sections.length > 0 ? `?${sections.map((s) => `section=${encodeURIComponent(s)}`).join('&')}` : '';

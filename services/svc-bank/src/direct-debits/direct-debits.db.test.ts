@@ -28,7 +28,9 @@ import { createBankServices } from '../bank-service.js';
 import { createBankRouter, type BankRouter } from '../router.js';
 import { RecipientStateUnavailableError, memoryRecipientState } from '../recipient-state.js';
 import { postToRail } from '../personal-pay/post.js';
-import { collectionTransferId } from './direct-debits.js';
+import { collectionPartnerKey, collectionTransferId } from './direct-debits.js';
+import { partnerPayoutsAccount, type PostingFreeze } from '../partner/partner-bank.js';
+import { TEST_PARTNER_DD_BLOCKED, testPartner, type TestPartner } from '../partner/test-partner.js';
 import { ddSimCollectionBody, ddSimMandateBody } from './job-bodies.js';
 import { DD_SIM_RAIL, directDebitSimScheme, unsetDirectDebitScheme, type DirectDebitScheme } from './scheme.js';
 
@@ -512,5 +514,139 @@ describe('the customer doors', () => {
     } finally {
       await off.close();
     }
+  });
+});
+
+describe('when the partner bank holds the money (OWNER 226)', () => {
+  const posting: PostingFreeze = { postingEnabled: async () => true, read: async () => ({ postingEnabled: true, cause: null }) };
+  let partner: TestPartner;
+  function held(scheme: DirectDebitScheme = sim()) {
+    return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      recipients,
+      directDebitScheme: scheme,
+      testPartner: partner,
+      postingFreeze: posting,
+    });
+  }
+  const atPartner = async (userId = USER) =>
+    formatAmount((await partner.bank.balance({ userId, assetId: 'USDT', spaceId: null })).amount ?? -1n);
+  const paidOut = async () => formatAmount((await partner.bank.balance(partnerPayoutsAccount('USDT'))).amount ?? -1n);
+
+  beforeEach(() => {
+    partner = testPartner();
+    partner.set(USER, { custody: 'off' });
+  });
+
+  it('collects a due debit as ONE partner move under its key, posts nothing on the ledger, and a second run moves nothing', async () => {
+    const bank = held();
+    partner.fund(USER, { fundId: 'dd-held-1', assetId: 'USDT', amount: amt('50') });
+    await mandate(bank);
+    await bank.directDebits.present({ mandateId: 'MD-1', collectionId: 'C-1', amount: '5', dueAt: NOW.toISOString() });
+    expect(await bank.directDebits.runDue({ limit: 10, now: NOW })).toMatchObject({ considered: 1, collected: 1 });
+    expect(await atPartner()).toBe('45');
+    expect(await paidOut()).toBe('5');
+    const move = await partner.bank.moveByKey(collectionPartnerKey('MD-1', 'C-1'));
+    expect(move).toMatchObject({ amount: amt('5'), from: { userId: USER, spaceId: null }, to: partnerPayoutsAccount('USDT') });
+    const [row] = (await bank.directDebits.list(USER, NOW)).collections;
+    expect(row).toMatchObject({ status: 'collected', ledgerTxId: null, partnerMoveId: move!.id, refund: { state: 'available' } });
+    expect(await bank.directDebits.runDue({ limit: 10, now: at(1) })).toMatchObject({ considered: 0 });
+    expect(await atPartner()).toBe('45');
+    expect(ledger.journal()).toHaveLength(0);
+    // Inside the guarantee period the collected debit can be asked back.
+    expect(
+      await bank.directDebits.requestRefund({ userId: USER, collectionRowId: row!.id, reason: 'TEST cancelled', now: NOW }),
+    ).toMatchObject({ created: true, collection: { refund: { state: 'requested' } } });
+  });
+
+  it("fails a collection of 10 against a partner balance of 4 with the partner's reason, moving nothing", async () => {
+    const bank = held();
+    partner.fund(USER, { fundId: 'dd-held-4', assetId: 'USDT', amount: amt('4') });
+    await mandate(bank);
+    const presented = await bank.directDebits.present({ mandateId: 'MD-1', collectionId: 'C-10', amount: '10', dueAt: NOW.toISOString() });
+    expect(await bank.directDebits.runDue({ limit: 10, now: NOW })).toMatchObject({ considered: 1, failed: 1, collected: 0 });
+    expect(await atPartner()).toBe('4');
+    expect(await paidOut()).toBe('0');
+    expect(await partner.bank.moveByKey(collectionPartnerKey('MD-1', 'C-10'))).toBeNull();
+    const [row] = (await bank.directDebits.list(USER, NOW)).collections;
+    expect(row).toMatchObject({
+      id: presented.id,
+      status: 'failed',
+      failureCode: 'bank.partner_insufficient_funds',
+      ledgerTxId: null,
+      partnerMoveId: null,
+      failureFeeBlocker: 'bank.dd_failure_fee_unset',
+    });
+    expect(ledger.journal()).toHaveLength(0);
+  });
+
+  it("sends the block to the partner first: upcoming and new collections are rejected with the partner's reason", async () => {
+    const bank = held();
+    partner.fund(USER, { fundId: 'dd-held-block', assetId: 'USDT', amount: amt('50') });
+    await mandate(bank);
+    await bank.directDebits.present({ mandateId: 'MD-1', collectionId: 'C-1', amount: '10', dueAt: at(3).toISOString() });
+
+    // The partner is not answering: nothing is blocked there, and so nothing is recorded here.
+    partner.set(USER, { down: true });
+    await expect(bank.directDebits.block({ userId: USER, mandateId: 'MD-1', now: NOW })).rejects.toMatchObject({
+      code: 'bank.partner_unavailable',
+    });
+    expect((await bank.directDebits.list(USER, NOW)).mandates[0]).toMatchObject({ status: 'active' });
+    partner.set(USER, { down: false });
+
+    const blocked = await bank.directDebits.block({ userId: USER, mandateId: 'MD-1', now: NOW });
+    expect(blocked).toMatchObject({ mandate: { status: 'blocked' }, rejected: ['C-1'], sentTo: 'TEST partner bank' });
+    expect(await partner.directDebits.mandate(USER, 'MD-1')).toMatchObject({ blocked: true, refusalCode: TEST_PARTNER_DD_BLOCKED });
+    const next = await bank.directDebits.present({ mandateId: 'MD-1', collectionId: 'C-2', amount: '3', dueAt: at(1).toISOString() });
+    expect(next).toMatchObject({ status: 'rejected', failureCode: TEST_PARTNER_DD_BLOCKED, ledgerTxId: null, partnerMoveId: null });
+    expect((await bank.directDebits.list(USER, NOW)).collections.map((c) => [c.collectionId, c.failureCode])).toEqual([
+      ['C-1', TEST_PARTNER_DD_BLOCKED],
+      ['C-2', TEST_PARTNER_DD_BLOCKED],
+    ]);
+
+    // Unblocked at the partner too: the mandate collects again.
+    await bank.directDebits.unblock({ userId: USER, mandateId: 'MD-1' });
+    expect(await partner.directDebits.mandate(USER, 'MD-1')).toMatchObject({ blocked: false });
+    await bank.directDebits.present({ mandateId: 'MD-1', collectionId: 'C-3', amount: '10', dueAt: NOW.toISOString() });
+    expect(await bank.directDebits.runDue({ limit: 10, now: NOW })).toMatchObject({ collected: 1 });
+    expect(await atPartner()).toBe('40');
+    expect(ledger.journal()).toHaveLength(0);
+  });
+
+  it('a collection the partner reports blocked at run time is rejected with its reason and nothing moves', async () => {
+    const bank = held();
+    partner.fund(USER, { fundId: 'dd-held-late', assetId: 'USDT', amount: amt('50') });
+    await mandate(bank);
+    await bank.directDebits.present({ mandateId: 'MD-1', collectionId: 'C-1', amount: '10', dueAt: NOW.toISOString() });
+    // Blocked at the partner before the block was recorded here (a crash in between).
+    await partner.directDebits.block(USER, 'MD-1');
+    expect(await bank.directDebits.runDue({ limit: 10, now: NOW })).toMatchObject({ rejected: 1, collected: 0 });
+    expect((await bank.directDebits.list(USER, NOW)).collections[0]).toMatchObject({ failureCode: TEST_PARTNER_DD_BLOCKED });
+    expect(await atPartner()).toBe('50');
+  });
+
+  it('records a partner move made before a crash instead of moving again, and an outage leaves it for the next run', async () => {
+    const bank = held();
+    partner.fund(USER, { fundId: 'dd-held-crash', assetId: 'USDT', amount: amt('30') });
+    await mandate(bank);
+    const presented = await bank.directDebits.present({ mandateId: 'MD-1', collectionId: 'C-9', amount: '7', dueAt: NOW.toISOString() });
+    partner.set(USER, { nextReply: 'lost' });
+    const lost = await bank.directDebits.runDue({ limit: 10, now: NOW });
+    expect(lost).toMatchObject({ collected: 0, failures: [expect.objectContaining({ code: 'bank.partner_reply_lost' })] });
+    expect((await bank.directDebits.list(USER, NOW)).collections[0]).toMatchObject({ id: presented.id, status: 'processing' });
+    expect(await bank.directDebits.runDue({ limit: 10, now: NOW })).toMatchObject({ collected: 1 });
+    expect(await atPartner()).toBe('23');
+    expect(ledger.journal()).toHaveLength(0);
+  });
+
+  it('a collected row names exactly one movement: the database refuses both a ledger and a partner reference', async () => {
+    const bank = held();
+    await mandate(bank);
+    const presented = await bank.directDebits.present({ mandateId: 'MD-1', collectionId: 'C-x', amount: '1', dueAt: NOW.toISOString() });
+    await expect(
+      sql`UPDATE bank.dd_collections SET status = 'collected', settled_at = now(), ledger_tx_id = 'tx', partner_move_id = 'mv' WHERE id = ${presented.id}`,
+    ).rejects.toThrow(/dd_collections_posted_ck/);
+    await expect(sql`UPDATE bank.dd_collections SET partner_move_id = 'mv' WHERE id = ${presented.id}`).rejects.toThrow(
+      /dd_collections_posted_ck/,
+    );
   });
 });

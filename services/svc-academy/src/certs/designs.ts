@@ -15,8 +15,9 @@
  * (`certexport:<n>`), and refuses rather than cut when the list holds more rows than one export may. Blank, both refuse
  * `academy.report_limit_unset`. A certificate carries no value: no money moves here.
  */
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import type {
   AcademyActivateCertDesignInput,
   AcademyCertDesign,
@@ -44,8 +45,6 @@ export const certDesignRefusals = defineRefusals('CertDesignError', {
   'academy.report_not_found': 'NOT_FOUND',
 });
 const refuse = certDesignRefusals.refuse;
-
-type Db = Sql | TransactionSql;
 
 type RevisionRow = {
   cert_id: string;
@@ -169,7 +168,7 @@ export class CertDesigns {
     return { items };
   }
 
-  async design(certId: string, db: Db = this.sql): Promise<AcademyCertDesign> {
+  async design(certId: string, db: Queryable = this.sql): Promise<AcademyCertDesign> {
     this.assertKnown(certId);
     const [head] = await db<HeadRow[]>`
       SELECT revision, active_revision, activated_by, activated_at FROM academy.cert_designs WHERE cert_id = ${certId}
@@ -238,7 +237,7 @@ export class CertDesigns {
     });
   }
 
-  private async saved(tx: Db, certId: string): Promise<AcademySaveCertDesignResult> {
+  private async saved(tx: Queryable, certId: string): Promise<AcademySaveCertDesignResult> {
     const design = await this.design(certId, tx);
     const active = design.design?.activeRevision ?? null;
     if (active === null) return { design, warning: null };
@@ -334,13 +333,23 @@ export class CertDesigns {
     };
   }
 
-  private async issuedRowsOf(db: Db, certificate: string | null, limit: number) {
+  private async issuedRowsOf(db: Queryable, certificate: string | null, limit: number) {
     const rows = await db<
-      Array<{ public_id: string; user_id: string; cert_id: string; status: string; granted_at: Date; design_revision: number | null }>
+      Array<{
+        public_id: string;
+        user_id: string;
+        cert_id: string;
+        status: string;
+        granted_at: Date;
+        design_revision: number | null;
+        exception_reason: string | null;
+      }>
     >`
-      SELECT public_id, user_id, cert_id, status, granted_at, design_revision FROM academy.cert_grants
-       WHERE ${certificate}::text IS NULL OR cert_id = ${certificate}
-       ORDER BY granted_at DESC, public_id
+      SELECT g.public_id, g.user_id, g.cert_id, g.status, g.granted_at, g.design_revision, x.reason AS exception_reason
+        FROM academy.cert_grants g
+        LEFT JOIN academy.cert_exceptions x ON x.public_id = g.public_id
+       WHERE ${certificate}::text IS NULL OR g.cert_id = ${certificate}
+       ORDER BY g.granted_at DESC, g.public_id
        LIMIT ${limit}
     `;
     return rows.map((r) => ({
@@ -350,6 +359,7 @@ export class CertDesigns {
       status: r.status === 'revoked' ? ('revoked' as const) : ('valid' as const),
       grantedAt: r.granted_at.toISOString(),
       designRevision: r.design_revision,
+      exceptionReason: r.exception_reason,
     }));
   }
 

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { codedCancelReason, isCodedCancelText, resolvedByOf } from './cancel-reasons.js';
 import { p2pCancelReasonAllowed } from '@intafaced/contracts/p2p-cancel';
 import { checkOfferLimit, NO_OFFER_LIMITS, type OfferLimitPolicy } from './merchant-limits.js';
@@ -186,6 +186,7 @@ import {
   type MismatchReport,
 } from './amount-mismatch.js';
 import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
+import { CounterpartyStateUnavailableError, type CounterpartyStatePort } from './counterparty-state.js';
 import {
   ADVERTISER_TERMS_SETTING,
   AdvertiserTermsError,
@@ -255,6 +256,9 @@ export type P2pErrorCode =
   // P-ads-merchant-08: a presence schedule that is not a valid week, and a bulk action naming no ads or too many.
   | 'p2p.schedule_invalid'
   | 'p2p.maker_offline'
+  // #4689: the ad's maker is frozen, closed or unknown to identity (one code for all three), or identity could not say.
+  | 'p2p.counterparty_unavailable'
+  | 'p2p.counterparty_unverifiable'
   | 'p2p.bulk_scope_invalid'
   | 'p2p.edit_quota_reached'
   | 'p2p.offer_unfunded'
@@ -720,7 +724,7 @@ export interface TradeInstrumentAttacher {
   duringTake<T>(run: (sink: DenialSink) => Promise<T>): Promise<T>;
 
   attachToTrade(
-    tx: Sql,
+    tx: Queryable,
     input: { tradeId: string; sellerId: string; takerId: string; methodId: string; fiatCurrency: string; sink: DenialSink },
   ): Promise<{ instrumentId: string; fingerprint: string; settlement?: MethodSettlement; cashReleaseSeconds?: number | null }>;
 
@@ -747,14 +751,18 @@ export interface TradeInstrumentAttacher {
    * never advertised — closing the residual named on `TAKE_REFUSED_MESSAGE`.
    * Empty operator registry ⇒ empty set: a leftover destination is not a rail.
    */
-  liveMethodKeys(ownerId: string, fiatCurrency: string, opts?: { db?: Sql; exceptInstrumentId?: string }): Promise<ReadonlySet<string>>;
+  liveMethodKeys(
+    ownerId: string,
+    fiatCurrency: string,
+    opts?: { db?: Queryable; exceptInstrumentId?: string },
+  ): Promise<ReadonlySet<string>>;
 
   /**
    * P-ads-merchant-18: remove the owner's active instrument inside the caller's transaction, so the ads it was the last
    * destination for pause in the same commit. Optional so a test stub without instruments still builds; `removeMethod`
    * refuses without it.
    */
-  removeInstrument?(input: { instrumentId: string; ownerId: string }, db?: Sql): Promise<InstrumentHeader>;
+  removeInstrument?(input: { instrumentId: string; ownerId: string }, db?: Queryable): Promise<InstrumentHeader>;
 
   /**
    * Method ids an operator has registered and left enabled. Empty = no payable
@@ -772,13 +780,13 @@ export interface TradeInstrumentAttacher {
    * P-disputes-security-09: each non-instant method's board profile (absent = instant). Optional so a test stub without
    * a catalogue still builds (every method then reads instant).
    */
-  boardSettlements?(methodIds: readonly string[], db?: Sql): Promise<ReadonlyMap<string, MethodSettlement>>;
+  boardSettlements?(methodIds: readonly string[], db?: Queryable): Promise<ReadonlyMap<string, MethodSettlement>>;
 
   /**
    * P-ads-merchant-19: the methods any market's enabled row calls cash in person (a locked price). Optional so a test
    * stub without a catalogue still builds (no method is then cash).
    */
-  cashMethods?(methodIds: readonly string[], db?: Sql): Promise<ReadonlySet<string>>;
+  cashMethods?(methodIds: readonly string[], db?: Queryable): Promise<ReadonlySet<string>>;
 }
 
 export interface P2pServiceOptions {
@@ -896,6 +904,12 @@ export interface P2pServiceOptions {
    * in it `p2p.config_unset`.
    */
   postingThresholds?: PostingThresholds;
+  /**
+   * #4689. Whether the ad's maker may be the other side of a new order (svc-identity's account status). `index.ts`
+   * always passes it, where no IDENTITY_URL refuses every take `p2p.counterparty_unverifiable`; omitted is a service
+   * built without it (tests).
+   */
+  counterpartyState?: CounterpartyStatePort;
 }
 
 /**
@@ -1308,7 +1322,7 @@ interface QuoteRow {
   expires_in_ms: string;
 }
 
-async function readQuote(sql: Sql, quoteId: string): Promise<QuoteRow | null> {
+async function readQuote(sql: Queryable, quoteId: string): Promise<QuoteRow | null> {
   const rows = await sql<QuoteRow[]>`
     SELECT *, GREATEST(0, floor(extract(epoch FROM (expires_at - now())) * 1000))::bigint AS expires_in_ms
       FROM p2p.take_quotes WHERE quote_id = ${quoteId}`;
@@ -1352,7 +1366,7 @@ function sameQuoteOrConflict(
  * placed. Read inside the reservation transaction, before pricing: a floating ad is placed at the quoted price.
  */
 async function heldQuote(
-  tx: Sql,
+  tx: Queryable,
   input: { quoteId: string; tradeId: string; takerId: string; offerId: string; method: string; amount: Amount },
 ): Promise<QuoteRow | null> {
   const placed = await tx`SELECT 1 FROM p2p.p2p_trades WHERE id = ${input.tradeId}`;
@@ -1411,7 +1425,7 @@ function toRemarkCase(row: RemarkCaseRow): RemarkCase {
 }
 
 /** The order's amount report, read with `db` (the order's transaction, or the pool). */
-async function readMismatch(db: Sql, tradeId: string): Promise<MismatchReport | null> {
+async function readMismatch(db: Queryable, tradeId: string): Promise<MismatchReport | null> {
   const [row] = await db<MismatchRow[]>`
     SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
       FROM p2p.trade_mismatches WHERE trade_id = ${tradeId}
@@ -1467,7 +1481,7 @@ function toMismatch(row: MismatchRow): MismatchReport {
  * microseconds down to JS millisecond precision, so a value read here and bound
  * back into a column is always <= the true transaction timestamp, never past it.
  */
-async function txNow(tx: Sql): Promise<Date> {
+async function txNow(tx: Queryable): Promise<Date> {
   const rows = await tx<Array<{ now: Date }>>`SELECT now() AS now`;
   return rows[0]!.now;
 }
@@ -1498,6 +1512,7 @@ export class P2pService {
   private readonly sellBalanceAtPost: boolean;
   private readonly adContentRules: AdContentRules;
   private readonly postingThresholds: PostingThresholds | undefined;
+  private readonly counterpartyState: CounterpartyStatePort | undefined;
   private tradingEnabled: boolean;
 
   /**
@@ -1544,6 +1559,7 @@ export class P2pService {
     this.sellBalanceAtPost = options.sellBalanceAtPost === true;
     this.adContentRules = options.adContentRules ?? { status: 'absent' };
     this.postingThresholds = options.postingThresholds;
+    this.counterpartyState = options.counterpartyState;
   }
 
   /**
@@ -1721,7 +1737,7 @@ export class P2pService {
   }
 
   private async buyerFiatUsed(
-    sql: Sql,
+    sql: Queryable,
     input: { buyerId: string; currency: string; excludeTradeId: string | null },
   ): Promise<{ daily: Amount; lifetime: Amount }> {
     const [row] = await sql<{ daily: string; lifetime: string }[]>`
@@ -1750,7 +1766,7 @@ export class P2pService {
    * themselves: an order not yet paid is cancelled when its window runs out. A paid or disputed order frees its place
    * only when someone acts, so it gives no end time, and with only those open the refusal has none.
    */
-  private async assertActiveOrderCap(sql: Sql, input: { takerId: string; excludeTradeId: string | null }): Promise<void> {
+  private async assertActiveOrderCap(sql: Queryable, input: { takerId: string; excludeTradeId: string | null }): Promise<void> {
     if (!this.takeLimits) return;
     const cap = this.takeLimits.activeOrderCap;
     if (cap === null) throw new P2pError('The most ongoing orders one person may hold is not set', 'p2p.config_unset');
@@ -1806,7 +1822,7 @@ export class P2pService {
    * they let run out), on the database clock, newest first, at most `limit` of them, each with when it stops counting.
    * A seller's cancel, an unfinished lock and a moderator's refund are not the buyer's doing.
    */
-  private async recentBuyerCancels(sql: Sql, buyerId: string, limit: number, windowHours: number): Promise<{ until: Date }[]> {
+  private async recentBuyerCancels(sql: Queryable, buyerId: string, limit: number, windowHours: number): Promise<{ until: Date }[]> {
     return sql<{ until: Date }[]>`
       SELECT resolved_at + make_interval(hours => ${windowHours}) AS until
         FROM p2p.p2p_trades
@@ -1849,7 +1865,7 @@ export class P2pService {
    * instrument-owner lock on a take.
    */
   private async assertBuyingNotRestricted(
-    sql: Sql,
+    sql: Queryable,
     input: { buyerId: string; tradeId: string | null; /** The buyer is the ad's maker, not the person asking. */ asMaker: boolean },
   ): Promise<void> {
     if (!this.takeLimits) return;
@@ -1904,7 +1920,7 @@ export class P2pService {
    * P-ads-merchant-19: cash in person has a locked price, so a floating ad may not list a method any market calls cash.
    * Checked at post, on an edit that changes the methods, and again at take (the operator may make a method cash later).
    */
-  private async assertFloatingAllowed(input: { priceType: PriceType; methods: readonly unknown[]; db?: Sql }): Promise<void> {
+  private async assertFloatingAllowed(input: { priceType: PriceType; methods: readonly unknown[]; db?: Queryable }): Promise<void> {
     if (input.priceType !== 'float' || !this.instruments.cashMethods) return;
     const ids = input.methods.map(methodIdFromOfferEntry).filter((id): id is string => id !== null);
     const cash = await this.instruments.cashMethods(ids, input.db);
@@ -1946,7 +1962,7 @@ export class P2pService {
   }
 
   private async assertBuyerVerificationLimit(
-    sql: Sql,
+    sql: Queryable,
     input: {
       buyerId: string;
       fiatCurrency: string;
@@ -2001,7 +2017,7 @@ export class P2pService {
    * lifetime and per-order bounds have no end time; a higher verification level is the way past them.
    */
   private async verificationLimitDetails(
-    sql: Sql,
+    sql: Queryable,
     code: string,
     tier: string | undefined,
     used: { daily: Amount; lifetime: Amount },
@@ -2396,7 +2412,7 @@ export class P2pService {
    * figure write none; a blank figure writes none. An ad is posted once and an edit never comes here, so a follower is
    * told once per ad. Returns how many followers are owed a notice.
    */
-  private async writeFollowerNotices(tx: Sql, row: OfferRow): Promise<number> {
+  private async writeFollowerNotices(tx: Queryable, row: OfferRow): Promise<number> {
     const perDay = this.followerNoticesPerDay;
     if (perDay === undefined || !Number.isInteger(perDay) || perDay < 1) return 0;
     if ((row.visibility ?? 'public') !== 'public') return 0;
@@ -2576,7 +2592,7 @@ export class P2pService {
    * next UTC midnight). A blank cap refuses `p2p.config_unset`, and so does a service built without one (tests), whose
    * edits are not counted.
    */
-  async offerEditQuota(makerId: string, db: Sql = this.sql): Promise<OfferEditQuota> {
+  async offerEditQuota(makerId: string, db: Queryable = this.sql): Promise<OfferEditQuota> {
     const limit = this.offerEditsPerDay;
     if (limit === null || limit === undefined) {
       throw new P2pError('P2P_OFFER_EDITS_PER_DAY is not published; ads cannot be edited', 'p2p.config_unset');
@@ -2595,7 +2611,7 @@ export class P2pService {
    * person's edits run one after another under a transaction lock on their id, so two cannot both take the last one.
    * The row is keyed by the edit's own key, so the edit's retry (a replay, answered before this) never counts twice.
    */
-  private async countOfferEdit(tx: Sql, makerId: string, idempotencyKey: string, offerId: string): Promise<void> {
+  private async countOfferEdit(tx: Queryable, makerId: string, idempotencyKey: string, offerId: string): Promise<void> {
     if (this.offerEditsPerDay === undefined) return;
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.offer_edits:${makerId}`}, 0))`;
     const quota = await this.offerEditQuota(makerId, tx);
@@ -2617,7 +2633,7 @@ export class P2pService {
    * never be taken again, so it closes as sold out. Run inside the write that left it so (a release, an edit), under the
    * ad's row lock, so it closes once and a take waiting on the lock reads it closed.
    */
-  private async closeIfSoldOut(tx: Sql, offerId: string, locked = false): Promise<OfferRow | null> {
+  private async closeIfSoldOut(tx: Queryable, offerId: string, locked = false): Promise<OfferRow | null> {
     // The row lock comes first, so the open-order check below reads after any take that held it has committed.
     if (!locked) await tx`SELECT 1 FROM p2p.offers WHERE id = ${offerId} FOR UPDATE`;
     const [closed] = await tx<OfferRow[]>`
@@ -2681,11 +2697,32 @@ export class P2pService {
   }
 
   /**
+   * #4689. The ad's maker is the other side of the order and is not the caller, so the edge's frozen/closed check on
+   * the caller never covers them. A frozen, closed or unknown maker refuses `p2p.counterparty_unavailable`, one code
+   * for all three; an unanswered check refuses `p2p.counterparty_unverifiable`. Either way nothing is reserved.
+   */
+  private async assertCounterpartyMayTrade(makerId: string, takerId: string): Promise<void> {
+    if (!this.counterpartyState || makerId === takerId) return;
+    let status;
+    try {
+      status = await this.counterpartyState.statusOf(makerId);
+    } catch (err) {
+      if (err instanceof CounterpartyStateUnavailableError) {
+        throw new P2pError('This ad cannot be checked right now; nothing was held. Try again shortly', 'p2p.counterparty_unverifiable');
+      }
+      throw err;
+    }
+    if (status !== 'active') {
+      throw new P2pError('This ad cannot take orders; nothing was held', 'p2p.counterparty_unavailable');
+    }
+  }
+
+  /**
    * P-ads-merchant-08: an ad whose maker is offline, or on a schedule outside every window, takes no order; it is off
    * the board for the same reason. Refuses `p2p.maker_offline` with when the maker's hours open again (null when
    * offline with no schedule). Orders already open are not touched.
    */
-  private async assertMakerPresent(db: Sql, makerId: string, takerId: string | null): Promise<void> {
+  private async assertMakerPresent(db: Queryable, makerId: string, takerId: string | null): Promise<void> {
     if (takerId !== null && takerId === makerId) return;
     const [row] = await db<Array<{ on_board: boolean }>>`SELECT p2p.maker_on_board(${makerId}, now()) AS on_board`;
     if (row?.on_board !== false) return;
@@ -2702,7 +2739,7 @@ export class P2pService {
    * a private ad it is refused by why (an unknown token says no more than private).
    */
   private async assertOfferAccess(
-    db: Sql,
+    db: Queryable,
     offer: Pick<OfferRecord, 'id' | 'makerId' | 'visibility'>,
     viewerId: string | null,
     shareToken: string | undefined,
@@ -3023,7 +3060,7 @@ export class P2pService {
    * why resuming needs a method first.
    */
   private async readRemovalImpact(
-    db: Sql,
+    db: Queryable,
     instrumentId: string,
     ownerId: string,
     lock: boolean,
@@ -3274,6 +3311,8 @@ export class P2pService {
     // missing offer mid-take. Take still refuses with the uniform message when
     // the destination is gone; get/list stay honest for strangers.
     const preview = await this.loadOfferRaw(input.offerId);
+    // #4689: before anything is reserved, and outside the transaction (a network call must not hold the offer lock).
+    await this.assertCounterpartyMayTrade(preview.makerId, input.takerId);
     const referencePrice =
       preview.priceType === 'float' ? ((await this.referencePrices?.price(preview.asset, preview.fiatCurrency)) ?? null) : null;
 
@@ -3610,7 +3649,7 @@ export class P2pService {
   }
 
   /** Stamp an acknowledged lock while the caller still holds the trade row. */
-  private async advanceToEscrowed(tx: Sql, trade: TradeRecord): Promise<TradeRecord> {
+  private async advanceToEscrowed(tx: Queryable, trade: TradeRecord): Promise<TradeRecord> {
     const now = await txNow(tx);
     // P-disputes-security-09: a non-instant order's payment window is its method's settlement window; a blank window
     // keeps the published payment deadline.
@@ -4828,7 +4867,7 @@ export class P2pService {
    * reopens the skew this service cannot tolerate.
    */
   private async writeDecision(
-    tx: Sql,
+    tx: Queryable,
     args: { trade: TradeRecord; to: TradeStatus; resolution: TradeResolution; reason: string; now: Date },
   ): Promise<void> {
     const { trade, to, resolution, reason, now } = args;
@@ -4867,7 +4906,7 @@ export class P2pService {
   }
 
   /** Initial server-validated terms, not a receipt or a guess that escrow posted. */
-  private async requireOriginalTermsClaim(tradeId: string, sql: Sql = this.sql): Promise<void> {
+  private async requireOriginalTermsClaim(tradeId: string, sql: Queryable = this.sql): Promise<void> {
     const [row] = await sql<{ original_terms_claimed_at: Date | null }[]>`
       SELECT original_terms_claimed_at FROM p2p.p2p_trades WHERE id = ${tradeId}
     `;
@@ -5311,7 +5350,7 @@ export class P2pService {
    * (`p2p_disputes.deadline_at`) is not moved. The trade deadline is.
    */
   private async writeEscalation(
-    tx: Sql,
+    tx: Queryable,
     tradeId: string,
     actor?: { actorId: string; reason: string },
   ): Promise<{ tradeId: string; escalatedAt: Date; escalations: number; deadlineAt: Date }> {
@@ -6486,7 +6525,7 @@ export class P2pService {
     }
   }
 
-  private async lockTrade(tx: Sql, tradeId: string): Promise<TradeRecord> {
+  private async lockTrade(tx: Queryable, tradeId: string): Promise<TradeRecord> {
     const rows = await tx<TradeRow[]>`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId} FOR UPDATE`;
     const row = rows[0];
     if (!row) throw unknownTrade(tradeId);
@@ -6501,7 +6540,7 @@ export class P2pService {
    * from the whole row and must be recomputed from the post-increment values,
    * not from whatever a second statement would read back.
    */
-  private async bumpReputation(tx: Sql, userId: string, outcome: TradeOutcome, releaseSecs?: number): Promise<void> {
+  private async bumpReputation(tx: Queryable, userId: string, outcome: TradeOutcome, releaseSecs?: number): Promise<void> {
     const rows = await tx<
       Array<{
         trades_total: number;
@@ -6850,7 +6889,7 @@ function assertPausesConfirmed(impact: MethodRemovalImpact, confirmed: readonly 
 
 /** A sell ad's methods each have a live destination, read under the maker's instrument key (taken first, per its rules). */
 async function assertSellDestinations(
-  tx: Sql,
+  tx: Queryable,
   instruments: Pick<TradeInstrumentAttacher, 'liveMethodKeys'>,
   makerId: string,
   fiatCurrency: string,

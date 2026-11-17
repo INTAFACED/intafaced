@@ -1,8 +1,7 @@
 /** Browser hop for the quiz score changes (AC-quizzes-04). Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { QuizTrailReply, QuizTrailView } from './quiz-trail-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchQuizTrail(itemId: string): Promise<QuizTrailView | null> {
   try {

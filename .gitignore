@@ -103,5 +103,15 @@ services/*/.data/
 # The developer docs files are generated at build time (apps/customer vite.config.ts developerDocs), never committed.
 apps/customer/public/developers/
 
-# T3 worktree setup markers (tooling/t3/setup-worktree.mjs)
+# Where T3 worktree setup markers used to be; they are under node_modules/.t3-setup now (tooling/t3/setup-worktree.mjs).
+# Kept ignored so older worktrees that still hold the folder stay clean.
 .t3/
+
+# A builder's own stack and journey results in its checkout (docs/LOCAL-TEST-STACK.md, "Check your own journey").
+/.stack-state/
+/.jr/
+# pnpm local:stack verify (tooling/scripts/verify-app.mjs): this checkout's launch record and kept evidence, and the
+# feature map it generates from docs/roadmap/journeys.json (only the map's README is written by hand).
+/.verify/
+/.claude/skills/verify-intafaced/features/*
+!/.claude/skills/verify-intafaced/features/README.md

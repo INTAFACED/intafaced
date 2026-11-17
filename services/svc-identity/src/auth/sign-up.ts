@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { checkAccess, checkCitizenship, hasSubdivisionRows, isSubdivisionCode, regionCodeChain } from '@intafaced/config';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { flowSubjectHash, type PasswordResetMail } from './password-reset.js';
 import { sealBirthDate } from '../kyc/birth-date.js';
@@ -393,7 +393,7 @@ type OpenSignUp = {
 };
 
 /** One sign-up flow and its draft. `lock` holds the flow row until the caller's transaction ends. */
-async function readFlow(sql: Sql, flowId: string, lock = false): Promise<OpenSignUp | undefined> {
+async function readFlow(sql: Queryable, flowId: string, lock = false): Promise<OpenSignUp | undefined> {
   if (!/^[0-9a-f-]{36}$/i.test(flowId)) return undefined;
   const rows = lock
     ? await sql<OpenSignUp[]>`
@@ -478,7 +478,7 @@ export async function resendSignUp(deps: SignUpDeps, input: { flowId: string }):
 export async function confirmSignUp(
   deps: SignUpDeps,
   input: { flowId: string; code: string },
-  create: (tx: Sql, draft: SignUpDraft) => Promise<string>,
+  create: (tx: Queryable, draft: SignUpDraft) => Promise<string>,
 ): Promise<{ userId: string; draft: SignUpDraft }> {
   const budget = requireBudget(deps);
   const now = deps.now();

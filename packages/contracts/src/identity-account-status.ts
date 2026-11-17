@@ -9,7 +9,9 @@ import { kycReasonCodeSchema } from './identity-kyc-cases.js';
  * promises more than the service does:
  * - `staff_freeze` (`users.status = frozen`): sign-in and every door refuse (`auth.account_frozen`). Only staff lift it.
  * - `closed` (`users.status = closed`): the same; `reasonCode` is the closure code staff recorded, or
- *   `customer_request` when the person closed it through the closure flow.
+ *   `customer_request` when the person closed it through the closure flow. A staff close with a grace date
+ *   (J-identity-14 #1) is `closed` with `graceUntil` set: until that date sign-in and withdrawals go on and identity
+ *   refuses every fresh svc-trade operation with `trade.account_restricted`, so it blocks only `trade`.
  * - `self_freeze` (the owner's own freeze): every session and key was revoked when it was set, and a new API key
  *   refuses. It lifts through `selfFreezeManage` after the owner's wait (`IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS`).
  * - `security_lock` (the owner's or support's lock): password and sign-in method changes, password and second-factor
@@ -106,6 +108,8 @@ export const accountRestrictionSchema = z
       .object({ code: kycReasonCodeSchema, text: z.string().min(1).nullable(), guidance: z.string().min(1).nullable() })
       .strict()
       .nullable(),
+    /** For `closed`: the grace date of a staff close that is not final yet; null or absent for every other case. */
+    graceUntil: z.string().datetime({ offset: true }).nullable().optional(),
   })
   .strict();
 export type AccountRestriction = z.infer<typeof accountRestrictionSchema>;

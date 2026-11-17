@@ -8,8 +8,8 @@ import { ledgerRefusalCode } from './builder-fee-poster.js';
  * venue owes us comes down by the claim; our builder account at the venue (an own-funds place) goes up by it.
  *
  * The venue's own claim record is the only source. Nothing here infers a claim from our earned total, so "earned" and
- * "collected" stay two figures. The venue adapter does not read the claim record yet (`UserVenue` has no such read), so
- * no reader is wired and a run reports `waiting` with its reason: nothing is posted, and nothing is made up.
+ * "collected" stay two figures. The reader is the venue adapter's `builderClaims` (wire.ts `claimReader`); an adapter
+ * without that read has no reader, and a run reports `waiting` with its reason: nothing is posted, and nothing is made up.
  *
  * - A claim for any builder address other than ours is never posted, and is counted as not ours.
  * - A crash after a post is safe: the next run reads the claim again and the ledger returns the same transaction.
@@ -34,7 +34,7 @@ export interface BuilderFeeClaimReader {
 }
 
 export interface BuilderFeeCollectDeps {
-  /** `null` until the venue adapter can read the builder's claim record. */
+  /** `null` when the venue adapter does not read the builder's claim record. */
   readonly reader: BuilderFeeClaimReader | null;
   /** Our builder address at the venue (`TRADE_USER_VENUE_BUILDER_ADDRESS`); blank refuses to run. */
   readonly builder: string;

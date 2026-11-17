@@ -7,7 +7,7 @@ import { CopyService } from '../controls/test-admission.js';
  */
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
+import { parseAmount } from '@intafaced/ledger-client';
 import type { LookupLeaderFillPort } from './copy-service.js';
 import { describe, expect, it } from 'vitest';
 import { createTradeRouter } from '../router.js';

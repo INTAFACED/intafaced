@@ -11,6 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../../docker-compose.apps.yml');
 
@@ -23,9 +24,7 @@ const REPLICA_KEYS = [
 ] as const;
 
 function adminServiceBlock(source: string): string {
-  const match = source.match(/^  admin:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('admin service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'admin');
 }
 
 function assignmentLines(block: string, key: string): string[] {

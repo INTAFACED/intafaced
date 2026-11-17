@@ -1486,7 +1486,7 @@ describe('auth.register optional referrerId', () => {
         attributeCalls.push(input);
         return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
       },
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    } as import('./affiliates/referral-service.js').ReferralService;
 
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
       await ctx([]),
@@ -1507,7 +1507,7 @@ describe('auth.register optional referrerId', () => {
         attributeCalls.push(input);
         return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
       },
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    } as import('./affiliates/referral-service.js').ReferralService;
 
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
       await ctx([]),
@@ -2870,13 +2870,13 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
       revokeShare: async (referrerId: string) => store.revokeShare(referrerId),
       shareHits: async (token: string) => store.shareHits(token),
       referrerOf: async (token: string) => store.referrerOf(token),
-    } as unknown as import('./affiliates/share-service.js').ShareService;
+    } as import('./affiliates/share-service.js').ShareService;
     const referral = {
       attribute: async (input: { userId: string; referrerId: string }) => {
         attributeCalls.push(input);
         return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
       },
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    } as import('./affiliates/referral-service.js').ReferralService;
     return {
       api: createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referral }),
       store,
@@ -2947,7 +2947,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
       createShare: async (referrerId: string) => store.createShare(referrerId),
       shareHits: async (token: string) => store.shareHits(token),
       referrerOf: async (token: string) => store.referrerOf(token),
-    } as unknown as import('./affiliates/share-service.js').ShareService;
+    } as import('./affiliates/share-service.js').ShareService;
     const referral = {
       attribute: async (input: { userId: string; referrerId: string }, late?: { windowSeconds: number | undefined }) => {
         windows.push(late?.windowSeconds);
@@ -2956,7 +2956,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
         return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
       },
       edgeOf: async (userId: string) => (edges.has(userId) ? { userId, referrerId: edges.get(userId)!, attributedAt: new Date() } : null),
-    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    } as import('./affiliates/referral-service.js').ReferralService;
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referral, referralAttachWindowSeconds: 600 });
     const mine = await api.createCaller(await ctx(['identity:write'])).affiliates.createShare();
     const theirs = await api.createCaller(await ctx(['identity:write'], { userId: OTHER_REF })).affiliates.createShare();
@@ -3086,7 +3086,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     } as unknown as import('./affiliates/referral-rebind.js').ReferralRebindService;
     const share = {
       referrerOf: async (token: string) => store.referrerOf(token),
-    } as unknown as import('./affiliates/share-service.js').ShareService;
+    } as import('./affiliates/share-service.js').ShareService;
     const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referralRebind });
     const visitor = api.createCaller(await ctx(['identity:write'], { userId: VISITOR }));
 
@@ -3121,7 +3121,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     } as unknown as typeof stub.auth;
     const share = {
       referrerOf: async (token: string) => store.referrerOf(token),
-    } as unknown as import('./affiliates/share-service.js').ShareService;
+    } as import('./affiliates/share-service.js').ShareService;
     const api = createIdentityRouter(auth, stub.rank, { registrationOpen: true, share });
     const anon = api.createCaller(await ctx([]));
     const form = {

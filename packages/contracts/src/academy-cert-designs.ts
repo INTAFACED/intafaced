@@ -113,6 +113,8 @@ export const academyIssuedCertSchema = z.object({
   status: z.enum(['valid', 'revoked']),
   grantedAt: isoInstant,
   designRevision: z.number().int().positive().nullable(),
+  /** The reason staff gave when this certificate was issued as an exception (two-person approval), or null. */
+  exceptionReason: z.string().nullable(),
 });
 export type AcademyIssuedCert = z.infer<typeof academyIssuedCertSchema>;
 

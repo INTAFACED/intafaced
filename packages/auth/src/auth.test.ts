@@ -519,14 +519,14 @@ describe('agents:execute never sits on an API key (OWNER 107, 29 Oct 2026)', () 
       tier: 'none',
       mfa: false,
       kid: 'k1',
-    } as unknown as Principal;
+    } as Principal;
     expect(() => requireScope(key, 'agents:execute')).toThrow(expect.objectContaining({ code: 'scope.interactive_only' }));
-    const sub = { ...key, kid: undefined, sub_account: '77777777-7777-4777-8777-777777777777' } as unknown as Principal;
+    const sub = { ...key, kid: undefined, sub_account: '77777777-7777-4777-8777-777777777777' } as Principal;
     expect(() => requireScope(sub, 'agents:execute')).toThrow(expect.objectContaining({ code: 'scope.interactive_only' }));
     expect(isKeyForbiddenScope('agents:execute')).toBe(true);
     expect(isKeyForbiddenScope('admin:write')).toBe(true);
     expect(isKeyForbiddenScope('agents:read')).toBe(false);
-    const person = { ...key, kid: undefined } as unknown as Principal;
+    const person = { ...key, kid: undefined } as Principal;
     expect(() => requireScope(person, 'agents:execute')).not.toThrow();
   });
 });

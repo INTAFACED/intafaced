@@ -2,16 +2,26 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  CANARY,
   DOCS_READ,
+  FACTORY_SCRIPTS,
+  HELPER,
+  STACK_CANARY,
+  STACK_HELPERS,
   JOURNEY_CI,
+  ROOT_DEPLOY_FILE,
   RUN_FILE,
   STACK_FILE,
+  PICK_ARTIFACT,
   afterReuse,
   checkoutJourneyTexts,
+  currentPickArtifact,
+  pullRunsCover,
+  dispatchTarget,
   reusableRuns,
   journeyTouch,
   namedInputs,
@@ -19,7 +29,8 @@ import {
   pathKind,
   stackImporters,
 } from './journey-touch.mjs';
-import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
+import { JOURNEYS_WORKFLOW, JOURNEY_TEST, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
+import { reachSelect } from './journey-reach-map.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const REPO = 'INTAFACED/intafaced';
@@ -203,6 +214,196 @@ test('drift, planted: a CI file outside JOURNEY_CI is none, so the drift check a
   assert.equal(JOURNEY_CI.includes('tooling/ci/new-helper.mjs'), false);
 });
 
+// ---- Factory scripts and git hooks (FACTORY_SCRIPTS, .githooks): what no journeys run reaches ----
+
+/** A file's text with its comment lines and trailing comments removed (a name in a comment executes nothing). */
+const codeOf = (f, text) =>
+  /\.(m?[jt]sx?|cjs|mts|ya?ml|sh)$/.test(f) || !/\.[a-z]+$/i.test(f)
+    ? text
+        .split('\n')
+        .map((l) =>
+          l
+            .replace(/^\s*(\/\/|\*|\/\*|#).*$/, '')
+            .replace(/\s\/\/.*$/, '')
+            .replace(/\s#\s.*$/, ''),
+        )
+        .join('\n')
+    : text;
+
+/** Whether `text` reaches the tooling/scripts file `s`: by its path below tooling/scripts or its file name. */
+const names = (text, s) => {
+  const rel = s.slice('tooling/scripts/'.length);
+  const esc = (x) => x.replace(/[.]/g, '\\.');
+  return new RegExp(`(?<![\\w.-])(${esc(rel)}|${esc(rel.split('/').pop())})(?![\\w-])`).test(text);
+};
+
+/**
+ * Every tooling/scripts file the journeys run, the stack or the app's build can reach, from the repository itself. The
+ * roots: the journeys workflow and its actions, every app, service and package file that is not a unit test (the
+ * journey files and their helpers, the apps' and services' sources, configs and package.json scripts, which the app's
+ * build runs), the root build and deploy files, the stack's environment (tooling/profiles, tooling/infra), the CI files
+ * JOURNEY_CI lists and the stack's shared setup. A script is reached when a root's code (comments left out) names it by
+ * its path below tooling/scripts or its file name, or runs a root `pnpm` script whose command names it (pnpm's install
+ * scripts and each script's pre and post scripts included); a reached script is followed in turn.
+ */
+let reachedOnce;
+function scriptsReached() {
+  reachedOnce ??= scanScripts();
+  return reachedOnce;
+}
+
+function scanScripts(read = (f) => readFileSync(join(ROOT, f), 'utf8')) {
+  const all = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1e8 }).split('\n').filter(Boolean);
+  const scripts = all.filter((f) => f.startsWith('tooling/scripts/'));
+  const unit = (f) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(f) && !f.startsWith('apps/customer/tests/real-app/');
+  const roots = all.filter(
+    (f) =>
+      f === JOURNEYS_WORKFLOW ||
+      f.startsWith('.github/actions/') ||
+      (/^(apps|services|packages)\//.test(f) && !unit(f)) ||
+      /^(turbo\.json|pnpm-workspace\.yaml|docker-compose[^/]*\.ya?ml|Dockerfile[^/]*|\.env\.example)$/.test(f) ||
+      /^tooling\/(profiles|infra)\//.test(f) ||
+      JOURNEY_CI.includes(f) ||
+      isSharedSetup(f),
+  );
+  // One pass a file: every script's path below tooling/scripts and its file name in one pattern (what `names` matches).
+  const byName = new Map();
+  for (const sc of scripts)
+    for (const n of [sc.slice('tooling/scripts/'.length), sc.split('/').pop()]) byName.set(n, [...(byName.get(n) ?? []), sc]);
+  const alt = [...byName.keys()].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.]/g, '\\.'));
+  const anyName = new RegExp(`(?<![\\w.-])(${alt.join('|')})(?![\\w-])`, 'g');
+  const pnpm = JSON.parse(read('package.json')).scripts ?? {};
+  const queue = [...roots];
+  const runScript = (n) => {
+    for (const k of [`pre${n}`, n, `post${n}`]) if (pnpm[k]) queue.push(`pnpm:${k}`);
+  };
+  for (const n of ['preinstall', 'install', 'postinstall', 'prepare']) runScript(n);
+  const reached = new Map();
+  const seen = new Set();
+  while (queue.length) {
+    const f = queue.shift();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    let text;
+    try {
+      text = f.startsWith('pnpm:') ? pnpm[f.slice(5)] : statSync(join(ROOT, f)).isFile() ? codeOf(f, read(f)) : '';
+      // The list itself names its entries and runs none of them.
+      if (f === 'tooling/ci/journey-touch.mjs') text = text.replace(/export const FACTORY_SCRIPTS = \[[^\]]*\];/, '');
+    } catch {
+      text = '';
+    }
+    for (const m of text.matchAll(anyName))
+      for (const sc of byName.get(m[1]))
+        if (!reached.has(sc)) {
+          reached.set(sc, f);
+          queue.push(sc);
+        }
+    for (const m of text.matchAll(/\bpnpm(?:\s+-\S+)*(?:\s+run)?(?:\s+-\S+)*\s+([\w:.][\w:.-]*)/g)) runScript(m[1]);
+  }
+  return { reached, seen };
+}
+
+test('FACTORY_SCRIPTS: nothing the journeys run, the stack or the app build reaches any of them, so they run no journeys', () => {
+  const { reached, seen } = scriptsReached();
+  assert.ok(seen.size > 1000, `followed the journeys run, the stack and the app sources (${seen.size})`);
+  // Sanity: the scan finds what the run is known to use.
+  for (const s of [
+    'tooling/scripts/local-test-stack.mjs',
+    'tooling/scripts/roadmap.mjs',
+    'tooling/scripts/journey-fund.mjs',
+    'tooling/scripts/local-founder-seed.mjs',
+    'tooling/scripts/owner-settings.mjs',
+  ])
+    assert.ok(reached.has(s), `the scan reaches ${s}`);
+  const wrong = FACTORY_SCRIPTS.filter((s) => reached.has(s)).map((s) => `${s} (reached from ${reached.get(s)})`);
+  assert.deepEqual(wrong, [], 'a listed factory script is reached by the journeys run, the stack or the app build');
+  for (const s of FACTORY_SCRIPTS) {
+    assert.ok(existsSync(join(ROOT, s)), `${s} exists`);
+    assert.ok(!/\.d\.[cm]?ts$|\/fixtures\//.test(s), `${s}: type declarations and fixtures stay full`);
+    assert.equal(pathKind(s).kind, 'none', s);
+  }
+});
+
+test('FACTORY_SCRIPTS, planted: a script the run reaches, a new script and the app build’s inputs stay full', () => {
+  // The same matcher catches a reach in code and ignores a name in a comment.
+  assert.equal(names(codeOf('a.mjs', "import { x } from '../../tooling/scripts/ci-checks.mjs';"), 'tooling/scripts/ci-checks.mjs'), true);
+  assert.equal(names(codeOf('a.mjs', "spawn('node', [join(dir, 'ci-checks.mjs')]);"), 'tooling/scripts/ci-checks.mjs'), true);
+  assert.equal(names(codeOf('a.yml', 'run: node tooling/scripts/ci-checks.mjs'), 'tooling/scripts/ci-checks.mjs'), true);
+  assert.equal(
+    names(codeOf('a.ts', ' * the pre-push hook picks (tooling/scripts/ci-checks.mjs `ruleTest`).'), 'tooling/scripts/ci-checks.mjs'),
+    false,
+  );
+  assert.equal(names(codeOf('a.ts', "x('my-ci-checks.mjs')"), 'tooling/scripts/ci-checks.mjs'), false);
+  for (const p of [
+    'tooling/scripts/local-test-stack.mjs',
+    'tooling/scripts/journey-fund.mjs',
+    'tooling/scripts/journey-fund.d.mts', // the app's type check reads it
+    'tooling/scripts/look-codemod.mjs', // writes app sources
+    'tooling/scripts/sdk-from-openapi.ts', // writes app sources
+    'tooling/scripts/fixtures/fail-fast-retries/plain.pw.mjs',
+    'tooling/scripts/new-tool.mjs', // new and unlisted: full until shown unreached
+    'tooling/scripts/ci-checks.mjs.bak',
+  ])
+    assert.equal(pathKind(p).kind, 'full', p);
+});
+
+test('git hooks run no journeys: nothing the journeys run executes commits, pushes or reads .githooks', () => {
+  const { seen } = scriptsReached();
+  const hits = [];
+  for (const f of seen) {
+    if (f.startsWith('pnpm:') || !/\.(m?[jt]sx?|cjs|mts|ya?ml|sh)$/.test(f) || !existsSync(join(ROOT, f))) continue;
+    const code = codeOf(f, readFileSync(join(ROOT, f), 'utf8'));
+    if (
+      /\.githooks|\bgit(\s+(-C|-c)\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+(commit|push)\b|['"`]git['"`]\s*,\s*\[[^\]]*['"`](commit|push)['"`]/.test(
+        code,
+      )
+    )
+      hits.push(f);
+  }
+  // `prepare` points git at .githooks on install; the hooks then run only on a commit or a push. The known ones are
+  // outside a pull request's journeys run, so running its journeys would not exercise a hook either: journeys-revert.mjs
+  // pushes a revert branch only in main-bisect.yml after a red main run (its `early` step in the journeys workflow
+  // starts that workflow by the API), and journey-touch.mjs is this rule.
+  const KNOWN = ['tooling/ci/journey-touch.mjs', 'tooling/ci/journeys-revert.mjs'];
+  assert.deepEqual(hits.sort(), KNOWN, 'a file the journeys run executes commits, pushes or reads a git hook');
+  const wf = readFileSync(join(ROOT, JOURNEYS_WORKFLOW), 'utf8');
+  assert.deepEqual(
+    [...new Set([...wf.matchAll(/journeys-revert\.mjs (\w+)/g)].map((m) => m[1]))],
+    ['early'],
+    'the journeys run starts the revert, never pushes it',
+  );
+  // The proof covers the commit and push hooks only: a hook git runs on a checkout or a merge would run in the journeys
+  // run after install, so a new hook name fails here until it is shown never to fire there.
+  assert.deepEqual(readdirSync(join(ROOT, '.githooks')).sort(), ['pre-commit', 'pre-push'], 'only the commit and push hooks exist');
+  assert.equal(pathKind('.githooks/pre-push').kind, 'none');
+  assert.equal(pathKind('.githooks/pre-commit').kind, 'none');
+});
+
+test('a factory-only pull request (#8284’s file set) runs no journeys; app code or a journey file beside it still runs them', () => {
+  const factory = [
+    '.githooks/pre-commit',
+    '.githooks/pre-push',
+    '.github/workflows/ci.yml',
+    'AGENTS.md',
+    'tooling/scripts/ci-checks.mjs',
+    'tooling/scripts/ci-checks.test.mjs',
+    'tooling/scripts/pre-push-hook.test.mjs',
+  ];
+  assert.deepEqual(journeyTouch(factory), { mode: 'none', full: [], files: [] });
+  const app = journeyTouch([...factory, 'apps/customer/src/features/more/Support.tsx']);
+  assert.equal(app.mode, 'full', 'app code beside factory files needs the full run');
+  assert.deepEqual(
+    app.full.map((x) => x.path),
+    ['apps/customer/src/features/more/Support.tsx'],
+  );
+  const journey = journeyTouch([...factory, 'apps/customer/tests/real-app/J-bank-13.pw.mjs']);
+  assert.deepEqual([journey.mode, journey.files], ['files', ['J-bank-13.pw.mjs']], 'a journey file beside them runs that journey');
+  const helper = journeyTouch([...factory, 'apps/customer/tests/real-app/journey.mjs']);
+  assert.equal(helper.mode, 'full', 'a journey helper beside them needs the full run');
+  const stack = journeyTouch([...factory, 'tooling/scripts/local-test-stack.mjs']);
+  assert.equal(stack.mode, 'full', 'the stack beside them needs the full run');
+});
+
 // ---- The touched-journeys verdict (journey-seal.mjs judgeTouchedRun) ----
 
 const rep = (ran) => ({ states: {}, ran });
@@ -328,24 +529,26 @@ test('planted 2: a product pull request whose run misses a journey it touches fa
 });
 
 // theo-01 part 1 (OWNER 296): a product pull request that names a journey is judged on that journey, its changed journey
-// files and the map's always-run list, the same list its run is given (journey-touch.mjs --reach with TITLE and
-// GITHUB_HEAD_REF); main's full run after the merge judges the rest.
+// files, the same list its run is given (journey-touch.mjs --reach with TITLE and GITHUB_HEAD_REF); main's full run
+// after the merge judges the rest, the map's always-run list (its `full` journeys) included (project-state#2332).
 const HEAD_FILES = new Set(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs', 'J-wallet-05.pw.mjs', 'J-agents-12.pw.mjs']);
 const ALWAYS_MAP = { mode: 'reach', full: { 'J-agents-12.pw.mjs': 'no run speaks for it', 'J-gone-01.pw.mjs': 'removed since' } };
 const namedIo = { journeyFiles: async () => HEAD_FILES, reachMap: async () => ALWAYS_MAP };
 const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
 
-test('journeyTouch, named: product code runs the named journey and the always-run list; another full path or no name stays full', () => {
+test('journeyTouch, named: product code runs the named journey only, not the always-run list; another full path or no name stays full', () => {
   const named = namedInputs({
     ids: namedJourneyIds({ title: 'svc-bank: cards (J-bank-13 #1 #2)' }),
     journeyFiles: HEAD_FILES,
     map: ALWAYS_MAP,
   });
-  assert.deepEqual(named, { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'], always: ['J-agents-12.pw.mjs'] });
+  // The map's always-run journey (J-agents-12, at the head) is not run: main's full run judges it.
+  assert.deepEqual(named, { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'], journeyFiles: HEAD_FILES });
   const t = journeyTouch([...product, 'apps/customer/tests/real-app/J-bank-14.pw.mjs'], () => true, null, named);
   assert.equal(t.mode, 'files');
-  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
+  assert.deepEqual(t.files, ['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
   assert.match(t.named, /it names J-bank-13/);
+  assert.doesNotMatch(t.named, /always-run/);
   assert.equal(journeyTouch([...product, 'pnpm-lock.yaml'], () => true, null, named).mode, 'full', 'a root build file stays full');
   assert.equal(journeyTouch([...product, 'tooling/scripts/local-stack-services/bank.mjs'], () => true, null, named).mode, 'full');
   assert.equal(journeyTouch(product, () => true, null, null).mode, 'full', 'no name: product code is full');
@@ -357,7 +560,7 @@ test('journeyTouch, named: product code runs the named journey and the always-ru
   assert.equal(namedInputs({ ids: ['J-bank-13'], journeyFiles: null, map: ALWAYS_MAP }), null);
 });
 
-test('planted 3 (theo-01): a named-journey product pull request merges on its own journey and the always-run list, and is held when it breaks its own journey', async () => {
+test('planted 3 (theo-01): a named-journey product pull request merges on its own journey alone, and is held when it breaks its own journey', async () => {
   const title = 'svc-bank: cards (J-bank-13 #1 #2)';
   const states = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' };
   const ran = ['J-bank-13.pw.mjs', 'J-agents-12.pw.mjs'];
@@ -381,8 +584,9 @@ test('planted 3 (theo-01): a named-journey product pull request merges on its ow
     io: namedIo,
   });
   assert.equal(broke.ok, false, 'a named journey it breaks holds it');
-  // The run must hold the always-run list too.
-  const short = await seal({
+  // A run of its own journey file alone seals it: the map's always-run list (J-agents-12) is not demanded
+  // (project-state#2332: 1 shard and about 10 minutes, not 8 shards and 24 to 26).
+  const own = await seal({
     title,
     files: product,
     runs: [run(1)],
@@ -390,8 +594,8 @@ test('planted 3 (theo-01): a named-journey product pull request merges on its ow
     verdict: async () => clean,
     io: namedIo,
   });
-  assert.equal(short.ok, false);
-  assert.match(short.lines.join('\n'), /ran J-agents-12\.pw\.mjs/);
+  assert.equal(own.ok, true, own.lines.join('\n'));
+  assert.doesNotMatch(own.lines.join('\n'), /J-agents-12/);
   // Named by its branch only (no steps in the title): the same.
   const byBranch = await seal({
     title: 'svc-bank: cards',
@@ -448,8 +652,10 @@ const IMPORTS = new Map([
 
 test('STACK_FILE: a service’s own stack file and nothing wider', () => {
   for (const p of [STACK, STACK_VALUES, 'tooling/scripts/local-stack-services/mining-pool.mjs']) assert.equal(STACK_FILE.test(p), true, p);
+  // The stack itself is no service's own file; it narrows by the canary instead (STACK_CANARY, tested below).
+  assert.equal(STACK_FILE.test('tooling/scripts/local-test-stack.mjs'), false);
   for (const p of [
-    'tooling/scripts/local-test-stack.mjs',
+    'tooling/scripts/local-test-market.mjs',
     'tooling/scripts/local-stack-services/zz-planted.test.mjs',
     'tooling/scripts/local-stack-services/sub/bank.mjs',
     'tooling/scripts/local-stack-fixtures/bank.mjs',
@@ -483,7 +689,7 @@ test('journeyTouch, stack (theo-01 part 2): a named change to a stack file runs 
   const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, importers });
   const t = journeyTouch([STACK, ...product], () => true, null, named);
   assert.equal(t.mode, 'files');
-  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs']);
+  assert.deepEqual(t.files, ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs']);
   assert.deepEqual(t.stack, [STACK]);
   assert.deepEqual(t.importers, ['J-wallet-05.pw.mjs']);
   assert.match(t.named, /1 stack file\(s\) run J-bank-13\.pw\.mjs/);
@@ -557,6 +763,227 @@ test('planted 4 (theo-01 part 2): a named stack-file pull request seals on the l
   assert.equal(asRevert.ok, false, 'a revert is judged as it was before this part');
 });
 
+// ---- 14 Nov 2026 (project-state rows d64, d68): the four paths that sent named journey pull requests to all 32 shards ----
+
+const VENUE_READS = 'apps/customer/tests/real-app/venue-reads.mjs';
+const LOOK_FIXTURES = 'apps/customer/tests/real-app/look-fixtures.mjs';
+const SDK_SPEC = 'sdks/python/openapi/payments.openapi.json';
+const HELPERS = new Map([
+  ...IMPORTS,
+  ['venue-reads.mjs', 'export const readVenue = () => 1;'],
+  ['J-cex-spot-01.pw.mjs', "import { readVenue } from './venue-reads.mjs';"],
+  ['J-cex-spot-03.pw.mjs', "import { x } from './spot-chain.mjs';"],
+  ['spot-chain.mjs', "export { readVenue as x } from './venue-reads.mjs';"],
+  ['look-fixtures.mjs', '// look answers'],
+  ['J-home-ia-01.pw.mjs', "import { answers } from './look-fixtures.mjs';"],
+  ...CANARY.map((f) => [f, `// ${f}`]).filter(([f]) => !['J-cex-spot-01.pw.mjs', 'J-home-ia-01.pw.mjs'].includes(f)),
+]);
+const namedWith = (texts, ids = ['J-bank-13']) =>
+  namedInputs({ ids, journeyFiles: HEAD_FILES, importers: (ps) => stackImporters(ps, texts) });
+
+test('14 Nov, #8321: an SDK file (sdks/python) runs no journeys', () => {
+  assert.equal(pathKind(SDK_SPEC).kind, 'none');
+  assert.equal(pathKind('sdks/python/intafaced_pay/operations.py').kind, 'none');
+  assert.deepEqual(journeyTouch([...product, SDK_SPEC], () => true, null, namedWith(HELPERS)).files, ['J-bank-13.pw.mjs']);
+});
+
+test('14 Nov, #8322: a named change to venue-reads.mjs runs the journeys importing it, directly or through a helper', () => {
+  const v = journeyTouch([VENUE_READS], () => true, null, namedWith(HELPERS));
+  assert.equal(v.mode, 'files');
+  assert.deepEqual(v.files, ['J-bank-13.pw.mjs', 'J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs']);
+  assert.deepEqual(v.stack, [VENUE_READS]);
+  // The real folder: the spot journeys that import it (J-cex-spot-05 through venue.mjs since it moved to the venue).
+  const real = checkoutJourneyTexts(ROOT);
+  assert.deepEqual(stackImporters([VENUE_READS], real), [
+    'J-cex-spot-01.pw.mjs',
+    'J-cex-spot-02.pw.mjs',
+    'J-cex-spot-03.pw.mjs',
+    'J-cex-spot-05.pw.mjs',
+  ]);
+});
+
+test('14 Nov, #8310: a named change to look-fixtures.mjs with product code runs the named journey and its importers', () => {
+  const l = journeyTouch([...product, LOOK_FIXTURES], () => true, null, namedWith(HELPERS));
+  assert.deepEqual([l.mode, l.files], ['files', ['J-bank-13.pw.mjs', 'J-home-ia-01.pw.mjs']]);
+});
+
+test('14 Nov, #8320: a named change to local-test-stack.mjs runs the named journeys and the canary, never the full suite', () => {
+  const s = journeyTouch([...product, STACK_CANARY, STACK], () => true, null, namedWith(HELPERS));
+  assert.equal(s.mode, 'files');
+  assert.deepEqual(s.files, [...new Set(['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs', ...CANARY])].sort());
+  assert.deepEqual(s.stack, [STACK_CANARY, STACK].sort());
+  const real = checkoutJourneyTexts(ROOT);
+  for (const f of CANARY) assert.ok(real.has(f), `${f}: a canary journey file at this checkout`);
+  assert.deepEqual(stackImporters([STACK_CANARY], real), [...CANARY].sort());
+  // A canary journey split over files (J-home-ia-01 #1 to #3 live in J-home-ia-01-venue.pw.mjs since #8310) runs whole:
+  // the verdict reads a missing step as red when its baseline file ran (#8320, run 43600611635).
+  const ids = new Set(CANARY.map((f) => f.replace(/\.pw\.mjs$/, '')));
+  const split = [...real.keys()].filter((f) => [...ids].some((id) => f.startsWith(`${id}-`) && f.endsWith('.pw.mjs')));
+  assert.ok(split.includes('J-home-ia-01-venue.pw.mjs'), 'the venue file is a sibling at this checkout');
+  for (const f of split) assert.ok(stackImporters([STACK_CANARY], real).includes(f), `${f}: a canary journey's other file runs with it`);
+});
+
+test('planted: what still runs the full suite after the four paths narrow', () => {
+  const named = namedWith(HELPERS);
+  const full = (paths, n = named, why) => assert.equal(journeyTouch(paths, () => true, null, n).mode, 'full', why ?? paths.join(' '));
+  // Unnamed, or the journey texts unreadable: as before.
+  for (const p of [VENUE_READS, LOOK_FIXTURES, STACK_CANARY]) {
+    full([p], null, `${p}: no name`);
+    full([p], namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES }), `${p}: texts unreadable`);
+  }
+  // A helper outside code reaches, or that reaches the config, a look sweep or one of those.
+  full(['apps/customer/tests/real-app/journey.mjs']);
+  full(['apps/customer/tests/real-app/real-app.playwright.config.mjs']);
+  full(
+    [VENUE_READS],
+    namedWith(new Map([...HELPERS, ['look-sweep-390.pw.mjs', "import './venue-reads.mjs';"]])),
+    'a look sweep imports it',
+  );
+  full([VENUE_READS], namedWith(new Map([...HELPERS, ['journey.mjs', "import './venue-reads.mjs';"]])), 'a stack helper imports it');
+  full(
+    [VENUE_READS],
+    namedWith(new Map([...HELPERS, ['fixture.config.mjs', "reporter: ['./venue-reads.mjs']"]])),
+    'an entry point names it',
+  );
+  // The canary missing at the head.
+  full([STACK_CANARY], namedWith(new Map([...HELPERS].filter(([f]) => f !== CANARY[0]))), 'a canary file removed');
+  // The stack's siblings and another full path stay full.
+  full(['tooling/scripts/local-test-market.mjs']);
+  full(['tooling/scripts/local-test-seed.mjs']);
+  full([STACK_CANARY, 'tooling/scripts/local-test-market.mjs']);
+  full([VENUE_READS, 'pnpm-lock.yaml']);
+  full([SDK_SPEC, '.github/workflows/real-app-journeys.yml']);
+  // A helper in a subfolder or a non-module beside the journeys is no HELPER.
+  for (const p of ['apps/customer/tests/real-app/sub/venue-reads.mjs', 'apps/customer/tests/real-app/fixtures.json']) {
+    assert.equal(HELPER.test(p) && !p.includes('/sub/'), false, p);
+    full([p]);
+  }
+});
+
+test('STACK_HELPERS holds every helper that code outside the journey files names, so the rest reach only journeys', () => {
+  const dir = 'apps/customer/tests/real-app';
+  const helpers = readdirSync(join(ROOT, dir)).filter((f) => f.endsWith('.mjs') && !f.endsWith('.pw.mjs'));
+  assert.ok(helpers.includes('venue-reads.mjs') && helpers.includes('journey.mjs'), 'sanity');
+  const outside = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean)
+    // What runs: not docs, Markdown, unit tests, the reach map's data, or a CI check outside the journeys run.
+    .filter((f) => !f.startsWith(`${dir}/`) && !f.startsWith('docs/') && !/\.md$/.test(f) && !/\.(test|spec)\./.test(f))
+    // This classifier names helpers only as its own data.
+    .filter((f) => !['tooling/ci/journey-reach-map.json', 'tooling/ci/journey-touch.mjs'].includes(f))
+    .filter((f) => !f.startsWith('tooling/ci/') || JOURNEY_CI.includes(f))
+    .filter((f) => !/\.(png|jpe?g|webp|gif|ico|woff2?|ttf|pdf|zip|gz|wasm|sha1)$/i.test(f) && statSync(join(ROOT, f)).size < 4e6);
+  const texts = outside.map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]);
+  const named = (h) => texts.filter(([, t]) => new RegExp(`(^|[^A-Za-z0-9_-])${h.replace(/[.]/g, '\\.')}`).test(t)).map(([f]) => f);
+  for (const h of helpers) {
+    const by = named(h);
+    if (by.length) assert.ok(STACK_HELPERS.includes(h), `${h} is named by ${by.slice(0, 3).join(', ')}: add it to STACK_HELPERS`);
+  }
+  // Planted: the same matcher finds a stack script naming a helper by path.
+  assert.deepEqual(
+    [['tooling/scripts/x.mjs', "import '../../apps/customer/tests/real-app/venue-reads.mjs';"]]
+      .filter(([, t]) => /(^|[^A-Za-z0-9_-])venue-reads\.mjs/.test(t))
+      .map(([f]) => f),
+    ['tooling/scripts/x.mjs'],
+  );
+  for (const h of ['venue-reads.mjs', 'look-fixtures.mjs']) assert.equal(STACK_HELPERS.includes(h), false, h);
+});
+
+test('planted 6: a named helper or stack change seals on its list, and is held when an importer or the canary is missing or red', async () => {
+  const title = 'customer: spot (J-bank-13 #1)';
+  const states = { 'J-bank-13#1': 'passed' };
+  const io = { ...namedIo, journeyTexts: async () => HELPERS };
+  const helper = { title, files: [VENUE_READS], runs: [run(1)], io };
+  const ran = ['J-bank-13.pw.mjs', 'J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs'];
+  // Not a full run (another journey missing): main's code held these for the full suite.
+  const partial = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  const good = await seal({ ...helper, reports: { 1: { states, ran } }, verdict: partial });
+  assert.equal(good.ok, true, good.lines.join('\n'));
+  const short = await seal({ ...helper, reports: { 1: { states, ran: ran.slice(0, 2) } }, verdict: async () => clean });
+  assert.equal(short.ok, false, 'a run without an importer is held');
+  const broke = await seal({ ...helper, reports: { 1: { states, ran } }, verdict: async () => red('J-cex-spot-03#1') });
+  assert.equal(broke.ok, false, 'breaking an importer holds it');
+  const stack = { title, files: [...product, STACK_CANARY], runs: [run(1)], io };
+  const canaryRan = ['J-bank-13.pw.mjs', ...CANARY];
+  const sGood = await seal({ ...stack, reports: { 1: { states, ran: canaryRan } }, verdict: partial });
+  assert.equal(sGood.ok, true, sGood.lines.join('\n'));
+  const sShort = await seal({ ...stack, reports: { 1: { states, ran: canaryRan.slice(0, 3) } }, verdict: async () => clean });
+  assert.equal(sShort.ok, false, 'a run without the whole canary is held');
+  const sBroke = await seal({ ...stack, reports: { 1: { states, ran: canaryRan } }, verdict: async () => red('J-p2p-01#1') });
+  assert.equal(sBroke.ok, false, 'a red canary holds it');
+  const short4 = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  const unnamed = await seal({ ...stack, title: 'stack: x', reports: { 1: { states: {}, ran: canaryRan } }, verdict: short4 });
+  assert.equal(unnamed.ok, false, 'unnamed: the full run is still needed');
+});
+
+// A root deploy file (compose, .env.example): `pnpm local:stack` never reads one, so a named journey build
+// that adds its service's env there runs the journeys that name it, like a stack file; unnamed, it stays full.
+const COMPOSE = 'docker-compose.apps.yml';
+const READS_COMPOSE = new Map([
+  ...IMPORTS,
+  ['J-home-ia-11.pw.mjs', "const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml']; read('.env.example');"],
+]);
+
+test('ROOT_DEPLOY_FILE: the root compose files and .env.example, and nothing wider', () => {
+  for (const p of ['docker-compose.yml', COMPOSE, 'docker-compose.outreach.yml', '.env.example']) {
+    assert.equal(ROOT_DEPLOY_FILE.test(p), true, p);
+    assert.deepEqual({ kind: pathKind(p).kind, stack: pathKind(p).stack }, { kind: 'full', stack: true }, p);
+  }
+  for (const p of [
+    'pnpm-lock.yaml',
+    'package.json',
+    'turbo.json',
+    '.env',
+    '.env.tester.local',
+    'Dockerfile', // J-home-ia-11 builds the app image from it without naming it, so it stays full
+    'apps/edge/Dockerfile',
+    'infra/docker-compose.yml',
+    'docker-compose.yml.bak',
+    'Dockerfile.dev',
+  ]) {
+    assert.equal(ROOT_DEPLOY_FILE.test(p), false, p);
+    assert.equal(pathKind(p).stack, undefined, p);
+  }
+});
+
+test('journeyTouch, root deploy file: a named build runs the journeys naming it; unnamed, a root build file beside it, or unread journeys stay full', () => {
+  const importers = (ps) => stackImporters(ps, READS_COMPOSE);
+  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, importers });
+  const t = journeyTouch([...product, COMPOSE, '.env.example', STACK], () => true, null, named);
+  assert.equal(t.mode, 'files');
+  assert.deepEqual(t.files, ['J-bank-13.pw.mjs', 'J-home-ia-11.pw.mjs', 'J-wallet-05.pw.mjs']);
+  assert.deepEqual(t.stack, ['.env.example', COMPOSE, STACK]);
+  // Planted: the journey that reads the compose file is in the list (it would be missed if the file ran none).
+  assert.ok(t.files.includes('J-home-ia-11.pw.mjs'));
+  assert.equal(journeyTouch([...product, COMPOSE], () => true, null, null).mode, 'full', 'no name');
+  assert.equal(journeyTouch([...product, COMPOSE, 'pnpm-lock.yaml'], () => true, null, named).mode, 'full', 'a root build file');
+  assert.equal(
+    journeyTouch([...product, COMPOSE, 'tooling/scripts/local-test-stack.mjs'], () => true, null, named).mode,
+    'full',
+    'stack-wide setup',
+  );
+  const blind = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP });
+  assert.equal(journeyTouch([...product, COMPOSE], () => true, null, blind).mode, 'full', 'journey texts unreadable');
+});
+
+test('planted 5: a named build changing a root deploy file seals on its list, and is held when the journey reading it is missing or red', async () => {
+  const title = 'svc-bank: cards (J-bank-13 #1)';
+  const states = { 'J-bank-13#1': 'passed' };
+  const ran = ['J-bank-13.pw.mjs', 'J-agents-12.pw.mjs', 'J-home-ia-11.pw.mjs'];
+  const io = { ...namedIo, journeyTexts: async () => READS_COMPOSE };
+  const opts = { title, files: [...product, COMPOSE], runs: [run(1)], io };
+  const good = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => clean });
+  assert.equal(good.ok, true, good.lines.join('\n'));
+  const short = await seal({ ...opts, reports: { 1: { states, ran: ran.slice(0, 2) } }, verdict: async () => clean });
+  assert.equal(short.ok, false, 'a run without the journey reading the compose file is held');
+  assert.match(short.lines.join('\n'), /ran J-home-ia-11\.pw\.mjs/);
+  const broke = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => red('J-home-ia-11#1') });
+  assert.equal(broke.ok, false, 'breaking the journey that reads it holds it');
+  const short4 = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  const unnamed = await seal({ ...opts, title: 'svc-bank: cards', reports: { 1: { states: {}, ran } }, verdict: short4 });
+  assert.equal(unnamed.ok, false, 'unnamed: the full run is still needed');
+});
+
 test('the seal still needs every titled step passing: a clean full run with a titled step red fails', async () => {
   const v = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
@@ -582,6 +1009,35 @@ test("GitHub's Revert form of a product change needs no run; a revert of shared 
     false,
     'a Revert title without GitHub’s body line is no revert',
   );
+});
+
+test('the seal: a factory-only pull request (#8284’s file set) merges with no journeys run; app code or a journey file beside it is held', async () => {
+  const factory = [
+    '.githooks/pre-commit',
+    '.githooks/pre-push',
+    '.github/workflows/ci.yml',
+    'AGENTS.md',
+    'tooling/scripts/ci-checks.mjs',
+    'tooling/scripts/ci-checks.test.mjs',
+    'tooling/scripts/pre-push-hook.test.mjs',
+  ];
+  assert.equal((await seal({ files: factory, runs: [], reports: {} })).ok, true, 'factory files alone need no journeys run');
+  const app = [...factory, 'services/svc-bank/src/cards.ts'];
+  assert.equal((await seal({ files: app, runs: [], reports: {} })).ok, false, 'planted: app code beside them needs its run');
+  assert.equal((await seal({ files: app, runs: [run(1)], reports: { 1: partial } })).ok, false, 'and a partial run is not it');
+  assert.equal((await seal({ files: app, runs: [run(1)], reports: { 1: fullRun } })).ok, true, 'a clean full run seals it');
+  const journey = [...factory, 'apps/customer/tests/real-app/J-bank-13.pw.mjs'];
+  const title = 'test(journeys): J-bank-13 #1';
+  const own = { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' }, ran: ['J-bank-13.pw.mjs'] };
+  assert.equal(
+    (await seal({ title, files: journey, runs: [], reports: {} })).ok,
+    false,
+    'planted: a journey file beside them needs its run',
+  );
+  const sealed = await seal({ title, files: journey, runs: [run(1)], reports: { 1: own } });
+  assert.equal(sealed.ok, true, sealed.lines.join('\n'));
+  const fixture = [...factory, 'apps/customer/tests/real-app/world-restore.mjs'];
+  assert.equal((await seal({ files: fixture, runs: [run(1)], reports: { 1: partial } })).ok, false, 'a journey helper needs the full run');
 });
 
 // ---- U4 C3 piece 1: a pull request runs what it touches, with no dispatch ----
@@ -622,8 +1078,10 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
     t,
     /JOURNEY_FAIL_FAST: \$\{\{ env\.JOURNEYS_TARGET == '' && github\.event_name != 'schedule' && github\.event_name != 'pull_request'/,
   );
-  // A draft or a fork runs nothing; files that can't be read whole run the full suite; a manual input is names only.
-  assert.match(t, /if \[ "\$DRAFT" = true \] \|\| \[ "\$SAME_REPO" != true \]/);
+  // A fork runs nothing (a draft runs from its first push, #8707); files that can't be read whole run the full suite; a
+  // manual input is names only.
+  assert.match(t, /if \[ "\$SAME_REPO" != true \]; then/);
+  assert.doesNotMatch(t, /DRAFT/);
   assert.match(t, /\|\| full "this pull request's files couldn't be read"/);
   assert.match(t, /-ge 3000 \]; then full /);
   assert.match(t, /=~ \^\[A-Za-z0-9\._,\\ -\]\*\$ \]\]/);
@@ -631,17 +1089,17 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
   assert.match(t, /m\.exemptions\(process\.env\.BODY\)\.steps/);
   assert.match(t, /m\.titleSteps\(process\.env\.TITLE\)/);
   assert.match(t, /none\) if \[ -n "\$named" \]; then \{ echo "mode=run"; echo "target=\$named"; \}/);
-  // A failed touch job on a fork or a draft never falls through to the full suite (council R4).
+  // A failed touch job on a fork never falls through to the full suite (council R4): PLANS, the build and the shards.
   assert.equal(
-    t.split('github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft').length - 1,
-    3,
+    t.split("(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)").length - 1,
+    2,
   );
-  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing. The plan
-  // runs in the touch job, so each of its steps checks the touch step's decision and PLANS (never a draft or a fork).
   assert.match(
     t,
-    /\n {6}PLANS: \$\{\{ github\.event_name != 'pull_request' \|\| \(github\.event\.pull_request\.head\.repo\.full_name == github\.repository && !github\.event\.pull_request\.draft\) \}\}\n/,
+    /\n {6}PLANS: \$\{\{ github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository \}\}\n/,
   );
+  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing. The plan
+  // runs in the touch job, so each of its steps checks the touch step's decision and PLANS (never a fork).
   for (const name of ["Last finished runs' reports", 'Plan', 'Fail-fast plan'])
     assert.match(
       t,
@@ -860,8 +1318,8 @@ test('DOCS_READ holds every doc the journeys run, the stack or a service names b
       ...[...cmd.matchAll(/\bpnpm\s+(?:run\s+)?([\w:.-]+)/g)].flatMap((m) => scriptFiles(m[1], depth + 1)),
     ];
   };
-  // Its own inline cases (paths a rule is tested on, never read): the review marker's, and this rule's own.
-  const SELF_CASES = new Set(['tooling/ci/review-marker.mjs', 'tooling/ci/journey-touch.mjs']);
+  // Its own inline cases (paths a rule is tested on, never read): this rule's own.
+  const SELF_CASES = new Set(['tooling/ci/journey-touch.mjs']);
   const covered = (n) => DOCS_READ.some((d) => n === d || `${n}/` === d || n.startsWith(d));
   const seen = new Set();
   const missed = [];
@@ -949,6 +1407,104 @@ test('planted: nothing is left out for a full run, or a run by hand that ran no 
   );
 });
 
+// #8707: a draft runs its journeys from its first push, and `ready_for_review` on the same head runs only the rest.
+const byPr = (id, over = {}) => run(id, { event: 'pull_request', display_title: 'svc-x: J-a-01 #1', ...over });
+const pick = (target, over = {}) => ({ head: HEAD, pr: 7, mode: 'run', target, named: '', named_read: true, ...over });
+const cover = (runs, picks, { self = 100, named = [] } = {}) =>
+  pullRunsCover(runs, {
+    sha: HEAD,
+    repo: REPO,
+    pr: 7,
+    self,
+    named,
+    picks: new Map(Object.entries(picks).map(([k, v]) => [Number(k), v])),
+    journeyFiles: AT_HEAD,
+  });
+
+test("#8707: ready_for_review leaves out what this pull request's own earlier run on the same head runs", () => {
+  // The draft's run ran the full suite (still going, finished green, or finished red: its red stands): nothing runs again.
+  for (const over of [{ status: 'in_progress', conclusion: null }, {}, { conclusion: 'failure' }])
+    assert.equal(cover([byPr(1, over)], { 1: pick('') }).full, 1);
+  // Its title named J-a-01 then; now it names J-a-01 again, or nothing: still covered.
+  assert.equal(cover([byPr(1)], { 1: pick('', { named: 'J-a-01.pw.mjs' }) }, { named: ['J-a-01.pw.mjs'] }).full, 1);
+  // It ran journey files: those are left out, the rest runs (with the runs by hand, as before).
+  const c = cover([byPr(1)], { 1: pick('J-a-01.pw.mjs J-b-02.pw.mjs') });
+  assert.equal(c.full, null);
+  assert.deepEqual(afterReuse('J-a-01.pw.mjs J-c-03.pw.mjs', c.files, 'by an earlier run'), {
+    target: 'J-c-03.pw.mjs',
+    mode: 'run',
+    why: '1 of its 2 journey file(s) already run by an earlier run on this head (run 1), so this run leaves them out',
+  });
+  assert.equal(afterReuse('J-a-01.pw.mjs', c.files).mode, 'none');
+});
+
+test('#8707 planted: an earlier run that is cancelled, of another pull request, not on this head, not earlier, or with no pick covers nothing', () => {
+  const none = (runs, picks, opts) => {
+    const c = cover(runs, picks, opts);
+    assert.equal(c.full, null);
+    assert.equal(c.files.size, 0);
+  };
+  for (const conclusion of ['cancelled', 'skipped']) none([byPr(1, { conclusion })], { 1: pick('') });
+  none([byPr(1, { head_sha: OLD })], { 1: pick('') });
+  none([byPr(1)], { 1: pick('', { head: OLD }) });
+  none([byPr(1)], { 1: pick('', { pr: 8 }) }); // another pull request on the same commit
+  none([byPr(1)], { 1: pick('', { mode: 'none' }) });
+  none([byPr(1)], { 1: { head: HEAD, pr: 7, mode: 'run' } });
+  none([byPr(1)], {});
+  none([byPr(100)], { 100: pick('') }, { self: 100 }); // itself
+  none([byPr(101)], { 101: pick('') }, { self: 100 }); // a later run
+  none([byPr(1, { repository: { full_name: 'x/y' } })], { 1: pick('') });
+  none([byPr(1, { head_repository: { full_name: 'someone/fork' } })], { 1: pick('') });
+  none([byPr(1, { path: '.github/workflows/other.yml' })], { 1: pick('') });
+  // A run by hand is never read as the pull request's own run (a full run by hand still stands in for nothing).
+  none([byHand(1, 'Real-app journeys by hand, full')], { 1: pick('') });
+  // A name that is not a journey file at the head makes the pick count for nothing.
+  none([byPr(1)], { 1: pick('J-a-01.pw.mjs J-zz-99.pw.mjs') });
+  none([byPr(1)], { 1: pick('J-a-01.pw.mjs\nmode=none') });
+  // A full run whose title named fewer journeys, or that never read them, or a title this run can't read, covers nothing:
+  // its retries may have spared a journey this title now names (checker on #8710).
+  none([byPr(1)], { 1: pick('') }, { named: ['J-b-02.pw.mjs'] });
+  none([byPr(1)], { 1: pick('', { named: 'J-a-01.pw.mjs' }) }, { named: ['J-a-01.pw.mjs', 'J-b-02.pw.mjs'] });
+  none([byPr(1)], { 1: pick('', { named_read: false }) });
+  none([byPr(1)], { 1: pick('') }, { named: null });
+  // Journey files never stand in for the full suite.
+  const c = cover([byPr(1)], { 1: pick('J-a-01.pw.mjs') });
+  assert.deepEqual(afterReuse('', c.files), { target: '', mode: 'run', why: '' });
+  // The pick kept during an earlier attempt (before a re-run) counts for nothing.
+  const r = byPr(1, { run_started_at: '2026-11-17T01:00:00Z' });
+  const art = (created_at, over = {}) => ({ id: 7, name: PICK_ARTIFACT, expired: false, created_at, ...over });
+  assert.equal(currentPickArtifact(r, [art('2026-11-17T00:59:59Z')]), null);
+  assert.equal(currentPickArtifact(r, [art('2026-11-17T01:00:05Z', { expired: true })]), null);
+  assert.equal(currentPickArtifact(r, [art('2026-11-17T01:00:05Z', { name: 'real-app-journeys' })]), null);
+  assert.equal(currentPickArtifact(r, [art('2026-11-17T01:00:05Z')]).id, 7);
+});
+
+test("#8707: real-app-journeys.yml runs a draft's journeys from its push, keeps what it runs, and ready never cancels it", () => {
+  const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  assert.doesNotMatch(t, /pull_request\.draft/, 'no job or group treats a draft differently');
+  const keep = t.indexOf('\n      - name: Keep what this run runs\n');
+  const touchEnd = t.indexOf('\n  release:\n');
+  assert.ok(keep > t.indexOf('\n      - name: Targeted run has its plan\n') && keep < touchEnd, 'the last steps of the touch job');
+  assert.match(
+    t,
+    /- name: Keep what this run runs\n {8}id: keep\n {8}if: github\.event_name == 'pull_request' && steps\.touch\.outputs\.mode == 'run' && steps\.first\.outputs\.deferred != 'true'\n/,
+  );
+  // The pick is best effort: a failed upload never turns the run red.
+  assert.match(t, /if: steps\.keep\.outcome == 'success'\n {8}continue-on-error: true\n/);
+  // The title's journey files are read for every pick, so a later run can tell whether a full run covers its title.
+  assert.match(t, /\{ echo "named=\$named"; echo "named_read=1"; \} >> "\$GITHUB_OUTPUT"\n {10}case "\$mode" in/);
+  assert.match(
+    t,
+    new RegExp(
+      `if: steps\\.keep\\.outcome == 'success'\\n {8}continue-on-error: true\\n {8}uses: actions/upload-artifact@[0-9a-f]{40} # v[\\d.]+\\n {8}with:\\n {10}name: ${PICK_ARTIFACT}\\n`,
+    ),
+  );
+  assert.match(
+    t,
+    /\(github\.event_name == 'pull_request' && github\.event\.action == 'ready_for_review'\) && format\('real-app-journeys-ready-\{0\}', github\.run_id\)/,
+  );
+});
+
 test("real-app-journeys.yml's one-run-per-head step: off a pull request, or when the base copy can't reuse, the pick stands", () => {
   const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
   const at = t.indexOf('\n        id: touch\n');
@@ -993,4 +1549,173 @@ test("real-app-journeys.yml's one-run-per-head step: off a pull request, or when
     rmSync(dir, { recursive: true, force: true });
   }
   assert.match(t, /\nrun-name: \$\{\{ github\.event_name == 'workflow_dispatch' && format\('Real-app journeys by hand, \{0\}'/);
+});
+
+// ---- 14 Nov 2026 (project-state row d64): a selection runs every file of each journey it selects ----
+
+test('14 Nov, #8320: a named change to the stack runs both J-home-ia-01 files, never the canary file alone', () => {
+  // #8320 at 91cdf2846: a named (J-merchant-04) pull request that changed the stack ran J-home-ia-01.pw.mjs for the canary and
+  // not J-home-ia-01-venue.pw.mjs, where #1 #2 #3 live; its verdict read those money steps as missing.
+  const real = checkoutJourneyTexts(ROOT);
+  const files = new Set([...real.keys()].filter((f) => /^J-.*\.pw\.mjs$/.test(f)));
+  assert.ok(files.has('J-home-ia-01-venue.pw.mjs'), 'J-home-ia-01 keeps steps in a second file at this checkout');
+  const named = namedInputs({ ids: ['J-wallet-05'], journeyFiles: files, importers: (ps) => stackImporters(ps, real) });
+  const t = journeyTouch(['services/svc-pay/src/router.ts', STACK_CANARY], () => true, null, named);
+  assert.equal(t.mode, 'files');
+  for (const f of ['J-home-ia-01.pw.mjs', 'J-home-ia-01-venue.pw.mjs']) assert.ok(t.files.includes(f), `${f} runs`);
+});
+
+test('a journey selected by name, the canary, an importer, the map or its own changed file runs all its files at the head', () => {
+  const head = new Set(['J-bank-13.pw.mjs', 'J-a-01.pw.mjs', 'J-a-01-venue.pw.mjs', 'J-a-02.pw.mjs', 'J-a-010.pw.mjs']);
+  const texts = new Map([...head].map((f) => [f, f === 'J-a-01.pw.mjs' ? "import './x-helper.mjs';" : '']).concat([['x-helper.mjs', '']]));
+  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: head, importers: (ps) => stackImporters(ps, texts) });
+  // An importer: only J-a-01.pw.mjs imports the helper; its sibling runs with it, and J-a-02 and J-a-010 do not.
+  const h = journeyTouch(['apps/customer/tests/real-app/x-helper.mjs'], () => true, null, named);
+  assert.deepEqual(h.files, ['J-a-01-venue.pw.mjs', 'J-a-01.pw.mjs', 'J-bank-13.pw.mjs']);
+  // A changed journey file: its sibling runs too.
+  assert.deepEqual(journeyTouch(['apps/customer/tests/real-app/J-a-01.pw.mjs'], () => true, null, named).files, [
+    'J-a-01-venue.pw.mjs',
+    'J-a-01.pw.mjs',
+  ]);
+  // The head's journey files unknown: the selection is left as it was (no name, no map).
+  assert.deepEqual(journeyTouch(['apps/customer/tests/real-app/J-a-01.pw.mjs']).files, ['J-a-01.pw.mjs']);
+});
+
+test('15 Nov: a run by hand that names one file of a journey runs every file of it (run 43637111867)', () => {
+  const head = new Set(['J-derivatives-01.pw.mjs', 'J-derivatives-01-venue.pw.mjs', 'J-derivatives-02.pw.mjs', 'J-bank-13.pw.mjs']);
+  assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', head), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+  assert.equal(dispatchTarget('J-derivatives-01-venue.pw.mjs', head), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+  assert.equal(
+    dispatchTarget('J-bank-13.pw.mjs, J-derivatives-01.pw.mjs', head),
+    'J-bank-13.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs',
+  );
+  assert.equal(dispatchTarget('J-derivatives-02.pw.mjs', head), 'J-derivatives-02.pw.mjs', 'a one-file journey stays one file');
+  assert.equal(dispatchTarget('nope.txt', head), 'nope.txt', 'a name that is no journey file stays, so the run refuses it');
+  assert.equal(dispatchTarget('', head), '');
+  // At this checkout: the real derivatives-01 pair.
+  const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
+  assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+});
+
+// The named rule's reach (17 Nov 2026): four real pull requests that each named one journey, ran only it and the
+// always-run files, merged green, and broke another journey on main (the revert in brackets). The fixture holds each
+// one's changed paths (git diff of its merge), title and branch, the journey files at its merge, which of its service
+// files subscribe to bus events, the journey files using its stack file (stackImporters), and the slice of the committed
+// touched-journeys map those paths read. Named-only (main before this change) leaves the broken journey out; asking the
+// map as well makes each one full, so the journey it broke runs on its own pull request.
+const REPLAY = JSON.parse(readFileSync(new URL('./fixtures/journey-touch-named-reach.json', import.meta.url), 'utf8'));
+
+const replayInputs = (c) => {
+  const journeyFiles = new Set(c.journeyFiles);
+  const ids = namedJourneyIds({ title: c.title, branch: c.branch });
+  const named = namedInputs({ ids, journeyFiles, ...(c.importers ? { importers: () => c.importers } : {}) });
+  const reach = {
+    map: REPLAY.map,
+    behind: 0,
+    journeyFiles,
+    subscribes: (p) => c.subscribes.includes(p),
+    head: null,
+    mode: 'reach',
+  };
+  return { named, reach };
+};
+const runsBroken = (t, broken) =>
+  t.mode === 'full' || t.files.some((f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1] === broken);
+
+test('replay, 4 real pull requests (#8113, #8153, #8542, #8139): a named pull request asks the map, so the journey it broke runs', () => {
+  assert.deepEqual(
+    REPLAY.cases.map((c) => [c.number, c.broken]),
+    [
+      [8113, 'J-campaigns-01'],
+      [8153, 'J-cex-spot-17'],
+      [8542, 'J-copy-bots-otc-03'],
+      [8139, 'J-identity-04'],
+    ],
+  );
+  for (const c of REPLAY.cases) {
+    const { named, reach } = replayInputs(c);
+    assert.ok(named, `#${c.number} names a journey with a file at its merge`);
+    // What it ran: its named journey (and, for a stack file, the journeys using it), never the one it broke.
+    const before = journeyTouch(c.paths, () => true, null, named);
+    assert.equal(before.mode, 'files', `#${c.number}: named-only narrows`);
+    assert.equal(runsBroken(before, c.broken), false, `#${c.number}: named-only leaves ${c.broken} out`);
+    // Now: the map speaks for its product paths, and it can't narrow them, so the change runs every journey.
+    const after = journeyTouch(c.paths, () => true, reach, named);
+    assert.equal(runsBroken(after, c.broken), true, `#${c.number}: ${c.broken} runs on its own pull request`);
+    assert.equal(after.mode, 'full', `#${c.number}: ${JSON.stringify(after.full?.[0])}`);
+    // Nothing it ran before stops running.
+    for (const f of before.files) assert.ok(after.mode === 'full' || after.files.includes(f), `#${c.number} still runs ${f}`);
+  }
+});
+
+test('a named pull request the map narrows runs its named journeys, its changed journey files and what the map selects, never the always-run list', () => {
+  const c = REPLAY.cases[0];
+  const { named, reach } = replayInputs(c);
+  // The one product path of #8113 the map narrows (57 recorded journey files), alone.
+  const paths = ['apps/customer/src/features/account/Promotions.tsx', 'apps/customer/tests/real-app/J-campaigns-06.pw.mjs'];
+  const t = journeyTouch(paths, () => true, reach, named);
+  assert.equal(t.mode, 'files');
+  const sel = reachSelect({ map: REPLAY.map, paths: [paths[0]], behind: 0, atHead: reach.journeyFiles, mode: 'reach', unrecorded: false });
+  assert.equal(sel.mode, 'files');
+  for (const f of [...sel.files, ...named.files]) assert.ok(t.files.includes(f), f);
+  // The map's always-run journeys (its `full` list) stay with main's full run (project-state#2332).
+  const id = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1];
+  const picked = new Set([...sel.files, ...named.files].map(id));
+  // (A file of a picked journey runs with it, withSiblings.)
+  const always = Object.keys(REPLAY.map.full).filter((f) => reach.journeyFiles.has(f) && !picked.has(id(f)));
+  assert.ok(always.length, 'the fixture has an always-run journey at the head');
+  for (const f of always) assert.equal(t.files.includes(f), false, f);
+  assert.match(
+    t.named,
+    /it names J-campaigns-06, so its 1 product path\(s\) run J-campaigns-06\.pw\.mjs and the \d+ journey file\(s\) the touched-journeys map says reach them/,
+  );
+  assert.ok(t.reach?.length, 'the map says why');
+  // Without the map (unreadable), the named rule stands as before: it never runs less.
+  assert.deepEqual(journeyTouch(paths, () => true, null, named).files, named.files);
+  // A map that can't speak (switched off) makes it full, never narrower.
+  assert.equal(journeyTouch(paths, () => true, { ...reach, mode: 'off' }, named).mode, 'full');
+});
+
+test('replay, the seal: each of the 4 named pull requests no longer seals on a run of its named journey alone', async () => {
+  for (const c of REPLAY.cases) {
+    const named = namedInputs({ ids: namedJourneyIds({ title: c.title, branch: c.branch }), journeyFiles: new Set(c.journeyFiles) });
+    const ran = [...new Set([...named.files, ...(c.importers ?? [])])];
+    const states = Object.fromEntries(
+      [...c.title.matchAll(/ #(\d+)/g)].map((m) => [`${namedJourneyIds({ title: c.title })[0]}#${m[1]}`, 'passed']),
+    );
+    const newest = REPLAY.map.runs[0];
+    const id = namedJourneyIds({ title: c.title })[0];
+    const steps = `const J = '${id}';\n${Object.keys(states)
+      .map((s) => `test(\`\${J} #${s.split('#')[1]} x\`, () => {});`)
+      .join('\n')}\n`;
+    const stackNames = c.paths.filter((p) => pathKind(p).stack).map((p) => `'../../../../${p}'`);
+    const out = await sealPull({
+      repo: REPO,
+      number: c.number,
+      sha: HEAD,
+      io: {
+        pull: async () => ({ state: 'open', head: { sha: HEAD, ref: c.branch }, base: { sha: OLD }, title: c.title, body: '' }),
+        runs: async () => [run(1)],
+        reportOf: async () => ({ states, ran }),
+        files: async () => c.paths,
+        // Its changed journey file holds the steps its title names; its service files that subscribe say so.
+        text: async (f, ref) => (ref === HEAD && RUN_FILE.test(f) ? steps : ref === HEAD && c.subscribes.includes(f) ? '.subscribe(' : ''),
+        // The journey files using its stack file name it, as its importers did at the merge (#8139).
+        journeyTexts: async () => new Map(c.journeyFiles.map((f) => [f, (c.importers ?? []).includes(f) ? stackNames.join('\n') : ''])),
+        verdictOf: async (r) => ({ ...clean, missing: c.journeyFiles.filter((f) => !r.ran.includes(f)) }),
+        reachMap: async () => REPLAY.map,
+        mainRuns: async () => [run(2, { id: newest.id, head_branch: 'main', event: 'push', created_at: newest.created })],
+        journeyFiles: async () => new Set(c.journeyFiles),
+        reachMode: 'reach',
+      },
+    });
+    assert.equal(out.ok, false, `#${c.number}: ${out.lines.join('\n')}`);
+    // Held for the full run the map asks for, not for anything else in the fake (the old named line ends "main's full
+    // run judges the rest"). #8139's stack file goes full with its product code, so its reason is the stack file's.
+    const why = /full run: it changes (what can reach any journey|the journey stack's shared setup)/;
+    assert.match(out.lines.join('\n'), why, `#${c.number}: ${out.lines.join('\n')}`);
+    assert.doesNotMatch(out.lines.join('\n'), /main's full run judges the rest/, `#${c.number}`);
+    // The same run on a head that touched nothing else would have sealed: the named rule's own lines are clean.
+    for (const s of Object.keys(states)) assert.match(out.lines.join('\n'), new RegExp(`${s}: passed`), `#${c.number}: ${s}`);
+  }
 });

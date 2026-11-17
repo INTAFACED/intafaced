@@ -17,7 +17,7 @@ import { SessionRelay } from './session/relay.js';
 import { ChainObserver } from './events.js';
 import { protocolHealthHonesty } from './health-honesty.js';
 import { createPeers } from './blockers/peers.js';
-import { createProtocolRouter, type ProtocolRouter } from './router.js';
+import { createProtocolRouter } from './router.js';
 import { parseGasPercentileSetting } from './chain/gas-price.js';
 import { badgeChainIsMainnet, badgeChainIsRestartable, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
@@ -192,6 +192,7 @@ export const appRouter = createProtocolRouter({
       : null,
   claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
   venue: () => env.PROTOCOL_VENUE_ADDRESS as `0x${string}`,
+  lendingMarket: () => env.PROTOCOL_LENDING_MARKET_ADDRESS as `0x${string}`,
   swapV2: () =>
     isZeroAddress(env.PROTOCOL_ROUTER_V2_ADDRESS) ||
     isZeroAddress(env.PROTOCOL_SOVEREIGN_PERMIT_ADDRESS) ||

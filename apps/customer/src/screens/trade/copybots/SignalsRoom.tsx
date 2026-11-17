@@ -82,7 +82,8 @@ function VettingNote({ vetting }: { vetting: SignalVetting }) {
 function PublishSignal() {
   const { t } = roomCopy.useCopy();
   const transport = useApi();
-  const session = useSession();
+  // The session itself, not the context (always present): null until the boot refresh brings a token.
+  const { session } = useSession();
   const api = createRoomApi(transport);
   const criteria = useLive((signal) => api.signalCriteria(signal), 'signal-criteria', 300_000);
   const [title, setTitle] = useState('');
@@ -124,7 +125,7 @@ function PublishSignal() {
 
   const c = criteria.data;
   return (
-    <Page>
+    <Page landmark={false}>
       <PageHeader title={t('Publish a signal')} description={t('Share your trade signals with subscribers, free or for a monthly fee.')} />
       <SignalsNav active="publish" />
       <PageSection title={t('Provider criteria')} headingLevel={2} actions={<Freshness live={criteria} staleAfterMs={600_000} />}>
@@ -218,7 +219,7 @@ function SignalsHub({ view }: { view: 'list' | 'mine' | 'earnings' }) {
   const { t } = roomCopy.useCopy();
   const title = view === 'mine' ? t('My signals') : view === 'earnings' ? t('Signal earnings') : t('Signals');
   return (
-    <Page>
+    <Page landmark={false}>
       <PageHeader
         title={title}
         description={t('Trade signals from vetted providers. Free or a monthly fee; never a share of your profit.')}
@@ -275,7 +276,8 @@ function SignalList() {
 
 function MySignals() {
   const { t } = roomCopy.useCopy();
-  const session = useSession();
+  // The session itself, not the context (always present): null until the boot refresh brings a token.
+  const { session } = useSession();
   const api = createRoomApi(useApi());
   const mine = useLive((signal) => api.mySignals(signal), `my-signals:${session ? 'in' : 'out'}`, 60_000);
   const [busy, setBusy] = useState<string | null>(null);
@@ -360,7 +362,8 @@ function MySignals() {
 
 function Earnings() {
   const { t } = roomCopy.useCopy();
-  const session = useSession();
+  // The session itself, not the context (always present): null until the boot refresh brings a token.
+  const { session } = useSession();
   const api = createRoomApi(useApi());
   const earnings = useLive(
     (signal) => api.signalEarnings({ from: EARNINGS_FROM, to: new Date().toISOString() }, signal),

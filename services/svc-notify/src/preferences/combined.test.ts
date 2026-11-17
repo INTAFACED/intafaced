@@ -92,7 +92,6 @@ import {
   planStatusLineIsEmpty,
   planStatusLineDetailed,
   planStatusLineTokenCount,
-  parsePlanStatusLine,
   planStatusLineMatches,
   parsePlanStatusLineDetailed,
   planStatusLineConsistent,

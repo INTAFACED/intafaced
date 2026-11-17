@@ -17,7 +17,8 @@
  *
  * Staff see attempts under per-quiz aliases, never the account. No money moves.
  */
-import type { Sql, TransactionSql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
+import type { Sql } from 'postgres';
 import { createHash } from 'node:crypto';
 import type {
   AcademyCourseQuizAnswer,
@@ -34,8 +35,6 @@ import { AcademyError } from '../errors.js';
 import { scoreQuestion } from './course-quiz-score.js';
 import { canonical, questionsOf, recordQuizEvent } from './course-quizzes.js';
 import { ALIAS, csvRecords } from './bulk-grade-file.js';
-
-type Db = Sql | TransactionSql;
 
 type TrailAttempt = {
   id: string;
@@ -74,12 +73,12 @@ type EventRow = {
  * (`FROM academy.course_quiz_attempts t`). The gradebook reads it; the learner's own attempt and this module's view read
  * the same newest event (`newestEvents`), so every reader agrees.
  */
-export const effectiveScoreSql = (sql: Db) => sql`
+export const effectiveScoreSql = (sql: Queryable) => sql`
   coalesce((SELECT e.score FROM academy.course_quiz_score_events e WHERE e.attempt_id = t.id ORDER BY e.n DESC LIMIT 1), t.score)
 `;
 
 /** The newest score event of each attempt named, by attempt id. */
-export async function newestEvents(sql: Db, attemptIds: readonly string[]): Promise<Map<string, EventRow>> {
+export async function newestEvents(sql: Queryable, attemptIds: readonly string[]): Promise<Map<string, EventRow>> {
   if (attemptIds.length === 0) return new Map();
   const rows = await sql<EventRow[]>`
     SELECT DISTINCT ON (attempt_id) * FROM academy.course_quiz_score_events
@@ -187,12 +186,12 @@ export const scoreOf = (points: Readonly<Record<string, number>>, maxScore: numb
   Math.min(maxScore ?? Number.MAX_SAFE_INTEGER, Math.max(0, total(points)));
 
 /** Each learner's per-quiz alias ("Learner 3"): their place by first start, then account. Staff never see the account. */
-const ALIASES = (sql: Db, itemId: string) => sql`
+const ALIASES = (sql: Queryable, itemId: string) => sql`
   SELECT user_id, row_number() OVER (ORDER BY min(started_at), user_id)::int AS alias
   FROM academy.course_quiz_attempts WHERE item_id = ${itemId} GROUP BY user_id
 `;
 
-const ATTEMPT = (sql: Db) => sql`
+const ATTEMPT = (sql: Queryable) => sql`
   t.id, t.item_id, t.user_id, t.number, t.finished_at, t.state, t.quiz, t.answers, t.essay_points, t.score, t.max_score, t.passed
 `;
 
@@ -533,7 +532,7 @@ export class CourseQuizTrail {
     };
   }
 
-  private async lastEvent(tx: Db, attemptId: string): Promise<EventRow | null> {
+  private async lastEvent(tx: Queryable, attemptId: string): Promise<EventRow | null> {
     const [last] = await tx<EventRow[]>`
       SELECT * FROM academy.course_quiz_score_events WHERE attempt_id = ${attemptId} ORDER BY n DESC LIMIT 1
     `;

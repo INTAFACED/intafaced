@@ -116,7 +116,7 @@ describe('language sync (RC-home-ia-05)', () => {
   it('a replay of one request id returns the first result; the same id with other contents conflicts and is never applied', async () => {
     const server = accountServer();
     const body = { namespace: 'account.display', value: { locale: 'es', displayCurrency: null }, ifVersion: 0, clientRequestId: 'k1' };
-    const mutate = server.api.mutate.bind(server.api) as unknown as (
+    const mutate = server.api.mutate.bind(server.api) as (
       m: string,
       p: string,
       i: unknown,

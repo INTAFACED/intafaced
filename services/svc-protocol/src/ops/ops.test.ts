@@ -110,7 +110,7 @@ describe('ops over tRPC', () => {
       ammFactoryAddress: () => '0x0',
       swapSlippageBps: () => null,
       ...over,
-    } as unknown as ProtocolRouterDeps;
+    } as ProtocolRouterDeps;
     return createProtocolRouter(deps).createCaller(as(scopes));
   };
 

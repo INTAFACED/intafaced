@@ -22,14 +22,13 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
 const ROOT = resolve(import.meta.dirname, '../../..');
 
 function notifyServiceBlock(source: string): string {
-  const match = source.match(/^  svc-notify:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-notify service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-notify');
 }
 
 const LINE = /^\s+NOTIFY_VERIFY_TTL_MINUTES:\s*\$\{NOTIFY_VERIFY_TTL_MINUTES:-\}\s*$/gm;

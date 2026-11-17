@@ -16,7 +16,7 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
   const [node, setNode] = useState(merchantId);
   const [limit, setLimit] = useState(50);
   const [user, setUser] = useState('');
-  const [fee, setFee] = useState('');
+  const [feeBps, setFeeBps] = useState('');
   const [opened, setOpened] = useState('');
   const children = useResource(
     (signal) => pay.query('submerchant.list', { merchantId: node, limit }, z.array(s.submerchantSchema), signal),
@@ -121,8 +121,8 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
           <Field
             label={payCopy.t('agreedFeeRateBasisPoints')}
             inputMode="numeric"
-            value={fee}
-            onChange={(event) => setFee(event.target.value)}
+            value={feeBps}
+            onChange={(event) => setFeeBps(event.target.value)}
             hint={payCopy.t('enterTheActualAgreedRateNoFee')}
           />
           <PayNotice title={payCopy.t('settlingParty')}>
@@ -136,7 +136,7 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
                 values={[
                   [payCopy.t('parent'), node],
                   [payCopy.t('account'), user],
-                  [payCopy.t('fee'), payCopy.t('basisPoints2', { fee: fee })],
+                  [payCopy.t('fee'), payCopy.t('basisPoints2', { fee: feeBps })],
                   [payCopy.t('settlingParty'), payCopy.t('self')],
                 ]}
               />
@@ -145,7 +145,12 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
               validatedMutation(
                 pay,
                 'submerchant.create',
-                { parentMerchantId: node, userId: user, pricing: { feeBps: fee === '' ? undefined : Number(fee) }, settlingParty: 'self' },
+                {
+                  parentMerchantId: node,
+                  userId: user,
+                  pricing: { feeBps: feeBps === '' ? undefined : Number(feeBps) },
+                  settlingParty: 'self',
+                },
                 z.object({
                   parentMerchantId: s.id,
                   userId: z.string().min(1).max(128),
@@ -157,10 +162,10 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
                 'submerchant-create',
               )
             }
-            disabled={!user || fee === '' || Boolean(pay.access('pay:write'))}
+            disabled={!user || feeBps === '' || Boolean(pay.access('pay:write'))}
             onConfirmed={() => {
               setUser('');
-              setFee('');
+              setFeeBps('');
               children.reload();
             }}
           />

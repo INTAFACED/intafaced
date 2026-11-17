@@ -518,6 +518,11 @@ export type TradeErrorCode =
    */
   | 'trade.cancel_ahead_of_fill'
   /**
+   * `finalize` refused an engine-miss release (#8560): the miss was not first sighted the owner's floor ago with no
+   * listing since, or trade.fills show a fill. Reconcile only; the hold stays.
+   */
+  | 'trade.engine_miss_unproven'
+  /**
    * Operator `reconcileOrder` funded engine-miss: `trade.fills` does not prove
    * no fill. Hold stays. Never an automatic refund (lost fill looks like this).
    */

@@ -647,7 +647,7 @@ class SqlLeaderBackend implements LeaderBackend {
   async transaction<T>(fn: (tx: LeaderBackend) => Promise<T>): Promise<T> {
     const begin = (this.sql as unknown as { begin?: (run: (tx: Sql) => Promise<T>) => Promise<T> }).begin;
     if (typeof begin !== 'function') return fn(this);
-    return begin(async (tx) => fn(new SqlLeaderBackend(tx as unknown as Sql)));
+    return begin(async (tx) => fn(new SqlLeaderBackend(tx)));
   }
 
   async getByRef(leaderRef: string, lock: boolean): Promise<StoredLeaderListing | null> {

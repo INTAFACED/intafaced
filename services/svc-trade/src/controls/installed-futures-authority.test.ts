@@ -33,7 +33,7 @@ describe('Installed futures policies preserve live admission authority', () => {
       side: 'long',
       positionMode: 'one_way',
       collateralClass: 'cash',
-    } as unknown as OpenPositionInput;
+    } as OpenPositionInput;
     expect(await new Owner().open(input, principal)).toBe(input);
     expect(received).toHaveLength(1);
     expect(received[0]).toBe(principal);

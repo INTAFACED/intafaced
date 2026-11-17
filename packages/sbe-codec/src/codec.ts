@@ -11,7 +11,6 @@ import { loadJavaSbeCodec } from './java-bridge.js';
 import type {
   AdapterRefuse,
   AdapterRefuseReason,
-  DecodeOk,
   DecodeResult,
   EncodeInput,
   EncodeResult,

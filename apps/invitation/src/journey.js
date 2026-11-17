@@ -67,7 +67,7 @@ const presentation = {
     let storage;
     try {
       storage = window.sessionStorage;
-    } catch (e) {
+    } catch {
       storage = null;
     }
     let controller = this.makeController(storage);
@@ -105,7 +105,7 @@ const presentation = {
     let session;
     try {
       session = window.sessionStorage;
-    } catch (e) {
+    } catch {
       session = null;
     }
     let storage = await createDraftStorage({

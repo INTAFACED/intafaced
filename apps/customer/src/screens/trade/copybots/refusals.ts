@@ -28,6 +28,18 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Copy trading isn’t available right now',
     body: 'The copy service isn’t switched on here. Nothing was followed and no money moved.',
   },
+  'trade.copy_venue_wallet_rejected': {
+    title: 'Your wallet did not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed.',
+  },
+  'trade.copy_venue_wallet_failed': {
+    title: 'Your wallet could not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed. Try again.',
+  },
+  'trade.copy_venue_refused': {
+    title: 'The venue refused it',
+    body: 'Your wallet signed, but the venue did not accept it, so nothing is followed. Try again.',
+  },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },
   'trade.copy_not_following': { title: 'You don’t follow that leader', body: 'Check My follows and try again.' },
@@ -210,6 +222,38 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_divergence_basis_unset': {
     title: 'The price difference has no basis points',
     body: 'The leader price was zero, so the difference in basis points is not shown.',
+  },
+  'trade.copy_mode_owner_decision': {
+    title: 'Multiplier sizing is not offered: the platform has not decided it.',
+    body: 'Choose smart sync or a fixed amount. Nothing was followed.',
+  },
+  'trade.copy_mode_locked': {
+    title: 'The sizing mode can’t change while the follow is active.',
+    body: 'Stop this follow and start a new one to use another mode. Nothing was changed.',
+  },
+  'trade.copy_smart_sync_unavailable': {
+    title: 'Smart sync can’t size copies of this leader',
+    body: 'The leader holds nothing in this asset right now, so there is nothing to scale by. Use a fixed amount. Nothing was followed.',
+  },
+  'trade.copy_min_not_set': {
+    title: 'Copy trading has no minimum investment set',
+    body: 'The platform hasn’t set the smallest amount a copy may use, so no copy can start. Nothing was followed.',
+  },
+  'trade.copy_below_min_investment': {
+    title: 'That is below the minimum investment',
+    body: 'Raise the most in total to at least the minimum shown. Nothing was followed.',
+  },
+  'trade.copy_day_not_set': {
+    title: 'A daily limit can’t be counted',
+    body: 'The platform hasn’t set when a copy day starts. Leave the most per day blank. Nothing was changed.',
+  },
+  'trade.copy_market_cap_reached': {
+    title: 'That copy would pass your most per contract',
+    body: 'Copies in this market stop here; copies in your other markets go on.',
+  },
+  'trade.copy_daily_cap_reached': {
+    title: 'That copy would pass your most per day',
+    body: 'Copying resumes when the next copy day starts.',
   },
   'trade.copy_slippage_exceeded': {
     title: 'That copy is too far from the leader’s price',

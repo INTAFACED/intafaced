@@ -1,22 +1,24 @@
-// The pre-push hook on planted repos: a worktree with no node_modules (here or in the main checkout) pushes with one
-// line instead of being refused; formatting still refuses when prettier is there; a direct push to main is still refused;
-// CI's checks run on every push and a red one refuses it, and they never see the hook's GIT_* variables.
+// The pre-push hook on planted repos: a worktree with no node_modules (here or in the main checkout) pushes; formatting
+// is left to .githooks/pre-commit and CI's Format job, so an unformatted push goes through; a direct push to main is still refused;
+// CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR. A push
+// that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it. The lint
+// ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files and refuses a rise; CI's other Doctrine gates
+// (gates.mjs --before-push) run too, and a red one refuses the push. Without the install either refuses, naming the command.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-// The hook skips CI's checks when CI is set (CI runs them itself), so each push here runs as on a builder's machine,
-// even when this file runs inside CI, unless a case sets CI itself.
+// CI is unset, so each push here runs as on a builder's machine, even when this file runs inside CI.
 const BUILDER = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CI'));
 
-function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
+function plant({ prettier = null, oxlint = false, ciChecks = 'process.exit(0);', base = {}, change = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'pre-push-'));
   const remote = join(dir, 'remote.git');
   const work = join(dir, 'work');
@@ -28,11 +30,17 @@ function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
   copyFileSync(join(ROOT, '.githooks', 'pre-push'), join(work, '.githooks', 'pre-push'));
   chmodSync(join(work, '.githooks', 'pre-push'), 0o755);
   mkdirSync(join(work, 'tooling', 'scripts'), { recursive: true });
-  writeFileSync(join(work, 'tooling', 'scripts', 'truth-check.mjs'), 'process.exit(0);\n');
   // CI's checks (tooling/scripts/ci-checks.mjs), planted: the real one builds and tests the whole repo.
   writeFileSync(join(work, 'tooling', 'scripts', 'ci-checks.mjs'), `${ciChecks}\n`);
   writeFileSync(join(work, '.gitignore'), 'node_modules\n');
   writeFileSync(join(work, 'README.md'), 'base\n');
+  const write = (files) => {
+    for (const [f, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(work, f)), { recursive: true });
+      writeFileSync(join(work, f), body);
+    }
+  };
+  write(base);
   git(work, 'add', '-A');
   git(work, 'commit', '-q', '-m', 'base');
   git(work, 'remote', 'add', 'origin', remote);
@@ -44,9 +52,15 @@ function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
     writeFileSync(join(work, 'node_modules', '.bin', 'prettier'), `#!/bin/sh\n${prettier}\n`);
     chmodSync(join(work, 'node_modules', '.bin', 'prettier'), 0o755);
   }
+  // The real oxlint of this checkout, for the lint ratchet (its own shim finds oxlint beside itself, so it is called).
+  if (oxlint) {
+    writeFileSync(join(work, 'node_modules', '.bin', 'oxlint'), `#!/bin/sh\nexec '${join(ROOT, 'node_modules', '.bin', 'oxlint')}' "$@"\n`);
+    chmodSync(join(work, 'node_modules', '.bin', 'oxlint'), 0o755);
+  }
   git(work, 'checkout', '-q', '-b', 'feat');
   mkdirSync(join(work, 'src'), { recursive: true });
   writeFileSync(join(work, 'src', 'a.ts'), 'export const a = 1;\n');
+  write(change);
   git(work, 'add', '-A');
   git(work, 'commit', '-q', '-m', 'change');
   const push = (ref = 'feat', env = BUILDER) => {
@@ -56,33 +70,22 @@ function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
   return { push, work, done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-test('no node_modules here or in the main checkout: one line, the push goes through', () => {
+test('no node_modules here or in the main checkout: the push goes through', () => {
   const p = plant();
   try {
     const r = p.push();
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /no prettier in this worktree; skipped/);
   } finally {
     p.done();
   }
 });
 
-test('formatting still refuses when prettier is there', () => {
-  const p = plant({ prettier: 'echo "[warn] src/a.ts"; exit 1' });
-  try {
-    const r = p.push();
-    assert.notEqual(r.code, 0, r.out);
-    assert.match(r.out, /format:check failed/);
-  } finally {
-    p.done();
-  }
-});
-
-test('a formatted push with prettier there goes through', () => {
-  const p = plant({ prettier: 'exit 0' });
+test('formatting is not checked here: a prettier that would refuse is never run', () => {
+  const p = plant({ prettier: 'echo "prettier ran"; exit 1' });
   try {
     const r = p.push();
     assert.equal(r.code, 0, r.out);
+    assert.doesNotMatch(r.out, /prettier ran/);
   } finally {
     p.done();
   }
@@ -99,36 +102,12 @@ test('a direct push to main is still refused', () => {
   }
 });
 
-test("a red from CI's checks refuses the push", () => {
-  const p = plant({ prettier: 'exit 0', ciChecks: "console.log('planted red'); process.exit(1);" });
-  try {
-    const r = p.push();
-    assert.notEqual(r.code, 0, r.out);
-    assert.match(r.out, /planted red/);
-    assert.match(r.out, /CI's checks failed here — push refused/);
-  } finally {
-    p.done();
-  }
-});
-
-test("in CI the hook leaves CI's checks to CI", () => {
+test("CI's checks never run here: a red planted in them leaves the push alone", () => {
   const p = plant({ prettier: 'exit 0', ciChecks: "console.log('ran'); process.exit(1);" });
   try {
-    const r = p.push('feat', { ...BUILDER, CI: 'true' });
-    assert.equal(r.code, 0, r.out);
-    assert.doesNotMatch(r.out, /\bran\b/);
-  } finally {
-    p.done();
-  }
-});
-
-test("CI's checks never see the hook's GIT_* variables (a tooling test's temp repo once wrote into the real repo)", () => {
-  const leak =
-    "const g = Object.keys(process.env).filter((k) => k.startsWith('GIT_')); if (g.length) { console.log('leaked ' + g); process.exit(1); }";
-  const p = plant({ prettier: 'exit 0', ciChecks: leak });
-  try {
     const r = p.push();
     assert.equal(r.code, 0, r.out);
+    assert.doesNotMatch(r.out, /\bran\b/);
   } finally {
     p.done();
   }
@@ -142,6 +121,236 @@ test('a push that only deletes a branch runs no checks', () => {
     const r = spawnSync('git', ['push', 'origin', ':refs/heads/gone'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
     assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
     assert.doesNotMatch(`${r.stdout}${r.stderr}`, /\bran\b/);
+  } finally {
+    p.done();
+  }
+});
+
+// A planted tooling test with the hook's marker line, red or green, and a journey file to push beside it.
+const MARK = '// Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).';
+const scan = (ok) => ({
+  'tooling/scripts/journey-rule.test.mjs': `${MARK}\nconsole.log('journey scan ran');\n${ok ? '' : "throw new Error('planted: a journey file breaks the rule');\n"}`,
+  // Unmarked: the slow tooling tests stay in CI.
+  'tooling/scripts/slow.test.mjs': "console.log('slow test ran'); process.exit(1);\n",
+});
+const JOURNEY = { 'apps/customer/tests/real-app/J-x-01.pw.mjs': 'export const x = 1;\n' };
+
+test('a push that changes a journey file runs the marked journey-file tests, and a red one refuses it, named', () => {
+  const p = plant({ prettier: 'exit 0', base: scan(false), change: JOURNEY });
+  try {
+    const r = p.push();
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /journey-file scans: 1 tooling test file/);
+    assert.match(r.out, /planted: a journey file breaks the rule/);
+    assert.match(r.out, /tooling test that reads every journey file failed — push refused/);
+    assert.doesNotMatch(r.out, /slow test ran/);
+  } finally {
+    p.done();
+  }
+});
+
+test('a push that changes a journey file goes through when the marked journey-file tests pass', () => {
+  const p = plant({ prettier: 'exit 0', base: scan(true), change: JOURNEY });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /journey-file scans: 1 tooling test file/);
+    assert.match(r.out, /journey scan ran/);
+    assert.doesNotMatch(r.out, /slow test ran/);
+  } finally {
+    p.done();
+  }
+});
+
+test('a push with no journey file runs no journey-file tests, even a red one', () => {
+  const p = plant({ prettier: 'exit 0', base: scan(false) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 0, r.out);
+    assert.doesNotMatch(r.out, /journey-file scans|journey scan ran/);
+  } finally {
+    p.done();
+  }
+});
+
+test('the tooling tests that read every journey file carry the marker, and each runs in seconds', () => {
+  const marked = execFileSync('git', ['grep', '-l', '-E', `^${MARK.replace(/[.()]/g, '\\$&')}`, '--', 'tooling/*.test.mjs'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  })
+    .split('\n')
+    .filter(Boolean)
+    .sort();
+  // journey-navigation.test.mjs is the rule two journey builds broke on 14 Nov, each found only by a red Doctrine gates job;
+  // journey-world.test.mjs ("every real journey file declares at least what it changes") the one J-algo-dev-02 broke on
+  // 7d8e66a1 the same day.
+  assert.deepEqual(marked, [
+    'tooling/scripts/journey-freeze-guard.test.mjs',
+    'tooling/scripts/journey-navigation.test.mjs',
+    'tooling/scripts/journey-world.test.mjs',
+    'tooling/scripts/local-test-market-history.test.mjs',
+    'tooling/scripts/real-app-navigation.test.mjs',
+  ]);
+  const started = Date.now();
+  const r = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...marked], { cwd: ROOT, encoding: 'utf8' });
+  assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+  // Measured at about 1 s on the Mac; 10 s is what a push may spend on them.
+  assert.ok(Date.now() - started < 10_000, `the journey-file tests took ${Date.now() - started} ms`);
+});
+
+// The lint ratchet, replayed on J-agents-01's head a6e6a2e3 (14 Nov): four new lines in a customer copy catalogue, one a
+// promise of later ("not collected yet"), which CI's Doctrine gates job refused as garden/no-promise-copy 0 -> 2 after the
+// push. Main's real rules, plugin and gate script, with this checkout's oxlint; only the copy file is planted.
+const RATCHET = Object.fromEntries(
+  execFileSync('git', ['ls-files', '--', '.oxlintrc.json', 'tooling/lint', 'tooling/ci/lint-ratchet.mjs'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean)
+    .map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]),
+);
+const COPY = 'apps/customer/src/features/more/agents-catalogue-copy.ts';
+const copy = (lines) => ({ [COPY]: `export const en = {\n  windowState: 'State',\n${lines.map((l) => `  ${l}\n`).join('')}};\n` });
+
+test('a push that raises a lint rule in the files it touches is refused, named, as CI would (J-agents-01 a6e6a2e3, replayed)', () => {
+  const p = plant({
+    prettier: 'exit 0',
+    oxlint: true,
+    base: { ...RATCHET, ...copy([]) },
+    change: copy(["paidFrom: 'Paid from',", "paidOwed: 'Owed, not collected yet',"]),
+  });
+  try {
+    const started = Date.now();
+    const r = p.push();
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(
+      r.out,
+      /garden\/no-promise-copy rose from 0 to 1 in the touched files \(apps\/customer\/src\/features\/more\/agents-catalogue-copy\.ts\)/,
+    );
+    assert.match(r.out, /lint-ratchet failed — push refused/);
+    // The whole push, hook included, measured at about 2 s on the Mac; 20 s is what the ratchet may add.
+    assert.ok(Date.now() - started < 20_000, `the push took ${Date.now() - started} ms`);
+  } finally {
+    p.done();
+  }
+});
+
+test('a push that adds an `as unknown as` cast is refused in seconds, with the line and the fix', () => {
+  const file = 'services/svc-x/src/a.ts';
+  const p = plant({
+    prettier: 'exit 0',
+    oxlint: true,
+    base: { ...RATCHET, [file]: 'export const n = 1;\n' },
+    change: { [file]: 'export const n = "1" as unknown as number;\n' },
+  });
+  try {
+    const started = Date.now();
+    const r = p.push();
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /services\/svc-x\/src\/a\.ts:1 {2}`as unknown as` turns type checking off here: narrow with a type guard/);
+    assert.ok(Date.now() - started < 20_000, `the push took ${Date.now() - started} ms`);
+  } finally {
+    p.done();
+  }
+});
+
+test('a push that holds every lint rule goes through with the ratchet run', () => {
+  const p = plant({
+    prettier: 'exit 0',
+    oxlint: true,
+    base: { ...RATCHET, ...copy([]) },
+    change: copy(["paidFrom: 'Paid from',", "paidOwed: 'Owed by the partner',"]),
+  });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Lint ratchet: \d+ touched file\(s\)/);
+  } finally {
+    p.done();
+  }
+});
+
+test('no oxlint in the worktree: the push is refused, with how to install it, never let through unchecked', () => {
+  const p = plant({ prettier: 'exit 0', base: { ...RATCHET, ...copy([]) }, change: copy(["paidOwed: 'Owed, not collected yet',"]) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /lint-ratchet needs this worktree's oxlint — push refused\. Install it: pnpm install --frozen-lockfile/);
+  } finally {
+    p.done();
+  }
+});
+
+// The CI review's size count (review-before-push.mjs --size), planted: it names what it was given and answers `code`.
+const sizeStep = (code) => ({
+  'tooling/scripts/review-before-push.mjs': `console.log('size step:', process.argv.slice(2).join(' '));\nprocess.exit(${code});\n`,
+});
+
+test("the CI review's size count runs on the pushed head and branch, and its refusal refuses the push", () => {
+  const p = plant({ prettier: 'exit 0', base: sizeStep(1) });
+  try {
+    const head = git(p.work, 'rev-parse', 'HEAD').trim();
+    const r = p.push('feat');
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, new RegExp(`size step: --size --head ${head} --branch feat`));
+  } finally {
+    p.done();
+  }
+});
+
+test("the size count's pass lets the push through, and a push that only deletes a branch never counts", () => {
+  const p = plant({ prettier: 'exit 0', base: sizeStep(0) });
+  try {
+    const r = p.push('feat');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /size step: --size --head [0-9a-f]{40} --branch feat/);
+    writeFileSync(join(p.work, 'tooling', 'scripts', 'review-before-push.mjs'), sizeStep(1)['tooling/scripts/review-before-push.mjs']);
+    const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
+    assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
+    assert.doesNotMatch(`${d.stdout}${d.stderr}`, /size step/);
+  } finally {
+    p.done();
+  }
+});
+
+// CI's Doctrine gates (tooling/ci/gates.mjs --before-push), planted: it names what it was given and answers `code`.
+const gatesStep = (code) => ({
+  'tooling/ci/gates.mjs': `console.log('gates step:', process.argv.slice(2).join(' '));\n${code ? "console.error('✖ BOUNDARY SCAN FAILED — 1 violation(s)');\n" : ''}process.exit(${code});\n`,
+});
+
+test("a red Doctrine gate refuses the push with the gate's own message (#8616's first head, the boundary scan)", () => {
+  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /gates step: --before-push/);
+    assert.match(r.out, /BOUNDARY SCAN FAILED — 1 violation\(s\)/);
+    assert.match(r.out, /a Doctrine gate failed — push refused/);
+  } finally {
+    p.done();
+  }
+});
+
+test('green Doctrine gates let the push through; a push that only deletes a branch never runs them', () => {
+  const p = plant({ prettier: 'exit 0', base: gatesStep(0) });
+  try {
+    const r = p.push('feat');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /gates step: --before-push/);
+    writeFileSync(join(p.work, 'tooling', 'ci', 'gates.mjs'), gatesStep(1)['tooling/ci/gates.mjs']);
+    const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
+    assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
+    assert.doesNotMatch(`${d.stdout}${d.stderr}`, /gates step/);
+  } finally {
+    p.done();
+  }
+});
+
+test('no node_modules in the worktree: the push is refused, with how to install it, before any gate runs', () => {
+  const p = plant({ base: gatesStep(0) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /the Doctrine gates need this worktree's install — push refused\. Install it: pnpm install --frozen-lockfile/);
+    assert.doesNotMatch(r.out, /gates step/);
   } finally {
     p.done();
   }

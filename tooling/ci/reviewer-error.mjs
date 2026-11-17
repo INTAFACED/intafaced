@@ -160,7 +160,7 @@ export function classify(text, code, now = new Date(), err = '') {
   // Only the API's or the CLI's own error text is read: a status the API sent, or a short error result. A used-up or
   // refused key, or a usage limit, also needs the API's status (or stderr, below): a short error result alone could be
   // shaped by the model, and those classes must never be read from the change's own text.
-  const own = sent || (a.is_error === true && !/^error_max/.test(String(a.subtype ?? '')) && errorText(a));
+  const own = sent || (a.is_error === true && !String(a.subtype ?? '').startsWith('error_max') && errorText(a));
   const words = own ? result : '';
   const reset = sent ? resetOf(result, now) : null;
   if (sent && (USED_UP.test(words) || (status === 'limit' && reset)))

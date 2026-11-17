@@ -3,7 +3,7 @@ import { expect } from './journey.mjs';
 // What a person does on the chart workbench's drawing tools in the running app, shared by the charts-desk journeys. The
 // drawings are kept on this device, so one journey keeps one browser context for all its steps (see its own file).
 
-export const WORKBENCH = '/charts/BTC-USDT';
+const WORKBENCH = '/charts/BTC-USDT';
 
 export async function openWorkbench(page) {
   await page.goto(WORKBENCH);

@@ -146,7 +146,7 @@ describe('protocol.amm.requestProtocolFee (D-fees-governance-04 (b))', () => {
       relay: {},
       relayEnabled: () => false,
       ammFactoryAddress: () => FACTORY,
-    } as unknown as ProtocolRouterDeps;
+    } as ProtocolRouterDeps;
     const amm = createProtocolRouter(deps).createCaller(anonymous()).amm;
     await expect(amm.requestProtocolFee({ pool: POOL })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
