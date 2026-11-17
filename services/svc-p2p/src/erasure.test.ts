@@ -378,12 +378,28 @@ describe('p2p export and erasure', () => {
         { category: 'share links to ads', rows: 0 },
         { category: 'presence and operating hours', rows: 0 },
         { category: 'bulk ad actions', rows: 0 },
+        { category: 'followed-trader notices', rows: 0 },
         { category: 'offers (never traded)', rows: 1 },
         { category: 'ads paused by a removed payment method', rows: 0 },
         { category: 'payment instrument details', rows: 1 },
         { category: 'payment details frozen onto trades', rows: 1 },
         { category: 'risk notice acceptances', rows: 0 },
       ]);
+    });
+
+    it('erases followed-trader notices the person is named in, as follower or as trader, and leaves everyone else’s', async () => {
+      const other = '33333333-3333-4333-8333-333333333333';
+      const ad = await sellOffer();
+      await sql`
+        INSERT INTO p2p.follower_notices (offer_id, follower_id, trader_id, posted_at)
+        VALUES (${ad.id}, ${TAKER}, ${MAKER}, now()), (${ad.id}, ${other}, ${MAKER}, now())
+      `;
+      const report = await erasure.eraseFor(TAKER);
+      expect(report.erased).toContainEqual({ category: 'followed-trader notices', rows: 1 });
+      expect(await sql`SELECT follower_id FROM p2p.follower_notices`).toEqual([{ follower_id: other }]);
+      const trader = await erasure.eraseFor(MAKER);
+      expect(trader.erased).toContainEqual({ category: 'followed-trader notices', rows: 1 });
+      expect(await sql`SELECT follower_id FROM p2p.follower_notices`).toHaveLength(0);
     });
 
     it('erases the caller’s past risk notice acceptances and leaves everyone else’s', async () => {

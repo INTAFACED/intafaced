@@ -22,7 +22,10 @@ function locations(source) {
   while ((match = start.exec(source))) {
     let depth = 1,
       i = start.lastIndex;
-    while (depth && i < source.length) ((depth += source[i] === '{' ? 1 : source[i] === '}' ? -1 : 0), i++);
+    while (depth && i < source.length) {
+      depth += source[i] === '{' ? 1 : source[i] === '}' ? -1 : 0;
+      i++;
+    }
     found.push({ match: match[1], body: source.slice(start.lastIndex, i - 1) });
   }
   return found;
@@ -175,6 +178,19 @@ test('deploy variables name the LiveKit and storage origins exactly, never a wil
     'ws://localhost:7880',
     'http://localhost:7880',
   ]);
+});
+
+test('the sandbox API origin is added to connect-src exactly, https only (J-developer-15 #7)', () => {
+  const csp = cspOf(renderSecurityHeaders({ CUSTOMER_SANDBOX_API_ORIGIN: 'https://sandbox-api.example.com' }));
+  assert.deepEqual(csp['connect-src'], ["'self'", 'https://sandbox-api.example.com']);
+  for (const bad of [
+    'http://sandbox-api.example.com',
+    'https://*.example.com',
+    'https://a.example.com https://b.example.com',
+    'https://a.example.com;',
+  ]) {
+    assert.throws(() => renderSecurityHeaders({ CUSTOMER_SANDBOX_API_ORIGIN: bad }), /CUSTOMER_SANDBOX_API_ORIGIN/, bad);
+  }
 });
 
 test('an invalid origin stops rendering instead of widening the policy', () => {

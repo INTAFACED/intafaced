@@ -14,7 +14,7 @@
 import type { AlertEngineHealth, AlertOpsReader, AlertSweepFailure, AlertSweepRecord } from './ops-health.js';
 import type { CreateResult, NotifyService } from '../notify-service.js';
 import { acceptAlertMark, outOfAppRequiredRefusal } from './accepted-mark.js';
-import { canonicalDecimalString, isValidPositivePrice } from './decimal.js';
+import { isValidPositivePrice } from './decimal.js';
 import {
   evaluatePortfolioAlert,
   evaluatePriceAlert,
@@ -40,8 +40,21 @@ import {
   type AlertEditState,
   type AlertExtra,
   type AlertFrequency,
+  ALERT_OUT_CHANNELS,
+  type AlertOutChannel,
 } from './types.js';
 import { createDarkWhaleMarkSource } from './whale-mark.js';
+import {
+  checkWebhookUrl,
+  MemoryAlertWebhookStore,
+  NO_WEBHOOK_POLICY,
+  systemResolve,
+  type AlertWebhookPolicy,
+  type AlertWebhookStore,
+  type Resolve,
+  type WebhookDelivery,
+} from './webhook.js';
+import type { DeliveryRecord } from '../channel-store.js';
 import {
   AlertKindUnpublishedError,
   AlertPortfolioUnpublishedError,
@@ -377,7 +390,45 @@ export type EvaluateAlertReport = {
   readonly notificationId: string | null;
 };
 
+/** A quota refusal from the store, in the words a create refuses with; any other error is returned as it is. */
+export function quotaLimitError(err: unknown): unknown {
+  if (!(err instanceof AlertQuotaReachedError)) return err;
+  return new AlertLimitError(
+    'alert.quota_reached',
+    err.wanted === undefined
+      ? `a person may hold ${err.limit} open price alerts`
+      : `a person may hold ${err.limit} open price alerts; ${err.held} are open and ${err.wanted} more were asked for`,
+  );
+}
+
+/**
+ * Where an alert goes besides the in-app row (J-charts-desk-10): the webhook record, the owner's webhook policy, and the resolver
+ * a webhook URL is checked with. With none passed, no webhook can be saved (the ports are blank) and nothing is queued.
+ */
+export type AlertDeliveryDeps = {
+  readonly webhooks: AlertWebhookStore;
+  readonly policy: AlertWebhookPolicy;
+  readonly resolve?: Resolve;
+};
+
+/** One firing's delivery: each channel's row from the fan-out, and the webhook's record when the alert had one. */
+export type AlertTriggerDelivery = {
+  readonly channels: readonly DeliveryRecord[];
+  readonly webhook: WebhookDelivery | null;
+};
+
+/** The out-of-app channels a create or edit stores: those offered for alerts, each once. Anything else is refused by name. */
+export function assertAlertChannels(channels: readonly string[] | null | undefined): readonly AlertOutChannel[] | null {
+  if (channels === undefined || channels === null) return null;
+  for (const c of channels) {
+    if (!(ALERT_OUT_CHANNELS as readonly string[]).includes(c)) throw new AlertValidationError('alert.channel_invalid', `channel=${c}`);
+  }
+  return ALERT_OUT_CHANNELS.filter((c) => channels.includes(c));
+}
+
 export class AlertService {
+  private labels: { at: number; byId: ReadonlyMap<string, string> } | null = null;
+
   constructor(
     private readonly store: AlertStore,
     private readonly marks: MarkSource,
@@ -385,7 +436,43 @@ export class AlertService {
     private readonly whaleMarks: MarkSource = createDarkWhaleMarkSource(),
     private readonly limits: AlertLimits = NO_ALERT_LIMITS,
     private readonly triggerLog: AlertTriggerLog = new MemoryAlertTriggerLog(),
+    private readonly delivery: AlertDeliveryDeps = { webhooks: new MemoryAlertWebhookStore(), policy: NO_WEBHOOK_POLICY },
   ) {}
+
+  /** The owner's webhook policy as the alerts page publishes it. */
+  webhookPolicy(): AlertWebhookPolicy {
+    return this.delivery.policy;
+  }
+
+  /** What happened to each firing on each channel and on its webhook. Firings with no inbox row have no channel rows. */
+  async triggerDeliveries(userId: string, triggers: readonly AlertTrigger[]): Promise<ReadonlyMap<string, AlertTriggerDelivery>> {
+    const hooks = await this.delivery.webhooks.listFor(
+      userId,
+      triggers.map((t) => ({ alertId: t.alertId, seq: t.seq })),
+    );
+    const hookOf = new Map(hooks.map((h) => [`${h.alertId}:${h.seq}`, h]));
+    // Each firing's channel records, read together rather than one after another (the page holds up to its limit of firings).
+    const channelsOf = await Promise.all(
+      triggers.map((t) =>
+        t.notificationId && typeof this.notify.deliveriesFor === 'function' ? this.notify.deliveriesFor(userId, t.notificationId) : [],
+      ),
+    );
+    return new Map(
+      triggers.map(
+        (t, i) => [`${t.alertId}:${t.seq}`, { channels: channelsOf[i]!, webhook: hookOf.get(`${t.alertId}:${t.seq}`) ?? null }] as const,
+      ),
+    );
+  }
+
+  /** The market's symbol (`BTC/USDT`) from the market list the marks read, or its id when the list cannot say. Kept for a minute. */
+  private async marketLabel(marketId: string, at: Date): Promise<string> {
+    if (!this.marks.marketIdsBySymbol) return marketId;
+    if (!this.labels || at.getTime() - this.labels.at > 60_000) {
+      const bySymbol = await this.marks.marketIdsBySymbol().catch(() => null);
+      if (bySymbol) this.labels = { at: at.getTime(), byId: new Map([...bySymbol].map(([symbol, id]) => [id, symbol] as const)) };
+    }
+    return this.labels?.byId.get(marketId) ?? marketId;
+  }
 
   /** The person's trigger log, newest first. Refuses while the owner has not set how long it is kept. */
   async triggers(
@@ -416,6 +503,8 @@ export class AlertService {
     const expiresAt = assertAlertExpiry(input.expiresAt, this.limits, now);
     const extras = assertAlertExtras(input.extras, this.limits);
     const frequency = assertAlertFrequency(input.frequency, input.condition ?? 'greater_than', this.limits);
+    const channels = assertAlertChannels(input.channels);
+    const webhookUrl = await checkWebhookUrl(input.webhookUrl, this.delivery.policy, this.delivery.resolve ?? systemResolve);
     // Only price alerts have a quota setting. A blank one refuses the create, as every other blank owner limit does.
     let maxOpen: number | undefined;
     if (kind === 'price') {
@@ -436,6 +525,8 @@ export class AlertService {
         expiresAt,
         extras,
         frequency,
+        channels,
+        webhookUrl,
         ...(maxOpen !== undefined ? { maxOpen } : {}),
       });
     } catch (err) {
@@ -458,6 +549,27 @@ export class AlertService {
     },
     now: Date = new Date(),
   ): Promise<readonly PriceAlert[]> {
+    const { inputs, maxOpen } = await this.prepareMany(input, now);
+    try {
+      return await this.store.createMany(inputs, maxOpen);
+    } catch (err) {
+      throw quotaLimitError(err);
+    }
+  }
+
+  /**
+   * The alerts a watchlist alert stores, one per market, each checked exactly as a single create is, with the owner's quota to
+   * hold them to. Nothing is stored here: `createMany` and the watchlist rules store them, all or none. A market named twice is
+   * one alert. Expired alerts are retired first, so an alert past its time does not use up a place.
+   */
+  async prepareMany(
+    input: Omit<CreatePriceAlertInput, 'targetPrice' | 'marketId' | 'kind' | 'maxOpen'> & {
+      readonly marketIds: readonly string[];
+      readonly targetPrice?: string | null;
+    },
+    now: Date = new Date(),
+    opts: { readonly expire?: boolean } = {},
+  ): Promise<{ readonly inputs: readonly CreatePriceAlertInput[]; readonly maxOpen: number }> {
     const { marketIds, ...rule } = input;
     const markets = [...new Set(marketIds.map((id) => id.trim()).filter((id) => id !== ''))];
     if (markets.length === 0) throw new AlertValidationError('alert.invalid_market', 'at least one market is needed');
@@ -470,33 +582,24 @@ export class AlertService {
     if (this.limits.maxActivePrice === null) {
       throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
     }
-    await this.store.expireDue(now);
-    try {
-      return await this.store.createMany(
-        markets.map((marketId) => ({
-          ...rule,
-          kind: 'price' as const,
-          marketId,
-          targetPrice,
-          name,
-          message,
-          expiresAt,
-          extras,
-          frequency,
-        })),
-        this.limits.maxActivePrice,
-      );
-    } catch (err) {
-      if (err instanceof AlertQuotaReachedError) {
-        throw new AlertLimitError(
-          'alert.quota_reached',
-          err.wanted === undefined
-            ? `a person may hold ${err.limit} open price alerts`
-            : `a person may hold ${err.limit} open price alerts; ${err.held} are open and ${err.wanted} more were asked for`,
-        );
-      }
-      throw err;
-    }
+    if (opts.expire !== false) await this.store.expireDue(now);
+    return {
+      inputs: markets.map((marketId) => ({
+        ...rule,
+        kind: 'price' as const,
+        marketId,
+        targetPrice,
+        name,
+        message,
+        expiresAt,
+        extras,
+        frequency,
+        // A watchlist alert follows the person's notification settings: no per-alert channels and no webhook.
+        channels: null,
+        webhookUrl: null,
+      })),
+      maxOpen: this.limits.maxActivePrice,
+    };
   }
 
   /** The burst rule when both owner values are set, else `null`: the rule is off and nothing is stopped for triggering often. */
@@ -893,7 +996,21 @@ export class AlertService {
       const created = await this.fireNotification(alert, outcome.markPrice, at, repeating ? seq : null);
       const reachedInbox = created.notification !== null || created.dispatch !== null;
       if (reachedInbox) {
-        notificationId = created.notification?.id ?? null;
+        // A replay finds the notification already written: its id comes back on the dispatch, so the trigger still names it and
+        // the history shows where it went (merchant-email.ts does the same).
+        notificationId = created.notification?.id ?? created.dispatch?.notificationId ?? null;
+        // The webhook's delivery is written before the alert is counted or marked fired, keyed by the firing, so a retry after a
+        // crash finds it and posts nothing new. The worker posts it (webhook.ts).
+        if (alert.webhookUrl) {
+          await this.delivery.webhooks.enqueue({
+            alertId: alert.id,
+            seq,
+            userId: alert.userId,
+            url: alert.webhookUrl,
+            body: await this.webhookBody(alert, outcome.markPrice, at, seq),
+            at,
+          });
+        }
         // Logged after the inbox has it and before the watch is counted or marked fired: a crash between the two retries and
         // the (alert id, number) key makes the second record a no-op. A blank retention writes no log; the alert fires regardless.
         if (this.limits.triggerLogDays !== null) {
@@ -912,15 +1029,40 @@ export class AlertService {
     return { outcome, notificationId };
   }
 
+  /** What the webhook receives: the alert's own facts and the mark that fired it, nothing more. */
+  private async webhookBody(alert: PriceAlert, markPrice: string, at: Date, seq: number): Promise<Record<string, unknown>> {
+    return {
+      type: 'alert.fired',
+      alertId: alert.id,
+      fireNumber: seq,
+      kind: alert.kind,
+      market: await this.marketLabel(alert.marketId, at),
+      marketId: alert.marketId,
+      condition: alert.condition,
+      targetPrice: alert.targetPrice,
+      markPrice,
+      source: alert.source,
+      firedAt: at.toISOString(),
+      name: alert.name,
+      message: alert.message ? renderAlertMessage(alert.message, alert, markPrice, at) : null,
+    };
+  }
+
   private async fireNotification(alert: PriceAlert, markPrice: string, at: Date, repeatNumber: number | null): Promise<CreateResult> {
     const copy = FIRE_COPY[alert.kind];
+    // A price alert's stock body names the market by its symbol and the time it fired, so an email holds all three facts.
+    const stockBody = alert.kind === 'price' ? 'notify.alert.price.fired.body' : copy.bodyKey;
     return this.notify.create({
       userId: alert.userId,
       kind: copy.kind,
       // The person's own name and message replace the stock copy when they wrote them.
       titleKey: alert.name ? 'notify.alert.price.crossed.named.title' : copy.titleKey,
-      bodyKey: alert.message ? 'notify.alert.price.crossed.message.body' : copy.bodyKey,
+      bodyKey: alert.message ? 'notify.alert.price.crossed.message.body' : stockBody,
+      // The channels the person chose for this alert are the whole out-of-app choice; an older alert follows their settings.
+      ...(alert.channels !== null ? { askedChannels: alert.channels, onlyAsked: true } : {}),
       params: {
+        market: await this.marketLabel(alert.marketId, at),
+        firedAt: `${at.toISOString().slice(0, 19).replace('T', ' ')} UTC`,
         alertId: alert.id,
         alertKind: alert.kind,
         marketId: alert.marketId,
@@ -935,7 +1077,9 @@ export class AlertService {
       href: `/markets/${alert.marketId}`,
       severity: 'action',
       sourceSubject: copy.sourceSubject,
-      sourceIdempotencyKey: repeatNumber === null ? `${alert.id}:${canonicalDecimalString(markPrice)}` : `${alert.id}:n${repeatNumber}`,
+      // A one-shot alert fires once, whatever mark each racing evaluation read: its firing's key is the alert itself, so a sweep
+      // and a "check now" at different marks write one notification and send one email (J-charts-desk-10 #5).
+      sourceIdempotencyKey: repeatNumber === null ? `${alert.id}:once` : `${alert.id}:n${repeatNumber}`,
     });
   }
 

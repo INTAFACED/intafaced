@@ -1,3 +1,4 @@
+import { assertPartnerAnswering, assertPartnerOffers, partnerFeeKnown } from '../partner/test-partner.js';
 import { z } from 'zod';
 import {
   router,
@@ -22,6 +23,7 @@ import {
 import { amountString, gateDestination, heldSendOutput, hideDestinationDetail, stepUpApprovalField } from './shared.js';
 import { heldRefusal, isHeldSend } from '../transfers/send-review.js';
 import { guard } from './errors.js';
+import { assertExtrasAllow } from '../safety/extra-controls.js';
 import type { BankRouterContext } from './context.js';
 
 export function createTransfersRouter(c: BankRouterContext) {
@@ -54,7 +56,8 @@ export function createTransfersRouter(c: BankRouterContext) {
     /**
      * The caller's own transfer history: money sent to or received from another person, and moves between their own
      * accounts. It is the activity feed narrowed to those kinds, so it has the same sources, paging and ownership
-     * rules and no second list of its own. Every line is a posted ledger entry, so every line is `completed`; a failed
+     * rules and no second list of its own. Every line is a posted ledger entry, or for money the partner bank holds a
+     * move the partner reports it made (`heldAt`), so every line is `completed`; a failed
      * or skipped standing-order run is read with `transfers.executions`.
      */
     list: scopedProcedure('bank:read', { module: 'bank' })
@@ -84,6 +87,8 @@ export function createTransfersRouter(c: BankRouterContext) {
               status: z.literal('completed'),
               counterparty: z.object({ handle: z.string() }).nullable(),
               spaceName: z.string().nullable(),
+              /** Set when the partner bank holds this money and the line is its record of the move (OWNER 226). */
+              heldAt: z.object({ label: z.string() }).optional(),
               note: z.string().optional(),
               reference: z.string().optional(),
             }),
@@ -109,6 +114,7 @@ export function createTransfersRouter(c: BankRouterContext) {
               status: 'completed' as const,
               counterparty: item.counterparty,
               spaceName: item.spaceName,
+              ...(item.heldAt ? { heldAt: item.heldAt } : {}),
               ...(item.note ? { note: item.note } : {}),
               ...(item.reference ? { reference: item.reference } : {}),
             })),
@@ -145,9 +151,18 @@ export function createTransfersRouter(c: BankRouterContext) {
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
-      .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
+      .output(
+        z.object({
+          /** The ledger transaction on the custodial layer. Null when the partner bank made the move (OWNER 226). */
+          ledgerTxId: z.string().nullable(),
+          amount: amountString,
+          /** The partner bank's one move under this transfer's key, with its label (TEST) and time. Null on the ledger path. */
+          partnerMove: z.object({ id: z.string(), label: z.string(), movedAt: z.string().datetime() }).nullable(),
+        }),
+      )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'spaces');
           const from = await bank.spaces.get(input.fromSpaceId);
 
           /**
@@ -203,21 +218,30 @@ export function createTransfersRouter(c: BankRouterContext) {
 
           const gate = await gateDestination(bank, ctx.principal.userId, from, input.toSpaceId);
 
-          const result = await bank.transfers
-            .transfer({
-              transferId: input.transferId,
-              fromSpaceId: input.fromSpaceId,
-              toSpaceId: input.toSpaceId,
-              amount: parseAmount(input.amount),
-              note: input.note ?? null,
-              reference: input.reference ?? null,
-            })
-            .catch(async (err: unknown) => {
-              const shown = gate.mayDescribe ? err : hideDestinationDetail(err);
-              // RC-wallet-09: the debit side is the caller's own space (assertSelf above), so these are the caller's own figures.
-              throw await bank.spendFigures.refusal(shown, ctx.principal.userId, from.assetId);
-            });
-          return { ledgerTxId: result.ledgerTxId, amount: result.amount };
+          const move = {
+            transferId: input.transferId,
+            fromSpaceId: input.fromSpaceId,
+            toSpaceId: input.toSpaceId,
+            amount: parseAmount(input.amount),
+            note: input.note ?? null,
+            reference: input.reference ?? null,
+          };
+          // The service decides whose book holds the money (OWNER 226): one partner move and nothing on the ledger when
+          // the partner holds it, otherwise the custodial layer's transfer, exactly as before.
+          const result = await bank.transfers.moveBetweenSpaces(move).catch(async (err: unknown) => {
+            const shown = gate.mayDescribe ? err : hideDestinationDetail(err);
+            // RC-wallet-09: the debit side is the caller's own space (assertSelf above), so these are the caller's own figures.
+            throw await bank.spendFigures.refusal(shown, ctx.principal.userId, from.assetId);
+          });
+          if ('partnerMove' in result) {
+            const move = result.partnerMove;
+            return {
+              ledgerTxId: null,
+              amount: result.amount,
+              partnerMove: { id: move.id, label: move.label, movedAt: move.movedAt.toISOString() },
+            };
+          }
+          return { ledgerTxId: result.ledgerTxId, amount: result.amount, partnerMove: null };
         }),
       ),
 
@@ -239,7 +263,9 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .output(
         z.object({
-          ledgerTxId: z.string(),
+          /** The ledger transaction on the custodial layer; null when the partner bank moved it (OWNER 226). */
+          ledgerTxId: z.string().nullable(),
+          partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
           amount: amountString,
           note: z.string().nullable(),
           reference: z.string().nullable(),
@@ -248,11 +274,21 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           const from = await bank.spaces.get(input.fromSpaceId);
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
           const note = plainNote(input.note) ?? undefined;
           const reference = plainReference(input.reference) ?? undefined;
+          // The person's own extra checks hold a send above their allowance (BK-safe-01), before any step-up is spent.
+          if (c.options.extraControls) {
+            await assertExtrasAllow(c.options.extraControls, {
+              userId: ctx.principal.userId,
+              toUserId: input.toUserId,
+              assetId: from.assetId,
+              amount: parseAmount(input.amount),
+            });
+          }
           if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
             await requireStepUp(
               ctx.principal,
@@ -295,6 +331,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           if (isHeldSend(result)) throw heldRefusal(result);
           return {
             ledgerTxId: result.ledgerTxId,
+            partnerMove: result.partnerMove,
             amount: result.amount,
             note: result.note,
             reference: result.reference,
@@ -317,7 +354,8 @@ export function createTransfersRouter(c: BankRouterContext) {
       .input(z.object({ ledgerTxId: z.string().min(1).max(128) }))
       .output(
         z.object({
-          ledgerTxId: z.string(),
+          ledgerTxId: z.string().nullable(),
+          partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
           transferId: z.string(),
           createdAt: z.string().datetime(),
           fromHandle: z.string().nullable(),
@@ -336,6 +374,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           const row = await bank.personalPay.get(ctx.principal.userId, input.ledgerTxId);
           return {
             ledgerTxId: row.ledgerTxId,
+            partnerMove: row.partnerMove,
             transferId: row.transferId,
             createdAt: row.createdAt,
             fromHandle: row.fromHandle,
@@ -364,14 +403,24 @@ export function createTransfersRouter(c: BankRouterContext) {
           perTransferLimit: amountString,
           dailyLimit: amountString,
           spentToday: amountString,
+          /** What is left of today's limit: the daily limit less what was sent today, never below zero. */
+          remainingToday: amountString,
           fee: amountString,
           feeBlocker: z.string().nullable(),
+          /**
+           * The partner's fee on the move (CUSTODY-DELTA §1.3). Absent: no partner reports one for this send. Null: the
+           * partner moves it and has not said what it costs, read as "not known", never 0.
+           */
+          networkFee: amountString.nullable().optional(),
           withinPerTransfer: z.boolean(),
           withinDaily: z.boolean(),
         }),
       )
       .query(async ({ ctx, input }) =>
-        guard(async () => bank.personalPay.quote(ctx.principal.userId, input.assetId, parseAmount(input.amount))),
+        guard(async () => {
+          const quote = await bank.personalPay.quote(ctx.principal.userId, input.assetId, parseAmount(input.amount));
+          return partnerFeeKnown(bank.testPartner, ctx.principal.userId) ? quote : { ...quote, networkFee: null };
+        }),
       ),
 
     scheduleToUser: scopedProcedure('bank:write', { module: 'bank' })
@@ -390,6 +439,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       .output(z.object({ id: z.string(), nextRunAt: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           const from = await bank.spaces.get(input.fromSpaceId);
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
@@ -444,6 +494,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       .output(z.object({ id: z.string(), nextRunAt: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           const from = await bank.spaces.get(input.fromSpaceId);
           // Same exemption, same reason as `transfers.create` above: the debit
           // side is the side that can lose value, and a standing order to
@@ -585,6 +636,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           // Ownership before the write, as `cancel` does.
           const schedule = await bank.transfers.getSchedule(input.scheduleId);
           assertSelf(ctx.principal.userId, schedule.userId);
@@ -646,6 +698,8 @@ export function createTransfersRouter(c: BankRouterContext) {
             amount: amountString,
             status: z.string(),
             ledgerTxId: z.string().nullable(),
+            /** The partner bank's reference when it made this occurrence's move (OWNER 226). Null on the ledger path. */
+            partnerMoveId: z.string().nullable(),
             rejectionCode: z.string().nullable(),
           }),
         ),
@@ -715,6 +769,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           const schedule = await bank.transfers.getSchedule(input.scheduleId);
           assertSelf(ctx.principal.userId, schedule.userId);
           const report = await bank.transfers.resumeSchedule(input.scheduleId);

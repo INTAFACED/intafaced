@@ -1,5 +1,7 @@
 # ADR: `pay.public-api` — the merchant surface, and what it may not become
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about merchant balances and payout/refund of value held in our ledger applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-07.** Product law for tracker row `pay.public-api` ("Public REST + webhooks + sandbox (§9)").
 **Decision owner:** repo owner. **Class:** M (money path).
 **Reason this exists:** the row was read as "generate OpenAPI from the zod schemas we already have". It is not. There are no REST routes to document — `svc-pay` speaks tRPC to our own edge, and a merchant is not a user with a JWT. This is a product surface, and the parts that need deciding are the parts nobody writes down.

@@ -168,7 +168,7 @@ for (const file of uniqueEnv) {
     // Deliberate reviewed-empty is mechanism, not content.
     if (raw.toLowerCase() === 'none') continue;
     // Placeholder template like ${...} or <counsel> is not content.
-    if (/^\$\{/.test(raw) || /^</.test(raw)) continue;
+    if (raw.startsWith('${') || raw.startsWith('<')) continue;
     // Anything else that looks like region codes is invented content.
     if (/[A-Za-z]{2}/.test(raw)) {
       fail(

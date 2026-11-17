@@ -1,11 +1,19 @@
-# Money screen browser checks (Playwright, mocked API, no services). Runs after merge (push to main) when the customer app,
-# or what it is built from, changes, and on workflow_dispatch, not on pull requests: the free plan's 20 concurrent jobs were
-# the merge bottleneck and this is not a required check (owner decision 2026-10-20). A screen and its browser check
-# drifted apart once and nothing noticed because no job ran this suite.
+# Money screen browser checks (Playwright, mocked API, no services), on each pull request and push to main that touches
+# the customer app or what it is built from; the merge seal waits for them when they run and fails on their red (#8708).
 name: Customer Money browser checks
 
+# Both path lists are ci-jobs-seal.mjs MONEY_PATHS, which the seal reads to know a run is owed (ci-jobs-seal.test.mjs keeps
+# the three equal).
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/customer/**'
+      - 'packages/ui/**'
+      - 'packages/i18n/**'
+      - 'packages/exchange-contract/**'
+      - 'packages/contracts/**'
+      - '.github/workflows/customer-money-browser.yml'
   push:
     branches: [main]
     paths:
@@ -27,13 +35,13 @@ jobs:
   money:
     name: Money browser checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: pnpm
 
       - name: Install
@@ -42,8 +50,37 @@ jobs:
       - name: Build the packages the customer app imports
         run: pnpm exec turbo run build --filter=@intafaced/customer^...
 
+      # From GitHub's cache, without Ubuntu's mirror on a normal run (.github/actions/browser; #7997).
       - name: Install the browser
-        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
 
       - name: Money screen in the harness
         run: pnpm exec playwright test --config apps/customer/src/screens/money/money.playwright.config.mjs
+
+  # A pull request in this repository ends here: it starts merge-seal.yml's seal, or re-runs its verdict, once every input
+  # on the head has finished (journey-seal.mjs --recheck, START_JOB), as CI's, the CI review's and the journeys' last job
+  # does. The default branch's script, never the pull request's code. Fails closed: if it fails, the seal waits.
+  seal-start:
+    name: Start the seal
+    needs: [money]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
+    permissions:
+      contents: read
+      actions: write # start or re-run merge-seal.yml's seal on this head through the Actions API
+      pull-requests: read # the pull requests on the head, their titles and changed files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Start the seal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          FINISHED: Money browser checks
+        run: node tooling/ci/journey-seal.mjs --recheck

@@ -50,7 +50,7 @@ describe('LedgerService.post against a store that is down', () => {
   it('refuses with ledger.writes_blocked_store_unavailable, not an untyped error', async () => {
     // Port 1 on loopback: nothing listens, so the connection is refused before anything could be booked.
     const sql = postgres('postgres://nobody:nobody@127.0.0.1:1/none_test', { max: 1, connect_timeout: 2, onnotice: () => undefined });
-    const service = new LedgerService(sql, new MemoryEventBus());
+    const service = new LedgerService(sql, new MemoryEventBus(), { custodyLayer: 'on' });
     const deposit = recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('1'), rail: 'test', railRef: 'write-block-1' });
     try {
       await expect(service.post(deposit)).rejects.toMatchObject({ code: WRITES_BLOCKED_STORE_UNAVAILABLE });

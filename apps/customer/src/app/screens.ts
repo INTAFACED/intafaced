@@ -21,6 +21,7 @@ const loaders: Record<ScreenId, Loader> = {
   'trade/convert': () => import('../screens/trade/convert'),
   'trade/options': () => import('../screens/trade/options'),
   'trade/execution': () => import('../screens/trade/execution'),
+  'trade/terminal': () => import('../screens/trade/terminal'),
   'trade/otc': () => import('../screens/trade/otc'),
   'trade/futures': () => import('../screens/trade/futures'),
   'trade/margin': () => import('../screens/trade/margin'),

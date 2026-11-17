@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { shortId } from '@/lib/desk/desk-model';
-import { fetchGroups, postSupportAction, type ActionReply } from '@/lib/support/browser';
+import { fetchGroupLog, fetchGroups, postSupportAction, type ActionReply } from '@/lib/support/browser';
 import { GROUP_NAME_MAX, memberGate, saveGate, scopeSentence, type DeskGroupView } from '@/lib/support/groups';
 import type { SupportActionRequest } from '@/lib/support/model';
-import type { SupportGroupsView } from '@/lib/support/types';
+import { GROUP_LOG_WORDS, ROUTING_LEAD_ONLY, ROUTING_MODES, modeGate, modeWords, type RoutingMode } from '@/lib/support/routing';
+import type { SupportGroupLogView, SupportGroupsView } from '@/lib/support/types';
 import { ActionOutcome, ConfirmStep, Failed } from './support-action-parts';
 
 /**
@@ -15,9 +16,12 @@ import { ActionOutcome, ConfirmStep, Failed } from './support-action-parts';
  * A lead makes and renames groups and puts staff in them; everyone on the staff list can read them. The line at the top is
  * svc-support's own account of what the signed-in person sees. A refusal on any read is shown as that part's refusal, never as
  * "no groups". Each change needs a second click, and its key is made once when the change is armed, so a retry cannot repeat it.
+ *
+ * Each group also has a routing mode (who gets its requests): off, in turn, or least loaded, which a lead sets. Picking a
+ * group under "Group log" shows svc-support's log for it, oldest first.
  */
 
-export type GroupStep = 'save' | 'member';
+export type GroupStep = 'save' | 'member' | 'routing';
 
 export interface GroupsForm {
   /** Empty means a new group. */
@@ -26,9 +30,22 @@ export interface GroupsForm {
   readonly memberGroup: string;
   readonly memberUser: string;
   readonly op: 'add' | 'remove';
+  readonly routingGroup: string;
+  readonly routingMode: RoutingMode;
+  /** The group whose log is shown; empty shows none. */
+  readonly logGroup: string;
 }
 
-export const emptyGroupsForm: GroupsForm = { editing: '', name: '', memberGroup: '', memberUser: '', op: 'add' };
+export const emptyGroupsForm: GroupsForm = {
+  editing: '',
+  name: '',
+  memberGroup: '',
+  memberUser: '',
+  op: 'add',
+  routingGroup: '',
+  routingMode: 'round_robin',
+  logGroup: '',
+};
 
 export interface GroupsPanelViewProps {
   readonly view: SupportGroupsView | null;
@@ -37,6 +54,9 @@ export interface GroupsPanelViewProps {
   readonly armed: GroupStep | null;
   readonly busy: boolean;
   readonly outcome: ActionReply | null;
+  /** The picked group's log, or null while none is picked or it is being read. */
+  readonly log: SupportGroupLogView | null;
+  readonly loadingLog: boolean;
   readonly onField: (patch: Partial<GroupsForm>) => void;
   readonly onArm: (step: GroupStep | null) => void;
   readonly onSend: () => void;
@@ -53,6 +73,12 @@ export function GroupsPanelView(p: GroupsPanelViewProps) {
   const unread = !groups || !roster;
   const disabled = p.busy || p.armed !== null;
   const editingName = groups?.find((g) => g.id === p.form.editing)?.name;
+  const routingRows = p.view?.routing.kind === 'ok' ? p.view.routing.data.groups : null;
+  const routingGroup = routingRows?.find((g) => g.groupId === p.form.routingGroup) ?? null;
+  const routing = !routingRows
+    ? ({ ok: false, why: 'Routing could not be read.' } as const)
+    : modeGate(me, routingGroup, p.form.routingMode, p.busy);
+  const logRows = p.log && p.log.groupId === p.form.logGroup ? p.log.log : null;
   return (
     <section className="dk-stack" aria-label="Desk groups" data-testid="groups-panel">
       <h3>Desk groups</h3>
@@ -67,6 +93,7 @@ export function GroupsPanelView(p: GroupsPanelViewProps) {
               {scopeSentence(p.view.scope.data)}
             </p>
           )}
+          {p.view.routing.kind === 'failed' && <Failed name="Routing" part={p.view.routing} />}
           {p.view.groups.kind === 'failed' ? (
             <Failed name="Groups" part={p.view.groups} />
           ) : groups && groups.length === 0 ? (
@@ -82,17 +109,25 @@ export function GroupsPanelView(p: GroupsPanelViewProps) {
                     <tr>
                       <th>Group</th>
                       <th>Members</th>
+                      <th>Routing</th>
                       <th>Made</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {groups.map((g: DeskGroupView) => (
-                      <tr key={g.id} data-testid={`group-${g.id}`}>
-                        <td>{g.name}</td>
-                        <td className="dk-packet">{g.memberIds.length === 0 ? 'None' : g.memberIds.map(shortId).join(', ')}</td>
-                        <td>{formatWhen(g.createdAt)}</td>
-                      </tr>
-                    ))}
+                    {groups.map((g: DeskGroupView) => {
+                      const r = routingRows?.find((x) => x.groupId === g.id) ?? null;
+                      return (
+                        <tr key={g.id} data-testid={`group-${g.id}`}>
+                          <td>{g.name}</td>
+                          <td className="dk-packet">{g.memberIds.length === 0 ? 'None' : g.memberIds.map(shortId).join(', ')}</td>
+                          <td data-testid={`group-routing-${g.id}`}>
+                            {!routingRows ? 'Not read' : modeWords(r?.mode ?? null)}
+                            {r?.cursorUserId ? <span className="dk-muted"> · Last assigned to {r.cursorUserId}</span> : null}
+                          </td>
+                          <td>{formatWhen(g.createdAt)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -245,7 +280,133 @@ export function GroupsPanelView(p: GroupsPanelViewProps) {
           )}
         </div>
       )}
+
+      <h4>Routing: who gets a group’s requests</h4>
+      <p className="dk-muted">
+        In turn gives each new request to the next person in the group; least loaded gives it to whoever holds the fewest. Only people who
+        are online, have a capacity set and room under it are given requests. Off, or not set, leaves requests for people to claim.
+      </p>
+      {me && me.role !== 'lead' && (
+        <p className="dk-muted" data-testid="groups-routing-not-lead">
+          {ROUTING_LEAD_ONLY}
+        </p>
+      )}
+      <div className="dk-row">
+        <div className="adm-field">
+          <label htmlFor="sd-group-routing-group">Group</label>
+          <select
+            id="sd-group-routing-group"
+            className="adm-input"
+            value={p.form.routingGroup}
+            disabled={disabled || !routingRows}
+            onChange={(e) => p.onField({ routingGroup: e.target.value })}
+          >
+            <option value="">Pick a group</option>
+            {(routingRows ?? []).map((g) => (
+              <option key={g.groupId} value={g.groupId}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="adm-field">
+          <label htmlFor="sd-group-routing-mode">Routing</label>
+          <select
+            id="sd-group-routing-mode"
+            className="adm-input"
+            value={p.form.routingMode}
+            disabled={disabled || !routingRows}
+            onChange={(e) => p.onField({ routingMode: e.target.value as RoutingMode })}
+          >
+            {ROUTING_MODES.map((m) => (
+              <option key={m} value={m}>
+                {modeWords(m)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {p.armed === 'routing' ? (
+        <ConfirmStep
+          title={`Set ${routingGroup?.name ?? 'the group'}’s routing to ${modeWords(p.form.routingMode)}?`}
+          consequence={
+            p.form.routingMode === 'off'
+              ? 'New requests in this group are left for people to claim. It is logged with your name.'
+              : 'svc-support starts giving this group’s waiting requests to its people straight away. It is logged with your name.'
+          }
+          confirmLabel="Yes, set routing"
+          busy={p.busy}
+          onConfirm={p.onSend}
+          onCancel={() => p.onArm(null)}
+        />
+      ) : (
+        <div className="dk-row">
+          <button
+            type="button"
+            className="adm-btn"
+            data-tone="primary"
+            disabled={!routing.ok || disabled}
+            onClick={() => p.onArm('routing')}
+          >
+            Review routing
+          </button>
+          {!routing.ok && <span className="dk-why">{routing.why}</span>}
+        </div>
+      )}
       <ActionOutcome reply={p.outcome} testId="groups-outcome" />
+
+      <h4>Group log</h4>
+      <div className="dk-row">
+        <div className="adm-field">
+          <label htmlFor="sd-group-log-pick">Group</label>
+          <select
+            id="sd-group-log-pick"
+            className="adm-input"
+            value={p.form.logGroup}
+            disabled={!groups}
+            onChange={(e) => p.onField({ logGroup: e.target.value })}
+          >
+            <option value="">Pick a group</option>
+            {(groups ?? []).map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {p.form.logGroup === '' ? null : !logRows ? (
+        <p className="dk-muted">{p.loadingLog ? 'Reading…' : 'svc-support could not be read. Nothing is shown rather than a guess.'}</p>
+      ) : logRows.kind === 'failed' ? (
+        <Failed name="Group log" part={logRows} />
+      ) : logRows.data.length === 0 ? (
+        <p className="dk-muted" data-testid="groups-log-none">
+          svc-support has nothing logged for this group.
+        </p>
+      ) : (
+        <div className="dk-table-wrap" role="region" aria-label="Group log" tabIndex={0}>
+          <table className="adm-table" data-testid="groups-log">
+            <thead>
+              <tr>
+                <th>What</th>
+                <th>Subject</th>
+                <th>By</th>
+                <th>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logRows.data.map((row, i) => (
+                <tr key={`${row.at}:${i}`}>
+                  <td>{GROUP_LOG_WORDS[row.action]}</td>
+                  <td className="dk-packet">{row.subject ?? '—'}</td>
+                  <td className="dk-packet">{row.by}</td>
+                  <td>{formatWhen(row.at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="dk-row">
         <button type="button" className="adm-btn" onClick={p.onRefresh} disabled={p.loading || p.busy}>
           {p.loading ? 'Reading…' : 'Refresh groups'}
@@ -263,9 +424,27 @@ export function GroupsPanel({ initial }: { initial: SupportGroupsView | null }) 
   const [armed, setArmed] = useState<GroupStep | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<ActionReply | null>(null);
+  const [log, setLog] = useState<SupportGroupLogView | null>(null);
+  const [loadingLog, setLoadingLog] = useState(false);
+  const [logTick, setLogTick] = useState(0);
   const lock = useRef(false);
   const key = useRef('');
   const seq = useRef(0);
+
+  useEffect(() => {
+    if (!form.logGroup) {
+      setLog(null);
+      return;
+    }
+    const controller = new AbortController();
+    setLoadingLog(true);
+    void fetchGroupLog(form.logGroup, controller.signal).then((next) => {
+      if (controller.signal.aborted) return;
+      setLog(next);
+      setLoadingLog(false);
+    });
+    return () => controller.abort();
+  }, [form.logGroup, logTick]);
 
   const load = useCallback(async () => {
     const mine = ++seq.current;
@@ -292,6 +471,11 @@ export function GroupsPanel({ initial }: { initial: SupportGroupsView | null }) 
         idempotencyKey: key.current,
         ...(form.editing ? { groupId: form.editing } : {}),
       };
+    } else if (armed === 'routing') {
+      const rows = view.routing.kind === 'ok' ? view.routing.data.groups : null;
+      const group = rows?.find((g) => g.groupId === form.routingGroup) ?? null;
+      if (!modeGate(me, group, form.routingMode, false).ok) return;
+      request = { action: 'routing_mode', groupId: form.routingGroup, mode: form.routingMode };
     } else {
       const group = groups.find((g) => g.id === form.memberGroup) ?? null;
       if (!memberGate(me, group, form.memberUser, form.op, roster, false).ok) return;
@@ -306,6 +490,7 @@ export function GroupsPanel({ initial }: { initial: SupportGroupsView | null }) 
       if (reply.ok && armed === 'save') setForm((f) => ({ ...f, editing: '', name: '' }));
       // Whatever the answer, read again: after "outcome not known" the page must show what is true.
       await load();
+      setLogTick((n) => n + 1);
     } finally {
       lock.current = false;
       setBusy(false);
@@ -320,6 +505,8 @@ export function GroupsPanel({ initial }: { initial: SupportGroupsView | null }) 
       armed={armed}
       busy={busy}
       outcome={outcome}
+      log={log}
+      loadingLog={loadingLog}
       onField={(patch) => setForm((f) => ({ ...f, ...patch }))}
       onArm={(step) => {
         if (busy) return;

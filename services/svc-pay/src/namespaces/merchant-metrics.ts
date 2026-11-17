@@ -6,6 +6,9 @@ import {
   merchantMetricsSeriesSchema,
   merchantSettlementAssetsInputSchema,
   merchantSettlementAssetsSchema,
+  merchantPartnerTermsInputSchema,
+  merchantPartnerTermsSchema,
+  type MerchantPartnerTerms,
 } from '@intafaced/contracts';
 import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
 import { toPayfacTrpcError } from './metrics-errors.js';
@@ -20,7 +23,11 @@ import { ownMerchantRead } from '../own-merchant-read.js';
  * `settlement` areas. An id that does not exist and an id the caller may not see are the same
  * answer (M1). Without a runtime the procedures refuse `pay.not_built`, as they did in W0.
  */
-export function createMerchantMetricsRouter(metrics?: MetricsRuntime) {
+export function createMerchantMetricsRouter(
+  metrics?: MetricsRuntime,
+  /** The acquiring partner's terms for one business (`partner-terms.ts`). Absent: `partnerTerms` refuses `pay.not_built`. */
+  partnerTerms?: (merchantId: string) => MerchantPartnerTerms,
+) {
   const read = ownMerchantRead();
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -64,6 +71,21 @@ export function createMerchantMetricsRouter(metrics?: MetricsRuntime) {
                 return metrics.reader.merchantSettlementAssets(input.merchantId);
               })
             : notBuilt('merchantMetrics.settlementAssets'),
+        ),
+      /**
+       * The acquiring partner's terms for this business: reserve rule, who covers a chargeback shortfall, the currencies
+       * it offers and its instant payout. A term the partner has not given is `{ known: false }`, never a zero.
+       */
+      partnerTerms: read
+        .input(merchantPartnerTermsInputSchema)
+        .output(merchantPartnerTermsSchema)
+        .query(({ ctx, input }) =>
+          metrics && partnerTerms
+            ? wrap(async () => {
+                await metrics.authority.assertCanRead(ctx.principal?.userId, input.merchantId);
+                return partnerTerms(input.merchantId);
+              })
+            : notBuilt('merchantMetrics.partnerTerms'),
         ),
     }),
   });

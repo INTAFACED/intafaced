@@ -3,6 +3,7 @@ import type { MarketData, TickerRow } from './deps';
 import {
   anyListed,
   entriesFor,
+  isAnnounced,
   isPaused,
   marketTarget,
   matchesQuery,
@@ -245,5 +246,18 @@ describe('spread', () => {
       expect(spreadRatio(t)).toBeNull();
       expect(spreadText(t)).toBe('—');
     }
+  });
+});
+
+describe('upcoming and delisting listings (J-cex-spot-14 #1)', () => {
+  it('names only an upcoming or a delisting listing as announced; open, halted and plain delisted rows are not', () => {
+    expect(isAnnounced(market('NEW', 'USDT', { orderable: false, listing: 'upcoming' }))).toBe(true);
+    expect(isAnnounced(market('OLD', 'USDT', { orderable: false, listing: 'delisting', delistsAt: '2026-11-16T00:00:00.000Z' }))).toBe(
+      true,
+    );
+    expect(isAnnounced(market('BTC'))).toBe(false);
+    expect(isAnnounced(market('BTC', 'USDT', { listing: 'open' }))).toBe(false);
+    expect(isAnnounced(market('HLT', 'USDT', { orderable: false, listing: 'halted' }))).toBe(false);
+    expect(isAnnounced(market('GONE', 'USDT', { orderable: false, listing: 'delisted' }))).toBe(false);
   });
 });

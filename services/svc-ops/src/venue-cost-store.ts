@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { OPS_COST_CATEGORIES, type OpsCostCategory, type OpsCostEntry } from '@intafaced/contracts';
@@ -115,7 +116,7 @@ const toEntry = (row: EntryRow): OpsCostEntry => ({
 
 /** Entries live in `ops.venue_cost_entries`: append-only, one row per idempotency key and per (period, category, version). */
 export function createPgVenueCostStore(sql: Sql): VenueCostStore {
-  const byKey = async (q: Sql, key: string, fingerprint: string): Promise<OpsCostEntry | null> => {
+  const byKey = async (q: Queryable, key: string, fingerprint: string): Promise<OpsCostEntry | null> => {
     const [row] = await q<
       EntryRow[]
     >`SELECT period,category,version,amount::text AS amount,asset,source_note,entered_by,approver_id,entered_at,fingerprint FROM ops.venue_cost_entries WHERE idempotency_key=${key}`;
@@ -129,7 +130,7 @@ export function createPgVenueCostStore(sql: Sql): VenueCostStore {
       return sql.begin(async (tx) => {
         // One writer per (period, category) at a time, so versions count up without gaps.
         await tx`SELECT pg_advisory_xact_lock(hashtext(${`ops.venue_cost:${fields.period}:${fields.category}`}))`;
-        const prior = await byKey(tx as unknown as Sql, key, fingerprint);
+        const prior = await byKey(tx, key, fingerprint);
         if (prior) return prior;
         const [latest] = await tx<{ id: string; version: number }[]>`SELECT id, version FROM ops.venue_cost_entries
           WHERE period=${fields.period} AND category=${fields.category} ORDER BY version DESC LIMIT 1`;

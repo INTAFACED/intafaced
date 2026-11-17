@@ -10,8 +10,6 @@ import {
   SUPPORT_FRAUD_ROUTE_UNSET,
   supportTicketCategorySchema,
   type SupportCategories,
-  SUPPORT_KB_STORED_BODY_KEY,
-  SUPPORT_KB_STORED_TITLE_KEY,
   supportKbBodyProblem,
   supportKbTitleProblem,
   SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
@@ -35,12 +33,10 @@ import {
   type SupportMergePreview,
   type SupportMergeResult,
   type SupportAttachmentStatus,
-  type SupportTicketPriority,
   type SupportAwaitingMine,
   type SupportTicketLifecycle,
   type SupportTicketProperties,
   type SupportTicketPropertyChange,
-  type SupportTicketType,
   supportMacroUnfilled,
 } from '@intafaced/contracts';
 import type {
@@ -63,6 +59,7 @@ import type {
 } from '@intafaced/contracts';
 import { DarkAccountState, type AccountStateSource } from './account-state.js';
 import {
+  type AvailabilityLogEntry,
   MemoryStaffBook,
   STAFF_AVAILABILITIES,
   type StaffAvailability,
@@ -86,7 +83,6 @@ import {
   assertKbTopic,
   getKb,
   KbCatalogError,
-  kbVersionOf,
   namesVendor,
   relatedPublished,
   searchKb,
@@ -120,7 +116,6 @@ import {
 import { SUPPORT_SETTLE_REFUSE, checkSupportSettlement, type SupportForbiddenSettlementAct } from './settlement-refuse.js';
 import {
   FEEDBACK_COMMENT_MAX,
-  READER_ACTOR_PREFIX,
   SEARCH_QUERY_CONTRACT_MAX,
   SUPPORT_ASSISTANT_MODEL_UNSET,
   SUPPORT_FEEDBACK_RATE_EXCEEDED,
@@ -150,7 +145,7 @@ import {
 import { MemoryLifecycleBook, type LifecycleBook } from './ticket-lifecycle.js';
 import { MemoryRatingRequestBook, RatingRequestOutbox } from './rating-request.js';
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
-import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
+import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook, type GroupLogEntry } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
 import { findCommentSecret, SUPPORT_COMMENT_SECRET_REFUSED } from './comment-secrets.js';
 
@@ -176,7 +171,7 @@ export const SUPPORT_COMMENT_CAP_KEY = 'support.comment_cap';
  * Text a person writes onto a request (its subject and body, a reply, a staff note, a status note, an escalation summary)
  * that holds a card number or a recovery phrase is refused before anything is stored.
  */
-function refuseCommentSecret(body: string): void {
+export function refuseCommentSecret(body: string): void {
   const found = findCommentSecret(body);
   if (found) throw new SupportError(`the comment holds a ${found.replace('_', ' ')}`, SUPPORT_COMMENT_SECRET_REFUSED);
 }
@@ -1028,6 +1023,11 @@ export class SupportService implements SupportContract {
 
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       const result = await this.orders.read(input.orderId);
+      // No such order, and an order whose fees are in more than one asset (no one fee figure), read as unknown: nothing cancelled.
+      if (result.kind === 'missing' || result.kind === 'fee_mixed') {
+        span.setAttribute('intafaced.support.order_read', 'unknown');
+        return { outcome: 'unknown', orderId: input.orderId, reason: 'trade_silent', cancelled: false };
+      }
       if (result.kind === 'unknown') {
         span.setAttribute('intafaced.support.order_read', 'unknown');
         return { outcome: 'unknown', orderId: input.orderId, reason: result.reason, cancelled: false };
@@ -1218,7 +1218,7 @@ export class SupportService implements SupportContract {
   }
 
   /**
-   * Operator change of who may read an article. Stale `baseRevision` refuses `support.kb.revision_stale`;
+   * Operator change of who may read an article. Stale `baseRevision` refuses `support.kb_revision_stale`;
    * an unknown article is `support.kb_invalid`. The same audience again changes nothing and writes no audit row.
    */
   async setKbAudience(input: {
@@ -1238,7 +1238,7 @@ export class SupportService implements SupportContract {
         actorId: input.operatorId,
       });
       if (result.status === 'refuse') {
-        if (result.reason === 'revision_stale') throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        if (result.reason === 'revision_stale') throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
         throw new SupportError('KB article refused', 'support.kb_invalid');
       }
       return toPublicKb(result.article);
@@ -1284,7 +1284,7 @@ export class SupportService implements SupportContract {
     });
     if (result.status === 'refuse') {
       if (result.reason === 'revision_stale') {
-        throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
       }
       if (result.reason === 'section_unknown') throw new SupportError('KB section is not open', 'support.kb_section_unknown');
       throw new SupportError('KB article refused', result.reason === 'vendor' ? 'support.kb_vendor_name' : 'support.kb_invalid');
@@ -1333,11 +1333,18 @@ export class SupportService implements SupportContract {
     });
     if (result.status === 'refuse') {
       if (result.reason === 'revision_stale') {
-        throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
       }
       throw new SupportError('KB article refused', 'support.kb_invalid');
     }
     return toPublicKb(result.article);
+  }
+
+  /** The requests linked to a `recovery_required` order (J-support-public-20 #1); none until links are wired. */
+  private recoveryLinks: () => Promise<ReadonlySet<string>> = async () => new Set();
+  /** Wires the queue to the ticket links, so a request with a recovery-required order ranks first. */
+  useRecoveryLinks(read: () => Promise<ReadonlySet<string>>): void {
+    this.recoveryLinks = read;
   }
 
   /** Stage-2 — prioritised open/pending queue for operators. No money. */
@@ -1352,7 +1359,8 @@ export class SupportService implements SupportContract {
         const carrying = await this.properties.ticketsWithLabel(options.label);
         tickets = tickets.filter((t) => carrying.has(t.id));
       }
-      if (!this.deskQueryAsked(options)) return buildOperatorQueue(tickets, { limit });
+      const recovery = await this.recoveryLinks();
+      if (!this.deskQueryAsked(options)) return buildOperatorQueue(tickets, { limit, now: this.now(), recovery });
       const facts = await this.narrow(await this.deskFacts(options.viewerId), { ...options, label: undefined });
       const allowed = new Set(tickets.map((ticket) => ticket.id));
       const visible = facts.filter((fact) => allowed.has(fact.ticket.id));
@@ -1362,6 +1370,7 @@ export class SupportService implements SupportContract {
         const ranked = rankOperatorQueue(
           visible.map((fact) => fact.ticket),
           this.now(),
+          recovery,
         );
         const byId = new Map(visible.map((fact) => [fact.ticket.id, fact]));
         const ordered = orderFacts(
@@ -1376,7 +1385,7 @@ export class SupportService implements SupportContract {
       }
       return buildOperatorQueue(
         visible.map((fact) => fact.ticket),
-        { limit, now: this.now() },
+        { limit, now: this.now(), recovery },
       );
     });
   }
@@ -1385,7 +1394,7 @@ export class SupportService implements SupportContract {
   async peekNext(viewerId?: string): Promise<QueueEntry | null> {
     return withSupportSpan('support.peekNext', { op: 'peekNext' }, async () => {
       const tickets = await this.visibleTickets(viewerId, await this.store.listAll());
-      return assignNext(tickets);
+      return assignNext(tickets, { recovery: await this.recoveryLinks() });
     });
   }
 
@@ -1421,9 +1430,10 @@ export class SupportService implements SupportContract {
   async claimNext(operatorId: string): Promise<SupportTicket> {
     return withSupportSpan('support.claimNext', { op: 'claimNext' }, async (span) => {
       const skipped = new Set<string>();
+      const recovery = await this.recoveryLinks();
       for (;;) {
         const tickets = await this.visibleTickets(operatorId, await this.store.listAll());
-        const next = assignNext(tickets, { now: this.now(), excludeTicketIds: skipped });
+        const next = assignNext(tickets, { now: this.now(), excludeTicketIds: skipped, recovery });
         if (next === null) throw new SupportError('the queue has no request to claim', 'support.claim.queue_empty');
         const result = await this.store.claimTicket({ ticketId: next.ticketId, operatorId });
         if (result.status === 'ok') {
@@ -1817,6 +1827,42 @@ export class SupportService implements SupportContract {
     });
     if (!stored) throw new SupportError('that person is not on the desk staff', 'support.not_staff');
     return this.withEffectiveAvailability(stored);
+  }
+
+  /** The availability log, oldest first: who changed whose availability, when and why. Staff only. */
+  async staffAvailabilityHistory(input: { actorId: string; userId?: string }): Promise<AvailabilityLogEntry[]> {
+    if (!(await this.staff.get(input.actorId))) throw new SupportError('only staff can read the availability log', 'support.not_staff');
+    return this.staff.availabilityHistory(input.userId);
+  }
+
+  /**
+   * One group's log, oldest first: every change to it, its members and its requests, with who made it. Staff only. A row
+   * that names a request (grouped or ungrouped) is left out unless the caller can see that request on the desk, so the log
+   * never names a request outside the caller's groups (the same scope as `get`).
+   */
+  async groupHistory(input: { actorId: string; groupId: string }): Promise<GroupLogEntry[]> {
+    if (!(await this.staff.get(input.actorId))) throw new SupportError('only staff can read a group log', 'support.not_staff');
+    if (!(await this.groups.get(input.groupId))) throw new SupportError('that group does not exist', 'support.group_unknown');
+    const out: GroupLogEntry[] = [];
+    for (const row of await this.groups.history(input.groupId)) {
+      if ((row.action === 'ticket_grouped' || row.action === 'ticket_ungrouped') && row.subject !== null) {
+        if (!(await this.deskSees(input.actorId, row.subject))) continue;
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  /** Whether a desk member can see one request (the desk's group scope). Any other failure is thrown, never read as hidden. */
+  async deskSees(viewerId: string, ticketId: string): Promise<boolean> {
+    const hidden = new Error('hidden');
+    try {
+      await this.assertDeskVisible(viewerId, ticketId, () => hidden);
+      return true;
+    } catch (err) {
+      if (err === hidden) return false;
+      throw err;
+    }
   }
 
   /** Own heartbeat. Refuses while the owner has not set the window. */

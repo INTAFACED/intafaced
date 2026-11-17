@@ -4,7 +4,10 @@ export default ({ c, urlOf, PORTS, P, localOperatorIds, PLACEHOLDER_OPERATOR_IDS
   name: 'matching',
   env: () => ({
     ...c('svc-matching', PORTS.matching),
-    MATCHING_ENGINE_ENABLED: 'true',
+    // Our own engine follows the custody switch (OWNER 288): unset, it runs only with LEDGER_CUSTODY_LAYER on, and on with
+    // custody off refuses boot. The same value as svc-ledger's (ledger.mjs), so this stack's book runs exactly when its
+    // ledger can settle the book's fills.
+    LEDGER_CUSTODY_LAYER: 'on',
     MATCHING_SNAPSHOT_EVERY: '0', // required, owner-unpublished; 0 = snapshotting off (no magnitude invented)
     MATCHING_JOURNAL_PATH: path.join(P.data, 'matching', 'engine_journal.ndjson'),
     // Opening a market needs a two-person approval that matching consumes from identity

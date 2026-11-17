@@ -5,7 +5,7 @@
 **Status:** law for the local and staging run path.  
 **Board:** D26-P2-04 — running fleet = tip images.  
 **Leverage:** existing `Dockerfile` + `docker-compose.apps.yml` (staging ADR: consume the unit; do not invent a second image strategy).  
-**Proof:** `pnpm fleet:tip-images` (`tooling/scripts/fleet-tip-image.mjs`). Also ratcheted from `workspace-sync` so `pnpm verify` / CI gates see drift.
+**Proof:** `pnpm fleet:tip-images` (`tooling/scripts/fleet-tip-image.mjs`).
 
 ---
 
@@ -46,7 +46,7 @@ If that tag is **absent locally**, `compose up` will fetch Hub. The log looks li
 
 **Local mitigation:** `pnpm platform:up` always `--build`, so the name is created from this Dockerfile before compose needs it.
 
-**Staging mitigation** (already in `.github/workflows/staging-deploy.yml`, threat model §6):
+**Staging mitigation** (was in `.github/workflows/staging-deploy.yml`, removed 15 Nov 2026, restore from commit `9ef9844c1d`; threat model §6):
 
 1. `docker pull ghcr.io/<repo>/app@sha256:…`
 2. `docker tag` → `intafaced/app:dev` (name never missing → compose never searches Hub)
@@ -81,7 +81,7 @@ Do **not**:
 - add a second monorepo runtime Dockerfile / compose stack for “the real fleet”
 - bring `01_wallet_rpc` into this compose file
 
-Workspace packages stay in the image via Dockerfile COPY + `tooling/ci/workspace-sync.mjs`. If you add a service and skip compose or COPY, that gate already fails — this mountain does not replace it.
+Workspace packages stay in the image via Dockerfile COPY. If you add a service and skip compose or COPY, the image build or the journeys stack fails on main after the merge; this mountain does not replace that.
 
 ---
 

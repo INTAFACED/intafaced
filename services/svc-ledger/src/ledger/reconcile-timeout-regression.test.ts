@@ -34,7 +34,7 @@ afterAll(async () => {
 });
 
 it('a real scheduled PostgreSQL statement timeout must not durably freeze posting and a later tick retries successfully', async () => {
-  const ledger = new LedgerService(pool, new MemoryEventBus('timeout-regression'));
+  const ledger = new LedgerService(pool, new MemoryEventBus('timeout-regression'), { custodyLayer: 'on' });
   await ledger.post(
     recipes.deposit({
       userId: '55555555-5555-4555-8555-555555555555',
@@ -48,7 +48,7 @@ it('a real scheduled PostgreSQL statement timeout must not durably freeze postin
   const logs: Array<{ errorCode?: string }> = [];
   // This call shape also drives the original scheduled runner: that runner's
   // 1s pool limit cancels the real blocked SQL before it could use arg three.
-  const run = runScheduledReconciliation as unknown as (
+  const run = runScheduledReconciliation as (
     sql: Sql,
     ledger: LedgerService,
     options: { statementTimeoutMs: number },

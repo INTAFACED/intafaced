@@ -15,17 +15,25 @@ const data = (res, what) => {
 /**
  * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any,
  * the asset, network and phase as stored (an update keeps its incident's pair) when it has any, the category when it names
- * one and the audience when it is not everyone. A fee change adds the time it takes effect. No changelog or reminder
- * fields (nothing here drafts those).
+ * one and the audience when it is not everyone, a changelog entry's fields and the other-language text when it has any.
+ * A fee change adds the time it takes effect. No reminder fields (nothing here drafts those). The keys go in
+ * svc-notify's order (notices/board.ts payloadHash).
  */
 export function noticePayloadHash(row) {
   const status = row.statusFields;
   const withStatus = status && (status.impact || status.components.length > 0 || status.parentId || status.resolves) ? { status } : {};
   const [asset, network, phase] = [row.asset ?? null, row.network ?? null, row.phase ?? null];
   const withScope = asset !== null || phase !== null ? { scope: { asset, network, phase } } : {};
+  // A changelog entry's fields, as svc-notify stored and answered them on the draft.
+  const withChangelog = row.changelog ? { changelog: row.changelog } : {};
   const withCategory = row.category ? { category: row.category } : {};
   const withAudience = row.audience && row.audience !== 'everyone' ? { audience: row.audience } : {};
   const withEffective = row.kind === 'fee_change' ? { effectiveAt: row.startsAt ?? null } : {};
+  // The other-language text, in language order, as svc-notify's translationsForHash writes it (J-cex-spot-15 #2).
+  const translations = Object.entries(row.translations ?? {})
+    .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))
+    .map(([language, text]) => [language, { title: text.title, body: text.body }]);
+  const withTranslations = translations.length ? { translations } : {};
   return `sha256:${createHash('sha256')
     .update(
       JSON.stringify({
@@ -36,8 +44,10 @@ export function noticePayloadHash(row) {
         version: row.version,
         ...withStatus,
         ...withScope,
+        ...withChangelog,
         ...withCategory,
         ...withAudience,
+        ...withTranslations,
         ...withEffective,
       }),
     )

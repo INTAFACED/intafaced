@@ -365,7 +365,7 @@ describe('checkout routes', () => {
       resolvePaymentLink: async () => stubLink,
       ...noSessions,
       ...pay,
-    } as unknown as CheckoutPay);
+    } as CheckoutPay);
     await app.ready();
     return app;
   }
@@ -804,7 +804,7 @@ describe('checkout routes', () => {
         resolvePaymentLink: async () => stubLink,
         ...noSessions,
         openCheckoutSession: async () => ({ sessionToken: 'cs_session_token_here', session: stubSession }),
-      } as unknown as CheckoutPay,
+      } as CheckoutPay,
       { basePath: '/api/pay' },
     );
     await app.ready();
@@ -839,7 +839,7 @@ describe('checkout routes', () => {
     await registerCheckoutRoutes(app, {
       resolvePaymentLink: async () => stubLink,
       ...noSessions,
-    } as unknown as CheckoutPay);
+    } as CheckoutPay);
     // Registering a body parser globally to serve one route is how an unrelated
     // route starts reporting malformed input. The parser lives in its own scope.
     app.post('/elsewhere', async (request) => request.body);

@@ -60,7 +60,7 @@ const ASSET = 'USDT';
 
 const publishedLaw = {
   published: true as const,
-  tiers: [{ hop: 0, rate: '0.10' }],
+  tiers: [{ hop: 0, rate: '0.130' }],
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -84,6 +84,11 @@ type Book = {
  */
 class MemorySubAccountAuth {
   readonly books = new Map<string, Book>();
+
+  /** Every account is active here: the affiliate payout's account check (#4689) is tested in producer-payout.test.ts. */
+  async accountState(userId: string) {
+    return { userId, status: 'active' as const, kycTier: 'basic' as const, archived: false };
+  }
 
   async createSubAccount(userId: string, label: string, purpose?: string): Promise<{ id: string }> {
     const id = randomUUID();
@@ -205,9 +210,9 @@ function accrualRow(): CommissionRow {
     beneficiaryId: BENE,
     payerId: PAYER,
     hop: 0,
-    rate: '0.10',
+    rate: '0.130',
     feeAmount: '100',
-    commissionAmount: '10',
+    commissionAmount: '13',
     asset: ASSET,
     accruedAt: new Date('2026-08-12T00:00:00.000Z'),
     sourceModule: 'identity',
@@ -268,6 +273,7 @@ type MoneyMountOpts = {
   accrualTierLaw?: typeof publishedLaw | undefined;
   ledger?: MemoryLedger;
   freeze?: FreezeService;
+  programmeDepth?: number | undefined;
 };
 
 /** A wired freeze service that reports nobody frozen (the set is KNOWN-empty). */
@@ -279,6 +285,8 @@ async function mountDoors(auth: MemorySubAccountAuth, money: MoneyMountOpts = {}
     actionApprovals: stubActionApprovals(),
     // The revoke door reads the money services first; these doors test ownership, so the read answers "empty".
     subAccountDelete: { assertEmpty: async () => undefined } as unknown as SubAccountDeleteService,
+    // TEST programme depth (RC-campaigns-07): blank refuses every accrual and payout before the rate law.
+    programmeDepth: 5,
     ...money,
   });
   const app = Fastify({ logger: false });
@@ -631,6 +639,28 @@ describe('D26-P2-12 spine reprove — affiliates.payout money routing over wire'
     }
   });
 
+  it('a blank programme depth wins over the rate law and a missing feeEventId on the wire, and moves nothing', async () => {
+    const blankDepth = await mountDoors(books, {
+      accruals: store,
+      accrualTierLaw: publishedLaw,
+      ledger,
+      freeze: noOneFrozen,
+      programmeDepth: undefined,
+    });
+    try {
+      const before = ledger.journal().length;
+      for (const input of [{}, { feeEventId: FEE_EVT }, { feeEventId: FEE_EVT, dryRun: true }]) {
+        const { statusCode, body } = await post(blankDepth, 'affiliates.payout', input, adminHeaders());
+        expect(statusCode).toBe(412);
+        expect((body.error?.data as { cause?: { code?: string } } | undefined)?.cause?.code).toBe('affiliate.programme_depth_unset');
+        expect(body.error?.message).not.toContain('feeEventId is required');
+      }
+      expect(ledger.journal().length).toBe(before);
+    } finally {
+      await blankDepth.close();
+    }
+  });
+
   it('rate refusal wins over a missing feeEventId on the wire', async () => {
     const unwired = await mountDoors(books, { accruals: store });
     try {
@@ -680,7 +710,7 @@ describe('D26-P2-12 spine reprove — affiliates.payout money routing over wire'
     expect(statusCode).toBe(200);
     const data = unwrapData(body) as Record<string, unknown>;
     expect(data.posted).toBe(false);
-    expect(data.totalCommission).toBe('10');
+    expect(data.totalCommission).toBe('13');
     assertNoInventedBalance(data);
     expect(await bal(ledger, userAvailable(BENE, ASSET))).toBe('0');
     expect(await bal(ledger, houseFees('identity', ASSET))).toBe('100');
@@ -716,8 +746,8 @@ describe('D26-P2-12 spine reprove — affiliates.payout money routing over wire'
     expect(firstData.posted).toBe(true);
     expect(secondData.idempotencyKeys).toEqual(firstData.idempotencyKeys);
     assertNoInventedBalance(firstData);
-    expect(await bal(ledger, userAvailable(BENE, ASSET))).toBe('10');
-    expect(await bal(ledger, houseFees('identity', ASSET))).toBe('90');
+    expect(await bal(ledger, userAvailable(BENE, ASSET))).toBe('13');
+    expect(await bal(ledger, houseFees('identity', ASSET))).toBe('87');
     expect(await bal(ledger, rewardsEngine(ASSET))).toBe('0');
   });
 });

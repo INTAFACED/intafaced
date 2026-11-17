@@ -7,6 +7,7 @@ import { decimalSchema } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { Button, EmptyState, Panel } from '../../shared/ui';
+import { SessionRetryPanel, SignInPanel } from '../../app/SignInPanel';
 import { Details, Limit, Read, Select } from './common';
 import { launchCatalogueCopy } from './launch-catalogue-copy';
 import './launch-catalogue.css';
@@ -283,7 +284,7 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
           {t('check')}
         </Button>
       ) : (
-        <p className="muted">{t('signIn')}</p>
+        <SignedOut event={event} />
       )}
       {result && !result.ok ? (
         <p role="alert">{refusalWords(result, t)}</p>
@@ -305,13 +306,24 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
   );
 }
 
+/**
+ * A part of a public launch that needs an account, seen signed out: the sign-in panel the other More rooms use, returning
+ * to this launch (J-more-catalogue-01 #6). If the boot refresh could not answer, Retry.
+ */
+function SignedOut({ event }: { event: LaunchEvent }) {
+  const t = useT();
+  const { restoreFailed, retryRestore } = useSession();
+  if (restoreFailed) return <SessionRetryPanel retry={retryRestore} />;
+  return <SignInPanel returnTo={`/launch/${event.id}`}>{t('signIn')}</SignInPanel>;
+}
+
 /** This account's stored snapshot row and what the rule makes of it. Nothing here is computed in the browser. */
 function YourBasis({ event }: { event: LaunchEvent }) {
   const t = useT();
   const { userId } = useSession();
   return (
     <Region id="basis" title={t('basis')}>
-      {userId ? <BasisRead event={event} userId={userId} /> : <p className="muted">{t('signIn')}</p>}
+      {userId ? <BasisRead event={event} userId={userId} /> : <SignedOut event={event} />}
     </Region>
   );
 }

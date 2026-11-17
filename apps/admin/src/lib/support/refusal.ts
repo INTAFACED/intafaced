@@ -149,7 +149,7 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
   },
   'support.not_lead': {
     title: 'Only a lead can do that',
-    body: 'Giving a request to someone else, setting another person’s availability, making or changing desk groups, and writing macros need the lead role. Anyone on the staff list can set their own availability.',
+    body: 'Giving a request to someone else, setting another person’s availability, making or changing desk groups, changing routing, capacity, skills or a request’s required skill, and writing macros need the lead role. Anyone on the staff list can set their own availability.',
     next: 'Nothing was changed.',
   },
   'support.stale_ticket': {
@@ -197,6 +197,21 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'That person is already a member.',
     next: 'Nothing was changed.',
   },
+  'support.routing_mode_invalid': {
+    title: 'svc-support did not accept that routing',
+    body: 'Routing is off, in turn, or least loaded.',
+    next: 'Pick one of the three. Nothing was changed.',
+  },
+  'support.capacity_invalid': {
+    title: 'svc-support did not accept that capacity',
+    body: 'Capacity is a whole number from 0, or blank for not set (never assigned automatically).',
+    next: 'Fix the capacity and try again. Nothing was changed.',
+  },
+  'support.skill_invalid': {
+    title: 'svc-support did not accept a skill',
+    body: 'A skill is a short tag of lowercase letters, digits, - or _. A space is not allowed.',
+    next: 'Fix the skill and try again. Nothing was changed.',
+  },
   'support.availability_invalid': {
     title: 'svc-support did not accept that availability',
     body: 'Availability is online, busy or offline.',
@@ -217,7 +232,7 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-support does not change the properties of a closed ticket.',
     next: 'Nothing was changed.',
   },
-  'support.kb.revision_stale': {
+  'support.kb_revision_stale': {
     title: 'Someone changed this article first',
     body: 'The revision you used is no longer the latest, so svc-support refused to overwrite.',
     next: 'Reload the articles and try again from the new revision. Nothing was changed.',

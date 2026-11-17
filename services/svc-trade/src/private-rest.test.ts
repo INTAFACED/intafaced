@@ -31,7 +31,7 @@ import { DEFAULT_FUTURES_MARK_POLICY, acceptableForEntry } from './futures/mark-
 import { markSourceFromBook } from './futures/mark-source.js';
 
 /**
- * Mount boundary for private CCXT REST (docs/decisions/mount-boundary.md).
+ * Mount boundary for private CCXT REST.
  *
  * Principal arrives the way index.ts builds it — through createEdgeContext
  * over real headers — not as a Context literal. Unsigned self-asserted
@@ -880,7 +880,7 @@ describe('private REST — mount boundary + order write path', () => {
     expect(body.results.map((r) => r.order?.clientOrderId)).toEqual(['batch-a', 'batch-b']);
     expect(body.results[0]!.order?.amount).toBe('1.5');
     expect(seen.map((input) => input.clientOrderId)).toEqual(['batch-a', 'batch-b']);
-    expect(typeof (seen[0] as unknown as { qty: unknown }).qty).toBe('bigint');
+    expect(typeof (seen[0] as { qty: unknown }).qty).toBe('bigint');
     await app.close();
   });
 
@@ -2390,6 +2390,56 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
+  it('GET /account/balance: a sub-account key reads its sub-account; a signed-in tab on a sub-account reads its own (J-developer-15 #1)', async () => {
+    const SUB = '33333333-3333-4333-8333-333333333333';
+    const reads: string[] = [];
+    const app = await build(
+      deps({
+        userBalances: async (userId) => {
+          reads.push(`user:${userId}`);
+          return [];
+        },
+        subAccountBalances: async (id) => {
+          reads.push(`sub:${id}`);
+          return [];
+        },
+      }),
+    );
+    const keyed = await app.inject({
+      method: 'GET',
+      url: '/api/v1/account/balance',
+      headers: signedHeaders(principal({ kid: '44444444-4444-4444-8444-444444444444', sub_account: SUB })),
+    });
+    expect(keyed.statusCode, keyed.body).toBe(200);
+    const session = await app.inject({
+      method: 'GET',
+      url: '/api/v1/account/balance',
+      headers: signedHeaders(principal({ sub_account: SUB })),
+    });
+    expect(session.statusCode, session.body).toBe(200);
+    expect(reads).toEqual([`sub:${SUB}`, `user:${USER}`]);
+    await app.close();
+
+    // Without the sub-account door a sub-account key is refused, never answered with the person's own balance.
+    let read = false;
+    const bare = await build(
+      deps({
+        userBalances: async () => {
+          read = true;
+          return [];
+        },
+      }),
+    );
+    const refused = await bare.inject({
+      method: 'GET',
+      url: '/api/v1/account/balance',
+      headers: signedHeaders(principal({ kid: '44444444-4444-4444-8444-444444444444', sub_account: SUB })),
+    });
+    expect(refused.statusCode).toBe(403);
+    expect(read).toBe(false);
+    await bare.close();
+  });
+
   it('GET /account/balance: scope miss → 403; never reads ledger', async () => {
     let read = false;
     const app = await build(
@@ -3009,7 +3059,7 @@ describe('private REST — mount boundary + order write path', () => {
       const app = await build(
         deps({
           openPosition: async (_p, input) => {
-            seen.push(input as unknown as Record<string, unknown>);
+            seen.push(input as Record<string, unknown>);
             return { id: 'pos-1', symbol: input.symbol } as never;
           },
         }),

@@ -4,8 +4,8 @@ import type { Part } from '@/lib/desk/part';
 import '../desk.css';
 
 /**
- * Approval policy per governed action type (OPS-change-control-01 CR-1). svc-identity reads the owner setting on every
- * request; this room shows what it reads now. It edits nothing: the rows are owner values set in the deployment.
+ * Approval policy per governed action type (OPS-change-control-01 CR-1). svc-identity reads the rows on every request;
+ * this room shows what it reads now, and where each row comes from. Changing a row is the desk below it.
  */
 
 export interface ChangePolicyRoomProps {
@@ -29,6 +29,7 @@ function Row({ entry }: { entry: ActionApprovalPolicyEntry }) {
         <td colSpan={4}>
           <strong>Unset.</strong> svc-identity refuses to propose, approve or apply this action until the owner sets a row.{' '}
           <span className="dk-muted">Code: {entry.code}</span>
+          {entry.source === 'console' && <span className="dk-muted"> Set here by two founders.</span>}
         </td>
       </tr>
     );
@@ -44,7 +45,9 @@ function Row({ entry }: { entry: ActionApprovalPolicyEntry }) {
       <td>
         <code>{p.applier}</code>
       </td>
-      <td>{p.maxAgeSeconds} s</td>
+      <td>
+        {p.maxAgeSeconds} s{entry.source === 'console' && <span className="dk-muted"> (set here by two founders)</span>}
+      </td>
     </tr>
   );
 }
@@ -58,7 +61,10 @@ export function ChangePolicyRoom({ asOf, policies }: ChangePolicyRoomProps) {
         applied only by this service, within this age. A request is bound to the row it was proposed under; if the row changes, the request
         is refused and must be proposed again.
       </p>
-      <p className="dk-muted">Read only. The rows are owner settings of the deployment; this console does not change them.</p>
+      <p className="dk-muted">
+        A row comes from the deployment's owner setting. Two founders can set a staff change's row here, and it then stands in for it; the
+        ledger correction rows move money and are set only in the deployment.
+      </p>
       {policies.kind === 'failed' ? (
         <div
           className="adm-callout"

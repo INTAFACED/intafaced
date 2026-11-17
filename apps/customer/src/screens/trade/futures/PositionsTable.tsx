@@ -7,7 +7,6 @@ import {
   ChangeText,
   EmptyState,
   Money,
-  Pct,
   Price,
   StateBlock,
   StatusChip,

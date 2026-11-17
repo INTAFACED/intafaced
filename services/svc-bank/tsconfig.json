@@ -4,7 +4,9 @@
     "rootDir": "./src",
     "outDir": "./dist",
     "lib": ["ES2023"],
-    "types": ["node"]
+    "types": ["node"],
+    "declaration": false,
+    "declarationMap": false
   },
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]

@@ -29,6 +29,7 @@ export type CopyErrorCode =
   | 'trade.copy_pnl_fee_forbidden'
   | 'trade.copy_ranking_forbidden'
   | 'trade.copy_settle_refused'
+  | 'trade.copy_settlement_window_required'
   | 'trade.copy_leader_fill_not_found'
   | 'trade.copy_auto_mirror_place_socket'
   | 'trade.copy_place_disabled'
@@ -36,6 +37,7 @@ export type CopyErrorCode =
   | 'trade.copy_session_key_missing'
   | 'trade.copy_session_key_revoked'
   | 'trade.copy_paused'
+  | 'trade.copy_paused_by_platform'
   | 'trade.copy_stopped'
   | 'trade.copy_detached'
   | 'trade.copy_request_key_invalid'
@@ -82,7 +84,16 @@ export type CopyErrorCode =
   | 'trade.copy_lead_application_decided'
   | 'trade.copy_lead_application_not_found'
   | 'trade.copy_lead_reapply_wait_unset'
-  | 'trade.copy_lead_reapply_wait';
+  | 'trade.copy_lead_reapply_wait'
+  | 'trade.copy_mode_owner_decision'
+  | 'trade.copy_mode_locked'
+  | 'trade.copy_smart_sync_unavailable'
+  | 'trade.copy_min_not_set'
+  | 'trade.copy_below_min_investment'
+  | 'trade.copy_day_not_set'
+  | 'trade.copy_market_cap_reached'
+  | 'trade.copy_daily_cap_reached'
+  | 'trade.copy_venue_account_not_open';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

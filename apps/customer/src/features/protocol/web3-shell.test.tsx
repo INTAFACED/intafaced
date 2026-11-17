@@ -9,7 +9,7 @@ const answers: { chain: unknown; indexer?: unknown; keyed: Record<string, unknow
 vi.mock('../session/session', async (original) => {
   const real = await original<typeof import('../session/session')>();
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
-  return { ...real, useApi: () => api as never, useSession: () => ({ session: null, restoring: false }) as never };
+  return { ...real, useApi: () => api as never, useSession: () => ({ session: null }) as never };
 });
 vi.mock('../../shared/resource', () => ({
   // Only the chain status is answered; every other source stays loading, so the rooms show their own checking state.
@@ -96,6 +96,14 @@ describe('Web3 shell', () => {
       'network_label',
     ]);
     expect(swap).not.toMatch(/INTACHAIN mainnet/i);
+  });
+  it('names an own-gap Swap blocker in the shared empty state, with no allowlist code', () => {
+    answers.chain = chain(84532);
+    const html = page('/dex');
+    const swap = /<li data-action="swap">([\s\S]*?)<\/li>/.exec(html)?.[1] ?? '';
+    expect(swap).toMatch(/<div class="protocol-actions__reason protocol-actions__gap" role="note"><div class="empty-state">/);
+    expect(swap).toMatch(/<h3>Blocked: [^<]+<\/h3>/);
+    expect(swap).not.toContain('data-not-connected');
   });
   it('gives a block page its layout and names the indexer when it cannot be read, never a blank', () => {
     answers.chain = chain(84532);

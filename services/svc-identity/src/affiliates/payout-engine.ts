@@ -12,7 +12,7 @@
  * are both. So this engine is complete in every part except the number it is
  * not allowed to choose, and it names that gap with a stable code rather than
  * seeding a rate. A seeded rate in source is indistinguishable from a decided
- * one three months later — see the deleted DEFAULT_ACCRUAL_TIERS (10/5/2%) in
+ * one three months later — see the deleted DEFAULT_ACCRUAL_TIERS in
  * commission.ts, which is exactly how an invented bps became platform default.
  *
  * §0.6 — NO VALUE MOVES OUTSIDE packages/ledger-client. This file assembles no
@@ -209,6 +209,11 @@ export function planAffiliatePayout(input: {
   readonly rows: readonly CommissionRow[];
   readonly law: AccrualTierLaw;
   readonly frozenBeneficiaryIds?: ReadonlySet<string>;
+  /**
+   * Beneficiaries whose identity account is frozen, closed, archived or unknown (`beneficiaryStandings`). An affiliate
+   * freeze is the programme's own hold; this is the account itself, and a payout to it is a credit it cannot take.
+   */
+  readonly cannotReceiveBeneficiaryIds?: ReadonlySet<string>;
   readonly maxTierDepth?: number;
   /**
    * Plan-level override only. Prefer each row's sourceModule (producer pool).
@@ -237,6 +242,7 @@ export function planAffiliatePayout(input: {
 
   const asset = input.rows[0]!.asset;
   const frozen = input.frozenBeneficiaryIds ?? new Set<string>();
+  const cannotReceive = input.cannotReceiveBeneficiaryIds ?? new Set<string>();
   const legs: AffiliatePayoutLeg[] = [];
   const seen = new Set<string>();
   const beneficiaries = new Set<string>();
@@ -291,6 +297,13 @@ export function planAffiliatePayout(input: {
     // paying a partial tree.
     if (frozen.has(row.beneficiaryId)) {
       refuse(`Beneficiary ${row.beneficiaryId} is frozen — refusing to pay a frozen node`, 'affiliate.payout.beneficiary_frozen');
+    }
+    // The account itself (identity `users.status`): a frozen or closed account takes no credit, whoever pays it.
+    if (cannotReceive.has(row.beneficiaryId)) {
+      refuse(
+        `Beneficiary ${row.beneficiaryId} cannot receive — the account is frozen, closed or unknown`,
+        'affiliate.payout.beneficiary_cannot_receive',
+      );
     }
 
     const key = affiliatePayoutRowKey(row);

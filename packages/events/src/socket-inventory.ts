@@ -9,10 +9,8 @@
  * would otherwise go silent-live. `EVENT_BUS_MATRIX` is the pin — adding a
  * catalog key without a row here is a type error and a red test.
  *
- * Do not invent consumers here. Classify from `WIRING_SOCKETS` + the gate's
- * mounted-vs-defined walk. Closing Class B is owner scope (crewMemberCreated).
- *
- * Mounted-vs-defined wiring is still the job of `tooling/ci/event-wiring.mjs`.
+ * Do not invent consumers here. Classify from `WIRING_SOCKETS`. Closing Class B
+ * is owner scope (crewMemberCreated).
  */
 
 import { EVENT_CATALOG, WIRING_SOCKETS, type EventName, type SocketClass, type WiringSocket } from './catalog.js';
@@ -68,14 +66,15 @@ const ENDS: readonly WiringEnd[] = ['publisher', 'subscriber'];
 /**
  * Closed matrix: every `EventName` appears exactly once.
  *
- * Live means the event-wiring gate must prove both ends mount — not "a consumer
- * we wish existed". Socket / broken_promise rows must match `WIRING_SOCKETS`.
+ * Live means both ends are mounted in the code — not "a consumer we wish
+ * existed". Socket / broken_promise rows must match `WIRING_SOCKETS`.
  */
 export const EVENT_BUS_MATRIX = {
   xpEarned: { kind: 'live' },
   rankUpdated: { kind: 'live' },
-  userCreated: { kind: 'socket', socketClass: 'A' },
+  userCreated: { kind: 'live' },
   kycApproved: { kind: 'live' },
+  referralCreated: { kind: 'live' },
   kycSubmitted: { kind: 'socket', socketClass: 'A' },
   kycRejected: { kind: 'socket', socketClass: 'A' },
   kycInfoRequested: { kind: 'socket', socketClass: 'A' },
@@ -118,6 +117,7 @@ export const EVENT_BUS_MATRIX = {
   personalDisputeUpdated: { kind: 'socket', socketClass: 'A' },
   bankScheduledReminder: { kind: 'live' },
   bankScheduledFailed: { kind: 'live' },
+  bankCardCashbackEarned: { kind: 'live' },
   blueprintCreated: { kind: 'live' },
   blueprintDeleted: { kind: 'live' },
   crewMemberCreated: { kind: 'broken_promise', socketClass: 'B' },
@@ -136,7 +136,9 @@ export const EVENT_BUS_MATRIX = {
   agentActionRejected: { kind: 'live' },
   agentUsageSettled: { kind: 'socket', socketClass: 'A' },
   agentUsageAlertCrossed: { kind: 'live' },
+  agentAlertFired: { kind: 'live' },
   agentApprovalRequested: { kind: 'live' },
+  agentRunCompleted: { kind: 'live' },
   p2pOfferCreated: { kind: 'socket', socketClass: 'A' },
   p2pEscrowLocked: { kind: 'live' },
   p2pEscrowReleased: { kind: 'live' },
@@ -147,6 +149,8 @@ export const EVENT_BUS_MATRIX = {
   p2pTradeFiatSent: { kind: 'live' },
   p2pTradeReminderSent: { kind: 'socket', socketClass: 'A' },
   p2pOfferPaused: { kind: 'live' },
+  academyDiscussionPostDeleted: { kind: 'live' },
+  p2pTraderPosted: { kind: 'live' },
   p2pRemarkCaseOpened: { kind: 'live' },
   p2pChatMessageSent: { kind: 'socket', socketClass: 'A' },
   p2pDisputeEscalated: { kind: 'socket', socketClass: 'A' },
@@ -154,8 +158,10 @@ export const EVENT_BUS_MATRIX = {
   copySkipped: { kind: 'live' },
   copyFailed: { kind: 'socket', socketClass: 'A' },
   copyStopped: { kind: 'live' },
+  venueDelistingScheduled: { kind: 'live' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
+  quantOrderFilled: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;
 
 /**

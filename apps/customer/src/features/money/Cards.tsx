@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { DecisionMerchant, DeclineReason } from './CardBlocks';
 import type { z } from 'zod';
 import { Button } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
@@ -11,8 +12,9 @@ import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
 import { useHoldings } from './holdings';
 import { useSession } from '../session/session';
-import { CardCashback, CardJourney } from './CardJourney';
+import { CardCashback, CardJourney, CardPayFrom } from './CardJourney';
 import { cardOrderCopy } from './card-order-copy';
+import { cardFeedCopy } from './card-feed-copy';
 
 type CardRecord = z.infer<typeof cardSchema>;
 type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
@@ -203,8 +205,67 @@ export function CardActions({
   );
 }
 
-function Decision({ row, asset }: { row: CardDecision; asset: string }) {
+/**
+ * A payment taken by the pay-from order (J-bank-29 #3 to #7): the order the partner walked and, once it held, the asset it
+ * held from, the amount, the rate and the rate's time, then what it settled and returned, each as the partner reported it.
+ */
+function PaidFrom({ row }: { row: CardDecision }) {
+  const feed = cardFeedCopy.useCopy();
+  const p = row.payFrom;
+  if (!p) return null;
+  const held = p.assetId !== null && row.decision === 'approved' && row.conversion !== null ? row.conversion : null;
+  return (
+    <div className="money-card-pay-from" data-testid="card-paid-from" data-asset={p.assetId ?? ''}>
+      {held && p.assetId ? (
+        <dl>
+          <div>
+            <dt data-testid="card-paid-from-asset">{feed.t('paidFrom', { asset: p.assetId })}</dt>
+            <dd data-testid="card-paid-from-held">
+              <CardQuantity value={row.amount} asset={p.assetId} />
+            </dd>
+          </div>
+          <div>
+            <dt>{feed.t('paidFromRate')}</dt>
+            <dd data-testid="card-paid-from-rate" lang="zxx" dir="ltr">
+              {`${displayAmount(held.rate)} ${held.settlementAssetId} / ${p.assetId}`}
+            </dd>
+          </div>
+          <div>
+            <dt>{feed.t('paidFromRateTime')}</dt>
+            <dd data-testid="card-paid-from-rate-time">
+              <ReportedTime value={held.rateAsOf} />
+            </dd>
+          </div>
+          {p.captured !== null && (
+            <div>
+              <dt>{feed.t('paidFromSettled')}</dt>
+              <dd data-testid="card-paid-from-settled">
+                <CardQuantity value={p.captured} asset={p.assetId} />
+              </dd>
+            </div>
+          )}
+          {p.returned !== null && (
+            <div>
+              <dt>{feed.t('paidFromReturned', { asset: p.assetId })}</dt>
+              <dd data-testid="card-paid-from-returned">
+                <CardQuantity value={p.returned} asset={p.assetId} />
+              </dd>
+            </div>
+          )}
+        </dl>
+      ) : null}
+      <p className="money-caption" data-testid="card-paid-from-order">
+        {feed.t('paidFromOrder', { order: p.order.join(', ') })}
+      </p>
+    </div>
+  );
+}
+
+function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset: string; settles: string }) {
   const { Copy } = cardCopy.useCopy();
+  const feed = cardFeedCopy.useCopy();
+  // A pay-from payment's amount is in the asset the partner held from, or, before it held, the merchant's own asset.
+  const asset = row.payFrom ? (row.payFrom.assetId ?? row.conversion?.settlementAssetId ?? settles) : cardAsset;
   return (
     <article className="money-card-decision">
       <header>
@@ -260,6 +321,17 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           {row.authorizationRef === '' ? <Copy k="emptyReference" /> : row.authorizationRef}
         </dd>
       </dl>
+      <DecisionMerchant merchant={row.merchant ?? null} country={row.merchantCountry ?? null} />
+      {row.recurring && <p className="money-caption">{feed.t('feedRecurring')}</p>}
+      <PaidFrom row={row} />
+      {row.refund && (
+        <dl className="money-card-refund" data-refund={row.refund.status}>
+          <dt>{feed.t('feedRefund')}</dt>
+          <dd>
+            <CardQuantity value={row.refund.amount} asset={asset} />
+          </dd>
+        </dl>
+      )}
       {row.declineCode !== null && (
         <dl className="money-card-decline">
           <dt>
@@ -270,6 +342,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           </dd>
         </dl>
       )}
+      {row.declineCode ? <DeclineReason code={row.declineCode} /> : null}
       {row.conversion && (
         <div className="money-card-conversion">
           <h5>
@@ -406,7 +479,7 @@ function CardRead({
                   <ol className="money-card-decisions">
                     {rows.map((row, index) => (
                       <li key={`${row.id}:${index}`}>
-                        <Decision row={row} asset={card.assetId} />
+                        <Decision row={row} asset={card.assetId} settles={card.settlementAssetId} />
                       </li>
                     ))}
                   </ol>
@@ -556,6 +629,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
         {order.t('getCard')}
       </a>
       <CardCashback />
+      <CardPayFrom />
       <OrderCard open={open} programme={orderProgramme} assets={orderAssets} />
       {selected && (
         <section className="money-selected-card" aria-labelledby="money-selected-card-heading">

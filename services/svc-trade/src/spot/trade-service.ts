@@ -25,6 +25,8 @@
  * `amend_released`. Remainder owed back is derived from fills plus that column.
  */
 
+import type { Queryable } from '@intafaced/db';
+import { NO_PAUSES, botOrdersHalted, type PauseSnapshot } from '../copy/platform-pauses.js';
 import type { Sql } from 'postgres';
 import { TradingControlError, type TradingAdmissionPort, type TradingOperationKind } from '../controls/trading-controls.js';
 import type { BotVerificationPolicy } from '../algo/bots-verification.js';
@@ -429,6 +431,12 @@ export interface PlaceOrderInput {
    * platform token, on a person's own spot order, when the owner's schedule publishes its terms (fee-ifc.ts).
    */
   feeCurrency?: string;
+  /**
+   * Internal: set only by the spot position close (`close-position.ts`), never accepted from REST. A close is a CLOSE,
+   * which limit-only keeps, so its market order is not refused there; it still goes to the engine as a reduce-only
+   * IOC limit at its protection price, funded before it is sent (#4591).
+   */
+  positionClose?: boolean;
   /** Internal binding for the cancel/replace saga; never accepted from REST. */
   replacementOf?: string;
   replacementRequestHash?: string;
@@ -639,7 +647,6 @@ export type TradeServiceInternal = { [K in keyof TradeService]: TradeService[K] 
   finalizeIfComplete: TradeService['finalizeIfComplete'];
   publishXp: TradeService['publishXp'];
   publishOrderUpdated: TradeService['publishOrderUpdated'];
-  refuseCancelAheadOfFill: TradeService['refuseCancelAheadOfFill'];
   replayStoredAlgo: TradeService['replayStoredAlgo'];
   installAlgoPlaceGrant: TradeService['installAlgoPlaceGrant'];
   requireMarket: TradeService['requireMarket'];
@@ -706,6 +713,7 @@ export class TradeService {
   private readonly affiliatePayout: AffiliatePayoutPort;
   /** Best-effort FIX drop-copy hitch after settle (never fails the fill). */
   private readonly dropCopyIngest: DropCopyIngestPort;
+  private readPlatformPauses: () => Promise<PauseSnapshot> = async () => NO_PAUSES;
   private onCopyMirrorFill?: (notice: {
     orderId: string;
     fillId: string;
@@ -770,6 +778,7 @@ export class TradeService {
       {
         now: () => this.now(),
         randomId: () => crypto.randomUUID(),
+        platformHalted: async (parent) => botOrdersHalted(await this.platformPauses(), parent.symbol, parent.marketId),
         placeChild: async (req) => {
           // Child is an ordinary order — same path, same holds, same gates.
           const parent = this.algo.get(req.parentId);
@@ -1396,6 +1405,16 @@ export class TradeService {
     return fillFlow.notifyAffiliateAccrue(this.internal, input);
   }
 
+  /** The platform's copy and bots pauses (CB-ops-03), read by algo creates and slice ticks. */
+  bindPlatformPauses(read: () => Promise<PauseSnapshot>): void {
+    this.readPlatformPauses = read;
+  }
+
+  /** The active copy and bots pauses; none until a reader is bound. */
+  platformPauses(): Promise<PauseSnapshot> {
+    return this.readPlatformPauses();
+  }
+
   /** After the fill is stored. Failure is logged; the settled fill stays settled. */
   bindCopyMirrorFill(observe: NonNullable<TradeServiceOptions['onCopyMirrorFill']>): void {
     this.onCopyMirrorFill = observe;
@@ -1485,15 +1504,25 @@ export class TradeService {
     return holds.fillEvidence(this.internal, orderId);
   }
 
-  private async remainingHold(sql: Sql, order: OrderRecord): Promise<Amount> {
+  private async remainingHold(sql: Queryable, order: OrderRecord): Promise<Amount> {
     return holds.remainingHold(this.internal, sql, order);
   }
 
+  private async finalize(orderId: string, status: Extract<OrderStatus, 'filled' | 'rejected'>, reason?: string | null): Promise<void>;
+  private async finalize(
+    orderId: string,
+    status: Extract<OrderStatus, 'cancelled' | 'expired'>,
+    reason: string | null | undefined,
+    evidence: holds.CancelEvidence,
+  ): Promise<void>;
   private async finalize(
     orderId: string,
     status: Extract<OrderStatus, 'cancelled' | 'filled' | 'expired' | 'rejected'>,
     reason?: string | null,
+    evidence?: holds.CancelEvidence,
   ): Promise<void> {
+    if (status === 'cancelled' || status === 'expired')
+      return holds.finalize(this.internal, orderId, status, reason, evidence as holds.CancelEvidence);
     return holds.finalize(this.internal, orderId, status, reason);
   }
 
@@ -1625,10 +1654,6 @@ export class TradeService {
     return events.releaseOnCancelEvent(this.internal, orderId, remainingQty, reason);
   }
 
-  private async refuseCancelAheadOfFill(orderId: string, remainingQty: Amount): Promise<void> {
-    return events.refuseCancelAheadOfFill(this.internal, orderId, remainingQty);
-  }
-
   // ── Reads ─────────────────────────────────────────────────────────────────
 
   async getOrder(principal: Principal, orderId: string): Promise<OrderRecord> {
@@ -1732,6 +1757,11 @@ export class TradeService {
     return reads.everyFillOfOrder(this.internal, principal, orderId);
   }
 
+  /** Every fill of several owned orders in one read, keyed by order id (the order reads' cost: #4677). */
+  async everyFillOfOrders(principal: Principal, orderIds: readonly string[]): Promise<Map<string, FillRecord[]>> {
+    return reads.everyFillOfOrders(this.internal, principal, orderIds);
+  }
+
   async findOrder(orderId: string): Promise<OrderRecord | null> {
     const rows = await this.sql<OrderRow[]>`SELECT * FROM trade.orders WHERE id = ${orderId}`;
     const row = rows[0];
@@ -1801,6 +1831,11 @@ export class TradeService {
    */
   async publicTape(marketId: string, limit: number, sinceMs?: number): Promise<PublicTapePrint[]> {
     return reads.publicTape(this.internal, marketId, limit, sinceMs);
+  }
+
+  /** Volume printed at or through `price` for a resting order on `side` since `sinceMs` (queue fill estimate). */
+  async tradedThrough(marketId: string, side: OrderSide, price: Amount, sinceMs: number): Promise<Amount> {
+    return reads.tradedThrough(this.internal, marketId, side, price, sinceMs);
   }
 
   /**

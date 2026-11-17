@@ -57,7 +57,7 @@ async function build() {
         tif: input.tif ?? 'GTC',
       });
     },
-  } as unknown as PrivateRestDeps);
+  } as PrivateRestDeps);
   await app.ready();
   return { app, placed };
 }

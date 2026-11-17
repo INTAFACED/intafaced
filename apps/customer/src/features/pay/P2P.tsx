@@ -6,17 +6,7 @@ import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { EmptyState, Field, Page } from './ui-kit';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
-import {
-  PayAmount,
-  PayDetails,
-  PayNotice,
-  PayPagination,
-  PaySection,
-  PayState,
-  ReviewedAction,
-  Status,
-  MutationResult,
-} from './components';
+import { PayAmount, PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { id, type Trade, type TradeDestination } from './schemas';
 import { CancelOrder, RequestCancel } from './p2p-cancel';
 import { displayAmount } from '../../shared/money';
@@ -37,6 +27,7 @@ import { OfferForm } from './personal/OfferForm';
 import { OrderHistory } from './personal/OrderHistory';
 import { OrderReceipt } from './personal/OrderReceipt';
 import { OrderReview } from './personal/OrderReview';
+import { OwnCompletion } from './personal/CompletionRates';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
 import { PaymentMethods } from './personal/PaymentMethods';
@@ -177,6 +168,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
       ) : showAccess ? (
         <div className="stack">
           <P2PEligibilityPanel pay={pay} userId={userId} />
+          <OwnCompletion pay={pay} userId={userId} />
           <TradingProgramme pay={pay} userId={userId} />
         </div>
       ) : showMethods ? (

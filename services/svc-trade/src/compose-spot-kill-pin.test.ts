@@ -1,16 +1,17 @@
 /**
  * Unit card — compose stack passes TRADE_SPOT_ENABLED into svc-trade
  *
- * 1. Promise: host `.env` can halt new spot places (env.ts already defaults
- *    true; OFF stops new orders, cancels still work).
+ * 1. Promise: host `.env` can halt new spot places (OFF stops new orders,
+ *    cancels still work); unset, env.ts follows the custody switch (OWNER 288).
  * 2. Break: compose named slippage/convert/algo/futures/mm/otc/copy/options/
  *    candle/reconcile but not TRADE_SPOT_ENABLED → host kill is a no-op and
  *    the container keeps the schema default forever.
  * 3. Done bar: docker-compose.apps.yml svc-trade has
- *    TRADE_SPOT_ENABLED: ${TRADE_SPOT_ENABLED:-true}
+ *    TRADE_SPOT_ENABLED: ${TRADE_SPOT_ENABLED:-false} and the custody switch,
+ *    so our own book runs only where the host turns custody on too.
  * 4. Class N/P
  * 5. Paths: docker-compose.apps.yml (svc-trade block only)
- * 6. RED: pin fails if the key drops, is duplicated, or defaults false
+ * 6. RED: pin fails if the key drops, is duplicated, or defaults true
  * 7. Collision: this pin does not restamp slippage, convert, algo, futures,
  *    MM seed, OTC, copy, options, candle, or reconcile.
  */
@@ -42,16 +43,17 @@ describe('compose passes spot kill-switch into svc-trade', () => {
   const envTs = readFileSync(join(ROOT, 'services/svc-trade/src/env.ts'), 'utf8');
   const block = tradeComposeBlock();
 
-  it('env.ts still defaults TRADE_SPOT_ENABLED true (halt is host-explicit)', () => {
+  it('env.ts leaves an unset TRADE_SPOT_ENABLED to the custody switch (no default of its own)', () => {
     expect(envTs).toMatch(/TRADE_SPOT_ENABLED:\s*z/);
-    expect(envTs).toMatch(/TRADE_SPOT_ENABLED:[\s\S]{0,280}?\.default\(\s*true\s*\)/);
-    expect(envTs).not.toMatch(/TRADE_SPOT_ENABLED:[\s\S]{0,280}?\.default\(\s*false\s*\)/);
+    expect(envTs).not.toMatch(/TRADE_SPOT_ENABLED:[\s\S]{0,120}?\.default\(/);
+    expect(envTs).toMatch(/resolveOwnOrderBook\('TRADE_SPOT_ENABLED'/);
   });
 
-  it('compose svc-trade block passes the kill from the host with default true', () => {
+  it('compose svc-trade block passes the kill from the host with default false, and the custody switch default off', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-trade/);
-    expect(block, `${SPOT} missing true-default pass-through`).toMatch(new RegExp(`${SPOT}:\\s*\\$\\{${SPOT}:-true\\}`));
-    expect(block).not.toMatch(new RegExp(`${SPOT}:\\s*\\$\\{${SPOT}:-false\\}`));
+    expect(block, `${SPOT} missing false-default pass-through`).toMatch(new RegExp(`${SPOT}:\\s*\\$\\{${SPOT}:-false\\}`));
+    expect(block).not.toMatch(new RegExp(`${SPOT}:\\s*\\$\\{${SPOT}:-true\\}`));
+    expect(block).toMatch(/LEDGER_CUSTODY_LAYER:\s*\$\{LEDGER_CUSTODY_LAYER:-off\}/);
   });
 
   it('names TRADE_SPOT_ENABLED once in compose (no duplicate assignments)', () => {

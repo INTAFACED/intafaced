@@ -1,17 +1,20 @@
 // World: book
+// Market: live
 import { test, expect } from './journey.mjs';
-import { journeyState } from './stack.mjs';
+import { journeyState, STACK_PORTS } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tapeWindow } from './tape.mjs';
+import { userIdOf } from './copy.mjs';
+import { responseAfterNavigation } from './navigation.mjs';
+import { createRequire } from 'node:module';
+import nodePath from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,
-// verified and with no strategy. Every strategy in Algo dev is simulated; nothing here moves money. Steps whose slice
-// is not built yet (AL-editor-03's template source, AL-limits-01, RC-algo-dev-05) check
-// their step's text with a short wait, so they fail fast and name what is missing.
+// verified and with no strategy. Every strategy in Algo dev is simulated; nothing here moves money.
 const J = 'J-algo-dev-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -191,11 +194,23 @@ test(`${J} #3 edits, saves and writes release notes on two versions, then compar
   await expect(code.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
 });
 
+/**
+ * The stack's TEST founders, signed in once for this worker on one gates context (`shareSessions`, as
+ * J-more-catalogue-02 keeps its own) and reused by every operator door below. Each sign-in spends a fresh authenticator
+ * step per founder, so a sign-in per call waited out a new 30 s window on each call after the first: #4's two publishes
+ * and its withdraw and restore of every template took 50 s of its 90 s, and past 90 s when other journeys had spent the
+ * founders' steps (#8420). Every sign-in still sends a real, unused step.
+ */
+let founderCtx;
+async function founderOps() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  founderCtx ??= await gates.makeContext({ log: () => {}, shareSessions: true });
+  return { ctx: founderCtx, founders: await gates.approverSessions(founderCtx) };
+}
+
 /** A TEST starter template through the operator's publish door, as the founder console calls it. */
 async function publishTemplate(input) {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const ctx = await gates.makeContext({ log: () => {} });
-  const founders = await gates.approverSessions(ctx);
+  const { ctx, founders } = await founderOps();
   // The operator write scope, as svc-trade's admin doors take it; a plain founder session is an ordinary user.
   const res = await ctx.edge.mutate('quant', 'ops.template.publish', input, await founders.a.tradeOpsToken());
   if (!res.json?.result?.data?.version) throw new Error(`template publish refused: ${res.status} ${res.text.slice(0, 300)}`);
@@ -218,7 +233,7 @@ const SOURCE_TEMPLATE = {
 
 test(`${J} #4 opens a built-in template version and its source: readable and not editable; with no template published the list says none is published`, async ({
   page,
-}) => {
+}, testInfo) => {
   // Two TEST versions, one key each, so a second run replays them instead of stacking more.
   const first = await publishTemplate({
     ...SOURCE_TEMPLATE,
@@ -267,14 +282,41 @@ test(`${J} #4 opens a built-in template version and its source: readable and not
   await expect(page.getByLabel('Strategy name')).toHaveValue(formName);
   await expect(page.getByTestId('quant-template-used')).toHaveCount(0);
 
-  // With no template published, the list says so. The stack always holds this journey's TEST template, so the list's
-  // reply is read again with no template in it, exactly as the service answers when nothing is published.
-  await page.route('**/api/quant/trpc/template.list*', (route) =>
-    route.fulfill({ json: { result: { data: { templates: [], nextCursor: null } } } }),
-  );
+  // With no template published, the list says so. The operator withdraws every listed template, so the service itself
+  // answers with none; then each is restored with its versions, so the steps and journeys after this one find them.
+  const templateList = (r) => r.url().includes('/api/quant/trpc/template.list') && r.ok();
+  const served = (await responseAfterNavigation(page, templateList)).res.body.result.data;
+  expect(served.nextCursor, 'every listed template is on the first page the list reads').toBeNull();
+  const ids = served.templates.map((row) => row.id);
+  expect(ids).toContain(SOURCE_TEMPLATE.id);
+  // One key per attempt: a retry withdraws again rather than replaying this attempt's withdraw after its restore.
+  const attempt = `${process.env.JOURNEY_RUN_ID ?? Date.now()}:${testInfo.retry}`;
+  try {
+    for (const id of ids) await setTemplateListed(id, false, attempt);
+    const none = (await responseAfterNavigation(page, templateList)).res.body.result.data;
+    expect(none).toEqual({ templates: [], nextCursor: null });
+    await expect(templates).toContainText('No template is published.');
+    await expect(templates.getByRole('button', { name: /^View the source of / })).toHaveCount(0);
+  } finally {
+    for (const id of ids) await setTemplateListed(id, true, attempt);
+  }
   await page.reload();
-  await expect(templates).toContainText('No template is published.');
+  await expect(templates.getByRole('button', { name: `View the source of ${SOURCE_TEMPLATE.name}` })).toBeVisible();
+  await expect(templates).not.toContainText('No template is published.');
 });
+
+/** Withdraws a starter template from the list or restores it, through the operator's door, as the founder console calls it. */
+async function setTemplateListed(id, listed, attempt) {
+  const { ctx, founders } = await founderOps();
+  const input = {
+    id,
+    listed,
+    reason: `LOCAL TEST ${J} #4 ${listed ? 'restores' : 'withdraws'} the starter templates`,
+    idempotencyKey: `journey:${J}:listing:${id}:${listed ? 'restore' : 'withdraw'}:${attempt}`.slice(0, 128),
+  };
+  const res = await ctx.edge.mutate('quant', 'ops.template.listing', input, await founders.a.tradeOpsToken());
+  if (res.json?.result?.data?.listed !== listed) throw new Error(`template listing refused: ${res.status} ${res.text.slice(0, 300)}`);
+}
 
 test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves out with its versions and returns with the same versions`, async ({
   page,
@@ -316,28 +358,394 @@ test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves
   await expect(back).toHaveAttribute('data-folder', FOLDER);
 });
 
+/** The ids of the strategy's stored runs, as its page lists them: #3 ran one, so the list has loaded once a row shows. */
+async function storedRuns(page, strategyId) {
+  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
+  const versions = page.getByTestId('quant-versions');
+  await expect(versions).toHaveAttribute('data-strategy-id', strategyId);
+  await expect(versions.getByTestId('quant-strategy-run').first(), `${J} #3 ran a backtest of this strategy`).toBeVisible();
+  return versions.getByTestId('quant-strategy-run').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-run-id')));
+}
+
+/** The operator's quota door (AL-limits-01), as the founder console calls it, with the stack's TEST founder. */
+async function quotaDoor() {
+  const { ctx, founders } = await founderOps();
+  const token = await founders.a.tradeOpsToken();
+  const data = (res, what) => {
+    const got = res.json?.result?.data;
+    if (!got) throw new Error(`${what} refused: ${res.status} ${res.text.slice(0, 300)}`);
+    return got;
+  };
+  return {
+    async profile(profile) {
+      return data(await ctx.edge.query('quant', 'ops.quota.profile', { profile }, token), 'ops.quota.profile');
+    },
+    /** Sets every limit of a TEST profile, one keyed write each, with a reason for the audit row. */
+    async plan(profile, limits) {
+      for (const [resource, limit] of Object.entries(limits)) {
+        data(
+          await ctx.edge.mutate(
+            'quant',
+            'ops.quota.set',
+            {
+              profile,
+              resource,
+              limit,
+              reason: `LOCAL TEST ${J}`,
+              idempotencyKey: `quant.quota:${profile}:${resource}:${limit ?? 'blank'}`,
+            },
+            token,
+          ),
+          'ops.quota.set',
+        );
+      }
+    },
+    /** Publishes or withdraws a TEST profile's tier, keyed by what it writes, with a reason for the audit row. */
+    async tier(profile, { dataFreshnessSeconds, priorityClass, published }) {
+      data(
+        await ctx.edge.mutate(
+          'quant',
+          'ops.quota.tier',
+          {
+            profile,
+            dataFreshnessSeconds,
+            priorityClass,
+            published,
+            reason: `LOCAL TEST ${J}`,
+            idempotencyKey: `quant.tier:${profile}:${dataFreshnessSeconds}:${priorityClass}:${published}:try${test.info().retry}`,
+          },
+          token,
+        ),
+        'ops.quota.tier',
+      );
+    },
+    async assign(accountId, profile) {
+      data(
+        await ctx.edge.mutate(
+          'quant',
+          'ops.quota.assign',
+          { accountId, profile, reason: `LOCAL TEST ${J}`, idempotencyKey: `quant.quota.assign:${accountId}:${profile}` },
+          token,
+        ),
+        'ops.quota.assign',
+      );
+    },
+  };
+}
+
+/** A TEST profile's name for this run, so a second run of the journey starts from its own rows. */
+const planName = (what) => `TEST ${what} ${process.env.JOURNEY_RUN_ID ?? 'local'}`.slice(0, 80);
+
+/** Every limit roomy except those given: a step proves one limit and meets no other. */
+const ROOMY = {
+  strategies: '50',
+  versions: '50',
+  concurrent_runs: '10',
+  paper_runs: '50',
+  runs: '50',
+  log_lines: '100000',
+  storage: '100000000',
+  collaborators: '5',
+  notifications: '100',
+};
+
+/** Starts a paper run of the newest version from the strategy's page, on our exchange's own prices. */
+async function startPaper(page) {
+  const paper = page.getByTestId('quant-paper');
+  await paper.getByRole('button', { name: 'Start a paper run' }).click();
+  const form = paper.getByTestId('quant-paper-start');
+  await form.getByLabel('Starting cash (simulated)').fill('1000');
+  await form.getByRole('combobox', { name: /^Price data/ }).selectOption('own_venue');
+  await form.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await form.getByLabel('Slippage (basis points)').fill('5');
+  await form.getByLabel('Delay (bars)').fill('0');
+  await form.getByRole('button', { name: 'Start', exact: true }).click();
+  return form;
+}
+
 test(`${J} #6 starts a fourth concurrent run when the plan allows three: a refusal naming the resource with its used and allowed counts; zero refuses every create; unset reads "not set"`, async ({
   page,
 }) => {
-  await signIn(page, developer());
+  test.setTimeout(10 * 60_000);
+  // A second TEST developer with one saved strategy: its paper runs are stored runs too, so the first developer's counts
+  // (#7, #9) stay this journey's own.
+  const second = await signUp(page, 'jq');
+  await verify(page, second);
+  await signIn(page, second);
+  await saveSignalStrategy(page, 'TEST paper strategy');
   await page.goto('/quant/strategies');
-  await expect(page.getByTestId('quant-usage'), 'plan quotas and their refusal are not built (AL-limits-01)').toBeVisible(UNBUILT);
+  const strategyId = await page.getByTestId('quant-strategy-row').first().getAttribute('data-id');
+  expect(strategyId).toBeTruthy();
+  const door = await quotaDoor();
+  const userId = await userIdOf(second);
+  const three = planName('three concurrent runs');
+  await door.plan(three, { ...ROOMY, concurrent_runs: '3' });
+  await door.assign(userId, three);
+
+  // Three paper runs keep running at once.
+  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
+  const paper = page.getByTestId('quant-paper');
+  for (let n = 1; n <= 3; n += 1) {
+    await startPaper(page);
+    await expect(paper.getByTestId('quant-paper-note')).toHaveText('Version 1 is running on paper.');
+    await expect(paper.locator('[data-testid="quant-paper-run"][data-state="running"]')).toHaveCount(n);
+  }
+
+  // The fourth is refused, naming concurrent runs with 3 used of 3 allowed, and starts nothing.
+  const form = await startPaper(page);
+  const refusal = form.getByTestId('quant-quota-refusal');
+  await expect(refusal).toHaveAttribute('data-resource', 'concurrent_runs');
+  await expect(refusal).toHaveAttribute('data-kind', 'exceeded');
+  await expect(refusal).toContainText('Your plan allows 3 concurrent runs: 3 used of 3 allowed. Nothing was added.');
+  await page.reload();
+  await expect(paper.getByTestId('quant-paper-run')).toHaveCount(3);
+  await expect(paper.locator('[data-testid="quant-paper-run"][data-state="running"]')).toHaveCount(3);
+  await page.goto('/quant/strategies');
+  const concurrent = page.getByTestId('quant-usage').locator('[data-resource="concurrent_runs"]');
+  await expect(concurrent).toHaveAttribute('data-used', '3');
+  await expect(concurrent).toHaveAttribute('data-limit', '3');
+
+  // Stopped, the three no longer run; a limit of zero then refuses every start, with none running.
+  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
+  for (let left = 3; left > 0; left -= 1) {
+    await paper
+      .locator('[data-testid="quant-paper-run"][data-state="running"]')
+      .first()
+      .getByRole('button', { name: /^Stop the paper run/ })
+      .click();
+    await expect(paper.locator('[data-testid="quant-paper-run"][data-state="running"]')).toHaveCount(left - 1);
+  }
+  await expect(paper.locator('[data-testid="quant-paper-run"][data-state="stopped"]')).toHaveCount(3);
+  const zero = planName('zero concurrent runs');
+  await door.plan(zero, { ...ROOMY, concurrent_runs: '0' });
+  await door.assign(userId, zero);
+  const atZero = (await startPaper(page)).getByTestId('quant-quota-refusal');
+  await expect(atZero).toHaveAttribute('data-resource', 'concurrent_runs');
+  await expect(atZero).toContainText('Your plan allows 0 concurrent runs: 0 used of 0 allowed. Nothing was added.');
+  await page.reload();
+  await expect(paper.getByTestId('quant-paper-run')).toHaveCount(3);
+
+  // With the limit unset, the usage view reads "not set" and a start is refused by name.
+  const unset = planName('unset concurrent runs');
+  await door.plan(unset, { ...ROOMY, concurrent_runs: null });
+  await door.assign(userId, unset);
+  await page.goto('/quant/strategies');
+  await expect(concurrent).toHaveAttribute('data-limit', '');
+  await expect(concurrent.locator('td').nth(1)).toHaveText('not set');
+  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
+  const atUnset = (await startPaper(page)).getByTestId('quant-quota-refusal');
+  await expect(atUnset).toHaveAttribute('data-kind', 'unset');
+  await expect(atUnset).toContainText(
+    "Your plan's limit for concurrent runs is not set, so nothing of that kind can be added. Nothing was added.",
+  );
+  await page.reload();
+  await expect(paper.getByTestId('quant-paper-run')).toHaveCount(3);
 });
 
 test(`${J} #7 opens the usage view: counts for strategies, runs, storage and collaborators against the plan`, async ({ page }) => {
+  const { strategyId } = run.read();
+  if (!strategyId) throw new Error(`${J} #1 listed no strategy, so this step has nothing to count`);
   await signIn(page, developer());
+
+  // What the account holds, read from its own pages: the saved list and the strategy's runs.
+  const ran = (await storedRuns(page, strategyId)).length;
   await page.goto('/quant/strategies');
+  // The list has loaded once this journey's strategy is in it; then every saved row is counted.
+  await expect(rowOf(page, strategyId)).toBeVisible();
+  const saved = await page.getByTestId('quant-strategy-row').count();
+
+  // The usage view names the plan that applies and counts each resource against that plan's stored limit.
   const usage = page.getByTestId('quant-usage');
-  await expect(usage, 'the Usage panel is not built (AL-limits-01)').toBeVisible(UNBUILT);
-  for (const resource of ['strategies', 'runs', 'storage', 'collaborators']) {
-    await expect(usage.locator(`[data-resource="${resource}"]`)).toHaveCount(1);
+  await expect(usage).toBeVisible();
+  await expect(usage).toHaveAttribute('aria-label', 'Usage and plan limits');
+  await expect(page.getByRole('heading', { name: 'Usage and plan limits' })).toBeVisible();
+  // The plan named is the one this account is assigned in svc-quant's own rows, else the stack's TEST default plan.
+  const accountId = await userIdOf(developer());
+  const assigned = await quantDb(
+    async (sql) => (await sql`SELECT profile FROM quant.quota_assignments WHERE account_id = ${accountId}`)[0]?.profile ?? null,
+  );
+  const { profileEnvFor } = await import('../../../../tooling/scripts/owner-settings.mjs');
+  const profile = assigned ?? profileEnvFor('quant', 'dev').QUANT_DEFAULT_QUOTA_PROFILE;
+  expect(profile, 'a plan applies to this account').toBeTruthy();
+  const plan = usage.getByTestId('quant-usage-plan');
+  await expect(plan).toHaveAttribute('data-profile', profile);
+  await expect(plan).toHaveAttribute('data-source', assigned ? 'assigned' : 'default');
+  await expect(plan).toContainText(`Plan: ${profile} (${assigned ? 'set for this account' : 'the default plan'})`);
+  const stored = Object.fromEntries((await (await quotaDoor()).profile(profile)).limits.map((row) => [row.resource, row.limit]));
+
+  const row = (resource) => usage.locator(`[data-resource="${resource}"]`);
+  const expected = { strategies: String(saved), runs: String(ran), collaborators: '0' };
+  for (const [resource, label] of [
+    ['strategies', 'Saved strategies'],
+    ['runs', 'Stored runs'],
+    ['storage', 'Source and result storage (bytes)'],
+    ['collaborators', 'Collaborators per strategy'],
+  ]) {
+    await expect(row(resource)).toHaveCount(1);
+    await expect(row(resource).getByRole('rowheader')).toHaveText(label);
+    if (expected[resource]) await expect(row(resource)).toHaveAttribute('data-used', expected[resource]);
+    // Against the plan: the limit shown is the one the plan stores, or "not set" when it is blank.
+    const limit = stored[resource] ?? null;
+    await expect(row(resource)).toHaveAttribute('data-limit', limit ?? '');
+    await expect(row(resource).locator('td').nth(1)).toHaveText(limit ?? 'not set');
   }
+  // Storage is the bytes of the source of every version this account keeps (the recycle bin's too) and of every stored
+  // run's result, each row read from svc-quant's own tables and measured here in UTF-8 bytes.
+  const bytes = await quantDb(async (sql) => {
+    const sources = await sql`SELECT v.source FROM quant.strategy_versions v JOIN quant.strategies s ON s.id = v.strategy_id
+      WHERE s.account_id = ${accountId}`;
+    const results = await sql`SELECT r.result::text AS result FROM quant.runs r WHERE r.user_id = ${accountId}`;
+    expect(sources.length, `${J} #1 to #5 stored versions for this account`).toBeGreaterThan(0);
+    expect(results.length, `${J} #3 stored a run for this account`).toBeGreaterThan(0);
+    const size = (text) => (text == null ? 0 : Buffer.byteLength(text, 'utf8'));
+    return sources.reduce((sum, r) => sum + size(r.source), 0) + results.reduce((sum, r) => sum + size(r.result), 0);
+  });
+  expect(bytes).toBeGreaterThan(0);
+  await expect(row('storage')).toHaveAttribute('data-used', String(bytes));
+  await expect(row('storage').locator('td').first()).toHaveText(String(bytes));
 });
+
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+
+/** One read on svc-quant's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
+async function quantDb(read) {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-quant', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  const sql = postgres(`postgres://svc_quant:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await read(sql);
+  } finally {
+    await sql.end();
+  }
+}
 
 test(`${J} #8 chooses a plan with more data freshness or execution priority: the plan page shows what each tier changes; with no tier published it says so`, async ({
   page,
 }) => {
   await signIn(page, developer());
+  const door = await quotaDoor();
+  const tiers = page.getByTestId('quant-plan-tiers');
+  const empty = tiers.getByTestId('quant-plan-tiers-empty');
+
+  // With no tier published, the plan page says so and offers nothing to choose.
   await page.goto('/quant/strategies');
-  await expect(page.getByTestId('quant-plan-tiers'), 'compute tiers are not built (RC-algo-dev-05)').toBeVisible(UNBUILT);
+  await expect(tiers).toHaveAttribute('aria-label', 'Plan tiers');
+  await expect(empty).toHaveText('No plan tier is published, so there is no other plan to choose.');
+  await expect(tiers.getByRole('button', { name: /^Choose / })).toHaveCount(0);
+
+  // Two TEST tiers on their own TEST profiles: one with fresher data, one with a higher execution priority class.
+  const fresher = planName('fresher data');
+  const sooner = planName('execution priority');
+  await door.plan(fresher, { ...ROOMY, concurrent_runs: '6' });
+  await door.plan(sooner, ROOMY);
+  try {
+    await door.tier(fresher, { dataFreshnessSeconds: '0', priorityClass: '1', published: true });
+    await door.tier(sooner, { dataFreshnessSeconds: '60', priorityClass: '5', published: true });
+    await page.reload();
+    await expect(empty).toHaveCount(0);
+
+    // The plan page shows, for each tier, what it changes: freshness, priority class and every limit of its profile.
+    const cell = (row, tier) => tiers.locator(`tr[data-row="${row}"] td[data-tier="${tier}"]`);
+    await expect(tiers.getByRole('columnheader', { name: fresher })).toBeVisible();
+    await expect(tiers.getByRole('columnheader', { name: sooner })).toBeVisible();
+    await expect(tiers.locator('tr[data-row="freshness"] th')).toHaveText('Data freshness');
+    await expect(cell('freshness', fresher)).toHaveText('As the exchange publishes it');
+    await expect(cell('freshness', sooner)).toHaveText('60 seconds behind the exchange');
+    await expect(tiers.locator('tr[data-row="priority"] th')).toHaveText('Execution priority class');
+    await expect(cell('priority', fresher)).toHaveText('Class 1 (a higher class starts first)');
+    await expect(cell('priority', sooner)).toHaveText('Class 5 (a higher class starts first)');
+    for (const [resource, limit] of Object.entries(ROOMY)) {
+      await expect(cell(resource, sooner)).toHaveText(limit);
+      await expect(cell(resource, fresher)).toHaveText(resource === 'concurrent_runs' ? '6' : limit);
+    }
+
+    // Choosing the fresher tier names what it changes against the developer's plan, which is no published tier.
+    const plan = await page.getByTestId('quant-usage-plan').getAttribute('data-profile');
+    expect(plan, 'a plan applies to this account').toBeTruthy();
+    await tiers.getByRole('button', { name: `Choose ${fresher}` }).click();
+    const choice = page.getByTestId('quant-plan-choice');
+    await expect(choice).toHaveAttribute('data-tier', fresher);
+    await expect(choice.locator('p').first()).toHaveText(`${fresher} against your plan, ${plan}`);
+    await expect(choice.locator('li[data-row="freshness"]')).toHaveText(
+      'Data freshness: not set now, As the exchange publishes it on this tier',
+    );
+    await expect(choice.locator('li[data-row="priority"]')).toHaveText(
+      'Execution priority class: not set now, Class 1 (a higher class starts first) on this tier',
+    );
+    await expect(choice).toContainText('Moving to a tier is not open on this page: an operator assigns the plan.');
+
+    // Choosing the other tier shows its higher priority class instead.
+    await tiers.getByRole('button', { name: `Choose ${sooner}` }).click();
+    await expect(choice).toHaveAttribute('data-tier', sooner);
+    await expect(choice.locator('li[data-row="priority"]')).toHaveText(
+      'Execution priority class: not set now, Class 5 (a higher class starts first) on this tier',
+    );
+  } finally {
+    // Put the world back: both tiers withdrawn, so the next file's plan page lists none.
+    await door.tier(fresher, { dataFreshnessSeconds: '0', priorityClass: '1', published: false });
+    await door.tier(sooner, { dataFreshnessSeconds: '60', priorityClass: '5', published: false });
+  }
+  await page.reload();
+  await expect(empty).toBeVisible();
+});
+
+/** Runs a bar backtest of the renamed strategy's newest version on the TEST tape, slipping by `slippage` basis points. */
+async function startBacktest(page, slippage) {
+  const window = await tapeWindow(60);
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: RENAMED });
+  await room.getByLabel('From (UTC)').fill(window.from);
+  await room.getByLabel('To (UTC)').fill(window.to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+  await room.getByLabel('Slippage (basis points)').fill(String(slippage));
+  await room.getByTestId('quant-backtest-run').click();
+  return room;
+}
+
+test(`${J} #9 starts a fourth run when the plan allows three stored runs: a refusal naming stored runs with 3 used of 3 allowed; the stored runs are unchanged`, async ({
+  page,
+}) => {
+  test.setTimeout(10 * 60_000);
+  const { strategyId } = run.read();
+  if (!strategyId) throw new Error(`${J} #1 listed no strategy, so this step has nothing to run`);
+  // The operator puts this developer on a TEST plan that allows three stored runs and is roomy for everything else.
+  const profile = planName('three stored runs');
+  const door = await quotaDoor();
+  await door.plan(profile, { ...ROOMY, runs: '3' });
+  await door.assign(await userIdOf(developer()), profile);
+  await signIn(page, developer());
+
+  // Up to three stored runs: this strategy's runs from earlier steps, then new backtests (each a new run key).
+  let slippage = 6;
+  for (let held = (await storedRuns(page, strategyId)).length; held < 3; held += 1, slippage += 1) {
+    const room = await startBacktest(page, slippage);
+    await expect(room.getByTestId('quant-bar-result')).toHaveAttribute('data-run-id', /\S/, { timeout: 120_000 });
+  }
+  const before = await storedRuns(page, strategyId);
+  expect(before).toHaveLength(3);
+  await page.goto('/quant/strategies');
+  const runsRow = page.getByTestId('quant-usage').locator('[data-resource="runs"]');
+  await expect(runsRow).toHaveAttribute('data-used', '3');
+  await expect(runsRow).toHaveAttribute('data-limit', '3');
+
+  // The fourth is refused by the plan, naming stored runs with 3 used of 3 allowed.
+  const room = await startBacktest(page, slippage);
+  const refusal = room.getByTestId('quant-quota-refusal');
+  await expect(refusal).toHaveAttribute('data-resource', 'runs', { timeout: 120_000 });
+  await expect(refusal).toHaveAttribute('data-kind', 'exceeded');
+  await expect(refusal).toContainText('Your plan allows 3 stored runs: 3 used of 3 allowed. Nothing was added.');
+  await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
+
+  // The stored runs are unchanged: the same three, and the usage view still counts three.
+  expect(await storedRuns(page, strategyId)).toEqual(before);
+  await page.goto('/quant/strategies');
+  await expect(runsRow).toHaveAttribute('data-used', '3');
 });

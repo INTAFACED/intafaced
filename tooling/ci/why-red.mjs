@@ -5,7 +5,6 @@
  *   node tooling/ci/why-red.mjs 6064            a PR number (its current head)
  *   node tooling/ci/why-red.mjs <40-char sha>   one commit
  *   node tooling/ci/why-red.mjs --orphans       every open PR nobody has pushed to since its CI run went stale
- *   node tooling/ci/why-red.mjs --self-test
  *
  * Measured on 2026-10-23 across ten thread transcripts: a red CI took 7 to 10 calls and 30-40K characters to explain,
  * because the tail of a job log is runner cleanup (Postgres checkpoints, git), so threads fetched 3,000 and then 40,000
@@ -18,6 +17,8 @@
  *   RESEAL   the review is in but the seal stayed red and the sign-off workflow could not re-run it: re-run it once.
  *   RED      the lines say what failed.
  *   SUPERSEDED  a newer push to the PR cancelled this head's run.
+ *   JUDGE DOWN  every red check stopped on GitHub's spent hourly API budget (api-budget.mjs): nothing to fix; re-run
+ *               them once after the reset, never a push (project-state AGENTS.md, "How work flows" 7).
  *
  * Before the verdict, a STALE line names any run on the head whose current attempt started more than three hours after the
  * run was made: a re-run tests the merge commit made then, against main as it was then (30 Oct: #6831, #6832 and #6834
@@ -32,11 +33,12 @@
  */
 import { fileURLToPath } from 'node:url';
 import { ghJson, makeGh } from '../scripts/gate-gh.mjs';
+import { BUDGET_TITLE } from './api-budget.mjs';
 
-const SEAL = 'CI merge seal';
-const REVIEW_STATUS = 'Independent review';
-const RERUN_STATUS = 'Seal re-run'; // review-signoff.mjs posts it red when it could not re-run the seal itself
-const REVIEW_MISSING = 'Review sign-off missing'; // the annotation title review-marker.mjs prints
+export const SEAL = 'CI merge seal';
+export const REVIEW_STATUS = 'Independent review';
+export const RERUN_STATUS = 'Seal re-run'; // the retired review-signoff.mjs posted it red when it could not re-run the seal; old heads may still carry it
+export const REVIEW_MISSING = 'Review sign-off missing'; // the annotation title review-marker.mjs prints
 const MAX_LINES = 8;
 const WIDTH = 200;
 
@@ -172,6 +174,17 @@ export function latestPerName(checks) {
 }
 
 /**
+ * A red check stopped on the spent hourly API budget alone: it has error lines (annotationLine) and every one says so
+ * (api-budget.mjs). One line of its own beside them (a test that failed, a step not proven) keeps it a plain red.
+ */
+export function budgetRed(anns = []) {
+  const said = anns.filter((a) => annotationLine(a));
+  // By the title our own checks write alone: a test failure that quotes GitHub's words is the change's own red (review R1).
+  const isBudget = (a) => a.title === BUDGET_TITLE;
+  return said.length > 0 && said.every(isBudget);
+}
+
+/**
  * The verdict and its lines.
  * @param {{ sha: string, checks: Array<{id:number,name:string,status:string,conclusion:string|null}>,
  *   annotations: Record<number, object[]>, failedSteps: Record<number, string[]>,
@@ -239,7 +252,13 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
     others.every(
       (c) => c.conclusion === 'cancelled' && (annotations[c.id] ?? []).some((a) => /higher priority waiting request/.test(a.message ?? '')),
     );
+  // Every red stopped on the budget (none of its own beside it): a judge down, never a red to push for.
+  const budgetOnly = red.length > 0 && redStatuses.length === 0 && red.every((c) => budgetRed(annotations[c.id]));
   if (superseded) out.push("SUPERSEDED: a newer push cancelled this head's run; read the PR's current head instead.");
+  else if (budgetOnly)
+    out.push(
+      "JUDGE DOWN: GitHub's hourly API budget was spent when these checks ran, so they stopped before judging. Nothing to fix in the code and nothing to push: re-run the failed jobs once after the reset (the lines name it when GitHub said; it comes within the hour): `gh run rerun <run> --failed`.",
+    );
   else if (redStatuses.length > 0 || others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
   else if (red.length === 0 && running.length === 0)
     out.push(sealSeen ? 'GREEN: every check passed on this head.' : `RUNNING: the "${SEAL}" has not reported on this head yet.`);
@@ -296,203 +315,16 @@ export function collect(gh, repo, ref) {
   return { sha, checks, annotations, failedSteps, statuses, runs };
 }
 
-function selfTest() {
-  const assert = (cond, msg) => {
-    if (!cond) throw new Error(`why-red self-test: ${msg}`);
-  };
-  const sha = 'a'.repeat(40);
-  const fail = (message, extra = {}) => ({ annotation_level: 'failure', path: '.github', message, ...extra });
-  const ok = (id, name) => ({ id, name, status: 'completed', conclusion: 'success' });
-  const red = (id, name) => ({ id, name, status: 'completed', conclusion: 'failure' });
-  const review = fail(`No success status "Independent review" on ${sha}.`, { title: REVIEW_MISSING });
-  const last = (r) => r[r.length - 1];
-
-  assert(annotationLine(fail('Process completed with exit code 1.')) === null, 'drops the exit-code boilerplate');
-  assert(annotationLine({ annotation_level: 'notice', message: 'ubuntu-latest will migrate' }) === null, 'drops notices');
-  assert(
-    annotationLine(fail('command (/home/runner/work/x/x/services/svc-support) /bin/pnpm run typecheck exited (1)')) ===
-      'svc-support: typecheck failed (exit 1)',
-    'names the package a turbo task failed in',
-  );
-  assert(
-    annotationLine(fail('AssertionError: expected false', { path: 'packages/config/a.test.ts', start_line: 281 })) ===
-      'packages/config/a.test.ts:281 AssertionError: expected false',
-    'keeps the file and line',
-  );
-
-  const base = { sha, annotations: {}, failedSteps: {}, statuses: [] };
-  assert(last(summarize({ ...base, checks: [ok(1, 'Format'), ok(2, SEAL)] })).startsWith('GREEN'), 'all green');
-  assert(last(summarize({ ...base, checks: [] })).startsWith('RUNNING'), 'no checks yet is not green');
-  assert(last(summarize({ ...base, checks: [ok(1, 'Gate-file guard')] })).startsWith('RUNNING'), 'green without the seal is not green');
-  assert(
-    last(summarize({ ...base, checks: [ok(1, 'Format'), { id: 2, name: 'Tests', status: 'in_progress', conclusion: null }] })).startsWith(
-      'RUNNING',
-    ),
-    'running',
-  );
-
-  const onlyReview = {
-    ...base,
-    checks: [ok(1, 'Format'), red(2, SEAL)],
-    annotations: { 2: [review, fail('Process completed with exit code 1.')] },
-  };
-  assert(last(summarize(onlyReview)).startsWith('REVIEW'), 'a seal red only for the review says so');
-  assert(!summarize(onlyReview).some((l) => l.startsWith('RED ')), 'and lists nothing as red');
-  assert(
-    last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).startsWith('REVIEW'),
-    'a review status alone is still a REVIEW red',
-  );
-  assert(
-    last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).includes('no longer reads statuses'),
-    'and says a status no longer seals: the CI review job does',
-  );
-  assert(
-    last(summarize({ ...onlyReview, statuses: [{ context: RERUN_STATUS, state: 'failure' }] })).startsWith('RESEAL'),
-    'a failed sign-off re-run asks for one re-run by hand',
-  );
-  const reviewAndRunning = {
-    ...onlyReview,
-    checks: [...onlyReview.checks, { id: 6, name: 'Gitleaks', status: 'in_progress', conclusion: null }],
-  };
-  assert(last(summarize(reviewAndRunning)).startsWith('RUNNING'), 'never "nothing to fix" while another check still runs');
-  const sealWaiting = { ...base, checks: [ok(1, 'Format'), { id: 2, name: SEAL, status: 'in_progress', conclusion: null }] };
-  assert(last(summarize(sealWaiting)).includes('waiting for the independent review'), 'a running seal alone may be the review wait');
-
-  // Never "nothing to fix" while anything else is red, or while the seal is red for another reason.
-  const testsRed = {
-    ...onlyReview,
-    checks: [...onlyReview.checks, red(3, 'Tests (changed)')],
-    annotations: { ...onlyReview.annotations, 3: [fail(' FAIL  src/a.test.ts > b')] },
-  };
-  const r = summarize(testsRed);
-  assert(last(r).startsWith('RED'), 'a red job beside the review wait is RED');
-  assert(
-    r.some((l) => l.includes('FAIL src/a.test.ts > b')),
-    'and names the failing test',
-  );
-  const sealOther = { ...base, checks: [red(2, SEAL)], annotations: { 2: [review, fail('needed job build: failure')] } };
-  assert(last(summarize(sealOther)).startsWith('RED'), 'a seal red for another reason is RED');
-  const sealBare = { ...base, checks: [red(2, SEAL)], annotations: { 2: [fail('Process completed with exit code 1.')] } };
-  assert(last(summarize(sealBare)).startsWith('RED'), 'a seal red with no review annotation is RED');
-  const cancelled = { ...base, checks: [{ ...red(4, 'Tests (1)'), conclusion: 'cancelled' }] };
-  assert(last(summarize(cancelled)).startsWith('RED'), 'cancelled is not green');
-  const statusRed = { ...base, checks: [ok(1, 'Format')], statuses: [{ context: 'Gitleaks', state: 'failure' }] };
-  assert(
-    summarize(statusRed).some((l) => l.includes('status Gitleaks')),
-    'a red commit status is listed',
-  );
-  assert(
-    last(summarize({ ...statusRed, checks: [ok(1, 'Format'), ok(2, SEAL)] })).startsWith('RED'),
-    'a red commit status makes the verdict RED, never GREEN',
-  );
-  const sealFirst = summarize({ ...testsRed, checks: [red(2, SEAL), ok(1, 'Format'), red(3, 'Tests (changed)')] });
-  assert(
-    sealFirst.findIndex((l) => l.includes(SEAL)) > sealFirst.findIndex((l) => l.includes('Tests (changed)')),
-    'the seal prints after the jobs it follows',
-  );
-
-  const cancelledByPush = fail('Canceling since a higher priority waiting request for CI-refs/pull/1/merge exists');
-  const supersededRun = summarize({
-    ...base,
-    checks: [{ ...red(10, 'Tests (1/8)'), conclusion: 'cancelled' }, red(2, SEAL)],
-    annotations: { 10: [cancelledByPush], 2: [fail('needed job tests-full: cancelled')] },
-  });
-  assert(last(supersededRun).startsWith('SUPERSEDED'), 'a run cancelled by a newer push says so');
-  assert(last(summarize(cancelled)).startsWith('RED'), 'a cancel for another reason stays RED');
-
-  const rerun = summarize({
-    ...base,
-    checks: [
-      { ...red(7, 'Gate-file guard'), started_at: '2026-10-23T09:00:00Z' },
-      { ...ok(8, 'Gate-file guard'), started_at: '2026-10-23T09:05:00Z' },
-      ok(2, SEAL),
-    ],
-  });
-  assert(last(rerun).startsWith('GREEN'), 'a check that failed and then passed on a later run is green');
-  const rerunRed = summarize({
-    ...base,
-    checks: [
-      { ...ok(8, 'Gate-file guard'), started_at: '2026-10-23T09:00:00Z' },
-      { ...red(9, 'Gate-file guard'), started_at: '2026-10-23T09:05:00Z' },
-      ok(2, SEAL),
-    ],
-  });
-  assert(last(rerunRed).startsWith('RED'), 'a check that passed and then failed on a later run is red');
-
-  const bare = summarize({
-    ...base,
-    checks: [red(5, 'Doctrine gates')],
-    failedSteps: { 5: ['Doctrine gates (the same list `pnpm verify` runs)'] },
-  });
-  assert(
-    bare.some((l) => l.includes('failed step: Doctrine gates')),
-    'a red job with no annotations names its failed step',
-  );
-  const job = (id, name, run, status = 'in_progress', conclusion = null) => ({
-    id,
-    name,
-    status,
-    conclusion,
-    details_url: `https://github.com/o/r/actions/runs/${run}/job/${id}`,
-  });
-  const old = { event: 'pull_request', run_attempt: 3, created_at: '2026-10-30T02:47:29Z', run_started_at: '2026-10-30T13:35:00Z' };
-  const stale = summarize({ ...base, checks: [job(9, 'Tests (changed)', 40993723454)], runs: { 40993723454: old } });
-  assert(
-    stale.some((l) => l.startsWith('STALE    run 40993723454') && l.includes('attempt 3')),
-    'an old pull_request run re-run hours later is named stale (#6832, 30 Oct)',
-  );
-  assert(runIdOf({ details_url: 'https://github.com/o/r/actions/runs/77/job/2' }) === '77', 'reads the run id');
-  const at = (over) => ({ 1: { ...old, ...over } });
-  const testsJob = [job(5, 'Tests (changed)', 1)];
-  assert(staleLines(at({ run_started_at: '2026-10-30T03:30:00Z' }), testsJob).length === 0, 'a prompt confirmation re-run is not stale');
-  assert(staleLines(at({ run_attempt: 1 }), testsJob).length === 0, 'a first attempt that waited in the queue is not stale');
-  assert(staleLines(at({ event: 'push' }), testsJob).length === 0, 'a push run has no merge commit to go stale');
-  assert(staleLines(at({}), [job(6, SEAL, 1)]).length === 0, "the sign-off workflow's re-run of the seal is not stale");
-  assert(staleLines(at({}), [job(5, 'Tests (changed)', 1, 'completed', 'success')]).length === 0, 'a green run needs no advice');
-  assert(staleLines({ 1: null }, testsJob).length === 0, 'an unread run says nothing');
-  const now = Date.parse('2026-10-30T13:40:00Z');
-  const pr = { number: 6832, title: 'feat: x', headSha: 'b'.repeat(40) };
-  const run = { id: 40993723454, created_at: '2026-10-30T02:47:29Z', run_started_at: '2026-10-30T13:16:00Z', run_attempt: 3 };
-  const testsRerun = [
-    { name: 'Tests (changed)', run_attempt: 3 },
-    { name: SEAL, run_attempt: 3 },
-  ];
-  const orphan = (over = {}, jobs = testsRerun) => orphanLines([pr], { [pr.headSha]: { run: { ...run, ...over }, jobs } }, now);
-  assert(
-    orphan()[0].startsWith('ORPHAN   #6832 CI run 40993723454 was made 10.9h ago'),
-    'an old run re-run with no push is an orphan (#6832, 30 Oct)',
-  );
-  const clean = (lines) => lines.length === 1 && lines[0].startsWith('NO ORPHANS');
-  assert(clean(orphan({ run_attempt: 1 })), 'an old PR nobody re-ran is only waiting');
-  assert(clean(orphan({ created_at: '2026-10-30T12:00:00Z' })), 'a recent push is not an orphan');
-  assert(clean(orphan({ run_started_at: '2026-10-30T03:00:00Z' })), 'a prompt confirmation re-run is not an orphan');
-  assert(
-    clean(
-      orphan({}, [
-        { name: 'Tests (changed)', run_attempt: 1 },
-        { name: SEAL, run_attempt: 3 },
-      ]),
-    ),
-    "the sign-off workflow's seal re-run is not an orphan",
-  );
-  assert(clean(orphanLines([pr], { [pr.headSha]: null }, now)), 'a head with no CI run says nothing');
-  const unread = orphanLines([pr], {}, now);
-  assert(unread.length === 1 && unread[0].startsWith('UNREAD   the CI runs of #6832'), 'an unread head is named, never passed as fine');
-  console.log('why-red self-test ok');
-}
-
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const ri = args.indexOf('--repo');
   const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
   const ref = args.find((a, i) => !a.startsWith('--') && (ri < 0 || i !== ri + 1));
   const usage = () => {
-    console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --orphans [--repo owner/name] | --self-test');
+    console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --orphans [--repo owner/name]');
     process.exit(2);
   };
-  if (args.includes('--self-test')) {
-    selfTest();
-  } else if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
     usage();
   } else if (args.includes('--orphans')) {
     if (ref) usage();

@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -590,8 +591,7 @@ export class ConversionService {
     }
     const evidence = await this.lookup(row);
     if (!evidence) this.assertAbsentProven(row, proposal);
-    const applied = await this.deps.sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+    const applied = await this.deps.sql.begin(async (tx) => {
       const locked = await tx<OrderRow[]>`
         SELECT ${tx.unsafe(ORDER_COLS)} FROM pay.conversion_orders
          WHERE id = ${row.id}
@@ -1149,8 +1149,7 @@ export class ConversionService {
     failure: string | null,
   ): Promise<Inserted> {
     try {
-      return await this.deps.sql.begin(async (raw) => {
-        const tx = raw as unknown as Sql;
+      return await this.deps.sql.begin(async (tx) => {
         await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.conversion:${quote.settlement_id}`}))`;
         const taken = await tx<Array<{ request_id: string }>>`
           SELECT request_id FROM pay.conversion_orders WHERE quote_id = ${quote.id}
@@ -1454,14 +1453,13 @@ export class ConversionService {
   }
 
   private async book(row: OrderRow, order: VenueOrder): Promise<OrderRow> {
-    return this.deps.sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+    return this.deps.sql.begin(async (tx) => {
       return this.bookIn(tx, row, order);
     });
   }
 
   /** Caller holds the row lock on `sql`. A terminal row is left alone. */
-  private async bookIn(sql: Sql, row: OrderRow, order: VenueOrder): Promise<OrderRow> {
+  private async bookIn(sql: Queryable, row: OrderRow, order: VenueOrder): Promise<OrderRow> {
     const locked = await sql<OrderRow[]>`
       SELECT ${sql.unsafe(ORDER_COLS)} FROM pay.conversion_orders WHERE id = ${row.id} FOR UPDATE
     `;
@@ -1485,7 +1483,7 @@ export class ConversionService {
     return this.mark(fresh.id, { status: 'placed', venueOrderId: order.venueOrderId }, sql);
   }
 
-  private async bookFill(sql: Sql, row: OrderRow, order: VenueOrder): Promise<OrderRow> {
+  private async bookFill(sql: Queryable, row: OrderRow, order: VenueOrder): Promise<OrderRow> {
     let finalOrder = order;
     if (order.remaining > 0n && OPEN_AT_VENUE.has(order.status)) {
       try {
@@ -1614,7 +1612,7 @@ export class ConversionService {
       filledTo?: Amount;
       venueOrderId?: string | null;
     },
-    sql: Sql = this.deps.sql,
+    sql: Queryable = this.deps.sql,
   ): Promise<OrderRow> {
     const row = await this.markIf(id, null, patch, sql);
     if (!row) throw new ConversionError('pay.conversion_unavailable', 'SERVICE_UNAVAILABLE');
@@ -1632,7 +1630,7 @@ export class ConversionService {
       filledTo?: Amount;
       venueOrderId?: string | null;
     },
-    sql: Sql = this.deps.sql,
+    sql: Queryable = this.deps.sql,
   ): Promise<OrderRow | null> {
     const rows = onlyStatus
       ? await sql<OrderRow[]>`
@@ -1837,8 +1835,7 @@ export class ConversionService {
   ): Promise<OrderRow> {
     const status = evidence.status === 'filled' && evidence.remaining === 0n ? 'filled' : 'partially_filled';
     const clearing = await this.deps.ledger.balance(merchantClearing(row.merchant_id, row.from_asset));
-    return this.deps.sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+    return this.deps.sql.begin(async (tx) => {
       const updated = await tx<Array<{ request_id: string }>>`
         UPDATE pay.conversion_late_fill_books
            SET status = 'confirmed', confirmed_by = ${actor}, funding = ${funding}, decided_at = now()
@@ -1899,7 +1896,7 @@ export class ConversionService {
    * closed so the open-ack index can take the booked sentence.
    */
   private async acknowledgeBookedLateFill(
-    tx: Sql,
+    tx: Queryable,
     proposal: { request_id: string; audit_id: string; proposed_by: string },
     actor: string,
     audit: { id: string; conversion_id: string; detail: unknown; created_at: Date },
@@ -2000,8 +1997,7 @@ export class ConversionService {
 
   /** Insert the late-fill audit once. A second sweeper sees the row and does not insert again. */
   private async recordLateFill(row: OrderRow, evidence: VenueOrder, actor: string): Promise<boolean> {
-    return this.deps.sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+    return this.deps.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.conversion.late:${row.id}`}))`;
       const seen = await tx<Array<{ id: string }>>`
         SELECT id FROM pay.conversion_audit

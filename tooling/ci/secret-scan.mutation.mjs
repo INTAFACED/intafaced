@@ -445,12 +445,55 @@ const MUTANTS = [
     why: 'only runner.os, runner.arch and hashFiles expressions are a cache key: an inputs reference behind `key` is still a finding',
   },
   {
+    id: 'actions-cache-key-per-commit',
+    file: '.github/workflows/ci.yml',
+    content:
+      'steps:\n  - with:\n      key: turbo-build-${{ runner.os }}-${{ github.sha }}\n      restore-keys: turbo-build-${{ runner.os }}-\n',
+    catch: false,
+    why: 'a cache saved once per commit names it by github.sha, the public commit id, and restores by its dash-ended prefix',
+  },
+  {
+    id: 'actions-cache-key-other-github-expression',
+    file: '.github/workflows/ci.yml',
+    content: 'steps:\n  - with:\n      key: tools-${{ github.token }}\n',
+    catch: true,
+    why: 'github.sha is the only github expression a cache key may hold: github.token behind `key` is still a finding',
+  },
+  {
+    id: 'actions-cache-restore-keys-literal',
+    file: '.github/workflows/ci.yml',
+    content: 'steps:\n  - with:\n      restore-keys: tok3n9xq7-\n',
+    catch: true,
+    why: 'a restore-keys prefix is lowercase letter words and runner expressions only: a digit-bearing literal is still a finding',
+  },
+  {
+    id: 'cache-restore-keys-outside-github',
+    file: 'tooling/infra/tls.yml',
+    content: 'tls:\n  restore-keys: turbo-build-\n',
+    catch: true,
+    why: 'the restore-keys carve-out applies under .github/ only',
+  },
+  {
     id: 'cache-key-shape-outside-github',
     file: 'tooling/infra/tls.yml',
     alsoTracked: { 'packages/x/pom.xml': '<project/>\n' },
     content: "tls:\n  key: java-tools-${{ hashFiles('packages/x/pom.xml') }}\n",
     catch: true,
     why: 'the cache-key carve-out applies under .github/ only: the same shape in any other config is still a finding',
+  },
+  {
+    id: 'actions-step-output-with-secret-fallback',
+    file: '.github/workflows/review.yml',
+    content: 'jobs:\n  r:\n    steps:\n      - env:\n          READ_TOKEN: ${{ steps.mint.outputs.token || secrets.READ_TOKEN }}\n',
+    catch: false,
+    why: "a minted token's step output, falling back to a secret: every operand is a reference, none a literal (project-state #1571)",
+  },
+  {
+    id: 'actions-step-output-with-literal-fallback',
+    file: '.github/workflows/review.yml',
+    content: `jobs:\n  r:\n    steps:\n      - env:\n          READ_TOKEN: \${{ steps.mint.outputs.token || '${V}' }}\n`,
+    catch: true,
+    why: 'a quoted literal as the fallback is a committed credential, whatever reference stands before it',
   },
 ];
 

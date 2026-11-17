@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { isSerializationFailure, transaction } from '@intafaced/db';
+import { isSerializationFailure, transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import {
   blueprintProfileSchema,
@@ -303,7 +303,12 @@ export class BlueprintService implements BlueprintContract {
     });
   }
 
-  private async upsertBlueprint(tx: Sql, input: OnboardInput, engineVersion: string, profile: BlueprintProfile): Promise<BlueprintRecord> {
+  private async upsertBlueprint(
+    tx: Queryable,
+    input: OnboardInput,
+    engineVersion: string,
+    profile: BlueprintProfile,
+  ): Promise<BlueprintRecord> {
     const rows = await tx<BlueprintRow[]>`
       INSERT INTO blueprint.blueprints (user_id, engine_version, profile, visibility, mentor_available)
       VALUES (
@@ -339,7 +344,7 @@ export class BlueprintService implements BlueprintContract {
    * crew" should be answerable from the row, and a re-run that changed nothing
    * is itself a fact worth having.
    */
-  private async placeInCrew(tx: Sql, userId: string, profile: BlueprintProfile): Promise<Placement> {
+  private async placeInCrew(tx: Queryable, userId: string, profile: BlueprintProfile): Promise<Placement> {
     const season = publishedSeason(this.season);
     const candidates = await this.loadCandidates(tx, season);
     const ranked = rankCrews(profile, candidates);
@@ -407,7 +412,7 @@ export class BlueprintService implements BlueprintContract {
    * itself stable, which matters less than the tie-break in `rankCrews`
    * but costs nothing and removes a variable.
    */
-  private async loadCandidates(tx: Sql, season: number): Promise<CrewCandidate[]> {
+  private async loadCandidates(tx: Queryable, season: number): Promise<CrewCandidate[]> {
     const rows = await tx<Array<{ crew_id: string; capacity: number; occupied: number; members: MatchableProfile[] }>>`
       SELECT
         c.id AS crew_id,
@@ -449,7 +454,7 @@ export class BlueprintService implements BlueprintContract {
    * `insertMembership` enforces capacity against, so a seat with no profile
    * still makes the derived crew occupied.
    */
-  private async membershipCount(tx: Sql, crewId: string): Promise<number> {
+  private async membershipCount(tx: Queryable, crewId: string): Promise<number> {
     const counted = await tx<Array<{ count: number }>>`
       SELECT COUNT(*)::int AS count FROM blueprint.crew_members WHERE crew_id = ${crewId}
     `;
@@ -464,7 +469,7 @@ export class BlueprintService implements BlueprintContract {
    * forming, and the first zero wins. An empty row is reused. A crew that
    * already has members, including a member with no blueprint, is left alone.
    */
-  private async formStartFreshCrew(tx: Sql, season: number, userId: string): Promise<{ id: string; name: string }> {
+  private async formStartFreshCrew(tx: Queryable, season: number, userId: string): Promise<{ id: string; name: string }> {
     for (let step = 0; ; step += 1) {
       const crewId = startFreshCrewId(season, userId, step);
       if ((await this.membershipCount(tx, crewId)) > 0) continue;
@@ -481,7 +486,7 @@ export class BlueprintService implements BlueprintContract {
    * makes the check correct even if a future caller runs this at a weaker
    * isolation level.
    */
-  private async insertMembership(tx: Sql, crewId: string, userId: string, role: CrewRole): Promise<void> {
+  private async insertMembership(tx: Queryable, crewId: string, userId: string, role: CrewRole): Promise<void> {
     const crews = await tx<Array<{ capacity: number }>>`
       SELECT capacity FROM blueprint.crews WHERE id = ${crewId} FOR UPDATE
     `;
@@ -518,7 +523,7 @@ export class BlueprintService implements BlueprintContract {
    * finite: when a season already holds the derived name, the id's first bytes
    * disambiguate — still deterministic, still the same name on every retry.
    */
-  private async formCrew(tx: Sql, crewId: string, season: number): Promise<{ id: string; name: string }> {
+  private async formCrew(tx: Queryable, crewId: string, season: number): Promise<{ id: string; name: string }> {
     const existing = await tx<Array<{ id: string; name: string }>>`
       SELECT id, name FROM blueprint.crews WHERE id = ${crewId}
     `;
@@ -542,7 +547,7 @@ export class BlueprintService implements BlueprintContract {
     return { id: row.id, name: row.name };
   }
 
-  private async loadCrew(tx: Sql, crewId: string): Promise<{ id: string; name: string }> {
+  private async loadCrew(tx: Queryable, crewId: string): Promise<{ id: string; name: string }> {
     const rows = await tx<Array<{ id: string; name: string }>>`
       SELECT id, name FROM blueprint.crews WHERE id = ${crewId}
     `;
@@ -552,7 +557,7 @@ export class BlueprintService implements BlueprintContract {
   }
 
   private async recordMatchRun(
-    tx: Sql,
+    tx: Queryable,
     userId: string,
     candidates: ReadonlyArray<{ crewId: string; size: number }>,
     scores: Record<string, number>,
@@ -587,7 +592,7 @@ export class BlueprintService implements BlueprintContract {
 
   // ── Mentor shortlist (§7.1) ────────────────────────────────────────────────
 
-  private async writeMentorShortlist(tx: Sql, studentId: string, profile: BlueprintProfile): Promise<MentorMatch[]> {
+  private async writeMentorShortlist(tx: Queryable, studentId: string, profile: BlueprintProfile): Promise<MentorMatch[]> {
     const rows = await tx<Array<{ user_id: string; profile: MentorProfile }>>`
       SELECT user_id, profile
         FROM blueprint.blueprints
@@ -1158,7 +1163,7 @@ export class BlueprintService implements BlueprintContract {
    * UPDATE for the rest of the transaction.
    */
   private async shareCard(
-    tx: Sql,
+    tx: Queryable,
     viewerId: string,
     shareId: string,
     subjectUserId: string | undefined,
@@ -1262,7 +1267,7 @@ export class BlueprintService implements BlueprintContract {
     });
   }
 
-  private async toCardShare(sql: Sql, row: ShareRow): Promise<CardShare> {
+  private async toCardShare(sql: Queryable, row: ShareRow): Promise<CardShare> {
     const counts = await sql<Array<{ n: number }>>`
       SELECT COALESCE(SUM(open_count), 0)::int AS n FROM blueprint.card_opens WHERE share_id = ${row.id}
     `;

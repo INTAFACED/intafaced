@@ -25,7 +25,7 @@ import {
   type VenueCostStore,
 } from './venue-cost-store.js';
 import type { FeeRevenuePort, FeeRevenueRead } from './fee-revenue-client.js';
-import { addDecimalStrings, composeVenueEconomics, periodWindow, subtractCosts } from './venue-economics.js';
+import { addDecimalStrings, addSignedDecimals, composeVenueEconomics, periodWindow, subtractCosts } from './venue-economics.js';
 
 const SECRET = 'a-ops-mount-test-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -273,16 +273,18 @@ describe('ops.venueEconomics and ops.recordVenueCost', () => {
 });
 
 describe('net per asset from ledger fee revenue', () => {
-  const fees = (...assets: Array<[string, string, string]>): FeeRevenueRead => ({
+  const fees = (...assets: Array<[string, string, string] | [string, string, string, string, string]>): FeeRevenueRead => ({
     ok: true,
     value: {
       from: '2026-10-01T00:00:00.000Z',
       to: '2026-11-01T00:00:00.000Z',
-      assets: assets.map(([assetId, collected, returned]) => ({
+      assets: assets.map(([assetId, earned, returned, venueId, collected]) => ({
+        venueId: venueId ?? null,
         assetId,
-        collected,
+        earned,
         returned,
-        net: subtractCosts(collected, returned),
+        net: subtractCosts(earned, returned),
+        collected: collected ?? null,
       })),
     },
   });
@@ -306,8 +308,8 @@ describe('net per asset from ledger fee revenue', () => {
     expect(report.feeRevenue).toEqual({
       status: 'ok',
       assets: [
-        { assetId: 'USD', collected: '20.25', returned: '0.25', net: '20' },
-        { assetId: 'BTC', collected: '0.001', returned: '0', net: '0.001' },
+        { venueId: null, assetId: 'USD', earned: '20.25', returned: '0.25', net: '20', collected: null },
+        { venueId: null, assetId: 'BTC', earned: '0.001', returned: '0', net: '0.001', collected: null },
       ],
     });
     expect(report.net).toEqual({
@@ -319,6 +321,21 @@ describe('net per asset from ledger fee revenue', () => {
     });
     const loss = composeVenueEconomics('t', '2026-10', unwired, all('4'), fees(['USD', '20', '0']));
     expect(loss.net).toEqual({ status: 'ok', byAsset: [{ asset: 'USD', revenue: '20', costs: '28', net: '-8' }] });
+  });
+
+  it('sums an asset kept over every venue row and ours, signed, and leaves collected out of revenue (OWNER 288)', () => {
+    // USD: our own fee kept 2, test-venue earned 5 of which it paid 1.5, other-venue gave back more than it earned (-1).
+    const report = composeVenueEconomics(
+      't',
+      '2026-10',
+      unwired,
+      all('0.5'),
+      fees(['USD', '2', '0'], ['USD', '5', '0', 'test-venue', '1.5'], ['USD', '0', '1', 'other-venue', '0']),
+    );
+    expect(report.net).toEqual({ status: 'ok', byAsset: [{ asset: 'USD', revenue: '6', costs: '3.5', net: '2.5' }] });
+    expect(addSignedDecimals('-1', '-2.5')).toBe('-3.5');
+    expect(addSignedDecimals('-1', '1')).toBe('0');
+    expect(addSignedDecimals('0.000000000000000001', '-1')).toBe('-0.999999999999999999');
   });
 
   it('shows an asset that has costs and no fee movement as revenue zero, once the ledger answered', () => {

@@ -15,7 +15,6 @@ import {
   ActivitySortBoundedError,
   ActivityTaxEffectMapUnsetError,
   ActivityTaxYearUnsetError,
-  TAX_EFFECT_BY_KIND,
   ActivityUnavailableError,
 } from './activity-service.js';
 
@@ -92,6 +91,8 @@ const activityItem = z.object({
   dispute: z.object({ id: z.string().guid(), status: z.literal('open'), reason: z.string().max(500) }).optional(),
   /** The crypto address a withdrawal went to, when one was recorded. Omitted on every other line. */
   address: z.string().min(1).max(256).optional(),
+  /** Set on a line the partner bank reports (OWNER 226): whose record it is, TEST on the TEST partner. */
+  heldAt: z.object({ label: z.string() }).optional(),
 });
 
 const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
@@ -141,7 +142,7 @@ export function assetPageOf(lines: ReadonlyArray<{ purchase?: true; asset: strin
   return bought && /^[A-Za-z0-9_-]{1,16}$/.test(bought.asset) ? `/coin/${encodeURIComponent(bought.asset)}` : null;
 }
 
-export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'activityRecords'>) {
+export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'activityRecords'> & Partial<Pick<BankServices, 'taxEffects'>>) {
   const savedFilters = () => bank.activityRecords.savedFilters;
   return router({
     /** Named sets of `activity.list` filters, self-only (BK-acct-07). */
@@ -207,14 +208,18 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
         }
       }),
 
-    /** Lines grouped by how they are taxed. Refuses while the owner has not set the effect of each kind. */
+    /**
+     * Lines grouped by how they are taxed. Refuses while the owner has not set the effect of each kind; on a test stack
+     * with the TEST map chosen, answers that map labelled `TEST` (`activity/tax-effects.ts`).
+     */
     taxEffects: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({}).strict())
-      .output(z.object({ effects: z.record(z.string(), z.string()) }))
+      .output(z.object({ effects: z.record(z.string(), z.string()), label: z.literal('TEST').nullable() }))
       .query(() => {
         try {
-          if (Object.keys(TAX_EFFECT_BY_KIND).length === 0) throw new ActivityTaxEffectMapUnsetError();
-          return { effects: { ...TAX_EFFECT_BY_KIND } as Record<string, string> };
+          const map = bank.taxEffects ?? null;
+          if (!map) throw new ActivityTaxEffectMapUnsetError();
+          return { effects: { ...map.effects }, label: map.label };
         } catch (err) {
           activityFailure(err);
         }

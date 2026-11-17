@@ -131,7 +131,7 @@ describe('adapter status door (J-cex-spot-20 #3)', () => {
     const fetchFn = (async (url: string, init: { headers: Record<string, string> }) => {
       seen = { url, headers: init.headers };
       return new Response(JSON.stringify(SBE), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     const read = httpAdapterStatusRead('http://ws.test/', '/internal/sbe/consumers', KEY, 1000, 'svc-ws', fetchFn);
     expect(await read()).toMatchObject({ kind: 'answered', status: 200 });
     expect(seen!.url).toBe('http://ws.test/internal/sbe/consumers');

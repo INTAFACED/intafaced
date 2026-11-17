@@ -3,10 +3,7 @@ import { explainRefusal } from '@/lib/desk/refusal-copy';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { Preferences } from '@intafaced/contracts/ops-console-preferences';
 import type { AnnouncementsView, OpsRead } from './model';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchAnnouncements(): Promise<AnnouncementsView | null> {
   try {
@@ -57,7 +54,7 @@ const unknown = (body: string): ConsoleChangeReply => ({
  * change with a new key.
  */
 export async function postConsoleChange(
-  path: '/api/console-announcements' | '/api/console-preferences' | '/api/service-records',
+  path: '/api/console-announcements' | '/api/console-preferences' | '/api/service-records' | '/api/incidents',
   body: Record<string, unknown>,
 ): Promise<ConsoleChangeReply> {
   let headers: Record<string, string>;

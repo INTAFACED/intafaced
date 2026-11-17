@@ -1,5 +1,7 @@
 # ADR: platform-pages information architecture — the pages are thin because they are read-only
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The parts that wire transfer, deposit and borrow verbs to our ledger apply when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-15. **Law only — craft stays Nitro.**

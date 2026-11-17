@@ -9,9 +9,7 @@ import {
   quantBacktestResultSchema,
   quantStrategyHeadSchema,
   quantStrategyListOutputSchema,
-  type QuantBacktestMetrics,
   type QuantBacktestResult,
-  type QuantCheck,
   type QuantMetric,
   type QuantShareCreated,
   type QuantSplitPreset,
@@ -22,7 +20,8 @@ import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
+import { Button, DataTable, EmptyState, Field, Loading, Panel, Tabs } from '../../shared/ui';
+import { QuotaAwareFailure } from './quota-refusal';
 import { downloadCsv } from '../more/depth-csv';
 import { utcInput } from '../more/quant-analysis';
 import { Read, Select } from '../more/common';
@@ -30,6 +29,8 @@ import { useApi } from '../session/session';
 import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
 import { backtestCopy } from './backtest-copy';
 import { ReportTab, ShareTab, type CreatedShare } from './ReportShare';
+import { MonteCarloPanel } from './MonteCarloPanel';
+import { researchCopy } from './research-copy';
 import { ChecksTab, LogText, MetricsTab } from './result-figures';
 import { reportCopy } from './report-copy';
 import { RunHistory } from './RunHistory';
@@ -335,7 +336,7 @@ export function BacktestRoom() {
                     {t('run')}
                   </Button>
                   {busy && <Loading label={t('running')} />}
-                  {failure && <Failure result={failure} retry={() => strategy && void run(strategy)} />}
+                  {failure && <QuotaAwareFailure result={failure} retry={() => strategy && void run(strategy)} />}
                 </form>
               );
             }}
@@ -423,7 +424,7 @@ function FeeLedger({ symbol }: { symbol: string }) {
   );
 }
 
-const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'log', 'report', 'share'] as const;
+const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'montecarlo', 'log', 'report', 'share'] as const;
 const CHART_W = 1000;
 const CHART_H = 300;
 type ResultTab = (typeof RESULT_TABS)[number];
@@ -449,6 +450,7 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
           checks: t('tabChecks'),
           charts: t('tabCharts'),
           trades: t('tabTrades'),
+          montecarlo: researchCopy.t('mcTitle'),
           log: t('tabLog'),
           report: reportCopy.t('tabReport'),
           share: reportCopy.t('tabShare'),
@@ -459,6 +461,7 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
       {tab === 'checks' && <ChecksTab checks={result.checks} />}
       {tab === 'charts' && <ResultCharts result={result} />}
       {tab === 'trades' && <ResultTrades result={result} />}
+      {tab === 'montecarlo' && <MonteCarloPanel runId={result.runId} />}
       {tab === 'log' && <ResultLog result={result} />}
       {tab === 'report' && <ReportTab runId={result.runId} />}
       {tab === 'share' && <ShareTab runId={result.runId} created={created} />}
@@ -573,6 +576,29 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
             })
           : t('cashAccount')}
       </p>
+      <h4>{t('riskEventsTitle')}</h4>
+      {result.riskEvents.length ? (
+        <ul>
+          {result.riskEvents.map((event) => (
+            <li
+              key={event.ts}
+              data-testid="quant-risk-event"
+              data-kind={event.kind}
+              data-mode={event.mode}
+              data-ts={event.ts}
+              data-equity={event.equity}
+              data-floor={event.floor}
+            >
+              <span lang="zxx">{utcText(event.ts)}</span>{' '}
+              {t(event.mode === 'close_out' ? 'riskEventCloseOut' : 'riskEvent', { equity: event.equity, floor: event.floor })}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted" data-testid="quant-risk-events-none">
+          {t(result.assumptions.includes('equity_stop_at_bar_low') ? 'riskEventsNone' : 'riskEventsUnset')}
+        </p>
+      )}
       <p lang="zxx" data-testid="quant-bar-run-id">
         {t('runId', { id: result.runId })}
       </p>

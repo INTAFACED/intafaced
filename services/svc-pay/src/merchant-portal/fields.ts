@@ -85,7 +85,7 @@ function cleanEmail(value: string): string {
 
 function cleanPhone(value: string): string {
   const trimmed = value.trim();
-  if (!/^\+?[0-9][0-9 .\-]{6,31}$/.test(trimmed)) invalid('supportPhone');
+  if (!/^\+?[0-9][0-9 .-]{6,31}$/.test(trimmed)) invalid('supportPhone');
   return trimmed;
 }
 

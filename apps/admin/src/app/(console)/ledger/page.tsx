@@ -53,6 +53,11 @@ export default async function LedgerOpsPage({ searchParams }: { searchParams: Pr
           Reconciliation alerts
         </Link>
       </p>
+      <p>
+        <Link href="/ledger/treasury" data-testid="treasury-link">
+          Treasury: builder-fee recon
+        </Link>
+      </p>
     </div>
   );
 }

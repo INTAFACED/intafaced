@@ -141,29 +141,14 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
-  tracker: {
-    kind: 'guard',
-    must: /TRACKER REGISTRY INVALID/,
-    note: 'every `done` row is checked against files that must exist — an empty tree makes all 71 claims false rather than unverifiable.',
-  },
-  'services-map': {
-    kind: 'guard',
-    must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
-    note: 'refuses by name when services/ or the compose file is absent, instead of mapping nothing and calling it current.',
-  },
   'truth-check': {
     kind: 'guard',
     must: /AGENTS\.md lost a core rule: file missing/,
     note: 'refuses by name when the agent entry files are absent, instead of reporting no stale rule over nothing.',
   },
-  coverage: {
+  'dead-code': {
     kind: 'guard',
-    must: /coverage-check: tooling\/coverage\.yaml does not exist/,
-    note: 'refuses on the absent matrix by path instead of reporting 0 drift over 0 capabilities.',
-  },
-  reachability: {
-    kind: 'guard',
-    must: /REACHABILITY - \d+ protected module\(s\) were deleted/,
+    must: /DEAD CODE - \d+ protected module\(s\) were deleted/,
     note: 'the protected keep-list is what makes emptiness loud: no subject means every protected module reads as deleted.',
   },
   'tooling-tests': {
@@ -196,11 +181,7 @@ export const ENFORCED = {
     must: /not a git repository/,
     note: 'enumerates via `git ls-files`, which fails hard outside a repo. Refuses, but by throw — no zero-file branch of its own.',
   },
-  'invitation-outreach-golden': {
-    kind: 'guard',
-    must: /no outreach-\*\.golden\.js under/,
-    note: 'a golden suite that finds no goldens is the textbook version of this defect; it refuses instead.',
-  },
+
   killswitch: {
     kind: 'guard',
     must: /kill-switch reachability/,
@@ -212,23 +193,6 @@ export const ENFORCED = {
     note:
       'Class X list-content boundary: with screening.ts gone it cannot prove the list is unshipped and refuses by name ' +
       'rather than printing clean over nothing.',
-  },
-  'marketing-language': {
-    kind: 'guard',
-    must: /MARKETING LANGUAGE SCAN FAILED — packages\/config\/src\/marketing-language\.ts is missing/,
-    note:
-      'DIRECTION §8.9 / D26-P0-16: with the law module gone it cannot prove audited/insured/guaranteed product copy is ' +
-      'owner-sealed and refuses by name rather than printing clean over nothing.',
-  },
-  workspace: {
-    kind: 'guard',
-    must: /no service packages found, so checks 1-10 below each iterated an empty list/,
-    note: 'the most explicit statement of this law in the repo: "This gate cannot pass on a tree it did not open."',
-  },
-  'event-wiring': {
-    kind: 'guard',
-    must: /there is no catalog to check/,
-    note: 'one of the seven that learned this independently — the bus could not report silence, so now it refuses to.',
   },
   'skip-honesty': {
     kind: 'guard',
@@ -249,6 +213,11 @@ export const ENFORCED = {
     must: /ENOENT[\s\S]*env\.ts/,
     note: 'reads packages/config/src/env.ts to learn which secrets exist. Refuses, by throw.',
   },
+  'service-tracing': {
+    kind: 'guard',
+    must: /service-tracing: found no service commands in the compose files; refusing to pass over nothing/,
+    note: "its denominator is the compose files' service commands. With none it refuses by name.",
+  },
   'secret-rotation-readiness': {
     kind: 'guard',
     must: /SECRET ROTATION READINESS FAILED/,
@@ -260,6 +229,11 @@ export const ENFORCED = {
     kind: 'guard',
     must: /scope is EMPTY/,
     note: 'walks every workspace test file; with no test file anywhere it refuses by name instead of printing clean.',
+  },
+  'lint-ratchet': {
+    kind: 'guard',
+    must: /✖ lint-ratchet: (?:no merge base|cannot fetch main)/,
+    note: 'with no repository there is no merge base to lint from (and on CI no main to fetch); it refuses by name.',
   },
   'money-property-mutation': {
     kind: 'uncaught',

@@ -33,6 +33,10 @@ import {
 /** Insert plus delivery scope. `outOfApp: false` is inbox-only (agentActionCompleted). */
 export type CreateNotificationInput = InsertNotificationInput & {
   readonly outOfApp?: boolean;
+  /** Out-of-app channels the person chose for this message: each gets a delivery row even when unusable (dispatch.ts). */
+  readonly askedChannels?: readonly OutOfAppChannel[];
+  /** True: only the asked channels are tried out of app, even where another address is confirmed (an alert's own channels). */
+  readonly onlyAsked?: boolean;
 };
 
 /**
@@ -251,7 +255,7 @@ export class NotifyService {
       }
       span.setAttribute('intafaced.notify.fanout_enabled', true);
 
-      const { outOfApp = true, ...rowInput } = input;
+      const { outOfApp = true, askedChannels, onlyAsked, ...rowInput } = input;
       const result = await this.store.insert(rowInput);
       span.setAttribute('intafaced.notify.inserted', result.inserted);
       span.setAttribute('intafaced.notify.out_of_app', outOfApp);
@@ -266,7 +270,11 @@ export class NotifyService {
       const row = result.notification ?? (await this.store.findBySource(input.userId, input.sourceSubject, input.sourceIdempotencyKey));
       if (!row) return { inserted: result.inserted, notification: result.notification, dispatch: null };
 
-      const dispatch = await this.deps.dispatcher.dispatch(row, { outOfApp });
+      const dispatch = await this.deps.dispatcher.dispatch(row, {
+        outOfApp,
+        ...(askedChannels ? { asked: askedChannels } : {}),
+        ...(onlyAsked ? { only: true } : {}),
+      });
       return { inserted: result.inserted, notification: result.notification, dispatch };
     });
   }

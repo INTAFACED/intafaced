@@ -3,7 +3,7 @@
  * Exchange already gates Origin via apiKeyOriginAllowed. Empty list stays unset
  * (not localhost). Invalid / blank origins refuse before write.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { normalizeOriginHost } from './api-key-origin.js';
 
 export class ApiKeyOriginError extends Error {
@@ -23,7 +23,7 @@ export function normalizeOrigin(value: string | null | undefined): string | null
 }
 
 export async function bindApiKeyOriginAllowlist(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
   keyId: string,
   origins: string[],

@@ -14,16 +14,16 @@ describe('deskState', () => {
     expect(state?.reasons.join(' ')).not.toMatch(/DIRECTION|D26|residual/i);
   });
   it('is open only when both approvals exist', () => {
-    expect(deskState({ feeSharePublished: true, jurisdictionPublished: true, leaderShareBps: '1000' })?.open).toBe(true);
-    expect(deskState({ feeSharePublished: true, jurisdictionPublished: false, leaderShareBps: '1000' })?.open).toBe(false);
+    expect(deskState({ feeSharePublished: true, jurisdictionPublished: true, leaderShareBps: '1337' })?.open).toBe(true);
+    expect(deskState({ feeSharePublished: true, jurisdictionPublished: false, leaderShareBps: '1337' })?.open).toBe(false);
   });
   it('knows nothing before the first read', () => expect(deskState(null)).toBeNull());
 });
 describe('bpsText', () => {
   it('writes basis points as a percent', () => {
-    expect(bpsText('1000')).toBe('10%');
+    expect(bpsText('1300')).toBe('13%');
     expect(bpsText('250')).toBe('2.5%');
-    expect(bpsText('5')).toBe('0.05%');
+    expect(bpsText('7')).toBe('0.07%');
     expect(bpsText(null)).toBeNull();
     expect(bpsText('1.5')).toBeNull();
   });

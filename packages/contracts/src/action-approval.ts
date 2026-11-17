@@ -41,6 +41,22 @@ export const SAME_PERSON_ACTION_TYPES = [
   'bank.step_up.business.addMember',
   'bank.step_up.business.removeMember',
   'bank.step_up.business.setMemberRole',
+  // A business team whose money is partner-held (J-bank-19): a payment proposed (sent at once when no rule applies), each
+  // approval of one, and every door that seats a person or grants a role.
+  'bank.step_up.businessTeam.propose',
+  'bank.step_up.businessTeam.approve',
+  'bank.step_up.businessTeam.invite',
+  'bank.step_up.businessTeam.acceptInvite',
+  'bank.step_up.businessTeam.assignRole',
+  // Paying a business's bill from its partner-held account (J-bank-20).
+  'bank.step_up.businessBills.pay',
+  // Confirming a bulk payment run and paying a contractor batch from a business's partner-held account (J-bank-21).
+  'bank.step_up.businessPayouts.confirmRun',
+  'bank.step_up.businessPayouts.payBatch',
+  // Approving and paying a member's reimbursement from a business's partner-held account (J-bank-22).
+  'bank.step_up.businessCards.approveAndPay',
+  // Exporting a business statement that reaches back past the partner's strong customer authentication age (J-bank-23).
+  'bank.step_up.businessBooks.exportStatement',
   'bank.step_up.cards.unfreeze',
   'bank.step_up.cards.issue',
   'bank.step_up.cards.setLimits',
@@ -113,6 +129,17 @@ export const SAME_PERSON_ACTION_TYPES = [
   // Close every position a copy follow holds and end the follow (CB-copy close-all, J-copy-bots-otc-03 #4). Identity
   // mints it; svc-trade consumes it before it reads the follow. It sells at market, so it can realise a loss.
   'trade.step_up.copy.flatten',
+  // Withdraw from the customer's own account on a user-signed venue (B1, the user-venue door). Identity mints it;
+  // svc-trade consumes it before the venue is asked to prepare the withdrawal, so the wallet is never asked to sign one
+  // that was not confirmed. The venue moves the funds; svc-trade posts no ledger row.
+  'trade.step_up.venue.withdraw',
+  // Create an agent account on the customer's own venue account, with its cap and first funding (J-agents-21 #3).
+  // Identity mints it; svc-trade consumes it before the venue is asked to open the sub-account, so the wallet is never
+  // asked to sign for an agent account that was not confirmed. The venue moves the funds; svc-trade posts no ledger row.
+  'trade.step_up.venue.agentAccount',
+  // Connect one of the customer's own agent API keys to one of their agent accounts (J-agents-21 #6), so the key trades
+  // that account. Identity mints it; svc-trade consumes it before the connection is stored. It moves no value.
+  'trade.step_up.venue.agentConnect',
   // A founder changes one account's governance role (MC-token-02, J-more-catalogue-10 #6). Identity mints it for the
   // founder who runs the two-founder change; svc-token consumes it before the role is written. It moves no value.
   'token.step_up.governance.setRole',

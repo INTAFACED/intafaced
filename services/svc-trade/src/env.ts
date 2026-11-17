@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
+import { parseCustodyLayer, resolveOwnOrderBook } from '@intafaced/ledger-client';
 import { parseOwnerIntegerEnv } from './owner-int-env.js';
 
 // Both, and they are not alternatives. `edgeEnvSchema` authenticates the USER a
@@ -13,6 +14,99 @@ const schema = serviceEnvSchema
     z.object({
       SERVICE_NAME: z.string().default('svc-trade'),
 
+      /**
+       * B1 user-venue door (src/venue/): the base URL of a user-signed venue reached over HTTP. Unset is off: every
+       * `/api/v1/venue/*` route but `status` refuses `trade.user_venue_off`. A TEST venue (the simulator) is refused at boot
+       * unless the raw APP_ENV is exactly dev or test (`refuseTestVenueOutsideTest`).
+       */
+      TRADE_USER_VENUE_URL: z.string().default(''),
+      // J-derivatives-28: more user-signed venues beside TRADE_USER_VENUE_URL, comma-separated; the ticket routes over all.
+      TRADE_USER_VENUE_URLS: z.string().default(''),
+      /** Per call to the venue, milliseconds. A submit that times out is `definite: false` and is read back. */
+      TRADE_USER_VENUE_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(5_000),
+      /** Owner value: our builder address on the venue (lowercase 0x). Blank refuses orders `builder_fee_not_published`. */
+      TRADE_USER_VENUE_BUILDER_ADDRESS: z.string().default(''),
+      /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
+      TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
+      /**
+       * J-agents-21 agent account, NO DEFAULT: the most any person's agent-account cap may be, a decimal in
+       * TRADE_AGENT_ACCOUNT_ASSET. Blank refuses every create `agents.account_ceiling_unset` (src/venue/agent-account.ts).
+       */
+      TRADE_AGENT_ACCOUNT_CEILING: z.string().default(''),
+      /** NO DEFAULT: the one asset an agent account is funded in and its cap counted in. Blank refuses `agents.account_asset_unset`. */
+      TRADE_AGENT_ACCOUNT_ASSET: z.string().default(''),
+      /**
+       * NO DEFAULT, a secret the owner sets: the seed the venue agent keys INTAFACED holds derive from
+       * (src/venue/agent-key.ts). Blank refuses every create `agents.agent_key_unset`.
+       */
+      TRADE_AGENT_KEY_SEED: z.string().default(''),
+      /**
+       * How often our engine judges the protections the venue does not take (J-derivatives-03: a trailing stop, a stop on
+       * the venue's index), in milliseconds. Blank: the engine does not run, and such a stop stays armed, unjudged.
+       */
+      TRADE_PROTECTION_ENGINE_INTERVAL_MS: z.string().default(''),
+      /** NO DEFAULT drain bound: the largest notional of one agent order. Blank refuses every agent order `agents.order_bound_unset`. */
+      TRADE_AGENT_MAX_ORDER_NOTIONAL: z.string().default(''),
+      /** NO DEFAULT drain bound: the worst price an agent order may name, bps from the mark. Blank refuses `agents.price_bound_unset`. */
+      TRADE_AGENT_WORST_PRICE_BPS: z.string().default(''),
+      /** NO DEFAULT drain bound: the markets an assistant may trade, comma-separated venue symbols. Blank refuses `agents.markets_unset`. */
+      TRADE_AGENT_MARKETS: z.string().default(''),
+      /**
+       * NO DEFAULT (J-agents-21 #16): the highest leverage cap a person may set on an agent account, whole times ("5" is
+       * 5x). Blank refuses every leverage cap `agents.limit_ceiling_unset`. The per-order cap's ceiling is
+       * TRADE_AGENT_MAX_ORDER_NOTIONAL.
+       */
+      TRADE_AGENT_MAX_LEVERAGE: z.string().default(''),
+      /**
+       * NO DEFAULT (J-agents-21 #16): the highest daily-loss cap a person may set on an agent account, a decimal in
+       * TRADE_AGENT_ACCOUNT_ASSET. Blank refuses every daily-loss cap `agents.limit_ceiling_unset`.
+       */
+      TRADE_AGENT_MAX_DAILY_LOSS: z.string().default(''),
+      /**
+       * Owner value: the largest page of GET /api/v1/venue/orders (J-developer-05 #6), a whole number 1 to 1000. Blank
+       * refuses every list `trade.venue_orders_page_max_unset`, never a guessed page size.
+       */
+      TRADE_USER_VENUE_ORDERS_PAGE_MAX: z.string().default(''),
+      /**
+       * D-venue-07 builder-fee poster (src/builder-fee/builder-fee-poster.ts): with the door on, how often it reads our users'
+       * venue fills and posts our builder fee on each to the ledger. `off` stops it, so fills wait unposted (the recon then
+       * lists them as not in the ledger); the next run posts each once.
+       */
+      TRADE_BUILDER_FEE_POSTER: z.enum(['on', 'off']).default('on'),
+      TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(10_000),
+      /**
+       * OWNER 288 change 1e: how often the builder-fee recon runs on its own over the last day, with the door on, and logs
+       * `trade.builder_fee_recon_break` when the venue's fills or its own totals and the ledger disagree.
+       */
+      TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
+      /**
+       * J-derivatives-17, J-campaigns-03 (launch money model, rule 5): how often svc-trade reads each venue's own record of
+       * the claims of our builder fees and posts `builderFeeReceive` once per claim. A venue whose adapter does not read
+       * the claim record collects nothing and says so. `off` stops it; the next run posts each claim once.
+       */
+      TRADE_BUILDER_FEE_COLLECT: z.enum(['on', 'off']).default('on'),
+      TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(60_000),
+      /**
+       * Move own funds (OWNER 288 Q4: "Claimed on a schedule and moved to a wallet INTAFACED controls, above a float"). All
+       * four are the owner's; any one blank and the sweep waits, naming it, and nothing moves:
+       * - the float, in USDC, left at the venue (it pays the venue's withdrawal fee, so it is at least that fee);
+       * - the schedule, as how often a run happens;
+       * - the wallet, `<walletId>=<0x address>`, where `walletId`'s first segment names the network that carries it;
+       * - the builder key's seed (a secret; the key is derived, never stored) that signs the withdrawal as
+       *   `TRADE_USER_VENUE_BUILDER_ADDRESS`.
+       */
+      TRADE_OWN_FUNDS_FLOAT: z.string().default(''),
+      TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: z.string().default(''),
+      TRADE_OWN_FUNDS_WALLET: z.string().default(''),
+      TRADE_BUILDER_KEY_SEED: z.string().default(''),
+
+      /**
+       * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST
+       * venue when it connects, recorded with the stack ids `LOCAL TEST stack seed` / `... approval`, so the stack's venue journeys see their
+       * markets. Blank lists nothing (every market then needs two operators). Refused at boot unless the raw APP_ENV is
+       * exactly dev or test, and refused on a venue that is not a TEST venue. Set only by the local stack's launcher.
+       */
+      TRADE_USER_VENUE_TEST_LISTINGS: z.string().default(''),
       /** CB-bots-10 bot verification switch: `required` (unset) or `off`, written explicitly. See algo/bots-verification.ts. */
       TRADE_BOTS_VERIFICATION: z.enum(['required', 'off']).optional(),
       /** CB-bots-10 lowest tier allowed to create a bot (basic|full|institutional). Blank refuses every bot create. */
@@ -46,8 +140,37 @@ const schema = serviceEnvSchema
 
       /** svc-identity — rank perks at order accept + sub-account ownership gate. */
       IDENTITY_URL: z.string().url().default('http://localhost:4002'),
+      /**
+       * svc-agents' address, for its gate on a person's own agent's order (J-agents-08 #4 #6: the person's rules and the
+       * sub-accounts they gave the agent access to). Blank: every grant and agent order refuses agents.policy_unavailable.
+       */
+      AGENTS_URL: z.string().default(''),
+      /**
+       * svc-campaigns' address, for a person's fee-saver coupon on our builder fee (J-campaigns-09 #2 #3). Blank: no
+       * coupon is asked for, and every venue order carries the rank's rate or the builder fee in force.
+       */
+      CAMPAIGNS_URL: z.string().default(''),
+      /**
+       * svc-quant's address, for the strategy version a live run trades (J-algo-dev-07; src/quant/live-run/). Read as the
+       * person, with their own edge-signed principal passed on. Blank: every live start refuses quant.live_plan_unavailable.
+       */
+      QUANT_URL: z.string().default(''),
+      /** `on` lets a live strategy run start (a test stack today). Anything else: every start refuses quant.live_disabled. */
+      TRADE_QUANT_LIVE: z.string().default(''),
+      /**
+       * Owner value: the heartbeat interval a live run's process is watched by, in milliseconds (at least 200). A run with
+       * no heartbeat for this long reads unknown and goes to the reconciler. Blank refuses every start
+       * quant.heartbeat_interval_unset.
+       */
+      TRADE_QUANT_LIVE_HEARTBEAT_MS: z.string().default(''),
       /** Dedicated trading decision key; blank disables new exposure, never founder/read auth. */
       IDENTITY_ADMISSION_SECRET: z.string().default(''),
+
+      /**
+       * svc-notify's address, for the market maintenance windows on the lifecycle read (J-cex-spot-14 #5). Blank: the
+       * read says maintenance is unavailable, never that there is none.
+       */
+      NOTIFY_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
 
       /** svc-matching — the book. This service never runs one of its own. */
       MATCHING_URL: z.string().url().default('http://localhost:4005'),
@@ -59,16 +182,37 @@ const schema = serviceEnvSchema
       TRADE_FIX_DROPCOPY_INGEST_URL: z.string().default(''),
 
       /**
-       * Kill-switch mirror of the `trade.spot` flag (§14 admin controls).
+       * Kill-switch mirror of the `trade.spot` flag (§14 admin controls): our own order book's spot plane.
        *
        * OFF stops NEW orders. It deliberately does not stop cancellations: an
        * operator halting the market must be able to let users out of their
        * positions, and a switch that traps funds is not a safety control.
+       *
+       * Unset follows the custody switch (`resolveOwnOrderBook`, ledger-client): on only when LEDGER_CUSTODY_LAYER is on,
+       * because our own book settles every fill as customer money in our ledger. Set on with custody off refuses boot.
        */
       TRADE_SPOT_ENABLED: z
         .union([z.boolean(), z.string()])
-        .default(true)
-        .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()))),
+        .optional()
+        .transform((v) =>
+          v === undefined ? undefined : typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()),
+        ),
+
+      /**
+       * The custody switch (OWNER 226), the same value svc-ledger reads, with its parser: unset or blank is `off`, any
+       * value but `on` or `off` refuses to start. Read here only to decide our own order book (TRADE_SPOT_ENABLED).
+       */
+      LEDGER_CUSTODY_LAYER: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parseCustodyLayer(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : String(err) });
+            return z.NEVER;
+          }
+        }),
 
       /**
        * Worst price a market BUY may be funded at, above the best ask.
@@ -83,6 +227,15 @@ const schema = serviceEnvSchema
        * `protectionPriceFor` refuses `trade.slippage_cap_unset`. Never invent 200.
        */
       TRADE_MARKET_SLIPPAGE_CAP_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * The owner's spread limit for a spot market order on the user's venue, in basis points of the venue's best bid
+       * (J-cex-spot-03 #2): a market order is refused while the venue's best ask is further than this above its best bid.
+       *
+       * NO DEFAULT. Blank / unset / non-integer → null; a venue spot market order then refuses
+       * `trade.spread_limit_unset` ("protection not set"), on preview and on prepare. Never invented.
+       */
+      TRADE_MARKET_SPREAD_LIMIT_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").
@@ -767,6 +920,34 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
+       * The smallest most-in-total a follow may have, in the quote asset (CB-copy-06, J-copy-bots-otc-02 #2).
+       *
+       * Empty (default) = unset → every Start copying refuses `trade.copy_min_not_set`. Owner value. Never invent one.
+       */
+      TRADE_COPY_MIN_INVESTMENT: z.string().default(''),
+
+      /**
+       * When a copy day starts, as whole minutes east of UTC (-720 to 840): a follower's most per day counts from local
+       * midnight at that offset and resumes the next one (CB-copy-06, J-copy-bots-otc-02 #3).
+       *
+       * Empty (default) = unset → a follow with a daily cap refuses `trade.copy_day_not_set`. Owner value.
+       */
+      TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES: z.string().default(''),
+
+      /**
+       * The oldest chart alert a webhook accepts, in whole seconds (1 to 3600): server time minus the alert's time
+       * (CB-bots-api-signal-01, J-copy-bots-otc-20 #2). Empty (default) = unset → every alert refuses
+       * `trade.signal_latency_not_set`. Owner value; never invented.
+       */
+      TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: z.string().default(''),
+
+      /**
+       * How long a chart alert webhook may place orders for its creator, in whole days (1 to 366). Empty (default) =
+       * unset → every webhook create refuses `trade.signal_webhook_life_not_set`. Owner value; never invented.
+       */
+      TRADE_SIGNAL_WEBHOOK_DAYS: z.string().default(''),
+
+      /**
        * How often the limit-convert sweep prices each waiting limit convert (J-cex-spot-11 #8). Blank (default): no
        * sweep runs, and placing a limit convert refuses `trade.convert_limit_unset`; nothing is ever held unwatched.
        */
@@ -834,10 +1015,30 @@ const schema = serviceEnvSchema
        */
       TRADE_DEVELOPER_REGIONAL_RULE: z.string().default(''),
 
+      /**
+       * The bot policy the developer portal publishes (developer-portal-rest.ts; J-cex-spot-15 #3): plain text, what
+       * automated trading through the API the platform permits and on what terms.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/bot-policy refuses trade.developer_bot_policy_unset and the page reads
+       * "Bot policy: not yet published"; nothing claims a bot is permitted. Longer than 4000 characters refuses boot.
+       * The text is owner content.
+       */
+      TRADE_DEVELOPER_BOT_POLICY: z.string().default(''),
+
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),
     }),
-  );
+  )
+  .transform((raw, ctx) => {
+    // The boot guard: our own order book never runs with the custodial layer off (OWNER 288).
+    const book = resolveOwnOrderBook('TRADE_SPOT_ENABLED', raw.TRADE_SPOT_ENABLED, raw.LEDGER_CUSTODY_LAYER);
+    if ('refusal' in book) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['TRADE_SPOT_ENABLED'], message: book.refusal });
+      return z.NEVER;
+    }
+    return { ...raw, TRADE_SPOT_ENABLED: book.enabled };
+  });
 
+export const tradeEnvSchema = schema;
 export const env = loadEnv(schema);
 export type Env = typeof env;

@@ -4,7 +4,7 @@ import type { Sql } from 'postgres';
 import { withMoneySpan } from '../tracing.js';
 import { assertMarketOpen, assertNotional, assertPrice, assertQty, assertSettlementRails, assertTradable, holdFor } from './risk.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
-import type { EngineAmendResult, MatchingClient } from './matching-client.js';
+import type { EngineAmendRequest, EngineAmendResult, MatchingClient } from './matching-client.js';
 import { BUYBACK_INVALID, isBuybackUser } from './buyback-order.js';
 import { TradeError, type AmendOrderOutcome, type AmendOutcomeCode, type AmendPriority, type Market, type OrderRecord } from './types.js';
 import { TradeService, type AmendOrderInput } from './trade-service.js';
@@ -50,6 +50,12 @@ type AmendHost = {
 
 const FLAG = Symbol.for('intafaced.trade.nativeQtyUpAmend');
 
+/**
+ * An option amend's own engine fields, passed with the one call that sends them (#8579). Never put them on the shared
+ * MatchingClient: one service has one client, so a swapped `amend` leaks one order's fields into every other amend.
+ */
+export type OptionEngineFields = { readonly strike: string | null; readonly expiry: string | null };
+
 function asHost(svc: object): AmendHost {
   return svc as unknown as AmendHost;
 }
@@ -59,6 +65,7 @@ async function amendOrderWithQtyUp(
   principal: Principal,
   orderId: string,
   input: AmendOrderInput,
+  option: OptionEngineFields | null = null,
 ): Promise<AmendOrderOutcome> {
   const host = asHost(this);
   return withMoneySpan('trade.amendOrder', { operation: 'amend_order', userId: principal.userId, orderId }, async () => {
@@ -199,7 +206,8 @@ async function amendOrderWithQtyUp(
         expectedVersion,
         qty: formatAmount(input.qty),
         lifecycleProof,
-      });
+        ...option,
+      } as EngineAmendRequest);
     } catch {
       await host.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
       const frozen = (await host.findOrder(order.id)) ?? funded;

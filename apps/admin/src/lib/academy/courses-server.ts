@@ -4,6 +4,7 @@ import {
   academyCourseListSchema,
   academyCourseSchema,
   academyCreateCourseInputSchema,
+  academyDuplicateCourseInputSchema,
   academySaveOutlineInputSchema,
   academySetCourseStateInputSchema,
   academyUpdateCourseInputSchema,
@@ -110,6 +111,16 @@ export function checkCreate(draft: CourseDraftInput): CheckedInput<CourseDraftIn
 
 export async function createCourse(ctx: FounderCallContext, draft: CourseDraftInput) {
   return reply(await founderCall(ctx, 'academy', 'admin.createCourse', 'POST', draft, readCourse), 'created');
+}
+
+/** AC-course-structure-03: a draft copy of this course at its own address, with a reason. No learner record is copied. */
+export function checkDuplicate(input: { courseId: string; slug: string; title: string; reason: string }) {
+  const parsed = academyDuplicateCourseInputSchema.safeParse(input);
+  return parsed.success ? ({ ok: true, input: parsed.data } as const) : ({ ok: false, why: why(parsed.error.issues) } as const);
+}
+
+export async function duplicateCourse(ctx: FounderCallContext, input: { courseId: string; slug: string; title: string; reason: string }) {
+  return reply(await founderCall(ctx, 'academy', 'admin.duplicateCourse', 'POST', input, readCourse), 'duplicated as a new draft');
 }
 
 export function checkUpdate(input: Omit<CourseDraftInput, 'slug'> & { courseId: string; revision: number }) {

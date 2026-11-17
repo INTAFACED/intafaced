@@ -1,22 +1,35 @@
 // Proves the journey shard split without a run. Run: node --test tooling/scripts/journey-shards.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
   JOURNEY_DIR,
+  MAIN_MAX_SHARDS,
+  MAX_SHARDS,
+  MIN_TARGET_MINUTES,
+  TARGETED_MAX_SHARDS,
+  UNTIMED_STEP_MS,
   estimateDurations,
+  freshFiles,
   fileDurations,
+  fullPlan,
   journeyFiles,
+  longFiles,
   longestDurations,
   planCovers,
   planShards,
   shardCount,
   shardTarget,
+  sourceTitles,
+  stepTime,
+  titleDurations,
+  titleEstimates,
   stepCounts,
   targetFiles,
+  targetedShards,
   timedSteps,
 } from './journey-shards.mjs';
 
@@ -190,7 +203,8 @@ test('a new file and steps added to an old one count at the suite time per step 
   );
 });
 
-test('with no timed file every step counts the same', () => {
+test("with no timed file every step counts the same, a step's time on main", () => {
+  assert.equal(UNTIMED_STEP_MS, 16_000);
   const steps = new Map([
     ['a', 3],
     ['b', 1],
@@ -198,17 +212,55 @@ test('with no timed file every step counts the same', () => {
   assert.deepEqual(
     [...estimateDurations(['a', 'b'], new Map(), new Map(), steps)],
     [
-      ['a', 3],
-      ['b', 1],
+      ['a', 3 * UNTIMED_STEP_MS],
+      ['b', 1 * UNTIMED_STEP_MS],
     ],
   );
+});
+
+// #8032: run 43130806194 could not download the last reports (HTTP 403, the installation's rate limit), planned "about
+// 0 min" on the 8-shard floor, and every shard hit its time limit. With no report the full suite still plans its size.
+test('the planner as the workflow calls it with no report plans the full suite at its real size, not the floor', () => {
+  const run = execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const shards = JSON.parse(run);
+  // Well past the 8-shard floor #8032 fell to: the untimed suite is far over 32 shards of 10 minutes, so it plans past
+  // the old pull-request ceiling, within main's.
+  assert.ok(shards.length > MAX_SHARDS && shards.length <= MAIN_MAX_SHARDS, `${shards.length} shards`);
+  assert.deepEqual(shards.flatMap((s) => s.split(' ')).sort(), journeyFiles(JOURNEY_DIR));
+});
+
+// Every full run aims each shard at the floor, up to main's ceiling, so a pull request's journey meets the same
+// neighbours as on main (MAIN_MAX_SHARDS: #8509's runs 43731598319 and 43745698376 went red in shards of 10 files on
+// steps main passed in shards of 3 to 6). A targeted run keeps its own plan.
+test('every full run, on main or off it, plans 10-minute shards up to 64, the same plan from the same reports', () => {
+  const min = 60_000;
+  assert.deepEqual(fullPlan(), { target: MIN_TARGET_MINUTES * min, max: MAIN_MAX_SHARDS });
+  assert.equal(MAIN_MAX_SHARDS, 64);
+  const plan = (args) =>
+    JSON.parse(
+      execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
+  const main = plan(['--main']);
+  // With no report every step counts UNTIMED_STEP_MS: more shards than the old 32, never past main's ceiling.
+  assert.ok(main.length > MAX_SHARDS && main.length <= MAIN_MAX_SHARDS, `${main.length} shards`);
+  assert.deepEqual(main.flatMap((s) => s.split(' ')).sort(), journeyFiles(JOURNEY_DIR));
+  // A pull request's full run (no --main) gets the very same shards, each with the same files.
+  assert.deepEqual(plan([]), main);
+  // --only wins: a targeted run is never main's, so --main never lifts its cap.
+  assert.ok(plan(['--main', '--only', 'J-wallet-05']).length <= TARGETED_MAX_SHARDS);
 });
 
 test('the shard count keeps each shard near the target, within its floor and ceiling', () => {
   const min = 60_000;
   assert.equal(shardCount(236 * min, 25 * min), 10);
   assert.equal(shardCount(10 * min, 25 * min), 8);
-  assert.equal(shardCount(5000 * min, 25 * min), 48);
+  assert.equal(shardCount(5000 * min, 25 * min), 32);
   assert.equal(shardCount(200 * min, 25 * min), 8);
   assert.equal(shardCount(201 * min, 25 * min), 9);
 });
@@ -298,4 +350,234 @@ test('the planner as the workflow calls it prints shards that hold every real jo
   const printed = shards.flat().sort();
   assert.deepEqual(printed, journeyFiles(JOURNEY_DIR));
   assert.equal(new Set(printed).size, printed.length);
+});
+
+test('a targeted run takes at most 10 shards, packing the same files, while every shard stays clear of the limit', () => {
+  const min = 60_000;
+  assert.equal(TARGETED_MAX_SHARDS, 10);
+  const timed = (n, each) => {
+    const files = Array.from({ length: n }, (_, i) => `J-x-${String(i).padStart(3, '0')}.pw.mjs`);
+    return { files, durations: new Map(files.map((f) => [f, each * min])) };
+  };
+  // 60 files of 5 minutes: the 15-minute target asks 20 shards; 10 shards of 30 minutes each stay clear of 40.
+  const mid = timed(60, 5);
+  assert.equal(Math.min(60, Math.ceil(300 / 15)), 20, 'what the target alone asks');
+  assert.equal(targetedShards(mid.files, mid.durations, 15 * min), 10);
+  const plan = planShards(mid.files, mid.durations, 10);
+  assert.deepEqual(planCovers(plan, mid.files), [], 'the capped plan still runs every file exactly once');
+  // Few files take as few shards as before: the cap never adds one.
+  const few = timed(3, 5);
+  assert.equal(targetedShards(few.files, few.durations, 10 * min), 2);
+  assert.equal(targetedShards(few.files.slice(0, 1), few.durations, 10 * min), 1);
+  // Fails open: 120 files of 5 minutes in 10 shards would need 60 minutes each, so the uncapped count stands.
+  const big = timed(120, 5);
+  assert.equal(targetedShards(big.files, big.durations, 15 * min), 32);
+  // The boundary: exactly at the limit caps; one minute over doesn't.
+  const edge = timed(10, 40);
+  assert.equal(targetedShards(edge.files, edge.durations, 10 * min, 40 * min), 10);
+  assert.equal(targetedShards(edge.files, edge.durations, 10 * min, 39 * min), 10, 'never more shards than the target asks');
+  const over = timed(20, 21);
+  assert.equal(targetedShards(over.files, over.durations, 10 * min, 42 * min), 10);
+  assert.equal(targetedShards(over.files, over.durations, 10 * min, 42 * min - 1), 20);
+});
+
+test('the planner as the workflow calls it for a targeted run prints at most 10 shards holding exactly the named files', () => {
+  const all = journeyFiles(JOURNEY_DIR);
+  const named = all.slice(0, 40);
+  const out = execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', '--only', named.join(' ')], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const shards = JSON.parse(out).map((s) => s.split(' '));
+  assert.ok(shards.length <= TARGETED_MAX_SHARDS, `${shards.length} shards`);
+  assert.deepEqual(shards.flat().sort(), [...named].sort());
+});
+
+// A file that needs a fresh stack (`// Stack: fresh`) runs first in its shard: only files after it in name order, the
+// order Playwright runs a shard in, share its shard (#7994: J-more-catalogue-11 #1 read J-more-catalogue-01 #6's launch).
+test('a file that needs a fresh stack runs first in its shard, whatever the times say', () => {
+  const files = ['J-a.pw.mjs', 'J-b.pw.mjs', 'J-c.pw.mjs', 'J-m.pw.mjs', 'J-x.pw.mjs', 'J-y.pw.mjs', 'J-z.pw.mjs'];
+  const durations = new Map(files.map((f, i) => [f, (i + 1) * 1000]));
+  const fresh = new Set(['J-m.pw.mjs']);
+  for (const shards of [2, 3, 4]) {
+    const plan = planShards(files, durations, shards, fresh);
+    const bin = plan.find((b) => b.files.includes('J-m.pw.mjs'));
+    assert.equal(bin.files[0], 'J-m.pw.mjs', `${shards} shards: ${JSON.stringify(plan)}`);
+    assert.deepEqual(planCovers(plan, files, fresh), []);
+  }
+  // Without the line the same times put J-c before J-m in J-m's shard: the order that broke #7994.
+  const loose = planShards(files, durations, 2);
+  assert.notEqual(loose.find((b) => b.files.includes('J-m.pw.mjs')).files[0], 'J-m.pw.mjs', JSON.stringify(loose));
+});
+
+test('the plan check names a fresh-stack file that another file runs before in its shard', () => {
+  const files = ['J-a.pw.mjs', 'J-m.pw.mjs', 'J-z.pw.mjs'];
+  const broken = [
+    { ms: 2, files: ['J-a.pw.mjs', 'J-m.pw.mjs'] },
+    { ms: 1, files: ['J-z.pw.mjs'] },
+  ];
+  assert.deepEqual(planCovers(broken, files, new Set(['J-m.pw.mjs'])), [
+    'J-m.pw.mjs needs a fresh stack but runs after J-a.pw.mjs in shard 1',
+  ]);
+  assert.deepEqual(planCovers(broken, files), []);
+});
+
+test('a plan that cannot run every fresh-stack file first refuses by name', () => {
+  assert.throws(
+    () => planShards(['J-a.pw.mjs', 'J-m.pw.mjs'], new Map(), 1, new Set(['J-m.pw.mjs'])),
+    /J-a\.pw\.mjs runs before every file that needs a fresh stack/,
+  );
+  assert.throws(
+    () => planShards(['J-a.pw.mjs', 'J-m.pw.mjs'], new Map(), 1, new Set(['J-a.pw.mjs', 'J-m.pw.mjs'])),
+    /2 journey files need a fresh stack and there are 1 shards/,
+  );
+});
+
+test("the repo's fresh-stack files, J-more-catalogue-11 among them, each run first in their shard of the full plan and of a targeted one", () => {
+  const all = journeyFiles(JOURNEY_DIR);
+  const fresh = freshFiles(JOURNEY_DIR, all);
+  assert.ok(fresh.has('J-more-catalogue-11.pw.mjs'), 'J-more-catalogue-11 carries // Stack: fresh');
+  for (const only of [null, 'J-more-catalogue-01.pw.mjs J-more-catalogue-11.pw.mjs']) {
+    const out = execFileSync(
+      process.execPath,
+      ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', ...(only ? ['--only', only] : [])],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    const shards = JSON.parse(out).map((s) => s.split(' '));
+    for (const f of fresh) {
+      const shard = shards.find((s) => s.includes(f));
+      if (shard) assert.equal([...shard].sort()[0], f, `${only ?? 'full'}: ${f} runs after ${[...shard].sort()[0]}`);
+    }
+  }
+});
+
+test('a file far longer than the median shard is named, longest first; the run waits on it whatever the plan (15 Nov 2026)', () => {
+  const min = 60_000;
+  // Main's run 43656238027 in small: shards of about 12 minutes, two files of 23 and 15 minutes, one of 13.
+  const durations = new Map([
+    ['J-long.pw.mjs', 23 * min],
+    ['J-mid.pw.mjs', 15 * min],
+    ['J-near.pw.mjs', 13 * min],
+    ...Array.from({ length: 12 }, (_, i) => [`J-f${String(i).padStart(2, '0')}.pw.mjs`, 6 * min]),
+  ]);
+  const plan = planShards([...durations.keys()], durations, 9);
+  assert.equal(planCovers(plan, [...durations.keys()]).length, 0);
+  assert.deepEqual(
+    longFiles(plan, durations).map(({ file, ms, medianMs }) => [file, ms / min, medianMs / min]),
+    [
+      ['J-long.pw.mjs', 23, 12],
+      ['J-mid.pw.mjs', 15, 12],
+    ],
+    'over the median by more than the 2-minute slack: named; 13 against 12 is within it',
+  );
+  // Split the long file into parts of 12 and 11 minutes and nothing is named.
+  const split = new Map([...durations].filter(([f]) => f !== 'J-long.pw.mjs' && f !== 'J-mid.pw.mjs'));
+  split
+    .set('J-long.pw.mjs', 12 * min)
+    .set('J-long-part.pw.mjs', 11 * min)
+    .set('J-mid.pw.mjs', 8 * min)
+    .set('J-mid-part.pw.mjs', 7 * min);
+  assert.deepEqual(longFiles(planShards([...split.keys()], split, 10), split), []);
+  assert.deepEqual(longFiles([], new Map()), [], 'an empty plan names nothing');
+});
+
+test('the planner as the workflow calls it on main names the files the run waits on in a warning', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'journey-shards-long-'));
+  const files = journeyFiles(JOURNEY_DIR);
+  // Every step timed, so no untimed step adds to a file: the first file 40 minutes, every other 2.
+  const steps = stepCounts(JOURNEY_DIR, files);
+  const suites = files.map((file, i) => {
+    const n = Math.max(1, steps.get(file));
+    return {
+      file,
+      specs: Array.from({ length: n }, () => ({
+        tests: [{ results: [{ status: 'passed', duration: ((i === 0 ? 40 : 2) * 60_000) / n }] }],
+      })),
+    };
+  });
+  const report = path.join(dir, 'report.json');
+  fs.writeFileSync(report, JSON.stringify({ suites }));
+  const run = spawnSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', '--report', report, '--main'], {
+    encoding: 'utf8',
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const warned = run.stderr.split('\n').filter((l) => l.startsWith('::warning::') && l.includes('the run waits on it'));
+  assert.equal(warned.length, 1, run.stderr);
+  assert.ok(warned[0].startsWith(`::warning::${files[0]} takes about 40 min`), warned[0]);
+});
+
+test('a step moved into a part file takes its time with it, found by its title (15 Nov 2026 splits)', () => {
+  const min = 60_000;
+  // Main's report from before the split: every step in J-x.pw.mjs, 20 minutes in all.
+  const before = {
+    suites: [
+      {
+        file: 'J-x.pw.mjs',
+        specs: [
+          { title: 'J-x starts: an account', tests: [{ results: [{ status: 'passed', duration: 2 * min }] }] },
+          { title: 'J-x #1 reads', tests: [{ results: [{ status: 'passed', duration: 3 * min }] }] },
+          {
+            title: 'J-x #2 sends',
+            tests: [
+              {
+                results: [
+                  { status: 'failed', duration: 9 * min },
+                  { status: 'passed', duration: 6 * min },
+                ],
+              },
+            ],
+          },
+          { title: 'J-x #3 never ran', tests: [{ results: [{ status: 'skipped', duration: 0 }] }] },
+        ],
+      },
+    ],
+  };
+  const times = titleDurations(before);
+  assert.equal(times.get('J-x #2 sends'), 15 * min, 'every timed result of a title, retries included');
+  assert.equal(times.has('J-x #3 never ran'), false, 'a skipped step says nothing about its time');
+  const texts = new Map([
+    ['J-x.pw.mjs', "const J = 'J-x';\ntest(`${J} starts: an account`, async () => {});\ntest(`${J} #1 reads`, async () => {});\n"],
+    [
+      'J-x-send.pw.mjs',
+      "const J = 'J-x';\ntest(`${J} starts (send): an account`, async () => {});\ntest(`${J} #2 sends`, async () => {});\ntest(`${J} #3 never ran`, async () => {});\n",
+    ],
+    [
+      'J-loop.pw.mjs',
+      "const J = 'J-loop';\nfor (const n of [1, 2]) test(`${J} #${n}`, async () => {});\n  test(`${J} #${n} too`, () => {});\n",
+    ],
+  ]);
+  assert.deepEqual(sourceTitles(texts.get('J-x.pw.mjs')), ['J-x starts: an account', 'J-x #1 reads']);
+  assert.equal(sourceTitles(texts.get('J-loop.pw.mjs')), null, 'a title with anything but ${J} to fill in is not read');
+  const fallback = new Map([
+    ['J-x.pw.mjs', 20 * min],
+    ['J-x-send.pw.mjs', 1],
+    ['J-loop.pw.mjs', 7 * min],
+  ]);
+  const est = titleEstimates([...texts.keys()], texts, times, min, fallback);
+  assert.equal(est.get('J-x.pw.mjs'), 5 * min, 'the original keeps only the time of the steps it still holds');
+  assert.equal(
+    est.get('J-x-send.pw.mjs'),
+    17 * min,
+    'the part file: #2 moved with its 15 minutes, a new setup and an untimed step a step each',
+  );
+  assert.equal(est.get('J-loop.pw.mjs'), 7 * min, 'an unreadable file keeps its own past time');
+  assert.equal(stepTime(['J-x.pw.mjs'], new Map([['J-x.pw.mjs', 20 * min]]), new Map([['J-x.pw.mjs', 4]])), 5 * min);
+  assert.equal(stepTime([], new Map(), new Map()), UNTIMED_STEP_MS);
+});
+
+test("the repo's journey titles read from their files match the titles main's reports use", () => {
+  const files = journeyFiles(JOURNEY_DIR);
+  const read = files.map((f) => sourceTitles(fs.readFileSync(path.join(JOURNEY_DIR, f), 'utf8')));
+  const readable = read.filter(Boolean);
+  assert.ok(readable.length > files.length * 0.9, `${readable.length} of ${files.length} journey files have readable titles`);
+  const all = readable.flat();
+  assert.equal(new Set(all).size, all.length, 'no title is declared twice across the journey files');
+  assert.ok(
+    all.includes(
+      "J-wallet-05 #8 watches the status: requested, held, broadcast, confirming and settled in plain words, settled only at the owner's depth, and a failure reads as a sentence",
+    ),
+  );
 });

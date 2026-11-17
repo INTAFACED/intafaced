@@ -1,5 +1,7 @@
 # ADR: integrating the vendored exchange platform
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about member_wallet as read-only projection of customer balances; disabling the 25 customer money controllers applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-07-31. Option B: `ledger.*` is the only book.**
 **Decision owner:** repo owner (directed). **Written by:** Denon.
 

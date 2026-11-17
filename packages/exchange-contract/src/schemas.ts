@@ -189,9 +189,12 @@ export const marketSchema = z.object({
     .nullable(),
   /** Full hours payload — continuous or sessions + timezone + windows. */
   hours: marketHoursSchema,
-  /** Taker/maker as a decimal rate (0.001 = 10 bps), per CCXT convention. */
-  taker: decimal,
-  maker: decimal,
+  /**
+   * Taker/maker as a decimal rate (0.001 = 10 bps), per CCXT convention: the published fee schedule's regular-tier
+   * rate, the one fills charge. Null when no schedule is published or its row refuses this market, never a guess.
+   */
+  taker: decimal.nullable(),
+  maker: decimal.nullable(),
   /** Null on spot. A contract size is a positive decimal string, never zero. */
   contractSize: positiveDecimalString.nullable(),
   expiry: timestampMs.nullable(),

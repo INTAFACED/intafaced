@@ -23,11 +23,34 @@
   margin: var(--if-space-2) 0 0;
   color: var(--color-muted);
 }
+/* An own gap reads in the shared empty state, kept to one compact row beside its disabled action. */
+.protocol-room .protocol-actions__gap .empty-state {
+  min-height: 0;
+  padding: var(--if-space-3);
+  flex-direction: row;
+  justify-content: flex-start;
+  text-align: start;
+}
 .protocol-room .protocol-quote {
   display: grid;
   gap: var(--if-space-4);
   max-width: 420px;
   margin-block: var(--if-space-4);
+}
+.protocol-room .protocol-venue-funds label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--if-space-2);
+  margin-inline-end: var(--if-space-4);
+}
+/* The app resets native inputs to appearance: none, which leaves a radio with no size: keep the browser's own, so the
+   chosen direction and asset show. */
+.protocol-room .protocol-venue-funds input[type='radio'] {
+  appearance: auto;
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  accent-color: var(--if-lime);
 }
 .protocol-room .protocol-rails {
   display: grid;

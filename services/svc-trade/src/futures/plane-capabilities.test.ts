@@ -27,7 +27,7 @@ const futuresMarket = (): Market =>
 
 describe('trade plane read', () => {
   it('unset futures stays off and names the same reason a futures write uses', () => {
-    const planes = readTradePlanes({});
+    const planes = readTradePlanes({ LEDGER_CUSTODY_LAYER: 'on' });
     expect(planes.futures).toEqual({ enabled: false, reason: 'trade.futures_disabled' });
     expect(planes.spot).toEqual({ enabled: true });
     const previous = process.env.TRADE_FUTURES_ENABLED;
@@ -56,6 +56,13 @@ describe('trade plane read', () => {
       if (previous === undefined) delete process.env.TRADE_FUTURES_ENABLED;
       else process.env.TRADE_FUTURES_ENABLED = previous;
     }
+  });
+
+  it('unset spot follows the custody switch: off with custody off or unset, on with custody on (OWNER 288)', () => {
+    expect(readTradePlanes({}).spot).toEqual({ enabled: false, reason: 'trade.spot_disabled' });
+    expect(readTradePlanes({ LEDGER_CUSTODY_LAYER: 'off' }).spot).toEqual({ enabled: false, reason: 'trade.spot_disabled' });
+    expect(readTradePlanes({ LEDGER_CUSTODY_LAYER: 'on' }).spot).toEqual({ enabled: true });
+    expect(readTradePlanes({ LEDGER_CUSTODY_LAYER: 'off', TRADE_SPOT_ENABLED: 'false' }).spot.enabled).toBe(false);
   });
 
   it('spot off names trade.spot_disabled and does not leak a secret', () => {

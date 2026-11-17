@@ -22,13 +22,17 @@ export const TOKEN_B = {
   decimals: 18,
   nonce: 0,
 };
+/** TEST Token C has no permit (services/svc-protocol/contracts/test/TestPlainToken.sol): it needs an approve transaction. */
+export const TOKEN_C = { address: '0x00000000000000000000000000000000000c0c00', name: 'TEST Token C', decimals: 18 };
+/** TEST USD, the stack's TEST dollar token. */
+export const TOKEN_USD = { address: '0x000000000000000000000000000000000000d011', name: 'TEST USD', decimals: 6 };
 
 /**
  * The journeys that run on the stack's LOCAL TEST chain (tooling/scripts/local-test-chain.mjs: anvil, chain id 84532,
  * seeded TEST tokens, pools and router). Their wallet is connected to that node and their run's key is funded with
  * TEST ETH and TEST Token A and B when the run starts. Every other journey's wallet reaches no chain, as before.
  */
-export const ON_TEST_CHAIN = new Set(['J-dex-protocol-02', 'J-dex-protocol-04']);
+const ON_TEST_CHAIN = new Set(['J-dex-protocol-02', 'J-dex-protocol-03', 'J-dex-protocol-04', 'J-dex-protocol-10']);
 
 /** The stack's TEST chain: `{ chain: 'running', gate, gateUrl }` or `{ chain: 'absent' }` (no anvil on this stack). */
 export function testChain() {
@@ -37,7 +41,8 @@ export function testChain() {
 
 /**
  * Funds `address` on the TEST chain (TEST ETH for gas, 10,000 TEST Token A and B); refuses by name with no chain.
- * `stable` funds 100 TEST USD only and sets its TEST ETH to zero (J-dex-protocol-02 #11).
+ * `stable` funds 100 TEST USD only and sets its TEST ETH to zero (J-dex-protocol-02 #11); `plain` adds 10,000 TEST Token C,
+ * the token with no permit (J-dex-protocol-03).
  */
 export function fundOnTestChain(address, kind) {
   return kind ? tool('local-test-chain.mjs', 'fund', address, kind) : tool('local-test-chain.mjs', 'fund', address);
@@ -94,6 +99,17 @@ export async function connectWallet(page, dex, { tokens = [], chainId = CHAIN_ID
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
   await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();
   return wallet;
+}
+
+/**
+ * The TEST wallet connected in the open room, until `connected` shows: Connect is pressed once when the room asks for it,
+ * and not at all when the room restored the wallet itself. `within` is the part of the page whose Connect is meant.
+ */
+export async function connectWhenAsked(page, connected, within = page) {
+  const connect = within.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  await expect(connect.or(connected).first()).toBeVisible({ timeout: 30_000 });
+  if (!(await connected.isVisible())) await connect.click();
+  await expect(connected).toBeVisible();
 }
 
 /** Opens one section of the wallet room (Overview, Activity, Approvals, Session keys, Accounts, Safety, ...) by its tab. */

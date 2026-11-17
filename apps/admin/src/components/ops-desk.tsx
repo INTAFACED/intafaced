@@ -6,6 +6,7 @@ import { Chip } from '@/components/chip';
 import {
   AmbassadorActions,
   AppointAmbassadorAction,
+  CardFundingAction,
   CardStatusAction,
   DisputeActions,
   ListingActions,
@@ -20,6 +21,8 @@ import { KycDocumentOpen } from '@/components/kyc-document-open';
 import { KycSelfieDecide } from '@/components/kyc-selfie-decide';
 import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
+import { ProtocolTrust } from '@/components/protocol-trust';
+import { AgentsRoutesDesk } from '@/components/agents-routes-desk';
 import type { Part } from '@/lib/desk/part';
 import { fetchDesk, fetchPage } from '@/lib/ops-desk/browser';
 import { DESKS } from '@/lib/ops-desk/catalog';
@@ -362,6 +365,8 @@ export function SectionView({
         />
       ))}
       {section.panel === 'protocol.blockers' && <ProtocolBlockers view={view} />}
+      {section.panel === 'protocol.trust' && <ProtocolTrust />}
+      {section.panel === 'agents.routes' && <AgentsRoutesDesk />}
       {section.unavailable.length > 0 && (
         <div className="dk-stack" data-testid="unavailable">
           {section.unavailable.map((u) => (
@@ -377,6 +382,9 @@ export function SectionView({
       )}
       {section.sectionAction === 'academy.ambassador.appoint' && <AppointAmbassadorAction userId={ctx.userId} onChanged={ctx.onChanged} />}
       {section.sectionAction === 'bank.card.status' && <CardStatusAction userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {section.sectionAction === 'bank.card.funding' && (
+        <CardFundingAction userId={ctx.userId} onChanged={ctx.onChanged} offers={view?.reads['bank.card-funding-offers']} />
+      )}
       {section.sectionAction === 'pay.transfer.lookup' && <TransferLookup />}
       {section.sectionAction === 'bank.customer.balances' && <CustomerBalances />}
       {section.disabledActions.length > 0 && (

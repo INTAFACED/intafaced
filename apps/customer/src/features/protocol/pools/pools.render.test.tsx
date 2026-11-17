@@ -36,6 +36,8 @@ const pool = {
   createdHeight: 4,
   createdTx: `0x${'c'.repeat(64)}`,
   reserves: { reserve0: '1000000000', reserve1: '2000000000000000000000', height: 9 },
+  volume1: '3000000000000000000',
+  swaps: 2,
 };
 let host: HTMLDivElement;
 let root: Root;
@@ -69,6 +71,13 @@ describe('Pools list', () => {
     expect(text()).toContain('Check the contract address.');
     expect(text()).toContain('0.30%');
     expect(text()).toContain('1000 TESTA · 2000 TESTB');
+    // J-dex-protocol-12 #1: the fee tier and the last day's volume, and a way to add liquidity or start a pool.
+    expect([...host.querySelectorAll('th[scope="col"]')].map((th) => th.textContent)).toEqual(
+      expect.arrayContaining(['Fee tier', 'Reserves', 'Volume (24 h)']),
+    );
+    expect(text()).toContain('3 TESTB, 2 swaps');
+    expect(host.querySelector(`a[href="/dex/pools/${POOL}/add"]`)?.textContent).toBe('Add liquidity');
+    expect(host.querySelector('a[href="/dex/pools/new"]')?.textContent).toBe('New pool');
     expect(calls.find((call) => call.procedure === 'explorer.pools.list')?.input).toEqual({ chainId: 84532 });
   });
   it('keeps the table and names a blank factory', async () => {

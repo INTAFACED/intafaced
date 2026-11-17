@@ -1,3 +1,4 @@
+import { categoryKey, errorClassCopy, severityKey } from './error-class-copy';
 import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
 import { docsCopy } from '../developers-docs-copy';
 import { tradeErrorsCopy, causeKey, fixKey } from './trade-errors-copy';
@@ -8,6 +9,7 @@ import { tradeErrorsCopy, causeKey, fixKey } from './trade-errors-copy';
  */
 export function TradeErrorsCatalogue() {
   const { t } = tradeErrorsCopy.useCopy();
+  const cls = errorClassCopy.useCopy();
   return (
     <>
       <section className="pub-card" aria-labelledby="dev-trade-errors">
@@ -19,13 +21,22 @@ export function TradeErrorsCatalogue() {
                 <th scope="col">{t('colCode')}</th>
                 <th scope="col">{t('colStatus')}</th>
                 <th scope="col">{t('colDetail')}</th>
+                <th scope="col">{cls.t('colSeverity')}</th>
+                <th scope="col">{cls.t('colCategory')}</th>
                 <th scope="col">{t('colCause')}</th>
                 <th scope="col">{t('colFix')}</th>
               </tr>
             </thead>
             <tbody>
               {TRADE_ERROR_CATALOGUE.map((entry) => (
-                <tr key={entry.anchor} id={entry.anchor} data-cause={entry.cause} data-code={entry.intafacedCode}>
+                <tr
+                  key={entry.anchor}
+                  id={entry.anchor}
+                  data-cause={entry.cause}
+                  data-code={entry.intafacedCode}
+                  data-severity={entry.severity}
+                  data-category={entry.category}
+                >
                   <th scope="row">
                     <code>{entry.code}</code>
                   </th>
@@ -33,6 +44,8 @@ export function TradeErrorsCatalogue() {
                   <td>
                     <code>{entry.intafacedCode}</code>
                   </td>
+                  <td>{cls.t(severityKey(entry.severity))}</td>
+                  <td>{cls.t(categoryKey(entry.category))}</td>
                   <td>{t(causeKey(entry.cause))}</td>
                   <td>{t(fixKey(entry.cause))}</td>
                 </tr>

@@ -1,3 +1,4 @@
+// Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).
 // Proves the shared-world scan on the real journey files and on planted faults. Run: node --test tooling/scripts/journey-world.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -36,19 +37,19 @@ test('every real journey file declares at least what it changes, and the CLI pas
   assert.equal(cli.status, 0, cli.stderr);
 });
 
-test('planted: the run-1247 leak. J-copy-bots-otc-30 rests a bid and J-ops-console-08 restarts the maker; undeclared, both fail', () => {
+test('planted: the run-1247 leak. J-copy-bots-otc-30 rests a bid and holds the maker (#7539), J-ops-console-08 restarts the maker; undeclared, both fail', () => {
   const dir = plant({
     'J-copy-bots-otc-30.pw.mjs': withLine(real('J-copy-bots-otc-30.pw.mjs'), '// World: none'),
     'J-ops-console-08.pw.mjs': withLine(real('J-ops-console-08.pw.mjs'), '// World: freeze'),
     'J-portfolio-04.pw.mjs': real('J-portfolio-04.pw.mjs'),
   });
   const rows = Object.fromEntries(scan(dir).map((r) => [r.file, r]));
-  assert.deepEqual(rows['J-copy-bots-otc-30.pw.mjs'].missing, ['book']);
+  assert.deepEqual(rows['J-copy-bots-otc-30.pw.mjs'].missing.sort(), ['book', 'market']);
   assert.deepEqual(rows['J-ops-console-08.pw.mjs'].missing.sort(), ['market', 'restart']);
   assert.deepEqual(rows['J-portfolio-04.pw.mjs'].missing, []);
   const cli = run(dir);
   assert.equal(cli.status, 1);
-  assert.match(cli.stderr, /J-copy-bots-otc-30\.pw\.mjs: changes book but does not declare it/);
+  assert.match(cli.stderr, /J-copy-bots-otc-30\.pw\.mjs: changes book, market but does not declare it/);
   assert.match(cli.stderr, /J-ops-console-08\.pw\.mjs: changes .*market.*restart|J-ops-console-08\.pw\.mjs: changes .*restart.*market/);
   // Declared as the real files are, the same three pass.
   const fixed = plant({
@@ -72,6 +73,8 @@ test('each shared part is found directly, through a computed subcommand, and thr
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', 'restart', 'trade')")], ['restart']);
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', what, 'trade')")].sort(), ['restart', 'stack']);
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', 'age-addresses')")], ['stack']);
+  // The awaited form is the same call (#7449): a restart, never a stack script run by hand.
+  assert.deepEqual([...directWorld("await toolAwaited('local-test-stack.mjs', 'start', '--only', 'ops')")], ['restart']);
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', 'risk', 'BTC/USDT')")], ['gates']);
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', 'posting-freeze', 'on')")], ['freeze']);
   assert.deepEqual([...directWorld("tool('local-test-chain.mjs', 'gate', 'closed')")], ['gates']);

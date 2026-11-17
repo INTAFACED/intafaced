@@ -6,14 +6,13 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
 const ROUTES = resolve(import.meta.dirname, '../../svc-edge/src/routes.ts');
 
 function serviceBlock(source: string, name: string): string {
-  const match = source.match(new RegExp(`^  ${name}:\\n(?:.*\\n)*?(?=^  [a-z]|\\Z)`, 'm'));
-  if (!match) throw new Error(`${name} service block missing from docker-compose.apps.yml`);
-  return match[0];
+  return composeServiceBlock(source, name);
 }
 
 describe('ops.support fleet compose pin', () => {

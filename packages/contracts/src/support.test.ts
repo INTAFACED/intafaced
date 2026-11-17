@@ -138,10 +138,11 @@ describe('SupportContract searchKb / getKbArticle — public doors', () => {
 
 describe('phishing report contract (I-signin-sessions-27)', () => {
   it('accepts phishing as a category and still accepts the four older ones', () => {
-    for (const category of ['account', 'trading', 'deposit_withdraw', 'other', 'phishing']) {
+    // `scam` is a category since J-bank-18 #3 (BK-safe-02); an unknown category still refuses.
+    for (const category of ['account', 'trading', 'deposit_withdraw', 'other', 'phishing', 'scam']) {
       expect(supportTicketCategorySchema.safeParse(category).success, category).toBe(true);
     }
-    expect(supportTicketCategorySchema.safeParse('scam').success).toBe(false);
+    expect(supportTicketCategorySchema.safeParse('not_a_category').success).toBe(false);
   });
 
   it('create takes pasted headers and a client key, and older bodies still parse', () => {
@@ -211,7 +212,7 @@ describe('ticket properties contract (SP-tickets-04)', () => {
     expect(
       supportTicketPropertiesSchema.safeParse({ ticketId, priority: null, ticketType: null, labels: [], updatedAt: null }).success,
     ).toBe(true);
-    const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
+    const shape = Object.keys((supportTicketSchema as { shape: Record<string, unknown> }).shape);
     for (const key of ['priority', 'ticketType', 'labels']) expect(shape).not.toContain(key);
   });
 });
@@ -240,7 +241,7 @@ describe('ticket lifecycle (SP-tickets-04)', () => {
     expect(createTicketInputSchema.safeParse(base).success).toBe(true);
   });
   it('the owner-read ticket schema carries no desk lifecycle fact', () => {
-    const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
+    const shape = Object.keys((supportTicketSchema as { shape: Record<string, unknown> }).shape);
     for (const key of ['waitingOn', 'waitingSince', 'firstPublicReplyAt']) expect(shape).not.toContain(key);
   });
 });

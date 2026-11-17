@@ -4,10 +4,17 @@
  */
 import { z } from 'zod';
 import { listingSchema } from '../../../features/trade/trade-api';
+import { maintenanceOf, upcomingMaintenanceSchema, type MaintenanceWindowSoon } from '../../../shared/market-maintenance';
 
 /** `/markets` row as the desk reads it: the existing trade schema plus the market state the data layer also reads. */
 export const deskListingSchema = listingSchema.extend({
   lifecycle: z.object({ state: z.string() }).passthrough().nullish(),
+  /** The nearest maintenance window svc-notify publishes for this market (J-cex-spot-14 #5). */
+  upcomingMaintenance: upcomingMaintenanceSchema,
+  /** When the session next opens or closes; read to say when a shut market opens (J-cex-spot-14 #6). */
+  nextSessionChange: z.object({ open: z.boolean(), timestamp: z.number() }).passthrough().nullish(),
+  /** A new listing's opening window end, while it is ahead (J-cex-spot-14 #7); null or absent when there is none. */
+  openingWindowEndsAt: z.string().datetime({ offset: true }).nullish(),
   // The operator limits as published for the pair; "not set" where the owner published none.
   pairRules: z
     .object({ protection: z.object({ collar: z.string(), openOrdersPerMarket: z.string() }).passthrough() })
@@ -34,10 +41,18 @@ export interface DeskMarket {
   open: boolean;
   /** The listed lifecycle state (OPEN, POST_ONLY, HALTED ...), or null when the listing names none. */
   state: string | null;
+  /** A maintenance window scheduled or under way for this market, or null when none is published (or none could be read). */
+  maintenance?: MaintenanceWindowSoon | null;
   /** Price band as a fraction around the middle of the book ("0.1" is 10%); null when none is published. */
   band?: string | null;
   /** How many orders one account may have open here; null when none is published. */
   openOrderCap?: string | null;
+  /** The market's session is shut now (J-cex-spot-14 #6): an order is refused and is not queued. */
+  sessionShut?: boolean;
+  /** Epoch ms the shut session next opens, or null when not known. */
+  opensAt?: number | null;
+  /** Epoch ms a new listing's opening window ends (J-cex-spot-14 #7): limit orders only until then; null when none. */
+  openingWindowEndsAt?: number | null;
 }
 
 /** A published operator value, or null for "not set" (or no rules read at all): never a default. */
@@ -55,8 +70,12 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
     minCost: listing.limits.cost.min,
     open: listing.orderable && listing.active && listing.sessionOpen && stateOpen,
     state: listing.lifecycle?.state?.trim() || null,
+    maintenance: maintenanceOf(listing.upcomingMaintenance),
     band: published(listing.pairRules?.protection.collar),
     openOrderCap: published(listing.pairRules?.protection.openOrdersPerMarket),
+    sessionShut: listing.sessionOpen === false,
+    opensAt: listing.sessionOpen === false && listing.nextSessionChange?.open ? listing.nextSessionChange.timestamp : null,
+    openingWindowEndsAt: listing.openingWindowEndsAt ? Date.parse(listing.openingWindowEndsAt) : null,
   };
 }
 

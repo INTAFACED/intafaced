@@ -21,6 +21,7 @@ const wire = (over: Record<string, unknown> = {}, scalarOver: Record<string, unk
       delayedBoundarySeconds: null,
       renderBudgetMs: null,
       orderProtectionBps: null,
+      queueFillWindowSeconds: null,
     },
     operatorId: null,
     reason: null,
@@ -74,6 +75,7 @@ describe('parseChartOwnerValuesView', () => {
             delayedBoundarySeconds: 30,
             renderBudgetMs: 500,
             orderProtectionBps: 500,
+            queueFillWindowSeconds: 300,
           },
         },
       ),
@@ -86,6 +88,7 @@ describe('parseChartOwnerValuesView', () => {
       delayedBoundarySeconds: 30,
       renderBudgetMs: 500,
       orderProtectionBps: 500,
+      queueFillWindowSeconds: 300,
     });
     expect(view.dataClasses[0]).toMatchObject({ dataClass: 'delayed', version: '2', approverId: 'a' });
   });
@@ -136,6 +139,7 @@ describe('typed text and labels', () => {
       delayedBoundarySeconds: 30,
       renderBudgetMs: 500,
       orderProtectionBps: 500,
+      queueFillWindowSeconds: 300,
     });
     expect(text).toEqual({
       compareCap: '3',
@@ -145,6 +149,7 @@ describe('typed text and labels', () => {
       delayedBoundarySeconds: '30',
       renderBudgetMs: '500',
       orderProtectionBps: '500',
+      queueFillWindowSeconds: '300',
     });
   });
 

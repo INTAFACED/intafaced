@@ -226,7 +226,7 @@ export class SupportTradeSummaryReader {
         }
         try {
           await writeOperatorAudit(
-            tx as unknown as Sql,
+            tx,
             {
               id: auditId,
               kind: SUPPORT_TRADE_SUMMARY_AUDIT_KIND,

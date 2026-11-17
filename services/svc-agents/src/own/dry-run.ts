@@ -1,18 +1,22 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import type {
   OwnAgentAnalytics,
   OwnAgentDryRunCheck,
   OwnAgentDryRunEffect,
   OwnAgentHolds,
   OwnAgentLiveEngine,
+  OwnAgentRunMemory,
   OwnAgentTestLogRow,
+  OwnAgentTestGuard,
   OwnAgentTestRun,
+  OwnAgentValuePayload,
 } from '@intafaced/contracts/agents-own';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { OWN_TOOL_DOORS, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
-import { OwnConsentStore, OwnRuleStore, stricter, type PolicyBaseline, type RuleChoice } from './guardrails.js';
+import { effectiveRequirement, OwnConsentStore, OwnRuleStore, stricter, type PolicyBaseline, type RuleChoice } from './guardrails.js';
 import { readOwnCaps } from './limits.js';
-import { testEngineReply } from './evaluations.js';
+import { decideApproval, guardedEngineRun } from './content-guard.js';
+import { decideMemory, runMemoryOf, OwnMemoryStore, withheldAsk, type MemoryDecision } from './memory.js';
 
 /**
  * DRY RUNS OF A PERSON'S OWN AGENT (AG-spend-04; J-agents-04 #3).
@@ -58,7 +62,7 @@ export async function dryRunToolCall(
   const { dataClass, module } = entry;
   const consented = await new OwnConsentStore(sql).granted(input.ownerId, input.agent.id, dataClass);
   checks.push(consented ? passed('consent') : failed('consent', 'agents.consent_required'));
-  const required = baseline[dataClass];
+  const required = await effectiveRequirement(sql, baseline, dataClass);
   checks.push(required ? passed('baseline') : failed('baseline', 'agents.baseline_value_unset'));
   let choice: RuleChoice | null = null;
   if (required) {
@@ -86,9 +90,18 @@ interface TestRunRow {
   reply: string | null;
   live_engine: OwnAgentLiveEngine | null;
   log_json: OwnAgentTestLogRow[] | null;
+  content: string | null;
+  output_schema: string | null;
+  guard_json: OwnAgentTestGuard | null;
+  draft_json: OwnAgentValuePayload | null;
+  memory_json: OwnAgentRunMemory | null;
   created_at: Date;
 }
-const TEST_RUN_COLUMNS = 'id, request_id, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, created_at';
+const TEST_RUN_COLUMNS =
+  'id, request_id, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, content, output_schema, guard_json, draft_json, memory_json, created_at';
+
+/** An engine run kept before the guards existed read no outside content and met no schema: it answered. */
+const UNGUARDED: OwnAgentTestGuard = { content: null, outcome: 'answered', code: null, approval: null };
 
 const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => {
   const base = {
@@ -109,6 +122,10 @@ const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => {
       engine: 'test',
       liveEngine: row.live_engine!,
       log: row.log_json!,
+      content: row.content,
+      outputSchema: row.output_schema,
+      guard: row.guard_json ?? UNGUARDED,
+      memory: row.memory_json ?? null,
     };
   }
   return { ...base, kind: row.kind, tool: row.tool!, input: row.input_json!, checks: row.checks_json!, effect: row.effect_json! };
@@ -118,18 +135,31 @@ const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => {
 const sortedInput = (args: Readonly<Record<string, string>>) => JSON.stringify(Object.entries(args).sort(([a], [b]) => a.localeCompare(b)));
 
 /** What a request is, to tell the same request again from a request id reused for another. */
-type Call = { kind: 'dry_run' | 'tool_test'; tool: string; input: Readonly<Record<string, string>> } | { kind: 'engine_run'; ask: string };
+type Call =
+  | { kind: 'dry_run' | 'tool_test'; tool: string; input: Readonly<Record<string, string>> }
+  | { kind: 'engine_run'; ask: string; content: string | null; outputSchema: string | null };
 
 const sameCall = (row: TestRunRow, call: Call): boolean =>
   row.kind === call.kind &&
   (call.kind === 'engine_run'
-    ? row.ask === call.ask
+    ? row.ask === call.ask && row.content === call.content && row.output_schema === call.outputSchema
     : row.tool === call.tool && sortedInput(row.input_json ?? {}) === sortedInput(call.input));
 
 /** What a test run stores, beside its key: a dry run or tool test's call and outcome, or an engine run's exchange. */
 type Stored =
   | { kind: 'dry_run' | 'tool_test'; tool: string; input: Readonly<Record<string, string>>; outcome: DryRunOutcome }
-  | { kind: 'engine_run'; ask: string; reply: string; liveEngine: OwnAgentLiveEngine; log: OwnAgentTestLogRow[] };
+  | {
+      kind: 'engine_run';
+      ask: string;
+      reply: string;
+      liveEngine: OwnAgentLiveEngine;
+      log: OwnAgentTestLogRow[];
+      content: string | null;
+      outputSchema: string | null;
+      guard: OwnAgentTestGuard;
+      drafted: OwnAgentValuePayload | null;
+      memory: OwnAgentRunMemory | null;
+    };
 
 /**
  * A tool that moves value, tested (AG-testing-01; J-agents-04 #2): what a call of it would do, and the check a real call
@@ -147,26 +177,59 @@ export function testValueTool(tool: string): DryRunOutcome {
   };
 }
 
+/** What one test engine run reads beside the question: outside content and an output schema, each optional. */
+export type EngineRunExtras = {
+  readonly content?: string | null;
+  readonly outputSchema?: string | null;
+  /** What the run does with a request to remember (AG-builder-02); absent is none. */
+  readonly memory?: MemoryDecision;
+};
+
+/** Optional text as stored: absent or blank is none. */
+const optionalText = (text: string | null | undefined): string | null =>
+  text === undefined || text === null || !text.trim() ? null : text;
+
 /**
- * One question asked of the agent on the test engine (AG-testing-01; J-agents-04 #1). The test engine answers from the
- * input alone, whatever engine the deployment runs live runs on (`liveEngine`, kept beside the run): it calls no
- * provider, opens no session, holds no reservation, writes no usage row and calls no ledger. The reply and every log row
- * are labelled TEST, and the run costs 0.
+ * One question asked of the agent on the test engine (AG-testing-01; J-agents-04 #1), under the hostile content and
+ * output guards (AG-guardrails-03; J-agents-10 #1-#3). The test engine answers from the input alone, whatever engine the
+ * deployment runs live runs on (`liveEngine`, kept beside the run): it calls no provider, opens no session, holds no
+ * reservation, writes no usage row and calls no ledger. The reply and every log row are labelled TEST, and the run costs
+ * 0, blocked or not.
  */
-export function testEngineRun(ask: string, liveEngine: OwnAgentLiveEngine, assetId: string): Extract<Stored, { kind: 'engine_run' }> {
-  if (/\u0000/.test(ask)) throw new OwnAgentRefusal('agents.own.text_invalid');
+export function testEngineRun(
+  ask: string,
+  liveEngine: OwnAgentLiveEngine,
+  assetId: string,
+  extras: EngineRunExtras = {},
+): Extract<Stored, { kind: 'engine_run' }> {
+  const content = optionalText(extras.content);
+  const outputSchema = optionalText(extras.outputSchema);
+  for (const text of [ask, content ?? '', outputSchema ?? ''])
+    if (/\u0000/.test(text)) throw new OwnAgentRefusal('agents.own.text_invalid');
   if (!ask.trim()) throw new OwnAgentRefusal('agents.test.ask_blank');
-  const reply = testEngineReply(ask);
+  const { guard, reply, drafted } = guardedEngineRun({ ask, content, outputSchema });
+  const middle: OwnAgentTestLogRow =
+    guard.outcome === 'blocked' ? { step: 'blocked', text: guard.code!, label: 'TEST' } : { step: 'answered', text: reply, label: 'TEST' };
+  // A blocked run runs nothing, so it remembers nothing either. The remember step is a row of the run's own log.
+  const memory = guard.outcome === 'blocked' ? null : runMemoryOf(extras.memory ?? { kind: 'none' });
+  const remembered: OwnAgentTestLogRow[] = memory
+    ? [
+        memory.outcome === 'remembered'
+          ? { step: 'remembered', text: memory.text!, label: 'TEST' }
+          : { step: 'not_remembered', text: memory.code!, label: 'TEST' },
+      ]
+    : [];
   return {
     kind: 'engine_run',
     ask,
     reply,
     liveEngine,
-    log: [
-      { step: 'asked', text: ask, label: 'TEST' },
-      { step: 'answered', text: reply, label: 'TEST' },
-      { step: 'billed', text: `0 ${assetId}`, label: 'TEST' },
-    ],
+    content,
+    outputSchema,
+    guard,
+    drafted,
+    memory,
+    log: [{ step: 'asked', text: ask, label: 'TEST' }, middle, ...remembered, { step: 'billed', text: `0 ${assetId}`, label: 'TEST' }],
   };
 }
 
@@ -212,8 +275,71 @@ export class OwnTestRunStore {
     requestId: string,
     ask: string,
     liveEngine: OwnAgentLiveEngine,
+    extras: EngineRunExtras = {},
   ): Promise<OwnAgentTestRun> {
-    return this.once(ownerId, agentId, requestId, { kind: 'engine_run', ask }, async () => testEngineRun(ask, liveEngine, this.assetId));
+    // A request to remember an account number, key, secret or balance is never kept as text, not even as the question:
+    // the run stores, answers and logs the refusal code in its place.
+    const kept = withheldAsk(ask) ?? ask;
+    const call: Call = {
+      kind: 'engine_run',
+      ask: kept,
+      content: optionalText(extras.content),
+      outputSchema: optionalText(extras.outputSchema),
+    };
+    const memory = new OwnMemoryStore(this.sql);
+    return this.once(
+      ownerId,
+      agentId,
+      requestId,
+      call,
+      async () => {
+        const { memory_enabled } = await memory.controls(ownerId, agentId);
+        return testEngineRun(kept, liveEngine, this.assetId, { ...extras, memory: decideMemory(ask, memory_enabled) });
+      },
+      // The item is written in the run's own transaction, keyed by the run: a run is stored with its item or not at all.
+      async (tx, row) => {
+        if (row.memory_json?.outcome !== 'remembered') return row;
+        const itemId = await memory.write(tx, ownerId, agentId, row.id, row.memory_json.text!);
+        const updated = await tx<TestRunRow[]>`
+          UPDATE agents.own_agent_test_runs SET memory_json = ${tx.json({ ...row.memory_json, itemId } as never)}
+           WHERE id = ${row.id}
+          RETURNING ${tx.unsafe(TEST_RUN_COLUMNS)}
+        `;
+        return updated[0]!;
+      },
+    );
+  }
+
+  /**
+   * The person's decision on an engine run's approval request (AG-guardrails-03; J-agents-10 #2): only `approved` counts,
+   * and the drafted step must match it or the run is refused `agents.payload.mismatch`. The decision is kept on the run
+   * once, under a row lock: approving a decided run again returns the decision it has, and nothing is ever sent.
+   */
+  async approve(ownerId: string, agentId: string, runId: string, approved: OwnAgentValuePayload): Promise<OwnAgentTestRun> {
+    return this.sql.begin(async (tx) => {
+      const rows = await tx<TestRunRow[]>`
+        SELECT ${tx.unsafe(TEST_RUN_COLUMNS)} FROM agents.own_agent_test_runs
+         WHERE owner_id = ${ownerId} AND agent_id = ${agentId} AND id = ${runId} AND kind = 'engine_run'
+         FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row) throw new OwnAgentRefusal('agents.test.run_not_found');
+      const guard = row.guard_json ?? UNGUARDED;
+      if (guard.outcome === 'approved' || guard.outcome === 'payload_refused') return testRunView(row, this.assetId);
+      const decided = decideApproval(guard, row.draft_json, approved);
+      const log: OwnAgentTestLogRow[] = [
+        ...(row.log_json ?? []).filter((entry) => entry.step !== 'billed'),
+        { step: 'decided', text: decided.code ?? 'approved', label: 'TEST' },
+        { step: 'billed', text: `0 ${this.assetId}`, label: 'TEST' },
+      ];
+      const updated = await tx<TestRunRow[]>`
+        UPDATE agents.own_agent_test_runs
+           SET guard_json = ${tx.json(decided as never)}, log_json = ${tx.json(log as never)}
+         WHERE id = ${row.id}
+        RETURNING ${tx.unsafe(TEST_RUN_COLUMNS)}
+      `;
+      return testRunView(updated[0]!, this.assetId);
+    }) as Promise<OwnAgentTestRun>;
   }
 
   private async once(
@@ -222,6 +348,7 @@ export class OwnTestRunStore {
     requestId: string,
     call: Call,
     make: () => Promise<Stored>,
+    after?: (tx: TransactionSql, row: TestRunRow) => Promise<TestRunRow>,
   ): Promise<OwnAgentTestRun> {
     const key = `agents:test-run:${agentId}:${requestId}`;
     const stored = await this.find(ownerId, key);
@@ -239,6 +366,11 @@ export class OwnTestRunStore {
             reply: made.reply,
             liveEngine: made.liveEngine,
             log: made.log,
+            content: made.content,
+            outputSchema: made.outputSchema,
+            guard: made.guard,
+            drafted: made.drafted,
+            memory: made.memory,
           }
         : {
             tool: made.tool,
@@ -249,19 +381,29 @@ export class OwnTestRunStore {
             reply: null,
             liveEngine: null,
             log: null,
+            content: null,
+            outputSchema: null,
+            guard: null,
+            drafted: null,
+            memory: null,
           };
-    const inserted = await this.sql<TestRunRow[]>`
-      INSERT INTO agents.own_agent_test_runs
-        (agent_id, owner_id, request_id, request_key, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, created_at)
-      VALUES (${agentId}, ${ownerId}, ${requestId}, ${key}, ${made.kind}, ${run.tool}, ${json(run.input)}, ${json(run.checks)},
-              ${json(run.effect)}, ${run.ask}, ${run.reply}, ${run.liveEngine}, ${json(run.log ? run.log.map((row) => ({ ...row })) : null)},
-              clock_timestamp())
-      ON CONFLICT (owner_id, request_key) DO NOTHING
-      RETURNING ${this.sql.unsafe(TEST_RUN_COLUMNS)}
-    `;
+    const written = await this.sql.begin(async (tx) => {
+      const inserted = await tx<TestRunRow[]>`
+        INSERT INTO agents.own_agent_test_runs
+          (agent_id, owner_id, request_id, request_key, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json,
+           content, output_schema, guard_json, draft_json, memory_json, created_at)
+        VALUES (${agentId}, ${ownerId}, ${requestId}, ${key}, ${made.kind}, ${run.tool}, ${json(run.input)}, ${json(run.checks)},
+                ${json(run.effect)}, ${run.ask}, ${run.reply}, ${run.liveEngine}, ${json(run.log ? run.log.map((row) => ({ ...row })) : null)},
+                ${run.content}, ${run.outputSchema}, ${json(run.guard)}, ${json(run.drafted)}, ${json(run.memory)}, clock_timestamp())
+        ON CONFLICT (owner_id, request_key) DO NOTHING
+        RETURNING ${tx.unsafe(TEST_RUN_COLUMNS)}
+      `;
+      if (!inserted[0]) return null;
+      return after ? after(tx, inserted[0]) : inserted[0];
+    });
     // Another test run under this key committed first: it is this request's, or the key was reused for another.
-    if (!inserted[0]) return this.replayed((await this.find(ownerId, key))!, call);
-    return testRunView(inserted[0], this.assetId);
+    if (!written) return this.replayed((await this.find(ownerId, key))!, call);
+    return testRunView(written as TestRunRow, this.assetId);
   }
 
   /** The agent's test runs, newest first. */

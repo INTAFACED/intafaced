@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * The support staff roster and availability, as the console reads and sets it.
  *
@@ -24,7 +25,6 @@ export interface StaffPolicyView {
   readonly heartbeatWindowSeconds: number | null;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
 const isTime = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
 const nullableTime = (v: unknown): v is string | null => v === null || isTime(v);
@@ -40,14 +40,24 @@ export function readStaffMember(raw: unknown): StaffMemberView | null {
   return { userId, role, appointedBy, appointedAt, availability: availability as Availability, availabilitySetAt, lastHeartbeatAt };
 }
 
-/** `staffList`: every row must read, or the whole answer is null (never a shorter roster). */
-export function readStaffRoster(raw: unknown): StaffMemberView[] | null {
+/** A `staffList` row: the member and the desk groups (teams) they belong to, as svc-support lists them. */
+export interface StaffDirectoryRow extends StaffMemberView {
+  readonly groups: readonly { readonly id: string; readonly name: string }[];
+}
+
+/** `staffList`: every row must read, groups included, or the whole answer is null (never a shorter roster). */
+export function readStaffRoster(raw: unknown): StaffDirectoryRow[] | null {
   if (!Array.isArray(raw)) return null;
-  const out: StaffMemberView[] = [];
+  const out: StaffDirectoryRow[] = [];
   for (const row of raw) {
     const member = readStaffMember(row);
-    if (!member) return null;
-    out.push(member);
+    if (!member || !isRecord(row) || !Array.isArray(row.groups)) return null;
+    const groups: { id: string; name: string }[] = [];
+    for (const g of row.groups) {
+      if (!isRecord(g) || !isText(g.id) || !isText(g.name)) return null;
+      groups.push({ id: g.id, name: g.name });
+    }
+    out.push({ ...member, groups });
   }
   return out;
 }

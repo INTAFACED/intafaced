@@ -6,6 +6,8 @@ import {
   RAIL_HEALTH_MAX_STALENESS_MS,
   RAIL_MARKED_DOWN,
   RAIL_SANDBOX_ONLY,
+  PARTNER_TERMS_NOT_KNOWN,
+  type AcquirerPartnerTerms,
   type PaymentIntent,
   type RailAdapter,
   type RailCapability,
@@ -95,6 +97,13 @@ export class CardSandboxAdapter implements RailAdapter {
   private lastContact: Date;
   private forcedFailure: { code: string; reason: string } | null = null;
   private up = true;
+  /**
+   * The TEST partner's terms per business. A business the partner has said nothing about reads every term "not known"
+   * (`PARTNER_TERMS_NOT_KNOWN`). Set only by the test controls below or a signed `partner.terms` report.
+   */
+  private readonly terms = new Map<string, AcquirerPartnerTerms>();
+  /** The time of the last terms report taken per business: a replayed or late report never overwrites a newer one. */
+  private readonly termsAt = new Map<string, number>();
 
   constructor(private readonly options: CardSandboxOptions) {
     this.now = options.now ?? (() => new Date());
@@ -139,7 +148,79 @@ export class CardSandboxAdapter implements RailAdapter {
     this.up = up;
   }
 
+  /**
+   * TEST switch: the partner's terms for one business, merged over what it said before. A term left out keeps its
+   * last value; a business never set reads every term "not known".
+   */
+  setPartnerTerms(merchantId: string, terms: Partial<AcquirerPartnerTerms>): void {
+    this.terms.set(merchantId, Object.freeze({ ...this.partnerTerms(merchantId), ...terms }));
+  }
+
+  /** TEST switch: the destination sends a payout back. Builds the signed delivery the partner would send. */
+  returnPayout(idempotencyKey: string, returned: Amount, at: Date = this.now()): RailWebhookRequest {
+    const row = this.payouts.get(idempotencyKey);
+    if (!row) throw new Error(`TEST acquirer: no payout ${idempotencyKey} to return`);
+    if (returned <= 0n || returned > row.amount)
+      throw new Error('TEST acquirer: a returned amount is positive and at most what was paid out');
+    return this.signWebhook(
+      {
+        // One delivery per return: a second partial return of the same payout is its own event, never a duplicate.
+        id: `payout.returned:${idempotencyKey}:${formatAmount(returned)}:${at.toISOString()}`,
+        type: 'payout.returned',
+        ref: idempotencyKey,
+        amount: formatAmount(returned),
+        assetId: row.assetId,
+        occurredAt: at.toISOString(),
+      },
+      at,
+    );
+  }
+
+  partnerTerms(merchantId: string): AcquirerPartnerTerms {
+    return this.terms.get(merchantId) ?? PARTNER_TERMS_NOT_KNOWN;
+  }
+
+  /**
+   * A signed `partner.terms` report from the TEST partner (the stack's `card-terms` command). `not_terms` for any
+   * delivery that is not one, so the caller passes it on as an ordinary webhook; `malformed` for one that verifies but
+   * does not parse (never half-applied); `stale` for one no newer than the last taken (`occurredAt`), which changes
+   * nothing; `refused` outside dev and test.
+   */
+  receivePartnerTerms(
+    req: RailWebhookRequest,
+    opts: { allowed: boolean } = { allowed: true },
+  ): 'not_terms' | 'applied' | 'stale' | 'malformed' | 'refused' {
+    const ok = verifySignature({
+      body: req.body,
+      signature: req.headers['x-sandbox-signature'],
+      timestamp: req.headers['x-sandbox-timestamp'],
+      secret: this.options.secret,
+      toleranceSeconds: this.toleranceSeconds,
+      now: this.now(),
+    });
+    if (!ok) return 'not_terms';
+    let body: unknown;
+    try {
+      body = JSON.parse(req.body);
+    } catch {
+      return 'not_terms';
+    }
+    if (typeof body !== 'object' || body === null || (body as { type?: unknown }).type !== 'partner.terms') return 'not_terms';
+    // Outside dev and test the switches are refused by name, before anything is parsed or kept.
+    if (!opts.allowed) return 'refused';
+    const parsed = parsePartnerTermsReport(body as Record<string, unknown>);
+    const at = Date.parse(String((body as { occurredAt?: unknown }).occurredAt ?? ''));
+    if (!parsed || !Number.isFinite(at)) return 'malformed';
+    const last = this.termsAt.get(parsed.merchantId);
+    if (last !== undefined && at <= last) return 'stale';
+    this.termsAt.set(parsed.merchantId, at);
+    this.setPartnerTerms(parsed.merchantId, parsed.terms);
+    return 'applied';
+  }
+
   reset(): void {
+    this.terms.clear();
+    this.termsAt.clear();
     this.charges.clear();
     this.payouts.clear();
     this.forcedFailure = null;
@@ -449,7 +530,71 @@ const EVENT_TYPES = new Set([
   'dispute.closed',
   'funds.available',
   'funds.pending',
+  'payout.returned',
 ]);
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ASSET = /^[A-Z0-9]{1,16}$/;
+
+/**
+ * Shape-check a verified `partner.terms` report: `{ merchantId, terms: { reserveRule?, shortfallCover?, currencies?,
+ * instantPayout? } }`, each term `{ known: false }` or its known shape. Amounts are decimal strings. Anything else is
+ * refused whole.
+ */
+function parsePartnerTermsReport(b: Record<string, unknown>): { merchantId: string; terms: Partial<AcquirerPartnerTerms> } | null {
+  const merchantId = typeof b.merchantId === 'string' && UUID.test(b.merchantId) ? b.merchantId : null;
+  const t = b.terms;
+  if (!merchantId || typeof t !== 'object' || t === null) return null;
+  const raw = t as Record<string, unknown>;
+  const out: { -readonly [K in keyof AcquirerPartnerTerms]?: AcquirerPartnerTerms[K] } = {};
+  const obj = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null);
+  const notKnown = (v: Record<string, unknown>) => v.known === false && Object.keys(v).length === 1;
+  const whole = (v: unknown, max: number) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= max ? (v as number) : null);
+  for (const key of Object.keys(raw)) {
+    const v = obj(raw[key]);
+    if (!v) return null;
+    if (key === 'reserveRule') {
+      if (notKnown(v)) out.reserveRule = { known: false };
+      else {
+        const bps = whole(v.rollingReserveBps, 10_000);
+        const days = whole(v.holdDays, 3650);
+        if (v.known !== true || bps === null || days === null) return null;
+        out.reserveRule = { known: true, rollingReserveBps: bps, holdDays: days };
+      }
+    } else if (key === 'shortfallCover') {
+      if (notKnown(v)) out.shortfallCover = { known: false };
+      else if (v.known === true && (v.who === 'merchant' || v.who === 'partner' || v.who === 'house'))
+        out.shortfallCover = { known: true, who: v.who };
+      else return null;
+    } else if (key === 'currencies') {
+      if (notKnown(v)) out.currencies = { known: false };
+      else if (v.known === true && Array.isArray(v.offered) && v.offered.every((a) => typeof a === 'string' && ASSET.test(a)))
+        out.currencies = { known: true, offered: Object.freeze([...(v.offered as string[])]) };
+      else return null;
+    } else if (key === 'instantPayout') {
+      if (notKnown(v)) out.instantPayout = { known: false };
+      else if (v.known === true && v.offered === false) out.instantPayout = { known: true, offered: false };
+      else if (v.known === true && v.offered === true) {
+        const fee = obj(v.fee);
+        if (!fee) return null;
+        if (notKnown(fee)) out.instantPayout = { known: true, offered: true, fee: { known: false } };
+        else {
+          if (fee.known !== true || typeof fee.amount !== 'string' || typeof fee.assetId !== 'string' || !ASSET.test(fee.assetId))
+            return null;
+          let amount: Amount;
+          try {
+            amount = parseAmount(fee.amount);
+          } catch {
+            return null;
+          }
+          if (amount < 0n) return null;
+          out.instantPayout = { known: true, offered: true, fee: { known: true, amount, assetId: fee.assetId } };
+        }
+      } else return null;
+    } else return null;
+  }
+  return { merchantId, terms: out };
+}
 
 /** Shape-check a verified body. A valid signature proves origin, not structure. */
 function toRailEvent(railId: string, body: unknown, noteMalformedEvidenceDueBy?: (eventId: string) => void): RailEvent | null {

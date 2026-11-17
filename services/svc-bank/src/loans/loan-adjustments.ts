@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   formatAmount,
   loanCollateralAccount,
@@ -102,7 +102,7 @@ function toAdjustment(row: AdjustmentRow): InterestAdjustment {
   };
 }
 
-export async function adjustmentById(sql: Sql, id: string): Promise<InterestAdjustment | null> {
+export async function adjustmentById(sql: Queryable, id: string): Promise<InterestAdjustment | null> {
   const rows = await sql<AdjustmentRow[]>`
     SELECT id, loan_id, kind, amount::text AS amount, reason, proposed_by, approved_by, approval_id, created_at
       FROM bank.loan_adjustments WHERE id = ${id}
@@ -120,14 +120,14 @@ export function assertSameCorrection(prior: InterestAdjustment, terms: InterestC
 
 interface CorrectionDeps {
   readonly sql: Sql;
-  readonly outstanding: (loanId: string, tx: Sql) => Promise<{ principal: Amount; interest: Amount; total: Amount }>;
+  readonly outstanding: (loanId: string, tx: Queryable) => Promise<{ principal: Amount; interest: Amount; total: Amount }>;
 }
 
 /**
  * Every refusal a correction can meet, read under `tx`. Called once before the approval is spent (so a correction
  * that cannot land does not use it up) and again under the loan row lock, where it decides.
  */
-async function assertCorrectable(deps: CorrectionDeps, tx: Sql, loanId: string, amount: Amount, lock: boolean): Promise<void> {
+async function assertCorrectable(deps: CorrectionDeps, tx: Queryable, loanId: string, amount: Amount, lock: boolean): Promise<void> {
   const loans = lock
     ? await tx<Array<{ status: string }>>`SELECT status FROM bank.loans WHERE id = ${loanId} FOR UPDATE`
     : await tx<Array<{ status: string }>>`SELECT status FROM bank.loans WHERE id = ${loanId}`;
@@ -228,10 +228,9 @@ export interface InterestRows {
 export async function readInterestRows(
   sql: Sql,
   loan: { id: string; debtAssetId: string },
-  owed: (tx: Sql) => Promise<Amount>,
+  owed: (tx: Queryable) => Promise<Amount>,
 ): Promise<InterestRows> {
-  return sql.begin('isolation level repeatable read read only', async (t) => {
-    const tx = t as unknown as Sql;
+  return sql.begin('isolation level repeatable read read only', async (tx) => {
     const [days, totals, corrections, paid, interest] = await Promise.all([
       tx<Array<{ accrual_date: string; rate_bps: number; principal_basis: string; interest_amount: string }>>`
         SELECT accrual_date::text AS accrual_date, rate_bps, principal_basis::text AS principal_basis,
@@ -336,8 +335,7 @@ export async function checkLoanLedger(
   now: Date = new Date(),
 ): Promise<LedgerCheck> {
   const held = (await ledger.balance(loanCollateralAccount(loan.userId, loan.collateralAssetId, loan.id))).amount;
-  const { repayments, collateral, liquidations, pending } = await sql.begin('isolation level repeatable read read only', async (t) => {
-    const tx = t as unknown as Sql;
+  const { repayments, collateral, liquidations, pending } = await sql.begin('isolation level repeatable read read only', async (tx) => {
     const [repayments, collateral, liquidations, pending] = await Promise.all([
       tx<Array<{ sequence: number; interest_amount: string; principal_amount: string; ledger_tx_id: string | null }>>`
         SELECT sequence, interest_amount::text AS interest_amount, principal_amount::text AS principal_amount, ledger_tx_id

@@ -22,6 +22,73 @@ import {
 // steps share the page. Drawings are placed by fractions of the chart's width and height, never by a bar index.
 const J = 'J-charts-desk-05';
 
+const chartHost = (page) => page.getByTestId('cw').getByTestId('wc-host');
+
+/** The chart's panes as the drawings read them: each pane's index, top and height in pixels from the chart's top. */
+const paneBoxes = (page) => chartHost(page).evaluate((el) => el.readPaneBoxes());
+
+/** What the chart has painted for each drawing: its pane, lines, handles and texts (font and colour), in chart pixels. */
+const drawn = (page) => chartHost(page).evaluate((el) => el.readDrawnLines());
+
+/** The ids of the drawings the chart paints now (a line or a text on the canvas), sorted. A hidden drawing is not painted. */
+const paintedIds = async (page) =>
+  (await drawn(page))
+    .filter((d) => d.lines.length > 0 || d.texts.length > 0)
+    .map((d) => d.id)
+    .sort();
+
+/**
+ * A point on one pane: across, on the loaded bar `fx` picks (as `plot` does); down, at `fy` of that pane's own height, from
+ * the pane's top as the chart lays it out, rounded to a whole pixel as a mouse gives (the chart reads whole pixels).
+ */
+async function inPane(page, pane, fx, fy) {
+  const { x } = await plot(page, fx, 0.5);
+  const box = await chartHost(page).boundingBox();
+  const at = (await paneBoxes(page)).find((b) => b.index === pane);
+  if (!box || !at) throw new Error(`the chart has no pane ${pane}`);
+  return { x, y: box.y + Math.round(at.top + at.height * fy) };
+}
+
+/**
+ * What the chart reads under a pixel on an indicator pane: the pane's index and the value at that height on the pane's own
+ * scale, as the library reports them on the grid cell (`data-crosshair-pane`, `data-crosshair-pane-value`). The pointer
+ * is moved a pixel away and the marks cleared first, so what is read is what the chart wrote for this position.
+ */
+async function paneValueAt(page, point) {
+  const cell = page.locator('[data-crosshair]').first();
+  await page.mouse.move(point.x - 1, point.y);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane')) ?? '').not.toBe('');
+  await cell.evaluate((el) => {
+    el.setAttribute('data-crosshair-pane', '');
+    el.setAttribute('data-crosshair-pane-value', '');
+  });
+  await page.mouse.move(point.x, point.y);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane')) ?? '').not.toBe('');
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-pane-value')) ?? '').not.toBe('');
+  return {
+    pane: Number(await cell.getAttribute('data-crosshair-pane')),
+    value: Number(await cell.getAttribute('data-crosshair-pane-value')),
+  };
+}
+
+/**
+ * How far, in pixels, a painted height `y` (chart pixels) sits from where the pane now reads `value`. The Volume pane
+ * rescales as the live bar's volume grows, so a line at a fixed value moves on screen after it is placed; this reads the
+ * pane's own scale at the painted height (the whole pixel there and one either side) rather than trusting the scale at
+ * the click.
+ */
+async function pixelsFromValue(page, x, y, value) {
+  const box = await chartHost(page).boundingBox();
+  if (!box) throw new Error('the chart has no box');
+  const cy = Math.round(y);
+  const above = await paneValueAt(page, { x, y: box.y + cy - 1 });
+  const below = await paneValueAt(page, { x, y: box.y + cy + 1 });
+  const at = await paneValueAt(page, { x, y: box.y + cy });
+  const perPixel = Math.abs(above.value - below.value) / 2;
+  if (!(perPixel > 0)) throw new Error(`the pane reads no scale at y ${cy}`);
+  return Math.abs(at.value - value) / perPixel + Math.abs(y - cy);
+}
+
 test.describe.configure({ mode: 'serial' });
 
 let page;
@@ -36,7 +103,29 @@ test.afterAll(async () => {
 });
 
 test(`${J} #1 opens the drawing toolbar and picks the trend line, then two clicks place it as bar times and decimal prices`, async () => {
-  await pick(page, 'Trend line');
+  // Tool groups: the drawing toolbar holds each group, by name, with its own tools, and the trend line is in Lines.
+  const toolbar = page.getByRole('toolbar', { name: 'Drawing tools' });
+  const groups = {
+    Cursors: ['Select', 'Dot cursor', 'Arrow cursor', 'Eraser'],
+    Lines: ['Horizontal line', 'Ray', 'Vertical line', 'Cross line', 'Trend line', 'Info line'],
+    'Channels and Fibonacci': ['Parallel channel', 'Pitchfork', 'Fib retracement', 'Fib extension'],
+    Gann: ['Gann fan', 'Gann box'],
+    Patterns: ['Pattern ABCD', 'Pattern XABCD'],
+    Positions: ['Long position', 'Short position'],
+    Measure: ['Measure'],
+    Shapes: ['Rectangle', 'Ellipse'],
+    Brush: ['Brush'],
+    Annotation: ['Text'],
+  };
+  for (const [name, tools] of Object.entries(groups)) {
+    const group = toolbar.getByRole('group', { name, exact: true });
+    await expect(group, `tool group ${name}`).toBeVisible();
+    await expect(group.getByRole('button')).toHaveText(tools);
+  }
+  const trendTool = toolbar.getByRole('group', { name: 'Lines', exact: true }).getByRole('button', { name: 'Trend line', exact: true });
+  await expect(trendTool).toHaveAttribute('aria-pressed', 'false');
+  await trendTool.click();
+  await expect(trendTool).toHaveAttribute('aria-pressed', 'true');
   // What the chart reads under each click: the bar's time and the price at that height.
   const trendPoints = [await centred(page, await plot(page, 0.3, 0.4)), await centred(page, await plot(page, 0.6, 0.5))];
   // Each click, then what the chart reads at that same pixel (read after it, so both see the page as it was clicked).
@@ -56,40 +145,180 @@ test(`${J} #1 opens the drawing toolbar and picks the trend line, then two click
   });
 });
 
-test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price pane`, async () => {
+test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price pane, and on an indicator pane where allowed`, async () => {
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  // The chart opens with its default Volume study in its own indicator pane, pane 1 under the price pane.
+  const panes = await paneBoxes(page);
+  const price = panes.find((b) => b.index === 0);
+  const volume = panes.find((b) => b.index === 1);
+  expect(price, 'the price pane').toBeTruthy();
+  expect(volume, 'the Volume indicator pane').toBeTruthy();
+  const inside = (y, box) => y >= box.top - 1 && y <= box.top + box.height + 1;
+
+  // On the price pane: each point is placed inside the price pane itself.
+  const clickIn = async (pane, fx, fy) => {
+    const point = await inPane(page, pane, fx, fy);
+    await page.mouse.click(point.x, point.y);
+    return point;
+  };
   await pick(page, 'Info line');
-  await clickPlot(page, 0.2, 0.7);
-  await clickPlot(page, 0.4, 0.6);
+  await clickIn(0, 0.2, 0.7);
+  await clickIn(0, 0.4, 0.6);
   await pick(page, 'Horizontal line');
-  await clickPlot(page, 0.5, 0.3);
+  await clickIn(0, 0.5, 0.3);
   await pick(page, 'Ray');
-  await clickPlot(page, 0.7, 0.8);
-  await clickPlot(page, 0.8, 0.75);
+  await clickIn(0, 0.7, 0.8);
+  await clickIn(0, 0.8, 0.75);
   // The object tree lists the newest first: ray, horizontal, info, trend.
   await expect(rows(page)).toHaveCount(4);
   await expect(rows(page).nth(0)).toHaveAttribute('data-kind', 'ray');
   await expect(rows(page).nth(1)).toHaveAttribute('data-kind', 'horizontal');
   await expect(rows(page).nth(2)).toHaveAttribute('data-kind', 'info');
-  // On the price pane: the library draws the drawings on the main series' pane, pane 0, with the price.
-  await expect(page.getByTestId('cw').getByTestId('wc-host')).toHaveAttribute('data-drawings-pane', '0');
+  // Each is on the price pane: the tree says so, and the chart paints every line of it inside the price pane.
+  const priceIds = [];
+  for (let i = 0; i < 3; i += 1) {
+    await expect(rows(page).nth(i)).toHaveAttribute('data-pane', '0');
+    await expect(rows(page).nth(i).getByTestId('drawing-pane')).toHaveText('Price pane');
+    priceIds.push(await rows(page).nth(i).getAttribute('data-drawing-id'));
+  }
+  await expect(host).toHaveAttribute('data-drawings-pane', '0');
+  await expect.poll(async () => (await drawn(page)).filter((d) => priceIds.includes(d.id)).length).toBe(3);
+  for (const d of (await drawn(page)).filter((x) => priceIds.includes(x.id))) {
+    expect(d.pane, `${d.id} pane`).toBe(0);
+    expect(d.lines.length, `${d.id} lines`).toBeGreaterThan(0);
+    for (const [, y1, , y2] of d.lines) {
+      expect(inside(y1, price) && inside(y2, price), `${d.id} line ${y1}..${y2} inside the price pane`).toBe(true);
+    }
+  }
+
+  // On the Volume pane, where lines are allowed: a horizontal line, stored at the value the pane reads at the click.
+  await pick(page, 'Horizontal line');
+  const level = await inPane(page, 1, 0.5, 0.4);
+  const read = await paneValueAt(page, level);
+  expect(read.pane).toBe(1);
+  await page.mouse.click(level.x, level.y);
+  await expect(rows(page)).toHaveCount(5);
+  const onVolume = rows(page).nth(0);
+  await expect(onVolume).toHaveAttribute('data-kind', 'horizontal');
+  await expect(onVolume).toHaveAttribute('data-pane', '1');
+  await expect(onVolume.getByTestId('drawing-pane')).toHaveText('Indicator pane 1');
+  const storedLevel = pricesOf(await pointText(onVolume).textContent());
+  expect(storedLevel).toHaveLength(1);
+  expect(atTick(storedLevel[0], read.value), `stored ${storedLevel[0]}, pane value ${read.value}`).toBe(true);
+  // Painted on the Volume pane, at the height that was clicked.
+  const levelId = await onVolume.getAttribute('data-drawing-id');
+  await expect.poll(async () => (await drawn(page)).find((d) => d.id === levelId)?.pane ?? null).toBe(1);
+  // The stored value is the one the pane read under the click (above), so the line is at the clicked height when it is
+  // painted where the pane reads that value, on the pane's scale as it is when the paint is read.
+  await expect(async () => {
+    const levelDrawn = (await drawn(page)).find((d) => d.id === levelId);
+    expect(levelDrawn.lines.length).toBeGreaterThan(0);
+    for (const [, y1, , y2] of levelDrawn.lines) {
+      expect(inside(y1, volume) && inside(y2, volume), `line ${y1}..${y2} inside the Volume pane`).toBe(true);
+      const off = await pixelsFromValue(page, level.x, y1, Number(storedLevel[0]));
+      expect(off, `line at ${y1}, ${off} px from where the pane reads the stored ${storedLevel[0]}`).toBeLessThanOrEqual(1.5);
+    }
+  }).toPass({ timeout: 15_000 });
+
+  // A ray and an info line on the Volume pane: each point stored at the value the pane reads under it, and each painted
+  // inside the Volume pane through the points that were clicked.
+  const twoPointsOnVolume = async (tool, kind, a, b, count) => {
+    await pick(page, tool);
+    const p1 = await inPane(page, 1, a[0], a[1]);
+    const v1 = await paneValueAt(page, p1);
+    expect(v1.pane).toBe(1);
+    await page.mouse.click(p1.x, p1.y);
+    const p2 = await inPane(page, 1, b[0], b[1]);
+    const v2 = await paneValueAt(page, p2);
+    expect(v2.pane).toBe(1);
+    await page.mouse.click(p2.x, p2.y);
+    await expect(rows(page)).toHaveCount(count);
+    const row = rows(page).nth(0);
+    await expect(row).toHaveAttribute('data-kind', kind);
+    await expect(row).toHaveAttribute('data-pane', '1');
+    await expect(row.getByTestId('drawing-pane')).toHaveText('Indicator pane 1');
+    const values = pricesOf(await pointText(row).textContent());
+    expect(values).toHaveLength(2);
+    expect(atTick(values[0], v1.value), `${kind} point 1: stored ${values[0]}, pane value ${v1.value}`).toBe(true);
+    expect(atTick(values[1], v2.value), `${kind} point 2: stored ${values[1]}, pane value ${v2.value}`).toBe(true);
+    const id = await row.getAttribute('data-drawing-id');
+    await expect.poll(async () => (await drawn(page)).find((d) => d.id === id)?.pane ?? null).toBe(1);
+    // The first painted line starts at the height of the first point clicked: where the pane reads the first stored
+    // value, on the pane's scale as it is when the paint is read.
+    await expect(async () => {
+      const painted = (await drawn(page)).find((d) => d.id === id);
+      expect(painted.lines.length, `${kind} lines`).toBeGreaterThan(0);
+      for (const [, y1, , y2] of painted.lines) {
+        expect(inside(y1, volume) && inside(y2, volume), `${kind} line ${y1}..${y2} inside the Volume pane`).toBe(true);
+      }
+      const startY = painted.lines[0][1];
+      const off = await pixelsFromValue(page, p1.x, startY, Number(values[0]));
+      expect(off, `${kind} starts at y ${startY}, ${off} px from where the pane reads the stored ${values[0]}`).toBeLessThanOrEqual(1.5);
+    }).toPass({ timeout: 15_000 });
+    return id;
+  };
+  const rayId = await twoPointsOnVolume('Ray', 'ray', [0.6, 0.3], [0.8, 0.6], 6);
+  const infoId = await twoPointsOnVolume('Info line', 'info', [0.2, 0.7], [0.4, 0.35], 7);
+
+  // Where it is not allowed: a position reads a price, so on the Volume pane it is refused by name and nothing is placed.
+  await pick(page, 'Long position');
+  await clickIn(1, 0.5, 0.5);
+  await expect(page.getByRole('alert').filter({ hasText: 'This tool draws on the price pane only.' })).toBeVisible();
+  await expect(rows(page)).toHaveCount(7);
+  await pick(page, 'Select');
+
+  // The three Volume pane drawings are removed again, so the later steps list this journey's price pane drawings.
+  for (const id of [infoId, rayId, levelId]) {
+    await page.locator(`[data-drawing-id="${id}"]`).getByRole('button', { name: 'Delete', exact: true }).click();
+  }
+  await expect(rows(page)).toHaveCount(4);
 });
 
-test(`${J} #3 adds text at the chosen point, with its own label`, async () => {
+test(`${J} #3 adds text at the chosen point, with the font size and colour chosen`, async () => {
+  const toolbar = page.getByRole('toolbar', { name: 'Drawing tools' });
+  const token = (name) => page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
   await pick(page, 'Text');
   await page.getByLabel('Text to place or edit').first().fill('Support');
-  const point = await centred(page, await plot(page, 0.25, 0.55));
+  // The font size and colour are chosen before the text is placed.
+  await toolbar.getByLabel('Text size').selectOption({ label: '24 px' });
+  await toolbar.getByLabel('Text colour').selectOption({ label: 'Up' });
+  const point = await centred(page, await inPane(page, 0, 0.25, 0.55));
   await page.mouse.click(point.x, point.y);
   const at = await pointerAt(page, point);
-  // The text is stored with the drawing and shown in the object tree.
-  await expect(page.locator('[data-drawing-id][data-kind="text"]')).toHaveCount(1);
-  await expect(page.locator('[data-drawing-id][data-kind="text"]').getByRole('textbox', { name: 'Text to place or edit' })).toHaveValue(
-    'Support',
-  );
+  const row = page.locator('[data-drawing-id][data-kind="text"]');
+  await expect(row).toHaveCount(1);
+  await expect(row.getByRole('textbox', { name: 'Text to place or edit' })).toHaveValue('Support');
   // At the chosen point: stored as the bar under the click and the price at its height.
-  const stored = await pointText(page.locator('[data-drawing-id][data-kind="text"]')).textContent();
+  const stored = await pointText(row).textContent();
   expect(timesOf(stored)).toEqual([barTimeText(at.time)]);
   expect(atTick(pricesOf(stored)[0], at.price), `stored ${pricesOf(stored)[0]}, pointer ${at.price}`).toBe(true);
-  // Font size and colour are not offered in this build: the text takes the default size and the neutral tone.
+  // With the font size and colour chosen: stored with the text, and painted in that size and the Up colour.
+  await expect(row).toHaveAttribute('data-size', '24');
+  await expect(row).toHaveAttribute('data-tone', 'up');
+  const id = await row.getAttribute('data-drawing-id');
+  const up = await token('--if-up');
+  const neutral = await token('--if-fg-2');
+  expect(up, 'the Up colour token').not.toBe('');
+  expect(up, 'Up is not the neutral text colour').not.toBe(neutral);
+  const paintedText = async () => (await drawn(page)).find((d) => d.id === id)?.texts.find((t) => t.text === 'Support') ?? null;
+  await expect.poll(async () => (await paintedText())?.font ?? '').toMatch(/(^|\s)24px\s/);
+  expect((await paintedText()).colour).toBe(up);
+  expect(
+    Math.abs((await paintedText()).y - (point.y - (await page.getByTestId('cw').getByTestId('wc-host').boundingBox()).y)),
+  ).toBeLessThanOrEqual(1.5);
+
+  // The placed text's size and colour change from the object tree; its point stays where it was.
+  await row.getByLabel('Text size').selectOption({ label: '18 px' });
+  await row.getByLabel('Text colour').selectOption({ label: 'Down' });
+  await expect(row).toHaveAttribute('data-size', '18');
+  await expect(row).toHaveAttribute('data-tone', 'down');
+  // The size and the colour are two choices, so the chart may paint the new size a frame before the new colour: each is
+  // waited for on the canvas, and both must land.
+  await expect.poll(async () => (await paintedText())?.font ?? '').toMatch(/(^|\s)18px\s/);
+  const down = await token('--if-down');
+  expect(down, 'the Down colour token').not.toBe('');
+  await expect.poll(async () => (await paintedText())?.colour ?? '').toBe(down);
+  await expect(pointText(row)).toHaveText(stored);
 });
 
 test(`${J} #4 drags a line's middle handle, and both points move by the same bar and price delta`, async () => {
@@ -137,9 +366,15 @@ test(`${J} #4 drags a line's middle handle, and both points move by the same bar
   expect(ta[0] - tb[0]).toBe(ta[1] - tb[1]);
   expect(ta[0] - tb[0]).not.toBe(0);
   expect((ta[0] - tb[0]) % (15 * 60_000)).toBe(0);
-  const deltaA = Number(after[0]) - Number(before[0]);
-  const deltaB = Number(after[1]) - Number(before[1]);
-  expect(deltaA).toBeCloseTo(deltaB, 2);
+  // Staying on the tick size: every moved price is written at the tick's places (two for BTC-USDT's 0.01 tick), so each
+  // is a whole number of ticks, and both points moved by the same whole number of ticks.
+  expect(after).toHaveLength(2);
+  before.forEach((price, i) => expect(price, `point ${i + 1} before the drag`).toMatch(/^\d+\.\d{2}$/));
+  after.forEach((price, i) => expect(price, `moved point ${i + 1}`).toMatch(/^\d+\.\d{2}$/));
+  const cents = (price) => BigInt(price.replace('.', ''));
+  const deltaA = cents(after[0]) - cents(before[0]);
+  const deltaB = cents(after[1]) - cents(before[1]);
+  expect(deltaA).toBe(deltaB);
 });
 
 test(`${J} #5 locks a drawing so it cannot move, and turns magnet on`, async () => {
@@ -181,50 +416,85 @@ test(`${J} #5 locks a drawing so it cannot move, and turns magnet on`, async () 
 async function magnetSnapsToClose() {
   const x = await centred(page, await plot(page, 0.5, 0.3));
   const bar = await pointerAt(page, x);
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&limit=240`);
-  const rows15 = (await res.json()).sort((p, q) => p[0] - q[0]);
-  // The bar's open, high, low and close: its own candle's, or the previous close four times when the bucket had no trade
-  // (a filled bar).
-  const candle = rows15.filter((r) => r[0] <= bar.time * 1000).at(-1);
-  expect(candle, `Edge serves a 15m candle at or before ${barTimeText(bar.time)}`).toBeDefined();
-  const ohlc = candle[0] === bar.time * 1000 ? candle.slice(1, 5).map(Number) : Array(4).fill(Number(candle[4]));
-  const close = ohlc[3];
-  // The height the close is drawn at, read from the chart (the price pane is the chart's top pane).
   const host = page.getByTestId('cw').getByTestId('wc-host');
   const box = await host.boundingBox();
-  const closeY = await host.evaluate((el, price) => el.readPriceY?.(price) ?? null, close);
-  expect(closeY, 'the close is drawn on the price pane').not.toBeNull();
-  const best = { y: box.y + closeY };
-  // Three pixels off the close: the price there is not the close at the tick, so only the magnet can store the close.
-  const off = await pointerAt(page, { x: x.x, y: best.y + 3 });
-  expect(atTick(close.toFixed(2), off.price), 'three pixels off the close reads another price').toBe(false);
-  await pick(page, 'Horizontal line');
-  await page.mouse.click(x.x, best.y + 3);
-  const placed = page.locator('[data-drawing-id][data-selected]');
-  await expect(placed).toHaveAttribute('data-kind', 'horizontal');
-  // Stored at one of the bar's four prices (the nearest within the magnet's reach), not at the pointer's own price.
-  const placedText = await pointText(placed).textContent();
-  const [stored] = pricesOf(placedText);
-  expect(timesOf(placedText)).toEqual([barTimeText(bar.time)]);
-  expect(
-    ohlc.map((p) => p.toFixed(2)),
-    `stored ${stored}; pointer ${off.price}`,
-  ).toContain(stored);
-  expect(atTick(stored, off.price)).toBe(false);
-  await page.getByRole('group', { name: 'Drawing actions' }).getByRole('button', { name: 'Delete', exact: true }).click();
+  const actions = page.getByRole('group', { name: 'Drawing actions' });
+  // The bar's open, high, low and close from Edge's candles: its own candle's, or the previous close four times when the
+  // bucket had no trade (a filled bar).
+  const barPricesNow = async () => {
+    const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&limit=240`);
+    const rows15 = (await res.json()).sort((p, q) => p[0] - q[0]);
+    const candle = rows15.filter((r) => r[0] <= bar.time * 1000).at(-1);
+    expect(candle, `Edge serves a 15m candle at or before ${barTimeText(bar.time)}`).toBeDefined();
+    return candle[0] === bar.time * 1000 ? candle.slice(1, 5).map(Number) : Array(4).fill(Number(candle[4]));
+  };
+  // The height the close is drawn at, read from the chart (the price pane is the chart's top pane).
+  const closeYOf = (price) => host.evaluate((el, p) => el.readPriceY?.(p) ?? null, price);
+  // The shared stack trades on this book while the step runs: a trade can move this bar's prices, or rescale the price
+  // axis, between the read of the close's height and the click (run 42723613808 stored 65193.56, a price no snap from
+  // three pixels off a 64976.46 close can reach). A placement during which the bar or the axis moved is deleted and
+  // made again; the check below is only made on a placement both stayed still for.
+  for (let attempt = 1; ; attempt += 1) {
+    const ohlc = await barPricesNow();
+    const close = ohlc[3];
+    const closeY = await closeYOf(close);
+    expect(closeY, 'the close is drawn on the price pane').not.toBeNull();
+    // Three pixels off the close: the price there is not the close at the tick, so only the magnet can store the close.
+    const off = await pointerAt(page, { x: x.x, y: box.y + closeY + 3 });
+    expect(atTick(close.toFixed(2), off.price), 'three pixels off the close reads another price').toBe(false);
+    await pick(page, 'Horizontal line');
+    await page.mouse.click(x.x, box.y + closeY + 3);
+    const placed = page.locator('[data-drawing-id][data-selected]');
+    await expect(placed).toHaveAttribute('data-kind', 'horizontal');
+    const placedText = await pointText(placed).textContent();
+    const still = JSON.stringify(await barPricesNow()) === JSON.stringify(ohlc) && Math.abs((await closeYOf(close)) - closeY) < 0.5;
+    if (!still && attempt < 3) {
+      await actions.getByRole('button', { name: 'Delete', exact: true }).click();
+      continue;
+    }
+    expect(still, `the bar and the price axis stayed still for one of ${attempt} placements`).toBe(true);
+    // Stored at one of the bar's four prices (the nearest within the magnet's reach), not at the pointer's own price.
+    const [stored] = pricesOf(placedText);
+    expect(timesOf(placedText)).toEqual([barTimeText(bar.time)]);
+    expect(
+      ohlc.map((p) => p.toFixed(2)),
+      `stored ${stored}; pointer ${off.price}`,
+    ).toContain(stored);
+    expect(atTick(stored, off.price)).toBe(false);
+    await actions.getByRole('button', { name: 'Delete', exact: true }).click();
+    return;
+  }
 }
 
 test(`${J} #6 lists every drawing in the object tree, and hides a group together`, async () => {
-  // Trend line, info line, horizontal line, ray and text: five drawings.
+  // Every drawing listed: the trend line, info line, horizontal line, ray and text drawn so far, each by its own kind,
+  // and each one the chart paints.
   await expect(rows(page)).toHaveCount(5);
-  const checks = page.getByRole('checkbox', { name: /^Select / });
-  await checks.nth(0).check();
-  await checks.nth(1).check();
+  const kinds = await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-kind')));
+  expect([...kinds].sort()).toEqual(['horizontal', 'info', 'ray', 'text', 'trend']);
+  const ids = await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')));
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
+  // Two checked drawings grouped and the group hidden: the tree marks just those two hidden, and the chart stops painting
+  // them while it still paints the other three.
+  await rows(page)
+    .nth(0)
+    .getByRole('checkbox', { name: /^Select / })
+    .check();
+  await rows(page)
+    .nth(1)
+    .getByRole('checkbox', { name: /^Select / })
+    .check();
+  const grouped = ids.slice(0, 2);
+  const others = ids.slice(2);
   await page.getByRole('button', { name: /^Group checked/ }).click();
   await page.getByRole('button', { name: 'Hide group', exact: true }).click();
-  await expect(page.locator('[data-visible="false"]')).toHaveCount(2);
+  for (const id of grouped) await expect(page.locator(`[data-drawing-id="${id}"]`)).toHaveAttribute('data-visible', 'false');
+  for (const id of others) await expect(page.locator(`[data-drawing-id="${id}"]`)).toHaveAttribute('data-visible', 'true');
+  await expect.poll(() => paintedIds(page)).toEqual([...others].sort());
+  // Shown again together: both are painted again, and nothing is hidden.
   await page.getByRole('button', { name: 'Show group', exact: true }).click();
   await expect(page.locator('[data-visible="false"]')).toHaveCount(0);
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
   // The tree also lists the chart's indicators: one row per study on the studies bar, each with its own actions. Hiding
   // one from the tree hides it on this interval: its legend row says so and the chart stops drawing it.
   const tree = page.getByTestId('tree-indicators');
@@ -246,14 +516,57 @@ test(`${J} #6 lists every drawing in the object tree, and hides a group together
 
 test(`${J} #7 deletes a line, and Undo brings it back with its original points`, async () => {
   const line = rowNamed(page, /^Horizontal line \d+$/);
+  await expect(line).toHaveCount(1);
+  const id = await line.getAttribute('data-drawing-id');
+  const pane = Number(await line.getAttribute('data-pane'));
   await line.getByRole('button', { name: /^Horizontal line \d+$/ }).click();
   const before = await pointText(line).textContent();
-  const count = await rows(page).count();
+  const [level] = pricesOf(before);
+  expect(level, `a stored price in "${before}"`).toBeTruthy();
+  const ids = await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')));
+  // Before the delete the chart paints this line, at its stored price.
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
+  const { x } = await plot(page, 0.5, 0.5);
+  // Painted flat at its stored value: on the price pane, where the price scale puts that price (read in the same call as
+  // the paint, so a rescale between the two can't pass or fail it); on an indicator pane, where that pane reads the value.
+  const paintedAtLevel = async () => {
+    const { painted, priceY } = await chartHost(page).evaluate(
+      (el, [drawingId, value]) => ({ painted: el.readDrawnLines().find((d) => d.id === drawingId), priceY: el.readPriceY(value) }),
+      [id, Number(level)],
+    );
+    expect(painted, `the chart paints ${id}`).toBeTruthy();
+    expect(painted.pane, `${id} pane`).toBe(pane);
+    expect(painted.lines.length, `${id} lines`).toBeGreaterThan(0);
+    for (const [, y1, , y2] of painted.lines) {
+      expect(y1, `${id} is flat`).toBe(y2);
+      const off = pane === 0 ? Math.abs(y1 - priceY) : await pixelsFromValue(page, x, y1, Number(level));
+      expect(off, `${id} painted at y ${y1}, ${off} px from where its pane reads ${level}`).toBeLessThanOrEqual(1.5);
+    }
+  };
+  await expect(paintedAtLevel).toPass({ timeout: 15_000 });
+
+  // Deleted (it is still the selected drawing): exactly this line leaves the tree and the chart, every other drawing
+  // stays.
   await page.keyboard.press('Delete');
-  await expect(rows(page)).toHaveCount(count - 1);
+  await expect(page.locator(`[data-drawing-id="${id}"]`)).toHaveCount(0);
+  const others = ids.filter((i) => i !== id);
+  await expect
+    .poll(() => rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')).sort()))
+    .toEqual([...others].sort());
+  await expect.poll(() => paintedIds(page)).toEqual([...others].sort());
+
+  // Undo: the same drawing returns, with the same points as before, and the chart paints it again at its stored price.
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(rows(page)).toHaveCount(count);
-  await expect(pointText(rowNamed(page, /^Horizontal line \d+$/))).toHaveText(before);
+  const back = page.locator(`[data-drawing-id="${id}"]`);
+  await expect(back).toHaveCount(1);
+  await expect(back).toHaveAttribute('data-kind', 'horizontal');
+  await expect(back).toHaveAttribute('data-pane', String(pane));
+  await expect(pointText(back)).toHaveText(before);
+  await expect
+    .poll(() => rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')).sort()))
+    .toEqual([...ids].sort());
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
+  await expect(paintedAtLevel).toPass({ timeout: 15_000 });
 });
 
 test(`${J} #8 hides all drawings, then clears them after a confirmation`, async () => {
@@ -264,13 +577,22 @@ test(`${J} #8 hides all drawings, then clears them after a confirmation`, async 
   expect(count).toBeGreaterThan(0);
   await expect(page.locator('[data-drawing-id][data-visible="false"]')).toHaveCount(count);
   await expect(page.locator('[data-drawing-id][data-visible="true"]')).toHaveCount(0);
+  // Hidden on the chart itself: it paints none of them.
+  const ids = await rows(page).evaluateAll((els) => els.map((el) => el.getAttribute('data-drawing-id')));
+  await expect.poll(() => paintedIds(page)).toEqual([]);
   await pick(page, 'Show all');
+  await expect.poll(() => paintedIds(page)).toEqual([...ids].sort());
   await pick(page, 'Clear all');
-  // The clear waits for the in-app dialog: nothing goes until it is confirmed.
-  await expect(rows(page)).not.toHaveCount(0);
+  // The clear waits for the in-app dialog: nothing goes until it is confirmed, and the chart still paints every drawing.
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await expect(rows(page)).toHaveCount(count);
+  expect(await paintedIds(page)).toEqual([...ids].sort());
   await page.getByRole('alertdialog').getByRole('button', { name: 'Clear all', exact: true }).click();
   await expect(rows(page)).toHaveCount(0);
-  // The cleared layout stays cleared on this device.
+  await expect.poll(() => paintedIds(page)).toEqual([]);
+  // The cleared layout stays cleared on this device: no row and nothing painted after a reload.
   await page.reload();
   await expect(rows(page)).toHaveCount(0);
+  await expect.poll(async () => (await chartHost(page).evaluate((el) => typeof el.readDrawnLines)) === 'function').toBe(true);
+  expect(await paintedIds(page)).toEqual([]);
 });

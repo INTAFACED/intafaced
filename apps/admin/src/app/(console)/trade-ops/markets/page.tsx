@@ -7,18 +7,24 @@ import { HealthRefresh } from '@/components/trade-ops/health-refresh';
 import { MarketsTable } from '@/components/trade-ops/markets-table';
 import { loadMarkets, ORDER_READ_LIMIT } from '@/lib/trade-ops/markets-load';
 import { oldestAsOf } from '@/lib/trade-ops/markets-model';
+import { readVenueMarkets } from '@/lib/trade-ops/venue-markets-calls';
+import { VenueMarketsPanel } from '@/components/trade-ops/venue-markets-panel';
 
 /**
  * Markets: every market, its rules, record status, lifecycle state and the orders resting on it.
  * Markets, lifecycle and open orders are read separately; a refused lifecycle or order read shows as such in its
  * own cells and notice, and the rest of the table stays.
+ *
+ * Venue markets (J-cex-spot-16): the outside venue's markets, which of them INTAFACED shows, our routing state and our
+ * largest routed order beside the venue's own, each changed by two founders. Read on its own: a refusal (the user-venue
+ * door off) shows in that section only.
  */
 export const dynamic = 'force-dynamic';
 
 export default async function MarketsPage() {
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
-  const { markets, orders, fees, views, lifecycleCapped } = await loadMarkets(ctx);
+  const [{ markets, orders, fees, views, lifecycleCapped }, venueMarkets] = await Promise.all([loadMarkets(ctx), readVenueMarkets(ctx)]);
 
   const asOf = oldestAsOf([markets.kind === 'ok' ? markets.asOf : null, orders.kind === 'ok' ? orders.asOf : null]);
   const lifecycleReads = views.map((v) => v.lifecycle);
@@ -36,7 +42,7 @@ export default async function MarketsPage() {
   return (
     <DeskPage
       title="Markets"
-      description="Status and rules of each market. Open one to halt, restrict, resume or delist it."
+      description="Status and rules of each market. Open one to halt, restrict, resume or delist it. Below: the outside venue's markets we show and route to, each changed by two founders."
       asOf={asOf}
       state={state}
       stateReason={state === 'live' ? undefined : 'Part of the data could not be read; see the notices below.'}
@@ -69,6 +75,15 @@ export default async function MarketsPage() {
           </PageSection>
         </>
       )}
+      <PageSection title="Venue markets">
+        <div data-room="venue-markets">
+          {venueMarkets.kind === 'ok' ? (
+            <VenueMarketsPanel initial={venueMarkets.data} />
+          ) : (
+            <ReadProblem outcome={venueMarkets} title="Venue markets could not be read" />
+          )}
+        </div>
+      </PageSection>
     </DeskPage>
   );
 }

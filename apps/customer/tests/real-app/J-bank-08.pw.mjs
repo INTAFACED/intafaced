@@ -236,10 +236,15 @@ test(`${J} #1 opens Earn and compares pools: pools side by side with rates, and 
   run.reset({ who });
 
   // The journey's own flexible pool: opened at 1.25% with a TEST minimum of 10, then raised and cut by approved changes.
+  // Each step's date is the bank's own record of it, taken between the clock reads around the change.
+  const beforeOpen = Date.now();
   const pool = await openPool({ kind: 'flexible', aprBps: 125, minDeposit: '10', label: 'flexible' });
   run.write({ pool: pool.id, poolName: pool.name });
-  expect(await setRate(pool.id, 175, 'TEST rate rise')).toMatchObject({ rateBps: 175, previousBps: 125 });
-  expect(await setRate(pool.id, 125, 'TEST rate cut')).toMatchObject({ rateBps: 125, previousBps: 175 });
+  const rise = await setRate(pool.id, 175, 'TEST rate rise');
+  expect(rise).toMatchObject({ rateBps: 175, previousBps: 125 });
+  const cut = await setRate(pool.id, 125, 'TEST rate cut');
+  expect(cut).toMatchObject({ rateBps: 125, previousBps: 175 });
+  const afterCut = Date.now();
 
   const api = await bank(who);
   const pools = await api.query('earn.pools', { limit: 200 });
@@ -283,17 +288,54 @@ test(`${J} #1 opens Earn and compares pools: pools side by side with rates, and 
   await expect(history).toHaveAttribute('data-steps', '3');
   await expect(history.locator('svg circle')).toHaveCount(3);
   await expect(history.getByTestId('earn-rate-history-table').locator('tbody tr')).toHaveCount(3);
-  const rows = history.getByTestId('earn-rate-history-table').locator('tbody tr');
-  await expect(rows.nth(0)).toHaveAttribute('data-rate', '125');
-  await expect(rows.nth(0)).toContainText('TEST rate cut');
-  await expect(rows.nth(1)).toHaveAttribute('data-rate', '175');
-  await expect(rows.nth(2)).toHaveAttribute('data-rate', '125');
-  await expect(rows.nth(2)).toContainText('First rate on record');
-  await expect(history.getByTestId('earn-rate-history-start')).toContainText('No earlier history');
-  await expect(history).toContainText('Now: 1.25%');
+
+  // The bank's record: three dated steps in time order, the opening first, each change at the instant it answered with.
   const recorded = await api.query('earn.rateHistory', { poolId: pool.id, limit: 50 });
-  expect(recorded.data.changes.map((row) => row.rateBps)).toEqual([125, 175, 125]);
+  expect(recorded.ok, JSON.stringify(recorded.body ?? {}).slice(0, 300)).toBe(true);
+  expect(recorded.data.changes.map((row) => [row.rateBps, row.reason])).toEqual([
+    [125, null],
+    [175, 'TEST rate rise'],
+    [125, 'TEST rate cut'],
+  ]);
   expect(recorded.data.earlier).toBe(false);
+  const steps = recorded.data.changes.map((row) => Date.parse(row.effectiveAt));
+  expect(recorded.data.changes[1].effectiveAt).toBe(new Date(rise.effectiveAt).toISOString());
+  expect(recorded.data.changes[2].effectiveAt).toBe(new Date(cut.effectiveAt).toISOString());
+  expect(steps[0]).toBeGreaterThanOrEqual(beforeOpen - 5_000);
+  expect(steps[0]).toBeLessThanOrEqual(steps[1]);
+  expect(steps[1]).toBeLessThanOrEqual(steps[2]);
+  expect(steps[2]).toBeLessThanOrEqual(afterCut + 5_000);
+  // The calendar day each step shows, in UTC as the bank's rate records are kept.
+  const shown = (at) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(at);
+
+  // The table, newest first: each row carries its step's own instant and shows its date, rate and reason.
+  const rows = history.getByTestId('earn-rate-history-table').locator('tbody tr');
+  const expected = [
+    { at: recorded.data.changes[2].effectiveAt, rate: '125', percent: '1.25%', reason: 'TEST rate cut' },
+    { at: recorded.data.changes[1].effectiveAt, rate: '175', percent: '1.75%', reason: 'TEST rate rise' },
+    { at: recorded.data.changes[0].effectiveAt, rate: '125', percent: '1.25%', reason: 'First rate on record' },
+  ];
+  for (const [i, row] of expected.entries()) {
+    await expect(rows.nth(i)).toHaveAttribute('data-rate', row.rate);
+    await expect(rows.nth(i)).toHaveAttribute('data-at', row.at);
+    await expect(rows.nth(i).locator('td')).toHaveText([shown(Date.parse(row.at)), row.percent, row.reason]);
+  }
+
+  // The chart draws one dated mark per step, left to right in time order, at the rate of that step.
+  const marks = history.locator('svg circle');
+  await expect(marks).toHaveCount(3);
+  const drawn = await marks.evaluateAll((nodes) =>
+    nodes.map((n) => ({ x: Number(n.getAttribute('cx')), rate: n.getAttribute('data-step') })),
+  );
+  expect(drawn.map((mark) => mark.rate)).toEqual(['125', '175', '125']);
+  expect(drawn[0].x).toBeLessThanOrEqual(drawn[1].x);
+  expect(drawn[1].x).toBeLessThanOrEqual(drawn[2].x);
+
+  // Before the first record: no earlier history, from the first step's own date.
+  await expect(history.getByTestId('earn-rate-history-start')).toHaveText(
+    `No earlier history: the bank’s record for this pool starts on ${shown(steps[0])}.`,
+  );
+  await expect(history).toContainText('Now: 1.25%');
 });
 
 test(`${J} #2 opens a pool: rate band, yield source, commission and reward asset from the owner's tables, and a blank table reads "not set"`, async ({
@@ -356,9 +398,12 @@ test(`${J} #3 uses the calculator, then deposits below and above the minimum: ba
   await dialog.getByLabel('Amount (USDT)').fill('5');
   await dialog.getByRole('button', { name: 'Review' }).click();
   await expect(dialog).toContainText('The amount is below this pool’s minimum of 10 USDT.');
+  const available = await mainUsdt(api);
   const refused = await api.mutate('earn.deposit', { poolId: pool, positionId: randomUUID(), amount: '5' });
   expect(refused).toMatchObject({ ok: false, code: 'bank.below_minimum' });
   expect((await api.query('earn.positions', { limit: 50, poolId: pool })).data).toEqual([]);
+  // The refused deposit moved nothing out of the saver's available balance.
+  expect(await mainUsdt(api)).toBe(available);
 
   // TEST 100 saved: it waits for its first full UTC day.
   await dialog.getByLabel('Amount (USDT)').fill('100');
@@ -368,6 +413,13 @@ test(`${J} #3 uses the calculator, then deposits below and above the minimum: ba
   const saved = await api.query('earn.positions', { limit: 50, poolId: pool });
   expect(saved.data).toHaveLength(1);
   const [position] = saved.data;
+  // The deposit moved TEST 100 out of available into the saving, exactly once.
+  expect(await mainUsdt(api)).toBe(available - toUnits('100'));
+  // The same deposit arriving again (same saving id and amount) is the one saving, and moves nothing more.
+  const again = await api.mutate('earn.deposit', { poolId: pool, positionId: position.id, amount: '100' });
+  expect(again).toMatchObject({ ok: true, data: { positionId: position.id } });
+  expect(await mainUsdt(api)).toBe(available - toUnits('100'));
+  expect((await api.query('earn.positions', { limit: 50, poolId: pool })).data).toHaveLength(1);
   // Its first day begins at the UTC midnight after it opened.
   const firstDay = new Date(`${position.openedAt.slice(0, 10)}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000;
   expect(position).toMatchObject({ principal: '100', accrual: 'waiting', accruesFrom: new Date(firstDay).toISOString() });

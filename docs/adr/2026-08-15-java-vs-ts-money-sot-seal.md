@@ -1,5 +1,7 @@
 # ADR: Java vs TypeScript money source of truth — sealed forever
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about `packages/ledger-client` being "the only place balances live" applies to customer balances when the custodial layer is switched on; at launch the ledger holds only INTAFACED's own records (see 2026-11-10-launch-money-model.md). The seal itself holds at launch: TypeScript is the only book. It stays as written.
+
 **Status:** **Accepted — 2026-08-15.** Language seal only. Does not re-open D-S-17.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) **D26-P4-07**.

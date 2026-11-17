@@ -19,7 +19,8 @@ export async function userIdOf(who) {
 }
 
 /** Lists `who` as a copy leader in `marketMode`, as the TEST founder. Returns the public leader ref. */
-export async function listLeader(who, displayName, { marketMode = 'spot', tenureStart, assets = ['BTC/USDT'] } = {}) {
+/** `published`: the figures the listing discloses (publishedReturn, maximumDrawdown, its window), as the founder enters them. */
+export async function listLeader(who, displayName, { marketMode = 'spot', tenureStart, assets = ['BTC/USDT'], published = {} } = {}) {
   const ctx = await makeContext({ log: () => {} });
   const founders = await approverSessions(ctx);
   const res = await ctx.edge.mutate(
@@ -34,6 +35,7 @@ export async function listLeader(who, displayName, { marketMode = 'spot', tenure
       state: 'listed',
       assets,
       ...(tenureStart ? { tenureStart } : {}),
+      ...published,
     },
     founders.a.token,
   );
@@ -52,16 +54,29 @@ export async function takeBest(who, side, amount, clientOrderId, symbol = 'BTC/U
   const client = await api(who);
   for (let attempt = 0; ; attempt += 1) {
     let level;
-    await expect
-      .poll(
-        async () => {
-          const { body } = await bestPrices(symbol);
-          level = (side === 'buy' ? body.asks : body.bids)[0];
-          return toUnits(level[1]) >= toUnits(amount);
-        },
-        { timeout: 15_000, message: `the best ${side === 'buy' ? 'ask' : 'bid'} on ${symbol} never held ${amount}` },
-      )
-      .toBe(true);
+    // What the last read saw, named in the failure: an empty side (bestPrices throws) or a best level too small.
+    let seen = 'nothing read';
+    try {
+      await expect
+        .poll(
+          async () => {
+            try {
+              const { body } = await bestPrices(symbol);
+              level = (side === 'buy' ? body.asks : body.bids)[0];
+              seen = `best ${side === 'buy' ? 'ask' : 'bid'} ${JSON.stringify(level)}, top of book ${JSON.stringify({ bid: body.bids?.[0], ask: body.asks?.[0] })}`;
+            } catch (err) {
+              seen = err.message.slice(0, 300);
+              throw err;
+            }
+            return toUnits(level[1]) >= toUnits(amount);
+          },
+          { timeout: 15_000, message: `the best ${side === 'buy' ? 'ask' : 'bid'} on ${symbol} never held ${amount}` },
+        )
+        .toBe(true);
+    } catch (err) {
+      err.message += `\nlast read: ${seen}`;
+      throw err;
+    }
     const res = await client.post('/api/v1/orders', {
       symbol,
       type: 'limit',

@@ -28,7 +28,9 @@ export const poolSchema = z.object({
   reserves: z.object({ reserve0: z.string(), reserve1: z.string(), height: z.number().int() }).nullable(),
 });
 
-const poolsPageSchema = z.object({ rows: z.array(poolSchema), nextCursor: cursorSchema.nullable(), asOf: z.string() });
+/** A row of the list also carries the pool's last day of swaps: token1 volume in base units and the swap count. */
+export const poolListRowSchema = poolSchema.extend({ volume1: z.string(), swaps: z.number().int() });
+const poolsPageSchema = z.object({ rows: z.array(poolListRowSchema), nextCursor: cursorSchema.nullable(), asOf: z.string() });
 
 const candleSchema = z.object({
   start: z.number().int(),
@@ -68,6 +70,7 @@ const swapsPageSchema = z.object({
 });
 
 export type Pool = z.infer<typeof poolSchema>;
+export type PoolListRow = z.infer<typeof poolListRowSchema>;
 export type PoolToken = Pool['token0'];
 export type PoolCandle = z.infer<typeof candleSchema>;
 export type PoolDay = z.infer<typeof poolDaySchema>;

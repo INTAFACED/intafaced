@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { useDataEnv, useSource } from './deps';
 import type { Loadable } from './deps';
 import { ianaZone } from './window';
+import { maintenanceOf, upcomingMaintenanceSchema, type MaintenanceWindowSoon } from '../../../shared/market-maintenance';
 import type { Preferences } from '../../../shared/preferences';
 
 export interface ListingStatus {
@@ -16,6 +17,8 @@ export interface ListingStatus {
   sessionOpen: boolean | null;
   /** Epoch ms the session next opens, or null when it is not about to open (or not known). */
   opensAt: number | null;
+  /** A maintenance window scheduled or under way for the market (J-cex-spot-14 #5), or null. */
+  maintenance?: MaintenanceWindowSoon | null;
 }
 export type ListingStatusMap = Readonly<Record<string, ListingStatus>>;
 
@@ -25,6 +28,7 @@ const listingStatusSchema = z
     sessionOpen: z.boolean().nullish(),
     nextSessionChange: z.object({ open: z.boolean(), timestamp: z.number() }).passthrough().nullish(),
     degrade: z.object({ separateFromSpot: z.boolean().nullish() }).passthrough().nullish(),
+    upcomingMaintenance: upcomingMaintenanceSchema,
   })
   .passthrough();
 type ListingRow = z.infer<typeof listingStatusSchema>;
@@ -39,6 +43,7 @@ export function toStatusMap(rows: readonly ListingRow[]): ListingStatusMap {
       separateFromSpot: row.degrade?.separateFromSpot === true,
       sessionOpen: row.sessionOpen ?? null,
       opensAt: change && change.open ? change.timestamp : null,
+      maintenance: maintenanceOf(row.upcomingMaintenance),
     };
   }
   return map;
@@ -68,12 +73,18 @@ export const isSeparateFromSpot = (status: ListingStatusMap | null, symbol: stri
 
 export type RowStatus = { kind: 'open' } | { kind: 'paused' } | { kind: 'closed'; opensAt: number | null };
 
-/** What a row's status badge says. Only a market that is not orderable can read Closed: its session is shut. */
+/**
+ * What a row's status badge says. A market whose session is shut reads Closed, with when it opens, even though it is
+ * listed as orderable: an order there now is refused (`trade.market_closed`) and is not queued (J-cex-spot-14 #6).
+ */
 export function rowStatus(orderable: boolean, status: ListingStatus | undefined): RowStatus {
-  if (orderable) return { kind: 'open' };
   if (status && status.sessionOpen === false) return { kind: 'closed', opensAt: status.opensAt };
+  if (orderable) return { kind: 'open' };
   return { kind: 'paused' };
 }
+
+/** The market's session is shut now, as the listing read says. Unknown (no read) is not shut. */
+export const isSessionShut = (status: ListingStatusMap | null, symbol: string) => status?.[symbol]?.sessionOpen === false;
 
 /** "Mon 9:30 AM" in the person's zone (named when it is not the device's own). */
 export function opensLabel(at: number, zone: Preferences['timeZone']): string {

@@ -14,7 +14,7 @@ const FEE = 'fee-evt-o2-producer';
 
 const publishedLaw = {
   published: true as const,
-  tiers: [{ hop: 0, rate: '0.10' }],
+  tiers: [{ hop: 0, rate: '0.130' }],
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -30,7 +30,7 @@ function payload(over: Record<string, unknown> = {}) {
   };
 }
 
-async function app(opts: { law?: typeof publishedLaw | undefined } = {}) {
+async function app(opts: { law?: typeof publishedLaw | undefined; depth?: number | undefined } = {}) {
   const parent = new Map<string, string>([[PAYER, BENE0]]);
   const store = new MemoryAccrualStore();
   const active: string[] = [];
@@ -41,6 +41,7 @@ async function app(opts: { law?: typeof publishedLaw | undefined } = {}) {
     freeze: { frozenIds: async () => new Set<string>() },
     accruals: store,
     accrualTierLaw: opts.law,
+    programmeDepth: 'depth' in opts ? opts.depth : 5,
     activity: { recordFeeEvent: async (userId: string) => void active.push(userId) },
   });
   await f.ready();
@@ -120,6 +121,24 @@ describe('D26-P1-O2 S2S producer accrue', () => {
     await f.close();
   });
 
+  it('412 blank programme depth (RC-campaigns-07) — refused before the rate law, no rows, published rates or not', async () => {
+    for (const law of [publishedLaw, undefined]) {
+      const { f, store, active } = await app({ law, depth: undefined });
+      const body = JSON.stringify(payload());
+      const res = await f.inject({
+        method: 'POST',
+        url: AFFILIATE_PRODUCER_PATH,
+        headers: { ...serviceAuthHeadersForBody('svc-trade', SECRET, body), 'content-type': 'application/json' },
+        payload: body,
+      });
+      expect(res.statusCode).toBe(412);
+      expect(res.json()).toMatchObject({ code: 'affiliate.programme_depth_unset' });
+      expect(await store.listByFeeEvent(FEE)).toEqual([]);
+      expect(active).toEqual([PAYER]);
+      await f.close();
+    }
+  });
+
   it('400 extra keys (tiers) — invent path cannot hide on S2S', async () => {
     const { f, store } = await app({ law: publishedLaw });
     const body = JSON.stringify(payload({ tiers: [{ hop: 0, rate: '0.99' }] }));
@@ -162,7 +181,7 @@ describe('D26-P1-O2 S2S producer accrue', () => {
     const json = res.json() as { inserted: number; rows: Array<{ sourceModule: string; rate: string; commissionAmount: string }> };
     expect(json.inserted).toBe(1);
     expect(json.rows).toHaveLength(1);
-    expect(json.rows[0]).toMatchObject({ sourceModule: 'trade', rate: '0.10', commissionAmount: '10' });
+    expect(json.rows[0]).toMatchObject({ sourceModule: 'trade', rate: '0.130', commissionAmount: '13' });
     expect(await store.listByFeeEvent(FEE)).toHaveLength(1);
     await f.close();
   });

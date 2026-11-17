@@ -19,8 +19,8 @@ export { DEV_VENUE_ADDRESS, ZERO_VENUE_ADDRESS };
  * change is either wrong or belongs in svc-bridge, which is custodial by design
  * (§17.3).
  *
- * `EDGE_PRINCIPAL_SECRET` is here because this service self-mounts `/trpc`
- * (docs/decisions/mount-boundary.md). Every read procedure is permissionless,
+ * `EDGE_PRINCIPAL_SECRET` is here because this service self-mounts `/trpc`.
+ * Every read procedure is permissionless,
  * so the secret authorises nothing — but the mount recipe is the mount recipe,
  * and a service that cannot tell an edge-vouched principal from a caller-typed
  * one should not be the service that decides it does not need to.

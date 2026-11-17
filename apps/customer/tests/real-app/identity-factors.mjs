@@ -1,10 +1,10 @@
 import { expect } from './journey.mjs';
 import { nextTotpStep } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { signOutBrowser } from './stack.mjs';
+import { signOutBrowser, stackUrl } from './stack.mjs';
 
 // Passkeys belong to the stack's relying party, `localhost` (an IP address cannot be one), so these steps use the
 // customer app at http://localhost:3210 and Chromium's virtual authenticator in place of a device.
-export const PASSKEY_ORIGIN = 'http://localhost:3210';
+export const PASSKEY_ORIGIN = stackUrl('customer', 'localhost');
 
 /** Chromium allows one built-in authenticator; `transport: 'usb'` adds a security key beside it. */
 export async function virtualAuthenticator(page, transport = 'internal') {

@@ -64,6 +64,9 @@ export interface PublishedDepositAsset {
   }>;
 }
 
+/** An asset Deposit offers, with the decimal places the supported asset list gives it. */
+export type OpenDepositAsset = PublishedDepositAsset & { precision: number };
+
 /** A pair switched off, as customers see it: no address is issued for it. */
 export interface HaltedDepositView {
   assetId: string;
@@ -151,7 +154,7 @@ export class DepositService {
     this.registry = registry;
   }
 
-  async assets(): Promise<{ assets: PublishedDepositAsset[]; halted: HaltedDepositView[] }> {
+  async assets(): Promise<{ assets: OpenDepositAsset[]; halted: HaltedDepositView[] }> {
     const { catalogue, registry } = await this.readBoth();
     const assets = validateCatalogue(catalogue.assets);
     // The custody catalogue is checked whole first, so a broken one is still refused as broken; then the registry narrows it.
@@ -174,7 +177,9 @@ export class DepositService {
           return false;
         }),
       }))
-      .filter((asset) => asset.networks.length > 0);
+      .filter((asset) => asset.networks.length > 0)
+      // An open pair is one the registry allows, so its row is there: the precision Deposit uses is the list's own.
+      .map((asset) => ({ ...asset, precision: registry.find((row) => row.id === asset.assetId)!.precision }));
     return { assets: open, halted: [...halted, ...blocked] };
   }
 

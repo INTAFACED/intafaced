@@ -25,6 +25,14 @@ test.use({ timezoneId: 'UTC' });
  */
 const typed = (iso) => (iso.slice(17, 19) === '00' ? iso.slice(0, 16) : iso.slice(0, 19));
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** A UTC instant as the desk prints it ("15 Oct 2026, 10:02:03 UTC"), so the shown time is checked against the ledger's. */
+const when = (iso) => {
+  const d = new Date(iso);
+  const two = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())} UTC`;
+};
+
 let funded = null;
 
 test.beforeAll(async () => {
@@ -100,13 +108,31 @@ test('J-ops-console-03 #2 opening a transaction shows each posting’s source an
   test.setTimeout(240_000);
   const section = await desk(page);
   const { list } = await listDeposits(page, section);
+  const read = page.waitForResponse((res) => res.url().includes(`/api/ledger-lookup?txId=${funded.newest.tx}`), { timeout: 30_000 });
   await list.getByRole('link', { name: funded.newest.key }).click();
+  const answer = await (await read).json();
   const lookup = page.getByTestId('ledger-lookup');
   await expect(lookup.getByTestId('ledger-lookup-tx-id')).toHaveText(funded.newest.tx, { timeout: 30_000 });
   await expect(lookup.getByTestId('ledger-lookup-business-key')).toHaveText(funded.newest.key);
-  await expect(lookup.getByTestId('ledger-lookup-reference')).not.toBeEmpty();
-  await expect(lookup.getByTestId('ledger-lookup-request-time')).toContainText('took the request');
-  await expect(lookup.getByTestId('ledger-lookup-ledger-time')).toContainText('database transaction began');
+  // The reference and both times are the ledger's own record of this transaction, shown as the ledger wrote them.
+  expect(answer.transaction.txId).toBe(funded.newest.tx);
+  const { reference, bookedAt } = answer.transaction.booking;
+  const { postedAt } = answer.transaction;
+  expect(typeof reference === 'string' && reference.length > 0, `the ledger's reference for ${funded.newest.tx}`).toBe(true);
+  await expect(lookup.getByTestId('ledger-lookup-reference')).toHaveText(reference);
+  // The request time is the ledger's clock when it took this deposit: inside the window the deposits were made in.
+  const fundedFrom = Date.parse(funded.since);
+  const fundedTo = Date.parse(funded.until);
+  for (const at of [postedAt, bookedAt]) {
+    expect(Date.parse(at), `${at} inside the funding window`).toBeGreaterThanOrEqual(fundedFrom);
+    expect(Date.parse(at), `${at} inside the funding window`).toBeLessThan(fundedTo);
+  }
+  await expect(lookup.getByTestId('ledger-lookup-request-time')).toHaveText(
+    `${when(postedAt)} (the ledger’s clock when it took the request; the hash covers it)`,
+  );
+  await expect(lookup.getByTestId('ledger-lookup-ledger-time')).toHaveText(
+    `${when(bookedAt)} (the database’s clock when the booking’s database transaction began)`,
+  );
   const postings = lookup.getByTestId('ledger-lookup-postings');
   // The fifty-first TEST deposit of 1 XAG: the rail is the source, the customer's account the destination, 50 before and 51 after.
   const source = postings.locator('tr[data-side="source"]');
@@ -140,11 +166,37 @@ test('J-ops-console-03 #3 tracing a business key shows its transaction, log sequ
   await expect(lookup.getByTestId('ledger-lookup-event')).toContainText('intafaced.ledger.tx.posted');
   await expect(lookup.getByTestId('ledger-lookup-event')).toContainText(body.transaction.booking.event.id);
 
+  // A key whose write the ledger refused: a TEST deposit of an asset the ledger does not hold is sent under its own business
+  // key and refused, so the key has no transaction. The desk says so honestly: no record, because the ledger keeps none
+  // of a refused write.
+  const ref = `refused-${randomBytes(4).toString('hex')}`;
+  const rejected = `deposit:local-test:LOCAL-TEST-${ref}`;
+  let refusal = null;
+  try {
+    fund(funded.who.email, `QZ${randomBytes(2).toString('hex').toUpperCase()}`, '1', ref);
+  } catch (error) {
+    refusal = error;
+  }
+  expect(refusal, 'the ledger refused the write').not.toBeNull();
+  expect(refusal.message).toContain('ledger post refused');
+  const traced = page.waitForResponse((res) => res.url().includes('/api/ledger-lookup?businessKey='));
+  await lookup.getByLabel('Business key', { exact: true }).fill(rejected);
+  await lookup.getByRole('button', { name: 'Look up' }).click();
+  const none = await (await traced).json();
+  expect(none).toMatchObject({ found: false, businessKey: rejected });
+  const notFound = lookup.getByTestId('ledger-lookup-not-found');
+  await expect(notFound).toHaveText(
+    `Nothing was booked under the business key ${rejected}. No record: the ledger keeps no record of a write it refused, so there is nothing more to show for this key.`,
+    { timeout: 30_000 },
+  );
+  await expect(lookup.getByTestId('ledger-lookup-transaction')).toHaveCount(0);
+
+  // A key nothing was ever sent under reads the same honest no record.
   const never = `deposit:local-test:never-${randomBytes(4).toString('hex')}`;
   await lookup.getByLabel('Business key', { exact: true }).fill(never);
   await lookup.getByRole('button', { name: 'Look up' }).click();
-  await expect(lookup.getByTestId('ledger-lookup-not-found')).toContainText(never, { timeout: 30_000 });
-  await expect(lookup.getByTestId('ledger-lookup-not-found')).toContainText('No record');
+  await expect(notFound).toContainText(never, { timeout: 30_000 });
+  await expect(notFound).toContainText('No record');
 });
 
 test('J-ops-console-03 #4 an account address prefix finds the account with its volumes and derived balance as decimal strings', async ({

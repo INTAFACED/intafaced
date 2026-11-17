@@ -11,6 +11,7 @@ import {
 import { drawingsCopy, type drawingsMessages } from './copy';
 import type { DrawingsApi } from './useDrawings';
 import { TOOL_GROUPS, type ToolId } from './tools';
+import { TEXT_SIZES, TONES, type Tone } from './model';
 
 type Translate = (key: keyof typeof drawingsMessages, vars?: Record<string, string>) => string;
 
@@ -73,6 +74,26 @@ export function DrawingToolbar({ api }: { api: DrawingsApi }) {
       <label className="dw-text-field">
         <span>{t('Text label')}</span>
         <input value={api.textValue} onChange={(event) => api.setTextValue(event.target.value)} maxLength={120} />
+      </label>
+      <label className="dw-text-field">
+        <span>{t('Text size label')}</span>
+        <select value={String(api.textSize)} onChange={(event) => api.setTextSize(Number(event.target.value))}>
+          {TEXT_SIZES.map((size) => (
+            <option key={size} value={String(size)}>
+              {t('Text size option', { size: String(size) })}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="dw-text-field">
+        <span>{t('Text colour label')}</span>
+        <select value={api.textTone} onChange={(event) => api.setTextTone(event.target.value as Tone)}>
+          {TONES.map((tone) => (
+            <option key={tone} value={tone}>
+              {t(`Colour ${tone}` as keyof typeof drawingsMessages)}
+            </option>
+          ))}
+        </select>
       </label>
 
       {!api.magnetAvailable ? <p className="dw-note">{t('Magnet blank')}</p> : null}

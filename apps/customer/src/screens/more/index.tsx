@@ -3,7 +3,7 @@ import type { ScreenProps } from '../../app/screen-types';
 import { moreCopy } from './copy';
 import { doorLabel, roomTitle } from '../../app/navigation';
 import { usePreferences } from '../../shared/preferences';
-import { allServices, sectionId, visibleSections, type ServiceGroupId } from './tiles';
+import { allServices, sectionId, visibleSections, web3TileBlockers, type ServiceGroupId } from './tiles';
 
 /** More (UI-SPEC 5.11): the pages that don't have a tab of their own, as tiles. Only a hidden route is left out. */
 export default function MoreScreen(_props: ScreenProps) {
@@ -21,7 +21,7 @@ export default function MoreScreen(_props: ScreenProps) {
             {t(section)}
           </h2>
           <ul className="more-hub-grid">
-            {tiles.map(({ id, href, icon: Icon, title, line }) => (
+            {tiles.map(({ id, href, icon: Icon, title, line, web3 }) => (
               <li key={id}>
                 <a data-testid="more-tile" className="more-tile" href={href} data-tile={id}>
                   <span data-testid="more-tile__icon" className="more-tile__icon" aria-hidden="true">
@@ -32,7 +32,13 @@ export default function MoreScreen(_props: ScreenProps) {
                       {t(title)}
                     </span>
                     <span data-testid="more-tile__line" className="more-tile__line">
-                      {t(line)}
+                      {web3
+                        ? t('Blocked by', {
+                            blockers: web3TileBlockers(web3)
+                              .map((key) => t(key))
+                              .join(' · '),
+                          })
+                        : line && t(line)}
                     </span>
                   </span>
                 </a>

@@ -6,8 +6,9 @@
  * the contract shape; no snapshot is the word `unset`, not null and not zero.
  */
 
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
-import type { JSONValue, Sql, TransactionSql } from 'postgres';
+import type { JSONValue, Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
   LEDGER_RECONCILE_ASOF_INVALID,
@@ -61,8 +62,6 @@ import {
   readInstant,
   type ReconciliationPeriod,
 } from './reconciliation-schedule.js';
-
-type Db = Sql | TransactionSql;
 
 export interface SnapshotRead {
   readonly kind: 'unset' | 'unavailable' | 'snapshot';
@@ -139,16 +138,23 @@ interface ControlRow {
 
 interface AssetEvidence {
   assetId: string;
-  observed: string;
+  /** `unset` only beside `missing: 'ledger'`: the ledger holds no record, so there is no figure to show, not a zero. */
+  observed: string | 'unset';
   expected: string | 'unset';
   difference: string | 'unset';
   tolerance: string | 'unset';
   reconcilingItems?: string;
   residual?: string;
+  /** The side that holds no record for this asset: a break named "missing", never read as a zero (OWNER 288). */
+  missing?: 'ledger' | 'outside';
 }
 
+type RunStatus = 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' | 'NOTHING_TO_COMPARE';
+
 interface Verdict {
-  status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET';
+  status: RunStatus;
+  /** Records compared. Left out, it is counted from the asset rows (`comparedOf`); a chain check counts transactions. */
+  compared?: number;
   phase: string;
   errorCode: string;
   assets: AssetEvidence[];
@@ -228,7 +234,7 @@ function toView(row: ControlRow): ReconciliationControlView {
 }
 
 async function audit(
-  tx: Db,
+  tx: Queryable,
   controlId: string,
   actor: string,
   reason: string,
@@ -247,7 +253,7 @@ const CONTROL_COLUMNS = `
   tolerance, margin, account_set, threshold, version, resumed_at
 `;
 
-async function loadControl(sql: Db, id: string, lock: boolean): Promise<ControlRow> {
+async function loadControl(sql: Queryable, id: string, lock: boolean): Promise<ControlRow> {
   const rows = await sql<ControlRow[]>`
     SELECT ${sql.unsafe(CONTROL_COLUMNS)}
       FROM reconciliation_controls
@@ -395,7 +401,7 @@ export async function updateReconciliationControl(
  * The state is checked before the approval is consumed, so an illegal move does not spend it.
  */
 async function moveLifecycle(
-  tx: Db,
+  tx: Queryable,
   approvals: LedgerApprovalConsumer,
   ids: { readonly approvalId?: string; readonly operationId?: string },
   current: ControlRow,
@@ -525,14 +531,19 @@ interface AccountHit {
  * In the set at readAt: created by then on the database clock, or holding an entry posted by then on the posting clock.
  * The two clocks can disagree by a millisecond or more (created_at is the post's transaction start in microseconds,
  * posted_at the app's clock in milliseconds), and an account funded at readAt must be counted with its counter-leg.
+ *
+ * The posted side is one uncorrelated `IN`, never a per-account `EXISTS`: Postgres hashes it once. A correlated
+ * `EXISTS` is planned per account on a table with no statistics yet (a young database), and for a past readAt that
+ * precedes every posting it walks every entry of every account in the set with a ledger_tx lookup each, slow enough
+ * that the edge gave up on the run (issue #8044).
  */
-function existedAt(sql: Db, readAt: Date) {
-  return sql`(created_at <= ${readAt} OR EXISTS (
-    SELECT 1 FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id WHERE e.account_id = accounts.id AND t.posted_at <= ${readAt}
+export function existedAt(sql: Queryable, readAt: Date) {
+  return sql`(created_at <= ${readAt} OR id IN (
+    SELECT e.account_id FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id WHERE t.posted_at <= ${readAt}
   ))`;
 }
 
-async function accountsInSet(sql: Db, accountSet: ReconciliationAccountSet, readAt: Date): Promise<AccountHit[]> {
+async function accountsInSet(sql: Queryable, accountSet: ReconciliationAccountSet, readAt: Date): Promise<AccountHit[]> {
   if (accountSet.mode === 'explicit') {
     return sql<AccountHit[]>`
       SELECT id, asset_id FROM accounts
@@ -555,7 +566,7 @@ async function accountsInSet(sql: Db, accountSet: ReconciliationAccountSet, read
   `;
 }
 
-async function balancesAt(sql: Db, ids: string[], readAt: Date): Promise<Map<string, Amount>> {
+async function balancesAt(sql: Queryable, ids: string[], readAt: Date): Promise<Map<string, Amount>> {
   const out = new Map<string, Amount>();
   for (const id of ids) out.set(id, 0n);
   if (ids.length === 0) return out;
@@ -571,7 +582,7 @@ async function balancesAt(sql: Db, ids: string[], readAt: Date): Promise<Map<str
 }
 
 /** The cached balance column, read for a run at the current instant only (it has no history). */
-async function cachedBalances(sql: Db, ids: string[]): Promise<Map<string, Amount>> {
+async function cachedBalances(sql: Queryable, ids: string[]): Promise<Map<string, Amount>> {
   const out = new Map<string, Amount>();
   for (const id of ids) out.set(id, 0n);
   if (ids.length === 0) return out;
@@ -615,14 +626,14 @@ class BookReadError extends Error {
  * entries (Book.drift) when the check replays. A chain check reads the set only, outside a transaction.
  */
 async function readBook(
-  sql: Db,
+  sql: Queryable,
   accountSet: ReconciliationAccountSet,
   readAt: Date,
   past: boolean,
   withBalances: boolean,
   replays: boolean,
 ): Promise<Book> {
-  const read = async (db: Db): Promise<Book> => {
+  const read = async (db: Queryable): Promise<Book> => {
     let accounts: AccountHit[];
     try {
       accounts = await accountsInSet(db, accountSet, readAt);
@@ -653,7 +664,7 @@ async function readBook(
 }
 
 /** Each account's entries summed up to readAt, or every entry the snapshot shows when readAt is null. */
-async function replayedAt(sql: Db, ids: string[], readAt: Date | null): Promise<Map<string, Amount>> {
+async function replayedAt(sql: Queryable, ids: string[], readAt: Date | null): Promise<Map<string, Amount>> {
   const out = new Map<string, Amount>();
   for (const id of ids) out.set(id, 0n);
   if (ids.length === 0) return out;
@@ -708,10 +719,21 @@ function assetRow(
   };
 }
 
-function foldAssets(assets: AssetEvidence[], unsetSource: boolean): 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' {
+/** The asset figures a run compared: both sides known and judged. A missing side or an unset one compares nothing. */
+export function comparedOf(assets: readonly AssetEvidence[]): number {
+  return assets.filter((asset) => asset.missing === undefined && asset.expected !== 'unset' && asset.difference !== 'unset').length;
+}
+
+/**
+ * The run's word from its asset rows (OWNER 288): a missing record is a break, never a zero, and no other row hides it;
+ * PASS needs at least one record compared and no difference. Zero compared is NOTHING_TO_COMPARE, never green.
+ */
+function foldAssets(assets: AssetEvidence[], unsetSource: boolean): RunStatus {
+  if (assets.some((asset) => asset.missing !== undefined)) return 'FAIL';
   if (assets.some((asset) => asset.tolerance === 'unset')) return 'ERROR';
   if (unsetSource || assets.some((asset) => asset.expected === 'unset')) return 'UNSET';
   if (assets.some((asset) => asset.difference !== 'unset' && parseAmount(asset.difference) !== 0n && !withinStored(asset))) return 'FAIL';
+  if (comparedOf(assets) === 0) return 'NOTHING_TO_COMPARE';
   return 'PASS';
 }
 
@@ -773,8 +795,21 @@ function thresholdAssets(
   const assets: AssetEvidence[] = [];
   for (const assetId of Object.keys(threshold.byAsset).sort()) {
     const bound = parseAmount(threshold.byAsset[assetId] ?? '0');
-    const amount = observed.get(assetId) ?? 0n;
     const tol = toleranceFor(tolerance, assetId);
+    const held = observed.get(assetId);
+    if (held === undefined) {
+      // No account of the set holds this asset: the ledger side is missing, a break by name, never read as 0 (OWNER 288).
+      assets.push({
+        assetId,
+        observed: 'unset',
+        expected: formatAmount(bound),
+        difference: 'unset',
+        tolerance: tol === null ? 'unset' : formatAmount(tol),
+        missing: 'ledger',
+      });
+      continue;
+    }
+    const amount = held;
     if (tol === null) {
       assets.push(assetRow(assetId, amount, bound, null, 'unset'));
       continue;
@@ -803,7 +838,7 @@ function thresholdAssets(
 
 /** Read the book once (readBook) and judge it; the account ids are the ones the verdict counted, stored as its evidence. */
 async function evaluate(
-  sql: Db,
+  sql: Queryable,
   row: ControlRow,
   readAt: Date,
   sources: ReconciliationSources,
@@ -850,7 +885,7 @@ function itemsKey(items: readonly ReconciliationReconcilingItem[]): string {
 }
 
 async function judge(
-  sql: Db,
+  sql: Queryable,
   row: ControlRow,
   accountSet: ReconciliationAccountSet,
   book: Book,
@@ -868,8 +903,10 @@ async function judge(
   if (row.check_kind === 'chain') {
     try {
       const chain = await verifyChain(sql, 1000, past ? readAt : undefined);
+      // An empty chain verified nothing: NOTHING_TO_COMPARE, never PASS (OWNER 288).
       return {
-        status: chain.ok ? 'PASS' : 'FAIL',
+        status: chain.ok ? (chain.length === 0 ? 'NOTHING_TO_COMPARE' : 'PASS') : 'FAIL',
+        compared: chain.length,
         phase: chain.ok ? '' : 'chain',
         errorCode: '',
         assets: [],
@@ -904,7 +941,8 @@ async function judge(
       const zeros = new Map<string, Amount>();
       for (const assetId of ledgerTotals.keys()) zeros.set(assetId, 0n);
       const netRows = equalAssets(ledgerTotals, zeros, row.tolerance, true);
-      if (foldAssets(replayRows, false) === 'PASS') assets = netRows;
+      const replayed = foldAssets(replayRows, false);
+      if (replayed === 'PASS' || replayed === 'NOTHING_TO_COMPARE') assets = netRows;
     }
     const status = foldAssets(assets, false);
     return {
@@ -947,14 +985,19 @@ async function judge(
       };
     }
     const assets = thresholdAssets(ledgerTotals, threshold, row.tolerance);
-    const status = assets.some((asset) => asset.tolerance === 'unset')
-      ? 'ERROR'
-      : assets.some((asset) => asset.difference !== 'unset' && parseAmount(asset.difference) !== 0n && !withinStored(asset))
-        ? 'FAIL'
-        : 'PASS';
+    const missing = assets.some((asset) => asset.missing !== undefined);
+    const status: RunStatus = missing
+      ? 'FAIL'
+      : assets.some((asset) => asset.tolerance === 'unset')
+        ? 'ERROR'
+        : assets.some((asset) => asset.difference !== 'unset' && parseAmount(asset.difference) !== 0n && !withinStored(asset))
+          ? 'FAIL'
+          : comparedOf(assets) === 0
+            ? 'NOTHING_TO_COMPARE'
+            : 'PASS';
     return {
       status,
-      phase: status === 'FAIL' ? 'threshold' : status === 'ERROR' ? 'tolerance' : '',
+      phase: missing ? 'missing' : status === 'FAIL' ? 'threshold' : status === 'ERROR' ? 'tolerance' : '',
       errorCode: status === 'ERROR' ? OPS_CONTROL_POLICY_UNSET : '',
       assets,
       outsideSide: 'not_applicable',
@@ -1066,7 +1109,10 @@ async function judge(
   const unsetSource = outsideTemplate && assets.some((asset) => asset.expected === 'unset');
   const status = named === null ? foldAssets(assets, unsetSource) : foldResiduals(assets, unsetSource);
   return {
-    status: status === 'PASS' || status === 'FAIL' || status === 'ERROR' || status === 'UNSET' ? status : 'ERROR',
+    status:
+      status === 'PASS' || status === 'FAIL' || status === 'ERROR' || status === 'UNSET' || status === 'NOTHING_TO_COMPARE'
+        ? status
+        : 'ERROR',
     phase: status === 'FAIL' ? side : status === 'ERROR' ? 'tolerance' : '',
     errorCode: status === 'ERROR' ? OPS_CONTROL_POLICY_UNSET : '',
     assets,
@@ -1106,12 +1152,13 @@ function withItems(
 }
 
 /** With named items no tolerance applies: a residual of even one unit FAILs, ahead of UNSET and of an unset tolerance, which is otherwise a policy ERROR. */
-function foldResiduals(assets: AssetEvidence[], unsetSource: boolean): 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' {
+function foldResiduals(assets: AssetEvidence[], unsetSource: boolean): RunStatus {
   // A residual already known FAILs the run, even when another asset is unset or has no tolerance (the tolerance plays no
   // part here): an unset asset never hides a break.
   if (assets.some((asset) => asset.residual !== undefined && parseAmount(asset.residual) !== 0n)) return 'FAIL';
   if (assets.some((asset) => asset.tolerance === 'unset')) return 'ERROR';
   if (unsetSource || assets.some((asset) => asset.expected === 'unset' || asset.residual === undefined)) return 'UNSET';
+  if (comparedOf(assets) === 0) return 'NOTHING_TO_COMPARE';
   return 'PASS';
 }
 
@@ -1125,7 +1172,12 @@ interface RunRow {
   read_at: Date;
   margin: string;
   sources: ReconciliationControlRunView['sources'];
-  evidence: { accounts?: string[]; assets?: AssetEvidence[]; reconcilingItems?: ReconciliationReconcilingItem[] };
+  evidence: {
+    accounts?: string[];
+    assets?: AssetEvidence[];
+    reconcilingItems?: ReconciliationReconcilingItem[];
+    compared?: number;
+  };
   outside_side: ReconciliationControlRunView['outsideSide'];
   period_start: Date;
   period_end: Date;
@@ -1149,6 +1201,8 @@ function toRun(row: RunRow): ReconciliationControlRunView {
     periodEnd: row.period_end.toISOString(),
     accounts: row.evidence.accounts ?? [],
     assets: row.evidence.assets ?? [],
+    // A run stored before the count was kept is counted from its asset rows.
+    compared: row.evidence.compared ?? comparedOf(row.evidence.assets ?? []),
     ...(row.evidence.reconcilingItems ? { reconcilingItems: row.evidence.reconcilingItems } : {}),
   });
 }
@@ -1169,7 +1223,7 @@ function isUniqueViolation(err: unknown, depth = 0): boolean {
 }
 
 /** A started row is the only one a later pass may finish. A terminal row is returned as stored. */
-async function finishRun(sql: Db, runId: string, verdict: Verdict, accountIds: string[]): Promise<RunRow> {
+async function finishRun(sql: Queryable, runId: string, verdict: Verdict, accountIds: string[]): Promise<RunRow> {
   const rows = await sql<RunRow[]>`
     UPDATE reconciliation_control_runs
        SET status = ${verdict.status},
@@ -1180,6 +1234,7 @@ async function finishRun(sql: Db, runId: string, verdict: Verdict, accountIds: s
              asJson({
                accounts: accountIds,
                assets: verdict.assets,
+               compared: verdict.compared ?? comparedOf(verdict.assets),
                ...(verdict.reconcilingItems ? { reconcilingItems: verdict.reconcilingItems } : {}),
              }),
            )},

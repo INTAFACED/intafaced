@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
-import { COPY_MIRROR_CLIENT_ORDER_ID_MAX, type PlaceFollowerOrderPort } from './auto-mirror-place.js';
+import { COPY_MIRROR_CLIENT_ORDER_ID_MAX } from './auto-mirror-place.js';
 import { CopyCloseError } from './copy-close-errors.js';
 import { protectionFloor, type FollowerFlattenPortDeps } from './follower-flatten-port.js';
 import { isCopySkipRefusal } from './skip-log.js';

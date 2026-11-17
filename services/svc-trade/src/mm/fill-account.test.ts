@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { mmSeedJobsArmed } from './seed-honesty.js';
 import { HOUSE_MM_USER_UUID, MM_MATCHING_ACCOUNT_ID, looksLikeAnonymousCustomerFill, recoverMatchingAccountId } from './fill-account.js';
-import { tradeServiceArea, tradeServiceSource } from '../spot/trade-service/source.testkit.js';
+import { tradeServiceArea } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 

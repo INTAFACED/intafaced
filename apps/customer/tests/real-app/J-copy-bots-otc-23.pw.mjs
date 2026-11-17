@@ -621,10 +621,11 @@ test(`${J} #6 places an iceberg with the display quantity equal to the total: re
   const me = await api(trader);
   const tag = `${state('tag')}-6-${Date.now().toString(36)}`;
   const { bid, ask } = await bestPrices();
-  // A whole-USDT price a quarter of the way into the maker's spread, far from its ask.
   const one = toUnits('1');
   const whole = (units) => (units / one) * one;
-  const quoted = whole(toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n);
+  // A price a quarter of the way into the maker's spread, far from its ask. It is only compared, never sent, so it isn't
+  // rounded: a spread under about 1 USDT has no whole USDT inside it, and rounding down lands below the bid (issue 7912).
+  const quoted = toUnits(bid) + (toUnits(ask) - toUnits(bid)) / 4n;
   expect(quoted).toBeGreaterThan(toUnits(bid));
   expect(quoted).toBeLessThan(toUnits(ask));
   // From here to the refill nothing but this step trades on BTC/USDT: the maker's quotes come down (stopMarketMaker).
@@ -1155,4 +1156,45 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     await clearIfc(trader);
     if (restart) throw restart;
   }
+});
+
+test(`${J} #10 with the venue-submit port unset, opens the iceberg live door: the venue-submit notice; nothing is sent`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const trader = state('trader');
+  // This build has no venue submit port to set (IcebergTab.tsx: the live door is drawn switched off), so it is unset.
+  const before = { open: (await openOrders(trader)).map((o) => o.id).sort(), funds: await funds(trader) };
+  await signIn(page, trader);
+  await page.goto('/execution');
+  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Iceberg', exact: true }).click();
+  const box = page.getByRole('region', { name: 'New iceberg' });
+  await box.getByRole('combobox', { name: 'Market', exact: true }).click();
+  await page.getByRole('option', { name: /^BTC\/USDT(?:,|$)/ }).click();
+  // A valid iceberg, so the only thing between it and a live venue is the door.
+  const { bid } = await bestPrices();
+  await box.getByLabel('Total size (BTC)').fill('0.003');
+  await box.getByLabel('Display size (BTC)').fill('0.001');
+  await box.getByLabel('Limit price').fill(String(toUnits(bid) / toUnits('1')));
+  await expect(box.getByRole('button', { name: 'Review iceberg' })).toBeEnabled();
+  // From here, every write the page makes is recorded.
+  const writes = [];
+  page.on('request', (r) => {
+    if (r.method() !== 'GET' && r.method() !== 'OPTIONS' && new URL(r.url()).pathname.startsWith('/api/'))
+      writes.push(`${r.method()} ${r.url()}`);
+  });
+  const door = box.getByRole('button', { name: 'Send to a live venue' });
+  await expect(door).toBeVisible();
+  await expect(door).toBeDisabled();
+  await expect(
+    box.getByText('Sending an iceberg to a live venue needs an authorised venue submit port. It is switched off in this build.'),
+  ).toBeVisible();
+  // Pressing it anyway sends nothing: the browser drops a click on a disabled button, and the page has no other route.
+  await door.click({ force: true });
+  await page.waitForTimeout(2_000);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  expect(writes).toEqual([]);
+  // Nothing rests, nothing is held: the service's own record is as it was.
+  expect((await openOrders(trader)).map((o) => o.id).sort()).toEqual(before.open);
+  expect(await funds(trader)).toEqual(before.funds);
 });

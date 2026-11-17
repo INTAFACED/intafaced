@@ -70,7 +70,7 @@ function headers(): Record<string, string> {
 
 function door(extra: Record<string, unknown> = {}) {
   const app = Fastify();
-  registerPrivateRest(app, { edgeSecret: SECRET, serviceName: 'svc-trade', ...extra } as unknown as PrivateRestDeps);
+  registerPrivateRest(app, { edgeSecret: SECRET, serviceName: 'svc-trade', ...extra } as PrivateRestDeps);
   return app;
 }
 

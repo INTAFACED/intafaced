@@ -45,6 +45,7 @@ import {
 } from '../types.js';
 import type { AmendOrderInput, PlaceOrderInput, TradeServiceInternal } from '../trade-service.js';
 import { replacementClientOrderId, replacementRequestHash } from './internal.js';
+import type { CancelEvidence } from './holds.js';
 import { publicLedgerCode } from '../../ledger-public-code.js';
 
 /**
@@ -121,7 +122,7 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
       if (claimed.length === 0) {
         throw new TradeError(`order ${orderId} is being resolved; retry`, 'trade.hold_unknown');
       }
-      await svc.finalize(orderId, 'cancelled');
+      await svc.finalize(orderId, 'cancelled', undefined, { noEngineFill: 'never_on_engine' });
       const settled = await svc.findOrder(orderId);
       if (!settled) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
       return settled;
@@ -168,22 +169,19 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
     }
     // The engine matched part of this order just before the cancel, and the taker's settlement has not written that
     // fill yet. Closing now would release the hold the fill is about to draw, and a caller that places again (a chase
-    // re-price) would count that quantity twice. The order stays as it is; the engine's cancel event closes it once
-    // the fill lands (`releaseOnCancelEvent` waits the same way). A retry reads the stored remainder, not the miss.
+    // re-price) would count that quantity twice. `finalize` refuses then (`trade.cancel_ahead_of_fill`) and the order
+    // stays as it is; the engine's cancel event closes it once the fill lands. A retry reads the stored remainder.
     const [answer] = await svc.sql<Array<{ engine_left_qty: string | null }>>`
       SELECT engine_left_qty::text AS engine_left_qty FROM trade.orders WHERE id = ${orderId}
     `;
     // A paper market never writes a fill (it is refused before trade.fills), so there is nothing to wait for there.
     const paper = (await svc.marketById(order.marketId))?.paper === true;
-    if (answer?.engine_left_qty != null && !paper) {
-      try {
-        await svc.refuseCancelAheadOfFill(orderId, parseAmount(answer.engine_left_qty));
-      } catch (err) {
-        if (err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill') return (await svc.findOrder(orderId)) as OrderRecord;
-        throw err;
-      }
-    } else if (!cancellation.cancelled && paper) {
-      await svc.sql`UPDATE trade.orders SET engine_absent_at_cancel = true WHERE id = ${orderId}`;
+    let evidence: CancelEvidence;
+    if (paper) {
+      if (!cancellation.cancelled) await svc.sql`UPDATE trade.orders SET engine_absent_at_cancel = true WHERE id = ${orderId}`;
+      evidence = { noEngineFill: 'paper_market' };
+    } else if (answer?.engine_left_qty != null) {
+      evidence = { engineLeftQty: parseAmount(answer.engine_left_qty) };
     } else if (!cancellation.cancelled) {
       // No live order and no earlier answer (#6874). The engine took it off the book by a fill, a cancel or an expiry,
       // and its event for that is how this service learns which: it may have matched in full with the taker's
@@ -201,12 +199,21 @@ export async function cancelOrder(svc: TradeServiceInternal, principal: Principa
       `;
       if (absent?.past_bound) await svc.markRecoveryRequired(orderId, 'RECONCILIATION_REQUIRED');
       return (await svc.findOrder(orderId)) as OrderRecord;
+    } else {
+      // The engine said it cancelled but named no remainder (#8560). The real engine always names one; without it
+      // nothing says how much it executed first, so the order keeps its hold and the engine's cancel event closes it.
+      return (await svc.findOrder(orderId)) as OrderRecord;
     }
 
     // A successful cancel whose fills are all written (or a paper market's
     // verified absence) is now safe to reconcile. Transport ambiguity above is
     // deliberately kept separate and remains recovery-required.
-    await svc.finalize(orderId, 'cancelled');
+    try {
+      await svc.finalize(orderId, 'cancelled', undefined, evidence);
+    } catch (err) {
+      if (err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill') return (await svc.findOrder(orderId)) as OrderRecord;
+      throw err;
+    }
 
     const settled = await svc.findOrder(orderId);
     return settled as OrderRecord;
@@ -895,12 +902,7 @@ export async function massCancelOrders(svc: TradeServiceInternal, principal: Pri
       throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
     }
 
-    let result: Awaited<ReturnType<MatchingClient['massCancel']>>;
-    try {
-      result = await svc.matching.massCancel(market.id, { accountId });
-    } catch (err) {
-      throw err;
-    }
+    const result: Awaited<ReturnType<MatchingClient['massCancel']>> = await svc.matching.massCancel(market.id, { accountId });
 
     if (!result.accepted) {
       throw new TradeError(result.rejected?.message ?? 'mass-cancel refused', 'trade.order_not_open');
@@ -917,7 +919,20 @@ export async function massCancelOrders(svc: TradeServiceInternal, principal: Pri
       const order = await svc.findOrder(settlementOrderId(cancellation.orderId));
       if (!order || order.userId !== principal.userId) continue;
       if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') continue;
-      await svc.finalize(cancellation.orderId, 'cancelled');
+      // The engine may have matched part of this order just before the mass cancel, with that fill not written yet:
+      // `finalize` then refuses and the order keeps its hold; the engine's cancel event closes it once the fill lands.
+      // An OCO leg's remainder is the leg's, not the parent row's (`recordOcoLegEnd` above keeps it).
+      if (cancellation.orderId === order.id) {
+        await svc.sql`
+          UPDATE trade.orders SET engine_left_qty = ${cancellation.remainingQty}::numeric
+           WHERE id = ${order.id} AND engine_left_qty IS NULL
+        `;
+      }
+      try {
+        await svc.finalize(cancellation.orderId, 'cancelled', undefined, { engineLeftQty: parseAmount(cancellation.remainingQty) });
+      } catch (err) {
+        if (!(err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill')) throw err;
+      }
       const settled = await svc.findOrder(order.id);
       if (settled && !out.some((o) => o.id === settled.id)) out.push(settled);
     }

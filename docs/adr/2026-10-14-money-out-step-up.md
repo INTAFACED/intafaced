@@ -1,5 +1,7 @@
 # ADR: Money sent to another person needs a fresh passkey or authenticator approval bound to that exact payment
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about svc-bank transfers/payroll/cards doors over customer spaces in our ledger applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 - **Status:** accepted (phased).
   - Phase 1 (this PR): same-person approvals in svc-identity, and svc-bank enforcement behind `BANK_STEP_UP_MONEY_OUT` (`off` | `required`, default `off`).
   - Phase 2: the customer-app step-up sheet, in the same release train. The flag flips to `required` when it ships.

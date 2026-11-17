@@ -173,7 +173,7 @@ describe('loan health', () => {
         ]);
       }
       throw new Error(`loan health touched more than the open book: ${text}`);
-    }) as unknown as Sql;
+    }) as Sql;
     const loans = new LoanService(sql, ledger, { priceSource: fixedPriceSource({}) });
     const caller = createBankRouter({ loans } as BankServices).createCaller(context());
 

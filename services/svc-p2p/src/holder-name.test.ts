@@ -11,7 +11,7 @@ function identity(status: number, body: unknown) {
   const fetchFn = (async (url: string, init: RequestInit) => {
     sent.push({ url, body: String(init.body), headers: init.headers as Record<string, string> });
     return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   return { sent, rule: createIdentityHolderNameRule('http://identity.test/', SECRET, undefined, fetchFn) };
 }
 
@@ -47,7 +47,7 @@ describe('the own-name rule through identity (P-ads-merchant-18)', () => {
     }
     const down = createIdentityHolderNameRule('http://identity.test', SECRET, undefined, (async () => {
       throw new TypeError('fetch failed');
-    }) as unknown as typeof fetch);
+    }) as typeof fetch);
     await expect(down.assertOwnName(SELLER, 'A Seller')).rejects.toMatchObject({ code: 'p2p.holder_name_unverifiable' });
     await expect(unwiredHolderNameRule().assertOwnName(SELLER, 'A Seller')).rejects.toMatchObject({ code: 'p2p.holder_name_unverifiable' });
   });

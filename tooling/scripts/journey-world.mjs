@@ -21,18 +21,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { WORLD, declaredWorld, worldLine } from '../../apps/customer/tests/real-app/world-line.mjs';
 
 export const JOURNEY_DIR = 'apps/customer/tests/real-app';
 
-/** The shared parts a journey can change, and what each means. */
-export const WORLD = {
-  book: 'rests, places or runs orders, algos or bots on a shared order book',
-  market: 'stops, starts, moves or delists the TEST market maker',
-  restart: 'restarts, stops or starts a stack service, or rewinds the TEST chain',
-  freeze: 'switches the platform-wide posting freeze',
-  gates: 'sets a platform-wide gate, limit, fee, risk or fault at runtime',
-  stack: "runs one of the stack's global tools (ageing, expiry, seeding, ticks, world events)",
-};
+// What a `// World:` line means is the harness's (world-line.mjs); this scan reads it from there, and the journeys never
+// import this scan.
+export { WORLD, declaredWorld, worldLine };
 
 // Subcommands that act on one named account only, so they change nothing another journey can see.
 const PER_ACCOUNT = {
@@ -66,7 +61,8 @@ const BOOK = [
   /`(?:Buy|Sell|Confirm|Open) \$\{/,
 ];
 const FREEZE = [/ledger-freeze/, /tool\(\s*['"`]local-test-gates\.mjs['"`],\s*['"`]posting-freeze['"`]/];
-// A stack script run some other way than `tool(…)` (execFileSync, spawnSync, a path joined by hand): its own tools.
+// A stack script run some other way than `tool(…)` or `toolAwaited(…)` (execFileSync, spawnSync, a path joined by
+// hand): its own tools.
 const STACK_SCRIPT = /['"`][^'"`\n]*\blocal-test[a-z-]*\.mjs['"`]/g;
 
 /** The world parts one piece of source touches directly (not through helpers). */
@@ -77,7 +73,7 @@ export function directWorld(src) {
   if (/\brestartWith\(/.test(src)) found.add('restart');
   const viaTool = new Set();
   // Any quote: 'x', "x" or `x` (a template with no ${…} in it is as literal as the others).
-  for (const m of src.matchAll(/\btool\(\s*(['"`])([a-z-]+\.mjs)\1\s*(?:,\s*((['"`])([a-z-]+)\4|[^,)]+))?/g)) {
+  for (const m of src.matchAll(/\btool(?:Awaited)?\(\s*(['"`])([a-z-]+\.mjs)\1\s*(?:,\s*((['"`])([a-z-]+)\4|[^,)]+))?/g)) {
     viaTool.add(m.index);
     const [, , script, , , literal] = m;
     // A subcommand the source computes counts as every part it could be.
@@ -99,7 +95,8 @@ export function directWorld(src) {
   // A stack script named outside `tool(…)` and outside an import: run by hand, so it counts as the stack's tools.
   for (const m of src.matchAll(STACK_SCRIPT)) {
     const before = src.slice(Math.max(0, m.index - 80), m.index);
-    if (/\btool\(\s*$/.test(before) || /\bfrom\s*$|\bimport\(\s*$|^\s*import\b[^\n]*$/.test(before.split('\n').at(-1) + '')) continue;
+    if (/\btool(?:Awaited)?\(\s*$/.test(before) || /\bfrom\s*$|\bimport\(\s*$|^\s*import\b[^\n]*$/.test(before.split('\n').at(-1) + ''))
+      continue;
     if (/local-test-(device|state)\.mjs/.test(m[0])) continue; // read-only helpers: the TEST device key and the state path
     found.add('stack');
   }
@@ -164,26 +161,6 @@ export function fileWorld(src, helpers) {
   for (const [name, world] of helpers)
     if (world.size && new RegExp(`\\b${name.replace(/\$/g, '\\$')}\\s*\\(`).test(src)) for (const part of world) found.add(part);
   return found;
-}
-
-/** The parts a file's `// World:` line declares, or null when it has none. An unknown part is an error. */
-export function declaredWorld(src) {
-  const m = /^\/\/ World: (.+)$/m.exec(src);
-  if (!m) return null;
-  const words = m[1]
-    .split(',')
-    .map((w) => w.trim())
-    .filter(Boolean);
-  if (words.length === 1 && words[0] === 'none') return new Set();
-  const unknown = words.filter((w) => !(w in WORLD));
-  if (unknown.length || words.includes('none')) throw new Error(`unknown world part(s): ${unknown.join(', ') || 'none with others'}`);
-  return new Set(words);
-}
-
-/** The `// World:` line a file with these parts needs, parts in WORLD's order. */
-export function worldLine(parts) {
-  const ordered = Object.keys(WORLD).filter((p) => parts.has(p));
-  return `// World: ${ordered.length ? ordered.join(', ') : 'none'}`;
 }
 
 /** Every journey file's verdict: what it declares, what it does, and what its line leaves out. */

@@ -59,6 +59,12 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
 /** The start of the day before now, on the UTC day boundary: every movement in this test is after it. Read once. */
 const FROM = new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000 - 86_400_000).toISOString();
 
+/** Waits for the next UTC minute when fewer than 10 s are left in this one, so posts made next share a 60 s bucket. */
+async function clearOfMinuteEnd(spareMs = 10_000): Promise<void> {
+  const left = 60_000 - (Date.now() % 60_000);
+  if (left < spareMs) await new Promise((resolve) => setTimeout(resolve, left + 50));
+}
+
 const netOf = (read: HoldingsHistory, assetId: string): Amount =>
   read.movements.filter((m) => m.assetId === assetId).reduce((sum, m) => sum + m.inflow - m.outflow, 0n);
 const heldOf = (read: HoldingsHistory, assetId: string): Amount => read.holdings.find((h) => h.assetId === assetId)?.amount ?? 0n;
@@ -121,6 +127,9 @@ describe('PostgresLedger.holdingsHistory', () => {
         to: userAvailable(to, 'USDT'),
         amount: amt('50'),
       });
+    // Both must land in one 60 s bucket (posted_at is this process's clock): never start the pair in a minute's last
+    // seconds, or the in and the back fall into two buckets and read as a bare 50 in (#7626).
+    await clearOfMinuteEnd();
     await engine.post(send('hh-t-in', MAKER, TAKER));
     await engine.post(send('hh-t-back', TAKER, MAKER));
     // The token buyback buys 0.5 BTC for 300 USDT from BB_MAKER's ask at a 10 bps maker fee (TEST amounts).

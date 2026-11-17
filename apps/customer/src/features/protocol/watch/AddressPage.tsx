@@ -8,6 +8,7 @@ import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
 import { AddressActivity, AddressHoldings, AddressSummary, PastBalance } from '../explorer/AddressDetails';
 import { useAccountAddressWatches } from './account-lists';
+import { AddressRisk } from './AddressRisk';
 import { watchCopy, type WatchTranslate } from './copy';
 import '../protocol.css';
 
@@ -149,6 +150,7 @@ export function AddressPage({ address }: { address: string | undefined }) {
   return (
     <WatchShell title={t('pageTitle', { address })} description={t('noFunds')}>
       <WatchPanel address={address} t={t} />
+      <AddressRisk key={`risk-${address}`} address={address} />
       <section aria-label={t('summary')}>
         <Panel title={t('summary')}>
           <AddressSummary

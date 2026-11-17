@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -197,8 +198,8 @@ const sealAad = (depositId: string) => `pay.deposit-travel-rule:${depositId.toLo
 
 /** What the deposit book does when a held deposit is released or its record moves (`CustodyDepositBook`). */
 export interface DepositTravelRuleBook {
-  releaseTravelRule<T>(depositId: string, record: (tx: Sql) => Promise<T>): Promise<{ recorded: T; credited: boolean }>;
-  markTravelRuleReason(tx: Sql, depositId: string, state: string): Promise<void>;
+  releaseTravelRule<T>(depositId: string, record: (tx: Queryable) => Promise<T>): Promise<{ recorded: T; credited: boolean }>;
+  markTravelRuleReason(tx: Queryable, depositId: string, state: string): Promise<void>;
 }
 
 export interface DepositTravelRuleDeps {
@@ -243,7 +244,7 @@ export class DepositTravelRuleService {
 
   // ── records ─────────────────────────────────────────────────────────────────
 
-  private async load(q: Sql, depositId: string, lock = false): Promise<RecordRow | undefined> {
+  private async load(q: Queryable, depositId: string, lock = false): Promise<RecordRow | undefined> {
     // Lock in its own statement, then read the latest event afresh (as the outbound record does). The deposit row is locked
     // too, so a reorg or review cannot move it between the check on its status and the step that follows.
     if (lock) {
@@ -278,8 +279,7 @@ export class DepositTravelRuleService {
    */
   async declare(userId: string, input: PayDepositTravelRuleDeclareInput): Promise<PayDepositTravelRuleView> {
     const cipher = this.deps.cipher;
-    const done = await this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    const done = await this.deps.sql.begin(async (q) => {
       const row = await this.load(q, input.depositId, true);
       if (!row || row.user_id !== userId)
         throw new DepositTravelRuleError('travel_rule.deposit_not_found', 'no such held deposit for this account');
@@ -318,8 +318,7 @@ export class DepositTravelRuleService {
     const [limit] = await this.deps.sql<Array<{ pending_seconds: number }>>`
       SELECT pending_seconds FROM pay.travel_rule_wait_limit_events ORDER BY seq DESC LIMIT 1`;
     if (!limit) throw new DepositTravelRuleError('travel_rule.wait_limit_unset', 'the owner has not set the travel-rule wait limits');
-    const row = await this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    const row = await this.deps.sql.begin(async (q) => {
       const current = await this.movable(q, depositId, 'counterparty_pending');
       await q`
         INSERT INTO pay.custody_deposit_travel_rule_events (deposit_id, state, source, actor, reason, wait_deadline)
@@ -349,7 +348,7 @@ export class DepositTravelRuleService {
   }
 
   /** The locked record, when it may move to `to`. */
-  private async movable(q: Sql, depositId: string, to: PayDepositTravelRuleState): Promise<RecordRow> {
+  private async movable(q: Queryable, depositId: string, to: PayDepositTravelRuleState): Promise<RecordRow> {
     const row = await this.load(q, depositId, true);
     if (!row) throw new DepositTravelRuleError('travel_rule.deposit_not_found', 'no travel-rule record for this deposit');
     if (!MAY_MOVE[row.state].includes(to)) {

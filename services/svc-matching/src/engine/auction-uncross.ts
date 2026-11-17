@@ -4,7 +4,7 @@
  * Hitch: imported from auction.ts so MatchingEngine is wrapped without recutting engine.ts.
  */
 import { MatchingEngine } from './engine.js';
-import type { AuctionUncrossResult, EngineOrder, MarketId, RejectReason, SubmitResult } from './types.js';
+import type { AuctionUncrossResult, MarketId, RejectReason, SubmitResult } from './types.js';
 
 export const UNCROSSING_UNSET = 'uncrossing_unset' as const;
 export const UNCROSSING_UNSET_MESSAGE = 'uncrossing rules are unset; the engine does not invent an uncross';
@@ -59,7 +59,7 @@ export function uncrossSubmitRefuse(orderId: string): SubmitResult {
 
 export function installAuctionUncross(ctor: typeof MatchingEngine = MatchingEngine): void {
   const proto = ctor.prototype as {
-    submit: (marketId: MarketId, order: EngineOrder, proof?: unknown) => Promise<SubmitResult>;
+    submit: MatchingEngine['submit'];
     uncross?: (marketId: MarketId) => Promise<AuctionUncrossResult>;
     enterAuction?: (marketId: MarketId) => Promise<AuctionUncrossResult>;
     leaveAuction?: (marketId: MarketId) => Promise<AuctionUncrossResult>;

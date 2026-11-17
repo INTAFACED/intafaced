@@ -20,6 +20,14 @@ export function accountWords(view: SupportCustomerView | null): { state: string;
   return { state: a.data.state.status, why: null, code: null };
 }
 
+/** What the card says about the related order: the orders the desk linked, "none" only when it read none, else "unread". */
+export function orderWords(view: SupportCustomerView | null): { order: string; why: string | null; code: string | null } {
+  if (!view) return { order: 'unread', why: 'The console could not reach svc-support for the related orders.', code: null };
+  if (view.orders.kind === 'failed') return { order: 'unread', why: view.orders.message, code: view.orders.code ?? null };
+  if (view.orders.data.length === 0) return { order: 'none', why: 'This request names no order.', code: null };
+  return { order: view.orders.data.join(', '), why: null, code: null };
+}
+
 /**
  * CUSTOMER — the account behind the request, read through svc-support when the request is opened. svc-support takes the
  * account from the request itself, so the card cannot be pointed at anyone else, and it records the read in the
@@ -45,6 +53,7 @@ export function CustomerCard({ ticketId }: { ticketId: string }) {
   }, [read]);
 
   const words = accountWords(view);
+  const related = orderWords(view);
   const tier = view && view.account.kind === 'ok' && view.account.data.status === 'read' ? view.account.data.state.kycTier : null;
   return (
     <section className="dk-stack" aria-label="Customer" data-testid="customer-card">
@@ -72,7 +81,16 @@ export function CustomerCard({ ticketId }: { ticketId: string }) {
         </dd>
         <dt>Related order</dt>
         <dd>
-          <span data-testid="customer-related-order">none</span> <span className="dk-muted">This request names no order.</span>
+          {reading && !view ? (
+            <span className="dk-muted">Reading…</span>
+          ) : (
+            <>
+              <span data-testid="customer-related-order" data-code={related.code ?? undefined}>
+                {related.order}
+              </span>
+              {related.why && <span className="dk-muted"> {related.why}</span>}
+            </>
+          )}
         </dd>
       </dl>
     </section>

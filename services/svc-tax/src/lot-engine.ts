@@ -62,6 +62,23 @@ export interface EngineAcquire {
   readonly valuedAt: ValuedAt | null;
   /** The space it arrived in; absent or null: the main account. */
   readonly space?: string | null;
+  /**
+   * A lot carried in from another of the person's own accounts whose book is kept apart (a venue main account and its
+   * sub-account, venue-book.ts): it arrives at `postedAt` (the move) as that lot, with its id, acquired date and basis.
+   */
+  readonly carried?: CarriedIn;
+}
+
+/** What a carried lot keeps from the lot it left (OWN-ACCOUNT CARRY across two books). */
+export interface CarriedIn {
+  /** The id the carry gave it in the book it left: the same lot, never a new arrival. */
+  readonly lotId: string;
+  readonly acquiredAt: Date;
+  /** The lot it was split from; absent for a part no open lot covered (it arrives with no basis, at the move). */
+  readonly from?: CarriedFrom;
+  /** Its cost came from a price the customer entered, stored under `priceLotId`. */
+  readonly customerEntered?: boolean;
+  readonly priceLotId?: string;
 }
 
 export interface EngineDispose {
@@ -263,15 +280,16 @@ export function runLotEngine(
       }
       if (m.side === 'acquire') {
         // Two arrivals of one coin in one transaction get `:2`, `:3` in history order, so ids stay unique and repeatable.
-        const id = nextId(lotIdOf(m.txId, m.assetId));
+        const id = nextId(m.carried?.lotId ?? lotIdOf(m.txId, m.assetId));
         const price = m.costUsd === null ? overridePricePerUnit?.get(id) : undefined;
         const entered = price !== undefined && price > 0n;
         const costUsd = entered ? mul(price, m.qty) : m.costUsd;
+        const inherited = !entered && costUsd !== null && (m.carried?.customerEntered ?? false);
         const entry: OpenLot = {
           lot: {
             id,
             assetId: m.assetId,
-            acquiredAt: m.postedAt,
+            acquiredAt: m.carried?.acquiredAt ?? m.postedAt,
             acquireTxId: m.txId,
             source: m.source,
             reason: m.reason,
@@ -279,13 +297,18 @@ export function runLotEngine(
             costUsd,
             valuedAt: m.valuedAt,
             space: m.space ?? null,
+            ...(m.carried?.from === undefined ? {} : { carriedFrom: m.carried.from }),
           },
           remaining: m.qty,
           remainingCost: costUsd,
-          customerEntered: entered,
-          priceLotId: entered ? id : null,
+          customerEntered: entered || inherited,
+          priceLotId: entered ? id : inherited ? (m.carried?.priceLotId ?? null) : null,
         };
-        openAt(m.space).push(entry);
+        const here = openAt(m.space);
+        // A carried lot keeps its acquired date, so it takes its place among the open lots by that date, oldest first.
+        let at = here.length;
+        if (m.carried !== undefined) while (at > 0 && here[at - 1]!.lot.acquiredAt.getTime() > entry.lot.acquiredAt.getTime()) at--;
+        here.splice(at, 0, entry);
         all.push(entry);
         continue;
       }

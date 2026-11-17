@@ -105,7 +105,7 @@ export async function listMarket(svc: TradeServiceInternal, input: ListMarketInp
     )
     ON CONFLICT (symbol) DO UPDATE SET updated_at = now()
     RETURNING id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-              min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
+              min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at, opening_window_ends_at,
               asset_class, schedule, paper,
               futures_contract_style, futures_expiry_at, futures_settlement_fixing,
               futures_family, futures_settle_asset, contract_size
@@ -126,7 +126,7 @@ export async function setMarketStatus(svc: TradeServiceInternal, marketId: strin
   // and empty-fund futures enable-to-active must refuse (DIRECTION:33).
   const existing = await svc.sql<MarketRow[]>`
     SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-           min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
+           min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at, opening_window_ends_at,
            asset_class, schedule, paper,
            futures_contract_style, futures_expiry_at, futures_settlement_fixing,
            futures_family, futures_settle_asset, contract_size
@@ -151,9 +151,14 @@ export async function setMarketStatus(svc: TradeServiceInternal, marketId: strin
     throw new TradeError(insuranceGate.reason, insuranceGate.code);
   }
   const rows = await svc.sql<MarketRow[]>`
-    UPDATE trade.markets SET status = ${status}, updated_at = now() WHERE id = ${marketId}
+    UPDATE trade.markets
+       SET status = ${status},
+           -- A delisting date belongs only to a delisted listing (markets_delists_at_ck).
+           delists_at = CASE WHEN ${status} = 'delisted' THEN delists_at ELSE NULL END,
+           updated_at = now()
+     WHERE id = ${marketId}
     RETURNING id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-              min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
+              min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at, opening_window_ends_at,
               asset_class, schedule, paper,
               futures_contract_style, futures_expiry_at, futures_settlement_fixing,
               futures_family, futures_settle_asset, contract_size

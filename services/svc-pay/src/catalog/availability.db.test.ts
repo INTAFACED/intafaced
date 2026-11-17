@@ -233,19 +233,45 @@ describe('stores and where each product is sold (M-adv-org-access-05, M-adv-paym
     const busy = await store('TEST Busy store');
     const product = (await as(owner).merchantCatalog.products.create({ requestId: nid(), name: 'TEST Busy mug', type: 'physical' }))
       .product;
-    // Hold the store's row the way an archive does, then let the archive commit while the change waits.
+    // Hold the store's row the way an archive does, start the change only once the row is held, and let the archive
+    // commit only once the change is seen waiting on it. No wall-clock guess decides the order (#6747).
+    let held!: () => void;
+    const rowHeld = new Promise<void>((resolve) => (held = resolve));
+    let commit!: () => void;
+    const mayCommit = new Promise<void>((resolve) => (commit = resolve));
     const archiving = sql.begin(async (tx) => {
       await tx`UPDATE pay.stores SET status = 'archived', version = version + 1 WHERE id = ${busy.id}`;
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      held();
+      await mayCommit;
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Promise.race([rowHeld, archiving]);
     const change = refusal(() =>
       as(owner).merchantCatalog.availability.set({ productId: product.id, storeId: busy.id, channel: 'online', sold: false }),
     );
+    try {
+      await waitUntilAnotherSessionWaitsOnALock();
+    } finally {
+      commit();
+    }
     await archiving;
     expect((await change).cause).toBe('pay.store_archived');
     expect(await sql`SELECT 1 FROM pay.catalog_product_unavailable WHERE product_id = ${product.id}`).toHaveLength(0);
-  });
+  }, 30_000);
+
+  async function waitUntilAnotherSessionWaitsOnALock(timeoutMs = 15_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const rows = await sql<Array<{ n: number }>>`
+        SELECT count(*)::int AS n
+          FROM pg_stat_activity
+         WHERE datname = current_database()
+           AND wait_event_type = 'Lock'
+           AND pid <> pg_backend_pid()`;
+      if ((rows[0]?.n ?? 0) > 0) return;
+      if (Date.now() > deadline) throw new Error("the change never waited on the store's row");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
 
   it('deleting a product forgets where it was not sold', async () => {
     const corner = await store('TEST Corner');

@@ -9,8 +9,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * WHAT THIS FILE IS
  *
- * Pure helpers for the CI gate (`tooling/ci/marketing-language-scan.mjs`) and for
- * any service that wants to refuse a string before it becomes a response.
+ * The law the copy lint rule `garden/no-unsealed-claim` (tooling/lint/oxlint-plugin-garden/copy-rules.js) applies,
+ * whose test holds its words equal to these, and pure helpers for any service that wants to refuse a string before it
+ * becomes a response.
  * No I/O. No allowlist of product claims — seals are per-line, not a growing
  * exemption registry.
  *

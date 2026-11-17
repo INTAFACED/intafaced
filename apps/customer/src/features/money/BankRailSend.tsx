@@ -3,7 +3,7 @@ import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { date, funds, useBankRead } from './components';
-import { railSendCheckSchema, railSendSchema, type RailSend } from './contracts';
+import { railPayeeSchema, railSendCheckSchema, railSendSchema, type RailPayee, type RailSend, type RegionNotice } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { railSendCopy } from './rail-send-copy';
 import { currentSpace } from './space-context';
@@ -46,10 +46,76 @@ function Sends({ rows }: { rows: readonly RailSend[] }) {
   );
 }
 
+/**
+ * From a blocked region (J-bank-18 #1, BK-safe-01): the bank's doors refuse, and this says why, naming the restriction
+ * in the owner's wording, or that the wording is not published. It replaces the form: nothing can be sent from here.
+ */
+function RegionBlocked({ notice }: { notice: RegionNotice }) {
+  const { t } = railSendCopy.useCopy();
+  return (
+    <div className="failure" role="status" data-testid="rail-send-region" data-code={notice.code ?? ''} data-region={notice.region}>
+      <h3>
+        {t('regionTitle')} (<span lang="und">{notice.region}</span>)
+      </h3>
+      {notice.restriction ? (
+        <p data-testid="rail-send-region-restriction">
+          {t('regionRestriction')}: {notice.restriction}
+        </p>
+      ) : null}
+      <p data-testid="rail-send-region-wording" data-published={notice.wording === null ? 'false' : 'true'}>
+        {notice.wording ?? t('regionWordingUnset')}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The first-time payee scam warning (J-bank-18 #2, BK-safe-02): shown while the person has not read it for this
+ * recipient, with the scam guide, and never again for them once read. It never blocks the send by itself.
+ */
+function ScamWarning({ payee, onRead }: { payee: RailPayee; onRead: () => void }) {
+  const { t } = railSendCopy.useCopy();
+  const { api } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  if (payee.scamWarning.state === 'read') return null;
+  async function read() {
+    setBusy(true);
+    setProblem(null);
+    const answer = await api.mutate('bank', 'railSends.readPayeeWarning', { payeeId: payee.payeeId }, railPayeeSchema);
+    setBusy(false);
+    if (answer.ok) onRead();
+    else setProblem(answer.message);
+  }
+  return (
+    <div className="failure" role="note" data-testid="rail-send-scam-warning" data-payee={payee.payeeId}>
+      <h3>{t('scamTitle')}</h3>
+      <p>{t('scamBody')}</p>
+      <p>
+        <a className="text-link" href="/help/official-channels">
+          {t('scamGuide')}
+        </a>
+      </p>
+      <div className="actions">
+        <Button variant="secondary" disabled={busy} onClick={() => void read()}>
+          {t('scamRead')}
+        </Button>
+      </div>
+      {problem ? (
+        <p className="error-text" role="alert">
+          {problem}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function BankRailSend() {
   const { t } = railSendCopy.useCopy();
   const { api, userId } = useSession();
   const requirements = useBankRead('railSends.requirements', undefined);
+  const region = useBankRead('safety.regionNotice', undefined);
+  const blocked = region.resource.status === 'ready' && region.resource.data.blocked ? region.resource.data : null;
   const spaces = useBankRead('spaces.list', { limit: 200 });
   const sends = useBankRead('railSends.list', { limit: 20 });
   const payees = useBankRead('railSends.payees', { limit: PAYEE_PAGE });
@@ -130,7 +196,9 @@ export function BankRailSend() {
   return (
     <div className="bd-stack" data-testid="rail-send">
       <DepthPanel title={t('title')} lead={t('lead')}>
-        {loading ? (
+        {blocked ? (
+          <RegionBlocked notice={blocked} />
+        ) : loading ? (
           <Loading />
         ) : requirements.resource.status === 'failed' ? (
           <Failure result={requirements.resource.failure} retry={requirements.reload} />
@@ -155,9 +223,12 @@ export function BankRailSend() {
               </select>
             </label>
             {payee ? (
-              <p className="money-caption" data-testid="rail-send-payee">
-                {t(`rail_${payee.rail}` as Key)} · <span lang="und">{payee.recipient}</span> · <CoolingWords payee={payee} />
-              </p>
+              <>
+                <p className="money-caption" data-testid="rail-send-payee">
+                  {t(`rail_${payee.rail}` as Key)} · <span lang="und">{payee.recipient}</span> · <CoolingWords payee={payee} />
+                </p>
+                <ScamWarning payee={payee} onRead={payees.reload} />
+              </>
             ) : (
               <label className="field" htmlFor={railField}>
                 <span>{t('rail')}</span>

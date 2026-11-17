@@ -19,7 +19,7 @@
  */
 
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { REFERRAL_GRAPH_LOCK_CLASS, REFERRAL_GRAPH_LOCK_OBJ } from './referral-service.js';
 import { ReferralError } from './referral-tree.js';
 
@@ -50,7 +50,7 @@ export const parseLapseSweepSeconds = (raw: string | undefined) =>
  * Read inside the caller's transaction so the window and the write see the same rows.
  */
 export async function attachWindowStart(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
 ): Promise<{ start: Date; createdAt: Date; reopenedAt: Date | null; now: Date } | null> {
   const rows = await sql<Array<{ created_at: Date; reopened_at: Date | null; now: Date }>>`

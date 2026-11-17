@@ -29,6 +29,8 @@ const STATUS: Partial<Record<BankErrorCode, TRPCError['code']>> = {
   'bank.activity_filter_empty': 'BAD_REQUEST',
   'bank.activity_filter_conflict': 'CONFLICT',
   'bank.activity_filter_limit_unset': 'BAD_REQUEST',
+  'rail.bank': 'PRECONDITION_FAILED',
+  'vendor.tax': 'PRECONDITION_FAILED',
 };
 
 export function throwBankProcedure(err: unknown): never {

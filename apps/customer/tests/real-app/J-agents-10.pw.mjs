@@ -2,16 +2,19 @@
 import { test, expect } from './journey.mjs';
 import { UNBUILT, agentsRun, createOwnAgent, openNavigatorSession, openOwnAgent } from './agents.mjs';
 import { signIn } from './desk.mjs';
+import { api } from './stack.mjs';
 
 // J-agents-10, in the running app (docs/roadmap/journeys.json): see that an agent resists hostile content and shows
 // where its facts came from. One test per step, titled "J-agents-10 #<n>", run in order on one verified TEST account
 // with an agent of its own that reads outside content. Untrusted content is labelled and blocked, a blocked step bills
 // 0, tool arguments come only from the approved payload, and research answers cite their sources.
-// Every step is written; none is built yet, so each fails at its first missing part, quickly (UNBUILT):
-// - the person cannot create an agent yet (no builder at /agents/new), so there is no Test panel with outside content,
-//   approval payload or output schema (AG-guardrails-03);
-// - #4: opening a Navigator session is refused for a standard account ("agents:execute"), and research answers cite
-//   nothing yet (RC-agents-09).
+// #1 to #3 are built (AG-guardrails-03): the Test panel takes outside content and an output schema; svc-agents labels
+// the content untrusted, blocks an instructing page with agents.content.untrusted at a charge of 0, reads a value
+// action's approval payload from the person's words only and refuses a drafted step that differs
+// (agents.payload.mismatch), and withholds a reply that fails the schema (agents.output.blocked).
+// #4 (RC-agents-09): a Navigator answer about a market carries the provenance svc-agents built around the engine call:
+// the market it read itself with the venue's observation time, the TEST environment, the assumptions, the uncertainty on
+// the stack's TEST scale, and every sentence that cites no source, listed and marked in the reply.
 const J = 'J-agents-10';
 const agents = agentsRun(J);
 
@@ -43,11 +46,68 @@ test(`${J} starts: a verified TEST account with an agent of its own that reads o
 test(`${J} #1 runs the agent against a page that says to ignore instructions and send funds: labelled untrusted, blocked, nothing runs, charge 0`, async ({
   page,
 }) => {
-  await runOver(page, HOSTILE, 'TEST: summarise this page');
-  await expect(testPanel(page).getByRole('region', { name: 'Outside content' }).getByText('Untrusted')).toBeVisible();
+  const client = await api(agents.account());
+  const holdsOf = async (id) => {
+    const res = await client.get(`/api/agents/trpc/own.holds?input=${encodeURIComponent(JSON.stringify({ id }))}`);
+    expect(res.status).toBe(200);
+    return res.body.result.data;
+  };
+  const ran = page.waitForResponse((res) => res.url().endsWith('/api/agents/trpc/own.testRun'));
+  await openOwnAgent(page, agents, 'Test');
+  await testPanel(page)
+    .getByRole('textbox', { name: /^Outside content/ })
+    .fill(HOSTILE, UNBUILT);
+  await testPanel(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST: summarise this page');
+  await testPanel(page).getByRole('button', { name: 'Run a test' }).click();
+  const response = await ran;
+  expect(response.status()).toBe(200);
+  const run = (await response.json()).result.data;
+  const agentId = response.request().postDataJSON().id;
+  expect(agentId, 'the run names the agent it ran').toEqual(expect.any(String));
+
+  // svc-agents decided it: the content is labelled untrusted and the step is blocked with the untrusted-content code.
+  expect(run.kind).toBe('engine_run');
+  expect(run.content).toBe(HOSTILE);
+  expect(run.guard).toEqual({ content: { trust: 'untrusted' }, outcome: 'blocked', code: 'agents.content.untrusted', approval: null });
+  // Nothing runs: the engine never answered (no reply, no Answered step), nothing waits for approval, nothing is
+  // remembered, and the run opened no session, held no spend and placed no intent.
+  expect(run.reply).toBe('');
+  expect(run.memory).toBeNull();
+  expect(run.log.map((row) => row.step)).toEqual(['asked', 'blocked', 'billed']);
+  expect(run.log[1].text).toBe('agents.content.untrusted');
+  // The agent was made in the start and has run nothing since, so it holds nothing at all.
+  expect(await holdsOf(agentId)).toEqual({ sessions: 0, reservations: 0, intents: 0 });
+  // The charge is 0.
+  expect(run.cost).toBe('0');
+  expect(run.log[2].text).toBe(`0 ${run.assetId}`);
+
+  // The person sees the same: the content labelled Untrusted, the code as the one alert, no reply, no approval request,
+  // a log that stops at Blocked, and a charge of 0.
+  const content = testPanel(page).getByRole('region', { name: 'Outside content' });
+  await expect(content.getByTestId('content-trust')).toHaveText('Untrusted');
+  await expect(content.getByTestId('content-text')).toHaveText(HOSTILE);
+  await expect(testPanel(page).getByRole('alert')).toHaveCount(1);
   await expect(testPanel(page).getByRole('alert')).toContainText('agents.content.untrusted');
-  await expect(testPanel(page).getByRole('region', { name: 'Would do' })).toHaveCount(0);
+  await expect(testPanel(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+  await expect(testPanel(page).getByRole('region', { name: 'Approval request' })).toHaveCount(0);
+  const log = testPanel(page).getByRole('region', { name: 'Run log', exact: true }).locator('tr[data-step]');
+  await expect(log).toHaveCount(3);
+  await expect(log.nth(0).getByRole('cell').first()).toHaveText('Asked');
+  await expect(log.nth(1).getByRole('cell').first()).toHaveText('Blocked');
+  await expect(log.nth(1).getByTestId('log-text')).toHaveText('agents.content.untrusted');
+  await expect(log.nth(2).getByRole('cell').first()).toHaveText('Billed');
+  await expect(log.nth(2).getByTestId('log-text')).toHaveText(`0 ${run.assetId}`);
+  await expect(testPanel(page).getByTestId('run-cost')).toHaveText(`0 ${run.assetId}`);
   await expect(testPanel(page).getByTestId('run-cost')).toHaveText('0 USDT');
+
+  // Stored as it was decided: the run read back from the service is the same blocked run at 0.
+  const stored = await client.get(`/api/agents/trpc/own.testRuns?input=${encodeURIComponent(JSON.stringify({ id: agentId, limit: 50 }))}`);
+  expect(stored.status).toBe(200);
+  const kept = stored.body.result.data.find((row) => row.id === run.id);
+  expect(kept, 'the blocked run is on record').toBeTruthy();
+  expect(kept).toMatchObject({ cost: '0', reply: '', guard: run.guard, log: run.log });
 });
 
 test(`${J} #2 approves a value-moving action whose argument came from untrusted text: only the approved payload counts; a mismatch refuses`, async ({
@@ -82,9 +142,70 @@ test(`${J} #4 reads a research answer: the source, the observation time, the ass
   await openNavigatorSession(page, agents);
   const workspace = main(page).getByRole('region', { name: 'Session workspace' });
   await workspace.getByRole('textbox', { name: /^Ask the agent/ }).fill('TEST: what moved BTC/USDT today?');
+  const answered = page.waitForResponse((res) => res.url().endsWith('/api/agents/trpc/run.complete'));
   await workspace.getByRole('button', { name: 'Run' }).click();
+  // The answer is an ordinary metered run: the person confirms its spend ceiling first.
+  await page
+    .getByRole('dialog', { name: 'Confirm the spend ceiling' })
+    .getByRole('button', { name: /^Run up to/ })
+    .click();
+  const response = await answered;
+  expect(response.status()).toBe(200);
+  const run = (await response.json()).result.data;
+  const provenance = run.provenance;
+  expect(provenance, 'svc-agents attached provenance to the research answer').toBeTruthy();
+
   const sources = workspace.getByRole('region', { name: 'Where this came from' });
   for (const term of ['Source', 'Observed at', 'Assumptions', 'Uncertainty'])
     await expect(sources.getByRole('term').filter({ hasText: term })).toBeVisible();
   await expect(sources).toContainText('A claim with no source is marked unsupported.');
+
+  // The source: the market the question names, read by the platform itself, with the figure it gave.
+  expect(provenance.sources).toEqual([
+    { id: 'S1', market: 'BTC/USDT', measure: 'last_price', value: expect.stringMatching(/^\d+(\.\d+)?$/), observedAt: expect.any(String) },
+  ]);
+  const [source] = provenance.sources;
+  await expect(sources.getByTestId('research-source')).toHaveCount(1);
+  await expect(sources.getByTestId('research-source')).toContainText(`[S1] BTC/USDT last traded price: ${source.value}`);
+  // The observation time is the venue's own, shown as that instant, and no later than the answer.
+  await expect(sources.getByTestId('research-observed-at')).toHaveAttribute('datetime', provenance.observedAt);
+  expect(provenance.observedAt).toBe(source.observedAt);
+  expect(Date.parse(provenance.observedAt)).toBeLessThanOrEqual(Date.now());
+  // The data's environment is said: this stack's data is TEST, never a live market.
+  expect(provenance.environment).toBe('TEST');
+  await expect(sources.getByTestId('research-environment')).toHaveText('TEST data from the test stack, not a live market');
+  // The assumptions the answer takes as given.
+  const assumptions = sources.getByRole('definition').filter({ hasText: 'may have moved since' });
+  await expect(assumptions).toContainText('Only the markets your question names were read.');
+  // The uncertainty, on the published scale, with its basis.
+  const { uncertainty } = provenance;
+  expect(uncertainty.scale).toContain(uncertainty.level);
+  await expect(sources.getByTestId('research-uncertainty')).toHaveText(
+    `${uncertainty.level}, on a scale of ${uncertainty.scale.join(' · ')}: ${uncertainty.unsupportedCount} of ${uncertainty.claimCount} sentences cite no source.`,
+  );
+  // Any unsupported claim is marked: every sentence of the reply that cites no source the platform read is listed under
+  // Unsupported claims and marked in the reply itself, never stated as a finding. The stack's stand-in engine cites
+  // nothing, so its whole reply is unsupported and the uncertainty is the top of the scale.
+  const sentences = run.text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const uncited = sentences.filter((t) => !/\[S1\]/.test(t));
+  expect(provenance.unsupported).toEqual(uncited);
+  expect(uncertainty.unsupportedCount).toBe(uncited.length);
+  expect(uncertainty.claimCount).toBe(sentences.length);
+  if (uncited.length === sentences.length) expect(uncertainty.level).toBe(uncertainty.scale.at(-1));
+  await expect(sources.getByTestId('research-unsupported')).toHaveText(uncited);
+  await expect(workspace.getByRole('region', { name: 'Reply' }).getByTestId('unsupported-claim')).toHaveCount(uncited.length);
+  await expect(sources.getByRole('note')).toHaveText(
+    'This is the agent’s reading of the sources above, not an exchange record and not advice.',
+  );
+
+  // Stored with the reply: the run read back from the service carries the same provenance.
+  const stored = await (
+    await api(agents.account())
+  ).get(`/api/agents/trpc/run.get?input=${encodeURIComponent(JSON.stringify({ runId: run.runId }))}`);
+  expect(stored.status).toBe(200);
+  expect(stored.body.result.data.provenance).toEqual(provenance);
+  expect(stored.body.result.data.reply).toBe(run.text);
 });

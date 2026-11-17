@@ -22,7 +22,7 @@ const cmd: MatchingOrderCommand = {
   tif: 'GTC',
   senderCompId: 'CLIENT',
   targetCompId: 'X',
-} as unknown as MatchingOrderCommand;
+} as MatchingOrderCommand;
 
 it('2xx headers then a stalled body is reported as a timeout, not a definite rejection', async () => {
   server = createServer((_req, res) => {

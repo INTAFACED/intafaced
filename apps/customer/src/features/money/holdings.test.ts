@@ -16,6 +16,11 @@ describe('assets the customer holds', () => {
   it('falls back to the customer’s own accounts when the balance feed is down', () => {
     expect(heldAssets([], [{ assetId: 'SOL', balance: '3' }])).toEqual([{ assetId: 'SOL', available: '3' }]);
   });
+  it('uses the account when the balance feed reads 0, as it does for money the partner bank holds', () => {
+    expect(heldAssets([{ assetId: 'USDT', available: '0', held: null, quantity: null }], [{ assetId: 'USDT', balance: '70.25' }])).toEqual([
+      { assetId: 'USDT', available: '70.25' },
+    ]);
+  });
   it('keeps the larger figure when two sources disagree on one asset', () => {
     expect(heldAssets([{ assetId: 'BTC', available: '1', held: null, quantity: null }], [{ assetId: 'BTC', balance: '2' }])).toEqual([
       { assetId: 'BTC', available: '1' },

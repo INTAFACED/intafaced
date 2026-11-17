@@ -28,7 +28,7 @@ import { MarketsList } from './MarketsList';
 import type { FavoriteControl } from './MarketRow';
 import { TopCards, TopCardsSkeleton } from './TopCards';
 import { TradeAccess } from './TradeAccess';
-import { anyListed, entriesFor, isPaused, quotesOf, topCards, visibleEntries, type CardId, type Chip } from './select';
+import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, topCards, visibleEntries, type CardId, type Chip } from './select';
 import {
   applyAddress,
   browserStorage,
@@ -102,7 +102,8 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         : [],
     [markets, tickerMap, statuses],
   );
-  const openEntries = useMemo(() => everyEntry.filter((entry) => !isPaused(entry)), [everyEntry]);
+  // Upcoming and delisting listings stay on the list with their state named (J-cex-spot-14 #1); they never trade.
+  const openEntries = useMemo(() => everyEntry.filter((entry) => !isPaused(entry) || isAnnounced(entry.market)), [everyEntry]);
   const hasPaused = openEntries.length < everyEntry.length;
   const pool = view.status === 'open' ? openEntries : everyEntry;
   const quotes = useMemo(() => quotesOf(pool.map((entry) => entry.market)), [pool]);
@@ -313,7 +314,31 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         loading={marketsLoading}
         empty={empty}
       />
+      <NotOffered />
     </Frame>
+  );
+}
+
+/**
+ * What is not offered on spot, named with its blocker, never implied: tokenized equities wait on a licence
+ * (SP-markets-data-03, `licence`), and the retail price improvement layer waits on the engine's priority class and the
+ * owner's retail decision (SP-markets-data-04). No row here is tradeable, and none carries a price.
+ */
+function NotOffered() {
+  const { t } = marketsCopy.useCopy();
+  return (
+    <section data-testid="mkt-not-offered" aria-labelledby="mkt-not-offered" className="mkt-not-offered">
+      <h2 id="mkt-not-offered">{t('Not offered here')}</h2>
+      <ul>
+        <li data-testid="mkt-not-offered-equity">
+          <strong>{t('Tokenized equities')}</strong> <span className="mkt-muted">{t('Not available: licence not named')}</span>
+        </li>
+        <li data-testid="mkt-not-offered-rpi">
+          <strong>{t('Retail price improvement')}</strong>{' '}
+          <span className="mkt-muted">{t('Not available: priority class not specified')}</span>
+        </li>
+      </ul>
+    </section>
   );
 }
 

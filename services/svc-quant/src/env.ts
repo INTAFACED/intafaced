@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema } from '@intafaced/config';
+import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, natsEnvSchema, otelEnvSchema } from '@intafaced/config';
 
 /**
  * svc-quant environment.
@@ -23,6 +23,7 @@ function blankable<T extends z.ZodTypeAny>(inner: T) {
 const schema = baseEnvSchema
   .merge(httpEnvSchema)
   .merge(otelEnvSchema)
+  .merge(natsEnvSchema)
   .merge(edgeEnvSchema)
   .merge(
     z.object({
@@ -58,6 +59,13 @@ const schema = baseEnvSchema
        * Venue Vault trade-only credential pin. Pass-through, no default.
        * Unset/blank → venue OMS refuses by name. Never invent a key.
        */
+      /**
+       * The paper book's fee, in basis points of an order's notional (AL-orders-03). NO DEFAULT: blank refuses every
+       * paper order `quant.paper_fee_unset`, because the pre-trade check is notional plus fee and a fee is never
+       * invented as zero.
+       */
+      QUANT_PAPER_FEE_BPS: blankable(z.string().regex(/^\d+(\.\d+)?$/)),
+
       QUANT_VENUE_VAULT: z
         .string()
         .optional()
@@ -160,6 +168,47 @@ const schema = baseEnvSchema
        * save that writes a note (`quant.release_note_limit_unset`); a save without a note still saves. At most 2000.
        */
       QUANT_RELEASE_NOTE_MAX: blankable(z.string().regex(/^(?:[1-9]\d{0,2}|1\d{3}|2000)$/)),
+      /**
+       * How long a strategy's edit lock lasts before it lapses, in seconds (J-algo-dev-08). NO DEFAULT: blank refuses
+       * taking the lock (`quant.edit_lock_unset`), and so a teammate's save; the owner's own save still saves.
+       */
+      QUANT_EDIT_LOCK_SECONDS: blankable(z.string().regex(/^[1-9]\d{0,5}$/)),
+      /**
+       * Monte Carlo resampling of a finished backtest (J-algo-dev-16 #3): how many paths one resampling draws, up to
+       * 10000, and the fewest closed round trips a run needs. NO DEFAULT: blank refuses `quant.montecarlo_runs_unset` or
+       * `quant.montecarlo_min_trades_unset`.
+       */
+      QUANT_MONTECARLO_RUNS: blankable(z.string().regex(/^(?:[1-9]\d{0,3}|10000)$/)),
+      QUANT_MONTECARLO_MIN_TRADES: blankable(z.string().regex(/^[1-9]\d{0,3}$/)),
+      /**
+       * The market data lake (J-algo-dev-16 #2): the symbols it captures (comma-separated), the seconds between capture
+       * passes and the days a row is kept. NO DEFAULT: blank symbols or interval capture nothing and the catalogue
+       * refuses `quant.lake_store_unset`; blank retention refuses `quant.lake_retention_unset`.
+       */
+      QUANT_LAKE_SYMBOLS: blankable(z.string().max(1000)),
+      QUANT_LAKE_CAPTURE_SECONDS: blankable(z.string().regex(/^[1-9]\d{0,4}$/)),
+      QUANT_LAKE_RETENTION_DAYS: blankable(z.string().regex(/^[1-9]\d{0,3}$/)),
+      /**
+       * The licences a library listing may carry (J-algo-dev-09), `|`-separated. Owner and lawyer content. NO DEFAULT:
+       * blank refuses every publish check `quant.library_licences_unset`.
+       */
+      QUANT_LIBRARY_LICENCES: blankable(z.string()),
+      /**
+       * The realism checklist a developer accepts before publishing, as JSON `{ "version": "...", "items": ["..."] }`.
+       * Owner and lawyer content. NO DEFAULT: blank or unreadable refuses publishing `quant.realism_checklist_unset`.
+       */
+      QUANT_REALISM_CHECKLIST: blankable(z.string()),
+      /**
+       * The owner's default quota profile (AL-limits-01): the profile an account with no assignment falls under. NO
+       * DEFAULT: blank, every counted write (a strategy, a version, a run) refuses `quant.quota_profile_unset`.
+       */
+      QUANT_DEFAULT_QUOTA_PROFILE: blankable(z.string().max(80)),
+      /**
+       * TEST only: a profile the local and CI stack seeds, as JSON `{ "profile": "TEST …", "limits": { "<resource>":
+       * "<whole number>" } }`. Only a name starting with TEST is accepted; a row an operator already set is never
+       * overwritten. Never set outside a test stack.
+       */
+      QUANT_TEST_QUOTA_SEED: blankable(z.string().max(4000)),
       /** Required only when DATABASE_URL is set. Blank is not 10. */
       DATABASE_POOL_MAX: z
         .string()

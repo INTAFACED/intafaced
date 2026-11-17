@@ -8,6 +8,7 @@
  * tokens (`--if-*`), never from literals here.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { chartValue } from '../../shared/chart-value';
 import { usePreferences } from '../../shared/preferences';
 import type { Candle } from '../../data/types';
 import { legendValues, planUpdate, priceFormat } from '../trade/chart/chart-data';
@@ -247,7 +248,7 @@ export function WorkbenchChart({
     const colour = readColors(scheme).text;
     const lines = priceLines.map((line) =>
       series.createPriceLine({
-        price: Number(line.price),
+        price: chartValue(line.price),
         color: colour,
         lineWidth: 1,
         lineStyle: 2,
@@ -256,6 +257,15 @@ export function WorkbenchChart({
       }),
     );
     drawn.current = { series, lines };
+    // What the library holds for each drawn line, read back from the line itself, not from props: "<price>|<title>",
+    // lines separated by a newline, so a check on it is a check on the drawing.
+    element.current?.setAttribute(
+      'data-drawn-price-lines',
+      lines
+        .map((line) => (line as { options?: () => { price?: number; title?: string } }).options?.())
+        .map((options) => (options ? `${options.price ?? ''}|${options.title ?? ''}` : ''))
+        .join('\n'),
+    );
     // The key carries the lines' values; the series is the one the host hands out.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host, lineKey]);
@@ -314,7 +324,6 @@ export function WorkbenchChart({
     const width = range ? Math.max(20, range.to - range.from) : 120;
     api.timeScale().setVisibleLogicalRange({ from: focus.index - width / 2, to: focus.index + width / 2 });
     // Only a new ask moves the view; a new series (style, scheme) keeps where the person is.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
 
   /** Keyboard: arrows pan by ten bars, + and - zoom around the right edge, Home shows the newest bars again (chart-keys.ts). */

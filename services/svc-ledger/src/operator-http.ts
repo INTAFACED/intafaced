@@ -56,6 +56,7 @@ import {
   accountMetadataReadInputSchema,
 } from './ledger/operator-account-metadata.js';
 import type { LedgerService } from './service.js';
+import { openCustomerBalances, type ReconciliationReport } from './ledger/reconcile.js';
 
 /**
  * THE LEDGER'S OPERATOR SURFACE — and the switch that was wired to nothing.
@@ -178,6 +179,10 @@ export interface ReconcileSnapshot {
   readonly accountsChecked: number;
   readonly chainLength: number;
   readonly unbalancedAssets: readonly string[];
+  /** `nothing_to_compare` on an empty book: it proves nothing and is not matched (OWNER 288). */
+  readonly result: ReconciliationReport['result'];
+  /** Customer accounts holding a balance while custody is off; null with custody on. */
+  readonly customerBalancesOpen: number | null;
   readonly ranAt: string;
   readonly confirmOperatorId: string;
   readonly chainBrokenAt?: string;
@@ -398,6 +403,8 @@ export function registerOperatorHttp(
         // Prefer length-so-far on a break over inventing green zero.
         chainLength: report.chain.length,
         unbalancedAssets: report.unbalancedAssets,
+        result: report.result,
+        customerBalancesOpen: openCustomerBalances(report),
         ranAt: report.ranAt.toISOString(),
         confirmOperatorId,
         ...(!report.chain.ok && 'brokenAt' in report.chain ? { chainBrokenAt: report.chain.brokenAt } : {}),

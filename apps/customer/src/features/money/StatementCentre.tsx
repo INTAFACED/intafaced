@@ -4,7 +4,8 @@ import { Button } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { refusalCopy } from '../../data';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
-import { statementFileSchema, statementJobSchema } from './contracts';
+import { statementFileSchema, statementJobSchema, type LineTotal } from './contracts';
+import { LineTotals } from './StatementExtras';
 import { DepthPanel } from './DepthParts';
 import { dayIsOver, endedBy, dayRange, last30Days, STATEMENT_REPORTS, utcDay, type StatementReport } from './statement-centre-model';
 import { statementCentreCopy } from './statement-centre-copy';
@@ -14,7 +15,7 @@ import { StatementDocuments } from './StatementDocuments';
 import './bank-depth.css';
 
 type Said =
-  | { kind: 'done'; name: string; count: number; fingerprint: string }
+  | { kind: 'done'; name: string; count: number; fingerprint: string; totals: readonly LineTotal[] | null }
   | { kind: 'asked' }
   | { kind: 'refused'; words: string; code: string | null }
   | null;
@@ -83,7 +84,13 @@ export function StatementCentre() {
     const bytes = decodeBase64(result.data.bodyBase64);
     if (!bytes) return setSaid({ kind: 'refused', words: t('unreadable'), code: null });
     saveFile(bytes, result.data.contentType, result.data.filename);
-    setSaid({ kind: 'done', name: result.data.filename, count: result.data.rowCount, fingerprint: shortFingerprint(result.data.sha256) });
+    setSaid({
+      kind: 'done',
+      name: result.data.filename,
+      count: result.data.rowCount,
+      fingerprint: shortFingerprint(result.data.sha256),
+      totals: result.data.totals ?? null,
+    });
   }
 
   /** The same request, made in the background (PF-statements-02): it appears in the documents below. */
@@ -180,6 +187,7 @@ export function StatementCentre() {
                   ? documents.t('asked')
                   : '')}
         </p>
+        {said?.kind === 'done' && said.totals && <LineTotals totals={said.totals} testId="statement-centre-totals" />}
         {said?.kind === 'refused' && (
           <p role="alert" className="error-text" data-code={said.code ?? undefined}>
             {said.words}

@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { signedDecimalSchema } from '../../shared/money';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field, Loading } from '../../shared/ui';
+import { QuotaAwareFailure } from './quota-refusal';
 import { useApi } from '../session/session';
 import { studioCopy } from './studio-copy';
 import { useRuleWords } from './SignalBuilder';
@@ -22,6 +23,22 @@ export function savable(rules: StudioRules): boolean {
     rules.risk.maxNotional.trim() &&
     rules.risk.kill.trim(),
   );
+}
+
+/** The signal-rule inputs a save still needs, in the order the builder shows them. Blocks and the rest stay general. */
+export function missingRuleInputs(rules: StudioRules): ('symbol' | 'signal.fast' | 'signal.slow' | 'sizing.value')[] {
+  if (!rules.modules) return [];
+  const m = rules.modules;
+  return (
+    [
+      ['symbol', m.symbol],
+      ['signal.fast', m.signal.fast],
+      ['signal.slow', m.signal.slow],
+      ['sizing.value', m.sizing.value],
+    ] as const
+  )
+    .filter(([, value]) => !value.trim())
+    .map(([name]) => name);
 }
 
 /**
@@ -51,11 +68,19 @@ export function StudioSave({
   const unchanged = link.saved === current;
   const ready = savable(rules);
   // A save refused for one signal-rule input names that input, as Build source does.
-  const { refusalText } = useRuleWords();
+  const { label, refusalText } = useRuleWords();
+  const missing = missingRuleInputs(rules).map((name) => label[name]);
+  // A blank sizing rule refuses by name (AL-orders-02): pressing Save with an input missing names it; nothing is sent.
+  const [tried, setTried] = useState(false);
   const refusal = failure ? ruleRefusal(failure.message) : null;
 
   async function save() {
-    if (busy || unchanged || !ready) return;
+    if (busy || unchanged) return;
+    if (!ready) {
+      setTried(true);
+      return;
+    }
+    setTried(false);
     setBusy(true);
     setFailure(null);
     setKeptNote(null);
@@ -94,14 +119,16 @@ export function StudioSave({
         onChange={(event) => setReleaseNote(event.currentTarget.value)}
         disabled={busy}
       />
-      <Button type="button" onClick={() => void save()} disabled={busy || unchanged || !ready} data-testid="quant-save-library">
+      <Button type="button" onClick={() => void save()} disabled={busy || unchanged} data-testid="quant-save-library">
         {t('save')}
       </Button>
       <p className="muted" role="status" data-testid="quant-save-state">
         {unchanged && link.version
           ? t('savedAs', { version: link.version })
           : !ready
-            ? t('incomplete')
+            ? missing.length > 0
+              ? t(tried ? 'refusedMissing' : 'incompleteNamed', { inputs: missing.join(', ') })
+              : t('incomplete')
             : link.version
               ? t('changedSince', { version: link.version })
               : t('notSaved')}
@@ -117,7 +144,7 @@ export function StudioSave({
           {refusalText(refusal)}
         </p>
       ) : (
-        failure && <Failure result={failure} retry={() => void save()} />
+        failure && <QuotaAwareFailure result={failure} retry={() => void save()} />
       )}
     </div>
   );

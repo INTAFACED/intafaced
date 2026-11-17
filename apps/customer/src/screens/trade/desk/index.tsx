@@ -9,6 +9,9 @@ import '../chart/chart.css';
 import { BookPanel, STALE_BOOK_MS, Tape, type BookPick } from './OrderBook';
 import { ArrangeBar, ArrangeChrome, DeskLayoutMenu, dropTarget, useDeskLayout } from './DeskLayout';
 import { gridColumns, isUntouched, type WidgetId } from './workspace';
+import type { SavedDeskLayout } from './saved-layouts';
+import type { ChartInterval } from '../chart/candles';
+import { navigate } from '../../../app/location';
 import { BottomTabs, type BottomTab } from './BottomTabs';
 import { ChartPanel } from './ChartPanel';
 import { FeedStatus } from './FeedStatus';
@@ -28,10 +31,20 @@ import {
   normalizePair,
   useFavorites,
 } from './deps';
-import { findMarket, type DeskMarket } from './market';
+import { findMarket, pairOf, type DeskMarket } from './market';
+import { storeChartInterval } from './chart-setting';
 import { useNow } from './hooks';
+import { useDeviceSetting } from '../../../features/trade/hooks';
+import { OrderFlow, type LadderPick } from './OrderFlow';
+import { ChartTrade, clickAmountOk, type ChartPick } from './ChartTrade';
+import { DEFAULT_DOM, isDomSetting, type DomSetting } from './order-flow';
+import { useInstantPlacement } from './instant';
+import { OneClickBar } from './OneClick';
+import { floorToLot } from './order-math';
 import type { Reference, Side } from './order-math';
 import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueSpotGate } from './VenueSpotDesk';
 
 function PairPicker({ selected }: { selected: string }) {
   const { t } = deskCopy.useCopy();
@@ -51,7 +64,7 @@ function PairPicker({ selected }: { selected: string }) {
 function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMarket[]; side: Side | null }) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
-  const { timeZone } = usePreferences();
+  const { timeZone, quickSizes } = usePreferences();
   const ticker = useTickerRow(market.symbol, { intervalMs: DESK_INTERVALS.ticker });
   const book = useBook(market.symbol);
   const balances = useBalances();
@@ -96,14 +109,27 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const chrome = (id: WidgetId) => <ArrangeChrome desk={desk} id={id} name={widgetName(id)} />;
   const bookFrame = useMemo(() => frame('book'), [custom, layout, arranging]); // eslint-disable-line react-hooks/exhaustive-deps
   const bookChrome = useMemo(() => chrome('book'), [layout, arranging, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A saved layout opened from the Layouts menu: its chart interval, and its market when that is another one.
+  const [requestedInterval, setRequestedInterval] = useState<{ interval: ChartInterval; nonce: number } | null>(null);
+  const onOpenLayout = useCallback(
+    (opened: SavedDeskLayout) => {
+      setRequestedInterval((previous) => ({ interval: opened.interval, nonce: (previous?.nonce ?? 0) + 1 }));
+      if (opened.symbol !== symbol) {
+        // The desk for that market mounts afresh, so the interval goes in the stored setting it opens with.
+        storeChartInterval(opened.interval);
+        navigate(`/trade/spot/${pairOf(opened.symbol)}`);
+      }
+    },
+    [symbol],
+  );
   const status = useMemo(
     () => (
       <>
         <FeedStatus symbol={symbol} />
-        <DeskLayoutMenu desk={desk} />
+        <DeskLayoutMenu desk={desk} symbol={symbol} onOpenLayout={onOpenLayout} />
       </>
     ),
-    [symbol, desk.layout, desk.arranging], // eslint-disable-line react-hooks/exhaustive-deps
+    [symbol, desk.layout, desk.arranging, desk.saved, desk.note, onOpenLayout], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const toggleFavorite = useCallback(() => toggle(symbol), [toggle, symbol]);
   const picker = useMemo(() => <PairPicker selected={symbol} />, [symbol]);
@@ -115,9 +141,81 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
     (amount: string) => setSuggestion((previous) => ({ price: '', amount, flatten: true, nonce: (previous?.nonce ?? 0) + 1 })),
     [],
   );
+  // Instant placement (J-charts-desk-14 #6): the account's own setting. Off unless the account holds the agreement.
+  const instant = useInstantPlacement();
+  const instantOn = instant.on;
+  // One-click close (J-charts-desk-14 #7): every free lot of the base, sold as a limit at the best bid, so its price is
+  // the one the button shows; reviewed unless instant placement is on. It is a limit, never a market order: a market
+  // order always opens the review, because its price can move (SP-desk-account-01).
+  const onCloseAll = useCallback(
+    (amount: string, price: string) =>
+      setSuggestion((previous) => ({
+        price,
+        amount,
+        nonce: (previous?.nonce ?? 0) + 1,
+        review: true,
+        side: 'sell',
+        type: 'limit',
+        ...(instantOn ? { instant: true as const } : {}),
+      })),
+    [instantOn],
+  );
   const onPickPrice = useCallback(
     (price: string) => setSuggestion((previous) => ({ price, amount: '', nonce: (previous?.nonce ?? 0) + 1 })),
     [],
+  );
+  // The DOM (J-charts-desk-14): open or not and its ladder and tape settings are kept per device; the symbol is never
+  // kept, it is always the chart's, so a new market re-binds the DOM with the same settings.
+  const [dom, setDom] = useDeviceSetting<DomSetting>('trade-desk-dom', DEFAULT_DOM, isDomSetting);
+  const toggleDom = useCallback(() => setDom((now) => ({ ...now, open: !now.open })), [setDom]);
+  const closeDom = useCallback(() => setDom((now) => ({ ...now, open: false })), [setDom]);
+  // The amount a ladder click or a chart Buy/Sell puts on the ticket.
+  const [clickAmount, setClickAmount] = useState('');
+  const lot = market.lotSize;
+  const onLadderPick = useCallback(
+    (pick: LadderPick) =>
+      setSuggestion((previous) => ({
+        price: pick.price,
+        amount: clickAmountOk(clickAmount, lot) ? clickAmount.trim() : '',
+        nonce: (previous?.nonce ?? 0) + 1,
+        review: true,
+        side: pick.side,
+        type: 'limit',
+        ...(instantOn ? { instant: true as const } : {}),
+      })),
+    [clickAmount, lot, instantOn],
+  );
+  const onChartTrade = useCallback(
+    (pick: ChartPick) =>
+      setSuggestion((previous) => ({
+        price: pick.price,
+        amount: pick.amount,
+        nonce: (previous?.nonce ?? 0) + 1,
+        review: true,
+        side: pick.side,
+        type: pick.type,
+        // A market order always opens the review, instant placement or not: its price can move (SP-desk-account-01).
+        ...(instantOn && pick.type === 'limit' ? { instant: true as const } : {}),
+      })),
+    [instantOn],
+  );
+  const freeBase = balances.status === 'ready' ? floorToLot(balances.data[market.base]?.free ?? '0', market.lotSize) : null;
+  const oneClick = (
+    <OneClickBar
+      market={market}
+      instant={instant}
+      zone={timeZone}
+      presets={quickSizes}
+      clickAmount={clickAmount}
+      onAmount={setClickAmount}
+      free={userId ? freeBase : null}
+      bestBid={reference?.bestBid ?? null}
+      onCloseAll={onCloseAll}
+    />
+  );
+  const chartTrade = useMemo(
+    () => <ChartTrade market={market} reference={reference} amount={clickAmount} onAmount={setClickAmount} onTrade={onChartTrade} />,
+    [market, reference, clickAmount, onChartTrade],
   );
 
   return (
@@ -160,7 +258,30 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         </aside>
         <div data-testid="dk-centre" className="dk-centre" {...frame('chart')}>
           {chrome('chart')}
-          <ChartPanel market={market} openOrders={openOrders} fills={fills} />
+          <ChartPanel
+            market={market}
+            openOrders={openOrders}
+            fills={fills}
+            domOpen={dom.open}
+            onToggleDom={toggleDom}
+            trade={chartTrade}
+            requestedInterval={requestedInterval}
+          />
+          {dom.open ? (
+            <OrderFlow
+              market={market}
+              book={book}
+              openOrders={openOrders}
+              zone={timeZone}
+              setting={dom}
+              onSetting={setDom}
+              onPick={onLadderPick}
+              onClose={closeDom}
+              instant={instantOn}
+              oneClick={oneClick}
+              onCancelled={onPlaced}
+            />
+          ) : null}
           <OrderPanel
             market={market}
             reference={reference}
@@ -234,8 +355,22 @@ function DeskSkeleton() {
   );
 }
 
-/** Pro desk, `/trade/spot/:pair` (UI-SPEC 5.7). */
-export default function TradeDeskScreen({ params, search }: ScreenProps) {
+/**
+ * Pro desk, `/trade/spot/:pair` (UI-SPEC 5.7). In venue mode (B1: `/api/v1/venue/status` says the user-venue door is on)
+ * a pair the venue lists as spot trades on the customer's own venue account (VenueSpotDesk.tsx); everything else, and
+ * every deployment with the door off, is today's desk unchanged.
+ */
+export default function TradeDeskScreen(props: ScreenProps) {
+  const venue = useVenueMode();
+  // While venue mode is still being read, a neutral skeleton: never today's desk, which could take a custodial order in
+  // the window before the venue desk appears.
+  if (venue.mode === 'checking') return <DeskSkeleton />;
+  const today = <TodayDeskScreen {...props} />;
+  if (venue.mode !== 'on') return today;
+  return <VenueSpotGate mode={venue} pair={normalizePair(props.params.pair ?? defaultDeskPair)} fallback={today} />;
+}
+
+function TodayDeskScreen({ params, search }: ScreenProps) {
   const { t } = deskCopy.useCopy();
   const markets = useDeskMarkets();
   const pair = normalizePair(params.pair ?? defaultDeskPair);

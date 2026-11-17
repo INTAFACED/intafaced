@@ -480,6 +480,88 @@ describe('academy customer learning reads and writes', () => {
     await expect(academy.readCurriculumItem({ userId: USER, slug: items[0]!.slug, now })).resolves.toBeTruthy();
   });
 
+  it('a seat cap, an enrolment window and a visibility close a course in words, keep who set them, and keep enrolments made', async () => {
+    const academy = service({ certCatalog: [FOUNDATIONS_V1, TEST_MARKETS_CERT] });
+    const now = new Date('2026-10-23T12:00:00.000Z');
+    const THIRD = '33333333-3333-4333-8333-333333333333';
+    await expect(academy.setCourseSeatCap({ slug: 'markets', seatCap: 2, reason: ' ', operatorId: OTHER, now })).rejects.toMatchObject({
+      code: 'academy.reason_required',
+    });
+    await expect(academy.setCourseSeatCap({ slug: 'markets', seatCap: 0, reason: 'TEST', operatorId: OTHER })).rejects.toMatchObject({
+      code: 'academy.cert_invalid',
+    });
+    await expect(
+      academy.setCourseEnrolmentWindow({ slug: 'markets', opensAt: now, closesAt: now, reason: 'TEST', operatorId: OTHER }),
+    ).rejects.toMatchObject({ code: 'academy.window_invalid' });
+    await expect(
+      academy.setCourseVisibility({ slug: 'nope', visibility: 'hidden', reason: 'TEST', operatorId: OTHER }),
+    ).rejects.toMatchObject({
+      code: 'academy.course_not_found',
+    });
+    // Nothing set: no cap, open, listed.
+    expect(await academy.courseEnrolment({ userId: USER, slug: 'markets', now })).toMatchObject({
+      seatCap: null,
+      seatsRemaining: null,
+      closed: null,
+    });
+
+    // A cap of 2: seats count active enrolments; the second fills it and the third is refused full.
+    await academy.setCourseSeatCap({ slug: 'markets', seatCap: 2, reason: 'TEST cohort', operatorId: OTHER, now });
+    expect(await academy.courseEnrolment({ userId: USER, slug: 'markets', now })).toMatchObject({
+      seatCap: 2,
+      seatsRemaining: 2,
+      closed: null,
+    });
+    await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit', now });
+    await academy.enrolCourse({ userId: OTHER, slug: 'markets', track: 'audit', now });
+    expect(await academy.courseEnrolment({ userId: THIRD, slug: 'markets', now })).toMatchObject({ seatsRemaining: 0, closed: 'full' });
+    await expect(academy.enrolCourse({ userId: THIRD, slug: 'markets', track: 'audit', now })).rejects.toMatchObject({
+      code: 'academy.enrolment_closed',
+      message: expect.stringContaining('reason=full'),
+    });
+    // Programmes enrol through the same cap.
+    await expect(academy.enrollCertPath({ userId: THIRD, pathSlug: 'markets' })).rejects.toMatchObject({
+      code: 'academy.enrolment_closed',
+    });
+    // A learner already enrolled gets the same enrolment back, full or not.
+    const again = await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit', now });
+    expect(again.enrolment).not.toBeNull();
+    expect((await sql`SELECT 1 FROM academy.cert_enrollments WHERE path_slug = 'markets' AND left_at IS NULL`).length).toBe(2);
+    await academy.setCourseSeatCap({ slug: 'markets', seatCap: null, reason: 'TEST off', operatorId: OTHER, now });
+    expect(await academy.courseEnrolment({ userId: THIRD, slug: 'markets', now })).toMatchObject({
+      seatCap: null,
+      seatsRemaining: null,
+      closed: null,
+    });
+
+    // The window: not started, then ended; each refuses with its reason, and clearing it opens the course again.
+    const day = 24 * 3600_000;
+    for (const [opensAt, closesAt, why] of [
+      [new Date(now.getTime() + day), null, 'window_not_started'],
+      [new Date(now.getTime() - 2 * day), new Date(now.getTime() - day), 'window_ended'],
+    ] as const) {
+      await academy.setCourseEnrolmentWindow({ slug: 'markets', opensAt, closesAt, reason: 'TEST window', operatorId: OTHER, now });
+      expect((await academy.courseEnrolment({ userId: THIRD, slug: 'markets', now })).closed).toBe(why);
+      await expect(academy.enrolCourse({ userId: THIRD, slug: 'markets', track: 'audit', now })).rejects.toMatchObject({
+        message: expect.stringContaining(`reason=${why}`),
+      });
+    }
+    await academy.setCourseEnrolmentWindow({ slug: 'markets', opensAt: null, closesAt: null, reason: 'TEST off', operatorId: OTHER, now });
+
+    // Hidden and unpublished leave the catalogue and close enrolment; the other fields stay as they were.
+    for (const visibility of ['hidden', 'unpublished'] as const) {
+      await academy.setCourseVisibility({ slug: 'markets', visibility, reason: 'TEST', operatorId: OTHER, now });
+      expect((await academy.courseEnrolment({ userId: THIRD, slug: 'markets', now })).closed).toBe(visibility);
+      expect((await academy.publicCourses()).map((card) => card.slug)).not.toContain('markets');
+    }
+    expect(await sql`SELECT seat_cap, opens_at, closes_at, visibility, reason, set_by FROM academy.course_enrolment_terms`).toEqual([
+      { seat_cap: null, opens_at: null, closes_at: null, visibility: 'unpublished', reason: 'TEST', set_by: OTHER },
+    ]);
+    await academy.setCourseVisibility({ slug: 'markets', visibility: 'published', reason: 'TEST', operatorId: OTHER, now });
+    expect((await academy.publicCourses()).map((card) => card.slug)).toContain('markets');
+    expect((await academy.enrolCourse({ userId: THIRD, slug: 'markets', track: 'audit', now })).enrolment).not.toBeNull();
+  });
+
   it('refuses an unmet programme prerequisite and enrols when it is met or empty', async () => {
     const gated = service({ programmeCatalog: WITH_PREREQ, certCatalog: [FOUNDATIONS_V1, TEST_MARKETS_CERT] });
     await expect(gated.enrollCertPath({ userId: USER, pathSlug: 'markets' })).rejects.toMatchObject({
@@ -675,23 +757,76 @@ describe('academy customer learning reads and writes', () => {
       )
     `;
     const academy = service();
-    const operator = createAcademyRouter(academy).createCaller(signed());
+    const STAFF = '33333333-3333-4333-8333-333333333333';
+    const PAGE = { ACADEMY_GRANT_AUDIT_PAGE_SIZE: 2 };
+    const operator = createAcademyRouter(academy, undefined, undefined, undefined, null, PAGE).createCaller(signed());
     await sql`
       INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key) VALUES
         (${OTHER}, 'foundations-v1', '2026-10-17T05:00:00Z', ${`cert:${OTHER}:foundations-v1`}),
         (${USER}, 'other-cert', '2026-10-16T03:00:00Z', ${`cert:${USER}:other-cert`})
     `;
-    const audit = await operator.admin.grantAudit({ limit: 2 });
-    const auditRest = await operator.admin.grantAudit({ limit: 2, cursor: audit.nextCursor ?? undefined });
-    const auditIds = [...audit.items, ...auditRest.items].map((row) => `${row.accountId}:${row.certificateId}`);
-    expect(new Set(auditIds).size).toBe(auditIds.length);
-    expect(auditIds).toHaveLength(3);
-    expect(audit.items[0]).toEqual({
-      accountId: OTHER,
-      certificateId: 'foundations-v1',
-      grantedAt: new Date('2026-10-17T05:00:00Z'),
-      status: 'granted',
-      reference: `cert:${OTHER}:foundations-v1`,
+    // A staff access grant on a course, then its revoke, each with who and why; and one certificate revoked.
+    const [grant] = await sql<{ id: string }[]>`
+      INSERT INTO academy.access_grants (user_id, path_slug, source, reason, starts_at, state, created_at, updated_at)
+      VALUES (${USER}, 'markets', 'staff', 'Scholarship for the October cohort', '2026-10-17T06:00:00Z', 'revoked',
+              '2026-10-17T06:00:00Z', '2026-10-17T08:00:00Z')
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO academy.access_grant_events (grant_id, n, kind, key, reason, actor_id, at) VALUES
+        (${grant!.id}, 1, 'granted', ${`grant:markets:${USER}`}, 'Scholarship for the October cohort', ${STAFF}, '2026-10-17T06:00:00Z'),
+        (${grant!.id}, 2, 'revoked', ${`revoke-access:markets:${USER}:2`}, 'Cohort place withdrawn', ${STAFF}, '2026-10-17T08:00:00Z')
+    `;
+    await sql`
+      INSERT INTO academy.cert_revocations (public_id, user_id, cert_id, proposed_by, approved_by, revoked_by, reason, revoked_at)
+      VALUES ('PUB-OTHER-1', ${OTHER}, 'foundations-v1', 'founder-a', 'founder-b', ${STAFF}, 'Issued in error', '2026-10-17T07:00:00Z')
+    `;
+    // Newest first at the owner's page size, every line with its actor, time and reason, across pages without a repeat.
+    const lines: Array<{ kind: string; target: string; actorId: string | null; reason: string | null; at: Date }> = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = await operator.admin.grantAudit(cursor ? { cursor } : undefined);
+      expect(page.items.length).toBeLessThanOrEqual(2);
+      lines.push(...page.items);
+      cursor = page.nextCursor ?? undefined;
+      pages += 1;
+    } while (cursor && pages < 10);
+    expect(lines.map((l) => [l.kind, l.target, l.actorId, l.reason, l.at.toISOString()])).toEqual([
+      ['access_revoked', 'markets', STAFF, 'Cohort place withdrawn', '2026-10-17T08:00:00.000Z'],
+      ['certificate_revoked', 'foundations-v1', STAFF, 'Issued in error', '2026-10-17T07:00:00.000Z'],
+      ['access_granted', 'markets', STAFF, 'Scholarship for the October cohort', '2026-10-17T06:00:00.000Z'],
+      ['certificate_granted', 'foundations-v1', null, null, '2026-10-17T05:00:00.000Z'],
+      ['certificate_granted', 'foundations-v1', null, null, '2026-10-17T03:00:00.000Z'],
+      ['certificate_granted', 'other-cert', null, null, '2026-10-16T03:00:00.000Z'],
+    ]);
+    expect(pages).toBe(3);
+    // A caller may ask for fewer than the owner's size, never more.
+    expect((await operator.admin.grantAudit({ limit: 1 })).items).toHaveLength(1);
+    expect((await operator.admin.grantAudit({ limit: 50 })).items).toHaveLength(2);
+    // One course's lines, or one certificate's, never the other's; and how it came about only on a grant.
+    const course = (await operator.admin.grantAudit({ course: 'markets' })).items;
+    expect(course.map((l) => [l.kind, l.source])).toEqual([
+      ['access_revoked', null],
+      ['access_granted', 'staff'],
+    ]);
+    const cert = await operator.admin.grantAudit({ certificate: 'foundations-v1', limit: 2 });
+    expect(cert.items.map((l) => [l.kind, l.source])).toEqual([
+      ['certificate_revoked', null],
+      ['certificate_granted', 'issue'],
+    ]);
+    const certRest = await operator.admin.grantAudit({ certificate: 'foundations-v1', cursor: cert.nextCursor ?? undefined });
+    expect(certRest.items.map((l) => [l.kind, l.at.toISOString()])).toEqual([['certificate_granted', '2026-10-17T03:00:00.000Z']]);
+    expect(certRest.nextCursor).toBeNull();
+    // A course and a certificate together, or a page size under 1, is a bad request, never "the page size is not set".
+    await expect(operator.admin.grantAudit({ course: 'markets', certificate: 'foundations-v1' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(operator.admin.grantAudit({ limit: 0 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    // A blank owner page size refuses with its own code, whatever the caller asks for.
+    const unset = createAcademyRouter(academy).createCaller(signed());
+    await expect(unset.admin.grantAudit({ limit: 10 })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'academy.grant_audit_list_limit_unset' }),
     });
     const metrics = await operator.admin.opsMetrics({ from: '2026-10-17', to: '2026-10-18' });
     expect(metrics.days).toEqual([

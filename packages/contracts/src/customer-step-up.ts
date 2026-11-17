@@ -24,6 +24,9 @@ export const CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS = 120;
 
 const AMOUNT_RE = /^\d+(\.\d{1,18})?$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** An instant as `Date.prototype.toISOString` writes it, the one form svc-bank hashes a statement period in. */
+const isoInstant = (value: string) =>
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) && new Date(value).toISOString() === value;
 
 /** A send's note as svc-bank `plainNote` keeps it: trimmed, not blank, plain text up to 140 characters. */
 const sendNote = (value: string) =>
@@ -155,6 +158,113 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     emptyOk: [],
     decimalFields: [],
     fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessTeam.propose',
+    purpose: 'businessTeam.propose',
+    clientFields: ['accountId', 'paymentId', 'payee', 'paymentType', 'amount'],
+    amountField: 'amount',
+    targetField: 'payee',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessTeam.approve',
+    purpose: 'businessTeam.approve',
+    clientFields: ['paymentId'],
+    targetField: 'paymentId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessTeam.invite',
+    purpose: 'businessTeam.invite',
+    clientFields: ['accountId', 'inviteId', 'email', 'role', 'roleId'],
+    targetField: 'inviteId',
+    targetRequired: true,
+    // A link invite has no email; an invite carries a built-in role or a custom one, never both.
+    emptyOk: ['email', 'role', 'roleId'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessTeam.acceptInvite',
+    purpose: 'businessTeam.acceptInvite',
+    // The sha256 (hex) of the link's secret: the secret itself never leaves the person's device for identity.
+    clientFields: ['tokenHash'],
+    targetField: 'tokenHash',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+    shapes: { tokenHash: (v: string) => /^[0-9a-f]{64}$/.test(v) },
+  },
+  {
+    scope: 'bank.step_up.businessTeam.assignRole',
+    purpose: 'businessTeam.assignRole',
+    clientFields: ['accountId', 'userId', 'roleId'],
+    targetField: 'userId',
+    targetRequired: true,
+    // An empty roleId takes the custom role away.
+    emptyOk: ['roleId'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessBills.pay',
+    purpose: 'businessBills.pay',
+    clientFields: ['billId', 'paymentId', 'scheduledFor'],
+    targetField: 'paymentId',
+    targetRequired: true,
+    // A payment made now has no day.
+    emptyOk: ['scheduledFor'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessPayouts.confirmRun',
+    purpose: 'businessPayouts.confirmRun',
+    clientFields: ['runId'],
+    targetField: 'runId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessPayouts.payBatch',
+    purpose: 'businessPayouts.payBatch',
+    clientFields: ['accountId', 'batchId'],
+    targetField: 'batchId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessCards.approveAndPay',
+    purpose: 'businessCards.approveAndPay',
+    clientFields: ['claimId'],
+    targetField: 'claimId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessBooks.exportStatement',
+    purpose: 'businessBooks.exportStatement',
+    clientFields: ['accountId', 'exportId', 'from', 'to'],
+    targetField: 'accountId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+    shapes: { accountId: (v) => UUID_RE.test(v), exportId: (v) => UUID_RE.test(v), from: isoInstant, to: isoInstant },
   },
   {
     scope: 'bank.step_up.business.setMemberRole',
@@ -357,6 +467,60 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     emptyOk: [],
     decimalFields: [],
     fixed: {},
+  },
+  {
+    // svc-trade (B1 user-venue door): one withdrawal from the caller's own venue account, of one amount of one asset to
+    // one address. The request id is `venue.withdraw:<withdrawalKey>`, so one confirmation approves one withdrawal; the
+    // amount is the canonical decimal (`formatAmount`) and the destination a lowercase 0x address, as svc-trade hashes them.
+    // The venue account the funds leave (`owner`, lowercase 0x; `subAccount`, empty for the main account) is bound too.
+    scope: 'trade.step_up.venue.withdraw',
+    purpose: 'venue.withdraw',
+    clientFields: ['withdrawalKey', 'owner', 'subAccount', 'asset', 'amount', 'destination'],
+    amountField: 'amount',
+    targetField: 'withdrawalKey',
+    targetRequired: true,
+    emptyOk: ['subAccount'],
+    decimalFields: ['amount'],
+    fixed: {},
+    shapes: {
+      withdrawalKey: (value) => /^[a-z][a-z0-9-]*:.{1,160}$/.test(value),
+      owner: (value) => /^0x[0-9a-f]{40}$/.test(value),
+      destination: (value) => /^0x[0-9a-f]{40}$/.test(value),
+    },
+  },
+  {
+    // svc-trade (J-agents-21 #3): one agent account on the caller's own venue account, with its cap and first funding
+    // move. The request id is `venue.agentAccount:<accountId>`, so one confirmation opens one agent account; the cap and
+    // the funding are canonical decimals (`formatAmount`) and the owner a lowercase 0x address, as svc-trade hashes them.
+    scope: 'trade.step_up.venue.agentAccount',
+    purpose: 'venue.agentAccount',
+    clientFields: ['accountId', 'owner', 'asset', 'cap', 'fund'],
+    amountField: 'fund',
+    targetField: 'accountId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['cap', 'fund'],
+    fixed: {},
+    shapes: {
+      accountId: (value) => UUID_RE.test(value),
+      owner: (value) => /^0x[0-9a-f]{40}$/.test(value),
+    },
+  },
+  {
+    // svc-trade (J-agents-21 #6): one of the caller's own agent API keys connected to one of their agent accounts. The
+    // request id is `venue.agentConnect:<keyId>`, so one confirmation connects one key. It moves no value: no amount.
+    scope: 'trade.step_up.venue.agentConnect',
+    purpose: 'venue.agentConnect',
+    clientFields: ['keyId', 'accountId'],
+    targetField: 'keyId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+    shapes: {
+      keyId: (value) => UUID_RE.test(value),
+      accountId: (value) => UUID_RE.test(value),
+    },
   },
   {
     // svc-token (MC-token-02, J-more-catalogue-10 #6): the founder who runs a two-founder governance role change proves a

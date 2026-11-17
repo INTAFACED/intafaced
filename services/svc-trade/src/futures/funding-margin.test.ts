@@ -52,7 +52,7 @@ describe('netFundingPaid', () => {
         amount: amt('5'),
         recipe: {} as PostRequest,
       },
-    ] as unknown as FundingLeg[];
+    ] as FundingLeg[];
     const nets = netFundingPaid(legs);
     expect(nets).toEqual(
       expect.arrayContaining([

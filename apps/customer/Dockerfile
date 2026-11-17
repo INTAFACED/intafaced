@@ -22,6 +22,7 @@ COPY apps/customer/nginx.conf /etc/nginx/conf.d/default.conf
 #   CUSTOMER_LIVEKIT_ORIGIN  Academy live-session media server, e.g. wss://lk.example.com
 #   CUSTOMER_STORAGE_ORIGIN  origin of presigned recorded-video URLs (ACADEMY_VIDEO_S3_ENDPOINT)
 #   CUSTOMER_MEDIA_ORIGINS   further https origins for <video>/<audio>, space separated
+#   CUSTOMER_SANDBOX_API_ORIGIN  the developer sandbox's API origin, which the API explorer calls with a sandbox key
 # An invalid value stops the container at start. The filter keeps envsubst away
 # from nginx's own $variables.
 COPY apps/customer/security-headers.conf.template /etc/nginx/templates/security-headers.conf.template

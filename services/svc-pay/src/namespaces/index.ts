@@ -1,10 +1,11 @@
-import { mergeRouters } from '@intafaced/contracts';
+import { mergeRouters, type MerchantPartnerTerms } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { ConversionService } from '../conversion/service.js';
 import type { ReceiptAssetPlaces } from '../merchant-ops/receipt-branding.js';
 import type { TeamEmailInviteLimit } from '../merchant-ops/team-email.js';
-import type { WebhookRetryLimit } from '../merchant-ops/webhooks.js';
+import type { WebhookRetryLimit, WebhookSettings } from '../merchant-ops/webhooks.js';
+import type { WebhookResolver } from '../webhook-url-guard.js';
 import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
@@ -13,6 +14,7 @@ import type { CategoryPolicyMountDeps } from '../onboarding-policy/category-rout
 import { createMerchantCatalogRouter, type CatalogMountDeps } from '../catalog/router.js';
 import { createCheckoutBrandingRouter, type CheckoutBrandingMountDeps } from '../checkout-branding/router.js';
 import { createCheckoutMethodsRouter, type CheckoutMethodsMountDeps } from '../checkout-methods/router.js';
+import { createReceivingWalletRouter, type ReceivingWalletMountDeps } from '../receiving-wallet/router.js';
 import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import type { DepositFreezesMountDeps } from '../custody/deposits/freezes.js';
 import type { DepositTravelRuleMountDeps } from '../custody/deposits/travel-rule.js';
@@ -66,6 +68,8 @@ export const FOUNDER_ONLY_PREFIXES = [
 export function createPayNamespaces(deps: {
   founderAuthority: FounderAuthority;
   metrics?: MetricsRuntime;
+  /** The acquiring partner's terms for one business (`partner-terms.ts`). Absent: `merchantMetrics.partnerTerms` refuses. */
+  partnerTerms?: (merchantId: string) => MerchantPartnerTerms;
   registries?: RegistriesMountDeps;
   categoryPolicy?: CategoryPolicyMountDeps;
   /** The product catalogue (M-catalogue-01). Absent: every merchantCatalog procedure refuses. */
@@ -73,6 +77,8 @@ export function createPayNamespaces(deps: {
   checkoutBranding?: CheckoutBrandingMountDeps;
   /** The hosted checkout's payment methods (M-adv-payments-core-11). Absent: every merchantCheckoutMethods procedure refuses. */
   checkoutMethods?: CheckoutMethodsMountDeps;
+  /** The business's own receiving wallet (J-merchant-04). Absent: every merchantReceivingWallet procedure refuses. */
+  receivingWallet?: ReceivingWalletMountDeps;
   depositSettings?: DepositSettingsMountDeps;
   depositFreezes?: DepositFreezesMountDeps;
   depositTravelRule?: DepositTravelRuleMountDeps;
@@ -92,6 +98,8 @@ export function createPayNamespaces(deps: {
   disputeFundsLedger?: Pick<LedgerClient, 'getTxByKey'>;
   webhooksAllowLocalHttp?: boolean;
   webhookRetry?: WebhookRetryLimit;
+  webhookSettings?: WebhookSettings;
+  webhookResolver?: WebhookResolver | undefined;
   teamEmailInvite?: TeamEmailInviteLimit;
   payHalts?: PayHaltsDeps;
   treasury?: FounderTreasuryDeps;
@@ -118,6 +126,8 @@ export function createPayNamespaces(deps: {
     disputeFundsLedger: deps.disputeFundsLedger,
     webhooksAllowLocalHttp: deps.webhooksAllowLocalHttp,
     webhookRetry: deps.webhookRetry,
+    webhookSettings: deps.webhookSettings,
+    webhookResolver: deps.webhookResolver,
     teamEmailInvite: deps.teamEmailInvite,
     evidence: deps.evidence,
     invoiceLinks: deps.invoiceLinks,
@@ -126,7 +136,7 @@ export function createPayNamespaces(deps: {
   };
   return mergeRouters(
     createMerchantControlRouter(deps.control),
-    createMerchantMetricsRouter(deps.metrics),
+    createMerchantMetricsRouter(deps.metrics, deps.partnerTerms),
     createFounderAdminRouter(deps.founderAuthority, {
       metrics: deps.metrics,
       registries: deps.registries,
@@ -160,6 +170,7 @@ export function createPayNamespaces(deps: {
     createMerchantCatalogRouter(deps.catalog), // M-catalogue-01: merchantCatalog.*
     createCheckoutBrandingRouter(deps.checkoutBranding), // M-payments-core-08: merchantCheckout.branding.*
     createCheckoutMethodsRouter(deps.checkoutMethods), // M-adv-payments-core-11: merchantCheckoutMethods.*
+    createReceivingWalletRouter(deps.receivingWallet), // J-merchant-04: merchantReceivingWallet.*
     // W10: b2bRamp.* refuses while pay.b2b_ramp is off, including a direct caller.
     createB2bRampRouter({ founderAuthority: deps.founderAuthority, sql: deps.sql }),
     // M-plat-org-10: receipt preview and send. Email switches mount on the portal `merchant` router.

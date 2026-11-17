@@ -15,6 +15,9 @@ import { useApi } from '../session/session';
 import { QuantRooms } from './QuantRooms';
 import { strategiesCopy } from './strategies-copy';
 import { MorePages, useStrategyPages } from './strategy-pages';
+import { QuotaAwareFailure } from './quota-refusal';
+import { PlanTiers } from './PlanTiers';
+import { UsagePanel } from './UsagePanel';
 import './algo.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -73,6 +76,8 @@ export function StrategiesRoom({ paper }: { paper: boolean }) {
           )}
         </div>
       </Panel>
+      <UsagePanel revision={revision} />
+      <PlanTiers revision={revision} />
     </>
   );
 }
@@ -287,7 +292,7 @@ function RecycleBin({ onChanged }: { onChanged: (note: string) => void }) {
         if (!rows.length) return <EmptyState title={t('binNone')}>{t('binNoneBody')}</EmptyState>;
         return (
           <>
-            {failure && <Failure result={failure} />}
+            {failure && <QuotaAwareFailure result={failure} />}
             <DataTable label={t('tabBin')} headers={[t('name'), t('folder'), t('version'), t('deleted'), t('actions')]}>
               {rows.map((row) => (
                 <tr key={row.id} data-testid="quant-bin-row" data-id={row.id} data-version={row.version}>

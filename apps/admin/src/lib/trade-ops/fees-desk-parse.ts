@@ -1,6 +1,6 @@
 /**
  * Parsers for the Fees and convert room's finance reads (J-cex-spot-17 #4, #7, #8): svc-trade's snapshot runs, Convert's
- * owner values and quotes, and svc-bank's fiat buy quotes. Each returns null for a body that is not the expected shape, so
+ * owner values and quotes, and svc-bank's fiat buy quotes and the buy fees its partner did not give. Each returns null for a body that is not the expected shape, so
  * the room refuses it rather than half-show it. Amounts stay the decimal strings the services sent. No network, no clock.
  */
 
@@ -159,6 +159,84 @@ export const parseConvertQuotes = (raw: unknown): ConvertQuote[] | null =>
       : null,
   );
 
+/** A figure the venue gave, or "not known" (`known: false`), never a zero standing in for one. */
+export type VenueFigure = { readonly known: true; readonly amount: string; readonly asset: string } | { readonly known: false };
+
+/**
+ * A Convert sell the venue priced on the customer's own venue account (svc-trade `admin.convertDesk.venueSellQuotes`,
+ * J-cex-spot-17 #8): the venue's own preview of the sell, stored as the venue gave it.
+ */
+export interface VenueSellQuote {
+  readonly quoteId: string;
+  readonly userId: string;
+  readonly venueId: string;
+  readonly test: boolean;
+  readonly owner: string;
+  readonly symbol: string;
+  readonly baseAsset: string;
+  readonly quoteAsset: string;
+  readonly amount: string;
+  /** How much of the sell the venue's book takes now and its average price (null when it takes none), or not known. */
+  readonly fill: { readonly known: true; readonly amount: string; readonly averagePrice: string | null } | { readonly known: false };
+  readonly venueFee: VenueFigure;
+  readonly builderFee: VenueFigure;
+  readonly asOf: string;
+  readonly createdAt: string;
+}
+
+const figureOf = (v: unknown): VenueFigure | null =>
+  rec(v) && v.known === false
+    ? { known: false }
+    : rec(v) && v.known === true && dec(v.amount) && str(v.asset)
+      ? { known: true, amount: v.amount, asset: v.asset }
+      : null;
+
+const fillOf = (v: unknown): VenueSellQuote['fill'] | null =>
+  rec(v) && v.known === false
+    ? { known: false }
+    : rec(v) && v.known === true && dec(v.amount) && (v.averagePrice === null || dec(v.averagePrice))
+      ? { known: true, amount: v.amount, averagePrice: v.averagePrice }
+      : null;
+
+export const parseVenueSellQuotes = (raw: unknown): VenueSellQuote[] | null =>
+  listOf(raw, (v) => {
+    if (!(
+      rec(v) &&
+      str(v.quoteId) &&
+      str(v.userId) &&
+      str(v.venueId) &&
+      typeof v.test === 'boolean' &&
+      str(v.owner) &&
+      str(v.symbol) &&
+      str(v.baseAsset) &&
+      str(v.quoteAsset) &&
+      dec(v.amount) &&
+      str(v.asOf) &&
+      str(v.createdAt)
+    ))
+      return null;
+    const fill = fillOf(v.fill);
+    const venueFee = figureOf(v.venueFee);
+    const builderFee = figureOf(v.builderFee);
+    if (!fill || !venueFee || !builderFee) return null;
+    return {
+      quoteId: v.quoteId,
+      userId: v.userId,
+      venueId: v.venueId,
+      test: v.test,
+      owner: v.owner,
+      symbol: v.symbol,
+      baseAsset: v.baseAsset,
+      quoteAsset: v.quoteAsset,
+      amount: v.amount,
+      fill,
+      venueFee,
+      builderFee,
+      asOf: v.asOf,
+      createdAt: v.createdAt,
+    };
+  });
+
 export interface OnrampQuote {
   readonly quoteId: string;
   readonly userId: string;
@@ -202,6 +280,52 @@ export const parseOnrampQuotes = (raw: unknown): OnrampQuote[] | null =>
         }
       : null,
   );
+
+/**
+ * A buy ask the partner's ramp gave no fee for (svc-bank `ops.onrampFeesNotKnown`): no fee, pay amount or rate was quoted,
+ * so the room shows "not known", never 0.
+ */
+export interface OnrampFeeNotKnown {
+  readonly requestId: string;
+  readonly userId: string;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly method: string;
+  readonly country: string;
+  readonly createdAt: string;
+}
+
+export interface OnrampFeesNotKnown {
+  /** The TEST partner's label when the local stack's TEST partner ramp gave no fee, or null. */
+  readonly testPartner: string | null;
+  readonly rows: OnrampFeeNotKnown[];
+}
+
+export const parseOnrampFeesNotKnown = (raw: unknown): OnrampFeesNotKnown | null => {
+  if (!rec(raw) || !(raw.testPartner === null || str(raw.testPartner))) return null;
+  const rows = listOf(raw.rows, (v) =>
+    rec(v) &&
+    str(v.requestId) &&
+    str(v.userId) &&
+    str(v.assetId) &&
+    dec(v.amount) &&
+    str(v.method) &&
+    str(v.country) &&
+    v.refusalCode === 'bank.onramp_fee_not_known' &&
+    str(v.createdAt)
+      ? {
+          requestId: v.requestId,
+          userId: v.userId,
+          assetId: v.assetId,
+          amount: v.amount,
+          method: v.method,
+          country: v.country,
+          createdAt: v.createdAt,
+        }
+      : null,
+  );
+  return rows ? { testPartner: raw.testPartner, rows } : null;
+};
 
 /** A notice row as svc-notify answers a draft: its id, kind and the time it takes effect. */
 export interface FeeNotice {

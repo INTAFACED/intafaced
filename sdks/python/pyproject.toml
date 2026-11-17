@@ -6,4 +6,4 @@ requires-python = ">=3.11"
 classifiers = ["Private :: Do Not Upload"]
 
 [tool.setuptools.packages.find]
-include = ["intafaced_pay*"]
+include = ["intafaced_pay*", "intafaced_quant*"]

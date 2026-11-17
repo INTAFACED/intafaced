@@ -1,0 +1,167 @@
+{
+  "about": "Cases for REVIEW.md, run by `node tooling/ci/brief-cases.mjs review` (project-state#2847). A bad case is a real change that broke main or that the review rightly failed; it scores 1 when the verdict is FAIL with a blocking finding that names the fault (`names`, any one matches), 0.5 when only a note names it, else 0. A control is a real change that broke nothing; it passes when the verdict is PASS. `base` is the tree the reviewer reads and the diff's start, `head` its end.",
+  "cases": [
+    {
+      "id": "8652-ops-card-route",
+      "pr": 8652,
+      "kind": "bad",
+      "base": "05048fa4484b3932b2026141ebc3b5ceb3eda649",
+      "head": "e3c3ae83fbe6dc448ee7ee843f15b198ecee9fd5",
+      "fault": "a support-only ops route calls card authorize, capture and reverse without the treasury permission and two-founder approval the existing ops card routes require",
+      "names": ["cardProgrammeSimulate", "admin:treasury", "consumeOpsApproval"]
+    },
+    {
+      "id": "8653-money-tests-deleted",
+      "pr": 8653,
+      "kind": "bad",
+      "base": "83f6568845808f905ed03fb1bc7cc75bc7ab72e2",
+      "head": "a1b77d146c04e2817643d62a4987b4ef05c132d3",
+      "fault": "three money tests are deleted in favour of a lint rule",
+      "names": ["money-paths\\.test"]
+    },
+    {
+      "id": "8735-caller-test-broken",
+      "pr": 8735,
+      "kind": "bad",
+      "base": "f196fcea0d1a141a7f78d3bda51f7f7cfdd9ca65",
+      "head": "5a850da589c8ef99ef2391b316b3d4c3c27ddcc0",
+      "fault": "a deleted CI script is still read by an untouched unit test, which then throws",
+      "names": ["marketing-language\\.test"]
+    },
+    {
+      "id": "7275-money-harness-mock",
+      "pr": 7275,
+      "kind": "bad",
+      "base": "992c0d8d84cc92eb8f27083f5073fec845d89337^",
+      "head": "992c0d8d84cc92eb8f27083f5073fec845d89337",
+      "fault": "a new dormancy notices call is not answered by the money harness mock, so the money browser checks fail on a 404",
+      "names": ["money\\.pw\\.mjs", "bankDefaults"]
+    },
+    {
+      "id": "8542-venue-wizard",
+      "pr": 8542,
+      "kind": "bad",
+      "base": "810cd16cdf044b93f558fc5a7f18b738863d7091^",
+      "head": "810cd16cdf044b93f558fc5a7f18b738863d7091",
+      "fault": "venue mode always opens the venue wizard, so a journey can't follow a BTC/USDT leader",
+      "names": ["J-copy-bots-otc-03"]
+    },
+    {
+      "id": "8113-referral-gate",
+      "pr": 8113,
+      "kind": "bad",
+      "base": "2481c9353312f35d0ee712c69d573f8eb20de348^",
+      "head": "2481c9353312f35d0ee712c69d573f8eb20de348",
+      "fault": "a new activation gate refuses an existing journey's TEST referral campaign",
+      "names": ["J-campaigns-01"]
+    },
+    {
+      "id": "8153-min-notional",
+      "pr": 8153,
+      "kind": "bad",
+      "base": "11e685d271411624c0c128648734a9147a3df1d4^",
+      "head": "11e685d271411624c0c128648734a9147a3df1d4",
+      "fault": "a new minimum on the shared TEST markets refuses an existing journey's one-tick preview",
+      "names": ["J-cex-spot-17"]
+    },
+    {
+      "id": "7602-reach-map",
+      "pr": 7602,
+      "kind": "bad",
+      "base": "cc9a8d8582e3d0c485475edf992caaa5cb902d6a^",
+      "head": "cc9a8d8582e3d0c485475edf992caaa5cb902d6a",
+      "fault": "a new money package is missing from the journey reach map, so the tooling tests go red",
+      "names": ["journey-reach-map"]
+    },
+    {
+      "id": "8130-buy-disabled",
+      "pr": 8130,
+      "kind": "bad",
+      "base": "58db7c25c291d01699058ceae6ba506dee8ef7d8^",
+      "head": "58db7c25c291d01699058ceae6ba506dee8ef7d8",
+      "fault": "a new shortfall check disables Buy on an empty venue account, which an existing journey expects enabled",
+      "names": ["J-cex-spot-01"]
+    },
+    {
+      "id": "8139-sms-notice",
+      "pr": 8139,
+      "kind": "bad",
+      "base": "e4236af9af6aefcab4f6f139dc0d5a362d4d3e98^",
+      "head": "e4236af9af6aefcab4f6f139dc0d5a362d4d3e98",
+      "fault": "the local SMS outbox removes a notice an existing journey expects",
+      "names": ["J-identity-04"]
+    },
+    {
+      "id": "8495-read-inventory",
+      "pr": 8495,
+      "kind": "bad",
+      "base": "3ae6e4999142d3e41ee54630fcd868e37794ee29^",
+      "head": "3ae6e4999142d3e41ee54630fcd868e37794ee29",
+      "fault": "four new reads are missing from an existing journey's read inventory",
+      "names": ["J-agents-12"]
+    },
+    {
+      "id": "8653-final",
+      "pr": 8653,
+      "kind": "control",
+      "base": "83f6568845808f905ed03fb1bc7cc75bc7ab72e2",
+      "head": "66bb0ebbee47bf1570640bd671e70b1d83adb3c6"
+    },
+    {
+      "id": "8735-final",
+      "pr": 8735,
+      "kind": "control",
+      "base": "b8dd38baab2f2a5ad5ea71439aa16a2b7f30d37d",
+      "head": "c19800c9ca2bf00abeee640670f7edfc86877939"
+    },
+    {
+      "id": "8110",
+      "pr": 8110,
+      "kind": "control",
+      "base": "4e94b895c2699a849667df01331a3409cfdd8e4a^",
+      "head": "4e94b895c2699a849667df01331a3409cfdd8e4a"
+    },
+    {
+      "id": "8480",
+      "pr": 8480,
+      "kind": "control",
+      "base": "93018b224b9c6678893aac56c80c26dc7951df27^",
+      "head": "93018b224b9c6678893aac56c80c26dc7951df27"
+    },
+    {
+      "id": "7691",
+      "pr": 7691,
+      "kind": "control",
+      "base": "b18c77d68de41b2576dd92b29e59f7756f455bd5^",
+      "head": "b18c77d68de41b2576dd92b29e59f7756f455bd5"
+    },
+    {
+      "id": "8104",
+      "pr": 8104,
+      "kind": "control",
+      "base": "a5766464096841dd5e21d2ac124bc648e9e37412^",
+      "head": "a5766464096841dd5e21d2ac124bc648e9e37412"
+    },
+    {
+      "id": "7669",
+      "pr": 7669,
+      "kind": "control",
+      "base": "686bb4f33960d5b27a6c1e745bf14cffebbe5b80^",
+      "head": "686bb4f33960d5b27a6c1e745bf14cffebbe5b80"
+    },
+    {
+      "id": "8540",
+      "pr": 8540,
+      "kind": "control",
+      "base": "88dc393c0946f0c298f2a8cbc71bff573f86daae^",
+      "head": "88dc393c0946f0c298f2a8cbc71bff573f86daae"
+    },
+    {
+      "id": "8117",
+      "pr": 8117,
+      "kind": "control",
+      "base": "0343c418553e8fe1bf66b468339660fab1f5ecc8^",
+      "head": "0343c418553e8fe1bf66b468339660fab1f5ecc8"
+    }
+  ]
+}

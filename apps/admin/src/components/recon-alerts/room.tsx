@@ -220,7 +220,7 @@ export function AlertsRoom({ room }: { room: Room }) {
                   <td>
                     {formatWhen(p.periodStart)} to {formatWhen(p.periodEnd)}
                   </td>
-                  <td>{p.lastStatus}</td>
+                  <td>{p.lastStatus === 'NOTHING_TO_COMPARE' ? 'Nothing to compare' : p.lastStatus}</td>
                   <td>{p.open}</td>
                   <td>{p.acknowledged}</td>
                   <td>{p.green ? 'Green' : 'Not green'}</td>
@@ -370,6 +370,7 @@ export function AlertDetail({ part, close }: { part: Part<OpsAlertDetail>; close
       {ev.asset ? (
         <p data-testid="alert-evidence">
           Observed {ev.asset.observed} · expected {ev.asset.expected} · difference {ev.asset.difference} · tolerance {ev.asset.tolerance}
+          {ev.asset.missing ? ` · missing on the ${ev.asset.missing} side, a break, never a zero` : ''}
         </p>
       ) : (
         <p data-testid="alert-evidence">The run failed with no asset evidence to name.</p>

@@ -247,10 +247,14 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
   const a = await context.newPage();
   await founderSignIn(a, 'a');
   await a.goto(`${ADMIN}/trade-ops/approvals`);
+  // The pending list loads after the page and lands above the form, moving "Approve request": act once it is in, or a
+  // press before it lands and a release after miss the button (J-cex-spot-17 #4, main run 42455893390, #7536).
+  await expect(a.getByRole('grid', { name: 'Approvals waiting for this operator' })).toBeVisible();
   await a.getByLabel('Approval id', { exact: true }).fill(approvalId);
   await a.getByLabel('Payload hash you reviewed').fill(payloadHash);
   await a.getByRole('button', { name: 'Approve request' }).click();
   const approveDialog = a.getByRole('alertdialog');
+  await expect(approveDialog).toBeVisible();
   await approveDialog.getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(approveDialog.locator('[data-outcome=ok]')).toBeVisible();
   await context.close();

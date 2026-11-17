@@ -17,7 +17,7 @@ const BENE = '00000000-0000-4000-8000-00000000000b';
 const FEE = 'fee-evt-producer-payout';
 const ASSET = 'USDT';
 
-const PUBLISHED: AccrualTierLaw = { published: true, tiers: [{ hop: 0, rate: '0.10' }] };
+const PUBLISHED: AccrualTierLaw = { published: true, tiers: [{ hop: 0, rate: '0.130' }] };
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -27,9 +27,9 @@ function row(over: Partial<CommissionRow> = {}): CommissionRow {
     beneficiaryId: BENE,
     payerId: PAYER,
     hop: 0,
-    rate: '0.10',
+    rate: '0.130',
     feeAmount: '100',
-    commissionAmount: '10',
+    commissionAmount: '13',
     asset: ASSET,
     accruedAt: new Date('2026-08-16T00:00:00.000Z'),
     sourceModule: 'trade',
@@ -65,12 +65,24 @@ async function bal(ledger: MemoryLedger, ref: Parameters<MemoryLedger['balance']
   return formatAmount((await ledger.balance(ref)).amount);
 }
 
+function accountsOf(statuses: Record<string, 'active' | 'frozen' | 'closed' | null> = {}) {
+  return {
+    accountState: async (userId: string) => {
+      const status = userId in statuses ? statuses[userId]! : 'active';
+      return status === null ? null : { userId, status, kycTier: 'basic' as const, archived: false };
+    },
+  };
+}
+
 async function app(
   opts: {
     law?: AccrualTierLaw;
     ledger?: MemoryLedger | undefined;
     frozen?: ReadonlySet<string>;
+    /** Account status per user; anyone unlisted is active. `null` is an unknown user. */
+    accounts?: Record<string, 'active' | 'frozen' | 'closed' | null>;
     seed?: boolean;
+    depth?: number | undefined;
   } = {},
 ) {
   const store = new MemoryAccrualStore();
@@ -80,8 +92,10 @@ async function app(
   registerAffiliateProducerPayout(f, {
     internalSecret: SECRET,
     freeze: { frozenIds: async () => opts.frozen ?? new Set<string>() },
+    accounts: accountsOf(opts.accounts),
     accruals: store,
     accrualTierLaw: opts.law,
+    programmeDepth: 'depth' in opts ? opts.depth : 5,
     ledger,
   });
   await f.ready();
@@ -115,12 +129,15 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
       freeze: { frozenIds: async () => new Set<string>() },
       accruals: store,
       accrualTierLaw: PUBLISHED,
+      programmeDepth: 5,
     });
     registerAffiliateProducerPayout(f, {
       internalSecret: SECRET,
       freeze: { frozenIds: async () => new Set<string>() },
+      accounts: accountsOf(),
       accruals: store,
       accrualTierLaw: PUBLISHED,
+      programmeDepth: 5,
       ledger: undefined,
       installRawBody: false,
     });
@@ -158,8 +175,18 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
     await f.close();
   });
 
+  it('412 blank programme depth (RC-campaigns-07) — nothing posted, even with published rates', async () => {
+    const { f, ledger } = await app({ law: PUBLISHED, depth: undefined });
+    const journalBefore = ledger!.journal().map((tx) => tx.idempotencyKey);
+    const res = await f.inject(post({ feeEventId: FEE }));
+    expect(res.statusCode).toBe(412);
+    expect(res.json()).toMatchObject({ code: 'affiliate.programme_depth_unset' });
+    expect(ledger!.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
+    await f.close();
+  });
+
   it('412 unpublished hop — nothing posted', async () => {
-    const law: AccrualTierLaw = { published: true, tiers: [{ hop: 1, rate: '0.05' }] };
+    const law: AccrualTierLaw = { published: true, tiers: [{ hop: 1, rate: '0.07' }] };
     const { f, ledger } = await app({ law });
     const journalBefore = ledger!.journal().map((tx) => tx.idempotencyKey);
     const res = await f.inject(post({ feeEventId: FEE }));
@@ -179,6 +206,31 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
     await f.close();
   });
 
+  // #4689: the programme's freeze is not the account's. A frozen, closed or unknown account takes no credit.
+  for (const status of ['frozen', 'closed', null] as const) {
+    it(`412 beneficiary account ${status ?? 'unknown'} — nothing posted, no balance moves`, async () => {
+      const { f, ledger } = await app({ law: PUBLISHED, accounts: { [BENE]: status } });
+      const journalBefore = ledger!.journal().map((tx) => tx.idempotencyKey);
+      const beneBefore = await bal(ledger!, userAvailable(BENE, ASSET));
+      const feesBefore = await bal(ledger!, houseFees('trade', ASSET));
+      const res = await f.inject(post({ feeEventId: FEE }));
+      expect(res.statusCode).toBe(412);
+      expect(res.json()).toMatchObject({ code: 'affiliate.payout.beneficiary_cannot_receive' });
+      expect(ledger!.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
+      expect(await bal(ledger!, userAvailable(BENE, ASSET))).toBe(beneBefore);
+      expect(await bal(ledger!, houseFees('trade', ASSET))).toBe(feesBefore);
+      await f.close();
+    });
+  }
+
+  it('an active beneficiary is still paid once the account check passes', async () => {
+    const { f, ledger } = await app({ law: PUBLISHED, accounts: { [BENE]: 'active' } });
+    const res = await f.inject(post({ feeEventId: FEE }));
+    expect(res.statusCode).toBe(200);
+    expect(await bal(ledger!, userAvailable(BENE, ASSET))).toBe('13');
+    await f.close();
+  });
+
   it('412 tampered commissionAmount — nothing posted', async () => {
     const store = new MemoryAccrualStore();
     await store.saveRows([row({ commissionAmount: '99' })]);
@@ -187,8 +239,10 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
     registerAffiliateProducerPayout(f, {
       internalSecret: SECRET,
       freeze: { frozenIds: async () => new Set<string>() },
+      accounts: accountsOf(),
       accruals: store,
       accrualTierLaw: PUBLISHED,
+      programmeDepth: 5,
       ledger,
     });
     await f.ready();
@@ -224,10 +278,10 @@ describe('S2S producer payout — accrued commission through ledger-client', () 
     expect(res.statusCode).toBe(200);
     const body = res.json() as { posted: boolean; totalCommission: string; idempotencyKeys: string[] };
     expect(body.posted).toBe(true);
-    expect(body.totalCommission).toBe('10');
+    expect(body.totalCommission).toBe('13');
     expect(body.idempotencyKeys.some((k) => k.includes(FEE))).toBe(true);
-    expect(await bal(ledger!, houseFees('trade', ASSET))).toBe('90');
-    expect(await bal(ledger!, userAvailable(BENE, ASSET))).toBe('10');
+    expect(await bal(ledger!, houseFees('trade', ASSET))).toBe('87');
+    expect(await bal(ledger!, userAvailable(BENE, ASSET))).toBe('13');
     expect(ledger!.reconcile()).toEqual({ ok: true });
     await f.close();
   });

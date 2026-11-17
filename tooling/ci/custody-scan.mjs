@@ -18,8 +18,15 @@
  *      money book). It must not come back: any file under `vendor/` fails this
  *      gate, so that code cannot return without a reviewed change to this check.
  *
- * Exit 0 = provably non-custodial and no vendored money tree. Exit 1 = the
- * boundary moved or the vendored tree is back.
+ *   4. The custody switch (OWNER 226: no customer money held at launch). With
+ *      svc-ledger's `LEDGER_CUSTODY_LAYER` off by default, every file in
+ *      services/ and packages/ that posts a recipe moving a customer balance
+ *      must be in the reviewed custodial-layer inventory
+ *      (`tooling/ci/custody-layer-inventory.json`). A new customer-balance
+ *      posting fails here. See `custody-layer-check.mjs`.
+ *
+ * Exit 0 = provably non-custodial, no vendored money tree, and no customer-
+ * balance posting outside the custodial layer. Exit 1 = any of them moved.
  *
  * ── WHAT THIS GATE IS, AND WHAT IT IS NOT (read this before citing it) ─────
  *
@@ -42,6 +49,7 @@
  */
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { runCustodyLayerCheck } from './custody-layer-check.mjs';
 
 const ROOT = process.cwd();
 const SERVICES = join(ROOT, 'services');
@@ -206,6 +214,28 @@ if (existsSync(VENDOR)) {
   });
 }
 
+// ── Check 4: no customer-balance posting outside the custodial layer ────────
+let custodyLayer;
+try {
+  custodyLayer = runCustodyLayerCheck(ROOT);
+} catch (err) {
+  // Fail closed: a missing or empty inventory would otherwise scan nothing.
+  custodyLayer = {
+    violations: [
+      {
+        check: 'custody-layer-inventory',
+        file: 'tooling/ci/custody-layer-inventory.json',
+        reason: err.message,
+        detail: 'Check 4 cannot run without it',
+      },
+    ],
+    notices: [],
+    summary: '',
+  };
+}
+violations.push(...custodyLayer.violations);
+for (const n of custodyLayer.notices) console.log(`  notice: ${n}`);
+
 if (violations.length > 0) {
   console.error(`\n✖ CUSTODY SCAN FAILED — ${violations.length} boundary violation(s)\n`);
   for (const v of violations) {
@@ -226,5 +256,6 @@ console.log(
   `✓ custody-scan clean — ${filesScanned} files across ${scanned.length} Protocol Plane service(s) derived from modules.ts` +
     `${scanned.length === 0 ? ' (none built yet — check re-arms automatically when the first one lands)' : ''}` +
     `${pending.length > 0 ? `; ${pending.join(', ')} registered but not built yet — arms automatically` : ''}` +
-    '; no vendor/ tree',
+    '; no vendor/ tree' +
+    `; ${custodyLayer.summary}`,
 );

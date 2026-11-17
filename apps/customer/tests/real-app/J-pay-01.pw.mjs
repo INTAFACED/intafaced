@@ -3,9 +3,22 @@ import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ROOT, api, fromUnits, fund, journeyState, signUpInBrowser, toUnits, signOutBrowser, tool } from './stack.mjs';
+import {
+  api,
+  fromUnits,
+  fund,
+  journeyState,
+  ROOT,
+  signOutBrowser,
+  signUpInBrowser,
+  STACK_PORTS,
+  stackUrl,
+  tool,
+  toUnits,
+} from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { withPartner } from './partner.mjs';
 
 // J-pay-01, in the running app (docs/roadmap/journeys.json): send TEST money to a person by handle and see it complete.
 // One test per step, titled "J-pay-01 #<n>", run in order on TEST accounts: A sends, B receives. The stack's gates
@@ -366,6 +379,19 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
   await expect(line).toHaveAttribute('data-terms', 'ok');
   await expect(line).toHaveText(`${expected.fee}. ${expected.perPayment}`);
   await expect(page.getByTestId('pay-review')).toBeEnabled();
+
+  // The partner that moves it and does not say what that costs (the TEST partner switched to give no fee): the network
+  // fee reads "not known", never 0, beside our own published fee.
+  await withPartner(sender, { fee: 'unknown' }, async () => {
+    await amount.fill('25.5');
+    await amount.fill(AMOUNT);
+    await expect(line).toHaveText(`${expected.fee}. Network fee: not known. ${expected.perPayment}`);
+    const quote = await trpc(await api(sender), 'GET', 'bank/trpc/transfers.quote', { assetId: 'USDT', amount: AMOUNT });
+    expect(quote.networkFee).toBeNull();
+  });
+  await amount.fill('25.5');
+  await amount.fill(AMOUNT);
+  await expect(line).toHaveText(`${expected.fee}. ${expected.perPayment}`);
 });
 
 test(`${J} #4 presses Review and sees amount, recipient identity, source, note, fee and today's allowance, with a first-time caution and no test payment`, async ({
@@ -609,7 +635,7 @@ function redeliverPayment(ledgerTxId) {
     console.log(JSON.stringify(payload));`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(ROOT, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', LEDGER_TX: ledgerTxId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', LEDGER_TX: ledgerTxId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -620,7 +646,7 @@ function redeliverPayment(ledgerTxId) {
 /** Until svc-notify's consumer of posted personal sends has taken and acknowledged every message on the bus. */
 async function noticesCaughtUp() {
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .flatMap((st) => st.consumer_detail ?? [])

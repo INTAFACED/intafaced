@@ -64,6 +64,9 @@ export function configuredIdentityOperationOwners(options: IdentityContextOption
  * wire string off `req.body` and defaults to `require`. The branches below differ
  * only in WHICH secret verifies (owner / authority keys), not in body binding.
  */
+/** The edge's own key doors: the agent-key hold (DV-keys-05) and the key call log's report (DV-keys-06). */
+const EDGE_KEY_DOORS: ReadonlySet<string> = new Set(['developerKeys.holdAgentAction', 'developerKeys.recordCall']);
+
 export function createIdentityRequestContext(options: IdentityContextOptions) {
   const regular = createEdgeContext(options);
   // Per-service keys (S2S v3): a key-signed call is named by the key that verified, so the per-purpose secrets
@@ -119,6 +122,17 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
       const rawBody = inboundRawBodyOf(req);
       const service = secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null;
       return { ...context, service };
+    }
+    const edgeDoor = procedures.find((name) => EDGE_KEY_DOORS.has(name));
+    if (edgeDoor !== undefined) {
+      // The edge's key doors (the agent-key hold, DV-keys-05; a key call's report, DV-keys-06): only svc-edge, signing
+      // with the same edge authority key it uses for the key exchange, may ask; never inside a mixed batch.
+      if (procedures.some((name) => name !== edgeDoor)) return { ...context, service: null };
+      if (keyJudged(req, context)) return { ...context, service: keyedOwner(context, ['svc-edge']) };
+      if (reader !== 'svc-edge' || legacyRefused) return { ...context, service: null };
+      const secret = identityAuthorityReadSecret(options, 'svc-edge');
+      const rawBody = inboundRawBodyOf(req);
+      return { ...context, service: secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null };
     }
     if (procedures.includes('operationAdmission.decide')) {
       // Owner keys authorize only this procedure, never a mixed service batch.

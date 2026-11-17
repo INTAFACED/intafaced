@@ -8,15 +8,16 @@
  * Colours come from the app's tokens at mount (`--if-*`), never from literals here.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { chartValue } from '../../../shared/chart-value';
 import { usePreferences } from '../../../shared/preferences';
 import type { Candle } from '../../../data/types';
 import type { ChartInterval } from './candles';
+import type { ChartApi, ChartOrderHost, ChartSeries } from '../../charts/chart-host';
 import {
   fillMarkers,
   legendValues,
   movingAverage,
   planUpdate,
-  priceCoordinate,
   priceFormat,
   stepOf,
   toBar,
@@ -26,25 +27,12 @@ import {
   type Marker,
 } from './chart-data';
 
-interface SeriesApi {
-  setData(data: unknown[]): void;
-  update(point: unknown): void;
-  applyOptions(options: Record<string, unknown>): void;
-  createPriceLine(options: Record<string, unknown>): unknown;
-  removePriceLine(line: unknown): void;
-}
+// The library's own objects, as the chart seam types them (charts/chart-host.ts): the same ones `onHost` hands out.
+type SeriesApi = ChartSeries;
 interface CrosshairParam {
   time?: number;
 }
-interface ChartApiLike {
-  addSeries(definition: unknown, options?: Record<string, unknown>, pane?: number): SeriesApi;
-  removeSeries(series: SeriesApi): void;
-  remove(): void;
-  panes(): Array<{ setStretchFactor(factor: number): void }>;
-  timeScale(): { fitContent(): void };
-  subscribeCrosshairMove(handler: (param: CrosshairParam) => void): void;
-  unsubscribeCrosshairMove(handler: (param: CrosshairParam) => void): void;
-}
+type ChartApiLike = ChartApi;
 interface Engine {
   createChart(host: HTMLElement, options: Record<string, unknown>): ChartApiLike;
   CandlestickSeries: unknown;
@@ -100,6 +88,11 @@ export interface PriceChartProps {
   /** IANA zone, or undefined for the device's own. Times on the axis and legend follow the person's setting. */
   timeZone: string | undefined;
   labels: { buy: string; sell: string; open: string; high: string; low: string; close: string; change: string; chart: string };
+  /**
+   * Hands the chart to what draws on it from outside (the venue desk's orders on the chart, J-charts-desk-15) once its
+   * main series is ready, again when that series is recreated, and null when the chart goes.
+   */
+  onHost?: (host: ChartOrderHost | null) => void;
 }
 
 const MA_PERIODS = [5, 10, 20] as const;
@@ -123,7 +116,7 @@ export function tickMark(seconds: number, kind: number, zone: Zone): string {
   return stamp(seconds, zone, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 }
 
-export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderLines, fills, timeZone, labels }: PriceChartProps) {
+export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderLines, fills, timeZone, labels, onHost }: PriceChartProps) {
   const { upColor, language } = usePreferences();
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
@@ -137,6 +130,9 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
   const fittedFor = useRef<string | null>(null);
   const latest = useRef(candles);
   latest.current = candles;
+  // The host for the parts drawn from outside (onHost): handed over with each new main series, taken back with the chart.
+  const handHost = useRef(onHost);
+  handHost.current = onHost;
   const [ready, setReady] = useState(0); // bumps whenever the main series is (re)created
   const [hover, setHover] = useState<number | null>(null);
 
@@ -215,6 +211,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
     });
     return () => {
       closed = true;
+      handHost.current?.(null);
       if (api && onMove) api.unsubscribeCrosshairMove(onMove);
       api?.remove();
       chart.current = null;
@@ -251,6 +248,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
           });
     // The axis follows the first series on it (the averages were added first), so they carry the price format too.
     averages.current.forEach((s) => s.applyOptions({ visible: mode === 'candles', priceFormat: priceFormat(tickSize, language) }));
+    if (host.current) handHost.current?.({ chart: api, main: main.current, element: host.current, tickSize });
     setReady((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, tickSize, language, ready === 0]);
@@ -294,7 +292,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
     lines.current.forEach((line) => series.removePriceLine(line));
     lines.current = orderLines.map((order) =>
       series.createPriceLine({
-        price: priceCoordinate(order.price),
+        price: chartValue(order.price),
         color: order.side === 'buy' ? c.up : c.down,
         lineWidth: 1,
         lineStyle: 2,

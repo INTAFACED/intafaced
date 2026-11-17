@@ -17,14 +17,21 @@ import { SessionRelay } from './session/relay.js';
 import { ChainObserver } from './events.js';
 import { protocolHealthHonesty } from './health-honesty.js';
 import { createPeers } from './blockers/peers.js';
-import { createProtocolRouter, type ProtocolRouter } from './router.js';
+import { createProtocolRouter } from './router.js';
 import { parseGasPercentileSetting } from './chain/gas-price.js';
 import { badgeChainIsMainnet, badgeChainIsRestartable, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
+import { PostgresAddressRiskStore } from './address-risk/risk.pg.js';
+import { PostgresComplianceStore } from './address-risk/compliance.pg.js';
+import { PostgresTrustDeskStore } from './address-risk/trust-desk.pg.js';
 import { walletSessionFromSetting } from './address-book/session.js';
 import { PostgresAddressBookStore } from './address-book/book.pg.js';
+import { venueConnectionTtlFromSetting, walletSanctionsFromSetting } from './venue-wallet/connection.js';
+import { PostgresVenueConnectionStore } from './venue-wallet/connection.pg.js';
+import { embeddedWalletFromSetting } from './embedded-wallet/provider.js';
+import { PostgresEmbeddedWalletStore } from './embedded-wallet/embedded.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
 import { PostgresListingStore } from './listing/ownership.pg.js';
 import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
@@ -73,6 +80,12 @@ for (const tableName of [
   'wallet_group_members',
   'listing_challenges',
   'listing_ownership_proofs',
+  'address_labels',
+  'address_label_history',
+  'address_reports',
+  'venue_wallet_connections',
+  'venue_wallet_nonces',
+  'embedded_wallets',
 ]) {
   const [table] = await db.sql<Array<{ exists: boolean }>>`
     SELECT EXISTS (
@@ -140,6 +153,16 @@ const walletSessionSetting = walletSessionFromSetting(
   env.PROTOCOL_WALLET_SESSION_ORIGINS,
   process.env.APP_ENV,
 );
+// The venue wallet connection's lifetime and the wallet sanctions list: read once, malformed refuses to boot.
+// Raw APP_ENV: a `TEST:` value refuses to boot anywhere but the local test stack.
+const venueConnectionTtl = venueConnectionTtlFromSetting(env.PROTOCOL_VENUE_CONNECTION_TTL_SECONDS, process.env.APP_ENV);
+const walletSanctions = walletSanctionsFromSetting(env.PROTOCOL_WALLET_SANCTIONS, process.env.APP_ENV);
+// The embedded-wallet provider (J-wallet-22): blank is unset; a TEST provider refuses to boot outside the local test stack.
+const embeddedWalletSetting = embeddedWalletFromSetting(
+  env.PROTOCOL_EMBEDDED_WALLET_PROVIDER,
+  env.PROTOCOL_EMBEDDED_WALLET_TEST_URL,
+  process.env.APP_ENV,
+);
 const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
 let badgeRestartable: boolean | undefined;
@@ -153,6 +176,8 @@ export const appRouter = createProtocolRouter({
   relay,
   relayEnabled: () => relayEnabled,
   ammFactoryAddress: () => env.PROTOCOL_AMM_FACTORY_ADDRESS as `0x${string}`,
+  liquidityRouter: () => env.PROTOCOL_LIQUIDITY_ROUTER_ADDRESS as `0x${string}`,
+  feeTiers: () => env.PROTOCOL_AMM_FEE_TIERS_BPS,
   swapSlippageBps: () => env.PROTOCOL_SWAP_SLIPPAGE_BPS,
   swapQuoteTtlSeconds: () => env.PROTOCOL_SWAP_QUOTE_TTL_SECONDS,
   swapConfirmations: () => env.PROTOCOL_SWAP_CONFIRMATIONS,
@@ -166,6 +191,19 @@ export const appRouter = createProtocolRouter({
         }
       : null,
   claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
+  venue: () => env.PROTOCOL_VENUE_ADDRESS as `0x${string}`,
+  lendingMarket: () => env.PROTOCOL_LENDING_MARKET_ADDRESS as `0x${string}`,
+  swapV2: () =>
+    isZeroAddress(env.PROTOCOL_ROUTER_V2_ADDRESS) ||
+    isZeroAddress(env.PROTOCOL_SOVEREIGN_PERMIT_ADDRESS) ||
+    isZeroAddress(env.PROTOCOL_WRAPPED_NATIVE_ADDRESS)
+      ? null
+      : {
+          router: env.PROTOCOL_ROUTER_V2_ADDRESS as `0x${string}`,
+          sovereignPermit: env.PROTOCOL_SOVEREIGN_PERMIT_ADDRESS as `0x${string}`,
+          wrappedNative: env.PROTOCOL_WRAPPED_NATIVE_ADDRESS as `0x${string}`,
+        },
+  permitLifetimeCapSeconds: () => env.PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS,
   replacement: () => ({ bumpBps: env.PROTOCOL_TX_FEE_BUMP_BPS, ceilingWei: env.PROTOCOL_TX_FEE_CEILING_WEI }),
   priceSetting: () =>
     env.PROTOCOL_PRICE_USD_TOKENS && env.PROTOCOL_PRICE_MIN_RESERVE_USD !== null
@@ -181,11 +219,24 @@ export const appRouter = createProtocolRouter({
     store: new PostgresRepresentationStore(db.sql),
     setting: () => representationSetting,
   },
+  // No AML list source is connected, so the sanctioned set is empty and the risk card says the list is not loaded.
+  addressRisk: { store: new PostgresAddressRiskStore(db.sql), screeningLoaded: () => false },
+  compliance: { store: new PostgresComplianceStore(db.sql), trustDesk: new PostgresTrustDeskStore(db.sql) },
   addressBook: {
     store: new PostgresAddressBookStore(db.sql),
     session: () => walletSessionSetting,
     maxContacts: () => env.PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS,
     maxGroups: () => env.PROTOCOL_WALLET_GROUPS_MAX,
+  },
+  venueWallet: {
+    store: new PostgresVenueConnectionStore(db.sql),
+    session: () => walletSessionSetting,
+    ttlSeconds: () => venueConnectionTtl,
+    sanctions: () => walletSanctions,
+  },
+  embeddedWallet: {
+    store: new PostgresEmbeddedWalletStore(db.sql),
+    setting: () => embeddedWalletSetting,
   },
   badge: {
     store: new PostgresBadgeStore(db.sql),

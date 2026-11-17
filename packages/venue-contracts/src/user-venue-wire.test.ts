@@ -1,0 +1,151 @@
+import { describe, expect, it } from 'vitest';
+import { parseAmount } from '@intafaced/ledger-client/money';
+import { VenueWireError, decodeVenueWire, encodeVenueWire } from './user-venue-wire.js';
+import type { PreparedVenueAction, UserVenueMarket } from './user-venue.js';
+
+describe('user-venue wire', () => {
+  const prepared: PreparedVenueAction = {
+    venueId: 'v',
+    account: { venueId: 'v', owner: '0xabc', subAccount: null },
+    signer: { role: 'owner', address: '0xabc' },
+    intent: { kind: 'approve_agent', agentAddress: '0xdef', agentName: 'bot', validUntil: new Date('2026-12-01T00:00:00.000Z') },
+    nonce: '1762628400000000',
+    venueClientOrderId: null,
+    typedData: { message: { amount: 1, nonce: '1' } },
+    digest: '0x1',
+    builderFee: { builder: '0xb', feeBps: parseAmount('0.000000000000000001') },
+    preparedAt: new Date('2026-11-08T19:00:00.000Z'),
+  };
+
+  it('round-trips every Amount as a decimal string and every Date as ISO, and leaves typedData untouched', () => {
+    const json = JSON.parse(JSON.stringify(encodeVenueWire(prepared)));
+    expect(json.builderFee.feeBps).toBe('0.000000000000000001');
+    expect(json.intent.validUntil).toBe('2026-12-01T00:00:00.000Z');
+    expect(decodeVenueWire(json)).toEqual(prepared);
+    const asOf = decodeVenueWire<{ value: bigint; asOf: Date }>({ value: '12.5', asOf: '2026-11-08T19:00:00.000Z' });
+    expect(asOf).toEqual({ value: parseAmount('12.5'), asOf: new Date('2026-11-08T19:00:00.000Z') });
+  });
+
+  it('reads the best prices as Amounts, and an empty side as null, so a market order is bounded in bigint', () => {
+    const best = { symbol: 'BTC-PERP', bid: parseAmount('64999'), ask: null };
+    expect(decodeVenueWire(JSON.parse(JSON.stringify(encodeVenueWire(best))))).toEqual(best);
+    expect(() => decodeVenueWire({ bid: 64999 })).toThrow(/decimal string/);
+  });
+
+  it('refuses a JSON number in a money field', () => {
+    expect(() => decodeVenueWire({ amount: 0.1 })).toThrow(VenueWireError);
+    expect(() => decodeVenueWire({ intent: { price: 60000 } })).toThrow(/decimal string/);
+    expect(() => decodeVenueWire({ amount: '1e5' })).toThrow(VenueWireError);
+  });
+
+  it('refuses anything but a decimal string (or null where the type allows it) in an Amount field', () => {
+    for (const bad of [{}, [], true, null, ['1']]) {
+      expect(() => decodeVenueWire({ intent: { amount: bad } })).toThrow(/amount must be a decimal string/);
+    }
+    expect(() => decodeVenueWire({ price: { value: '1' } })).toThrow(VenueWireError);
+    expect(() => decodeVenueWire({ balances: [{ free: false }] })).toThrow(/free must be a decimal string/);
+    expect(decodeVenueWire({ averagePrice: null, realisedPnl: null })).toEqual({ averagePrice: null, realisedPnl: null });
+    // A venue market's own largest order: a decimal string, or null when the venue reports none; never a JSON number.
+    expect(decodeVenueWire({ maxOrderQty: '5', maxOrderNotional: null })).toEqual({
+      maxOrderQty: parseAmount('5'),
+      maxOrderNotional: null,
+    });
+    expect(() => decodeVenueWire({ maxOrderQty: 5 })).toThrow(/decimal string/);
+    expect(() => decodeVenueWire({ maxOrderNotional: { value: '1' } })).toThrow(VenueWireError);
+    // A name some type also uses for an object still decodes field by field.
+    expect(decodeVenueWire({ builderFee: { builder: '0xb', feeBps: '1' }, fee: { known: true, value: '0.5' } })).toEqual({
+      builderFee: { builder: '0xb', feeBps: parseAmount('1') },
+      fee: { known: true, value: parseAmount('0.5') },
+    });
+  });
+
+  it("round-trips a market's published words as text, its feed time as a Date, and keeps an unpublished rule unknown", () => {
+    const market: UserVenueMarket = {
+      symbol: 'XAU-PERP',
+      kind: 'perpetual',
+      baseAsset: 'XAU',
+      quoteAsset: 'USDC',
+      orderTypes: ['limit', 'market'],
+      timeInForce: ['GTC', 'IOC'],
+      marginModes: ['isolated'],
+      maxLeverageBps: 100_000,
+      tickSize: parseAmount('0.1'),
+      lotSize: parseAmount('0.01'),
+      makerFeeBps: { known: true, value: parseAmount('1.5') },
+      takerFeeBps: { known: false },
+      status: 'trading',
+      maxOrderQty: null,
+      maxOrderNotional: null,
+      minOrderNotional: parseAmount('10'),
+      priceBandBps: null,
+      maxOpenOrders: 1000,
+      builderFeeCapBps: { known: false },
+      listedBy: { known: true, value: { kind: 'hip3', name: 'TEST deployer' } },
+      // Text that reads like a number stays text: a rule is never money.
+      oracleRule: { known: true, value: '3' },
+      markRule: { known: false },
+      tradingHours: { known: true, value: '24/7, no close' },
+      feed: {
+        known: true,
+        value: { state: 'stale', lastOracleUpdateAt: new Date('2026-11-09T10:00:00.000Z'), staleRule: { known: true, value: '10' } },
+      },
+      // A session's words that read like a number stay text too; its reopen time travels as ISO (J-derivatives-27).
+      session: {
+        known: true,
+        value: {
+          state: 'off_hours',
+          homeMarket: 'TEST home exchange',
+          offHoursMode: { known: true, value: '5' },
+          offHoursBand: { known: false },
+          offHoursMaxLeverageBps: 20_000,
+          reopensAt: new Date('2026-11-09T14:30:00.000Z'),
+          offHoursRule: { known: true, value: '2' },
+        },
+      },
+      // A deployer's margin account name that reads like a number stays text; its open interest and cap are money-scaled
+      // sizes (J-derivatives-27 #7 #8).
+      marginAccount: { known: true, value: { name: '7', collateralAsset: 'USDC', marginMode: 'isolated' } },
+      openInterest: { known: true, value: { size: parseAmount('12.5'), capSize: null } },
+      // A split's settlement price is money, its times travel as ISO and its ratio stays text (J-derivatives-27 #10).
+      lastEvent: {
+        known: true,
+        value: {
+          kind: 'split',
+          eventAt: new Date('2026-11-12T09:00:00.000Z'),
+          settlementPrice: parseAmount('101.5'),
+          reopenedAt: new Date('2026-11-12T09:00:01.000Z'),
+          splitRatio: '2',
+        },
+      },
+      contractSize: { known: true, value: parseAmount('1') },
+      mark: { known: true, value: parseAmount('2650.1') },
+      funding: {
+        known: true,
+        value: { rate: parseAmount('-0.0000125'), intervalSeconds: 3600, nextFundingAt: new Date('2026-11-09T11:00:00.000Z') },
+      },
+    };
+    const json = JSON.parse(JSON.stringify(encodeVenueWire(market)));
+    // The strip's figures travel as decimal strings and an ISO time (J-derivatives-01 #4); a negative rate keeps its sign.
+    expect(json.mark).toEqual({ known: true, value: '2650.1' });
+    // The published rules (J-cex-spot-04): a decimal string, a null for a rule not published, a whole-number cap.
+    expect([json.minOrderNotional, json.priceBandBps, json.maxOpenOrders]).toEqual(['10', null, 1000]);
+    expect(json.funding.value).toEqual({ rate: '-0.0000125', intervalSeconds: 3600, nextFundingAt: '2026-11-09T11:00:00.000Z' });
+    expect(json.feed.value.lastOracleUpdateAt).toBe('2026-11-09T10:00:00.000Z');
+    expect(json.oracleRule).toEqual({ known: true, value: '3' });
+    expect(json.session.value.reopensAt).toBe('2026-11-09T14:30:00.000Z');
+    const back = decodeVenueWire<UserVenueMarket>(json);
+    expect(back).toEqual(market);
+    expect(typeof (back.oracleRule as { value: unknown }).value).toBe('string');
+    expect(back.markRule).toEqual({ known: false });
+    expect(json.openInterest.value).toEqual({ size: '12.5', capSize: null });
+    expect(json.lastEvent.value).toEqual({
+      kind: 'split',
+      eventAt: '2026-11-12T09:00:00.000Z',
+      settlementPrice: '101.5',
+      reopenedAt: '2026-11-12T09:00:01.000Z',
+      splitRatio: '2',
+    });
+    expect(typeof (back.marginAccount as { value: { name: unknown } }).value.name).toBe('string');
+    expect(() => decodeVenueWire({ funding: { known: true, value: { rate: 0.0001 } } })).toThrow(/decimal string/);
+  });
+});

@@ -63,8 +63,7 @@ export const httpEnvSchema = z.object({
 });
 
 /**
- * Required by any service that self-mounts `/trpc` (see the mount boundary
- * decision, docs/decisions/mount-boundary.md).
+ * Required by any service that self-mounts `/trpc`.
  *
  * There is deliberately NO default. A service that mounts without this must
  * fail to boot: the alternative is a service that starts fine, serves traffic,
@@ -217,6 +216,28 @@ export function redactEnv(env: Record<string, unknown>): Record<string, unknown>
     out[k] = SECRET_KEY_PATTERN.test(k) ? '«redacted»' : v;
   }
   return out;
+}
+
+/**
+ * Safe-to-log view of a URL from the environment: scheme and host only.
+ *
+ * Userinfo (`user:password@`), path (RPC providers put API keys there) and
+ * query (`?apikey=`, `?password=`) are dropped, never masked in place, so no
+ * part of a credential reaches a log. An unparseable value is not echoed.
+ */
+export function urlForLog(raw: string | undefined): string | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  return raw
+    .split(',')
+    .map((part) => {
+      try {
+        const u = new URL(part.trim());
+        return `${u.protocol}//${u.host}`;
+      } catch {
+        return '(unparseable url, not shown)';
+      }
+    })
+    .join(',');
 }
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;

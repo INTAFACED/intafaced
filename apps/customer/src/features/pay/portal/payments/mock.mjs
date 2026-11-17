@@ -1,5 +1,5 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
-import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, hex, iso, ok, page, refuse } from '../mock/shared.mjs';
+import { NOT_MINE, DAY, USER_ID, hex, iso, ok, page, refuse } from '../mock/shared.mjs';
 import { fromU, isTaken, toU } from '../mock/world.mjs';
 
 /** Payments, disputes and customers. */
@@ -536,6 +536,24 @@ export function createPaymentsMock(ctx) {
               const p = world.paymentById(d.paymentId);
               return { paymentId: p.id, status: p.status, assetId: p.assetId, amount: p.amount, createdAt: p.createdAt };
             })(),
+          });
+        }
+        case 'merchantOps.disputes.funds': {
+          // TEST: the stand-in's opening took the whole disputed amount when its ledger wire posted, and a win gave it back.
+          const d = state.disputes.find((x) => x.disputeId === input.disputeId);
+          if (!d) return refuse(route, 404, 'pay.dispute_not_found');
+          const booked = d.ledgerWire === 'posted';
+          return ok(route, {
+            disputeId: d.disputeId,
+            assetId: d.assetId,
+            status: d.status,
+            disputed: d.amount,
+            takenAtOpening: booked ? d.amount : '0',
+            openingBooked: booked,
+            notYetTaken: booked ? '0' : d.amount,
+            returned: booked && d.status === 'won' ? d.amount : '0',
+            shortfall: booked ? '0' : null,
+            shortfallRecovered: '0',
           });
         }
         case 'merchantOps.disputes.addEvidence': {

@@ -9,8 +9,12 @@ import type { UserMoneyService } from './user-money-service.js';
 import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 /**
- * THE MOUNT BOUNDARY, for svc-pay (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-pay.
  *
  * Not a test of payments maths — `router.test.ts` and the money-path suites own
  * that. What this file protects is the one property mounting `/trpc` depends on:

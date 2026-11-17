@@ -22,7 +22,7 @@ import { type PayHaltStore } from './halts/store.js';
 import type { PayHaltTarget } from './halts/types.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount, type LedgerClient, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
 import { liveAccountsIn } from './sandbox-ledger-guard.js';
 import { type PaymentIntent, type RailAdapter, type RailEvent, type RailWebhookRequest } from './rails/rail-adapter.js';
@@ -86,7 +86,10 @@ import {
   appendEvent,
   totalsFor,
   toPayment,
+  partnerFeeBpsOf,
+  paymentFeeBpsOf,
 } from './payment-service/internal.js';
+import { allocateReceivingAddress } from './receiving-wallet/wallet.js';
 
 export {
   PayError,
@@ -165,6 +168,12 @@ export type PayErrorCode =
   | 'pay.merchant_name_invalid'
   /** Owner `PAY_DEFAULT_FEE_BPS` unpublished. Blank env is not 0. */
   | 'pay.fee_bps_unset'
+  /** Launch money model: the owner has not set our fee rate with the partner that would take this payment. */
+  | 'pay.partner_fee_rate_unset'
+  /** Launch money model: the business has not given its own receiving wallet, so crypto at hosted checkout is refused. */
+  | 'pay.receiving_wallet_unset'
+  /** Launch money model: the money is in the business's own wallet or with the partner, so nothing here sends it back. */
+  | 'pay.payment_not_in_our_custody'
   /** KYB transition refused (wrong status, or stub decide blocked under live-only). */
   | 'pay.kyb_invalid'
   | 'pay.kyb_operator_required'
@@ -929,6 +938,21 @@ export interface PayServiceOptions {
   readonly defaultFeeBps?: number | null;
 
   /**
+   * Our fee rate with each payment partner, in bps, by the partner's rail id (`PAY_PARTNER_FEE_BPS`): what `partnerFeeEarn`
+   * books on a payment the partner took. Absent means unset, and such a payment refuses `pay.partner_fee_rate_unset`.
+   */
+  readonly partnerFeeBps?: Readonly<Record<string, number>>;
+
+  /**
+   * The custody switch (OWNER 226; `LEDGER_CUSTODY_LAYER`). `off`, the launch model: a hosted checkout payment goes to the
+   * business's own wallet (crypto) or the acquiring partner (every other rail), and capture books only our fee on it.
+   * `on`: the custodial layer, where the payment lands at an address we control and is booked to the business's clearing.
+   * Unset here is `on`, the behaviour every caller built before the switch expects; the service's boot passes the
+   * environment's value, whose unset is `off`.
+   */
+  readonly custodyLayer?: 'on' | 'off';
+
+  /**
    * Whether a SANDBOX rail may be asked to send money out of the platform —
    * a merchant payout, or a refund to a payer.
    *
@@ -1159,7 +1183,16 @@ export interface PaymentRow {
   rail_ref: string | null;
   status: PaymentStatus;
   created_at: Date;
+  /** Who holds the payment's money. Read where it decides what is booked; absent on rows read without it. */
+  custody?: PaymentCustody;
 }
+
+/**
+ * Who holds a payment's money (OWNER 226). `platform`: the custodial layer, an address we control, booked to the business's
+ * clearing. `merchant_wallet`: the business's own wallet. `partner`: the acquiring partner. For the last two our ledger
+ * records only our own fee on the payment.
+ */
+export type PaymentCustody = 'platform' | 'merchant_wallet' | 'partner';
 
 export interface MerchantRow {
   id: string;
@@ -1257,6 +1290,7 @@ export type PayServiceInternal = { [K in keyof PayService]: PayService[K] } & {
   classifyPaymentAdmission: PayService['classifyPaymentAdmission'];
   custodyDeposits: PayService['custodyDeposits'];
   defaultFeeBps: PayService['defaultFeeBps'];
+  partnerFeeBps: PayService['partnerFeeBps'];
   disputeCases: PayService['disputeCases'];
   enqueueChargebackOutcome: PayService['enqueueChargebackOutcome'];
   ensureChargebackPlanLive: PayService['ensureChargebackPlanLive'];
@@ -1281,6 +1315,7 @@ export type PayServiceInternal = { [K in keyof PayService]: PayService[K] } & {
   payoutDestinations: PayService['payoutDestinations'];
   postChargebackOpenOrRefuse: PayService['postChargebackOpenOrRefuse'];
   postPendingSettlement: PayService['postPendingSettlement'];
+  custodyLayer: PayService['custodyLayer'];
   prepareSettlement: PayService['prepareSettlement'];
   recognisedPayoutBook: PayService['recognisedPayoutBook'];
   recordChargebackLedgerEffect: PayService['recordChargebackLedgerEffect'];
@@ -1311,6 +1346,8 @@ export class PayService {
   }
 
   private readonly defaultFeeBps: number | null;
+  private readonly partnerFeeBps: Readonly<Record<string, number>>;
+  private readonly custodyLayer: 'on' | 'off';
   private readonly valueMovement: ValueMovementPolicy;
   private readonly publicCheckoutMovement: ValueMovementPolicy;
   private readonly checkoutRails: readonly CheckoutRail[];
@@ -1353,6 +1390,8 @@ export class PayService {
     options: PayServiceOptions = {},
   ) {
     this.defaultFeeBps = options.defaultFeeBps ?? null;
+    this.partnerFeeBps = options.partnerFeeBps ?? {};
+    this.custodyLayer = options.custodyLayer ?? 'on';
     this.valueMovement = options.valueMovement ?? 'allow-sandbox';
     this.publicCheckoutMovement = options.publicCheckoutMovement ?? this.valueMovement;
     this.checkoutRails = options.checkoutRails ?? DEFAULT_CHECKOUT_RAILS;
@@ -1500,11 +1539,11 @@ export class PayService {
     return merchants.createMerchant(this.internal, input);
   }
 
-  async getMerchant(merchantId: string, connection: Sql = this.sql): Promise<MerchantRecord> {
+  async getMerchant(merchantId: string, connection: Queryable = this.sql): Promise<MerchantRecord> {
     return merchants.getMerchant(this.internal, merchantId, connection);
   }
 
-  private async lockMerchantEligibility(sql: Sql, merchantId: string): Promise<MerchantRecord> {
+  private async lockMerchantEligibility(sql: Queryable, merchantId: string): Promise<MerchantRecord> {
     return merchants.lockMerchantEligibility(this.internal, sql, merchantId);
   }
 
@@ -1838,7 +1877,7 @@ export class PayService {
     });
   }
 
-  private async lockMerchantForLinkCreate(sql: Sql, merchantId: string): Promise<MerchantRecord> {
+  private async lockMerchantForLinkCreate(sql: Queryable, merchantId: string): Promise<MerchantRecord> {
     const rows = await sql<MerchantRow[]>`
       SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
         FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE
@@ -1848,7 +1887,7 @@ export class PayService {
     return toMerchant(row);
   }
 
-  private async assertLinkProfile(sql: Sql, merchantId: string, profileId: string | null | undefined): Promise<void> {
+  private async assertLinkProfile(sql: Queryable, merchantId: string, profileId: string | null | undefined): Promise<void> {
     if (!profileId) return;
     const profiles = await sql<Array<{ id: string }>>`
       SELECT id FROM pay.payment_profiles
@@ -1862,7 +1901,7 @@ export class PayService {
   }
 
   private async insertPaymentLink(
-    sql: Sql,
+    sql: Queryable,
     input: {
       merchantId: string;
       label: string;
@@ -1923,7 +1962,7 @@ export class PayService {
 
   /** Replay of a create. The token is the one stored with the link, not a new mint. */
   private async readCreatedLink(
-    sql: Sql,
+    sql: Queryable,
     merchantId: string,
     linkId: string,
   ): Promise<{
@@ -2048,7 +2087,7 @@ export class PayService {
   }
 
   private async readLink(
-    sql: Sql,
+    sql: Queryable,
     token: string,
     options: { forUpdate?: boolean } = {},
   ): Promise<{
@@ -2457,6 +2496,13 @@ export class PayService {
         // same refusal: a suspended merchant does not take money from the
         // public either.
         this.assertMerchantActive(merchant);
+        // Launch money model (OWNER 226): with the custodial layer off the payer pays the business's own wallet (crypto)
+        // or the acquiring partner, and our ledger records only our fee: the business's price on its own wallet, our rate
+        // with the partner on the partner's. A blank one refuses here, before the payer is shown where to pay: once they
+        // have paid someone else's wallet, nothing of ours could refuse it.
+        const custody: PaymentCustody = this.custodyLayer === 'on' ? 'platform' : method === 'crypto' ? 'merchant_wallet' : 'partner';
+        if (custody === 'merchant_wallet') paymentFeeBpsOf(merchant, this.defaultFeeBps);
+        if (custody === 'partner') partnerFeeBpsOf(this.partnerFeeBps, adapter.id);
 
         // The floor under an anonymous caller opening rows off one URL forever.
         // Not a rate limiter — a rate limiter belongs at the edge, and this is
@@ -2527,7 +2573,10 @@ export class PayService {
             async () => this.assertMerchantActive(merchant),
             this.identityAuthorityGuard,
           );
-        const payment = await insertPayment(tx, { ...creationInput, id: paymentId });
+        const payment = await insertPayment(tx, { ...creationInput, id: paymentId, custody });
+        // The business's own receiving address for this payment, given out in this transaction (no wallet set refuses
+        // `pay.receiving_wallet_unset`, and the whole open is undone).
+        if (custody === 'merchant_wallet') await allocateReceivingAddress(tx, link.merchantId, payment.id);
         if (payerName !== null) await recordGivenPayerName(tx, payment.id, payerName);
 
         // SPEC §5 — reason per decision. Taxonomy only (no cost/approval invent).
@@ -2754,16 +2803,19 @@ export class PayService {
     return lifecycle.createPayment(this.internal, input);
   }
 
-  private async admitPaymentOperation<T>(input: PreparedPaymentOperation, effect: (tx: Sql, admitted: boolean) => Promise<T>): Promise<T> {
+  private async admitPaymentOperation<T>(
+    input: PreparedPaymentOperation,
+    effect: (tx: Queryable, admitted: boolean) => Promise<T>,
+  ): Promise<T> {
     return lifecycle.admitPaymentOperation(this.internal, input, effect);
   }
 
-  private async classifyPaymentAdmission(tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
+  private async classifyPaymentAdmission(tx: Queryable, input: PreparedPaymentOperation): Promise<GuardReplay> {
     return lifecycle.classifyPaymentAdmission(this.internal, tx, input);
   }
 
   private async existingPaymentCreation(
-    tx: Sql,
+    tx: Queryable,
     input: Parameters<PayService['createPayment']>[0],
     paymentId: string,
   ): Promise<PaymentView | null> {
@@ -2789,7 +2841,7 @@ export class PayService {
     return lifecycle.capture(this.internal, paymentId, options);
   }
 
-  private async finishBookedCapture(tx: Sql, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {
+  private async finishBookedCapture(tx: Queryable, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {
     return lifecycle.finishBookedCapture(this.internal, tx, row, booked);
   }
 
@@ -2805,7 +2857,7 @@ export class PayService {
     return refunds.refundInner(this.internal, paymentId, amount, options);
   }
 
-  private async settledPotForPayment(sql: Sql, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
+  private async settledPotForPayment(sql: Queryable, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
     return refunds.settledPotForPayment(this.internal, sql, paymentId, merchantUserId);
   }
 
@@ -2958,7 +3010,7 @@ export class PayService {
     return payouts.resolvePayoutDestination(this.internal, railId, merchantId, connection);
   }
 
-  async getSettlement(settlementId: string, connection: Sql = this.sql): Promise<SettlementRecord> {
+  async getSettlement(settlementId: string, connection: Queryable = this.sql): Promise<SettlementRecord> {
     return payouts.getSettlement(this.internal, settlementId, connection);
   }
 
@@ -3020,7 +3072,7 @@ export class PayService {
     disputeId: string,
     amount: Amount,
     settledPot: 'proceeds' | 'user',
-    compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount }>,
+    compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount; uncovered?: Amount }>,
   ): Promise<ChargebackSplit> {
     return chargebacks.chargebackSplit(this.internal, paymentId, disputeId, amount, settledPot, compute);
   }
@@ -3138,7 +3190,7 @@ export class PayService {
     return chargebacks.postChargebackOpenOrRefuse(this.internal, input);
   }
 
-  private async view(sql: Sql, row: PaymentRow): Promise<PaymentView> {
+  private async view(sql: Queryable, row: PaymentRow): Promise<PaymentView> {
     const totals = await totalsFor(sql, row.id);
     return { ...toPayment(row), capturedAmount: totals.captured, refundedAmount: totals.refunded };
   }
@@ -3209,7 +3261,7 @@ export class PayService {
    * Sandbox flag from the created event. Absent is not sandbox. The event is
    * insert-only, so a later call cannot clear it.
    */
-  private async paymentIsSandbox(sql: Sql, paymentId: string): Promise<boolean> {
+  private async paymentIsSandbox(sql: Queryable, paymentId: string): Promise<boolean> {
     const rows = await sql<Array<{ sandbox: string | null }>>`
       SELECT payload->>'sandbox' AS sandbox
         FROM pay.payment_events
@@ -3220,7 +3272,7 @@ export class PayService {
   }
 
   /** True when a frozen window contains a payment created with a sandbox key. */
-  private async settlementIncludesSandbox(sql: Sql, settlementId: string): Promise<boolean> {
+  private async settlementIncludesSandbox(sql: Queryable, settlementId: string): Promise<boolean> {
     const rows = await sql<Array<{ ok: number }>>`
       SELECT 1 AS ok
         FROM pay.payment_events inc

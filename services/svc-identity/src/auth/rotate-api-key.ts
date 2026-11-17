@@ -3,7 +3,7 @@
  * The new key is minted by AuthService — no invented secret.
  * Same name, scopes, mode, domain list, expiry, IP allowlist, account bind, sandbox.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { bindApiKeyAccount } from './bind-api-key-account.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { issueSigningSecret } from './api-key-request-sign.js';
@@ -33,10 +33,15 @@ export type RotatedApiKey = {
 
 export async function rotateApiKey(
   minter: ApiKeyMinter,
-  sql: Sql,
+  sql: Queryable,
   input: { userId: string; keyId: string; grantorScopes: readonly string[]; grantorKid?: string | null },
   encKey: Buffer | null = null,
-): Promise<RotatedApiKey> {
+  /**
+   * `overlapSeconds` above 0 keeps the old key working until `now + overlap` (its end date moves earlier, never later)
+   * instead of revoking it, and marks the replacement with the key it replaces, so a key is replaced at most once.
+   */
+  options: { overlapSeconds?: number; now?: Date } = {},
+): Promise<RotatedApiKey & { endsAt: Date }> {
   const rows = await sql<
     Array<{
       id: string;
@@ -49,10 +54,11 @@ export async function rotateApiKey(
       account_id: string | null;
       require_signature: boolean | null;
       require_non_empty_ip_allowlist: boolean | null;
+      kind: string | null;
     }>
   >`
     SELECT id, name, scopes, domain_whitelist, expires_at, mode, ip_allowlist, account_id,
-           require_signature, require_non_empty_ip_allowlist
+           require_signature, require_non_empty_ip_allowlist, kind
     FROM api_keys
     WHERE id = ${input.keyId} AND user_id = ${input.userId} AND revoked = false
   `;
@@ -84,7 +90,9 @@ export async function rotateApiKey(
       UPDATE api_keys
       SET require_signature = ${requireSignature},
           require_non_empty_ip_allowlist = ${requireNonEmptyIpAllowlist},
-          request_signing_secret = ${signingSecret && encKey ? encryptAtRest(encKey, signingSecret) : null}
+          request_signing_secret = ${signingSecret && encKey ? encryptAtRest(encKey, signingSecret) : null},
+          -- An agent key stays an agent key across a rotation (DV-keys-05: tagged and restricted).
+          kind = ${old.kind === 'agent' ? 'agent' : 'personal'}
       WHERE id = ${minted.id} AND user_id = ${input.userId} AND revoked = false
     `;
     if (old.account_id) {
@@ -95,9 +103,26 @@ export async function rotateApiKey(
     if (ips.length > 0) {
       await bindApiKeyIpAllowlist(sql, input.userId, minted.id, ips);
     }
+    const now = options.now ?? new Date();
+    const overlap = options.overlapSeconds ?? 0;
+    await sql`UPDATE api_keys SET rotated_from = ${old.id} WHERE id = ${minted.id} AND user_id = ${input.userId}`;
+    if (overlap > 0) {
+      const endsAt = new Date(now.getTime() + overlap * 1000);
+      const kept = await sql`
+        UPDATE api_keys SET expires_at = LEAST(COALESCE(expires_at, ${endsAt}), ${endsAt})
+        WHERE id = ${old.id} AND user_id = ${input.userId} AND revoked = false
+      `;
+      if (kept.count === 0) throw new RotateApiKeyError('API key not found', 'auth.not_found');
+      return {
+        ...minted,
+        revokedKeyId: old.id,
+        signingSecret,
+        endsAt: old.expires_at && old.expires_at < endsAt ? old.expires_at : endsAt,
+      };
+    }
     const revoked = await minter.revokeApiKey(input.userId, old.id);
     if (!revoked) throw new RotateApiKeyError('API key not found', 'auth.not_found');
-    return { ...minted, revokedKeyId: old.id, signingSecret };
+    return { ...minted, revokedKeyId: old.id, signingSecret, endsAt: now };
   } catch (err) {
     await minter.revokeApiKey(input.userId, minted.id, 'system');
     throw err;

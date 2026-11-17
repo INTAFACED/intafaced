@@ -1,5 +1,7 @@
 # ADR: Fee + revenue recipe map — closed matrix, no invent (D26-P0-09)
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The fee paths this matrix lists are taken inside recipes that move a customer balance, so they apply when the custodial layer is switched on. At launch, fee and revenue posts are the ones in 2026-11-10-launch-money-model.md. The rule that a new recipe needs an owner carve-out holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-15 (D26-P0-09 law seal).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-09 — fee + revenue recipe map.  
@@ -19,7 +21,7 @@ This is the **law seal**. Code inventory already landed as **D26-P2-11 #1745** (
 
 ## What is sealed
 
-1. **Authority of the matrix.** `export const recipes` plus `RECIPE_MATRIX` in `packages/ledger-client/src/recipes/live-path-inventory.ts` (executed by `live-path-inventory.test.ts`). Human table: `packages/ledger-client/RECIPES.md`. If they disagree, the registry wins.
+1. **Authority of the matrix.** `export const recipes` plus `RECIPE_SOCKETS` (every other registry key is live, proven by a production caller) in `packages/ledger-client/src/recipes/live-path-inventory.ts` (executed by `live-path-inventory.test.ts`). Human table: `packages/ledger-client/RECIPES.md`. If they disagree, the registry wins.
 
 2. **Closure rule.** Every registry key is `live` (a production caller posts it) or `socket` (§13 — recipe exists so the path can be honest later; nothing wires it today). That is the P2-11 done bar. P0-09 adds the **product-law** bar: a fee/revenue _path_ that is not on that matrix is not “needs a new recipe.”
 

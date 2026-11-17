@@ -24,6 +24,11 @@ const TONE: Record<RowState, 'neutral' | 'lime' | 'warn' | 'error' | 'up'> = {
   rejected: 'error',
 };
 
+/** The order a row is or belongs to: the order's own id, or a fill's order id. */
+function orderIdOf(row: BlotterRow): string {
+  return row.orderId ?? '';
+}
+
 export function BlotterTable({
   rows,
   label,
@@ -31,9 +36,12 @@ export function BlotterTable({
   onCancel,
   cancelLocked,
   emptyText,
+  showOrderId = false,
 }: {
   rows: readonly BlotterRow[];
   label: string;
+  /** Adds the order's id as a column, so each row can be matched to the book (the terminal's views). */
+  showOrderId?: boolean;
   status?: 'ready' | 'loading';
   onCancel?: (order: Order) => void;
   cancelLocked?: boolean;
@@ -45,6 +53,16 @@ export function BlotterTable({
     type === 'limit' || type === 'market' || type === 'fill' ? t(`Type ${type}`) : type.charAt(0).toUpperCase() + type.slice(1);
   const columns: TableColumn<BlotterRow>[] = [
     { id: 'time', header: t('Time'), pin: 'start', value: (r) => when(r.time), sortable: false },
+    ...(showOrderId
+      ? [
+          {
+            id: 'order',
+            header: t('Order'),
+            value: (r: BlotterRow) => orderIdOf(r),
+            cell: (r: BlotterRow) => <span className="font-mono text-xs">{orderIdOf(r)}</span>,
+          } satisfies TableColumn<BlotterRow>,
+        ]
+      : []),
     { id: 'market', header: t('Market'), value: (r) => r.symbol },
     { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
     { id: 'type', header: t('Type'), value: (r) => typeWord(r.type) },
@@ -88,7 +106,7 @@ export function BlotterTable({
       status={status}
       columns={columns}
       rows={rows}
-      minWidth={onCancel ? 1000 : 900}
+      minWidth={(onCancel ? 1000 : 900) + (showOrderId ? 160 : 0)}
       getRowId={(r) => r.id}
       emptyState={<EmptyState variant="empty" size="inline" title={emptyText} />}
     />

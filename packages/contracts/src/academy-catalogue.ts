@@ -7,6 +7,12 @@ import { z } from 'zod';
  */
 export const ACADEMY_CURRICULUM_PATHS = ['foundations', 'markets', 'builder', 'sovereign'] as const;
 export const ACADEMY_CURRICULUM_KINDS = ['playbook', 'workbook', 'lesson'] as const;
+/**
+ * AC-course-structure-02: what an item of a course is to the learner. A workbook is drills to do, so an assignment; an item
+ * with a published quiz is a quiz; every other item is a lesson to read.
+ */
+export const ACADEMY_ITEM_TYPES = ['lesson', 'quiz', 'assignment'] as const;
+export type AcademyItemType = (typeof ACADEMY_ITEM_TYPES)[number];
 /** `recommended` is the shipped list order until courses are rows (AC-course-structure-01). */
 export const ACADEMY_PUBLIC_CATALOGUE_SORTS = ['recommended', 'name_asc', 'name_desc'] as const;
 export type AcademyPublicCatalogueSort = (typeof ACADEMY_PUBLIC_CATALOGUE_SORTS)[number];
@@ -58,7 +64,7 @@ export const academyPublicCourseSchema = z.object({
   summary: z.string().nullable(),
   instructor: z.string().nullable(),
   outcomes: z.array(z.string()),
-  syllabus: z.array(academyCurriculumSummarySchema).min(1),
+  syllabus: z.array(academyCurriculumSummarySchema.extend({ type: z.enum(ACADEMY_ITEM_TYPES) })).min(1),
   certificate: z.string().nullable(),
 });
 export type AcademyPublicCourse = z.infer<typeof academyPublicCourseSchema>;
@@ -201,6 +207,7 @@ export const academyCourseOutlineItemSchema = z.object({
   slug: z.string().min(1),
   title: z.string().min(1),
   kind: z.enum(ACADEMY_CURRICULUM_KINDS),
+  type: z.enum(ACADEMY_ITEM_TYPES),
   state: z.enum(ACADEMY_ITEM_STATES),
   lock: z.enum(['prerequisite', 'window']).nullable(),
   missing: z.array(z.string().min(1)),
@@ -210,6 +217,13 @@ export const academyCourseOutlineItemSchema = z.object({
   ruleMet: z.boolean(),
   /** When the current completion was recorded; null while the item is not complete (or was undone). */
   completedAt: isoInstant.nullable(),
+  /**
+   * When the item is due for the caller: their own later date when staff moved it for them (J-academy-14 #5), else the
+   * item's date for everyone; null when no due date is set. No staff name or reason comes with it.
+   */
+  dueAt: isoInstant.nullable().optional(),
+  /** True when `dueAt` is the caller's own moved date, not everyone's. */
+  dueExtended: z.boolean().optional(),
 });
 export type AcademyCourseOutlineItem = z.infer<typeof academyCourseOutlineItemSchema>;
 export const academyCourseOutlineSchema = z.object({
@@ -557,3 +571,94 @@ export const academyVideoPlaybackSchema = z.object({
   grant: z.string().min(1),
 });
 export type AcademyVideoPlayback = z.infer<typeof academyVideoPlaybackSchema>;
+
+/**
+ * J-academy-07 (AC-commerce-01, AC-access-grants-01): buying a paid course's certificate track from the buyer's own wallet.
+ *
+ * INTAFACED holds none of the buyer's money. The buyer's wallet signs one token transfer of the price to INTAFACED's
+ * receiving address; the access grant exists only after the chain confirmed that payment and the ledger recorded it under
+ * `academy:purchase:<course>:<learner>:<n>`. The intent is stored before the wallet is asked, so a second Buy or a lost
+ * reply finds the same purchase and never asks the wallet again. `request` is set only on the one answer that asks the
+ * wallet to sign. Card payment needs a card partner (`rail.card`) and is off while none is set.
+ */
+export const ACADEMY_PURCHASE_STATES = [
+  'awaiting_signature',
+  'submitted',
+  'confirmed',
+  'posted',
+  'failed',
+  'refunding',
+  'refunded',
+] as const;
+export type AcademyPurchaseState = (typeof ACADEMY_PURCHASE_STATES)[number];
+
+const txHash = z.string().regex(/^0x[0-9a-f]{64}$/);
+const address = z.string().regex(/^0x[0-9a-f]{40}$/);
+
+export const academyCoursePurchaseSchema = z
+  .object({
+    key: z.string().min(1),
+    state: z.enum(ACADEMY_PURCHASE_STATES),
+    /** The price paid, a decimal string in `asset`. */
+    amount: z.string().min(1),
+    asset: z.string().min(1),
+    chainId: z.number().int().positive(),
+    token: address,
+    receiver: address,
+    payer: address,
+    txHash: txHash.nullable(),
+    /** Why a payment did not count (`payment_reverted`, `payment_mismatch`), or the ledger's refusal code; null otherwise. */
+    failure: z.string().nullable(),
+    /** The course access this purchase gives: granted once posted, revoked once refunded; null before. */
+    grant: z.enum(['granted', 'revoked']).nullable(),
+    refund: z.object({ txHash: txHash.nullable(), reason: z.string() }).nullable(),
+    createdAt: isoInstant,
+    postedAt: isoInstant.nullable(),
+    refundedAt: isoInstant.nullable(),
+  })
+  .strict();
+export type AcademyCoursePurchase = z.infer<typeof academyCoursePurchaseSchema>;
+
+export const academyCoursePurchaseViewSchema = z
+  .object({
+    slug: z.string().min(1),
+    pricing: z.enum(['free', 'paid']),
+    /** The owner-set price, or null when none is set (then nothing is sold). */
+    price: z.string().nullable(),
+    asset: z.string().nullable(),
+    wallet: z.union([
+      z.object({ state: z.literal('on'), chainId: z.number().int().positive(), token: address, receiver: address }).strict(),
+      z.object({ state: z.literal('off'), code: z.enum(['academy.payments_off', 'academy.price_unset']) }).strict(),
+    ]),
+    card: z.object({ state: z.literal('off'), code: z.literal('rail.card') }).strict(),
+    /** The caller's latest purchase of this course; null when there is none (a refused signature leaves none). */
+    purchase: academyCoursePurchaseSchema.nullable(),
+    /** The one transaction the wallet is asked to sign, set only on the Buy answer that opened the intent. */
+    request: z
+      .object({ chainId: z.number().int().positive(), to: address, data: z.string().regex(/^0x[0-9a-f]+$/) })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type AcademyCoursePurchaseView = z.infer<typeof academyCoursePurchaseViewSchema>;
+
+export const academyBuyCourseInputSchema = z
+  .object({ slug: z.string().min(1).max(64), wallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/) })
+  .strict();
+export const academyPurchasePaymentInputSchema = z
+  .object({ key: z.string().min(1).max(200), txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) })
+  .strict();
+export const academyPurchaseKeyInputSchema = z.object({ key: z.string().min(1).max(200) }).strict();
+export const academyRefundPurchaseInputSchema = z
+  .object({ key: z.string().min(1).max(200), reason: z.string().trim().min(1).max(500) })
+  .strict();
+/** Staff's read of one purchase: the learner's view plus whose it is and the ledger's transaction ids. */
+export const academyStaffPurchaseSchema = academyCoursePurchaseSchema
+  .extend({
+    course: z.string().min(1),
+    userId: z.string().guid(),
+    ledgerTxId: z.string().nullable(),
+    refundLedgerTxId: z.string().nullable(),
+  })
+  .strict();
+export type AcademyStaffPurchase = z.infer<typeof academyStaffPurchaseSchema>;

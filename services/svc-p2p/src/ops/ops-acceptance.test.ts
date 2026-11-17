@@ -79,7 +79,7 @@ describe('svc-p2p operator desk', () => {
       return post(recipe);
     };
     instruments = new InstrumentService(sql);
-    p2p = new P2pService(sql, ledger as unknown as LedgerClient, new MemoryEventBus('svc-p2p'), {
+    p2p = new P2pService(sql, ledger as LedgerClient, new MemoryEventBus('svc-p2p'), {
       instruments,
       feeBps: 100,
       deadlines: {

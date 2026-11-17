@@ -1,6 +1,7 @@
 import type { Cell, CellValue, Column, ReadData, ReadOutcome, ReadSpec, Row } from './types';
 import { formatWhen } from '@/lib/as-of';
 import { codeWords } from '@/lib/desk/words';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Strict reader for one service answer, driven by the read's declared columns, and the pure formatting the desk uses.
@@ -9,10 +10,6 @@ import { codeWords } from '@/lib/desk/words';
  * missing key) the WHOLE read is invalid and the desk says the service answered in a shape it does not understand.
  * It never shows a partial table, a "0" for a field it could not read, or a guess.
  */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 const isIso = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
 
@@ -108,6 +105,10 @@ export function readData(spec: ReadSpec, raw: unknown): ReadData | null {
   for (const [index, item] of list.entries()) {
     const cells = cellsOf(spec.columns, item);
     if (cells === null) return null;
+    if (spec.rowsWhere !== undefined) {
+      const at = isRecord(item) ? pick(item, spec.rowsWhere.key) : { found: false, value: undefined };
+      if (!at.found || at.value !== spec.rowsWhere.equals) continue;
+    }
     let id = String(index);
     if (spec.idKey !== undefined) {
       const found = isRecord(item) ? pick(item, spec.idKey) : { found: false, value: undefined };
@@ -125,7 +126,7 @@ export function readData(spec: ReadSpec, raw: unknown): ReadData | null {
     if (marker !== null && typeof marker !== 'string') return null;
     return { shape: 'list', rows, pageFull: marker !== null, nextCursor: marker };
   }
-  return { shape: 'list', rows, pageFull: spec.page !== undefined && rows.length >= spec.page };
+  return { shape: 'list', rows, pageFull: spec.page !== undefined && list.length >= spec.page };
 }
 
 /**

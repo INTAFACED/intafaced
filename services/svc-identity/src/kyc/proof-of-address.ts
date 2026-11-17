@@ -12,9 +12,10 @@ import type { Sql } from 'postgres';
 import type { KycPoaRead, KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
 import type { KycProfileUploadCaps } from '@intafaced/contracts/identity-kyc-profile';
 import { createHash } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { KycDocumentVault } from './document-store.js';
 import { assertWithinUploadCaps, parseListedRow } from './profile.js';
+import { TRADING_CHECKS_REVIEWER } from './trading-checks.js';
 
 export type KycPoaErrorCode =
   | 'kyc.poa_not_requested'
@@ -128,6 +129,7 @@ export class KycPoaDesk {
   private async approval(userId: string): Promise<{ approved: boolean; residence: string | null }> {
     const [row] = await this.sql<Array<{ jurisdiction: string | null }>>`
       SELECT jurisdiction FROM kyc_records WHERE user_id = ${userId} AND status = 'approved'
+        AND reviewed_by IS DISTINCT FROM ${TRADING_CHECKS_REVIEWER}
         AND (expires_at IS NULL OR expires_at > now())
       ORDER BY array_position(ARRAY['basic','full','institutional']::text[], tier::text) DESC, reviewed_at DESC NULLS LAST LIMIT 1`;
     if (!row) return { approved: false, residence: null };
@@ -241,7 +243,7 @@ export class KycPoaDesk {
 
   /** The person's pending submission of exactly this document, if there is one. */
   private async waiting(
-    sql: Sql,
+    sql: Queryable,
     userId: string,
     input: { type: string; country: string; issuedOn: string },
     sha256: string,
@@ -253,7 +255,7 @@ export class KycPoaDesk {
     return row;
   }
 
-  private async assertNoneWaiting(sql: Sql, userId: string): Promise<void> {
+  private async assertNoneWaiting(sql: Queryable, userId: string): Promise<void> {
     const [other] = await sql<Array<{ id: string }>>`
       SELECT id FROM kyc_poa_submissions WHERE user_id = ${userId} AND status = 'submitted' LIMIT 1`;
     if (other) throw new KycPoaError('A proof of address is already waiting for review', 'kyc.poa_pending');

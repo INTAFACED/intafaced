@@ -6,11 +6,8 @@
  * matrix), plus the Core and infrastructure work §25 does not list because it
  * predates the surfaces.
  *
- * This file is DATA. `pnpm tracker` renders it to docs/TRACKER.md and validates
- * it against what is actually in the repo — a feature cannot claim `done` if the
- * service it lives in does not exist. That validation is the whole point: a
- * tracker nobody trusts is worse than no tracker, and the way trackers become
- * untrustworthy is by drifting from the code.
+ * This file is DATA. Its renderer and the generated status board were removed;
+ * active work and owners are the open GitHub PRs and issues.
  *
  * ── How to use this as a developer ──────────────────────────────────────────
  * Pick anything with status `ready`. That means its dependencies are `done`, so
@@ -42,7 +39,7 @@
  * svc-edge EXISTS and signs `x-intafaced-principal` for every routed request.
  * `scopedProcedure` is reachable by logged-in humans through the edge.
  * `done` still means code mounted + tested + unpropped — not "live product
- * complete" (rails, chain, KYC ops may still be sandbox). See mount-boundary.
+ * complete" (rails, chain, KYC ops may still be sandbox).
  */
 
 /** @typedef {'done'|'wip'|'ready'|'socket'} DeclaredStatus */
@@ -212,7 +209,7 @@ export const FEATURES = [
     status: 'done',
     dependsOn: ['identity.kyc'],
     requires: ['services/svc-identity'],
-    note: "Reachable on svc-identity's mounted /trpc; tested in router.test.ts + identity.test.ts; nothing propped up — approval is an operator action against kyc_records, no provider stub. Custodial side only: §22 permissionless surfaces read no tier (docs/decisions/kyc-posture.md).",
+    note: "Reachable on svc-identity's mounted /trpc; tested in router.test.ts + identity.test.ts; nothing propped up — approval is an operator action against kyc_records, no provider stub. Custodial side only: §22 permissionless surfaces read no tier.",
   }),
   f('identity.step-up', 'Step-up challenge minting trade:withdraw for five minutes', {
     module: 'identity',
@@ -499,7 +496,7 @@ export const FEATURES = [
       'packages/venue-contracts/src/latency.ts',
     ],
     note:
-      '**Done 2026-08-22:** MD/trade/account factories for binance/bybit/okx; live-network CI smoke; OMS wire + operator cred pass-through on svc-execution compose. ' +
+      '**Done 2026-08-22:** MD/trade/account factories for binance/bybit/okx; live-network smoke (by hand since 15 Nov 2026); OMS wire + operator cred pass-through on svc-execution compose. ' +
       'Honest gaps closed — refuse-closed without operator credentials; no invented mids.',
   }),
   f('connect.venue-vault', 'Venue Vault — per-user external API keys, HSM-backed, withdrawal refused (§27)', {
@@ -1633,7 +1630,7 @@ export const FEATURES = [
       'serialise every claim behind svc-token latency. That suite is DB-backed and skips without Postgres. ' +
       'RELEASE: vet() releases every open slot in the SAME transaction as any transition out of `approved` (suspended AND ' +
       'rejected) — split across two transactions, a crash leaves a suspended vendor holding every slot. NO unstake subscriber ' +
-      'and none wanted: no accepted bus subject exists, event-wiring reds on an orphan, and polling would be a second source of ' +
+      'and none wanted: no accepted bus subject exists, an orphan subject would be dark, and polling would be a second source of ' +
       'truth. Instead `slots` reports usable = min(held, capacity) and 0 for anyone not approved, so an unstaked vendor reads ' +
       'usable:0 instantly — that is how DoD clause 5 holds with no event. NO suspension POLICY was added: releasing on a ' +
       'transition an operator recorded is not deciding it. ' +
@@ -1647,10 +1644,10 @@ export const FEATURES = [
     dependsOn: ['market.vendors'],
     requires: ['services/svc-market'],
     note:
-      'D26-P0-02 OWNER NUMBER 2026-08-13: MARKET_HOUSE_COMMISSION_BPS=0 in `.env.example` (explicit free-cut); ' +
+      'D26-P0-02 OWNER NUMBER 2026-08-13: MARKET_HOUSE_COMMISSION_BPS set by the owner on the host (see the private records); ' +
       'compose pass-through `${MARKET_HOUSE_COMMISSION_BPS:-}` (no `:-0` seed); schema still has no in-code default. ' +
       'D26-P0-10 SEALED 2026-08-13 (adr/2026-08-13-house-commission-authority.md): authority = host ' +
-      'MARKET_HOUSE_COMMISSION_BPS; blank refuses; 0 is explicit owner free-cut; no agent-invented bps. ' +
+      'MARKET_HOUSE_COMMISSION_BPS; blank refuses; 0 is an explicit owner rate, never silence; no agent-invented bps. ' +
       'Money only via recipes.marketPurchase → houseFees(market); blank MARKET_HOUSE_COMMISSION_BPS refuses ' +
       'market.commission_not_configured (never invents free commission; 0 only when owner sets). ' +
       'Crash re-drive settles from claim snapshot (not live env bps). Over-capacity after unstake: oldest-first ' +

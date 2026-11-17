@@ -22,6 +22,7 @@ const translator = createTranslator('en', undefined, { mode: 'prod', onMissing: 
 const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'ledger.insufficient_funds': 'error.insufficientFunds',
   'ledger.unauthenticated': 'error.unauthorized',
+  'ledger.custody_layer_off': 'error.custodyLayerOff',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {

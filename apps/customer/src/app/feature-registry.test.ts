@@ -200,6 +200,7 @@ describe('top-bar menus link rooms that open', () => {
       'Quote desk',
       'Execution',
       'Algo dev',
+      'Algo editor',
       'Orders',
     ]);
     expect(titles('Pay')).toEqual(['Send', 'Receive', 'Request', 'Bill pay', 'Send globally', 'Person-to-person', 'Merchant']);

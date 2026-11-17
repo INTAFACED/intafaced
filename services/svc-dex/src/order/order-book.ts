@@ -393,6 +393,14 @@ export class OrderBook {
     return [...this.rows.keys()];
   }
 
+  /** How many orders `maker` has, in any state. A count only: no order's terms. */
+  countByMaker(maker: string): number {
+    const m = maker.toLowerCase();
+    let n = 0;
+    for (const row of this.rows.values()) if (row.maker.toLowerCase() === m) n += 1;
+    return n;
+  }
+
   /** True while a keeper tick has entered and not yet finished. */
   tickOpen(): boolean {
     return this.tickRunning;

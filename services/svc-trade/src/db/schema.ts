@@ -67,7 +67,7 @@ export const instrumentUnitEnum = trade.enum('instrument_unit', ['unit', 'troy_o
  * rather than drifting an hour twice a year. Storing a key keeps the database
  * from holding a second copy of the calendar that could disagree with it.
  */
-export const tradingScheduleEnum = trade.enum('trading_schedule', ['crypto-24x7', 'fx-global', 'cme-globex']);
+export const tradingScheduleEnum = trade.enum('trading_schedule', ['crypto-24x7', 'fx-global', 'cme-globex', 'test-sunday-minute']);
 
 /**
  * Market lifecycle.
@@ -206,6 +206,10 @@ export const markets = trade.table(
     makerBps: bps('maker_bps').notNull(),
     takerBps: bps('taker_bps').notNull(),
     listedAt: tstz('listed_at'),
+    /** The date a delisted market leaves the board (J-cex-spot-14 #1). Only a delisted listing carries one. */
+    delistsAt: tstz('delists_at'),
+    /** When a new listing's opening window ends (J-cex-spot-14 #7): until then only limit orders are taken. */
+    openingWindowEndsAt: tstz('opening_window_ends_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

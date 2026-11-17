@@ -104,7 +104,7 @@ Every JSON-object error under `/api/*` carries `requestId`, equal to the header:
 
 The operator plane (`/admin/*`) and the probes get the headers only.
 
-**Response headers are an allowlist.** A proxied reply carries `content-type`; `set-cookie` only on the identity auth routes; the checkout's own policy headers only on checkout paths; and `cache-control` and `content-security-policy` only on `/api/notify/status/badge.svg` (`status-badge-proxy.ts`), where svc-notify sets the image's cache life from its reading's age. Every other path gets no upstream `cache-control`.
+**Response headers are an allowlist.** A proxied reply carries `content-type`; `set-cookie` only on the identity auth routes; the checkout's own policy headers only on checkout paths; and `cache-control` and `content-security-policy` only on `/api/notify/status/badge.svg` (`status-badge-proxy.ts`), where svc-notify sets the image's cache life from its reading's age; and `idempotent-replayed` and `retry-after` only on svc-trade's venue door, `/api/v1/venue/*` (`idempotency-headers.ts`, J-developer-05). Every other path gets no upstream `cache-control`.
 
 **Hop-by-hop headers are stripped, not forwarded.** The full RFC 7230 set (`connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `te`, `trailer`, `transfer-encoding`, `upgrade`) plus `host` and `content-length` die in `stripReserved` before anything reaches an upstream. The edge rewrites `host`/`content-length` for the hop it owns; the rest must not be smuggled through the perimeter.
 
@@ -124,7 +124,7 @@ Until this landed the edge sent **no CORS headers at all** — not a permissive 
 | `Access-Control-Allow-Origin`      | the caller's own origin, echoed. **Never `*`**                        |
 | `Access-Control-Allow-Credentials` | `true`, beside an exact allowlisted origin only; never with `*`       |
 | `Access-Control-Allow-Methods`     | `GET, POST, OPTIONS`                                                  |
-| `Access-Control-Allow-Headers`     | `authorization, content-type`                                         |
+| `Access-Control-Allow-Headers`     | `authorization, content-type, idempotency-key, x-api-explorer`        |
 | `Access-Control-Expose-Headers`    | `x-request-id, x-server-received, x-server-sent`, allowed origin only |
 | `Vary`                             | `origin`, on every answer including the ones that allow nothing       |
 | Surface                            | `/api/*`, `/health`, `/ready`. **`/admin/*` is not a CORS surface**   |
@@ -226,9 +226,10 @@ With `S2S_AUTH_MODE` set to `dual` or `keypair` (plus `S2S_KEYRING`, `S2S_SIGNIN
 | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
 | Current-authority read, API-key ownership, account status, session ownership, passkey read, API-key exchange attestation (`IDENTITY_OWNERSHIP_SECRET`) | `svc-identity` |
 | Operator controls and reads (`MATCHING_EDGE_SIGNING_SECRET`)                                                                                           | `svc-matching` |
-| The proxy forward, for the module behind each `/api/*` prefix                                                                                          | that service   |
 
-The signature binds the method, the path and query as sent, the exact body bytes and the content type. On the proxy forward the forwarded principal, its signature and the region are inside the signed context too. `dual` also sends the dedicated shared secret on the identity and matching calls; `keypair` sends the key only. The edge holds no shared secret for the other upstreams, so the proxy forward carries the key signature alone in both modes. The modules blueprint, dex, indexer and protocol have no service role and are forwarded unsigned. Unset `S2S_AUTH_MODE` leaves every call exactly as before (the shared secret). Browsers cannot supply these headers: every `x-intafaced-*` request header is stripped.
+The signature binds the method, the path and query as sent, the exact body bytes and the content type. `dual` also sends the dedicated shared secret on these calls; `keypair` sends the key only. Unset `S2S_AUTH_MODE` leaves every call exactly as before (the shared secret).
+
+The proxy forward to a module behind `/api/*` carries no service signature in any mode: its only authority is the edge-signed user principal, or none for an anonymous request. Signed as svc-edge, any caller on the internet would reach a door that accepts any service or svc-edge, and every door that needs a signed-in person would refuse the user the forward carries. `proxyForwardHeaders` in `s2s.ts` takes no signer; `proxy-s2s-keys.test.ts` replays an anonymous forward against real service doors. Browsers cannot supply service headers: every `x-intafaced-*` request header is stripped.
 
 One matching read is unsigned on purpose: the operator health door (`/admin/trade-ops/matching/health`, `admin:read`) reads svc-matching's public `GET /health` with a client that can send nothing else, so it needs `MATCHING_URL` only and answers while `MATCHING_EDGE_SIGNING_SECRET` is blank (the control routes then still refuse `matching_credential_unconfigured`).
 

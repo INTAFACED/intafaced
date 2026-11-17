@@ -8,6 +8,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Context } from '@intafaced/contracts';
+import { TRADING_CHECKS_REVIEWER } from '../kyc/trading-checks.js';
 
 export const IDENTITY_ACCOUNT_SEARCH_UNSET = 'identity.account_search_unset' as const;
 export const IDENTITY_HANDLE_PREFIX_SHORT = 'identity.handle_prefix_short' as const;
@@ -160,7 +161,7 @@ export async function searchAccounts(
            u.email::text AS email,
            COALESCE((
              SELECT k.tier::text FROM kyc_records k
-             WHERE k.user_id = u.id AND k.status = 'approved' AND (k.expires_at IS NULL OR k.expires_at > now())
+             WHERE k.user_id = u.id AND k.status = 'approved' AND k.reviewed_by IS DISTINCT FROM ${TRADING_CHECKS_REVIEWER} AND (k.expires_at IS NULL OR k.expires_at > now())
              ORDER BY CASE k.tier WHEN 'institutional' THEN 3 WHEN 'full' THEN 2 WHEN 'basic' THEN 1 ELSE 0 END DESC
              LIMIT 1
            ), 'none') AS kyc_tier,
@@ -197,6 +198,33 @@ export async function searchAccounts(
       emailMasked: maskEmail(row.email),
     })),
   };
+}
+
+/** The most account ids one handle lookup takes: a desk asks for the owners on the page it shows, never the whole base. */
+export const HANDLES_CAP = 200;
+
+/**
+ * The handle of each account id an operator's desk shows (an owner column, AG-registry-01): id and handle only, no email,
+ * status or tier. An id with no account is left out, never answered with an invented handle. Every lookup writes one
+ * `account_search` audit row, the same as a search, holding only a hash of the sorted ids.
+ */
+export async function accountHandles(sql: Sql, context: Context, ids: readonly string[]): Promise<{ id: string; handle: string }[]> {
+  const actorId = requireReader(context, 'admin:compliance');
+  const unique = [...new Set(ids.map((id) => id.toLowerCase()))].sort();
+  const rows =
+    unique.length === 0
+      ? []
+      : await sql<Array<{ id: string; handle: string }>>`
+          SELECT u.id, u.handle::text AS handle FROM users u WHERE u.id = ANY(${unique}::uuid[]) ORDER BY u.id
+        `;
+  const queryHash = createHash('sha256')
+    .update(`ids\0${unique.join(',')}`)
+    .digest('hex');
+  await sql`
+    INSERT INTO operator_read_audit (audit_id, actor_id, kind, query_hash)
+    VALUES (${randomUUID()}, ${actorId}, 'account_search', ${queryHash})
+  `;
+  return rows.map((row) => ({ id: row.id, handle: row.handle }));
 }
 
 export async function accountCounts(

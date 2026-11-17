@@ -47,6 +47,16 @@ describe('protocol.amm.poolFees (D-fees-governance-04 (a))', () => {
     ]);
   });
 
+  it('names the v2 pool when the pool answers as one (J-dex-protocol-12: the stack factory deploys v2 pools)', async () => {
+    const fees = await readPoolFees(
+      chainWith({ poolFields: async () => ({ token0: A, token1: B, feeBps: 5, version: 'v2' as const }) }),
+      FACTORY,
+      POOL,
+    );
+    expect(fees.contract).toBe('LiquidityPool v2');
+    expect(fees.thirdShare).toBe(false);
+  });
+
   it('fees.lp-share-plus-other-shares-equals-total, for every fee the pool contract allows', async () => {
     for (const feeBps of [0, 1, 30, 100, 999, 1000]) {
       const fees = await readPoolFees(chainWith({ poolFields: async () => ({ token0: A, token1: B, feeBps }) }), FACTORY, POOL);
@@ -136,7 +146,7 @@ describe('protocol.amm.requestProtocolFee (D-fees-governance-04 (b))', () => {
       relay: {},
       relayEnabled: () => false,
       ammFactoryAddress: () => FACTORY,
-    } as unknown as ProtocolRouterDeps;
+    } as ProtocolRouterDeps;
     const amm = createProtocolRouter(deps).createCaller(anonymous()).amm;
     await expect(amm.requestProtocolFee({ pool: POOL })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
