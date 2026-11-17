@@ -11,7 +11,7 @@ import { whereCopy } from './where-it-sits-copy';
 const SOURCES: readonly SourceKind[] = ['wallet', 'venue', 'partner'];
 
 /** `?source=wallet|venue|partner` from the link on one Assets row; anything else is every source. */
-export function sourceFromSearch(search: string): SourceKind | null {
+function sourceFromSearch(search: string): SourceKind | null {
   const value = new URLSearchParams(search).get('source');
   return SOURCES.includes(value as SourceKind) ? (value as SourceKind) : null;
 }
