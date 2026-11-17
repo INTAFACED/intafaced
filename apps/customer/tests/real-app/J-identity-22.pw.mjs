@@ -22,20 +22,34 @@ function person(prefix) {
 
 /**
  * Identity restarted on one blocked-countries list (`LOCAL_STACK_IDENTITY_SCREENING`, tooling/scripts/local-stack-services/
- * identity.mjs): `unset` (no list), `rows` (the TEST copy of Hyperliquid's list), `rows-before-cuba`, or `null` for the
- * stack's own list. This process's environment is put back as it was.
+ * identity.mjs): `unset` (no list), `rows` (the TEST copy of Hyperliquid's list), or `null` for the stack's own list. With
+ * `list`, identity takes that TEST list from this caller's environment for the restart, as the stack passes any caller's
+ * list through. This process's environment is put back as it was.
  */
-function identityList(mode) {
-  const before = process.env.LOCAL_STACK_IDENTITY_SCREENING;
+function identityList(mode, list) {
+  const keys = ['LOCAL_STACK_IDENTITY_SCREENING', 'INTAFACED_SANCTIONS_REGIONS', 'INTAFACED_SANCTIONS_LIST_SOURCE'];
+  const before = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   if (mode === null) delete process.env.LOCAL_STACK_IDENTITY_SCREENING;
   else process.env.LOCAL_STACK_IDENTITY_SCREENING = mode;
+  if (list) Object.assign(process.env, { INTAFACED_SANCTIONS_REGIONS: list.regions, INTAFACED_SANCTIONS_LIST_SOURCE: list.source });
   try {
     tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SCREENING;
-    else process.env.LOCAL_STACK_IDENTITY_SCREENING = before;
+    for (const k of keys) {
+      if (before[k] === undefined) delete process.env[k];
+      else process.env[k] = before[k];
+    }
   }
 }
+
+/**
+ * The TEST copy of Hyperliquid's restricted list as it was before Cuba was listed: the config rows without Cuba, each
+ * labelled TEST. A Cuba resident's account is made under it, then the rows list Cuba.
+ */
+const BEFORE_CUBA = {
+  regions: ['IR', 'KP', 'SY', 'UA-43', 'UA-40', 'UA-14', 'UA-09'].map((r) => `${r}:TEST launch row before Cuba was listed`).join(','),
+  source: 'TEST: the launch rows before Cuba was listed (J-identity-22 #2)',
+};
 
 /** identity's own password sign-in, as the page sends it: the status, the typed code of a refusal, and any session. */
 async function signInAnswer(who) {
@@ -131,7 +145,7 @@ test(`${J} #2 with the TEST list back, a person whose account was made before th
   test.setTimeout(480_000);
   // A Cuba resident signs up while identity's list does not yet list Cuba.
   const cuban = person('jc');
-  identityList('rows-before-cuba');
+  identityList(null, BEFORE_CUBA);
   try {
     await signUpInBrowser(page, cuban, { country: 'CU' });
     await signOutBrowser(page.context());

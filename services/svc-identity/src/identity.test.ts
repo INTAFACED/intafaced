@@ -325,7 +325,7 @@ if (!available) {
     it('while the blocked-countries list is not set, refuses every sign-in with its typed reason and opens no session (J-identity-22 #1)', async () => {
       const handle = unique();
       await auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple' });
-      const [{ count: before }] = await db.sql<Array<{ count: number }>>`SELECT count(*)::int AS count FROM sessions`;
+      const before = (await db.sql<Array<{ count: number }>>`SELECT count(*)::int AS count FROM sessions`)[0]!.count;
       let unset = true;
       auth.setCountryListGate(() => unset);
       try {
@@ -339,7 +339,7 @@ if (!available) {
           auth.register({ handle: other, email: `${other}@example.com`, password: 'correct horse battery staple' }),
         ).rejects.toMatchObject({ code: 'identity.screening_unset' });
         expect(await db.sql`SELECT id FROM users WHERE handle = ${other}`).toHaveLength(0);
-        const [{ count: after }] = await db.sql<Array<{ count: number }>>`SELECT count(*)::int AS count FROM sessions`;
+        const after = (await db.sql<Array<{ count: number }>>`SELECT count(*)::int AS count FROM sessions`)[0]!.count;
         expect(after).toBe(before);
         unset = false;
         await expect(auth.login({ identifier: handle, password: 'correct horse battery staple' })).resolves.toMatchObject({

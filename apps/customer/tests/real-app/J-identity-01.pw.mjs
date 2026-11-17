@@ -775,10 +775,14 @@ test(`${J} #9 a blocked province is refused with its reason, a US person from th
       timeout: 15_000,
     });
     await expect(notice(page).locator('small')).toHaveText('identity.screening_unset');
-    await nothingMade(page, who, first);
+    // No code step and nothing mailed. Sign-in is refused too while the list is blank (J-identity-22 #1), so whether an
+    // account exists is asked once the list is back.
+    await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toHaveCount(0);
+    expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
   } finally {
     screeningList(true);
   }
+  await noAccount(who);
 
   // A province that is served (Quebec), answered "not a US person", goes on to the code step: the blocks are the
   // blocked regions only.

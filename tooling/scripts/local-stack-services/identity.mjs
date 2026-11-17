@@ -62,33 +62,22 @@ export async function confirmLocalFounderEmails({ STATE, marker, edgeUrl, say })
 }
 
 /**
- * `LOCAL_STACK_IDENTITY_SCREENING` on a start or restart picks identity's blocked-countries list. Each only ever names a
- * TEST list for identity alone; the caller's list is left out, never replaced by a value of this script's.
+ * `LOCAL_STACK_IDENTITY_SCREENING` on a start or restart picks identity's blocked-countries list. It only ever leaves the
+ * caller's list out; it never writes a list of its own.
  * - `unset`: no list at all, as a build is before the owner sets one: the unsigned rows are kept out and the fail-closed
  *   refusal stays on, so sign-up's and sign-in's "the list is not set" can be seen (J-identity-01 #9, J-identity-22 #1).
  * - `rows`: the TEST copy of Hyperliquid's restricted list, the unsigned config rows (`SANCTIONED_LIST_ROWS`, read on a
  *   dev stack only) (J-identity-22 #2).
- * - `rows-before-cuba`: the same rows without Cuba, labelled TEST, so a Cuba resident's account can be made before Cuba is
- *   listed, and the rows then confirm it (J-identity-22 #2).
  */
-const ROWS_BEFORE_CUBA = ['IR', 'KP', 'SY', 'UA-43', 'UA-40', 'UA-14', 'UA-09']
-  .map((region) => `${region}:TEST launch row before Cuba was listed`)
-  .join(',');
-
 function screeningSwitch(env) {
   const mode = process.env.LOCAL_STACK_IDENTITY_SCREENING;
-  if (mode !== 'unset' && mode !== 'rows' && mode !== 'rows-before-cuba') return env;
+  if (mode !== 'unset' && mode !== 'rows') return env;
   const out = { ...env };
   delete out.INTAFACED_SANCTIONS_REGIONS;
   delete out.INTAFACED_SANCTIONS_LIST_SOURCE;
   if (mode === 'unset') return { ...out, INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off', INTAFACED_SCREENING_FAIL_CLOSED: 'on' };
   delete out.INTAFACED_UNSIGNED_SANCTIONS_ROWS;
-  if (mode === 'rows') return out;
-  return {
-    ...out,
-    INTAFACED_SANCTIONS_REGIONS: ROWS_BEFORE_CUBA,
-    INTAFACED_SANCTIONS_LIST_SOURCE: 'TEST: the launch rows before Cuba was listed (J-identity-22 #2)',
-  };
+  return out;
 }
 
 const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
