@@ -29,6 +29,25 @@ import { spotVenueCopy } from './venue-copy';
 // ledger, and a doubtful answer is never sent again as a new action.
 
 type Note = { tone: 'good' | 'bad'; text: string; code?: string } | null;
+
+/**
+ * The desk's modal hides the rest of the page from assistive tech and pointer input while it is open, and the wallet's own
+ * "Check before you sign" sheet renders in the page: so while the wallet asks, the modal steps aside and comes back with
+ * its state once the wallet answers (VenueFollowWizard does the same).
+ */
+export function useAsk(run: RunAction): [RunAction, boolean] {
+  const [signing, setSigning] = useState(false);
+  const ask: RunAction = async (...args) => {
+    setSigning(true);
+    try {
+      return await run(...args);
+    } finally {
+      setSigning(false);
+    }
+  };
+  return [ask, signing];
+}
+
 type T = ReturnType<typeof spotVenueCopy.useCopy>['t'];
 
 const isLive = (o: VenueOrder) => o.status === 'open' || o.status === 'partially_filled';
@@ -100,6 +119,7 @@ export function VenueEditOrder({
 }) {
   const { t } = spotVenueCopy.useCopy();
   const venue = useVenueApi();
+  const [ask, signing] = useAsk(run);
   const [amount, setAmount] = useState(order.remaining);
   const [price, setPrice] = useState(order.price);
   const [note, setNote] = useState<Note>(null);
@@ -144,7 +164,7 @@ export function VenueEditOrder({
   const changeAmount = () =>
     send(async () => {
       setNote(null);
-      const answer = await run(
+      const answer = await ask(
         { kind: 'amend_order', symbol: order.symbol, venueClientOrderId: cloid, amount: amount.trim(), price: order.price },
         { actionKey: keys.amend(owner, cloid, amount) },
       );
@@ -177,7 +197,7 @@ export function VenueEditOrder({
   const confirm = () =>
     send(async () => {
       if (!review) return;
-      const answer = await run(
+      const answer = await ask(
         { kind: 'replace_order', symbol: order.symbol, venueClientOrderId: cloid, order: review.intent },
         { actionKey: review.key },
       );
@@ -188,7 +208,7 @@ export function VenueEditOrder({
   const pricePlaces = placesOf(market?.tickSize ?? order.price);
   const amountPlaces = placesOf(market?.lotSize ?? order.remaining);
   return (
-    <AlertDialog open onOpenChange={(next) => (next || busy ? null : onClose())}>
+    <AlertDialog open={!signing} onOpenChange={(next) => (next || busy ? null : onClose())}>
       <AlertDialogContent className="dk-review" data-testid="venue-edit">
         <AlertDialogHeader>
           <AlertDialogTitle>{t('Edit title', { side: order.side, symbol: order.symbol })}</AlertDialogTitle>
@@ -272,11 +292,13 @@ export function VenueEditOrder({
   );
 }
 
-type Scope = { kind: 'market'; symbol: string } | { kind: 'selected' } | { kind: 'all' } | { kind: 'spot' };
+type Scope =
+  { kind: 'market'; symbol: string } | { kind: 'selected' } | { kind: 'all' } | { kind: 'spot' } | { kind: 'label'; label: string };
 
 /**
  * Cancel several resting orders in one signed action, asked first: this market's, the ones selected, every market's, or
- * spot only. The venue answers each id; an unknown or already final one is reported and the rest are cancelled.
+ * spot only, or (where the page keeps the person's own labels, J-derivatives-04 #4) the ones under one label. The venue
+ * answers each id; an unknown or already final one is reported and the rest are cancelled.
  */
 export function VenueCancelMany({
   orders,
@@ -287,6 +309,8 @@ export function VenueCancelMany({
   run,
   selected,
   onDone,
+  spotOnly = true,
+  labelOf,
 }: {
   orders: readonly VenueOrder[];
   market: VenueMarket;
@@ -297,8 +321,14 @@ export function VenueCancelMany({
   run: RunAction;
   selected: readonly VenueOrder[];
   onDone: () => void;
+  /** Offer "Cancel all: spot only" (the spot desk). The futures desk lists only its own product's orders. */
+  spotOnly?: boolean;
+  /** The person's own label on an order, by client id: given, orders can be cancelled by label. */
+  labelOf?: (clientOrderId: string) => string | undefined;
 }) {
   const { t } = spotVenueCopy.useCopy();
+  const [ask, signing] = useAsk(run);
+  const [label, setLabel] = useState('');
   const [scope, setScope] = useState<Scope | null>(null);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
@@ -315,7 +345,9 @@ export function VenueCancelMany({
         ? selected.filter((o) => o.venueClientOrderId)
         : s.kind === 'spot'
           ? live.filter((o) => spot.has(o.symbol))
-          : live;
+          : s.kind === 'label'
+            ? live.filter((o) => labelOf?.(o.venueClientOrderId!) === s.label)
+            : live;
   const chosen = scope ? inScope(scope) : [];
 
   function open(s: Scope) {
@@ -335,7 +367,7 @@ export function VenueCancelMany({
     setBusy(true);
     draft.current ??= draftId();
     const sent = chosen.map((o) => ({ symbol: o.symbol, venueClientOrderId: o.venueClientOrderId! }));
-    const answer = await run({ kind: 'cancel_orders', orders: sent }, { actionKey: keys.cancelBatch(owner, draft.current) });
+    const answer = await ask({ kind: 'cancel_orders', orders: sent }, { actionKey: keys.cancelBatch(owner, draft.current) });
     sending.current = false;
     setBusy(false);
     const bad = notDone(t, answer);
@@ -374,13 +406,18 @@ export function VenueCancelMany({
         ? t('Cancel selected title')
         : scope?.kind === 'spot'
           ? t('Cancel spot title')
-          : t('Cancel every title');
+          : scope?.kind === 'label'
+            ? t('Cancel label title', { label: scope.label })
+            : t('Cancel every title');
   const intro =
     scope?.kind === 'market'
       ? t('Cancel market intro', { count: chosen.length, symbol: scope.symbol })
       : scope?.kind === 'spot'
         ? t('Cancel spot intro', { count: chosen.length })
-        : t('Cancel many intro', { count: chosen.length });
+        : scope?.kind === 'label'
+          ? t('Cancel label intro', { count: chosen.length, label: scope.label })
+          : t('Cancel many intro', { count: chosen.length });
+  const wanted = label.trim();
   return (
     <div className="dk-cancel-many" data-testid="venue-cancel-many">
       {most < 1 ? (
@@ -398,12 +435,25 @@ export function VenueCancelMany({
           <Button variant="secondary" disabled={!owner || live.length === 0} onClick={() => open({ kind: 'all' })}>
             {t('Cancel every market')}
           </Button>{' '}
-          <Button variant="secondary" disabled={!owner || live.length === 0} onClick={() => open({ kind: 'spot' })}>
-            {t('Cancel spot only')}
-          </Button>
+          {spotOnly ? (
+            <Button variant="secondary" disabled={!owner || live.length === 0} onClick={() => open({ kind: 'spot' })}>
+              {t('Cancel spot only')}
+            </Button>
+          ) : null}
         </p>
       )}
-      <AlertDialog open={scope !== null} onOpenChange={(next) => (next ? null : close())}>
+      {most >= 1 && labelOf ? (
+        <p className="dk-cancel-label">
+          <label className="field">
+            <span>{t('Cancel label field')}</span>
+            <input aria-label={t('Cancel label field')} value={label} onChange={(e) => setLabel(e.target.value)} />
+          </label>{' '}
+          <Button variant="secondary" disabled={!owner || wanted === ''} onClick={() => open({ kind: 'label', label: wanted })}>
+            {t('Cancel label')}
+          </Button>
+        </p>
+      ) : null}
+      <AlertDialog open={scope !== null && !signing} onOpenChange={(next) => (next ? null : close())}>
         {scope ? (
           <AlertDialogContent className="dk-review" data-testid="venue-cancel-ask">
             <AlertDialogHeader>
