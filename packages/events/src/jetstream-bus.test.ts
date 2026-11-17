@@ -224,17 +224,19 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
       );
       const before = Date.now();
       await b.publish('userCreated', payload);
+      const delivered = () =>
+        lines
+          .map((line) => {
+            try {
+              return JSON.parse(line) as Record<string, unknown>;
+            } catch {
+              return null;
+            }
+          })
+          .filter((entry) => entry?.event === BUS_DELIVERED && entry?.durable === durable);
+      // The line is written before the handler runs: once ours is handled, every call has its line.
       expect(await until(() => handled)).toBe(true);
-      await new Promise((r) => setTimeout(r, 300));
-      const mine = lines
-        .map((line) => {
-          try {
-            return JSON.parse(line) as Record<string, unknown>;
-          } catch {
-            return null;
-          }
-        })
-        .filter((entry) => entry?.event === BUS_DELIVERED && entry?.durable === durable);
+      const mine = delivered();
       expect(mine).toHaveLength(calls);
       for (const line of mine) {
         expect(line).toMatchObject({ level: 30, subject: 'intafaced.identity.user.created', attempt: 1, msg: 'bus delivered' });
