@@ -177,8 +177,10 @@ async function armFromDesk(page, box, seconds, owner) {
   const at = (await schedule(owner)).cancelsAt;
   expect(at).not.toBeNull();
   await expect(note).toHaveText(ARMED, { timeout: 15_000 });
-  // The time shown is the venue's own record of when it cancels.
-  expect((await note.innerText()).match(ARMED)[1]).toBe(await clock(page, at));
+  // The time shown is the venue's own record of when it cancels. On a refresh the dialog still reads "On" with the old time
+  // until the desk has read the venue back after its own submit, so wait for this arm's time, not for any time.
+  const shown = await clock(page, at);
+  await expect.poll(async () => (await note.innerText()).match(ARMED)?.[1], { timeout: 15_000 }).toBe(shown);
   return at;
 }
 
