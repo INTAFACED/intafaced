@@ -143,7 +143,7 @@ export function detectedEdges(root = ROOT) {
   for (const p of scan(root, { ignoreDeclared: true }).problems) {
     if (p.stale) continue;
     const reader = p.file.split('/').slice(0, 2).join('/');
-    (out[reader] ??= []).includes(p.dir) || out[reader].push(p.dir);
+    if (!(out[reader] ??= []).includes(p.dir)) out[reader].push(p.dir);
   }
   return out;
 }
