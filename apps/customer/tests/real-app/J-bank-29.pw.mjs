@@ -471,6 +471,8 @@ test(`${J} #5 a TEST merchant charges more than any one asset covers: declined b
   const { decision } = await openFeed(page);
   const shown = decision(declined.ref);
   await expect(shown).toContainText('bank.card_insufficient_funds');
+  // The merchant's 500 is in the asset the card settles in, USDC: no asset was held from, so none other is named.
+  await expect(shown.locator('.money-card-funding')).toHaveText(/^500\s*USDC$/);
   await expect(shown.getByTestId('decline-reason')).toHaveText(
     'No one asset in your pay-from order covers this payment, as the card partner reports. Add money to one of them, change the order under Pay from, or pay less.',
   );

@@ -261,11 +261,11 @@ function PaidFrom({ row }: { row: CardDecision }) {
   );
 }
 
-function Decision({ row, asset: cardAsset }: { row: CardDecision; asset: string }) {
+function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset: string; settles: string }) {
   const { Copy } = cardCopy.useCopy();
   const feed = cardFeedCopy.useCopy();
   // A pay-from payment's amount is in the asset the partner held from, or, before it held, the merchant's own asset.
-  const asset = row.payFrom ? (row.payFrom.assetId ?? row.conversion?.settlementAssetId ?? cardAsset) : cardAsset;
+  const asset = row.payFrom ? (row.payFrom.assetId ?? row.conversion?.settlementAssetId ?? settles) : cardAsset;
   return (
     <article className="money-card-decision">
       <header>
@@ -479,7 +479,7 @@ function CardRead({
                   <ol className="money-card-decisions">
                     {rows.map((row, index) => (
                       <li key={`${row.id}:${index}`}>
-                        <Decision row={row} asset={card.assetId} />
+                        <Decision row={row} asset={card.assetId} settles={card.settlementAssetId} />
                       </li>
                     ))}
                   </ol>
