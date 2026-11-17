@@ -47,7 +47,7 @@ class Source implements DepthSource {
   }
 }
 
-const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 const hubFor = (source: Source, maxPendingDeltas = 512) =>
   new DepthHub(source, {
     depthLimit: 50,

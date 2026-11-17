@@ -102,7 +102,7 @@ test(`${J} #1 the markets list shows open, upcoming and delisting markets with l
   expect(spot.filter((m) => m.orderable).every((m) => m.listing === 'open')).toBe(true);
 
   await page.goto('/trade');
-  const list = page.getByRole('grid', { name: 'Markets' });
+  const list = page.getByRole('grid', { name: 'Markets', exact: true });
   await expect(list).toBeVisible();
   const pair = (m) => new RegExp(`^${m.base}/${m.quote}$`);
   const rowOf = (m) => list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(m) }) });
@@ -173,11 +173,11 @@ test(`${J} #1 the markets list shows open, upcoming and delisting markets with l
 
 test(`${J} #2 /status shows each market's trading mode and the platform status, with the time they are as of`, async ({ page }) => {
   await page.goto('/status');
-  await expect(page.getByRole('heading', { name: 'Platform status' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Platform status', exact: true })).toBeVisible();
   // Platform status: the founders' components, or the honest line that none is published.
   await expect(page.getByTestId('status-components').first()).toBeVisible();
   // Trading modes per market, each with its effect, from the same lifecycle read the desk uses.
-  await expect(page.getByRole('heading', { name: 'Trading modes' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Trading modes', exact: true })).toBeVisible();
   const btc = page.getByTestId('status-mode-BTC/USDT');
   await expect(btc).toContainText('Open');
   await expect(btc).toContainText('Orders are accepted and can be cancelled.');
@@ -206,12 +206,12 @@ test(`${J} #3 a market order on a limit-only market is refused as limit-only, an
     const sent = placements(page);
     // A market buy: the desk's own preview says why before Confirm, and nothing is sent or held.
     await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
-    await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
+    await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('0.001');
     const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
     await expect(form).toContainText('Market orders are paused here');
     await expect(form).toContainText('Place a limit order instead');
     await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code
-    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
     await page.waitForTimeout(1000);
     expect(orderSends(sent)).toHaveLength(0);
     // The door itself refuses the same order with the typed code, before any hold.
@@ -260,13 +260,13 @@ test(`${J} #4 a new order on a cancel-only market is refused, and cancel works`,
     const sent = placements(page);
     // A new limit buy: refused in words before Confirm; nothing is sent and nothing more is held.
     await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-    await page.getByRole('textbox', { name: 'Price' }).first().fill(price);
-    await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
+    await page.getByRole('textbox', { name: 'Price', exact: true }).first().fill(price);
+    await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('0.001');
     const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
     await expect(form).toContainText('This market is cancel-only');
     await expect(form).toContainText('you can still cancel them');
     await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/);
-    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeDisabled();
     await page.waitForTimeout(1000);
     expect(orderSends(sent)).toHaveLength(0);
     const refused = await client.post('/api/v1/orders', {
@@ -326,7 +326,7 @@ test(`${J} #5 a market with scheduled maintenance an hour away says "Maintenance
     await expect(ticket).toContainText('End time not set');
     // The markets list flags it on that market's row.
     await page.goto('/trade');
-    const row = page.getByRole('grid', { name: 'Markets' }).getByRole('row').filter({ hasText: LIMITED });
+    const row = page.getByRole('grid', { name: 'Markets', exact: true }).getByRole('row').filter({ hasText: LIMITED });
     await expect(row.getByTestId('mkt-maintenance')).toHaveText('Maintenance in 1 hour');
     // /status lists it on the market's row, and its blank end reads "End time not set".
     await page.goto('/status');
@@ -359,12 +359,14 @@ test(`${J} #6 an order while the market session is closed: the closed-market rul
   await signIn(page, who);
   // A market that is not open now is listed among the paused rows, so the list is asked to include them (as in #10).
   await page.goto(`/trade?q=${encodeURIComponent(shut.base)}`);
-  await expect(page.getByRole('grid', { name: 'Markets' })).toBeVisible({ timeout: UNBUILT_MS });
-  const includePaused = page.getByRole('group', { name: 'Filter by status' }).getByRole('button', { name: 'Include paused' });
+  await expect(page.getByRole('grid', { name: 'Markets', exact: true })).toBeVisible({ timeout: UNBUILT_MS });
+  const includePaused = page
+    .getByRole('group', { name: 'Filter by status', exact: true })
+    .getByRole('button', { name: 'Include paused', exact: true });
   await includePaused.click();
   await expect(includePaused).toHaveAttribute('aria-pressed', 'true');
   const row = page
-    .getByRole('grid', { name: 'Markets' })
+    .getByRole('grid', { name: 'Markets', exact: true })
     .getByRole('row')
     .filter({ hasText: `${shut.base}/${shut.quote}` });
   await expect(row).toContainText(/Closed.*Opens/, { timeout: UNBUILT_MS });
@@ -414,12 +416,13 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
   const sent = placements(page);
   // A market buy: the desk's own preview says why before Confirm, and nothing is sent or held.
   await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
-  await page.getByRole('textbox', { name: 'Amount' }).first().fill('1');
+  await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('1');
   const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
   await expect(form).toContainText('This market is in its opening window', { timeout: UNBUILT_MS });
   await expect(form).toContainText('Place a limit order instead');
   await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code
-  await expect(page.getByRole('button', { name: `Buy ${windowed.base}` })).toBeDisabled();
+  await expect(page.getByRole('button', { name: `Buy ${windowed.base}`, exact: true })).toBeDisabled();
+  // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing happens: no order request leaves the page
   await page.waitForTimeout(1000);
   expect(sent.filter((body) => body?.symbol === windowed.symbol)).toHaveLength(0);
   // The door refuses the same market order with the window reason, before any hold.
@@ -579,9 +582,12 @@ test(`${J} #9 /trade/analytics/:pair shows the aggressor differential and window
     expect(span).toBe({ '5m': 5 * 60_000, '1h': 3_600_000, '24h': 86_400_000 }[window]);
   };
   await showsRead('1h', 'Last 1 hour');
-  await expect(page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 1 hour' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 1 hour', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   // Another named window is read again and named, with its own figures.
-  await page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 24 hours' }).click();
+  await page.getByTestId('analytics-windows').getByRole('button', { name: 'Last 24 hours', exact: true }).click();
   await showsRead('24h', 'Last 24 hours');
   // A blank window refuses with its typed code; it never falls back to a window of its own.
   const blank = await fetch(`${EDGE}/api/v1/analytics/${encodeURIComponent('BTC/USDT')}`);
@@ -603,8 +609,8 @@ test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label rea
   await page.goto('/trade');
   // The markets list labels that pair's quote USD too. A USD pair whose session or settlement is not open is a paused
   // row, so the list is asked to include paused markets first.
-  await page.getByRole('button', { name: 'Include paused' }).click();
-  const list = page.getByRole('grid', { name: 'Markets' });
+  await page.getByRole('button', { name: 'Include paused', exact: true }).click();
+  const list = page.getByRole('grid', { name: 'Markets', exact: true });
   const usdRows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
   await expect(usdRows.first()).toBeVisible();
   await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Tokenized equities');
