@@ -40,8 +40,10 @@ describe('requireConnection', () => {
       await sql.end({ timeout: 1 });
     }
   });
+});
 
-  it.skipIf(!live)('refuses a real transaction by name: it has no begin, which the old cast to Sql hid', async () => {
+describe.skipIf(!live)('requireConnection on a real transaction', () => {
+  it('refuses it by name: it has no begin, which the old cast to Sql hid', async () => {
     const sql = postgres(URL, { max: 1, onnotice: () => undefined });
     try {
       await transaction(sql, async (tx) => {
