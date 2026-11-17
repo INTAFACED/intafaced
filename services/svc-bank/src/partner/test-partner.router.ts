@@ -34,7 +34,7 @@ const switches = z
     holderName: z
       .string()
       .trim()
-      .regex(/^TEST [^\u0000-\u001f]{1,120}$/)
+      .regex(/^TEST \P{Cc}{1,120}$/u)
       .nullable(),
   })
   .strict();

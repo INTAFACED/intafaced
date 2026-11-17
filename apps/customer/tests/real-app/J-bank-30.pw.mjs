@@ -219,7 +219,10 @@ test(`${J} #2 with the TEST list back, Salary shows the partner's TEST account d
   await expect(form.getByTestId('salary-form-text')).toContainText(`Account holder: ${who.holderName}`);
   await expect(form.getByTestId('salary-form-text')).toContainText(`Account number: ${set.accountNumber}`);
   await expect(form.getByTestId('salary-form-text')).toContainText(`Bank: ${PARTNER_BANK}`);
-  await expect(form.getByRole('link', { name: 'Download the form' })).toHaveAttribute('download', `salary-form-${CURRENCY}.txt`);
+  await expect(form.getByRole('link', { name: 'Download the form', exact: true })).toHaveAttribute(
+    'download',
+    `salary-form-${CURRENCY}.txt`,
+  );
 });
 
 test(`${J} #3 sets a salary split of 10 percent into Savings: the rule reads 10 percent to Savings and the rest to the main balance`, async ({
@@ -229,12 +232,12 @@ test(`${J} #3 sets a salary split of 10 percent into Savings: the rule reads 10 
   const room = await salaryPage(page, who);
   const sorter = room.getByTestId('income-sorter');
   await expect(sorter.getByTestId('income-sorter-terms')).toHaveAttribute('data-state', 'set');
-  await sorter.getByRole('button', { name: `Sort ${CURRENCY} payments` }).click();
+  await sorter.getByRole('button', { name: `Sort ${CURRENCY} payments`, exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel(`${SAVINGS}: percent`).fill('10');
-  await dialog.getByRole('button', { name: 'Review' }).click();
-  await dialog.getByRole('button', { name: 'Confirm' }).click();
-  await expect(dialog.getByText('Confirmed by the service')).toBeVisible({ timeout: 30_000 });
+  await dialog.getByLabel(`${SAVINGS}: percent`, { exact: true }).fill('10');
+  await dialog.getByRole('button', { name: 'Review', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(dialog.getByText('Confirmed by the service', { exact: true })).toBeVisible({ timeout: 30_000 });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   const card = sorter.locator(`[data-testid="income-sorter-card"][data-asset="${CURRENCY}"]`);
   await expect(card).toContainText(`10% into ${SAVINGS}`);
@@ -337,10 +340,10 @@ test(`${J} #7 with the split removed, a TEST 500.00 credit arrives and the emplo
   // The split removed on the Salary page.
   const room = await salaryPage(page, who);
   const card = room.locator(`[data-testid="income-sorter-card"][data-asset="${CURRENCY}"]`);
-  await card.getByRole('button', { name: 'Stop sorting' }).click();
+  await card.getByRole('button', { name: 'Stop sorting', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('button', { name: 'Stop sorting' }).click();
-  await expect(dialog.getByText('Confirmed by the service')).toBeVisible({ timeout: 30_000 });
+  await dialog.getByRole('button', { name: 'Stop sorting', exact: true }).click();
+  await expect(dialog.getByText('Confirmed by the service', { exact: true })).toBeVisible({ timeout: 30_000 });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   const listed = await (await bank(who)).query('sorter.list', undefined);
   expect(listed.data.sorters.find((s) => s.id === sorterId)).toBeUndefined();
