@@ -702,7 +702,7 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       expect(await atPartner()).toBe(parseAmount('5'));
       // Not yet a minute old: the job leaves it for a later pass.
       expect(await svc.cashOut.redrive(10)).toEqual([]);
-      await sql`UPDATE bank.cash_out_requests SET created_at = now() - interval '2 minutes' WHERE id = ${requestId}::uuid`;
+      await sql`UPDATE bank.cash_out_requests SET drive_refused_at = now() - interval '2 minutes' WHERE id = ${requestId}::uuid`;
       expect(await svc.cashOut.redrive(10)).toEqual([{ id: requestId, outcome: 'completed' }]);
       expect(await atPartner()).toBe(parseAmount('25'));
       const back = await partner.bank.moveByKey(`bank.cash-out-back:${requestId}`);
@@ -724,10 +724,96 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       svc.cashOut.quote = async (userId, ask) => ({ ...(await realQuote(userId, { ...ask, amount: '5' })), amount: ask.amount });
       const requestId = randomUUID();
       await svc.cashOut.start(ADA, { requestId, assetId: 'USDT', amount: '20', linkedAccountId: id });
-      await sql`UPDATE bank.cash_out_requests SET created_at = now() - interval '2 minutes' WHERE id = ${requestId}::uuid`;
+      await sql`UPDATE bank.cash_out_requests SET drive_refused_at = now() - interval '2 minutes' WHERE id = ${requestId}::uuid`;
       expect(await svc.cashOut.redrive(10)).toEqual([]);
       expect(await partner.bank.moveByKey(`bank.cash-out-back:${requestId}`)).toBeNull();
       expect(await atPartner()).toBe(parseAmount('5'));
+    });
+
+    describe('the re-drive sweep reads every drive-refused request until it is settled, with no window on its age (#8697)', () => {
+      /** A request the drive refused for funds (the partner balance drained after the quote), its refusal `ago` old. */
+      const driveRefused = async (svc: ReturnType<typeof services>, id: string, ago: string) => {
+        const requestId = randomUUID();
+        const kept = await svc.cashOut.start(ADA, { requestId, assetId: 'USDT', amount: '20', linkedAccountId: id });
+        expect(kept).toMatchObject({ status: 'refused', refusalCode: 'bank.cash_out_over_available' });
+        await sql`
+          UPDATE bank.cash_out_requests SET drive_refused_at = now() - ${ago}::interval, created_at = now() - ${ago}::interval
+           WHERE id = ${requestId}::uuid
+        `;
+        return requestId;
+      };
+      /** A driver that lost its lock makes the order move anyway, then crashes before giving it back. */
+      const strayMove = async (requestId: string, fundId: string) => {
+        partnerBank!.fund(ADA, { fundId, assetId: 'USDT', amount: parseAmount('20') });
+        await partnerBank!.bank.move({
+          key: `bank.cash-out:${requestId}`,
+          from: main,
+          to: partnerPayoutsAccount('USDT'),
+          amount: parseAmount('20'),
+        });
+      };
+      const asked = () => {
+        const real = partnerBank!.bank.moveByKey.bind(partnerBank!.bank);
+        const keys: string[] = [];
+        (partnerBank!.bank as { moveByKey: typeof real }).moveByKey = async (key) => {
+          keys.push(key);
+          return real(key);
+        };
+        return keys;
+      };
+      let svc: ReturnType<typeof services>;
+      let id: string;
+      beforeEach(async () => {
+        id = await usable();
+        await partnerBank!.bank.move({ key: 'TEST-drain', from: main, to: { ...main, spaceId: 'TEST-space' }, amount: parseAmount('45') });
+        svc = services();
+        const realQuote = svc.cashOut.quote.bind(svc.cashOut);
+        svc.cashOut.quote = async (userId, ask) => ({ ...(await realQuote(userId, { ...ask, amount: '5' })), amount: ask.amount });
+      });
+
+      it('more refusals than the limit do not crowd a stray move out, and an unmoved one is not re-asked within the hour', async () => {
+        const unmoved = [
+          await driveRefused(svc, id, '30 minutes'),
+          await driveRefused(svc, id, '20 minutes'),
+          await driveRefused(svc, id, '10 minutes'),
+        ];
+        const stray = await driveRefused(svc, id, '40 minutes');
+        await strayMove(stray, 'cash-out-partner-fund-ada-8697-1');
+        expect(await atPartner()).toBe(parseAmount('5'));
+        const keys = asked();
+        // Oldest first: the stray one, then the oldest unmoved.
+        expect(await svc.cashOut.redrive(2)).toEqual([{ id: stray, outcome: 'completed' }]);
+        expect(await atPartner()).toBe(parseAmount('25'));
+        // The next pass reads the two not yet checked; the one checked a moment ago is not asked again.
+        expect(await svc.cashOut.redrive(2)).toEqual([]);
+        expect(await svc.cashOut.redrive(2)).toEqual([]);
+        const askedFor = keys.filter((k) => k.startsWith('bank.cash-out:')).map((k) => k.slice('bank.cash-out:'.length));
+        expect(askedFor.sort()).toEqual([stray, ...unmoved].sort());
+        const rows = await sql<Array<{ id: string; stray_checked_at: Date | null }>>`
+          SELECT id, stray_checked_at FROM bank.cash_out_requests WHERE id = ANY(${unmoved}::uuid[])
+        `;
+        expect(rows.every((r) => r.stray_checked_at !== null)).toBe(true);
+        // An hour on, a refusal still under a day old is asked again: a stray move may yet land.
+        await sql`UPDATE bank.cash_out_requests SET stray_checked_at = now() - interval '61 minutes' WHERE id = ${unmoved[0]!}::uuid`;
+        await strayMove(unmoved[0]!, 'cash-out-partner-fund-ada-8697-2');
+        expect(await svc.cashOut.redrive(2)).toEqual([{ id: unmoved[0], outcome: 'completed' }]);
+        expect(await atPartner()).toBe(parseAmount('45'));
+      });
+
+      it('a request refused more than a day ago is still read until a check a day after its refusal finds no move', async () => {
+        // Created and refused three days ago (a re-drive job down that long, or an old request re-driven), never checked.
+        const old = await driveRefused(svc, id, '3 days');
+        const settled = await driveRefused(svc, id, '3 days');
+        await sql`UPDATE bank.cash_out_requests SET stray_checked_at = now() - interval '2 days' WHERE id = ${settled}::uuid`;
+        await strayMove(old, 'cash-out-partner-fund-ada-8697-3');
+        expect(await svc.cashOut.redrive(10)).toEqual([{ id: old, outcome: 'completed' }]);
+        expect(await atPartner()).toBe(parseAmount('25'));
+        expect(await partnerBank!.bank.moveByKey(`bank.cash-out-back:${old}`)).not.toBeNull();
+        // Settled: one checked a day after its refusal with no move is never read again.
+        const keys = asked();
+        expect(await svc.cashOut.redrive(10)).toEqual([]);
+        expect(keys.filter((k) => k === `bank.cash-out:${settled}`)).toEqual([]);
+      });
     });
 
     it('paid closes it with no ledger post; the receipt names the partner payout and its signature verifies', async () => {
