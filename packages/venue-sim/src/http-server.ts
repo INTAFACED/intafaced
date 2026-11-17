@@ -728,6 +728,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/withdrawal':
       return sim.withdrawal(account(body), str(body, 'nonce'));
+    case '/withdrawal-terms':
+      return sim.withdrawalTerms(str(body, 'asset'));
     case '/deposits':
       return sim.deposits(account(body));
     case '/arrivals':
@@ -792,6 +794,12 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
+      if (body.withdrawalArrivalSeconds !== undefined) {
+        const n = body.withdrawalArrivalSeconds;
+        if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n > 0))
+          throw new VenueWireError('withdrawalArrivalSeconds must be a whole number of seconds, or null');
+        sim.switches.withdrawalArrivalSeconds = n;
+      }
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
         const url = body.depositExplorerTxUrl;
         if (url !== null && !/^(https:\/\/|\/(?!\/))/.test(url))
@@ -808,6 +816,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         scheduledCancelMinLeadMs: sim.venue.scheduledCancel?.minLeadMs ?? null,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
+        withdrawalArrivalSeconds: sim.switches.withdrawalArrivalSeconds,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
         label: 'TEST',
       };

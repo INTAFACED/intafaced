@@ -234,6 +234,19 @@ describe('/api/v1/venue/*', () => {
     expect(outside.json().intafacedCode).toBe('trade.venue.price_outside_protection');
   });
 
+  it("J-bank-31 #3: withdrawal-terms answers the venue's published fee, network fee and arrival time as decimal strings, and refuses without an asset", async () => {
+    await mount(door());
+    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/withdrawal-terms?owner=${owner}&asset=USDC` });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().value).toEqual({
+      asset: 'USDC',
+      fee: { known: true, value: '1' },
+      networkFee: { known: true, value: '0.25' },
+      arrivalSeconds: 60,
+    });
+    expect((await app.inject({ method: 'GET', url: `/api/v1/venue/withdrawal-terms?owner=${owner}` })).statusCode).toBe(400);
+  });
+
   it('funding-history is public: no sign-in or verification; the listed perpetual on the asset, rates as decimal strings', async () => {
     app = Fastify();
     const router = new UserVenueRouter({ doors: [door()], store: new InMemoryPreparedActionStore(), now: () => new Date() });

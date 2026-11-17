@@ -193,6 +193,12 @@ export interface TestPartnerSwitches {
    * salary form is refused and every direct deposit to the account is returned, as a name that cannot be matched.
    */
   readonly holderName: string | null;
+  /**
+   * `held`: the partner holds back its answer on every USDC pay-in to this person (J-bank-31 #6): a transfer it has seen
+   * stays pending, "on its way", and is not credited or counted as spendable until the switch goes back to `answered`
+   * (the default), when it is credited once.
+   */
+  readonly payIn: 'answered' | 'held';
 }
 
 export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
@@ -214,6 +220,7 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   identityCase: 'accepted',
   bankRail: 'none',
   holderName: null,
+  payIn: 'answered',
 });
 
 /** The partner's reserve as it reports it. An amount it has not told us is null, read as "not known", never 0. */

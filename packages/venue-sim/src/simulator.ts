@@ -24,6 +24,7 @@ import {
   type UserVenueBalance,
   type UserVenueScheduledCancel,
   type UserVenueArrival,
+  type UserVenueWithdrawalTerms,
   type UserVenueDeposit,
   type UserVenueDescriptor,
   type UserVenueFeed,
@@ -267,6 +268,11 @@ export interface SimSwitches {
   unpublishedWithdrawalFee: Amount;
   /** The network fee a withdrawal reports, taken from what arrives at its destination. */
   networkFee: MaybeKnown<Amount>;
+  /**
+   * How long the venue publishes a withdrawal takes to arrive, in seconds (J-bank-31 #3); `null` publishes none, read as
+   * "not published". TEST: the TEST venue pays a withdrawal about 4 seconds after it is signed (chain-deposits.ts).
+   */
+  withdrawalArrivalSeconds: number | null;
   /**
    * The explorer link the venue gives each chain deposit, a transaction hash appended (J-dex-protocol-05 #2); `null` for a
    * network with no explorer, when a deposit shows its hash alone.
@@ -531,6 +537,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
       networkFee: { known: true, value: parseAmount('0.25') },
+      withdrawalArrivalSeconds: 60,
       depositExplorerTxUrl: null,
       unpublishedNetworkFee: parseAmount('0.5'),
       unpublishedMakerFeeBps: parseAmount('2'),
@@ -1624,6 +1631,17 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       });
     }
     return this.asOf(list);
+  }
+
+  /** The TEST venue's published withdrawal terms for `asset` (J-bank-31 #3), as its switches set them. */
+  async withdrawalTerms(asset: string): Promise<AsOf<UserVenueWithdrawalTerms>> {
+    this.up();
+    return this.asOf({
+      asset,
+      fee: this.switches.withdrawalFee,
+      networkFee: this.switches.networkFee,
+      arrivalSeconds: this.switches.withdrawalArrivalSeconds,
+    });
   }
 
   async withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>> {

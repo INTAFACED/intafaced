@@ -14,6 +14,7 @@
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
+ *   GET  /api/v1/venue/withdrawal-terms?owner=&asset=   the venue's published withdrawal fee, network fee and arrival time (J-bank-31 #3)
  *   GET  /api/v1/venue/deposits?owner=                 the on-chain deposits the venue has seen: confirming, credited or not (J-dex-protocol-05 #2)
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
@@ -146,6 +147,7 @@ type Query = {
   actionKey?: string;
   venueId?: string;
   side?: string;
+  asset?: string;
 };
 
 /** The request's Idempotency-Key header, or undefined when it has none. */
@@ -385,6 +387,15 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit list' });
       return venue.deposits(a);
     },
+    // J-bank-31 #3: the venue's published withdrawal terms for an asset, read before anything is signed; a venue that
+    // publishes none refuses not_offered, and the review shows every term as not known.
+    '/api/v1/venue/withdrawal-terms': async (d, q) => {
+      if (!q.asset || !/^[A-Z0-9]{2,12}$/.test(q.asset)) throw new VenueWireError('asset is required');
+      const venue = await d.venue();
+      if (!venue.withdrawalTerms)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no withdrawal terms' });
+      return venue.withdrawalTerms(q.asset);
+    },
     '/api/v1/venue/leverage': async (d, q, a) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
@@ -447,6 +458,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/orders/by-client-id',
     '/api/v1/venue/fills',
     '/api/v1/venue/deposits',
+    '/api/v1/venue/withdrawal-terms',
     '/api/v1/venue/leverage',
     '/api/v1/venue/market-margin',
     '/api/v1/venue/settlements',

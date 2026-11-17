@@ -83,6 +83,8 @@ import { unsetDirectDebitScheme, type DirectDebitScheme } from './direct-debits/
 import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
 import { composeSalaryServices, type SalaryServiceOptions, type SalaryServices } from './salary/compose.js';
+import { payInCredited } from './pay-yourself/test-pay-in.js';
+import { composePayYourselfServices, type PayYourselfServiceOptions, type PayYourselfServices } from './pay-yourself/compose.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
@@ -101,7 +103,7 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  * spreads it; `bank-service.compose.test.ts` holds the line.
  */
 
-export interface BankServices extends BusinessServices, DeveloperApiServices, CardProgrammeServices, SalaryServices {
+export interface BankServices extends AreaServices {
   /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
   readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
@@ -198,8 +200,16 @@ export interface BankServices extends BusinessServices, DeveloperApiServices, Ca
 }
 
 /** Each area's own options, composed in its own `compose.ts`. */
+/** Each area's services, made in its own `compose.ts` and spread by `createBankServices`. */
+interface AreaServices extends BusinessServices, DeveloperApiServices, CardProgrammeServices, SalaryServices, PayYourselfServices {}
+
 interface AreaServiceOptions
-  extends BusinessServiceOptions, DeveloperApiServiceOptions, CardProgrammeServiceOptions, SalaryServiceOptions {}
+  extends
+    BusinessServiceOptions,
+    DeveloperApiServiceOptions,
+    CardProgrammeServiceOptions,
+    SalaryServiceOptions,
+    PayYourselfServiceOptions {}
 
 export interface BankServiceOptions extends AreaServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
@@ -495,8 +505,9 @@ export function createBankServices(
       ? testPartnerCardHolds({
           terms: () => (cardIssuer.partnerTerms ? cardIssuer.partnerTerms() : NOTHING_REPORTED),
           switches: (userId) => options.testPartner!.switches(userId),
-          // Its provisional dispute credits count in the same spendable figure (the issuer keeps them).
-          credited: (userId, assetId) => testCardCredited(cardIssuer, userId, assetId),
+          // Its provisional dispute credits count in the same spendable figure (the issuer keeps them),
+          // and the TEST partner's credited pay-ins (J-bank-31 #4: what the person paid themselves shows on the card).
+          credited: (userId, assetId) => testCardCredited(cardIssuer, userId, assetId) + payInCredited(options.payInRail, userId, assetId),
         })
       : null);
   const partnerHolds = unguardedHolds
@@ -617,6 +628,7 @@ export function createBankServices(
     statementJobs,
     accountDetails,
     ...composeSalaryServices({ sql, accountDetails, sorter }, options),
+    ...composePayYourselfServices({ sql, testPartner: options.testPartner ?? null }, options),
     accountTerms,
     accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
     dormancy: new DormancyService(sql, custody, parseDormancyRules(options.dormancyRules)),

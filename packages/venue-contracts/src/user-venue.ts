@@ -720,6 +720,18 @@ export interface UserVenuePosition {
   readonly liquidationPrice: MaybeKnown<Amount>;
 }
 
+/**
+ * The venue's published terms for a withdrawal of one asset, read BEFORE anything is signed (J-bank-31 #3): its
+ * withdrawal fee and the network fee, each `known: false` when the venue publishes none (shown as "not known", never 0),
+ * and how long it says a withdrawal takes to arrive, in seconds, or `null` when it publishes none ("not published").
+ */
+export interface UserVenueWithdrawalTerms {
+  readonly asset: string;
+  readonly fee: MaybeKnown<Amount>;
+  readonly networkFee: MaybeKnown<Amount>;
+  readonly arrivalSeconds: number | null;
+}
+
 export type UserVenueWithdrawalStatus = 'pending' | 'done' | 'failed';
 
 export interface UserVenueWithdrawal {
@@ -1415,6 +1427,11 @@ export interface UserVenue {
   positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>>;
   /** By the signed action's nonce, the only id the venue knows it by. `null` is a confirmed miss. */
   withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>>;
+  /**
+   * The venue's published withdrawal terms for `asset` (J-bank-31 #3). Optional: a venue whose adapter does not read
+   * them leaves it out, and the door refuses the read `not_offered`, so the review shows every term as not known.
+   */
+  withdrawalTerms?(asset: string): Promise<AsOf<UserVenueWithdrawalTerms>>;
   /**
    * The account's orders in every state, newest placed first, as the venue keeps them (J-cex-spot-06 #1): open, filled,
    * partly filled and cancelled. A venue keeps a bounded history (Hyperliquid: its 2000 most recent orders). Optional: a

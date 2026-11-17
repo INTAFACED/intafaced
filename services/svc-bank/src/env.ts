@@ -329,6 +329,15 @@ const schema = serviceEnvSchema
        */
       BANK_DIRECT_DEPOSIT_REVERSAL_DAYS: z.string().optional(),
       /**
+       * LOCAL TEST: the TEST partner's USDC pay-in (J-bank-31, `pay-yourself/test-pay-in.ts`): the stack's loopback TEST
+       * chain RPC, its chain id and the TEST USD token the partner credits as USDC. All three set, with
+       * `BANK_TEST_PARTNER=test`, the TEST partner gives each person a TEST pay-in address a venue can withdraw to, and
+       * credits what arrives there once. Any blank: no pay-in, and every pay yourself write refuses `bank.pay_in_unset`.
+       */
+      BANK_TEST_PAY_IN_RPC_URL: z.string().optional(),
+      BANK_TEST_PAY_IN_CHAIN_ID: z.string().optional(),
+      BANK_TEST_PAY_IN_TOKEN: z.string().optional(),
+      /**
        * WHO TAKES ADD-MONEY PAYMENTS ON A TEST STACK. `none` (default) | `payin-sim` (J-bank-02 #3, #5).
        *
        * `none` leaves fiat pay-in as `socket.psp-partners`: an accepted price still ends `bank.fiat_ramp_socket` and nothing

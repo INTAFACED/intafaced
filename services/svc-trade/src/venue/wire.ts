@@ -16,6 +16,7 @@ import { HttpUserVenue } from './http-user-venue.js';
 import { registerInternalVenueDeposits } from './internal-deposits.js';
 import { registerInternalEquity } from './internal-equity.js';
 import { registerInternalOurFills } from './internal-our-fills.js';
+import { registerInternalRealised } from './internal-realised.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
 import { SqlVenueListingStore } from './venue-listing-store.js';
@@ -125,6 +126,13 @@ export function wireUserVenue(deps: {
   // minimum balance (J-campaigns-13 #2 #4).
   registerInternalEquity(app, {
     equity: { venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore, now: () => new Date() },
+    secret: env.INTERNAL_SERVICE_SECRET,
+    s2s: doorS2s,
+  });
+  // The primary venue's realised result of one person in one asset over a window, read by svc-bank's pay yourself
+  // (J-bank-31 #2 #7).
+  registerInternalRealised(app, {
+    realised: { venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore, now: () => new Date() },
     secret: env.INTERNAL_SERVICE_SECRET,
     s2s: doorS2s,
   });

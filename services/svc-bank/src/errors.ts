@@ -1370,7 +1370,13 @@ export type BankErrorCode =
   /** A reversal after the owner's window. */
   | 'bank.direct_deposit_reversal_window'
   /** The account no longer holds what the employer asks back. */
-  | 'bank.direct_deposit_reversal_insufficient';
+  | 'bank.direct_deposit_reversal_insufficient'
+  /** No partner pay-in a venue can withdraw to is wired (J-bank-31): nothing can be paid to the partner account. */
+  | 'bank.pay_in_unset'
+  /** A pay yourself move key sent again with another amount, owner or nonce (J-bank-31). */
+  | 'bank.pay_yourself_conflict'
+  /** A pay yourself move nobody holds, or one already signed (J-bank-31). */
+  | 'bank.pay_yourself_move_not_found';
 
 export class BankError extends Error {
   constructor(

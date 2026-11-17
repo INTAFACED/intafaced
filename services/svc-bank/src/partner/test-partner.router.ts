@@ -36,6 +36,7 @@ const switches = z
       .trim()
       .regex(/^TEST \P{Cc}{1,120}$/u)
       .nullable(),
+    payIn: z.enum(['answered', 'held']),
   })
   .strict();
 
