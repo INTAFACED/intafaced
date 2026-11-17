@@ -25,7 +25,7 @@ import { CompareTools } from './CompareTools';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const bar = (t: number, c: string): Candle => ({ t, o: c, h: c, l: c, c, v: '1', filled: false });
-const market = (symbol: string) => ({ symbol, tickSize: '0.01' }) as unknown as DeskMarket;
+const market = (symbol: string) => ({ symbol, tickSize: '0.01' }) as DeskMarket;
 const bars = (symbol: string, closes: string[]) => ({
   status: 'ready',
   data: closes.map((c, i) => bar(60_000 * (i + 1), c)),

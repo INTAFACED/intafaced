@@ -23,15 +23,19 @@ import { createRoomApi, type LeaderMode, type LeaderRow } from './api';
 import { roomCopy } from './copy';
 import { bpsText, deskState } from './desk';
 import { FollowWizard } from './FollowWizard';
+import { VenueFollowWizard } from './VenueFollowWizard';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueFrame } from '../../../features/trade/venue/VenueKit';
 import { FollowDetail, STATE_TONE, quoteAsset, stateWord, type Follow } from './FollowDetail';
 import { useWriteGuard } from './guard';
+import { LeadDesk, Leaderboard } from './LeadDesk';
 import { LeaderDirectory } from './LeaderDirectory';
 import { LeaderPage } from './LeaderPage';
 import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
 
-type TabId = 'leaders' | 'futures' | 'spot' | 'bots' | 'signal' | 'follows' | 'rules';
-const TABS: readonly TabId[] = ['leaders', 'futures', 'spot', 'bots', 'signal', 'follows', 'rules'];
+type TabId = 'leaders' | 'futures' | 'spot' | 'bots' | 'signal' | 'leaderboard' | 'follows' | 'lead' | 'rules';
+const TABS: readonly TabId[] = ['leaders', 'futures', 'spot', 'bots', 'signal', 'leaderboard', 'follows', 'lead', 'rules'];
 /** The directory tabs and the market each one lists. Leaders lists every market. */
 const TAB_MODE: Partial<Record<TabId, LeaderMode | null>> = {
   leaders: null,
@@ -53,6 +57,9 @@ export function leaderRefOf(pathname: string): string | null {
 }
 
 /** Who the follow wizard starts with: a typed leader ID, or a listed leader picked from the directory or their page. */
+/** A venue market's symbol (BASE-QUOTE), not the TEST book's (BASE/QUOTE). */
+const isVenueMarket = (symbol: string) => /^[A-Z0-9]+-[A-Z0-9]+$/i.test(symbol);
+
 type WizardStart = { open: boolean; leader: string; listed: LeaderRow | null };
 
 export function CopyRoom({ path }: { path: string }) {
@@ -60,6 +67,8 @@ export function CopyRoom({ path }: { path: string }) {
   const leaderRef = leaderRefOf(new URL(path, 'http://x').pathname);
   const transport = useApi();
   const { session } = useSession();
+  // Venue mode (the user-venue door on): a follow is on the person's own venue account (J-copy-bots-otc-01 #7 #8).
+  const venueMode = useVenueMode();
   const api = useMemo(() => createRoomApi(transport), [transport]);
   const tradeApi = useMemo(() => createTradeApi(transport), [transport]);
   const params = new URL(path, 'http://x').searchParams;
@@ -183,22 +192,44 @@ export function CopyRoom({ path }: { path: string }) {
     },
   ];
 
-  const wizardNode = (
-    <FollowWizard
-      open={wizard.open}
-      onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
-      api={api}
-      guard={guard}
-      desk={desk.data}
-      markets={spot}
-      initialLeader={wizard.leader}
-      listed={wizard.listed}
-      onFollowed={() => {
-        follows.reload();
-        navigate('/trade/copy?tab=follows', true);
-      }}
-    />
-  );
+  const onFollowed = () => {
+    follows.reload();
+    navigate('/trade/copy?tab=follows', true);
+  };
+  // A leader is copied on the venue when the venue door is on and the leader trades a venue market (venue symbols are
+  // BASE-QUOTE, the TEST book's BASE/QUOTE); any other follow keeps the existing wizard (J-copy-bots-otc-03's follows).
+  const onVenue = venueMode.mode === 'on' && wizard.listed !== null && wizard.listed.assets.some(isVenueMarket);
+  const wizardNode =
+    venueMode.mode === 'on' && onVenue ? (
+      <VenueFrame mode={venueMode}>
+        {/* Mounted while open: each opening starts a new request (its own key and agent account id). */}
+        {wizard.open ? (
+          <VenueFollowWizard
+            open={wizard.open}
+            onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
+            api={api}
+            desk={desk.data}
+            initialLeader={wizard.leader}
+            listed={wizard.listed}
+            venueName={venueMode.status.available ? venueMode.status.venue.displayName : ''}
+            builder={venueMode.status.available ? venueMode.status.builder : null}
+            onFollowed={onFollowed}
+          />
+        ) : null}
+      </VenueFrame>
+    ) : (
+      <FollowWizard
+        open={wizard.open}
+        onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
+        api={api}
+        guard={guard}
+        desk={desk.data}
+        markets={spot}
+        initialLeader={wizard.leader}
+        listed={wizard.listed}
+        onFollowed={onFollowed}
+      />
+    );
   if (leaderRef !== null) {
     return (
       <>
@@ -209,7 +240,7 @@ export function CopyRoom({ path }: { path: string }) {
   }
 
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="copy" />
       <PageHeader
         title={t('Copy trading')}
@@ -266,7 +297,9 @@ export function CopyRoom({ path }: { path: string }) {
           <TabsTab value="spot">{t('Spot')}</TabsTab>
           <TabsTab value="bots">{t('Bots')}</TabsTab>
           <TabsTab value="signal">{t('Signal')}</TabsTab>
+          <TabsTab value="leaderboard">{t('Leaderboard')}</TabsTab>
           <TabsTab value="follows">{t('My follows')}</TabsTab>
+          <TabsTab value="lead">{t('My lead')}</TabsTab>
           <TabsTab value="rules">{t('Rules')}</TabsTab>
         </TabsList>
 
@@ -356,6 +389,21 @@ export function CopyRoom({ path }: { path: string }) {
           </PageSection>
         </TabsPanel>
 
+        <TabsPanel value="leaderboard">{tab === 'leaderboard' ? <Leaderboard api={api} /> : null}</TabsPanel>
+
+        <TabsPanel value="lead">
+          {tab !== 'lead' ? null : !session ? (
+            <EmptyState
+              variant="refused"
+              reason={t('Sign in to see what you earn as a leader.')}
+              title={t('You are signed out')}
+              action={{ label: t('Sign in'), href: '/login?redirect=%2Ftrade%2Fcopy%3Ftab%3Dlead' }}
+            />
+          ) : (
+            <LeadDesk api={api} />
+          )}
+        </TabsPanel>
+
         <TabsPanel value="rules">
           <PageSection title={t('Rules and fees')} headingLevel={2}>
             <KeyValue
@@ -388,7 +436,15 @@ export function CopyRoom({ path }: { path: string }) {
       </Tabs>
 
       {wizardNode}
-      <FollowDetail follow={openFollow} onClose={() => setOpenFollowId(null)} api={api} guard={guard} onChanged={follows.reload} />
+      <FollowDetail
+        follow={openFollow}
+        onClose={() => setOpenFollowId(null)}
+        api={api}
+        guard={guard}
+        desk={desk.data}
+        onChanged={follows.reload}
+        venue={venueMode.mode === 'on' && openFollow !== null && openFollow.permittedMarkets.every(isVenueMarket)}
+      />
     </Page>
   );
 }

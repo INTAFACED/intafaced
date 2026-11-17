@@ -65,7 +65,7 @@ function signedHeaders(p: Principal = principal()): Record<string, string> {
 
 function caller(bank: ReturnType<typeof createBankServices>, p: Principal = principal()) {
   return createBankRouter(bank).createCaller(
-    edgeContext({ headers: signedHeaders(p), id: `req-${randomUUID()}` } as unknown as Parameters<typeof edgeContext>[0]),
+    edgeContext({ headers: signedHeaders(p), id: `req-${randomUUID()}` } as Parameters<typeof edgeContext>[0]),
   );
 }
 

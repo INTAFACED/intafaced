@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -56,7 +57,7 @@ export async function truncateTradeExceptOrderEvents(sql: Sql): Promise<void> {
   await sql.unsafe(`TRUNCATE ${list} RESTART IDENTITY CASCADE`);
 }
 
-export async function appendOrderEvent(sql: Sql, event: OrderEventInput): Promise<void> {
+export async function appendOrderEvent(sql: Queryable, event: OrderEventInput): Promise<void> {
   if (!ORDER_EVENT_KINDS.includes(event.kind)) return;
   if (event.code.trim() === '') return;
   await sql`

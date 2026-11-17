@@ -11,7 +11,9 @@ describe('ways to sign in (I-account-lifecycle-07)', () => {
       passkeys: 2,
       wallets: [{ address, linkedAt: '2026-10-24T16:00:00.000Z' }],
       providers: [],
+      phone: '+447700900123',
     });
+    // A phone names the account beside its password; it is not a way in of its own.
     expect(waysIn(methods)).toBe(4);
     expect(waysIn({ ...methods, password: false, passkeys: 0 })).toBe(1);
     // A mailed code to an address never proved is not counted, as the service does not count it.

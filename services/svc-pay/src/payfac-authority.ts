@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { identityOperationIntentSchema, type IdentityOperationIntent, type IdentityOperationDecisionPort } from '@intafaced/contracts';
 import type { SubMerchantService, PermissionAuthorityEvidence, PermissionEventRecord } from './submerchants.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
@@ -11,7 +11,7 @@ function proof(evidence: PermissionAuthorityEvidence): PayfacAuthority['proof'] 
     ? { kind: 'root_relation', ...ids }
     : { kind: 'explicit_grant', ...ids, grantEventId: evidence.proof.grantEventId, grantSequence: evidence.proof.grantSequence };
 }
-async function evidence(trees: SubMerchantService, tx: Sql, userId: string, merchantId: string, area: PayfacAuthority['area']) {
+async function evidence(trees: SubMerchantService, tx: Queryable, userId: string, merchantId: string, area: PayfacAuthority['area']) {
   try {
     return await trees.permissionAuthorityEvidence(userId, merchantId, area, tx);
   } catch (error) {
@@ -22,7 +22,7 @@ async function evidence(trees: SubMerchantService, tx: Sql, userId: string, merc
 }
 /** Only authenticated owner code supplies the original subject; proof comes from live owned rows. */
 export function createPayfacAuthorityGuard(trees: SubMerchantService): OwnerIdentityAuthorityPort {
-  const validate = async (tx: Sql, authority: Authority) => {
+  const validate = async (tx: Queryable, authority: Authority) => {
     if (authority.kind !== 'payfac_credential') return;
     const current = await evidence(trees, tx, authority.subject.userId, authority.proof.subjectMerchantId, authority.area);
     if (stable(proof(current)) !== stable(authority.proof)) throw new PayoutAdmissionError('pay.identity_admission_denied');
@@ -41,7 +41,7 @@ export function createPayfacAuthorityGuard(trees: SubMerchantService): OwnerIden
     },
   };
 }
-export async function pendingPayfacPermissionIntentCount(tx: Sql, current: PermissionEventRecord): Promise<number> {
+export async function pendingPayfacPermissionIntentCount(tx: Queryable, current: PermissionEventRecord): Promise<number> {
   const [row] = await tx`SELECT (
   (SELECT count(*) FROM pay.payment_admissions a WHERE a.merchant_id=${current.subjectMerchantId}
    AND a.intent->'authority'->>'kind'='payfac_credential' AND a.intent->'authority'->>'area'=${current.area}
@@ -56,7 +56,7 @@ export async function pendingPayfacPermissionIntentCount(tx: Sql, current: Permi
 }
 /** Caller owns subject FOR UPDATE; resolve/cancel every matching original request before revocation. */
 export async function drainPayfacPermissionIntents(
-  tx: Sql,
+  tx: Queryable,
   current: PermissionEventRecord,
   identity: IdentityOperationDecisionPort,
 ): Promise<void> {

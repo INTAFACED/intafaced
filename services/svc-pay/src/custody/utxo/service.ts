@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { FeeEstimator } from '../fees/service.js';
 import { CustodyUtxoError } from './errors.js';
@@ -290,7 +290,7 @@ export class CustodyUtxoService {
 
   // ── consolidation ──────────────────────────────────────────────────────────
 
-  private async findIntent(q: Sql, intentRef: string): Promise<IntentRow | undefined> {
+  private async findIntent(q: Queryable, intentRef: string): Promise<IntentRow | undefined> {
     const [row] = await q.unsafe<IntentRow[]>(`${SELECT_INTENT} WHERE c.intent_ref = $1`, [intentRef]);
     return row;
   }

@@ -55,7 +55,7 @@ export async function signInWithCode(page, who, destination) {
 }
 
 /** How long the founders may take to put a business on its TEST tier (merchantTier). */
-export const MERCHANT_TIER_BUDGET_MS = 300_000;
+const MERCHANT_TIER_BUDGET_MS = 300_000;
 
 /**
  * Runs a founders' TEST script (`tooling/scripts/<script>`) and returns the JSON on its last stdout line. Asynchronous, so
@@ -76,7 +76,7 @@ export async function foundersScript(script, args) {
 }
 
 /** Puts a business on its TEST tier through the two founders (`local-test-merchant-pricing.mjs`); returns what they read back. */
-export const merchantTier = (merchantId, kind = 'open') => foundersScript('local-test-merchant-pricing.mjs', [merchantId, '--tier', kind]);
+const merchantTier = (merchantId, kind = 'open') => foundersScript('local-test-merchant-pricing.mjs', [merchantId, '--tier', kind]);
 
 /** Step 1 of setup, as the owner fills it: a TEST business with the stack's TEST starter fee. Stays on onboarding and
  * returns the new merchant's id. The stack enforces merchant controls (PAY_MERCHANT_CONTROLS=required), so the founders

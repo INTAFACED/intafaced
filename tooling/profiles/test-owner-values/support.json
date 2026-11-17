@@ -116,6 +116,11 @@
       "value": "300",
       "note": "How long a signed identity claim for a page embedding the chat works, so J-support-public-05 #3 can use one. Not an owner decision."
     },
+    "SUPPORT_CHAT_EMAIL": {
+      "service": "support",
+      "value": "identity",
+      "note": "A signed-in customer's chat continued by email goes to identity's LOCAL TEST outbox, so J-support-public-05 #7 sees it mailed; LOCAL_STACK_SUPPORT_GUEST_MAIL=off leaves it blank (vendor.email). Not an owner decision."
+    },
     "SUPPORT_CHAT_PRECHAT_FIELDS": {
       "service": "support",
       "value": "name,email",

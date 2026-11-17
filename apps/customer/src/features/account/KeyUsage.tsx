@@ -10,16 +10,17 @@ const copy = defineCopy('api-key-usage', {
   title: 'Usage',
   lead: 'What this key spent from its rate limit, as the server counted it. Reading this costs the key nothing.',
   used: 'Used',
-  usedValue: '{count} tokens since {since}',
+  usedTail: 'tokens since {since}',
   refused: 'Refused (429)',
   refusedValue: '{count} calls',
   remaining: 'Remaining',
-  remainingValue: '{count} of {burst} tokens',
+  remainingTail: 'of {burst} tokens',
+  limits: 'Limits',
   refill: 'Refill',
   refillValue: '{count} a minute',
   none: 'No calls of this key counted yet. Used 0; the full burst remains.',
   asOf: 'As of {at}',
-  refresh: 'Refresh',
+  refresh: 'Refresh usage',
   loading: 'Reading usage…',
   limitsLink: 'How rate limits work',
 });
@@ -29,7 +30,8 @@ export const readKeyUsage = (api: ApiClient, keyId: string, signal: AbortSignal)
 
 /**
  * The key detail's usage panel (DV-limits-02, J-developer-06 #3): used and remaining with the time the server read them;
- * Refresh reads again and the time moves. Counts only, never a credential.
+ * Refresh reads again and the time moves. Counts only, never a credential. The counts sit in a "Limits" region
+ * (J-developer-08 #5): used and remaining as whole numbers, with the time they were read.
  */
 export function KeyUsage({ keyId }: { keyId: string }) {
   const { t, requestedLocale } = copy.useCopy();
@@ -47,28 +49,40 @@ export function KeyUsage({ keyId }: { keyId: string }) {
       <p className="muted">{t('lead')}</p>
       {resource.status === 'loading' && <Loading label={t('loading')} />}
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {usage?.state === 'counted' && (
-        <dl className="api-keys__facts">
-          <div>
-            <dt>{t('used')}</dt>
-            <dd data-testid="api-keys__used">{t('usedValue', { count: usage.used, since: at(usage.since) })}</dd>
-          </div>
-          <div>
-            <dt>{t('remaining')}</dt>
-            <dd data-testid="api-keys__remaining">{t('remainingValue', { count: usage.remaining, burst: usage.burst })}</dd>
-          </div>
-          <div>
-            <dt>{t('refused')}</dt>
-            <dd data-testid="api-keys__refused">{t('refusedValue', { count: usage.refused })}</dd>
-          </div>
-          <div>
-            <dt>{t('refill')}</dt>
-            <dd>{t('refillValue', { count: usage.refillPerMinute })}</dd>
-          </div>
-        </dl>
-      )}
-      {usage?.state === 'none' && <p data-testid="api-keys__usage-none">{t('none')}</p>}
-      {usage && <p data-testid="api-keys__usage-as-of">{t('asOf', { at: at(usage.asOf) })}</p>}
+      <div role="region" aria-label={t('limits')}>
+        {usage?.state === 'counted' && (
+          <dl className="api-keys__facts">
+            <div>
+              <dt>{t('used')}</dt>
+              <dd data-testid="api-keys__used">
+                <span data-testid="api-keys__limit-used">{usage.used}</span> {t('usedTail', { since: at(usage.since) })}
+              </dd>
+            </div>
+            <div>
+              <dt>{t('remaining')}</dt>
+              <dd data-testid="api-keys__remaining">
+                <span data-testid="api-keys__limit-remaining">{usage.remaining}</span> {t('remainingTail', { burst: usage.burst })}
+              </dd>
+            </div>
+            <div>
+              <dt>{t('refused')}</dt>
+              <dd data-testid="api-keys__refused">{t('refusedValue', { count: usage.refused })}</dd>
+            </div>
+            <div>
+              <dt>{t('refill')}</dt>
+              <dd>{t('refillValue', { count: usage.refillPerMinute })}</dd>
+            </div>
+          </dl>
+        )}
+        {usage?.state === 'none' && <p data-testid="api-keys__usage-none">{t('none')}</p>}
+        {usage && (
+          <p data-testid="api-keys__usage-as-of">
+            <span data-testid="api-keys__limits-as-of">
+              <time dateTime={usage.asOf}>{t('asOf', { at: at(usage.asOf) })}</time>
+            </span>
+          </p>
+        )}
+      </div>
       <div className="api-keys__actions">
         <Button variant="secondary" onClick={reload} disabled={resource.status === 'loading'}>
           {t('refresh')}

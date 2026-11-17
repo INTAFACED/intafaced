@@ -48,8 +48,8 @@ export function haltIsNotPostOnly(
 export function installHaltLaw(ctor: typeof MatchingEngine = MatchingEngine): void {
   const proto = ctor.prototype as {
     restart?: (marketId: MarketId) => Promise<MarketHaltResult>;
-    recover: () => Promise<{ records: number; markets: number }>;
-    isHalted: (marketId: MarketId) => boolean;
+    recover: MatchingEngine['recover'];
+    isHalted: MatchingEngine['isHalted'];
     [FLAG]?: boolean;
   };
   if (proto[FLAG]) return;

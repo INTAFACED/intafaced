@@ -95,7 +95,7 @@ describe('the balance disclosure gate through the router', () => {
 
   it('takes no customer id, and is the desk alone', async () => {
     const { agent, customer, ticketId } = await desk();
-    const sneaky = { ticketId, userId: CUSTOMER } as unknown as { ticketId: string };
+    const sneaky = { ticketId, userId: CUSTOMER } as { ticketId: string };
     expect(await refusal(agent.customerBalance(sneaky))).toMatch(/^BAD_REQUEST [\s\S]*unrecognized_keys/);
     for (const call of [
       customer.customerBalance({ ticketId }),

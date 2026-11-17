@@ -39,7 +39,7 @@ describe('identity linked-wallets client', () => {
   });
 
   const answering = (status: number, body: unknown) =>
-    (async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status })) as unknown as typeof fetch;
+    (async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status })) as typeof fetch;
   const USER_ID = '11111111-1111-4111-8111-111111111111';
 
   it('returns identity’s answer, parsed', async () => {
@@ -57,7 +57,7 @@ describe('identity linked-wallets client', () => {
       'a network fault',
       (async () => {
         throw new Error('ECONNREFUSED');
-      }) as unknown as typeof fetch,
+      }) as typeof fetch,
     ],
   ])('%s reads as null, never as "no wallet"', async (_label, fetchImpl) => {
     expect(await createIdentityLinkedWallets('http://identity.test', S2S_SECRET, undefined, fetchImpl).read(USER_ID)).toBeNull();

@@ -22,15 +22,14 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
 const AUTH_ENV = resolve(import.meta.dirname, '../../../packages/config/src/env.ts');
 const ENV_TS = resolve(import.meta.dirname, './env.ts');
 
 function tokenServiceBlock(source: string): string {
-  const match = source.match(/^  svc-token:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-token service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-token');
 }
 
 function countAssignments(source: string, name: string): number {

@@ -4,11 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { createTestDb } from '../fixture-truncate.testkit.js';
-import { checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import { type FactorActor } from './factor-gate.js';
 import { enrollPasskey, toRegistrationResponseJSON, type PasskeyCeremony, type StoredPasskey } from './enroll-passkey.js';
 import { toAuthenticationResponseJSON, verifyPasskey, type VerifyPasskeyCeremony } from './verify-passkey.js';
 import { unenrollPasskey } from './unenroll-passkey.js';
 import type { ChallengeStorePort } from './webauthn.js';
+import { sleep } from '@intafaced/contracts/sleep';
 
 /**
  * Concurrency proof for the three standalone passkey writers (#4618) against
@@ -27,8 +28,6 @@ const migrations = readdirSync(drizzleDir)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   .sort()
   .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function deferred() {
   let release!: () => void;

@@ -3,12 +3,12 @@
 //
 //   pnpm --filter @intafaced/customer room:new -- --path /money/statements --template record-list --area money --name Statements [--dry-run]
 //
-// The route must already be in navigation.ts `rooms` (its title and description are copy keys, so it is added with
+// The route must already be in its area's file under src/app/rooms/ (its title and description are copy keys, so it is added with
 // its copy). The scaffold writes the room's screen on its template (parked until its data is wired: product law, no
 // sample numbers) and records the route as migrated in src/app/room-templates.ts, replacing its unmigrated entry, so
 // the registry test stays green. Then render the new room at that path in the area's routes file. It refuses an
 // unknown route or template, a route already migrated, and an existing file.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,7 +16,7 @@ const APP = fileURLToPath(new URL('..', import.meta.url));
 const SRC = join(APP, 'src');
 const CONTRACTS = join(APP, '..', '..', 'packages', 'ui', 'src', 'lit', 'contracts.ts');
 const REGISTRY = join(SRC, 'app', 'room-templates.ts');
-const NAVIGATION = join(SRC, 'app', 'navigation.ts');
+const ROOMS = join(SRC, 'app', 'rooms');
 
 const COMPONENT = {
   overview: ['OverviewTemplate', 'hero={null}'],
@@ -107,8 +107,12 @@ function main() {
   if (!/^[A-Z][A-Za-z0-9]*$/.test(a.name)) fail('--name is PascalCase, e.g. Statements');
   if (!/^[a-z][a-z0-9-]*$/.test(a.area)) fail('--area is a feature folder name, e.g. money');
   if (!/^\/[A-Za-z0-9/:_-]*$/.test(a.path)) fail(`${a.path} is not a route path`);
-  if (!readFileSync(NAVIGATION, 'utf8').includes(`path: '${a.path}'`)) {
-    fail(`${a.path} is not in navigation.ts rooms yet; add it there with its copy keys first`);
+  const roomRows = readdirSync(ROOMS)
+    .filter((f) => f.endsWith('.ts') && !f.includes('.test.'))
+    .map((f) => readFileSync(join(ROOMS, f), 'utf8'))
+    .join('\n');
+  if (!roomRows.includes(`path: '${a.path}'`)) {
+    fail(`${a.path} is not in a room file yet; add it to its area's file in src/app/rooms/ with its copy keys first`);
   }
   const registry = readFileSync(REGISTRY, 'utf8');
   let next;

@@ -4,21 +4,18 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 export function executionComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const match = compose.match(/^  svc-execution:\n(?:.*\n)*?(?=^  [a-z#]|\Z)/m);
-  if (!match) throw new Error('svc-execution service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(compose, 'svc-execution');
 }
 
 export function edgeComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const match = compose.match(/^  svc-edge:\n(?:.*\n)*?(?=^  [a-z#]|\Z)/m);
-  if (!match) throw new Error('svc-edge service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(compose, 'svc-edge');
 }
 
 export function executionRouterSource(): string {

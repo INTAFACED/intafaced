@@ -1,8 +1,9 @@
 // World: none
 import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ORIGIN, ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
+import { ORIGIN, ROOT, mailedLines, signUpInBrowser, stackFile } from './stack.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
@@ -12,6 +13,18 @@ const J = 'J-identity-04';
 
 test.describe.configure({ mode: 'default' });
 test.use({ baseURL: PASSKEY_ORIGIN });
+
+/** The LOCAL-TEST text-message codes the stack sent to `phone` (svc-identity's sms-outbox.log), oldest first. */
+function textedCodes(phone) {
+  const file = stackFile('sms-outbox.log');
+  if (!existsSync(file)) return [];
+  const digits = phone.replace(/\D/g, '');
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.replace(/\D/g, '').includes(digits))
+    .map((line) => /code=(\d{6})/.exec(line)?.[1])
+    .filter(Boolean);
+}
 
 function person(prefix) {
   const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -490,6 +503,7 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
     await other.getByLabel('Handle').fill(`${who.handle}x`);
     await other.getByLabel('Password').fill(`TEST-${randomBytes(9).toString('base64url')}-9b`);
     await other.getByLabel('Country you live in').selectOption('DE');
+    await other.getByRole('radio', { name: 'No, I am not a US person' }).check();
     await other.getByLabel('Date of birth').fill('1990-05-01');
     await other.getByRole('button', { name: 'Create account' }).click();
     await other.getByRole('heading', { name: 'Check your email' }).waitFor();
@@ -761,7 +775,7 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   );
 });
 
-test(`${J} #7 links a wallet with its own signature and a confirmation, refuses a wrong key, shows the texting and social provider notices, and refuses to remove the last way in`, async ({
+test(`${J} #7 links a phone with its texted code and a wallet with its own signature, each with a confirmation, refuses a wrong code and a wrong key, shows the social provider notice, and refuses to remove the last way in`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -777,11 +791,28 @@ test(`${J} #7 links a wallet with its own signature and a confirmation, refuses 
   await expect(row('Code by email')).toContainText(`On: we can mail a sign-in code to ${who.email}.`);
   await expect(row('Wallets')).toContainText('No wallet linked.');
 
-  // A phone number and a social account need outside providers that are off in this build; the card names them.
+  // A phone number links only with the code texted to it (the stack's LOCAL-TEST outbox texts nobody) and a confirmation:
+  // a wrong code is refused before any confirmation is asked for, and nothing is linked.
+  const phone = `+4479${String(Date.now()).slice(-8)}`;
   await row('Phone number').getByRole('button', { name: 'Link a phone number' }).click();
-  await row('Phone number').getByLabel('Phone number, starting with +').fill('+44 20 7946 0000');
+  await row('Phone number').getByLabel('Phone number, starting with +').fill(phone);
   await row('Phone number').getByRole('button', { name: 'Text me a code' }).click();
-  await expect(card.locator('[data-not-connected="vendor.sms"]')).toContainText('Texting a sign-in code needs an SMS delivery provider.');
+  await expect(card.locator('[data-not-connected="vendor.sms"]')).toHaveCount(0);
+  await expect.poll(() => textedCodes(phone).length, { timeout: 20_000 }).toBeGreaterThan(0);
+  const texted = textedCodes(phone).at(-1);
+  const wrong = `${(Number(texted[0]) + 1) % 10}${texted.slice(1)}`;
+  await row('Phone number').getByLabel('6-digit code from the text').fill(wrong);
+  await row('Phone number').getByRole('button', { name: 'Confirm phone number' }).click();
+  await expect(card.getByTestId('failure')).toContainText('That code did not work, or it ran out.');
+  await expect(card.getByRole('form', { name: 'Confirm it is you' })).toHaveCount(0);
+  await expect(row('Phone number')).not.toContainText(phone.slice(-4));
+  await row('Phone number').getByLabel('6-digit code from the text').fill(texted);
+  await row('Phone number').getByRole('button', { name: 'Confirm phone number' }).click();
+  await card.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+  await expect(card.getByRole('status')).toContainText(`Phone number ${phone} added.`);
+  await expect(row('Phone number')).toContainText(phone);
+
+  // A social account needs an outside sign-in provider that is off in this build; the card names it.
   await row('Social account').getByRole('button', { name: 'Link a social account' }).click();
   await expect(card.locator('[data-not-connected="idp.social"]')).toContainText(
     'Signing in with a social account needs an outside sign-in provider.',

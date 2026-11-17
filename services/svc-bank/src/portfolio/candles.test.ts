@@ -19,7 +19,7 @@ function trade(answers: Record<string, Answer>) {
       body: { code: 'BadSymbol', intafacedCode: 'trade.market_not_found' },
     };
     return new Response(JSON.stringify(answer.body), { status: answer.status });
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   return { asked, fetchImpl };
 }
 const candle = (openAt: number, close: string) => [openAt, close, close, close, close, '1'];

@@ -3,7 +3,7 @@ import { Button } from '@intafaced/ui';
 import { Requires } from '../access/MerchantAccess';
 import { NoMerchant, WithAccount } from '../access/WithAccount';
 import { Gate, PortalFailure, PortalLoading } from '../components';
-import { extensionCopy, paymentsCopy, portalCopy, w3cCopy } from './copy';
+import { paymentsCopy, portalCopy, w3cCopy } from './copy';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { Customers, CustomerDetailPage } from './Customers';
 import { Dashboard } from './Dashboard';

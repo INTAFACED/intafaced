@@ -10,7 +10,6 @@ import { MemoryEventBus } from '@intafaced/events';
 import {
   formatAmount,
   houseFees,
-  InsufficientFundsError,
   LedgerError,
   MemoryLedger,
   parseAmount,

@@ -1,4 +1,4 @@
-import { copy, t as copyText, Text } from './copy';
+import { copy, Text } from './copy';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { usePreferences } from '../../shared/preferences';

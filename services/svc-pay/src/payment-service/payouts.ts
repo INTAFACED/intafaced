@@ -4,6 +4,7 @@
  * Moved out of `payment-service.ts` as it was (owner decision 2026-10-23): `PayService` keeps one method per
  * function here, which passes itself as `svc`.
  */
+import type { Queryable } from '@intafaced/db';
 import { clearingPendingMessage, heldInSettlementOf } from './funds.js';
 import { postPayLedger } from '../ledger-receipt.js';
 import { FRESH, settleGuardRefusal } from '../seams/guards.js';
@@ -32,7 +33,6 @@ import {
 } from '../payout-admission.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
 import type {
-  PayService,
   PayServiceInternal,
   SettlementDetailRow,
   SettlementLinePage,
@@ -618,7 +618,11 @@ export async function resolvePayoutDestination(
   }
 }
 
-export async function getSettlement(svc: PayServiceInternal, settlementId: string, connection: Sql = svc.sql): Promise<SettlementRecord> {
+export async function getSettlement(
+  svc: PayServiceInternal,
+  settlementId: string,
+  connection: Queryable = svc.sql,
+): Promise<SettlementRecord> {
   const rows = await connection<SettlementRow[]>`
     SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
       FROM pay.settlements WHERE id = ${settlementId}

@@ -143,6 +143,9 @@ export const en = {
   'notify.outreach.follow_up.title': 'Following up on your INTAFACED enquiry',
   'notify.outreach.follow_up.body': 'The INTAFACED team is following up on your enquiry.\n\n{staffText}',
   'notify.trade.fill.body': '{side} {qty} on {marketId} at {price}.',
+  // A paper strategy fill under the person's own alert (AL-alerts-01): the body is their template, rendered by svc-quant.
+  'notify.quant.fill.title': 'Paper strategy fill (not a real order)',
+  'notify.quant.fill.body': '{message}',
   'notify.trade.order.terminal.title': 'Order {status}',
   'notify.trade.order.terminal.body': '{side} {qty} on {marketId} is {status}.',
   'notify.trade.market_halted.title': 'Market halted',
@@ -176,6 +179,14 @@ export const en = {
     other:
       'You removed the last payment method for {count} of your ads, so they are paused. Add a payment method they can be paid with, then resume them from My offers.',
   },
+  'notify.academy.discussion_post.deleted.title': {
+    one: 'A moderator deleted your post',
+    other: 'A moderator deleted your posts',
+  },
+  'notify.academy.discussion_post.deleted.body': {
+    one: 'A moderator deleted {count} of your posts in the {course} discussion. The reason given: {reason}',
+    other: 'A moderator deleted {count} of your posts in the {course} discussion. The reason given: {reason}',
+  },
   'notify.p2p.trader.posted.title': 'A trader you follow posted an ad',
   'notify.p2p.trader.posted.body': 'A trader you follow posted a new {asset} ad in {fiatCurrency}. Open their ads to see it.',
   'notify.p2p.remark_case.opened.title': 'A payment-note remark was reported',
@@ -194,6 +205,9 @@ export const en = {
   'notify.identity.security.new_device.title': 'New device sign-in',
   'notify.identity.security.new_device.body':
     'A new device was approved and signed in to your account. If this was not you, open Security, remove the device, sign out everywhere and contact Support.',
+  'notify.identity.security.api_key_revoked.title': 'API key revoked',
+  'notify.identity.security.api_key_revoked.body':
+    'One of your API keys was revoked because a copy of it was reported found where it should not be. Programs using it are now refused. Make a new key in Security and keep it out of code you share.',
   'notify.identity.security.factor_changed.body':
     'A way to sign in to your account changed. If this was not you, open Security, sign out everywhere and contact Support.',
   'notify.identity.rank.updated.title': 'Rank updated',
@@ -207,9 +221,13 @@ export const en = {
   'notify.agents.usage_alert.crossed.title': 'Agent spend passed your alert',
   'notify.agents.usage_alert.crossed.body':
     'Your agent has spent {amount} {asset} in {month}, reaching the alert you set at {alertAt} {asset}. Open the agent to see its limits.',
+  'notify.agents.alert.fired.title': 'Agent alert: {rule}',
+  'notify.agents.alert.fired.body': '{measure} was {value} from {from} to {to}, above the rule’s threshold of {threshold}.',
   'notify.agents.approval.requested.comment.title': 'Your agent wants to send a comment',
   'notify.agents.approval.requested.title': 'Your agent wants to use a tool that needs your approval',
   'notify.agents.approval.requested.body': 'It waits for your approval in the Approvals inbox. Nothing runs until you approve it.',
+  'notify.agents.run.completed.title': 'Your agent run finished',
+  'notify.agents.run.completed.body': 'Open the run to read its result.',
   'notify.pay.request_created.title': 'Payment request',
   'notify.pay.request_created.body': '{payeeHandle} asked you for {amount} {assetId}.',
   'notify.pay.request_paid.title': 'Request paid',
@@ -232,6 +250,10 @@ export const en = {
     'A copy would have gone past your per-order or total limit, so it was skipped. You can raise the limit on the follow.',
   'notify.trade.copy_skipped.body.copy_slippage_exceeded':
     'The price had moved past your slippage limit, so a copy was skipped. You can widen the limit on the follow.',
+  'notify.trade.copy_skipped.body.per_contract_cap':
+    'A copy would have gone past your most per contract, so it was skipped. Copies in your other markets go on. You can raise the limit with Edit limits on the follow.',
+  'notify.trade.copy_skipped.body.daily_cap':
+    'A copy would have gone past your most per day, so it was skipped. Copying resumes when the next day starts. You can raise the limit with Edit limits on the follow.',
   'notify.trade.copy_skipped.body.position_closed':
     'The leader closed a trade you no longer hold, so nothing was sold for you. You can see your positions on the follow.',
   'notify.trade.copy_skipped.body.refused': 'A copy of the leader’s trade could not be placed. You can see why in the follow’s skip log.',
@@ -282,6 +304,8 @@ export const en = {
   // v22.alerts — fire path uses these keys; missing catalog fell back to the key string.
   'notify.alert.price.crossed.title': 'Price alert',
   'notify.alert.price.crossed.body': '{marketId} crossed {direction} {targetPrice} (mark {markPrice}).',
+  // J-charts-desk-10: the market by its symbol and the time it fired, so an email holds the alert's market, level and time.
+  'notify.alert.price.fired.body': '{market} crossed {direction} {targetPrice} (mark {markPrice}) at {firedAt}.',
   // An alert the person named or wrote a message for shows their own words; the service renders placeholders before it sends.
   'notify.alert.price.crossed.named.title': '{name}',
   'notify.alert.price.crossed.message.body': '{message}',
@@ -378,9 +402,16 @@ export const en = {
   'agents.refused.place_idempotency_required':
     'Refused: placing an order needs a stable intent key so a repeated message cannot duplicate it.',
   'agents.refused.place_key_conflict': 'Refused: this intent key is already in use for a place on this session, so {tool} was not run.',
+  'agents.refused.analytics_from_unset': 'Refused: the dashboard range has no From day — choose one.',
+  'agents.refused.analytics_to_unset': 'Refused: the dashboard range has no To day — choose one.',
+  'agents.refused.analytics_range_invalid': 'Refused: the dashboard range is not a range of days — check From and To.',
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
   'agents.refused.cursor_invalid': 'Refused: that page cursor is not valid — ask for the list again from the start.',
   'agents.refused.fee_asset_unset': 'Refused: the fee asset for settled usage is unset, so spend cannot be labelled.',
+  'agents.refused.provenance_missing':
+    'Refused: {market} could not be read, so an answer about it would have no source. Nothing was run and nothing was charged.',
+  'agents.refused.uncertainty_scale_unset':
+    'Refused: no uncertainty scale is published for research answers yet. Nothing was run and nothing was charged.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',
   'agents.refused.overage_grace_exceeded':
     'Refused: {owed} {asset} of earlier usage is still unpaid, more than the {grace} {asset} allowed unpaid, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',

@@ -27,7 +27,7 @@ function fakeSql(creds: unknown[] | null, session?: { id: string; user_id: strin
     }
     throw new Error(`unexpected sql: ${text}`);
   };
-  const sql = fn as unknown as Parameters<typeof openLiveSessionAfterNewlyEnrolledPasskey>[0] & {
+  const sql = fn as Parameters<typeof openLiveSessionAfterNewlyEnrolledPasskey>[0] & {
     sessionReads: number;
   };
   Object.defineProperty(sql, 'sessionReads', { get: () => sessionReads });

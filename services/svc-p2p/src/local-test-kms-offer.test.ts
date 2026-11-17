@@ -76,7 +76,7 @@ describe('local-test key: offers and sealed instruments', () => {
       tier: 'basic',
       mfa: false,
       expiresAt: new Date(Date.now() + 60_000),
-    } as unknown as Principal;
+    } as Principal;
     const raw = encodePrincipal(principal);
     return api.createCaller(
       edge({

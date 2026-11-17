@@ -1011,6 +1011,25 @@ describe('trade operator procedures', () => {
       clientOrderId: 'drift',
     });
     matching.scriptCancelMiss(order.id);
+    // With the owner's floor set, the first look at the miss records it and keeps the hold (#8560); the floor later,
+    // with no listing in between and no fill, the reconcile releases it.
+    admin = new TradeOpsAdmin({
+      sql: db.sql,
+      approvals: book,
+      ledger,
+      reconcileOrder: (orderId, opts) => trade.reconcileOrder(orderId, opts),
+      cancelOrder: async (orderId, userId) => {
+        await trade.cancelOrder(principalFor(userId), orderId);
+      },
+      sweepMinAgeSeconds: 60,
+    });
+    const first = await admin.reconcile(operatorWriter(), { orderId: order.id, clientRequestId: 'recon-0' });
+    expect(first.case).toBe('open_hold_no_engine_unknown');
+    expect(first.action).toBe('fail_closed');
+    expect(await held(ALICE, order.id)).toBe('200');
+    // Time passing moves the order's last change back with it, the sighting still after it (#2658).
+    await db.sql`UPDATE trade.orders SET updated_at = now() - interval '62 seconds' WHERE id = ${order.id}`;
+    await db.sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${order.id}`;
     const verdict = await admin.reconcile(operatorWriter(), { orderId: order.id, clientRequestId: 'recon-1' });
     expect(verdict.case).toBe('open_hold_no_engine');
     expect(verdict.action).toBe('released');

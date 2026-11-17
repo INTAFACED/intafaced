@@ -1,6 +1,16 @@
 import { QUANT_IDEMPOTENCY_CONFLICT, QuantError } from '../errors.js';
 import type { AccountCounts } from './counts.js';
-import { judgeNeeds, type AppliedProfile, type QuotaGate, type QuotaLimitRow, type QuotaRepository, type QuotaResource } from './quota.js';
+import {
+  judgeNeeds,
+  type AppliedProfile,
+  type QuotaGate,
+  type QuotaLimitRow,
+  type QuotaRepository,
+  type QuotaResource,
+  type SandboxLimit,
+  type SandboxLimitRow,
+  type TierRow,
+} from './quota.js';
 
 /**
  * In-memory quota store for unit tests. Production passes Postgres, where the count and the write share one
@@ -11,6 +21,8 @@ export function createMemoryQuota(options: {
   now?: () => Date;
   /** What an account holds; tests that read usage pass it. Omitted, every count reads zero. */
   counts?: (accountId: string) => Promise<AccountCounts>;
+  /** Sandbox limits already set on the default profile; tests whose runs must start pass them. */
+  sandbox?: Partial<Record<SandboxLimit, bigint>>;
 }): {
   repository: QuotaRepository;
   gate: QuotaGate;
@@ -18,6 +30,20 @@ export function createMemoryQuota(options: {
   const now = options.now ?? (() => new Date());
   const limits = new Map<string, Map<QuotaResource, QuotaLimitRow>>();
   const assignments = new Map<string, string>();
+  const tiers = new Map<string, TierRow & { published: boolean }>();
+  const sandbox = new Map<string, Map<SandboxLimit, SandboxLimitRow>>();
+  if (options.sandbox && options.defaultProfile) {
+    const at = now().toISOString();
+    sandbox.set(
+      options.defaultProfile,
+      new Map(
+        Object.entries(options.sandbox).map(([limit, value]) => [
+          limit as SandboxLimit,
+          { limit: limit as SandboxLimit, value, setAt: at },
+        ]),
+      ),
+    );
+  }
   const writes = new Map<string, { action: string; request: string; response: unknown }>();
 
   function applied(accountId: string): AppliedProfile | null {
@@ -46,6 +72,21 @@ export function createMemoryQuota(options: {
     async limits(profile) {
       return [...(limits.get(profile)?.values() ?? [])];
     },
+    async sandboxLimits(profile) {
+      return [...(sandbox.get(profile)?.values() ?? [])];
+    },
+    async setSandboxLimit(input) {
+      const request = JSON.stringify([input.profile, input.limit, input.value?.toString() ?? null]);
+      const prior = replay<Awaited<ReturnType<QuotaRepository['setSandboxLimit']>>>(input.idempotencyKey, 'sandbox', request);
+      if (prior) return prior;
+      const setAt = now().toISOString();
+      const rows = sandbox.get(input.profile) ?? new Map<SandboxLimit, SandboxLimitRow>();
+      rows.set(input.limit, { limit: input.limit, value: input.value, setAt });
+      sandbox.set(input.profile, rows);
+      const response = { profile: input.profile, limit: input.limit, value: input.value, setAt };
+      writes.set(input.idempotencyKey, { action: 'sandbox', request, response });
+      return response;
+    },
     async set(input) {
       const request = JSON.stringify([input.profile, input.resource, input.limit?.toString() ?? null]);
       const prior = replay<Awaited<ReturnType<QuotaRepository['set']>>>(input.idempotencyKey, 'set', request);
@@ -65,6 +106,32 @@ export function createMemoryQuota(options: {
       assignments.set(input.accountId, input.profile);
       const response = { accountId: input.accountId, profile: input.profile, assignedAt: now().toISOString() };
       writes.set(input.idempotencyKey, { action: 'assign', request, response });
+      return response;
+    },
+    async tiers() {
+      return [...tiers.values()]
+        .filter((row) => row.published)
+        .sort((a, b) => (a.profile < b.profile ? -1 : a.profile > b.profile ? 1 : 0))
+        .map(({ published: _published, ...row }) => row);
+    },
+    async setTier(input) {
+      const request = JSON.stringify([
+        input.profile,
+        input.dataFreshnessSeconds?.toString() ?? null,
+        input.priorityClass?.toString() ?? null,
+        input.published,
+      ]);
+      const prior = replay<Awaited<ReturnType<QuotaRepository['setTier']>>>(input.idempotencyKey, 'tier', request);
+      if (prior) return prior;
+      const response = {
+        profile: input.profile,
+        dataFreshnessSeconds: input.dataFreshnessSeconds,
+        priorityClass: input.priorityClass,
+        published: input.published,
+        setAt: now().toISOString(),
+      };
+      tiers.set(input.profile, response);
+      writes.set(input.idempotencyKey, { action: 'tier', request, response });
       return response;
     },
   };

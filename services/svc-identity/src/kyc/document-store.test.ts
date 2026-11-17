@@ -109,7 +109,7 @@ describe('PII access control — no free cross-user document read', () => {
       if (text.includes('DELETE')) return [{ id: docId }];
       if (text.includes('SELECT')) return [{ id: docId, user_id: USER_A }];
       return [];
-    }) as unknown as Sql;
+    }) as Sql;
     const store = new KycDocumentStore(sql, undefined);
 
     await expect(store.deleteFor(docId, { kind: 'owner', userId: USER_B })).resolves.toBe(false);
@@ -121,7 +121,7 @@ describe('PII access control — no free cross-user document read', () => {
     const sql = (async (strings: TemplateStringsArray) => {
       calls.push(strings.join(' '));
       return [];
-    }) as unknown as Sql;
+    }) as Sql;
     const store = new KycDocumentStore(sql, undefined);
 
     await expect(store.deleteFor('00000000-0000-4000-8000-000000000000', { kind: 'owner', userId: USER_A })).resolves.toBe(false);
@@ -137,7 +137,7 @@ describe('PII access control — no free cross-user document read', () => {
       if (text.includes('DELETE')) return [{ id: docId }];
       if (text.includes('SELECT')) return [{ id: docId, user_id: USER_A }];
       return [];
-    }) as unknown as Sql;
+    }) as Sql;
     const store = new KycDocumentStore(sql, undefined);
 
     await expect(store.deleteFor(docId, { kind: 'owner', userId: USER_A })).resolves.toBe(true);
@@ -153,7 +153,7 @@ describe('PII access control — no free cross-user document read', () => {
       if (text.includes('DELETE')) return [{ id: docId }];
       if (text.includes('SELECT')) return [{ id: docId, user_id: USER_A }];
       return [];
-    }) as unknown as Sql;
+    }) as Sql;
     const store = new KycDocumentStore(sql, undefined);
 
     await expect(store.deleteFor(docId, { kind: 'compliance', operatorId: OP })).resolves.toBe(true);

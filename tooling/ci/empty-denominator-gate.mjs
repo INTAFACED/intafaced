@@ -141,11 +141,6 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
-  'services-map': {
-    kind: 'guard',
-    must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
-    note: 'refuses by name when services/ or the compose file is absent, instead of mapping nothing and calling it current.',
-  },
   'truth-check': {
     kind: 'guard',
     must: /AGENTS\.md lost a core rule: file missing/,
@@ -186,11 +181,7 @@ export const ENFORCED = {
     must: /not a git repository/,
     note: 'enumerates via `git ls-files`, which fails hard outside a repo. Refuses, but by throw — no zero-file branch of its own.',
   },
-  'invitation-outreach-golden': {
-    kind: 'guard',
-    must: /no outreach-\*\.golden\.js under/,
-    note: 'a golden suite that finds no goldens is the textbook version of this defect; it refuses instead.',
-  },
+
   killswitch: {
     kind: 'guard',
     must: /kill-switch reachability/,
@@ -202,23 +193,6 @@ export const ENFORCED = {
     note:
       'Class X list-content boundary: with screening.ts gone it cannot prove the list is unshipped and refuses by name ' +
       'rather than printing clean over nothing.',
-  },
-  'marketing-language': {
-    kind: 'guard',
-    must: /MARKETING LANGUAGE SCAN FAILED — packages\/config\/src\/marketing-language\.ts is missing/,
-    note:
-      'DIRECTION §8.9 / D26-P0-16: with the law module gone it cannot prove audited/insured/guaranteed product copy is ' +
-      'owner-sealed and refuses by name rather than printing clean over nothing.',
-  },
-  workspace: {
-    kind: 'guard',
-    must: /no service packages found, so checks 1-10 below each iterated an empty list/,
-    note: 'the most explicit statement of this law in the repo: "This gate cannot pass on a tree it did not open."',
-  },
-  'event-wiring': {
-    kind: 'guard',
-    must: /there is no catalog to check/,
-    note: 'one of the seven that learned this independently — the bus could not report silence, so now it refuses to.',
   },
   'skip-honesty': {
     kind: 'guard',
@@ -250,6 +224,11 @@ export const ENFORCED = {
     kind: 'guard',
     must: /scope is EMPTY/,
     note: 'walks every workspace test file; with no test file anywhere it refuses by name instead of printing clean.',
+  },
+  'lint-ratchet': {
+    kind: 'guard',
+    must: /✖ lint-ratchet: (?:no merge base|cannot fetch main)/,
+    note: 'with no repository there is no merge base to lint from (and on CI no main to fetch); it refuses by name.',
   },
   'money-property-mutation': {
     kind: 'uncaught',

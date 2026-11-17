@@ -1,10 +1,11 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { PricingQuote, ResolvedRule, ReserveQuote } from './pricing.js';
 
 /** Frozen pricing for one payment or settlement. One row per subject; a second write is a no-op. */
 export async function writePricingSnapshot(
-  q: Sql,
+  q: Queryable,
   input: {
     subjectKind: 'payment' | 'settlement';
     subjectId: string;

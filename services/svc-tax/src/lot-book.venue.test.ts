@@ -8,6 +8,7 @@ import {
   type TradeVenueActivityResult,
 } from '@intafaced/contracts';
 import { TAX_DATA_LAKE_UNAVAILABLE, TAX_INDEXER_UNAVAILABLE } from './codes.js';
+import { createMemoryBasisStore } from './basis-store.js';
 import { createTaxRouter } from './router.js';
 import { TaxService } from './tax-service.js';
 
@@ -70,7 +71,7 @@ const bought: TradeVenueActivityResult = {
   ],
 };
 
-function service(answer: TradeVenueActivityResult | undefined) {
+function service(answer: TradeVenueActivityResult | undefined, more: Partial<ConstructorParameters<typeof TaxService>[0]> = {}) {
   const asked: string[] = [];
   const venue: TradeVenueActivityPort = {
     async read(input) {
@@ -90,6 +91,7 @@ function service(answer: TradeVenueActivityResult | undefined) {
     now: () => NOW,
     closes: { closes: async () => null },
     ...(answer === undefined ? {} : { venue }),
+    ...more,
   });
   return { tax, asked };
 }
@@ -138,5 +140,51 @@ describe('tax.lotBook with the caller’s own venue account', () => {
     const { tax, asked } = service(bought);
     await tax.pnlOverTime({ userId: USER, from: '2026-11-09T00:00:00.000Z', utcOffsetMinutes: 0 });
     expect(asked).toEqual([]);
+  });
+
+  it('a coin the venue credited from outside is a lot with no cost, until the person enters one through the same door (J-portfolio-02 #6)', async () => {
+    const account = bought.state === 'read' ? bought.accounts[0]! : null;
+    const credited: TradeVenueActivityResult = {
+      state: 'read',
+      test: true,
+      accounts: [
+        {
+          ...account!,
+          balances: [{ asset: 'ETH', total: '0.03' }],
+          fills: [
+            {
+              fillId: 'f2',
+              symbol: 'ETH-USDC',
+              base: 'ETH',
+              quote: 'USDC',
+              side: 'sell',
+              price: '3000',
+              amount: '0.02',
+              fee: '0.06',
+              feeAsset: 'USDC',
+              filledAt: '2026-11-10T04:00:00.000Z',
+            },
+          ],
+          arrivals: [{ arrivalId: 'r1', kind: 'deposit', asset: 'ETH', amount: '0.05', arrivedAt: '2026-11-10T02:00:00.000Z' }],
+        },
+      ],
+    };
+    const { tax } = service(credited, { basis: createMemoryBasisStore(), depositBasis: 'customer' });
+    const book = await tax.lotBook({ userId: USER });
+    const lotId = `lot:venue:test-venue:${OWNER}:arrival:r1:ETH`;
+    expect(book.lots).toEqual([expect.objectContaining({ id: lotId, source: 'deposit', qty: '0.05', remaining: '0.03', costUsd: null })]);
+    expect(book.sales[0]).toMatchObject({ qty: '0.02', proceedsUsd: '59.94', realizedUsd: null });
+    expect(book.realizedUsd).toBeNull();
+    expect(book.residuals).not.toContain('tax.lot_book_unreconciled');
+
+    await tax.basisOverrideSet({ userId: USER, lotId, pricePerUnit: '2000', date: '2026-11-10', sourceNote: 'TEST receipt' });
+    const priced = await tax.lotBook({ userId: USER });
+    expect(priced.lots[0]).toMatchObject({ id: lotId, costUsd: '100', basisSource: 'customer-entered' });
+    // 59.94 received less 0.02 at 2000.
+    expect(priced.sales[0]!.realizedUsd).toBe('19.94');
+    expect(priced.realizedUsd).toBe('19.94');
+
+    await tax.basisOverrideRemove({ userId: USER, lotId });
+    expect((await tax.lotBook({ userId: USER })).realizedUsd).toBeNull();
   });
 });

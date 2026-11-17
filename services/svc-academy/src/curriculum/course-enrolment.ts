@@ -3,7 +3,8 @@
  * one curriculum path, and a course enrolment is the learner's one active path enrolment (`academy.cert_enrollments`),
  * so Programmes and the course page read the same record.
  *
- * What is not set stays unset: no start date unless staff set one (self-paced, opens on enrolment), no seat cap, no enrolment window. The
+ * What is not set stays unset: no start date, seat cap, enrolment window or visibility unless staff set one (`course-terms.ts`;
+ * self-paced, opens on enrolment, no cap, published). A cap counts the course's active enrolments. The
  * certificate track has no published price (AC-commerce-01), so it is closed with `no_price` and refuses. The academy
  * has no mail sender, so the activation mail names `vendor.email`; enrolment never waits on it.
  */
@@ -17,6 +18,7 @@ import {
 import { AcademyError } from '../errors.js';
 import type { EnrollmentRow } from '../learning/customer-store.js';
 import { listCurriculum, type CurriculumPath } from './catalog.js';
+import { courseClosedReason, NO_TERMS, type CourseTerms } from './course-terms.js';
 
 /** The published course by slug; an unknown course and one with no published item are the same `academy.course_not_found`. */
 export function publishedCourse(slug: string): CurriculumPath {
@@ -31,14 +33,24 @@ const TRACKS: AcademyCourseEnrolment['tracks'] = [
   { track: 'certificate', free: false, closed: 'no_price' },
 ];
 
-/** The terms of enrolling in `path`, with the caller's own active enrolment or null. `startsAt` is what staff set, or null. */
-export function courseEnrolmentView(path: CurriculumPath, active: EnrollmentRow | null, startsAt: Date | null): AcademyCourseEnrolment {
+/**
+ * The terms of enrolling in `path`, with the caller's own active enrolment or null. `startsAt` is what staff set, or null;
+ * `terms` the cap, window and visibility staff set, and `seatsTaken` the course's active enrolments.
+ */
+export function courseEnrolmentView(
+  path: CurriculumPath,
+  active: EnrollmentRow | null,
+  startsAt: Date | null,
+  terms: CourseTerms = NO_TERMS,
+  seatsTaken = 0,
+  now: Date = new Date(),
+): AcademyCourseEnrolment {
   return {
     slug: path,
     startsAt: startsAt?.toISOString() ?? null,
-    seatCap: null,
-    seatsRemaining: null,
-    closed: null,
+    seatCap: terms.seatCap,
+    seatsRemaining: terms.seatCap === null ? null : Math.max(0, terms.seatCap - seatsTaken),
+    closed: courseClosedReason(terms, seatsTaken, now),
     tracks: TRACKS.map((row) => ({ ...row })),
     // Every stored enrolment is on the free track: the certificate track has never been open to enrol in.
     enrolment: active ? { track: 'audit', enrolledAt: active.enrolledAt.toISOString() } : null,

@@ -12,6 +12,7 @@
  * `POST SUPPORT_WITHDRAWAL_FREEZE_PATH`, signed with the body bound. Only svc-support (`SUPPORT_WITHDRAWAL_FREEZE_CALLERS`)
  * may call it: unsigned is 401, any other service 403, bad input 400, an unknown customer 404, a failed write 503.
  */
+import type { Queryable } from '@intafaced/db';
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
 import {
@@ -34,17 +35,21 @@ export async function freezeWithdrawalsForSupport(
   lock: Pick<SecurityLock, 'lockWith'>,
   input: SupportWithdrawalFreezeInput,
 ): Promise<SupportWithdrawalFreezeResult> {
-  const { change, recorded } = await lock.lockWith(input.userId, { kind: 'support', userId: input.operatorId }, async (tx: Sql, held) => {
-    const inserted = await tx<Array<{ id: string; recorded_at: Date }>>`
+  const { change, recorded } = await lock.lockWith(
+    input.userId,
+    { kind: 'support', userId: input.operatorId },
+    async (tx: Queryable, held) => {
+      const inserted = await tx<Array<{ id: string; recorded_at: Date }>>`
       INSERT INTO support_withdrawal_freezes (user_id, lock_id, ticket_id, operator_id, reason, lock_set)
       VALUES (${input.userId}, ${held.id}, ${input.ticketId}, ${input.operatorId}, ${input.reason}, ${held.changed})
       ON CONFLICT (ticket_id, lock_id) DO NOTHING
       RETURNING id, recorded_at`;
-    if (inserted[0]) return { ...inserted[0], fresh: true };
-    const first = await tx<Array<{ id: string; recorded_at: Date }>>`
+      if (inserted[0]) return { ...inserted[0], fresh: true };
+      const first = await tx<Array<{ id: string; recorded_at: Date }>>`
       SELECT id, recorded_at FROM support_withdrawal_freezes WHERE ticket_id = ${input.ticketId} AND lock_id = ${held.id}`;
-    return { ...first[0]!, fresh: false };
-  });
+      return { ...first[0]!, fresh: false };
+    },
+  );
   const { changed: _changed, ...view } = change;
   return {
     recordedBy: 'svc-identity',

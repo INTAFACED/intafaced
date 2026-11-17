@@ -77,19 +77,19 @@ function tmp() {
 function marker(over = {}) {
   return {
     kind: 'intafaced-local-test-stack',
-    ports: { postgres: 15460, ledger: 14501, ...(over.ports ?? {}) },
+    ports: { postgres: 15460, ledger: 14501, ...over.ports },
     database: {
       host: '127.0.0.1',
       port: 15460,
       name: 'intafaced_local_test',
-      ...(over.database ?? {}),
+      ...over.database,
     },
   };
 }
 
 function writeState(dir, mark, secrets) {
   writeFileSync(path.join(dir, 'LOCAL-TEST-STACK.json'), JSON.stringify(mark));
-  writeFileSync(path.join(dir, 'secrets.json'), JSON.stringify({ pgService: 'fixture-secret', databaseUrl: PROD_URL, ...(secrets ?? {}) }));
+  writeFileSync(path.join(dir, 'secrets.json'), JSON.stringify({ pgService: 'fixture-secret', databaseUrl: PROD_URL, ...secrets }));
 }
 
 function spyIo() {

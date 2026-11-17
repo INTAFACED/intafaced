@@ -376,6 +376,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.convert_quote_ttl_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /** Owner market-buy cap unpublished — refuse-closed, not invent 200. */
   'trade.slippage_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.spread_limit_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.slippage_tolerance_invalid': { ccxt: 'InvalidOrder', status: 400 },
   /** Owner market-sell / flatten floor unpublished — same cap, not an unbounded sell. */
   'trade.protection_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
@@ -423,6 +424,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.hold_uncovered': { ccxt: 'ExchangeError', status: 500 },
   /** Raised on the bus cancel path only, never on a request: the fill settles first, then the cancel is redelivered. */
   'trade.cancel_ahead_of_fill': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** Raised by the operator reconcile only, never on a request: an engine miss waits for the owner's floor. */
+  'trade.engine_miss_unproven': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Funded engine-miss whose fills do not prove no fill. Hold stays.
    * Not retryable by the caller — operator break, not a bot backoff loop.

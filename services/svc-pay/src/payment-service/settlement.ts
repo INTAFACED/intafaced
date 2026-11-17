@@ -18,14 +18,7 @@ import { merchantKybMoneyGateRefusal } from '../merchant-kyb-money-gate.js';
 import { withMoneySpan } from '../tracing.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue } from '../affiliate-accrue.js';
 import { fireAffiliatePayout } from '../affiliate-payout.js';
-import type {
-  MerchantRecord,
-  PayService,
-  PayServiceInternal,
-  SettlementRecord,
-  SettlementRow,
-  SettlementStatus,
-} from '../payment-service.js';
+import type { MerchantRecord, PayServiceInternal, SettlementRecord, SettlementRow, SettlementStatus } from '../payment-service.js';
 import { fundsHeldOf, heldClearingOf } from './funds.js';
 import { PayError, appendEvent, lockPayment, publishedDefaultFeeBps, toSettlement, totalsFor, windowBounds } from './internal.js';
 
@@ -395,6 +388,9 @@ export async function prepareSettlement(
          WHERE p.merchant_id = ${input.merchantId}
            AND p.currency = ${input.assetId}
            AND p.status = 'captured'
+           -- Only money in our custody settles: a payment to the business's own wallet or held by the partner never
+           -- entered clearing (launch money model, OWNER 226).
+           AND p.custody = 'platform'
            AND NOT EXISTS (
              -- Frozen into a settlement that has not been released. A released
              -- inclusion (ops path after desync) is eligible for a later window.

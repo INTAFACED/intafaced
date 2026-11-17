@@ -134,7 +134,7 @@ function liveResting(book: OrderBook, orderId: string): RestingRef | null {
 export function installOcoLink(ctor: typeof OrderBook): void {
   if (!ctor) return;
   const proto = ctor.prototype as {
-    submit: (order: EngineOrder, now?: Date | null) => SubmitResult;
+    submit: OrderBook['submit'];
     cancel: OrderBook['cancel'];
     [FLAG]?: boolean;
   };

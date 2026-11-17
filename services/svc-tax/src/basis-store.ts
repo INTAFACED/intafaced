@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { formatAmount, MoneyError, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { TAX_BASIS_OVERRIDE_ABSENT, TAX_BASIS_PRICE_INVALID, TaxError } from './codes.js';
@@ -238,7 +239,7 @@ export function createMemoryBasisStore(): BasisStore {
 }
 
 export function createPgBasisStore(sql: Sql): BasisStore {
-  const latest = async (tx: Sql, userId: string, lotId: string): Promise<BasisRow | undefined> => {
+  const latest = async (tx: Queryable, userId: string, lotId: string): Promise<BasisRow | undefined> => {
     const found = await tx<Stored[]>`
       SELECT user_id, lot_id, version, kind, price_per_unit::text AS price_per_unit, acquired_at, source_note, asset_id,
         qty::text AS qty, business_key
@@ -251,7 +252,7 @@ export function createPgBasisStore(sql: Sql): BasisStore {
     return row === undefined ? undefined : toRow(row);
   };
 
-  const insert = async (tx: Sql, row: BasisRow): Promise<void> => {
+  const insert = async (tx: Queryable, row: BasisRow): Promise<void> => {
     await tx`
       INSERT INTO tax.basis_overrides (
         user_id, lot_id, version, kind, price_per_unit, acquired_at, source_note, asset_id, qty, business_key
@@ -270,10 +271,8 @@ export function createPgBasisStore(sql: Sql): BasisStore {
     `;
   };
 
-  const locked = async <T>(userId: string, lotId: string, body: (tx: Sql) => Promise<T>): Promise<T> => {
-    return sql.begin(async (tx) => {
-      // The transaction client is the same tagged query as `Sql`, without the pool methods.
-      const query = tx as unknown as Sql;
+  const locked = async <T>(userId: string, lotId: string, body: (tx: Queryable) => Promise<T>): Promise<T> => {
+    return sql.begin(async (query) => {
       await query`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey(userId, lotId)}, 0))`;
       return body(query);
     }) as Promise<T>;

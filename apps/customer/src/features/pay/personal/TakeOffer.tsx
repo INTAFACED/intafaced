@@ -24,7 +24,6 @@ import {
   offerMethodIds,
   placedNotice,
   takeFailureKind,
-  tradeMovedFromQuote,
   takeRequest,
   takerRole,
   type TakeFailure,

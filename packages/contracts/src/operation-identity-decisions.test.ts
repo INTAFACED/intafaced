@@ -153,7 +153,7 @@ describe('identity operation decision wire shapes', () => {
       { ...delegated.authority, area: 'settlement.payout' },
       { ...delegated.authority, proof: { ...delegated.authority.proof, actorMerchantId: MERCHANT } },
       { ...delegated.authority, proof: { ...delegated.authority.proof, subjectMerchantId: OTHER } },
-      { ...delegated.authority, proof: { ...delegated.authority.proof, grantSequence: 9007199254740993 } },
+      { ...delegated.authority, proof: { ...delegated.authority.proof, grantSequence: Number.MAX_SAFE_INTEGER + 1 } },
       { ...delegated.authority, proof: { ...delegated.authority.proof, grantSequence: '0' } },
     ])
       expect(identityOperationIntentSchema.safeParse({ ...delegated, authority }).success).toBe(false);
@@ -169,7 +169,7 @@ describe('identity operation decision wire shapes', () => {
       decidedAt: NOW,
     };
     expect(identityOperationGrantSchema.parse(grant).identityVersion).toBe('9007199254740993');
-    for (const invalid of ['-1', '01', '1.5', 9007199254740993]) {
+    for (const invalid of ['-1', '01', '1.5', Number.MAX_SAFE_INTEGER + 1]) {
       expect(identityOperationGrantSchema.safeParse({ ...grant, identityVersion: invalid }).success).toBe(false);
     }
   });

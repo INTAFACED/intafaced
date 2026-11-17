@@ -27,7 +27,7 @@ function fakeSql(rows: EarnRow[] | Error, seen: unknown[][] = []): Sql {
       rows.filter((r) => r.userId === userId && r.assetId === assetId && r.status === 'active').map((r) => ({ principal: r.principal })),
     );
   };
-  return fn as unknown as Sql;
+  return fn as Sql;
 }
 
 const ledgerOf = (rows: Balance[] | Error, calls: string[] = []) => ({

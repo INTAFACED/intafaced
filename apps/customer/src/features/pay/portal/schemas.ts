@@ -119,6 +119,19 @@ export const kybSubmitSchema = z.object({ id: z.string(), kybStatus: kybStatusSc
 export const merchantCreatedSchema = z.object({ id: z.string(), userId: z.string(), mode: z.string(), feeBps: z.number().nullable() });
 export const destinationSchema = z.object({ kind: z.string(), ref: z.string(), railId: z.string() });
 
+/** svc-pay `merchant.onboardingDraft`: the business step's saved fields, or null when nothing is saved. */
+const onboardingDraftFieldsSchema = z.object({
+  legalName: z.string(),
+  displayName: z.string(),
+  country: z.string(),
+  businessType: z.string(),
+  website: z.string(),
+  contactEmail: z.string(),
+  expectedVolume: z.string(),
+});
+export type OnboardingDraftFields = z.infer<typeof onboardingDraftFieldsSchema>;
+export const onboardingDraftSchema = z.object({ fields: onboardingDraftFieldsSchema, updatedAt: z.string() }).nullable();
+
 export const teamRoles = ['admin', 'finance', 'developer', 'viewer'] as const;
 export type TeamRole = (typeof teamRoles)[number];
 export const memberRoleSchema = z.enum(['owner', ...teamRoles]);

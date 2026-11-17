@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { WRITES_BLOCKED_CLOCK_SKEW } from './write-block.js';
 
 export { WRITES_BLOCKED_CLOCK_SKEW };
@@ -86,7 +86,7 @@ export async function sampleClocks(
   return { appNow: new Date(before + Math.floor((after - before) / 2)), databaseNow };
 }
 
-export async function readDatabaseNow(sql: Sql): Promise<Date> {
+export async function readDatabaseNow(sql: Queryable): Promise<Date> {
   const [row] = await sql<{ at: Date | string }[]>`select clock_timestamp() as at`;
   const at = row?.at;
   const instant = at instanceof Date ? at : typeof at === 'string' ? new Date(at) : null;

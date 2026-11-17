@@ -31,6 +31,10 @@ export type AgentErrorCode =
   | 'agents.ops_sessions_limit_unset'
   | 'agents.session_mine_limit_unset'
   | 'agents.cursor_invalid'
+  /** A dashboard range end is blank: no default window is invented (AG-analytics-01). */
+  | 'agents.analytics_range_unset'
+  /** A dashboard range end is not a UTC day, or the range ends before it starts. */
+  | 'agents.analytics_range_invalid'
   | 'agents.fee_asset_unset'
   | 'agents.spend_limit_unset'
   | 'agents.spend_limit_invalid'
@@ -55,7 +59,11 @@ export type AgentErrorCode =
   /** The person's own agent spent its monthly hard limit: new runs refuse until next month; a held run finishes. */
   | 'agents.usage.hard_limit_reached'
   /** A session's usage window could not be paid at close: the session stays open and the window is retried. */
-  | 'agents.window_unpaid';
+  | 'agents.window_unpaid'
+  /** A research answer names a market the service could not read: no source, no observation time (RC-agents-09). */
+  | 'agents.provenance_missing'
+  /** A research answer needs the owner's uncertainty scale, which is blank (RC-agents-09). */
+  | 'agents.uncertainty_scale_unset';
 
 export class AgentError extends Error {
   constructor(
@@ -116,6 +124,8 @@ export const AGENT_ERROR_CODES: readonly AgentErrorCode[] = [
   'agents.agent_not_found',
   'agents.window_sealed',
   'agents.window_unpaid',
+  'agents.provenance_missing',
+  'agents.uncertainty_scale_unset',
   'agents.window_not_found',
   'agents.invalid_usage',
   'agents.request_id_replay',
@@ -125,6 +135,8 @@ export const AGENT_ERROR_CODES: readonly AgentErrorCode[] = [
   'agents.kb_search_limit_unset',
   'agents.tickers_limit_unset',
   'agents.navigator_markets_limit_unset',
+  'agents.analytics_range_unset',
+  'agents.analytics_range_invalid',
 ] as const;
 
 /** Owner-published page size. Blank / non-finite / <1 refuses. Never invent 100. */

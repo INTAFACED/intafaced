@@ -95,6 +95,7 @@ export class JetStreamEventBus implements EventBus {
     const pump = (async () => {
       for await (const msg of messages) {
         if (stopped) break;
+        announceDelivered(def.subject, opts.durable, () => msg.info.redeliveryCount);
         try {
           const env = decodeEnvelope(msg.data);
           // Version, schema, and drift. A message carrying a field this build
@@ -147,6 +148,29 @@ export class JetStreamEventBus implements EventBus {
    */
   whenClosed(): Promise<void> {
     return this.nc.closed().then(() => undefined);
+  }
+}
+
+/** The `event` of the line the bus writes for each message it delivers (announceDelivered). */
+export const BUS_DELIVERED = 'bus.delivered';
+
+/**
+ * One line, in the consuming service's own output, for each message the bus
+ * hands to a handler: its time, subject, durable and attempt. A handler that
+ * logs nothing and serves no request otherwise leaves no trace that it ran, so
+ * the journey recorder (tooling/scripts/journey-reach.mjs) could not tie the
+ * service to the journey running at that moment, and every change to a
+ * subscribing service had to run the whole journey suite (intafaced #8657).
+ * The line holds no payload. Pino's shape (`level` 30 is info, `time` in ms),
+ * on stdout, because this package depends on no logger. Never throws.
+ */
+function announceDelivered(subject: string, durable: string, attempt: () => number): void {
+  try {
+    console.log(
+      JSON.stringify({ level: 30, time: Date.now(), event: BUS_DELIVERED, subject, durable, attempt: attempt(), msg: 'bus delivered' }),
+    );
+  } catch {
+    // A delivery is never held up by its own log line.
   }
 }
 

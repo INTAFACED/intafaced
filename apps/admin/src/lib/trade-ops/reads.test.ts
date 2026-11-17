@@ -54,7 +54,7 @@ describe('readEffectiveFees', () => {
   const ctx = {
     session: { accessToken: 'founder-token' },
     config: { edgeUrl: 'http://isolated-edge:4000' },
-  } as unknown as Parameters<typeof readEffectiveFees>[0];
+  } as Parameters<typeof readEffectiveFees>[0];
 
   it('reads /api/v1/admin/fees with the founder token and keeps bps as strings', async () => {
     fetchMock.mockResolvedValue(

@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * Live compliance state from svc-edge `/admin/status` and `/admin/compliance/queue`, read strictly.
  *
@@ -60,9 +61,6 @@ export interface EdgeComplianceStatus {
   readonly freezeAuthority: { soleKey: string; note: string };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 const str = (v: unknown): v is string => typeof v === 'string';
 const bool = (v: unknown): v is boolean => typeof v === 'boolean';
 const nstr = (v: unknown): v is string | null => v === null || typeof v === 'string';

@@ -56,11 +56,18 @@ export const CERT_XP_SOURCE_MODULE = 'academy' as const;
  */
 export const CERT_XP_ACTION = 'cert.granted' as const;
 
+/**
+ * The action that takes a revoked certificate's XP back (J-academy-17 #6: "the XP-backed perk stops"). The same amount,
+ * negative, keyed once per grant (`academy.cert:reverse:<grant key>`), so identity's ladder walks back down and the rank
+ * perks that XP brought stop. A replay changes nothing at identity, as for the award.
+ */
+export const CERT_XP_REVERSE_ACTION = 'cert.revoked' as const;
+
 /** Matches `xpEarned` in packages/events — XP is an integer, and is NOT money. */
 export type CertXpEventPayload = {
   readonly userId: string;
   readonly sourceModule: typeof CERT_XP_SOURCE_MODULE;
-  readonly action: typeof CERT_XP_ACTION;
+  readonly action: typeof CERT_XP_ACTION | typeof CERT_XP_REVERSE_ACTION;
   readonly xpDelta: number;
   readonly meta: { readonly certId: string };
 };
@@ -115,7 +122,10 @@ export type CertXpIntent = {
  * Pure. Nothing here touches a bus, so the decision is testable without one and
  * the publisher below has no branching left to get wrong.
  */
-export function certXpIntentFor(grant: CertGrantRecord): { ok: true; intent: CertXpIntent } | { ok: false; reason: CertXpSkipReason } {
+export function certXpIntentFor(
+  grant: CertGrantRecord,
+  direction: 'award' | 'reverse' = 'award',
+): { ok: true; intent: CertXpIntent } | { ok: false; reason: CertXpSkipReason } {
   const intent = xpIntentFromGrant(grant);
   if (!intent) return { ok: false, reason: 'no_policy' };
   if (!mayPublishXp(intent)) return { ok: false, reason: 'not_publishable' };
@@ -124,15 +134,16 @@ export function certXpIntentFor(grant: CertGrantRecord): { ok: true; intent: Cer
   const xpDelta = certXpDeltaToInt(shape.xpDelta);
   if (xpDelta === null) return { ok: false, reason: 'delta_unrepresentable' };
 
+  const reverse = direction === 'reverse';
   return {
     ok: true,
     intent: {
-      idempotencyKey: shape.idempotencyKey,
+      idempotencyKey: reverse ? shape.idempotencyKey.replace(/^academy\.cert:/, 'academy.cert:reverse:') : shape.idempotencyKey,
       payload: {
         userId: shape.userId,
         sourceModule: CERT_XP_SOURCE_MODULE,
-        action: CERT_XP_ACTION,
-        xpDelta,
+        action: reverse ? CERT_XP_REVERSE_ACTION : CERT_XP_ACTION,
+        xpDelta: reverse ? -xpDelta : xpDelta,
         meta: { certId: shape.certId },
       },
     },
@@ -150,6 +161,8 @@ export interface CertXpPublisher {
   readonly id: string;
   readonly usable: boolean;
   publishCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult>;
+  /** Takes a revoked certificate's XP back: the award's amount, negative, keyed once per grant. Reported, never thrown. */
+  reverseCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult>;
 }
 
 /**
@@ -176,6 +189,13 @@ export class NullCertXpPublisher implements CertXpPublisher {
     if (!decided.ok) return { emitted: false, reason: decided.reason };
     return { emitted: false, reason: 'publisher_unavailable' };
   }
+
+  async reverseCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult> {
+    assertCertGrantPathHonest(grant);
+    const decided = certXpIntentFor(grant, 'reverse');
+    if (!decided.ok) return { emitted: false, reason: decided.reason };
+    return { emitted: false, reason: 'publisher_unavailable' };
+  }
 }
 
 /**
@@ -198,7 +218,18 @@ export class BusCertXpPublisher implements CertXpPublisher {
   async publishCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult> {
     assertCertGrantPathHonest(grant);
     decideCertGrantLedgerPost(grant);
-    const decided = certXpIntentFor(grant);
+    return this.send(grant, certXpIntentFor(grant));
+  }
+
+  async reverseCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult> {
+    assertCertGrantPathHonest(grant);
+    return this.send(grant, certXpIntentFor(grant, 'reverse'));
+  }
+
+  private async send(
+    grant: CertGrantRecord,
+    decided: { ok: true; intent: CertXpIntent } | { ok: false; reason: CertXpSkipReason },
+  ): Promise<CertXpEmitResult> {
     if (!decided.ok) return { emitted: false, reason: decided.reason };
 
     try {

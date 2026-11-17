@@ -9,12 +9,10 @@
  * its due time. Issuing is AcademyService's job: this module stores rules and pending rows and decides nothing about
  * completeness. No money moves here.
  */
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import type { AcademyCertIssueMode, AcademyCertIssueRule, AcademySetCertIssueRuleInput } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { AcademyError } from '../errors.js';
-
-type Db = Sql | TransactionSql;
 
 type RuleRow = { cert_id: string; mode: AcademyCertIssueMode; delay_minutes: number | null; revision: number; updated_at: Date };
 
@@ -48,7 +46,7 @@ export class CertIssueRules {
   constructor(private readonly sql: Sql) {}
 
   /** The stored rule, or null when staff have set none (the learner claims the certificate). */
-  async rule(certId: string, db: Db = this.sql): Promise<AcademyCertIssueRule | null> {
+  async rule(certId: string, db: Queryable = this.sql): Promise<AcademyCertIssueRule | null> {
     const rows = await db<RuleRow[]>`
       SELECT cert_id, mode, delay_minutes, revision, updated_at FROM academy.cert_issue_rules WHERE cert_id = ${certId}
     `;

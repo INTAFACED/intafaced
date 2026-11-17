@@ -19,7 +19,7 @@ import { SignerChainRefusedError, type EvmSigner } from './evm-signer.js';
 import { DepositSourceChainRefusedError, type DepositAddressSource } from './deposit-source.js';
 import { runDurableBroadcast } from './durable-broadcast.js';
 import { ERC20_TRANSFER_TOPIC, fromChainUnits, requireAsset, toChainUnits, type EvmAsset } from './evm-assets.js';
-import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './chain-port.js';
+import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort, SendDepth } from './chain-port.js';
 
 /**
  * LIVE EVM implementation of `CryptoChainPort`.
@@ -201,6 +201,31 @@ export class EvmLiveChain implements CryptoChainPort {
     return address;
   }
 
+  /**
+   * A business's own receiving address, watched for one payment. Not derived here and not ours: `index` is -1, and no
+   * send ever names it. Two payments are never given one address (svc-pay's address book refuses it), so a collision
+   * here is a bug and refuses.
+   */
+  async watchAddress(paymentId: string, assetId: string, address: string): Promise<string> {
+    requireAsset(this.assets, assetId);
+    if (!isAddress(address)) throw new Error('A receiving address must be an EVM address');
+    const key = `${paymentId}\0${assetId}`;
+    const existing = this.byPayment.get(key);
+    if (existing) {
+      if (existing.address.toLowerCase() !== address.toLowerCase()) throw new Error('A payment cannot be watched at two addresses');
+      return existing.address;
+    }
+    const checksummed = getAddress(address);
+    const taken = this.byAddress.get(checksummed.toLowerCase());
+    if (taken && (taken.paymentId !== paymentId || taken.assetId !== assetId)) {
+      throw new Error('Receiving address collision between two payments — refusing to watch one address for both');
+    }
+    const entry: AddressBookEntry = { paymentId, assetId, address: checksummed, index: -1 };
+    this.byPayment.set(key, entry);
+    this.byAddress.set(checksummed.toLowerCase(), entry);
+    return checksummed;
+  }
+
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
     return (await this.inboundTransfers(address))[0] ?? null;
   }
@@ -221,23 +246,30 @@ export class EvmLiveChain implements CryptoChainPort {
     // Signed bytes are journalled before the broadcast RPC. No hash yet means
     // the send may already have left. That is not proof it did not.
     if (await this.broadcasts.hasSigned(idempotencyKey)) return { state: 'unknown' };
+    // A caller reverses the hold on `not_sent` (PayoutQuery.tla, NeverPaidTwice), so the answer closes the key: won,
+    // no send ever leaves under it; lost, a send holds it (claimed, maybe still signing) and may yet leave.
+    if ((await this.broadcasts.close(idempotencyKey)) === 'held') {
+      const landed = await this.broadcasts.get(idempotencyKey);
+      if (landed) return { state: 'sent', txHash: landed, amount: null, assetId: null };
+      return { state: 'unknown' };
+    }
     return { state: 'not_sent' };
   }
 
   /**
    * The depth of the send journalled under this key: the block that mined it and every block since. No hash journalled, no
-   * receipt yet, or a node that does not answer is `null` or 0, never a guess; a reverted receipt is `null` (it never
-   * counts as confirmed).
+   * receipt yet, or a node that does not answer is `null` or 0, never a guess. A reverted receipt never counts as confirmed:
+   * it reads `{ reverted: true, depth }`, so the caller can give the hold back once the revert itself is deep enough.
    */
-  async sendDepth(idempotencyKey: string): Promise<number | null> {
+  async sendDepth(idempotencyKey: string): Promise<SendDepth> {
     const hash = await this.broadcasts.get(idempotencyKey);
     if (!hash) return null;
     const receipt = await this.receiptFor(hash as Hex);
     if (!receipt) return 0;
-    if (receipt.status !== 'success') return null;
     const tip = await this.public.getBlockNumber();
-    const depth = tip - receipt.blockNumber + 1n;
-    return depth < 0n ? 0 : Number(depth);
+    const blocks = tip - receipt.blockNumber + 1n;
+    const depth = blocks < 0n ? 0 : Number(blocks);
+    return receipt.status === 'reverted' ? { reverted: true, depth } : depth;
   }
 
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {

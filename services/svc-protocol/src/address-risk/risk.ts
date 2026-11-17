@@ -46,7 +46,10 @@ export type NewReport = Omit<ReportRecord, 'id' | 'createdAt'>;
 export interface AddressRiskStore {
   labels(chainId: number, address: Address): Promise<LabelRecord[]>;
   openReportCount(chainId: number, address: Address): Promise<number>;
-  /** Writes the report and its queue row in one transaction; `duplicate` when the key already has an open report. */
+  /**
+   * Writes the report and its queue row in one transaction; `duplicate` when the key already has an open report, and that
+   * refusal is counted on the open report.
+   */
   insertReport(report: NewReport): Promise<{ kind: 'created'; report: ReportRecord } | { kind: 'duplicate' }>;
 }
 
@@ -116,7 +119,7 @@ export async function submitReport(
 /** In-memory store for tests. Same rules as the Postgres one. */
 export class MemoryAddressRiskStore implements AddressRiskStore {
   readonly labelRows: (LabelRecord & { chainId: number; address: Address })[] = [];
-  readonly reports: (ReportRecord & { status: 'open' | 'published' | 'dismissed' })[] = [];
+  readonly reports: (ReportRecord & { status: 'open' | 'published' | 'dismissed'; duplicatesRefused: number })[] = [];
   private seq = 0;
   addLabel(chainId: number, address: Address, label: LabelRecord) {
     this.labelRows.push({ ...label, chainId, address: toChecksum(address) });
@@ -130,12 +133,17 @@ export class MemoryAddressRiskStore implements AddressRiskStore {
     return this.reports.filter((r) => r.chainId === chainId && r.address === toChecksum(address) && r.status === 'open').length;
   }
   async insertReport(report: NewReport) {
-    if (this.reports.some((r) => r.idempotencyKey === report.idempotencyKey && r.status === 'open')) return { kind: 'duplicate' as const };
+    const open = this.reports.find((r) => r.idempotencyKey === report.idempotencyKey && r.status === 'open');
+    if (open) {
+      open.duplicatesRefused += 1;
+      return { kind: 'duplicate' as const };
+    }
     const row = {
       ...report,
       id: `00000000-0000-4000-8000-${String(++this.seq).padStart(12, '0')}`,
       createdAt: new Date(),
-      status: 'open' as const,
+      status: 'open' as 'open' | 'published' | 'dismissed',
+      duplicatesRefused: 0,
     };
     this.reports.push(row);
     return { kind: 'created' as const, report: row };

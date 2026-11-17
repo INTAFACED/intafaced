@@ -10,6 +10,7 @@ import { REACH_ATTACHMENT, makeLogReader, makeRecorder } from '../../../../tooli
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
+import { beforeRequest, noteResponse, partnerFile } from './partner-start.mjs';
 
 // Every journey imports `test` (and `expect`) from here, never from '@playwright/test' directly
 // (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does), and so does every helper that asserts, so a
@@ -71,6 +72,7 @@ let reachFile = 'outside-any-file';
 // What the stack's services logged they served, read from their own logs at each read below (journey-reach.mjs).
 const stackLogs = makeLogReader(path.join(localStackState(), 'logs'));
 const enterReach = (file) => {
+  partnerFile(file);
   reachFile = file;
   reach.enter(file);
 };
@@ -93,7 +95,15 @@ globalThis.fetch = (input, init) => {
     /* recording never stops a request */
   }
   noted(() => reach.request(reachFile, typeof input === 'string' ? input : (input?.url ?? String(input)), init?.method ?? input?.method));
-  return nodeFetch(input, init);
+  // The TEST partner bank's starts this file made, sent again first after a svc-bank restart, and each new one noted
+  // (partner-start.mjs).
+  const send = async () => {
+    const res = await nodeFetch(input, init);
+    await noteResponse(input, init, res);
+    return res;
+  };
+  const due = beforeRequest(nodeFetch);
+  return due ? due.then(send) : send();
 };
 
 /**

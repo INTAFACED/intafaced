@@ -38,7 +38,6 @@ import {
   isOverdue,
   lineAmount,
   lineProblem,
-  linesTotal,
   localDay,
   matchingPayments,
   MAX_INVOICE_LINES,

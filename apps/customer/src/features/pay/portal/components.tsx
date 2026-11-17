@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useId, useRef, type ReactNode } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { MoneyDisplay } from './presentation';
-import { Button, StateBlock, StatusTag } from '@intafaced/ui';
+import { Button, StateBlock } from '@intafaced/ui';
 import { EmptyState } from '../ui-kit';
 import { DateTime } from './ui/DateTime';
 import type { ListState } from './hooks';

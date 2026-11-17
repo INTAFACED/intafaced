@@ -23,6 +23,7 @@ import {
   type Source,
 } from './blockers';
 import { protocolCopy as copy } from './copy';
+import { AssetLinkReview, VenueReadDocs } from './venue/AssetLink';
 import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
 import { ChainHome } from './explorer/ChainHome';
 import { BlocksList } from './explorer/pages';
@@ -31,6 +32,7 @@ import { PoolsList } from './pools/PoolsList';
 import { BridgeRoutes } from './rails/BridgeRoutes';
 import { AuditProducts } from './AuditProducts';
 import { VenueFunds } from './venue/VenueFunds';
+import { LendPanel } from './lend/LendPanel';
 import './explorer/explorer.css';
 import './protocol.css';
 
@@ -524,6 +526,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         <EmptyState title={t('positionsEmpty')} />
       </Panel>
     );
+  else if (slug === 'dex' && tab === 'lend') body = <LendPanel api={api} t={t} />;
   else if (slug === 'dex' && tab === 'venue')
     body = (
       <>
@@ -552,7 +555,14 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         </Panel>
       </>
     );
-  else if (slug === 'protocol' && tab === 'contracts') body = <ContractsPanel chain={chainRef} t={t} />;
+  else if (slug === 'protocol' && tab === 'contracts')
+    body = (
+      <>
+        <ContractsPanel chain={chainRef} t={t} />
+        <AssetLinkReview api={api} t={t} />
+        <VenueReadDocs api={api} t={t} />
+      </>
+    );
   else if (slug === 'protocol' && tab === 'rails')
     body = (
       <Panel title={t('railsTitle')}>

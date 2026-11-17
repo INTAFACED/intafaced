@@ -44,7 +44,7 @@ function legs(over: Record<string, unknown>[] = []) {
     { name: 'call', ratio: '1', strike: '100', expiry: EXPIRY },
     { name: 'put', ratio: '-1', strike: '100', expiry: EXPIRY },
   ];
-  return base.map((leg, i) => ({ ...leg, ...(over[i] ?? {}) }));
+  return base.map((leg, i) => ({ ...leg, ...over[i] }));
 }
 
 function submitBody(over: Record<string, unknown> = {}) {

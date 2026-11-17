@@ -3,12 +3,9 @@ import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import { readContactChannels, type ContactChannels, type ContactSetRequest } from './contact';
 import type { SupportContactView } from './contact-server';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export type ContactDeskView = SupportContactView;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 export async function fetchContact(signal?: AbortSignal): Promise<ContactDeskView | null> {
   try {

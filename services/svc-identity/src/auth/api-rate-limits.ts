@@ -6,6 +6,7 @@
  * (`installApiKeyRateExchange`); the edge keeps the bucket and the per-route costs. Blank tiers mean no limit applies,
  * so the edge refuses every key call and every request here refuses `identity.rate_limits_unset`: nothing defaults.
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import {
   RATE_PER_MINUTE_MAX,
@@ -181,7 +182,7 @@ function toRequest(row: RequestRow): LimitRequest {
   };
 }
 
-const REQUEST_COLUMNS = (sql: Sql) => sql`
+const REQUEST_COLUMNS = (sql: Queryable) => sql`
   r.id, r.user_id, r.key_id, k.name AS key_name, k.key_prefix, r.asked_per_minute, r.current_per_minute,
   to_char(r.spike_starts_on, 'YYYY-MM-DD') AS spike_starts_on, to_char(r.spike_ends_on, 'YYYY-MM-DD') AS spike_ends_on,
   r.note, r.status, r.granted_per_minute, r.created_at, r.reviewed_at
@@ -330,8 +331,7 @@ export async function reviewLimitRequest(
   input: LimitReviewInput,
   now: Date = new Date(),
 ): Promise<LimitRequest> {
-  return sql.begin(async (tx) => {
-    const t = tx as unknown as Sql;
+  return sql.begin(async (t) => {
     const found = await t<
       Array<RequestRow & { revoked: boolean; expires_at: Date | null; mode: string; rate_refill_per_minute_granted: number | null }>
     >`

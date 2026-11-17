@@ -32,7 +32,7 @@ import {
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { ROOT, fund, mailedLines, tool } from './stack.mjs';
-import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
+import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-04, in the running app (docs/roadmap/journeys.json): send and receive tokens, use a claim link and scan
 // a code. One test per step, titled "J-dex-protocol-04 #<n>", run in order with one TEST wallet holding TEST tokens and
@@ -181,20 +181,52 @@ test(`${J} #2 types a name that does not resolve: "Name not resolved" and nothin
 test(`${J} #3 saves the address in the address book and groups two wallets: the contact with its label; the group shows combined activity`, async ({
   page,
 }) => {
-  await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  test.setTimeout(180_000);
+  // A second wallet of the person's own, funded on the TEST chain: its address is the new one saved in the address book.
+  const otherKey = testWalletKey();
+  const other = privateKeyToAccount(otherKey).address;
+  fundOnTestChain(other);
+  const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  // One transfer from each wallet of the group, sent on the TEST chain to someone outside it.
+  const fromThis = await signer(dex.key()).sendTransaction({
+    to: TOKEN_A.address,
+    data: encodeFunctionData({ abi: ERC20, functionName: 'transfer', args: [FRIEND, parseUnits('1', TOKEN_A.decimals)] }),
+  });
+  const fromOther = await signer(otherKey).sendTransaction({
+    to: TOKEN_A.address,
+    data: encodeFunctionData({ abi: ERC20, functionName: 'transfer', args: [FRIEND, parseUnits('2', TOKEN_A.decimals)] }),
+  });
+  expect((await chain.waitForTransactionReceipt({ hash: fromThis })).status).toBe('success');
+  expect((await chain.waitForTransactionReceipt({ hash: fromOther })).status).toBe('success');
+
   await walletSection(page, 'Address book');
   await continueSignIn(page);
-  await expect(
-    page.getByRole('region', { name: 'Contacts' }).getByRole('table').getByRole('row').filter({ hasText: 'TEST friend' }),
-  ).toContainText(FRIEND);
+  const contacts = page.getByRole('region', { name: 'Contacts' }).getByRole('table');
+  await expect(contacts.getByRole('row').filter({ hasText: 'TEST friend' })).toContainText(FRIEND);
+  // Saves the new address with its label: the contact appears with that label and that address.
+  const book = page.getByRole('form', { name: 'Add a contact' });
+  await book.getByRole('textbox', { name: /^Label/ }).fill('TEST second wallet');
+  await book.getByRole('textbox', { name: /^Address/ }).fill(other);
+  await book.getByRole('button', { name: 'Save contact' }).click();
+  await expect(contacts.getByRole('row').filter({ hasText: 'TEST second wallet' })).toContainText(new RegExp(other, 'i'));
+
+  // Groups the two wallets: this wallet and the saved one.
   await page.getByRole('button', { name: 'New wallet group' }).click();
   const group = page.getByRole('dialog', { name: 'New wallet group' });
   await group.getByRole('textbox', { name: /^Name/ }).fill('TEST group');
-  await group.getByRole('checkbox', { name: /TEST friend/ }).check();
+  await group.getByRole('checkbox', { name: /TEST second wallet/ }).check();
   await group.getByRole('checkbox', { name: /This wallet/ }).check();
   await group.getByRole('button', { name: 'Save group' }).click();
   await page.getByRole('link', { name: 'TEST group' }).click();
-  await expect(page.getByRole('region', { name: 'Group activity' }).getByRole('table')).toBeVisible();
+  const members = page.getByRole('region', { name: 'Wallets in the group' }).getByRole('table');
+  await expect(members.getByRole('row').filter({ hasText: 'This wallet' })).toContainText(new RegExp(wallet.address, 'i'));
+  await expect(members.getByRole('row').filter({ hasText: 'TEST second wallet' })).toContainText(new RegExp(other, 'i'));
+
+  // Combined activity: the group's activity lists the transfer each wallet sent, one row each, once the chain is read.
+  const activity = page.getByRole('region', { name: 'Group activity' }).getByRole('table');
+  const rowOf = (hash) => activity.getByRole('row').filter({ has: page.locator(`a[href="/chain/tx/${hash.toLowerCase()}"]`) });
+  await expect(rowOf(fromThis)).toHaveCount(1, { timeout: 60_000 });
+  await expect(rowOf(fromOther)).toHaveCount(1, { timeout: 60_000 });
 });
 
 test(`${J} #4 opens Receive: the address, a code and a warning naming the network for a wrong-chain deposit`, async ({ page }) => {

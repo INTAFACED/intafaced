@@ -500,6 +500,32 @@ function TokenBody({ address, t }: { address: string; t: TokensTranslate }) {
 }
 
 /**
+ * The open scam reports about this address (D-developer-compliance-01), from the address risk read: a count only, never
+ * who reported. It reads on its own, so it shows even where the token's own read refuses.
+ */
+function ScamReports({ address, t }: { address: string; t: TokensTranslate }) {
+  const transport = useApi();
+  const api = useMemo(() => createProtocolApi(transport), [transport]);
+  const { resource, reload } = useResource((signal) => api.addressRisk(address, signal), `token-scam:${address.toLowerCase()}`);
+  return (
+    <section aria-label={t('scamTitle')}>
+      <Panel title={t('scamTitle')}>
+        {resource.status === 'loading' && <p role="status">{t('scamReading')}</p>}
+        {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
+        {resource.status === 'ready' && (
+          <>
+            <p data-testid="scam-reports">
+              {resource.data.openReports === 1 ? t('scamOne') : t('scamMany', { count: String(resource.data.openReports) })}
+            </p>
+            <p className="muted">{t('scamNote')}</p>
+          </>
+        )}
+      </Panel>
+    </section>
+  );
+}
+
+/**
  * A token's page (/dex/tokens/:address, D-portfolio-wallet-07 with D-launch-listing-02 and D-explorer-05): facts, trust,
  * pairs, holders and trades, all read from the chain at one block, and the dollar price from the pools' own read. A figure
  * with no source (market cap, the trust criteria and the organic score's inputs) names what is missing instead of a guess.
@@ -529,7 +555,10 @@ export function TokenPage({ address }: { address: string | undefined }) {
         }
       >
         {valid ? (
-          <TokenBody address={address} t={t} />
+          <>
+            <TokenBody address={address} t={t} />
+            <ScamReports address={address} t={t} />
+          </>
         ) : (
           <Panel title={t('notFoundTitle')}>
             <div data-code="protocol.not_found" role="status">

@@ -1,6 +1,7 @@
 import type { Cell, CellValue, Column, ReadData, ReadOutcome, ReadSpec, Row } from './types';
 import { formatWhen } from '@/lib/as-of';
 import { codeWords } from '@/lib/desk/words';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Strict reader for one service answer, driven by the read's declared columns, and the pure formatting the desk uses.
@@ -9,10 +10,6 @@ import { codeWords } from '@/lib/desk/words';
  * missing key) the WHOLE read is invalid and the desk says the service answered in a shape it does not understand.
  * It never shows a partial table, a "0" for a field it could not read, or a guess.
  */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 const isIso = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
 

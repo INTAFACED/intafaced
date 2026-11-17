@@ -880,7 +880,7 @@ describe('private REST — mount boundary + order write path', () => {
     expect(body.results.map((r) => r.order?.clientOrderId)).toEqual(['batch-a', 'batch-b']);
     expect(body.results[0]!.order?.amount).toBe('1.5');
     expect(seen.map((input) => input.clientOrderId)).toEqual(['batch-a', 'batch-b']);
-    expect(typeof (seen[0] as unknown as { qty: unknown }).qty).toBe('bigint');
+    expect(typeof (seen[0] as { qty: unknown }).qty).toBe('bigint');
     await app.close();
   });
 
@@ -3059,7 +3059,7 @@ describe('private REST — mount boundary + order write path', () => {
       const app = await build(
         deps({
           openPosition: async (_p, input) => {
-            seen.push(input as unknown as Record<string, unknown>);
+            seen.push(input as Record<string, unknown>);
             return { id: 'pos-1', symbol: input.symbol } as never;
           },
         }),

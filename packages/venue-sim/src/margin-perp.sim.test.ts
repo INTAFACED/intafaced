@@ -93,7 +93,8 @@ describe("TEST venue simulator: a market on its deployer's own margin account (J
     expect(m.openInterest).toEqual({ known: true, value: { size: ZERO, capSize: a('500') } });
     for (const other of markets.filter((x) => x.symbol !== XSTD)) {
       expect(other.marginAccount).toEqual({ known: false });
-      expect(other.openInterest).toEqual({ known: false });
+      // J-derivatives-02's TEST perpetual XRSK-PERP also reports its open interest (margin-tiers.sim.test.ts).
+      if (other.symbol !== 'XRSK-PERP') expect(other.openInterest).toEqual({ known: false });
     }
     expect(await refusal(w.sim.marketMargin(w.account, 'XSTK-PERP'))).toMatchObject({ code: 'not_offered' });
   });
@@ -103,7 +104,7 @@ describe("TEST venue simulator: a market on its deployer's own margin account (J
     // USDC on the main account does not margin this market.
     expect(await w.run(open())).toMatchObject({
       accepted: false,
-      refusal: { code: 'insufficient_balance', detail: `free USDC in ${MARGIN} does not cover what this order locks` },
+      refusal: { code: 'insufficient_balance', detail: `free USDC in ${MARGIN} does not cover the margin and fees this order locks` },
     });
     // The owner's signed move puts collateral in, and nothing leaves the venue.
     expect(await w.run(move('300'))).toMatchObject({ accepted: true });

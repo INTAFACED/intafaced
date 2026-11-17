@@ -7,7 +7,6 @@
  * shared writer, and one intent keeps one request id until the numbers change.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { Position } from '@intafaced/exchange-contract/schemas';
 import {
   AlertDialog,
   AlertDialogContent,
