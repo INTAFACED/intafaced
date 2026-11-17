@@ -89,6 +89,12 @@ import type { DrawService } from './draws.js';
 import type { DistributionService } from './distributions.js';
 import type { TrialPassService } from './trial-passes.js';
 import type { PoolService } from './pools.js';
+import {
+  distributionPlanInputSchema,
+  distributionPlanSchema,
+  payoutBoardInputSchema,
+  payoutBoardSchema,
+} from '@intafaced/contracts/campaigns-payout-board';
 import { CampaignsError } from './codes.js';
 import type { RiskService } from './risk.js';
 import {
@@ -860,6 +866,18 @@ export function createCampaignsRouter(services: CampaignServices) {
          * returns the run as it stands and owes nothing twice. The operator and their reason are audited.
          */
         distribution: router({
+          /** An airdrop's plan, account by account (J-campaigns-19 #5 #6): the run as it stands. Read only. */
+          plan: opsProcedure
+            .input(distributionPlanInputSchema)
+            .output(distributionPlanSchema)
+            .query(async ({ input }) => {
+              try {
+                if (!distributions) throw new CampaignsError('campaigns.store_unwired', 'Distributions are not wired');
+                return await distributions.plan(input.campaignId);
+              } catch (err) {
+                mapError(err);
+              }
+            }),
           run: opsProcedure
             .input(distributionRunInputSchema)
             .output(distributionRunSchema)
@@ -1089,6 +1107,20 @@ export function createCampaignsRouter(services: CampaignServices) {
         }),
       }),
       payouts: router({
+        /**
+         * The payout board (J-campaigns-19 #1 #2): every intent by where it stands (owed, pending funding, sending, paid,
+         * failed, other), with its keys, its ledger transactions and its one payment's chain transaction. Read only.
+         */
+        board: opsProcedure
+          .input(payoutBoardInputSchema)
+          .output(payoutBoardSchema)
+          .query(async ({ input }) => {
+            try {
+              return await tasks.payoutBoard(input);
+            } catch (err) {
+              mapError(err);
+            }
+          }),
         /** Every reward record with its account, state, ledger transaction and attempts. */
         list: opsProcedure
           .input(z.object({ campaignId: z.string().min(1).max(128).optional() }).strict())

@@ -158,6 +158,25 @@ defineUserVenueConformance(
   { describe, it, expect: expect as never },
 );
 
+describe('TEST venue simulator: a booked deficit (J-campaigns-19 #5)', () => {
+  it('reports a negative balance once per loss, and every other account still trades', async () => {
+    const w = world();
+    w.sim.deposit(w.other, 'USDC', a('50'), 'chain:o:deficit');
+    expect(w.sim.bookDeficit(w.other, 'USDC', a('80'), 'loss:1')).toBe(true);
+    expect(w.sim.bookDeficit(w.other, 'USDC', a('80'), 'loss:1')).toBe(false);
+    expect(balanceOf((await w.sim.balances(w.other)).value, 'USDC')).toEqual({
+      asset: 'USDC',
+      free: a('-30'),
+      locked: ZERO,
+      total: a('-30'),
+    });
+    // The deficit never enters the balances the simulator trades on, so its invariant holds and a submit still lands.
+    w.sim.deposit(w.trader, 'USDC', a('100'), 'chain:t:deficit');
+    const done = await w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') });
+    expect(done.outcome).toMatchObject({ definite: true, accepted: true });
+  });
+});
+
 describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
   it('#4 a deposit shows free 1,000 and used 0, and a replayed deposit event adds nothing', async () => {
     const w = world();

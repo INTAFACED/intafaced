@@ -15,7 +15,11 @@ const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 const word = (hex: string) => hex.replace(/^0x/, '').toLowerCase().padStart(64, '0');
 const topicOf = (address: string) => `0x${word(address)}`;
 
-export function testRewardChain(opts: { rpcUrl: string; token: string; chainId: number }): RewardChain {
+export function testRewardChain(opts: {
+  rpcUrl: string;
+  token: string;
+  chainId: number;
+}): RewardChain & { sendWithGas(from: string, to: string, units: bigint, gas: bigint): Promise<string> } {
   const url = new URL(opts.rpcUrl);
   if (!LOOPBACK.has(url.hostname)) throw new Error(`the TEST reward payer pays on a loopback chain only, not ${opts.rpcUrl}`);
   if (!/^0x[0-9a-fA-F]{40}$/.test(opts.token)) throw new Error('the TEST reward token must be a 0x address');
@@ -51,6 +55,13 @@ export function testRewardChain(opts: { rpcUrl: string; token: string; chainId: 
     async send(from, to, units) {
       await prepare(from);
       return rpc<string>('eth_sendTransaction', [{ from, to: token, data: `${TRANSFER}${word(to)}${word(units.toString(16))}` }]);
+    },
+    /** One transfer with a fixed gas limit (a TEST pay fault's revert, `test-pay-fault.ts`). */
+    async sendWithGas(from, to, units, gas) {
+      await prepare(from);
+      return rpc<string>('eth_sendTransaction', [
+        { from, to: token, gas: `0x${gas.toString(16)}`, data: `${TRANSFER}${word(to)}${word(units.toString(16))}` },
+      ]);
     },
     async receipt(hash) {
       const r = await rpc<{ status?: string } | null>('eth_getTransactionReceipt', [hash]);
