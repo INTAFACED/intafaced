@@ -418,13 +418,13 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   const docs = app.getByRole('region', { name: 'Documents', exact: true });
   // A sole trader is asked for proof of identity and proof of address, never a certificate of incorporation.
   await expect(documentRows(docs)).toHaveText([/^Test proof of identity/, /^Test proof of address/]);
-  await expect(docs).toContainText('Files up to 1.0 MB. Accepted: PDF, PNG.');
+  await expect(docs).toContainText('Files up to 700.0 KB. Accepted: PDF, PNG.');
   await expect(docs).toContainText('The automatic document check isn’t connected');
   const identity = docs.getByRole('row', { name: /Test proof of identity/ });
   await expect(identity).toContainText('Needed');
   const pick = identity.getByLabel('Choose a file for Test proof of identity');
   await pick.setInputFiles({ name: 'too-big.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(2 * 1024 * 1024, 1) });
-  await expect(identity.getByRole('alert')).toHaveText('This file is 2.0 MB. The limit is 1.0 MB. Choose a smaller file.');
+  await expect(identity.getByRole('alert')).toHaveText('This file is 2.0 MB. The limit is 700.0 KB. Choose a smaller file.');
   await expect(identity.getByRole('button', { name: 'Send' })).toBeDisabled();
   await pick.setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('TEST notes') });
   await expect(identity.getByRole('alert')).toHaveText('This kind of file isn’t accepted. Accepted: PDF, PNG.');

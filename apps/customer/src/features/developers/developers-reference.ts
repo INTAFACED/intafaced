@@ -1101,6 +1101,24 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The most your wallet has approved for our builder fee on the venue',
   },
   {
+    name: 'venueFeeTier',
+    method: 'GET',
+    path: '/api/v1/venue/fee-tier',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Your fee tier on the venue as it reports it: the tier, the volume it counted, your maker and taker rates, and when it last placed you',
+  },
+  {
+    name: 'venueFees',
+    method: 'GET',
+    path: '/api/v1/venue/fees',
+    product: 'accounts',
+    access: 'public',
+    summary:
+      'The venue’s published fee tiers, each listed market’s maker and taker rates, the venue’s cap on a builder fee there, and our builder fee: blank reads not set',
+  },
+  {
     name: 'venueMarketVenues',
     method: 'GET',
     path: '/api/v1/venue/markets/:symbol/venues',

@@ -40,6 +40,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode}, /book {symbol,depth},
+ *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
@@ -70,7 +71,9 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/market-limits {symbol,maxOrderQty?,maxOrderNotional?,minOrderNotional?,priceBandBps?,maxOpenOrders?}
  *                                                         decimal strings (the cap a whole number), or null for "not
  *                                                         reported"; a key left out keeps that rule
- *        /test/market-fees {symbol,makerFeeBps,takerFeeBps}   decimal bps, or null for "not published"
+ *        /test/market-fees {symbol,makerFeeBps,takerFeeBps}   decimal bps, or null for "not published"; a spot maker rate
+ *                                                         below zero is the venue's rebate (J-cex-spot-10 #4)
+ *        /test/fee-tier-update {owner}                     the venue's next update of that owner's fee tier, from its fills
  *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional,minOrderNotional?,priceBandBps?,
  *                          maxOpenOrders?}               one more TEST cash spot market, tick 0.1, lot 0.001, no ladder,
  *                                                         TEST_SPOT_RULES unless named (null: not published); refused
@@ -101,6 +104,28 @@ export const TEST_SPOT_RULES = {
   priceBandBps: parseAmount('9500'),
   maxOpenOrders: 1000,
 } as const;
+
+const rates = (maker: string, taker: string) =>
+  ({
+    makerFeeBps: { known: true, value: parseAmount(maker) },
+    takerFeeBps: { known: true, value: parseAmount(taker) },
+  }) as const;
+
+/**
+ * The TEST venue's published fee tiers (J-cex-spot-10 #2 #6), counted on 14 days of the account's own fills in USDC. The
+ * base tier names the BTC markets' published rates; an account the venue placed in the base tier pays each market's own.
+ * The venue moves an account only at its next update (`/test/fee-tier-update`), as Hyperliquid updates tiers daily. Every
+ * figure is TEST.
+ */
+export const TEST_VENUE_FEE_TIERS = {
+  tiers: [
+    { name: 'TEST base', fromVolume: parseAmount('0'), spot: rates('1', '3.5'), perpetual: rates('1.5', '4.5') },
+    { name: 'TEST tier 1', fromVolume: parseAmount('100000'), spot: rates('0.8', '3'), perpetual: rates('1.2', '4') },
+    { name: 'TEST tier 2', fromVolume: parseAmount('1000000'), spot: rates('0.5', '2.5'), perpetual: rates('1', '3.5') },
+  ],
+  volumeAsset: 'USDC',
+  volumeDays: 14,
+};
 
 /** The venue itself as the lister of its own markets (the BTC markets). */
 const VENUE_LISTED = { kind: 'venue', name: 'TEST venue simulator' } as const;
@@ -736,6 +761,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.arrivals(account(body));
     case '/builder-fee-approval':
       return sim.builderFeeApproval(account(body), str(body, 'builder'));
+    case '/fee-status':
+      return sim.feeStatus(body.account ? account(body) : null);
     case '/builder-totals':
       return sim.builderTotals(str(body, 'builder'));
     case '/builder-claims':
@@ -936,11 +963,15 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       sim.setTriggerSources(str(body, 'symbol'), sources as ('mark' | 'last')[]);
       return { ok: true, label: 'TEST' };
     }
+    case '/test/fee-tier-update':
+      return { ...sim.updateFeeTier(str(body, 'owner')), label: 'TEST' };
     case '/test/market-fees': {
       const fee = (k: string): MaybeKnown<Amount> => {
         const v = body[k];
         if (v === null) return { known: false };
-        if (typeof v !== 'bigint' || v < 0n) throw new VenueWireError(`${k} is a decimal string of bps, or null for "not published"`);
+        // A maker rebate is a maker rate below zero; a taker rate never is.
+        if (typeof v !== 'bigint' || (v < 0n && k !== 'makerFeeBps'))
+          throw new VenueWireError(`${k} is a decimal string of bps, or null for "not published"`);
         return { known: true, value: v as Amount };
       };
       sim.setMarketFees(str(body, 'symbol'), { makerFeeBps: fee('makerFeeBps'), takerFeeBps: fee('takerFeeBps') });
@@ -1076,6 +1107,7 @@ export async function startTestVenueServer(
   const sim = new TestVenueSimulator({
     clock: opts.clock ?? (() => new Date()),
     markets: TEST_VENUE_MARKETS,
+    feeSchedule: TEST_VENUE_FEE_TIERS,
     chainId: opts.chainId,
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),

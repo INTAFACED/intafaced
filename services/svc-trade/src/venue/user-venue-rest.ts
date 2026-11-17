@@ -314,6 +314,11 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     });
   });
 
+  // J-cex-spot-10 #2: the public fee page, signed in or not: the venue's tiers and rates, its builder-fee cap and ours.
+  app.get<{ Querystring: Query }>('/api/v1/venue/fees', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicFees(), req.query.venueId);
+  });
+
   // J-cex-spot-01 #5: the venue's public book, prints and candles on a market we list, as the spot desk draws them. Gated
   // as `markets` and `best-prices` are: venue market data is for a person the trade jurisdiction admits.
   const whole = (raw: string | undefined, name: string, most: number, fallback: number) => {
@@ -456,6 +461,8 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.scheduledCancel(a);
     },
+    // J-cex-spot-10 #6: the account's own fee tier, volume and rates as the venue reports them.
+    '/api/v1/venue/fee-tier': async (d, _q, a) => d.accountFees(a),
     '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
       const status = await d.status();
       const builder = 'builder' in status ? status.builder : null;
@@ -484,6 +491,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/settlements',
     '/api/v1/venue/scheduled-cancel',
     '/api/v1/venue/builder-fee-approval',
+    '/api/v1/venue/fee-tier',
   ]) {
     const read = accountReads[path]!;
     app.get<{ Querystring: Query }>(path, privateRead, async (req, reply) => {

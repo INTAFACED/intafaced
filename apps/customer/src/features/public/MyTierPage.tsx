@@ -8,6 +8,7 @@ import { useSession } from '../session/session';
 import { feeTierFetcher, snapshotTime, type FeeTier, type FeeTierBenefits } from './fee-tier';
 import { feeTierCopy } from './fee-tier-copy';
 import { VipApply } from './VipApply';
+import { VenueTier } from './VenueFees';
 import './public-pages.css';
 
 /**
@@ -43,11 +44,12 @@ export function MyTierPage() {
 function SignedInTier() {
   const env = useDataEnv();
   const source = useMemo(() => env.poller.source<FeeTier | null>('my-fee-tier', feeTierFetcher(env.api), { intervalMs: 15_000 }), [env]);
-  return <MyTierView load={useSource(source)} apply={<VipApply />} />;
+  return <MyTierView load={useSource(source)} apply={<VipApply />} venue={<VenueTier />} />;
 }
 
 /** `apply` is the VIP application: shown whatever the tier read answers, so a pending application stays in view. */
-export function MyTierView({ load, apply }: { load: Loadable<FeeTier | null>; apply?: ReactNode }) {
+/** `venue` is the venue's own tier for the connected wallet (J-cex-spot-10 #6), beside our programme's. */
+export function MyTierView({ load, apply, venue }: { load: Loadable<FeeTier | null>; apply?: ReactNode; venue?: ReactNode }) {
   const copy = feeTierCopy.useCopy();
   return (
     <div className="pub-page" data-room="my-tier">
@@ -71,6 +73,7 @@ export function MyTierView({ load, apply }: { load: Loadable<FeeTier | null>; ap
           <p>{copy.t('blankBody')}</p>
         </section>
       ) : null}
+      {venue}
       {load.status === 'ready' && load.data ? <Tier tier={load.data} /> : null}
       {apply}
       <p>

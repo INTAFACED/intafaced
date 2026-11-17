@@ -398,6 +398,50 @@ export const venueLeverageSchema = z.object({ symbol: z.string(), leverageBps: z
 export type VenueLeverage = z.infer<typeof venueLeverageSchema>;
 
 const assetAmount = z.object({ asset: z.string(), amount: signedDecimalSchema });
+/** The venue's maker and taker rates in bps (J-cex-spot-10); a maker rate below zero is the venue's rebate. */
+const feeRatesSchema = z.object({ makerFeeBps: maybeKnown(signedDecimalSchema), takerFeeBps: maybeKnown(signedDecimalSchema) });
+export type VenueFeeRates = z.infer<typeof feeRatesSchema>;
+const feeTiersSchema = z.object({
+  tiers: z.array(z.object({ name: z.string(), fromVolume: decimalSchema, spot: feeRatesSchema, perpetual: feeRatesSchema })).nullable(),
+  volumeAsset: z.string(),
+  volumeDays: z.number().int().positive(),
+});
+export type VenueFeeTiers = z.infer<typeof feeTiersSchema>;
+/** `GET /venue/fees` (J-cex-spot-10 #2): the venue's tiers, each listed market's rates and builder-fee cap, and ours. */
+export const venuePublicFeesSchema = asOf(
+  z.object({
+    venue: z.object({ id: z.string(), displayName: z.string() }),
+    schedule: feeTiersSchema,
+    markets: z.array(
+      z.object({
+        symbol: z.string(),
+        kind: z.enum(['spot', 'perpetual']),
+        makerFeeBps: maybeKnown(signedDecimalSchema),
+        takerFeeBps: maybeKnown(signedDecimalSchema),
+        builderFeeCapBps: maybeKnown(decimalSchema),
+        builderFeeBps: maybeKnown(decimalSchema),
+      }),
+    ),
+    test: z.boolean(),
+  }),
+);
+export type VenuePublicFees = z.infer<typeof venuePublicFeesSchema>;
+/** `GET /venue/fee-tier` (J-cex-spot-10 #6): the account's tier, counted volume and rates as the venue reports them. */
+export const venueFeeTierSchema = asOf(
+  z.object({
+    schedule: feeTiersSchema,
+    account: z
+      .object({
+        tierName: z.string().nullable(),
+        volume: maybeKnown(decimalSchema),
+        spot: feeRatesSchema,
+        perpetual: feeRatesSchema,
+        tierUpdatedAt: isoTime.nullable(),
+      })
+      .nullable(),
+  }),
+).and(z.object({ test: z.boolean() }));
+export type VenueFeeTier = z.infer<typeof venueFeeTierSchema>;
 export const venuePreviewSchema = z.object({
   symbol: z.string(),
   kind: z.enum(['spot', 'perpetual']),
@@ -405,6 +449,8 @@ export const venuePreviewSchema = z.object({
   role: z.enum(['maker', 'taker']),
   venueFee: maybeKnown(assetAmount),
   builderFee: maybeKnown(assetAmount),
+  // The venue's rates for this account on this market, from the preview itself (J-cex-spot-10 #1).
+  rates: feeRatesSchema.optional(),
   // What lowered our builder fee on this order (J-campaigns-09 #2): a fee-saver coupon or the rank, the larger of the two.
   feeDiscount: z
     .union([
@@ -1001,6 +1047,10 @@ export function venueApi(api: ApiClient) {
       read('/leverage', asOf(venueLeverageSchema.nullable()), { owner, symbol, venueId }, signal),
     builderFeeApproval: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/builder-fee-approval', asOf(decimalSchema), { owner, venueId }, signal),
+    /** The venue's published fees, its builder-fee caps and ours, signed in or not (J-cex-spot-10 #2). */
+    publicFees: (signal?: AbortSignal) => read('/fees', venuePublicFeesSchema, {}, signal),
+    /** The owner's own fee tier as the venue reports it (J-cex-spot-10 #6). */
+    feeTier: (owner: string, signal?: AbortSignal) => read('/fee-tier', venueFeeTierSchema, { owner }, signal),
     marketVenues: (symbol: string, owner: string, side: 'buy' | 'sell', signal?: AbortSignal) =>
       api.rest(`/venue/markets/${encodeURIComponent(symbol)}/venues`, marketVenuesSchema, { query: { owner, side }, signal }),
     routePreview: (owner: string, intent: OrderIntent) => write('/route-preview', routePreviewSchema, { owner, intent }),

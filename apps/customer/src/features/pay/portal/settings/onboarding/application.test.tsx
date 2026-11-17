@@ -293,3 +293,22 @@ describe('after the review', () => {
     expect(button).not.toContain(' disabled=""');
   });
 });
+
+describe('a file the HTTP body limit refuses', () => {
+  it('reads as too large, not as a bare refusal', async () => {
+    const { sizedOut } = await import('./application-refusals');
+    const { refusalText } = await import('../../refusal');
+    const refused = sizedOut({
+      ok: false,
+      reason: 'error',
+      message: 'Request body is too large',
+      code: 'edge.body_too_large',
+      status: 413,
+    });
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refusalText(refused)).toBe(applicationCopy.t('rTooLarge'));
+    const other = sizedOut({ ok: false, reason: 'error', message: 'x', code: 'edge.request_invalid', status: 400 });
+    expect(other).toMatchObject({ code: 'edge.request_invalid' });
+  });
+});

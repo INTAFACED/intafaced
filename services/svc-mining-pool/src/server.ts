@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import postgres from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { s2sFromEnv } from '@intafaced/contracts';
+import { baseEnvSchema, otelEnvSchema } from '@intafaced/config';
+import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { miningHealthHonesty } from './health-honesty.js';
 import { createMiningRequestHandler } from './http.js';
 import { createLedgerClient } from './ledger-client.js';
@@ -64,6 +66,15 @@ function isDirectRun(): boolean {
 }
 
 if (isDirectRun()) {
+  const otel = baseEnvSchema.merge(otelEnvSchema).parse({ ...process.env, SERVICE_NAME: process.env.SERVICE_NAME ?? 'svc-mining-pool' });
+  registerProcessHooks(
+    startTelemetry({
+      serviceName: otel.SERVICE_NAME,
+      endpoint: otel.OTEL_EXPORTER_OTLP_ENDPOINT,
+      enabled: otel.OTEL_ENABLED,
+      environment: otel.APP_ENV,
+    }),
+  );
   const server = createServer((request, response) => {
     void handler(request, response);
   });

@@ -77,6 +77,9 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'marginNow',
   'marginAfter',
   'difference',
+  // VenueFeeTier and VenueAccountFees (J-cex-spot-10 #2 #6)
+  'fromVolume',
+  'volume',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -98,6 +101,7 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'makerFeeBps',
   'takerFeeBps',
   'maintenanceMargin',
+  'volume',
   'value',
 ]);
 
@@ -152,6 +156,8 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'firedAt',
   // UserVenueWithdrawal (J-cex-spot-07 #5)
   'requestedAt',
+  // VenueAccountFees (J-cex-spot-10 #6)
+  'tierUpdatedAt',
 ]);
 
 /**

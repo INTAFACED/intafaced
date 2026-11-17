@@ -3,7 +3,7 @@ import { kybApplicationViewSchema, type KybApplicationSection, type KybApplicati
 import { kybDocumentChecklistViewSchema, kybDocumentsUploadResultSchema } from '@intafaced/contracts/kyb-documents';
 import { kybEntityTypesViewSchema } from '@intafaced/contracts/kyb-entity-types';
 import type { PortalTools } from '../../api-tools';
-import './application-refusals';
+import { sizedOut } from './application-refusals';
 
 // The business application (J-merchant-02 steps 2 and 3): svc-pay `kyb.entityTypes.*`, `kyb.application.*` and
 // `kyb.documents.*`, parsed with the service's own schemas.
@@ -32,5 +32,5 @@ export const applicationApi = ({ query, mutate }: PortalTools) => ({
   kybDocuments: (applicationId: string, signal?: AbortSignal) =>
     query('kyb.documents.checklist', { applicationId }, kybDocumentChecklistViewSchema, signal),
   kybDocumentUpload: (applicationId: string, key: string, contentType: string, bytesBase64: string) =>
-    mutate('kyb.documents.upload', { applicationId, key, contentType, bytesBase64 }, kybDocumentsUploadResultSchema),
+    mutate('kyb.documents.upload', { applicationId, key, contentType, bytesBase64 }, kybDocumentsUploadResultSchema).then(sizedOut),
 });

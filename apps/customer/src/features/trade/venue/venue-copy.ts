@@ -130,8 +130,10 @@ export const venueCopy = defineCopy('trade.venue', {
   'Read back missing': 'Read back from the venue: not found so far. Still checking; nothing is sent again.',
   'Outcome waiting':
     'Waiting for the other prompt: this action is already open for signing in another tab or window. Press again to sign it here instead.',
+  'Fill zero fee': 'Zero fee',
+  'Fill venue rebate': 'Venue rebate {amount}',
   'Builder fee owner blank':
-    'Not set: our builder fee is an owner value that is blank, so the venue refuses every order until it is published.',
+    'Builder fee not set: our builder fee is an owner value that is blank, so no order is prepared or signed until it is published.',
   'Not a step': '{field} must be a multiple of {step}.',
   'Enter amount': 'Enter an amount.',
   'Enter price': 'Enter a price.',
