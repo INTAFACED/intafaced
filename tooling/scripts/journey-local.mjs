@@ -161,6 +161,19 @@ export async function readyStack(io, files) {
 }
 
 /**
+ * What a local run ran and how it ended, `.jr/run.json`, for the Mac's first-push check (a PreToolUse hook on the Mac):
+ * the first push of a journey branch goes after a PASS (or a refused start) on the exact tree pushed. Written at the
+ * start with `code` null, so an interrupted or crashed run never reads as a pass; `pid` lets the check tell a run still
+ * going from one that died without its end record. Returns `end(code)`, which writes the exit code. The one writer for
+ * `journey` and a whole-journey `verify drive` (verify-app.mjs; intafaced #8757).
+ */
+export function recordRun(io, files) {
+  const ran = { tree: io.tree?.() ?? null, files, startedAt: io.now?.() ?? Date.now(), pid: process.pid, code: null };
+  io.record?.(ran);
+  return (code) => io.record?.({ ...ran, code });
+}
+
+/**
  * The whole run, with every outside effect passed in so the test can drive it: `run(argv, { env, capture })` starts a
  * child and resolves { code, text }, `say` prints a line, `ourStack()` says whether this checkout already has a live
  * stack, `slot()` reads this checkout's slot after the start, `readJson`, `branch`, `onSignal(fn)`.
@@ -194,14 +207,9 @@ export async function journeyLocal(opts, io) {
         return 130;
       })()),
   );
-  // What this run ran and how it ended, for the Mac's first-push check (a PreToolUse hook on the Mac): the first push
-  // of a journey branch goes after a PASS (or a refused start) on the exact tree pushed. `code` stays null until the
-  // run ends, so an interrupted or crashed run never reads as a pass; `pid` lets the check tell a run still going from
-  // one that died without its end record.
-  const ran = { tree: io.tree?.() ?? null, files, startedAt: io.now?.() ?? Date.now(), pid: process.pid, code: null };
-  io.record?.(ran);
+  const end = recordRun(io, files);
   const code = await body();
-  if (!interrupted) io.record?.({ ...ran, code });
+  if (!interrupted) end(code);
   return interrupted ? interrupted : code;
 
   async function body() {

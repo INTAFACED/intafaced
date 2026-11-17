@@ -6,7 +6,9 @@
  *   pnpm local:stack verify launch [<J-id> ...] [--only a,b]   start or reuse this checkout's stack, rebuild what changed,
  *                                                  ready it once, and say when it is usable
  *   pnpm local:stack verify doctor                 read-only: is this instance worth driving?
- *   pnpm local:stack verify drive <J-id> [#n ...]  drive those steps of a journey; evidence kept in .verify/runs/
+ *   pnpm local:stack verify drive <J-id> [#n ...]  drive those steps of a journey; evidence kept in .verify/runs/;
+ *                                                  with no #n, every step, recorded in .jr/run.json as `journey`
+ *                                                  records it, for the first push (recordedDrive)
  *   pnpm local:stack verify look <path> [--sign-up] [--selector <css>]   one page as a person sees it: screenshot and
  *                                                  ARIA snapshot (and one element's box and text), kept in .verify/runs/
  *   pnpm local:stack verify map [<J-id> ...]       write the feature map from docs/roadmap/journeys.json and the journey
@@ -32,7 +34,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHECKOUT, slotClaims, slotPorts } from './local-test-facts.mjs';
-import { JOURNEY_DIR, onlyReady, readyStack, realIo, refusal } from './journey-local.mjs';
+import { JOURNEY_DIR, onlyReady, readyStack, realIo, recordRun, refusal } from './journey-local.mjs';
 import { READS_PAST, withoutComments } from './journey-market-past.mjs';
 import { WORLD, declaredWorld, marketLive, stackFresh } from '../../apps/customer/tests/real-app/world-line.mjs';
 
@@ -773,6 +775,19 @@ async function launch(opts, io) {
   return 0;
 }
 
+/**
+ * A drive of the whole journey (no step named) records its run in `.jr/run.json` exactly as `pnpm local:stack journey`
+ * does, through the same writer (journey-local.mjs `recordRun`), so one green run of either counts for the first push
+ * (intafaced #8757). A drive of single steps records nothing, so it never stands for the journey.
+ */
+export async function recordedDrive(steps, files, io, run) {
+  if (steps.length) return run();
+  const end = recordRun(io, files);
+  const code = await run();
+  end(code);
+  return code;
+}
+
 async function drive(opts, io) {
   const index = loadIndex();
   const plan = planDrive(opts.id, opts.steps, index.get(opts.id));
@@ -808,17 +823,19 @@ async function drive(opts, io) {
   const command = againCommand(CHECKOUT, { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report }, argv, dir);
   const startedAt = new Date().toISOString();
   io.say(`${PREFIX} drive: ${opts.id} ${plan.steps.map((n) => `#${n}`).join(' ')} in ${plan.files.join(', ')}`);
-  const pw = await io.run(argv, { capture: true, env: { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report } });
-  return finishRun(io, {
-    dir,
-    output: pw.text,
-    label,
-    what: `journey ${opts.id}, steps ${plan.steps.map((n) => `#${n}`).join(' ')}${plan.chained.length ? `, with the tests before them in ${plan.chained.map((c) => c.file).join(', ')}` : ''}`,
-    command,
-    startedAt,
-    exit: pw.code,
-    report,
-    claim: d.claim,
+  return recordedDrive(opts.steps, plan.files, io, async () => {
+    const pw = await io.run(argv, { capture: true, env: { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report } });
+    return finishRun(io, {
+      dir,
+      output: pw.text,
+      label,
+      what: `journey ${opts.id}, steps ${plan.steps.map((n) => `#${n}`).join(' ')}${plan.chained.length ? `, with the tests before them in ${plan.chained.map((c) => c.file).join(', ')}` : ''}`,
+      command,
+      startedAt,
+      exit: pw.code,
+      report,
+      claim: d.claim,
+    });
   });
 }
 
