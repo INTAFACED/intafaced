@@ -89,10 +89,15 @@ async function continueInWallet(page) {
   await expect(sheet).toHaveCount(0, { timeout: 30_000 });
 }
 
-/** The TEST wallet connected inside one part of the page, pressing its Connect when the part asks. */
-async function connectIn(part) {
+/**
+ * The TEST wallet connected inside one part of the page, until `connected` shows: Connect is pressed once when the part
+ * asks for it (the wallet announces itself a moment after the page loads), and not at all when the wallet is restored.
+ */
+async function connectIn(part, connected) {
   const connect = part.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true });
-  if (await connect.isVisible().catch(() => false)) await connect.click();
+  await expect(connect.or(connected).first()).toBeVisible({ timeout: 30_000 });
+  if (!(await connected.isVisible())) await connect.click();
+  await expect(connected).toBeVisible({ timeout: 30_000 });
 }
 
 /** The buyer takes the ad for 10 USDT with the contract escrow, confirmed with their passkey; returns the order id. */
@@ -104,7 +109,7 @@ async function takeWithContract(page) {
   await expect(take.getByLabel('Quantity in USDT', { exact: true })).toHaveValue('10');
   const escrow = take.getByTestId('take-escrow-type');
   await escrow.getByRole('radio', { name: /Contract escrow \(TEST\)/ }).check({ timeout: 30_000 });
-  await connectIn(escrow);
+  await connectIn(escrow, escrow.getByTestId('take-escrow-wallet'));
   const wallet = privateKeyToAccount(buyerRun.key()).address;
   await expect(escrow.getByTestId('take-escrow-wallet')).toContainText(wallet, { ignoreCase: true });
   await take.getByTestId('take-review').click();
@@ -122,8 +127,9 @@ async function takeWithContract(page) {
 async function sellerFunds(page, tradeId) {
   await page.goto(`/uc/order?tradeId=${tradeId}`);
   const panel = page.getByTestId('order-contract-escrow');
-  await connectIn(panel);
-  await panel.getByRole('button', { name: 'Open and fund the deal in your wallet', exact: true }).click();
+  const fund = panel.getByRole('button', { name: 'Open and fund the deal in your wallet', exact: true });
+  await connectIn(panel, fund);
+  await fund.click();
   await continueInWallet(page); // approve + open
   await continueInWallet(page); // lock
   await expect(panel.getByTestId('order-deal-id')).toHaveText(/^#\d+$/, { timeout: 60_000 });
@@ -197,7 +203,7 @@ test('J-p2p-21 #1 an ad that offers a contract escrow: the escrow type is chosen
   await expect(escrow.getByTestId('take-escrow-networks')).toContainText('Base Sepolia testnet, not INTACHAIN');
   await expect(escrow.getByTestId('take-escrow-mainnet')).toContainText('audit.external');
   await contract.check();
-  await connectIn(escrow);
+  await connectIn(escrow, escrow.getByTestId('take-escrow-wallet'));
   await expect(escrow.getByTestId('take-escrow-wallet')).toContainText(privateKeyToAccount(buyerRun.key()).address, {
     ignoreCase: true,
   });
@@ -207,6 +213,8 @@ test('J-p2p-21 #1 an ad that offers a contract escrow: the escrow type is chosen
 test('J-p2p-21 #2 the buyer places the order; the contract deal opens with an id the order shows', async ({ browser }) => {
   test.setTimeout(300_000);
   const state = journey();
+  // The seller's browser is signed in first, so the deal is funded inside the order's escrow window.
+  const sellerSide = await personPage(browser, state.seller, state.sellerWallet);
   const buyerSide = await personPage(browser, state.buyer, buyerRun.key(), { passkey: state.passkey });
   const tradeId = await takeWithContract(buyerSide.page);
   const b = p2p(await api(state.buyer));
@@ -220,7 +228,6 @@ test('J-p2p-21 #2 the buyer places the order; the contract deal opens with an id
   await expect(order.getByTestId('order-deal-id')).toContainText('Waiting for the seller to open and fund the deal');
 
   // The seller opens and funds the deal from their own wallet; the contract now holds the coins.
-  const sellerSide = await personPage(browser, state.seller, state.sellerWallet);
   const sellerAddress = privateKeyToAccount(state.sellerWallet).address;
   const sellerBefore = await usdOf(sellerAddress);
   const dealId = await sellerFunds(sellerSide.page, tradeId);
@@ -256,7 +263,7 @@ test('J-p2p-21 #3 the buyer marks paid and the seller releases: the contract rel
   const sellerSide = await personPage(browser, state.seller, state.sellerWallet);
   await sellerSide.page.goto(`/uc/order?tradeId=${state.tradeId}`);
   const panel = sellerSide.page.getByTestId('order-contract-escrow');
-  await connectIn(panel);
+  await connectIn(panel, panel.getByTestId('order-contract-actions'));
   await panel.getByRole('button', { name: 'Release from the contract in your wallet', exact: true }).click();
   await continueInWallet(sellerSide.page);
   await expect(panel.getByTestId('order-deal-state')).toHaveText('Released to the buyer', { timeout: 60_000 });
@@ -296,16 +303,18 @@ test('J-p2p-21 #5 after the buyer marked paid, the seller finds no Cancel: relea
 }) => {
   test.setTimeout(300_000);
   const state = journey();
-  const buyerSide = await personPage(browser, state.buyer, buyerRun.key(), { passkey: state.passkey });
-  const tradeId = await takeWithContract(buyerSide.page);
+  // A new TEST passkey for this order: the one from #1 has already answered in #2's browser.
+  const passkey = await testPasskey(await api(state.buyer));
   const sellerSide = await personPage(browser, state.seller, state.sellerWallet);
+  const buyerSide = await personPage(browser, state.buyer, buyerRun.key(), { passkey: passkey.saved() });
+  const tradeId = await takeWithContract(buyerSide.page);
   const dealId = await sellerFunds(sellerSide.page, tradeId);
   await markPaid(buyerSide.page, tradeId);
 
   await sellerSide.page.goto(`/uc/order?tradeId=${tradeId}`);
   const main = sellerSide.page.getByRole('main');
   const panel = sellerSide.page.getByTestId('order-contract-escrow');
-  await connectIn(panel);
+  await connectIn(panel, panel.getByTestId('order-contract-actions'));
   await expect(panel.getByTestId('order-contract-seller-paid')).toContainText('The order cannot be cancelled now.');
   const actions = panel.getByTestId('order-contract-actions');
   await expect(actions.getByRole('button', { name: 'Release from the contract in your wallet', exact: true })).toBeVisible();
