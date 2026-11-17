@@ -178,7 +178,7 @@ const sourceWords = (s: ProtectionSource) => (s === 'mark' ? 'mark price' : s ==
  * A principal for the engine acting on one person's own venue account: their user id, trading scopes only, and their
  * level exactly as identity answered it for this order, never one made up here. A read by key takes `none`.
  */
-function engineActor(userId: string, tier: Principal['tier']): Principal {
+export function engineActor(userId: string, tier: Principal['tier']): Principal {
   return {
     sub: userId,
     userId,

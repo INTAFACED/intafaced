@@ -126,6 +126,8 @@ import { createIdentityFreezeRead, createQuantStrategySource } from './quant/liv
 import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { VenueProtections } from './venue/protections.js';
 import { SqlEngineProtectionStore } from './venue/protection-store.js';
+import { VenueSpotConditionals } from './venue/spot-conditionals.js';
+import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
 import { wireBuilderFees } from './builder-fee/wire.js';
 import { VenueRefusalError, isTestVenue } from '@intafaced/venue-contracts';
@@ -505,6 +507,18 @@ const venueProtections = userVenue
       now: () => new Date(),
     })
   : null;
+// Conditional spot orders on the person's own venue account (J-cex-spot-08): a stop the venue holds rests there; the
+// rest runs on our engine under the spot-order key the person approved, ticked with the protections. Off with the door.
+const venueSpotConditionals = userVenue
+  ? new VenueSpotConditionals({
+      door: userVenue,
+      store: new SqlSpotConditionalStore(sql),
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      liveTier: (userId) => protectionTier.tierOf(userId),
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      now: () => new Date(),
+    })
+  : null;
 const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   : 0;
@@ -513,8 +527,7 @@ if (venueProtections && protectionEngineMs > 0) {
   setInterval(() => {
     if (busy) return;
     busy = true;
-    venueProtections
-      .tick()
+    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick()])
       .catch((err: unknown) =>
         process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
       )
@@ -1820,6 +1833,7 @@ registerPrivateRest(app, {
   ownAgentTrading,
   ownAgentRebalance,
   venueProtections,
+  venueSpotConditionals,
   liveRuns,
   venueSellQuotes,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
