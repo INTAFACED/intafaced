@@ -207,6 +207,15 @@ export const GATES = [
       'gate reproduces that bug and emits the exact fix that was applied.',
   },
   {
+    id: 'service-tracing',
+    script: 'tooling/ci/service-tracing.mjs',
+    doctrine: '§14',
+    why:
+      'every service a compose file runs starts tracing: a Node entry calls startTelemetry and registerProcessHooks, ' +
+      'the Java gateway loads the OpenTelemetry agent. svc-mining-pool ran with no tracer and svc-fix with none at all, ' +
+      'and only a report-only script ever said so.',
+  },
+  {
     id: 'secret-rotation-readiness',
     script: 'tooling/ci/secret-rotation-readiness-scan.mjs',
     doctrine: '§16 / D26-P3-05',
@@ -354,7 +363,7 @@ export const NOT_GATES = {
   'app-token.mjs':
     "not a gate: the factory App's installation tokens (its JWT, and a token narrowed to exactly the permissions asked for), imported by journeys-revert.mjs and journeys-revive.mjs; `tooling/ci/app-token.test.mjs` checks it.",
   'dod-gate.mjs':
-    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test; CI does not run it.',
+    'run by hand with `pnpm gate` — it walks every service and is the §14 Definition of Done, not a repo-wide scan. Neither CI nor verify runs it; service-tracing.mjs is the gate for the one fault it found that CI did not catch.',
 
   'verify.mjs':
     'the verify runner itself — it CALLS this list. Listing it as a gate would make it invoke itself. It exists so the infrastructure verdict prints even when turbo halts early, which a `&&` chain cannot do.',
