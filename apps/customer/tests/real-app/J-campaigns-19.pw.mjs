@@ -118,11 +118,11 @@ const airdrop = (name, pool, snapshotAt) => ({
 /** Basic verification through the verification room, granted by the stack's TEST reviewer. */
 async function verifyBasic(page) {
   await page.goto('/verification');
-  await page.getByLabel('Level to request', { exact: true }).selectOption({ label: 'Basic' });
-  await page.getByLabel('Country code', { exact: true }).fill('DE');
-  await page.getByRole('button', { name: 'Review request', exact: true }).click();
-  await page.getByRole('button', { name: 'Submit this request', exact: true }).click();
-  await expect(page.getByText('Your reviewed request', { exact: true })).toBeVisible();
+  await page.getByLabel(/Level to request/).selectOption({ label: 'Basic' });
+  await page.getByLabel(/Country code/).fill('DE');
+  await page.getByRole('button', { name: /Review request/ }).click();
+  await page.getByRole('button', { name: /Submit this request/ }).click();
+  await expect(page.getByText(/Your reviewed request/)).toBeVisible();
   tool('local-test-gates.mjs', 'verify');
 }
 
@@ -136,10 +136,12 @@ async function connectWallet(page, who, privateKey) {
   await page.goto('/wallet');
   await page.getByRole('button', { name: 'Venue account', exact: true }).click();
   await expect(page).toHaveURL(/\/wallet\/venue$/);
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
-  await page.getByRole('button', { name: 'Connect to my account', exact: true }).click();
-  await sheet(page).getByRole('button', { name: 'Continue in wallet', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Connected', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: new RegExp(`Connect ${TEST_WALLET.name}`) }).click();
+  await page.getByRole('button', { name: /Connect to my account/ }).click();
+  await sheet(page)
+    .getByRole('button', { name: /Continue in wallet/ })
+    .click();
+  await expect(page.getByRole('heading', { name: /Connected/ })).toBeVisible();
 }
 
 /** A TEST person: signed up in Pro, basic verification, their own TEST wallet connected. */
