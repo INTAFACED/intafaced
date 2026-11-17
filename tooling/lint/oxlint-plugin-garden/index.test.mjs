@@ -54,6 +54,11 @@ test('the six garden rules fire on their weeds and name the fix', { skip: !exist
     out.some((l) => l.includes('no-double-cast') && l.includes('type guard')),
     'the cast message names the fix',
   );
+  const db = lint({ 'db.ts': "import type { Sql } from 'postgres';\nexport const f = (tx: unknown) => tx as unknown as Sql;\n" });
+  assert.ok(
+    db.some((l) => l.includes('no-double-cast') && l.includes('Queryable') && l.includes('requireConnection')),
+    `a cast to a postgres handle names the shared type: ${db.join('\n')}`,
+  );
   assert.ok(has(out, 'reasonless.ts', 'garden(require-suppression-reason)'), out.join('\n'));
   assert.ok(has(out, 'src/wait.test.ts', 'garden(no-real-clock-wait-in-tests)'), out.join('\n'));
   assert.ok(

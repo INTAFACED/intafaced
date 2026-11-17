@@ -3,7 +3,7 @@ import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { BankError } from '../../errors.js';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { oneLine, signReceipt } from '../../receipt-signing.js';
 import { BusinessDirectoryError, type BusinessDirectoryPort } from '../../business/business-directory.js';
 import type { RecipientStatePort } from '../../recipient-state.js';
@@ -215,7 +215,7 @@ export class CardProgrammeOps {
     }
   }
 
-  private async audit(sql: Sql, actor: string, action: string, target: string, before: unknown, after: unknown): Promise<void> {
+  private async audit(sql: Queryable, actor: string, action: string, target: string, before: unknown, after: unknown): Promise<void> {
     await sql`
       INSERT INTO bank.card_programme_audit (actor, action, target, before, after)
       VALUES (${actor}, ${action}, ${target}, ${before === null || before === undefined ? null : sql.json(before as never)},

@@ -9,6 +9,7 @@
  * settlement window reads it exactly as before. A payment with `funds.pending` and no `funds.available` is held: its
  * money stays in clearing, a window does not post it, and a payout of it is refused `pay.payout_clearing_pending`.
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { appendEvent } from './internal.js';
@@ -30,7 +31,7 @@ export interface HeldClearing {
  * so that rare path books the capture without the hold.
  */
 export async function recordFundsPending(
-  tx: Sql,
+  tx: Queryable,
   paymentId: string,
   input: { readonly availableOn?: Date; readonly source: 'rail.capture' | 'rail.webhook'; readonly railEventId?: string },
 ): Promise<void> {
@@ -43,7 +44,7 @@ export async function recordFundsPending(
 
 /** From a verified rail delivery only: the rail released the funds. Appending twice is harmless; the first one counts. */
 export async function recordFundsAvailable(
-  tx: Sql,
+  tx: Queryable,
   paymentId: string,
   input: { readonly at: Date; readonly railEventId: string },
 ): Promise<void> {
@@ -51,7 +52,7 @@ export async function recordFundsAvailable(
 }
 
 /** Whether the rail ever reported this payment's funds held, and whether it has released them. */
-export async function fundsStateOf(sql: Sql, paymentId: string): Promise<{ pending: boolean; available: boolean }> {
+export async function fundsStateOf(sql: Queryable, paymentId: string): Promise<{ pending: boolean; available: boolean }> {
   const rows = await sql<Array<{ pending: boolean; available: boolean }>>`
     SELECT
       EXISTS (SELECT 1 FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'funds.pending') AS pending,
@@ -61,7 +62,7 @@ export async function fundsStateOf(sql: Sql, paymentId: string): Promise<{ pendi
 }
 
 /** Whether the rail still holds this payment's funds, and the day it last named. */
-export async function fundsHeldOf(sql: Sql, paymentId: string): Promise<{ held: boolean; availableOn: string | null }> {
+export async function fundsHeldOf(sql: Queryable, paymentId: string): Promise<{ held: boolean; availableOn: string | null }> {
   const rows = await sql<Array<{ pending: boolean; available: boolean; available_on: string | null }>>`
     SELECT
       EXISTS (SELECT 1 FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'funds.pending') AS pending,
@@ -143,7 +144,7 @@ export async function heldClearingOf(
 }
 
 /** The payments one frozen settlement holds whose funds the rail still holds: why that window cannot post or pay out yet. */
-export async function heldInSettlementOf(sql: Sql, settlementId: string): Promise<HeldClearing[]> {
+export async function heldInSettlementOf(sql: Queryable, settlementId: string): Promise<HeldClearing[]> {
   // One read: the frozen set, less released and disputed payments, with each one's hold read in the same query.
   const rows = await sql<Array<{ payment_id: string; amount: string; asset_id: string; available_on: string | null }>>`
     SELECT s.payment_id, s.payload->>'amount' AS amount, s.payload->>'assetId' AS asset_id,

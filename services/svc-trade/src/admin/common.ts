@@ -4,6 +4,7 @@
  * and two-person approval consumption.
  * Money stays a decimal string. A blank config refuses; it is never filled in.
  */
+import type { Queryable } from '@intafaced/db';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import { requireScope, type Principal } from '@intafaced/auth';
@@ -168,7 +169,7 @@ export async function writeOperatorAudit(sql: Sql | TransactionSql, row: AuditWr
 
 /** Restriction apply path: skip when this migration is not on the database (older suites). */
 export async function writeRestrictionAudit(
-  sql: Sql,
+  sql: Queryable,
   row: { actorUserId: string; userId: string; action: string; reason: string; requestId: string },
 ): Promise<void> {
   const [present] = await sql<Array<{ rel: string | null }>>`SELECT to_regclass('trade.operator_audit')::text AS rel`;
@@ -194,7 +195,13 @@ export async function loadRequest(sql: Sql, clientRequestId: string, kind: strin
   return row.result;
 }
 
-export async function storeRequest(sql: Sql, clientRequestId: string, kind: string, fingerprint: string, result: unknown): Promise<void> {
+export async function storeRequest(
+  sql: Queryable,
+  clientRequestId: string,
+  kind: string,
+  fingerprint: string,
+  result: unknown,
+): Promise<void> {
   await sql`INSERT INTO trade.operator_requests (client_request_id, kind, fingerprint, result)
     VALUES (${clientRequestId}, ${kind}, ${fingerprint}, ${sql.json(result as never)})`;
 }

@@ -21,16 +21,15 @@
  * completed, last active, tags), filtered by a learner tag when one is given. Every change writes an event with its
  * actor. No money moves.
  */
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import type { AcademyReportCentreFile, AcademyReportCentreTask, AcademyReportCentreTasks } from '@intafaced/contracts';
 import { requireSetting } from '@intafaced/service-kit';
 import { csvField } from '../curriculum/grade-reports.js';
 import { analyticsRefusals, learnerIds, summariesOf } from './learner-summaries.js';
 
 const refuse = analyticsRefusals.refuse;
-type Db = Sql | TransactionSql;
-
 type Row = {
   id: string;
   requested_by: string;
@@ -105,7 +104,7 @@ export class ReportTasks {
     private readonly settings: ReportTaskSettings,
   ) {}
 
-  private async event(tx: Db, taskId: string, event: string, actorId: string | null, at: Date): Promise<void> {
+  private async event(tx: Queryable, taskId: string, event: string, actorId: string | null, at: Date): Promise<void> {
     await tx`
       INSERT INTO academy.report_centre_events (task_id, n, event, actor_id, at)
       SELECT ${taskId}, coalesce(max(n), 0) + 1, ${event}, ${actorId}, ${at}
@@ -113,7 +112,7 @@ export class ReportTasks {
     `;
   }
 
-  private async nextN(tx: Db, actorId: string): Promise<number> {
+  private async nextN(tx: Queryable, actorId: string): Promise<number> {
     const [{ next } = { next: 1 }] = await tx<Array<{ next: number }>>`
       SELECT coalesce(max(n), 0)::int + 1 AS next FROM academy.report_centre_tasks WHERE requested_by = ${actorId}
     `;

@@ -15,7 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { ActionApprovalError, type ActionApprovalService } from '../auth/action-approval-service.js';
 import { identityActionPayloadHash } from '../auth/privileged-dual-control.js';
 import { attachWindowStatus } from './attach-window.js';
@@ -114,7 +114,7 @@ export class ReferralRebindService {
     }
   }
 
-  private async parentMap(sql: Sql): Promise<Map<string, string>> {
+  private async parentMap(sql: Queryable): Promise<Map<string, string>> {
     const rows = await sql<Array<{ user_id: string; referrer_id: string }>>`SELECT user_id, referrer_id FROM referral_edges`;
     return new Map(rows.map((r) => [r.user_id, r.referrer_id]));
   }
@@ -136,7 +136,7 @@ export class ReferralRebindService {
    * Marks a person's open requests whose review time lapsed as expired, so they may ask again. A request whose approval
    * was already consumed is not lapsed: its change is applied by the next decide.
    */
-  private async expireLapsed(sql: Sql, userId: string): Promise<void> {
+  private async expireLapsed(sql: Queryable, userId: string): Promise<void> {
     await sql`
       UPDATE referral_rebind_requests r SET state = 'expired', decided_at = now()
       WHERE r.user_id = ${userId} AND r.state = 'under_review' AND r.approval_expires_at <= now()

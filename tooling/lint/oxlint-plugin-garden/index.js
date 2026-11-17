@@ -46,6 +46,20 @@ const noDoubleCast = {
       TSAsExpression(node) {
         const inner = node.expression;
         if (inner?.type === 'TSAsExpression' && inner.typeAnnotation?.type === 'TSUnknownKeyword') {
+          const target = node.typeAnnotation;
+          const name = target?.type === 'TSTypeReference' ? (target.typeName?.name ?? target.typeName?.right?.name) : undefined;
+          if (name === 'Sql' || name === 'TransactionSql') {
+            context.report({
+              node,
+              message:
+                '`as unknown as ' +
+                name +
+                '` hides which database handle this is: a helper that runs on a connection or a transaction takes ' +
+                "`Queryable` from '@intafaced/db', one that needs a transaction takes `TransactionSql`, and one that opens " +
+                'a transaction on either calls `requireConnection(db).begin`',
+            });
+            return;
+          }
           context.report({
             node,
             message:

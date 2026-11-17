@@ -335,7 +335,7 @@ export class LeadDesk {
         SET status = 'awaiting_second', approval_id = ${approvalId}, proposed_by = ${principal.userId}, updated_at = ${now.toISOString()}
         WHERE id = ${row.id} RETURNING *`;
       await writeOperatorAudit(
-        tx as unknown as Sql,
+        tx,
         {
           id: randomUUIDFor(`propose:${row.id}:${approvalId}`),
           kind: 'copy_lead.propose',
@@ -411,7 +411,7 @@ export class LeadDesk {
             decided_at = ${now.toISOString()}, updated_at = ${now.toISOString()}
         WHERE id = ${row.id} RETURNING *`;
       await writeOperatorAudit(
-        tx as unknown as Sql,
+        tx,
         {
           id: randomUUIDFor(leadDecisionKey(row.id, 'approve')),
           kind: 'copy_lead.approve',
@@ -445,7 +445,7 @@ export class LeadDesk {
             updated_at = ${now.toISOString()}
         WHERE id = ${row.id} RETURNING *`;
       await writeOperatorAudit(
-        tx as unknown as Sql,
+        tx,
         {
           id: randomUUIDFor(leadDecisionKey(row.id, 'reject')),
           kind: 'copy_lead.reject',

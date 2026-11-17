@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { ReceivingWallet, ReceivingWalletSaveInput } from '@intafaced/contracts';
@@ -40,7 +41,7 @@ function view(row: WalletRow | undefined): ReceivingWallet {
   };
 }
 
-async function walletOf(sql: Sql, merchantId: string): Promise<WalletRow | undefined> {
+async function walletOf(sql: Queryable, merchantId: string): Promise<WalletRow | undefined> {
   const [row] = await sql<WalletRow[]>`
     SELECT network_family, extended_public_key, first_address, saved_at, version, request_id, request_hash
       FROM pay.merchant_receiving_wallets WHERE merchant_id = ${merchantId}`;
@@ -72,7 +73,7 @@ export class ReceivingWallets {
     return this.sql.begin(async (tx) => {
       // One save at a time per business: the first save has no row to lock yet.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`pay.merchant_receiving_wallets:${caller.merchantId}`}, 0))`;
-      const current = await walletOf(tx as unknown as Sql, caller.merchantId);
+      const current = await walletOf(tx, caller.merchantId);
       if (current && current.request_id === input.requestId) {
         if (current.request_hash !== hash) throw new MerchantOpsError('pay.request_id_reused', 'conflict');
         return { wallet: view(current), replayed: true };
@@ -103,7 +104,7 @@ export class ReceivingWallets {
  * highest given out from this key; a payment that already has one gets the same one back. No wallet set refuses
  * `pay.receiving_wallet_unset` before anything is written, so a payer is never shown an address nothing will count.
  */
-export async function allocateReceivingAddress(tx: Sql, merchantId: string, paymentId: string): Promise<string> {
+export async function allocateReceivingAddress(tx: Queryable, merchantId: string, paymentId: string): Promise<string> {
   const [given] = await tx<Array<{ address: string }>>`
     SELECT address FROM pay.merchant_receive_addresses WHERE payment_id = ${paymentId}`;
   if (given) return given.address;
@@ -127,7 +128,7 @@ export async function allocateReceivingAddress(tx: Sql, merchantId: string, paym
 }
 
 /** The receiving address a payment was given, or null for a payment that was not paid to its business's own wallet. */
-export async function receivingAddressOf(sql: Sql, paymentId: string): Promise<string | null> {
+export async function receivingAddressOf(sql: Queryable, paymentId: string): Promise<string | null> {
   const [row] = await sql<Array<{ address: string }>>`SELECT address FROM pay.merchant_receive_addresses WHERE payment_id = ${paymentId}`;
   return row?.address ?? null;
 }

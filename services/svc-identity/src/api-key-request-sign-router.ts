@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
@@ -60,7 +61,7 @@ export function createApiKeyRequestSignRouter(
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          const set = (db: Sql) =>
+          const set = (db: Queryable) =>
             setApiKeyRequestSigning(
               db,
               ctx.principal.userId,

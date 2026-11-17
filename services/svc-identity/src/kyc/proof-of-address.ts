@@ -12,7 +12,7 @@ import type { Sql } from 'postgres';
 import type { KycPoaRead, KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
 import type { KycProfileUploadCaps } from '@intafaced/contracts/identity-kyc-profile';
 import { createHash } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { KycDocumentVault } from './document-store.js';
 import { assertWithinUploadCaps, parseListedRow } from './profile.js';
 import { TRADING_CHECKS_REVIEWER } from './trading-checks.js';
@@ -243,7 +243,7 @@ export class KycPoaDesk {
 
   /** The person's pending submission of exactly this document, if there is one. */
   private async waiting(
-    sql: Sql,
+    sql: Queryable,
     userId: string,
     input: { type: string; country: string; issuedOn: string },
     sha256: string,
@@ -255,7 +255,7 @@ export class KycPoaDesk {
     return row;
   }
 
-  private async assertNoneWaiting(sql: Sql, userId: string): Promise<void> {
+  private async assertNoneWaiting(sql: Queryable, userId: string): Promise<void> {
     const [other] = await sql<Array<{ id: string }>>`
       SELECT id FROM kyc_poa_submissions WHERE user_id = ${userId} AND status = 'submitted' LIMIT 1`;
     if (other) throw new KycPoaError('A proof of address is already waiting for review', 'kyc.poa_pending');

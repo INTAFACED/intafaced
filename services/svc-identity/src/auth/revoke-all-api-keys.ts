@@ -2,8 +2,8 @@
  * Revoke every live API key for one named user. Compromise kill switch.
  * Already-revoked keys stay revoked. Missing userId refuses. No other user.
  */
+import type { Queryable } from '@intafaced/db';
 import type { ApiKeyRevokedBy } from '@intafaced/contracts/api-keys';
-import type { Sql } from 'postgres';
 
 export class RevokeAllApiKeysError extends Error {
   constructor(
@@ -42,7 +42,7 @@ export function revokeCauseOf(principal: {
  * does it.
  */
 export async function revokeAllApiKeys(
-  sql: Sql,
+  sql: Queryable,
   principalUserId: string | null | undefined,
   namedUserId: string | null | undefined,
   cause: Extract<ApiKeyRevokedBy, 'owner' | 'delegate' | 'support'> = 'owner',

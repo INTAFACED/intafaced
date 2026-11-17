@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { attachTransferMessageTx, bindTransferMessage } from './transfer-message.js';
 import { BookedTransferConflict, bookedTransferMatches } from './booked-transfer.js';
 import {
@@ -1276,7 +1276,7 @@ export class TransferService {
   }
 
   private async settle(
-    tx: Sql,
+    tx: Queryable,
     executionId: string,
     schedule: ScheduleRecord,
     from: Awaited<ReturnType<SpaceService['get']>>,
@@ -1351,7 +1351,7 @@ export class TransferService {
    * and the next pass sends the same key again, which the partner answers with the move if it made it.
    */
   private async settleAtPartner(
-    tx: Sql,
+    tx: Queryable,
     executionId: string,
     schedule: ScheduleRecord,
     from: Awaited<ReturnType<SpaceService['get']>>,
@@ -1395,7 +1395,7 @@ export class TransferService {
    * `BookedTransferConflict`, so nothing is recorded on a movement nobody can account for.
    */
   private async topUpBillsPotAtPartner(
-    tx: Sql,
+    tx: Queryable,
     schedule: ScheduleRecord,
     pot: Awaited<ReturnType<SpaceService['get']>>,
     to: Awaited<ReturnType<SpaceService['get']>>,
@@ -1443,7 +1443,7 @@ export class TransferService {
    * nothing is recorded as paid or refused on a movement nobody can account for.
    */
   private async topUpBillsPot(
-    tx: Sql,
+    tx: Queryable,
     schedule: ScheduleRecord,
     pot: Awaited<ReturnType<SpaceService['get']>>,
     to: Awaited<ReturnType<SpaceService['get']>>,

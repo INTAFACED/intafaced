@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import {
   affiliateLegAfterUsageFeeCharge,
@@ -182,7 +182,7 @@ export class UsageMeter {
    * same call: a usage record without its action, or an action without its
    * usage, would be a discrepancy nobody could resolve afterwards.
    */
-  async record(tx: Sql, input: RecordUsageInput): Promise<RecordedUsage> {
+  async record(tx: Queryable, input: RecordUsageInput): Promise<RecordedUsage> {
     const at = input.at ?? new Date();
     const windowId = this.windowFor(at);
 
@@ -267,7 +267,7 @@ export class UsageMeter {
   }
 
   /** Exact token totals per rate for one window. */
-  async groupsFor(sql: Sql, sessionId: string, windowId: string): Promise<UsageGroup[]> {
+  async groupsFor(sql: Queryable, sessionId: string, windowId: string): Promise<UsageGroup[]> {
     const rows = await sql<Array<{ input_tokens: string; output_tokens: string; in_price: string; out_price: string }>>`
       SELECT SUM(input_tokens)::text  AS input_tokens,
              SUM(output_tokens)::text AS output_tokens,
@@ -298,7 +298,7 @@ export class UsageMeter {
    * settlement uses, so "what have I been charged" and "what does my limit see"
    * cannot disagree.
    */
-  async sessionSpend(sessionId: string, db: Sql = this.sql): Promise<Amount> {
+  async sessionSpend(sessionId: string, db: Queryable = this.sql): Promise<Amount> {
     const rows = await db<Array<{ input_tokens: string; output_tokens: string; in_price: string; out_price: string }>>`
       SELECT SUM(input_tokens)::text  AS input_tokens,
              SUM(output_tokens)::text AS output_tokens,

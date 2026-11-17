@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import {
   InsufficientFundsError,
@@ -327,7 +328,7 @@ export class DirectDebitService {
     };
   }
 
-  private async ownedMandate(db: Sql, userId: string, mandateId: string, lock: boolean): Promise<MandateRow> {
+  private async ownedMandate(db: Queryable, userId: string, mandateId: string, lock: boolean): Promise<MandateRow> {
     const rows = lock
       ? await db<MandateRow[]>`SELECT ${db.unsafe(MANDATE_COLUMNS)} FROM bank.dd_mandates WHERE id = ${mandateId} FOR UPDATE`
       : await db<MandateRow[]>`SELECT ${db.unsafe(MANDATE_COLUMNS)} FROM bank.dd_mandates WHERE id = ${mandateId}`;
@@ -357,7 +358,7 @@ export class DirectDebitService {
     const atPartner = partner ? await partner.dd.block(input.userId, input.mandateId) : null;
     const code = atPartner?.refusalCode ?? 'bank.dd_mandate_blocked';
     const result = await this.sql.begin(async (tx) => {
-      const mandate = await this.ownedMandate(tx as unknown as Sql, input.userId, input.mandateId, true);
+      const mandate = await this.ownedMandate(tx, input.userId, input.mandateId, true);
       if (mandate.status === 'active') {
         await tx`UPDATE bank.dd_mandates SET status = 'blocked', blocked_at = ${now}, updated_at = now() WHERE id = ${mandate.id}`;
       }
@@ -387,7 +388,7 @@ export class DirectDebitService {
     const partner = this.partnerFor(input.userId);
     if (partner) await partner.dd.unblock(input.userId, input.mandateId);
     await this.sql.begin(async (tx) => {
-      const mandate = await this.ownedMandate(tx as unknown as Sql, input.userId, input.mandateId, true);
+      const mandate = await this.ownedMandate(tx, input.userId, input.mandateId, true);
       if (mandate.status === 'blocked') {
         await tx`UPDATE bank.dd_mandates SET status = 'active', blocked_at = NULL, updated_at = now() WHERE id = ${mandate.id}`;
       }
