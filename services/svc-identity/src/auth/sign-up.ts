@@ -227,6 +227,16 @@ function secondsUntil(at: Date, now: Date): number {
   return Math.max(1, Math.ceil((at.getTime() - now.getTime()) / 1000));
 }
 
+/**
+ * True while the owner's blocked-countries list is not set (no list, or a placeholder read under fail-closed): the same
+ * answer sign-up's country check gets (`identity.screening_unset`), so sign-in refuses exactly when sign-up does
+ * (J-identity-22 #1). The screening refusal comes before any region rule in `checkAccess`, so the region asked is moot.
+ */
+export function countryListUnset(): boolean {
+  const { code } = checkAccess({ module: 'identity', region: 'DE', plane: 'fiat', kycTier: 'none' });
+  return code === 'denied.screening_unconfigured' || code === 'denied.screening_fixture';
+}
+
 /** Age, then country and nationality. Throws the first refusal; nothing has been written yet. Exported for its unit test. */
 export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCountries'>, input: SignUpStart, now: Date): string {
   const minAge = intIn(deps.minAgeYears, 1, MAX_MIN_AGE);
@@ -247,7 +257,7 @@ export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCou
   if (nationalityRaw && !nationality) throw new SignUpError('Choose your nationality from the list.', 'identity.country_invalid');
 
   const paused = (code: string): boolean => code === 'denied.screening_unconfigured' || code === 'denied.screening_fixture';
-  const pausedError = () => new SignUpError('Sign-up is paused: the sanctions screening list is not set.', 'identity.screening_unset');
+  const pausedError = () => new SignUpError('Sign-up is paused: the blocked-countries list is not set.', 'identity.screening_unset');
   const blocked = () => new SignUpError('We cannot open accounts for this country right now.', 'identity.region_blocked');
   const closedSet = new Set((deps.closedCountries ?? []).map((c) => c.trim().toUpperCase()));
   // The owner's sign-up off switch names countries; it covers every subdivision in them.

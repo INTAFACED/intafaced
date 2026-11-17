@@ -771,7 +771,7 @@ test(`${J} #9 a blocked province is refused with its reason, a US person from th
   try {
     first = outbox();
     await details(page, who);
-    await expect(notice(page)).toContainText('Sign-up is paused: the sanctions screening list is not set. Nothing was created.', {
+    await expect(notice(page)).toContainText('Sign-up is paused: the blocked-countries list is not set. Nothing was created.', {
       timeout: 15_000,
     });
     await expect(notice(page).locator('small')).toHaveText('identity.screening_unset');
