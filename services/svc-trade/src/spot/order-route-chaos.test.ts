@@ -377,6 +377,8 @@ describe('svc-trade order-route-chaos (H8a PG-hard)', () => {
       // later, with no listing in between and no fill, it releases.
       expect(await service.reconcileOrder(orderId, { engineMissFloorSeconds: 60 })).toMatchObject({ action: 'fail_closed' });
       expect(await heldFor(ALICE, 'USDT', orderId)).toBe('200');
+      // Time passing moves the order's last change back with it, the sighting still after it (#2658).
+      await sql`UPDATE trade.orders SET updated_at = now() - interval '62 seconds' WHERE id = ${orderId}`;
       await sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${orderId}`;
       expect(await service.reconcileOrder(orderId, { engineMissFloorSeconds: 60 })).toMatchObject({ action: 'released' });
       expect(await avail(ALICE, 'USDT')).toBe('1000');

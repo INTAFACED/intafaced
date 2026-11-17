@@ -1027,6 +1027,8 @@ describe('trade operator procedures', () => {
     expect(first.case).toBe('open_hold_no_engine_unknown');
     expect(first.action).toBe('fail_closed');
     expect(await held(ALICE, order.id)).toBe('200');
+    // Time passing moves the order's last change back with it, the sighting still after it (#2658).
+    await db.sql`UPDATE trade.orders SET updated_at = now() - interval '62 seconds' WHERE id = ${order.id}`;
     await db.sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${order.id}`;
     const verdict = await admin.reconcile(operatorWriter(), { orderId: order.id, clientRequestId: 'recon-1' });
     expect(verdict.case).toBe('open_hold_no_engine');

@@ -295,6 +295,8 @@ describe('svc-trade order-route-reconcile (H8a PG-hard)', () => {
       expect(first.action).toBe('fail_closed');
       expect(await heldFor(ALICE, 'USDT', order.id)).toBe('200');
       // The owner's floor later, the book still misses it and trade.fills still show no fill.
+      // Time passing moves the order's last change back with it, the sighting still after it (#2658).
+      await sql`UPDATE trade.orders SET updated_at = now() - interval '62 seconds' WHERE id = ${order.id}`;
       await sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${order.id}`;
       const result = await trade.reconcileOrder(order.id, { engineMissFloorSeconds: 60 });
 
