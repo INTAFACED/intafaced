@@ -41,7 +41,7 @@ export function Web3Shell({ path, children }: { path: string; children: ReactNod
 
 function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
   const wallet = useWallet();
-  const { session, restoring } = useSession();
+  const { session } = useSession();
   const { t: shell } = shellCopy.useCopy();
   const { language } = usePreferences();
   const { t } = protocolCopy.forLocale(language);
@@ -107,7 +107,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                         : `${t('walletWrongNetwork')} · ${shortAddress(wallet.address)}`
                       : t('walletNone')}
                 </span>
-                {session || restoring ? null : (
+                {session ? null : (
                   <>
                     {/* Signed out, every Web3 room is the public read-only view; signing in returns through Home. */}
                     <a className="tb-login" href="/login">

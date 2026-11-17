@@ -9,7 +9,7 @@ const answers: { chain: unknown; indexer?: unknown; keyed: Record<string, unknow
 vi.mock('../session/session', async (original) => {
   const real = await original<typeof import('../session/session')>();
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
-  return { ...real, useApi: () => api as never, useSession: () => ({ session: null, restoring: false }) as never };
+  return { ...real, useApi: () => api as never, useSession: () => ({ session: null }) as never };
 });
 vi.mock('../../shared/resource', () => ({
   // Only the chain status is answered; every other source stays loading, so the rooms show their own checking state.
