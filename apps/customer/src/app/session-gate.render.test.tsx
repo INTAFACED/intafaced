@@ -65,8 +65,9 @@ afterEach(() => {
 async function open(path: string) {
   history.replaceState(null, '', path);
   await act(async () => root.render(<App />));
-  // Let any room chunk the app would load arrive, so a room that renders early is caught.
-  for (let i = 0; i < 20; i++) await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+  // Proving nothing happens: give a room the gate let through time to render (its chunk is already loaded) and read.
+  // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proves the room stays unrendered, which no event can signal
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 200)));
 }
 
 // Rooms that open for both a signed-in and a signed-out person: `/`, public pages, a Web3 room, rooms under the shell, and
@@ -99,8 +100,9 @@ describe('no room renders while the stored session is still restoring (#8658)', 
     await open('/help');
     state.restoring = false;
     await act(async () => root.render(<App />));
-    for (let i = 0; i < 20; i++) await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    await act(async () => {
+      await vi.waitFor(() => expect(host.querySelector('header')).not.toBeNull());
+    });
     expect(host.textContent).not.toContain('Opening room');
-    expect(host.querySelector('header')).not.toBeNull();
   });
 });
