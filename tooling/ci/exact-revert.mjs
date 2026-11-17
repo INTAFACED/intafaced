@@ -57,7 +57,10 @@ export function undo(lines) {
   for (const l of lines) {
     if (l.startsWith('+')) minus.push(`-${l.slice(1)}`);
     else if (l.startsWith('-')) plus.push(`+${l.slice(1)}`);
-    else (flush(), out.push(l));
+    else {
+      flush();
+      out.push(l);
+    }
   }
   flush();
   return out;

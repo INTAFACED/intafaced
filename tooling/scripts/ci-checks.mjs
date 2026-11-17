@@ -74,7 +74,9 @@ export function ciTestEnv(actionText) {
   if (!env.TEST_DATABASE_URL || env.REQUIRE_POSTGRES !== '1') throw new Error(`${ACTION}: no TEST_DATABASE_URL or REQUIRE_POSTGRES`);
   const local = {};
   const skipped = [];
-  for (const [k, v] of Object.entries(env)) LOCAL_KEYS.test(k) ? (local[k] = v) : skipped.push(k);
+  for (const [k, v] of Object.entries(env))
+    if (LOCAL_KEYS.test(k)) local[k] = v;
+    else skipped.push(k);
   return { env: local, skipped };
 }
 

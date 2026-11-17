@@ -173,15 +173,20 @@ function withoutComments(line, kind, state) {
   for (let k = 0; k < line.length; k++) {
     const c = line[k];
     if (state.comment) {
-      if (c === '*' && line[k + 1] === '/') ((state.comment = false), k++);
+      if (c === '*' && line[k + 1] === '/') {
+        state.comment = false;
+        k++;
+      }
       continue;
     }
     if (quote) {
       out += c;
       if (c === '\\') out += line[++k] ?? '';
       else if (c === quote) quote = null;
-    } else if (c === '/' && line[k + 1] === '*') ((state.comment = true), k++);
-    else if (kind === 'ts' && c === '/' && line[k + 1] === '/') return out + line.slice(k);
+    } else if (c === '/' && line[k + 1] === '*') {
+      state.comment = true;
+      k++;
+    } else if (kind === 'ts' && c === '/' && line[k + 1] === '/') return out + line.slice(k);
     else {
       if (c === '"' || c === "'" || (kind === 'ts' && c === '`')) quote = c;
       out += c;
@@ -249,14 +254,22 @@ export function judgeFile(path, text, only = null, rooms = new Set()) {
       for (let k = 0; k < line.length; k++) {
         const c = line[k];
         if (inComment) {
-          if (c === '*' && line[k + 1] === '/') ((inComment = false), k++);
+          if (c === '*' && line[k + 1] === '/') {
+            inComment = false;
+            k++;
+          }
         } else if (quote) {
           if (c === '\\') k++;
           else if (c === quote) quote = null;
-        } else if (c === '/' && line[k + 1] === '*') ((inComment = true), k++);
-        else if (c === '"' || c === "'") quote = c;
+        } else if (c === '/' && line[k + 1] === '*') {
+          inComment = true;
+          k++;
+        } else if (c === '"' || c === "'") quote = c;
         else if (c === '{') {
-          if (pendingQuery) (queryDepths.push(depth), (pendingQuery = false));
+          if (pendingQuery) {
+            queryDepths.push(depth);
+            pendingQuery = false;
+          }
           depth++;
         } else if (c === '}') {
           depth--;

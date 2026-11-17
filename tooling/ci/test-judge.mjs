@@ -636,7 +636,12 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
     if (users.length === 0) continue; // e.g. a look sweep or a file no journey reaches: no step to judge
     const names = new Set([...changedNames(before.get(f.path), f.removed), ...changedNames(after.get(f.path), f.added)]);
     let n = 0;
-    for (const jf of users) for (const s of allStepsOf(jf)) if (!own.has(s)) (reached.set(s, reached.get(s) ?? jf), n++);
+    for (const jf of users)
+      for (const s of allStepsOf(jf))
+        if (!own.has(s)) {
+          reached.set(s, reached.get(s) ?? jf);
+          n++;
+        }
     changes.push({ file: f.path, kind: 'shared', reaches: n, journeys: users.length, names: [...names] });
   }
   for (const s of own) reached.delete(s);
