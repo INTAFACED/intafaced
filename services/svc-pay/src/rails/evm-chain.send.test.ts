@@ -91,3 +91,53 @@ describe('EvmLiveChain send receipt', () => {
     expect(seen).toEqual([{ hash: TX, confirmations: DEPTH }]);
   });
 });
+
+// PayoutQuery.tla (services/svc-pay/model), NeverPaidTwice: a reconciler that hears `not_sent` reverses the held payout, so `not_sent`
+// must be proof the send can no longer leave. A send that has claimed its key and is still signing can.
+describe('EvmLiveChain lookupSend while a send is on its way', () => {
+  it('never answers not_sent for a send that has claimed its key and goes on to broadcast', async () => {
+    const port = chain();
+    stubBroadcast(port, 'success');
+    const surface = clients(port);
+    let reached!: () => void;
+    const signing = new Promise<void>((resolve) => (reached = resolve));
+    let release!: () => void;
+    const signed = new Promise<void>((resolve) => (release = resolve));
+    surface.wallet.signTransaction = async () => {
+      reached();
+      await signed;
+      return '0x02' as Hex;
+    };
+    let broadcasts = 0;
+    surface.public.sendRawTransaction = async () => {
+      broadcasts += 1;
+      return TX;
+    };
+    const key = 'payout-query-while-signing';
+    const sending = port.send({ ...sendRequest, idempotencyKey: key });
+    await signing;
+    // The status query a reconciler makes while the send is signing (a remote signer can take seconds).
+    const during = await port.lookupSend(key);
+    release();
+    await sending;
+    expect(broadcasts).toBe(1);
+    expect(during.state).not.toBe('not_sent');
+  });
+
+  it('never sends under a key it has already answered not_sent for', async () => {
+    const port = chain();
+    stubBroadcast(port, 'success');
+    let broadcasts = 0;
+    clients(port).public.sendRawTransaction = async () => {
+      broadcasts += 1;
+      return TX;
+    };
+    const key = 'payout-answered-not-sent';
+    // The reconciler's query comes after the payout's 'dispatched' marker and before its send reached the chain port.
+    const answered = await port.lookupSend(key);
+    expect(answered.state).toBe('not_sent');
+    // The reconciler gives the held money back on that answer; the payer's send then arrives under the same key.
+    await port.send({ ...sendRequest, idempotencyKey: key }).catch(() => undefined);
+    expect(broadcasts).toBe(0);
+  });
+});

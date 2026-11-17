@@ -159,6 +159,8 @@ interface RequestRow {
   partner_move_id: string | null;
   partner_back_move_id: string | null;
   partner_return_move_id: string | null;
+  drive_refused_at: Date | null;
+  stray_checked_at: Date | null;
   created_at: Date;
   completed_at: Date | null;
   failed_at: Date | null;
@@ -452,8 +454,7 @@ export class CashOutService {
   /**
    * Requests left `processing` before their hold or the partner's acceptance, oldest first, driven on again. Each comes
    * back `completed` once the partner has it or it was closed, or `failed` while it is still left (with why). Then
-   * partner-held requests refused in the last day whose order key has a move nobody gave back: given back once, each
-   * `completed`.
+   * partner-held requests a drive refused whose order key has a move nobody gave back: given back once, each `completed`.
    */
   async redrive(limit: number): Promise<{ id: string; outcome: 'completed' | 'failed'; reason?: string }[]> {
     const rows = await this.sql<RequestRow[]>`
@@ -475,13 +476,16 @@ export class CashOutService {
       }
     }
     // A partner-held request refused while it was being driven, whose move a driver that lost its lock made anyway and
-    // then crashed before giving it back. Such a move is made within one drive's span, so a day back is enough.
+    // then crashed before giving it back. Read: never checked, or last checked before the refusal was a day old and not
+    // in the last hour; least recently checked first, so no number of newer refusals crowds an older one out. Such a move
+    // is made within one drive's span, so a check that finds none a day after the refusal settles the row for good.
     const refused = await this.sql<RequestRow[]>`
       SELECT * FROM bank.cash_out_requests
        WHERE status = 'refused' AND custodian IS NOT NULL AND partner_back_move_id IS NULL
-         AND refusal_code = 'bank.cash_out_over_available'
-         AND created_at > now() - interval '1 day' AND created_at < now() - interval '1 minute'
-       ORDER BY created_at DESC LIMIT ${limit}
+         AND drive_refused_at IS NOT NULL AND drive_refused_at < now() - interval '1 minute'
+         AND (stray_checked_at IS NULL
+              OR (stray_checked_at < drive_refused_at + interval '1 day' AND stray_checked_at < now() - interval '1 hour'))
+       ORDER BY coalesce(stray_checked_at, drive_refused_at) ASC, id ASC LIMIT ${limit}
     `;
     for (const row of refused) {
       try {
@@ -590,7 +594,7 @@ export class CashOutService {
             now.id,
             'processing',
             this.sql`
-            status = 'refused', refusal_code = 'bank.cash_out_over_available', payout_rail = NULL
+            status = 'refused', refusal_code = 'bank.cash_out_over_available', payout_rail = NULL, drive_refused_at = now()
           `,
           );
         }
@@ -628,7 +632,7 @@ export class CashOutService {
             now.id,
             'processing',
             this.sql`
-            status = 'refused', refusal_code = 'bank.cash_out_over_available', payout_rail = NULL
+            status = 'refused', refusal_code = 'bank.cash_out_over_available', payout_rail = NULL, drive_refused_at = now()
           `,
           );
         }
@@ -659,7 +663,16 @@ export class CashOutService {
   private async giveBackRefused(row: RequestRow): Promise<RequestRow> {
     if (row.status !== 'refused' || row.custodian === null || row.partner_back_move_id) return row;
     const bank = this.heldBank(row);
-    if (!(await bank.moveByKey(cashOutMoveKey(row.id)))) return row;
+    if (!(await bank.moveByKey(cashOutMoveKey(row.id)))) {
+      // Nothing to give back now: stamped, so the re-drive sweep asks again only while a stray move could still land.
+      if (row.drive_refused_at === null) return row;
+      const [stamped] = await this.sql<RequestRow[]>`
+        UPDATE bank.cash_out_requests SET stray_checked_at = now()
+         WHERE id = ${row.id}::uuid AND status = 'refused' AND partner_back_move_id IS NULL
+         RETURNING *
+      `;
+      return stamped ?? row;
+    }
     const back = await bank.move({
       key: cashOutBackKey(row.id),
       from: partnerPayoutsAccount(row.asset_id),

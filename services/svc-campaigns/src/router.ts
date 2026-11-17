@@ -292,20 +292,27 @@ const opsProcedure = scopedProcedure('campaigns:ops', guard).use(({ ctx, next })
   return next();
 });
 
-export function createCampaignsRouter(
-  drops: DropService,
-  campaigns: CampaignService,
-  tasks: TaskService,
-  vouchers: VoucherService,
-  watch: WatchService,
-  referrals?: ReferralService,
-  competitions?: CompetitionService,
-  draws?: DrawService,
-  distributions?: DistributionService,
-  pools?: PoolService,
-  trialPasses?: TrialPassService,
-  risk?: RiskService,
-) {
+/**
+ * The services the router serves, by name. A new service is one more named field here and one in `wiring.ts`, never a
+ * position in an argument list (project-state#2730: seventeen PRs in a week each appended to a positional list).
+ */
+export interface CampaignServices {
+  drops: DropService;
+  campaigns: CampaignService;
+  tasks: TaskService;
+  vouchers: VoucherService;
+  watch: WatchService;
+  referrals?: ReferralService;
+  competitions?: CompetitionService;
+  draws?: DrawService;
+  distributions?: DistributionService;
+  pools?: PoolService;
+  trialPasses?: TrialPassService;
+  risk?: RiskService;
+}
+
+export function createCampaignsRouter(services: CampaignServices) {
+  const { drops, campaigns, tasks, vouchers, watch, referrals, competitions, draws, distributions, pools, trialPasses, risk } = services;
   const riskOf = (): RiskService => {
     if (!risk) throw new CampaignsError('campaigns.store_unwired', 'The risk review is not wired');
     return risk;
