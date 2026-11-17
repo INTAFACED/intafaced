@@ -18,14 +18,14 @@
  * It runs from a copy outside the checkout (the workflow copies it to RUNNER_TEMP first) because the search checks out
  * old commits, which would swap this file for an older one mid-run.
  *
- *   node bisect-main.mjs --self-test
  *   (CI) GOOD BAD TESTS GH_TOKEN GITHUB_REPOSITORY node bisect-main.mjs
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const SHA = /^[0-9a-f]{40}$/;
+export const SHA = /^[0-9a-f]{40}$/;
 const TEST_PATH = /^(apps|services|packages|tooling)\/[\w.-]+\/[\w./@-]+\.(test|spec)\.[cm]?[jt]sx?$/;
 export const MAX_COMMITS = 200;
 /** CI jobs on main whose failure names no test file, with the command that decides them: each probe runs it twice. */
@@ -220,109 +220,6 @@ export async function noteTracedRed(repo, body) {
   return issue.number;
 }
 
-function selfTest() {
-  const assert = (cond, msg) => {
-    if (!cond) throw new Error(msg);
-  };
-  // The install: one flake is retried, two stop the search, and nothing counts the commit as failing.
-  let calls = 0;
-  const flaky = () => ({ status: calls++ === 0 ? 1 : 0 });
-  installOrStop(flaky);
-  assert(calls === 2, 'a single install flake is retried');
-  let stopped = false;
-  try {
-    installOrStop(() => ({ status: 1 }));
-  } catch (e) {
-    stopped = /no culprit/.test(e.message);
-  }
-  assert(stopped, 'an install that fails twice stops the search with no culprit');
-  const commits = Array.from({ length: 13 }, (_, i) => `c${i}`);
-  for (let culpritIdx = 0; culpritIdx < commits.length; culpritIdx++) {
-    let calls = 0;
-    const r = firstBad(commits, (sha) => {
-      calls += 1;
-      return Number(sha.slice(1)) >= culpritIdx;
-    });
-    assert(r.culprit === commits[culpritIdx], `finds commit ${culpritIdx}, got ${r.culprit}`);
-    assert(calls <= 4, `13 commits take at most 4 probes, took ${calls} for ${culpritIdx}`);
-  }
-  assert(firstBad(['only'], () => assert(false, 'a single commit needs no probe')).culprit === 'only', 'one commit is the culprit');
-  // The culprit's parent must pass on this runner (11 Nov 2026: a runner-image red blamed #7926).
-  const cs = ['c0', 'c1', 'c2'];
-  let asked = [];
-  const bad = (set) => (sha) => (asked.push(sha), set.includes(sha));
-  let b = confirmBlame({ commits: cs, culprit: 'c1', probed: [{ sha: 'c1', bad: true }], good: 'g' }, bad(['c1', 'c2']));
-  assert(b.culprit === 'c1' && asked.join() === 'c0', 'a parent that passes here confirms the culprit');
-  asked = [];
-  b = confirmBlame({ commits: cs, culprit: 'c1', probed: [{ sha: 'c1', bad: true }], good: 'g' }, bad(['c0', 'c1', 'c2']));
-  assert(b.culprit === null && /fails here too/.test(b.why), 'a parent that fails here too blames no one');
-  asked = [];
-  b = confirmBlame({ commits: cs, culprit: 'c0', probed: [], good: 'g' }, bad(['g', 'c0', 'c1', 'c2']));
-  assert(b.culprit === null && asked.join() === 'g', 'the first commit is checked against the last green, probed here');
-  asked = [];
-  b = confirmBlame({ commits: cs, culprit: 'c2', probed: [{ sha: 'c1', bad: false }], good: 'g' }, bad(['c2']));
-  assert(b.culprit === 'c2' && asked.length === 0, 'a parent the search found passing costs no probe');
-  assert(splitTestPath('services/svc-x/src/a.test.ts').join('|') === 'services/svc-x|src/a.test.ts', 'splits a test path');
-  assert(parseTests('services/svc-x/src/a.test.ts\npackages/y/b.spec.tsx').length === 2, 'parses a list');
-  let threw = false;
-  try {
-    parseTests('services/svc-x/../../etc/passwd.test.ts');
-  } catch {
-    threw = true;
-  }
-  assert(threw, 'a path with .. is refused');
-  threw = false;
-  try {
-    parseTests('rm -rf /');
-  } catch {
-    threw = true;
-  }
-  assert(threw, 'a non-path is refused');
-  assert(SHA.test('a'.repeat(40)) && !SHA.test('main'), 'only full shas are accepted');
-  assert(parseJobs('Doctrine gates').join() === 'Doctrine gates', 'a probed job is taken');
-  assert(parseJobs('Typecheck & build').join() === 'Typecheck & build', 'a build red is probed (ci.yml build job name)');
-  assert(JOB_PROBES['Typecheck & build'].join(' ') === 'sh -c pnpm build && pnpm typecheck', "the build job's own commands on main");
-  assert(parseJobs('').length === 0, 'no jobs is none');
-  threw = false;
-  try {
-    parseJobs('Doctrine gates,rm -rf /');
-  } catch {
-    threw = true;
-  }
-  assert(threw, 'a job with no probe is refused, so no input becomes a command');
-}
-
-/** The traced-red path against a stub GitHub: what the bisect writes on the "Main is red" issue. */
-async function selfTestTraced() {
-  const assert = (cond, msg) => {
-    if (!cond) throw new Error(msg);
-  };
-  const calls = [];
-  const real = globalThis.fetch;
-  globalThis.fetch = async (url, init) => {
-    const path = String(url).replace('https://api.github.com', '');
-    calls.push({ method: init.method, path, body: init.body ? JSON.parse(init.body) : null });
-    const json = path.startsWith('/search/issues') ? { items: [{ number: 7881, title: 'Main is red' }] } : {};
-    return new Response(JSON.stringify(json), { status: init.method === 'DELETE' ? 200 : 201 });
-  };
-  try {
-    assert((await noteTracedRed('o/r', 'culprit body')) === 7881, 'the open "Main is red" issue is found');
-  } finally {
-    globalThis.fetch = real;
-  }
-  const writes = calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path} ${JSON.stringify(c.body)}`);
-  assert(
-    JSON.stringify(writes) ===
-      JSON.stringify([
-        'POST /repos/o/r/issues/7881/comments {"body":"culprit body"}',
-        'POST /repos/o/r/issues/7881/labels {"labels":["regression"]}',
-        'DELETE /repos/o/r/issues/7881/labels/main-unknown-red null',
-      ]),
-    `a traced red comments, adds regression, then removes main-unknown-red; got ${JSON.stringify(writes)}`,
-  );
-  console.log('✓ bisect-main --self-test OK');
-}
-
 async function main() {
   const { GOOD, BAD, TESTS, JOBS, GITHUB_REPOSITORY: repo, GITHUB_SERVER_URL, GITHUB_RUN_ID, GITHUB_OUTPUT } = process.env;
   if (!SHA.test(GOOD ?? '') || !SHA.test(BAD ?? '')) throw new Error('GOOD and BAD must be full commit shas');
@@ -357,14 +254,7 @@ async function main() {
   if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `culprit=${culprit}\n`);
 }
 
-const runAsScript = import.meta.url === `file://${process.argv[1]}`;
-if (runAsScript && process.argv.includes('--self-test')) {
-  selfTest();
-  selfTestTraced().catch((e) => {
-    console.error(`✖ bisect-main --self-test: ${e.message}`);
-    process.exit(1);
-  });
-} else if (runAsScript) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main().catch((e) => {
     console.error(`✖ bisect-main: ${e.message}`);
     process.exit(1);
