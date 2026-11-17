@@ -12,6 +12,7 @@ import { eitherStateRules } from './either-state-rule.js';
 import { madeUpPrincipalRules } from './made-up-principal-rule.js';
 import { exactLocatorRules } from './exact-locator-rule.js';
 import { retryActionRules } from './retry-action-rule.js';
+import { signInRetryRules } from './sign-in-retry-rule.js';
 import { historyCommentRules } from './history-comment-rule.js';
 import { journeyCopyRules } from './journey-copy-rule.js';
 
@@ -202,6 +203,7 @@ export default {
     ...madeUpPrincipalRules,
     ...exactLocatorRules,
     ...retryActionRules,
+    ...signInRetryRules,
     ...historyCommentRules,
     ...journeyCopyRules,
   },

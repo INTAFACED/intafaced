@@ -29,6 +29,7 @@
     "garden/no-made-up-principal": "error",
     "garden/exact-locator": "error",
     "garden/no-action-in-retry": "error",
+    "garden/no-sign-in-retry": "error",
     "garden/no-history-comment": "error",
     "garden/no-copied-journey-function": "error",
     "typescript/no-explicit-any": "error",
