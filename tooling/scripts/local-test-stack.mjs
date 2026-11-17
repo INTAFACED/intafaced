@@ -2218,8 +2218,12 @@ async function healthTable({ gateMarket = false } = {}) {
   ]);
   // The TEST adapters behind a service's outside door: each a row of its own, so the table names every port the stack's
   // marker holds. One this start left off (the user-venue switch, or an `--only` without it) reads "off", which doesn't fail.
+  // A venue's record outlives its process (a stop keeps it), so a stopped venue the switch doesn't ask for is off too;
+  // one the switch asks for that is not running is DOWN.
+  const venues = userVenueOn() ? userVenueCount(process.env.LOCAL_STACK_USER_VENUE) : 0;
+  const wanted = { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true };
   for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) {
-    if (!procs[name]) {
+    if (!procs[name] || (!wanted[name] && !ownedAlive(procs[name]))) {
       rows.push([`${name} (TEST)`, PORTS[name], '-', 'off (not started)']);
       continue;
     }
