@@ -187,7 +187,7 @@ export default function PayYourself({
           code: `trade.venue.${outcome.refusal.code}`,
         });
       // The venue took it (or may have): the move is recorded by its key and the venue's nonce; the venue's record decides.
-      await api.mutate(
+      const recorded = await api.mutate(
         'bank',
         'payYourself.record',
         { moveKey: a.moveKey, owner, nonce: prepared.data.prepared.nonce, amount: a.amount },
@@ -195,6 +195,9 @@ export default function PayYourself({
       );
       setAmount(null);
       summary.reload();
+      // The venue has the withdrawal, so the money is on its way either way; a move not saved here is said, never hidden.
+      if (!recorded.ok)
+        setRefusal({ title: t('recordFailedTitle'), body: t('recordFailedBody', { detail: recorded.message }), code: recorded.code });
     } finally {
       setBusy(false);
     }

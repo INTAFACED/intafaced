@@ -60,6 +60,9 @@ export const payYourselfCopy = defineCopy('home.payYourself', {
   signRejected: 'You cancelled the signature. Nothing was sent.',
   signFailed: 'The wallet couldn’t sign. Nothing was sent.',
   refusedTitle: 'That did not go through',
+  recordFailedTitle: 'Sent, but not saved here',
+  recordFailedBody:
+    'The venue took your withdrawal, so the money is on its way to your own account. This page could not save the move, so its tracker and your realised figure leave it out. {detail}',
   refusedBody: 'Nothing was sent. {detail}',
   trackerTitle: 'Where your money is',
   trackVenue: 'Venue withdrawal',

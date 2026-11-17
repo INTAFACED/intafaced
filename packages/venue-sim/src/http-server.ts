@@ -47,7 +47,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -800,6 +800,10 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
           throw new VenueWireError('withdrawalArrivalSeconds must be a whole number of seconds, or null');
         sim.switches.withdrawalArrivalSeconds = n;
       }
+      if (body.withdrawalsHeld !== undefined) {
+        if (typeof body.withdrawalsHeld !== 'boolean') throw new VenueWireError('withdrawalsHeld must be true or false');
+        sim.switches.withdrawalsHeld = body.withdrawalsHeld;
+      }
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
         const url = body.depositExplorerTxUrl;
         if (url !== null && !/^(https:\/\/|\/(?!\/))/.test(url))
@@ -817,6 +821,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         withdrawalArrivalSeconds: sim.switches.withdrawalArrivalSeconds,
+        withdrawalsHeld: sim.switches.withdrawalsHeld,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
         label: 'TEST',
       };

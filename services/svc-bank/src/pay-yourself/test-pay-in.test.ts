@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatAmount } from '@intafaced/ledger-client';
 import { testPartner } from '../partner/test-partner.js';
 import { nextWeekday } from './pay-yourself-service.js';
-import { payInCredited, testPayInAddress, testPayInRail, unitsToAmount } from './test-pay-in.js';
+import { TEST_PAY_IN_CONFIRMATIONS, payInCredited, testPayInAddress, testPayInRail, unitsToAmount } from './test-pay-in.js';
 
 // J-bank-31 #4 #6: the TEST partner credits a USDC pay-in to its TEST address once, after its confirmations, never while
 // its answer is held, and a pending one is never spendable.
@@ -57,6 +57,11 @@ describe('the TEST partner pay-in', () => {
     await rail.poll();
     expect(rail.credits('user-1').map((x) => [x.status, formatAmount(x.amount), x.confirmations])).toEqual([['pending', '298.75', 1]]);
     expect(payInCredited(rail, 'user-1', 'USDC')).toBe(0n);
+    // One short of its confirmations: still pending, not counted.
+    c.mine(TEST_PAY_IN_CONFIRMATIONS - 2);
+    await rail.poll();
+    expect(rail.credits('user-1').map((x) => [x.status, x.confirmations])).toEqual([['pending', TEST_PAY_IN_CONFIRMATIONS - 1]]);
+    expect(payInCredited(rail, 'user-1', 'USDC')).toBe(0n);
     c.mine();
     await rail.poll();
     await rail.poll();
@@ -79,7 +84,7 @@ describe('the TEST partner pay-in', () => {
     partner.set('user-1', { payIn: 'held' });
     await rail.poll();
     c.transfer(address, 5_000_000n, '0xbbb');
-    c.mine(5);
+    c.mine(TEST_PAY_IN_CONFIRMATIONS);
     await rail.poll();
     expect(rail.credits('user-1').map((x) => [x.status, x.held])).toEqual([['pending', true]]);
     expect(partner.record('user-1').accounts).toEqual([]);

@@ -273,6 +273,8 @@ export interface SimSwitches {
    * "not published". TEST: the TEST venue pays a withdrawal about 4 seconds after it is signed (chain-deposits.ts).
    */
   withdrawalArrivalSeconds: number | null;
+  /** TEST: the chain sender pays out no withdrawal while true, so each stays pending until it goes back (J-bank-31 #4). */
+  withdrawalsHeld: boolean;
   /**
    * The explorer link the venue gives each chain deposit, a transaction hash appended (J-dex-protocol-05 #2); `null` for a
    * network with no explorer, when a deposit shows its hash alone.
@@ -538,6 +540,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       unpublishedWithdrawalFee: parseAmount('2'),
       networkFee: { known: true, value: parseAmount('0.25') },
       withdrawalArrivalSeconds: 60,
+      withdrawalsHeld: false,
       depositExplorerTxUrl: null,
       unpublishedNetworkFee: parseAmount('0.5'),
       unpublishedMakerFeeBps: parseAmount('2'),

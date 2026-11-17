@@ -53,7 +53,7 @@ test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 test.afterAll(async () => {
   await putBack().catch(() => undefined);
-  await testVenue('/test/switches', { withdrawalArrivalSeconds: 60 }).catch(() => undefined);
+  await testVenue('/test/switches', { withdrawalArrivalSeconds: 60, withdrawalsHeld: false }).catch(() => undefined);
 });
 
 function state() {
@@ -413,6 +413,8 @@ test(`${J} #3 presses Pay yourself, with step-up: a review with the amount, the 
   await expect(review(page, 'partner-fee')).toHaveText('0 USDC', { timeout: 15_000 });
   await expect(review(page, 'arrival')).toHaveText(`within ${terms.arrivalSeconds} seconds, as the venue publishes it`);
   const free = (await venueBalance(state().owner, 'USDC')).free;
+  // The TEST venue holds its payout until #4 watches, so #4 sees the withdrawal pending (packages/venue-sim).
+  expect((await testVenue('/test/switches', { withdrawalsHeld: true })).body).toMatchObject({ withdrawalsHeld: true });
   await approveAndSign(page, wallet);
   // One move recorded, sent, under the venue's nonce; the venue took one withdrawal of 300 to the pay-in address.
   const summary = await bankGet('payYourself.summary');
@@ -420,7 +422,7 @@ test(`${J} #3 presses Pay yourself, with step-up: a review with the amount, the 
   expect(sent).toHaveLength(1);
   expect(sent[0]).toMatchObject({ source: 'manual', amount: '300', owner: state().owner });
   const w = (await venueRecord(state().owner, '/withdrawal', { nonce: sent[0].venueNonce })).value;
-  expect(w).toMatchObject({ asset: 'USDC', amount: '300', destination: summary.payIn.address.toLowerCase() });
+  expect(w).toMatchObject({ asset: 'USDC', amount: '300', status: 'pending', destination: summary.payIn.address.toLowerCase() });
   // The venue's fee comes out of the same free balance.
   expect(fromUnits(toUnits(free) - toUnits((await venueBalance(state().owner, 'USDC')).free))).toBe(
     fromUnits(toUnits('300') + toUnits(terms.fee.value)),
@@ -433,21 +435,39 @@ test(`${J} #4 watches it arrive: the venue withdrawal pending then done, the par
 }) => {
   test.setTimeout(240_000);
   const { owner, nonce, networkFee, userId, cardId, cardBefore, ledger } = state();
+  // Read before the watch starts: a read signs in with a fresh authenticator code, which can take up to 30 seconds.
+  const required = (await bankGet('payYourself.summary')).payIn.confirmations;
   await openHome(page);
-  // The venue's withdrawal: taken (pending), then paid out on chain (done), each at its own time.
-  await expect(track(page, 'venue').locator('[data-track-state]')).toHaveText('Done', { timeout: 60_000 });
-  const pendingAt = await track(page, 'venue').locator('[data-track-pending-at] time').getAttribute('dateTime');
-  const doneAt = await track(page, 'venue').locator('[data-track-done-at] time').getAttribute('dateTime');
+  // The venue's withdrawal: taken and pending, with its time; the partner has nothing to report yet.
+  const venueRow = track(page, 'venue');
+  const partnerRow = track(page, 'partner');
+  try {
+    await expect(venueRow.locator('[data-track-state]')).toHaveText('Pending', { timeout: 30_000 });
+    expect((await venueRecord(owner, '/withdrawal', { nonce })).value.status).toBe('pending');
+    await expect(venueRow.locator('[data-track-pending-at] time')).toHaveAttribute('dateTime', /^\d{4}-/);
+    await expect(venueRow.locator('[data-track-done-at]')).toHaveCount(0);
+    await expect(partnerRow.locator('[data-track-state]')).toHaveText('Not reported');
+  } finally {
+    // The venue pays it out on chain: done, at its own time.
+    await testVenue('/test/switches', { withdrawalsHeld: false });
+  }
+  await expect(venueRow.locator('[data-track-state]')).toHaveText('Done', { timeout: 60_000 });
+  const pendingAt = await venueRow.locator('[data-track-pending-at] time').getAttribute('dateTime');
+  const doneAt = await venueRow.locator('[data-track-done-at] time').getAttribute('dateTime');
   expect(Date.parse(pendingAt) <= Date.parse(doneAt)).toBe(true);
   const w = (await venueRecord(owner, '/withdrawal', { nonce })).value;
   expect(w.status).toBe('done');
   expect(w.txHash).toMatch(/^0x[0-9a-f]{64}$/);
   const arrives = fromUnits(toUnits(w.amount) - toUnits(networkFee));
 
-  // The partner's credit: seen pending, then available after its confirmations.
-  await expect(track(page, 'partner')).toContainText(`${arrives} USDC`, { timeout: 30_000 });
-  for (let i = 0; i < 3; i += 1) await mine();
-  await expect(track(page, 'partner').locator('[data-track-state]')).toHaveText('Available', { timeout: 30_000 });
+  // The partner's credit: seen and pending while its confirmations come in, then available.
+  await expect(partnerRow.locator('[data-track-state]')).toHaveText('Pending', { timeout: 30_000 });
+  await expect(partnerRow).toContainText(`${arrives} USDC`);
+  await expect(partnerRow).toContainText(new RegExp(`\\b\\d+ of ${required} confirmations`));
+  await expect(partnerRow.locator('[data-track-available-at]')).toHaveCount(0);
+  expect(payIns(await partnerMoves(userId))).toHaveLength(0);
+  for (let i = 0; i < required; i += 1) await mine();
+  await expect(partnerRow.locator('[data-track-state]')).toHaveText('Available', { timeout: 60_000 });
   const seenAt = await track(page, 'partner').locator('[data-track-pending-at] time').getAttribute('dateTime');
   const availableAt = await track(page, 'partner').locator('[data-track-available-at] time').getAttribute('dateTime');
   expect(Date.parse(seenAt) <= Date.parse(availableAt)).toBe(true);
@@ -524,7 +544,9 @@ test(`${J} #6 the partner's answer is held (TEST switch): "On its way", with whe
     await expect(review(page, 'amount')).toHaveText('10 USDC');
     await approveAndSign(page, wallet);
     await expect(track(page, 'venue').locator('[data-track-state]')).toHaveText('Done', { timeout: 60_000 });
-    for (let i = 0; i < 3; i += 1) await mine();
+    // Past its confirmations: only the partner's held answer keeps it from the balance.
+    const required = (await bankGet('payYourself.summary')).payIn.confirmations;
+    for (let i = 0; i < required; i += 1) await mine();
     const arrives = fromUnits(toUnits('10') - toUnits(networkFee));
     const way = page.getByTestId('on-its-way');
     await expect(way).toContainText(

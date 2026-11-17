@@ -18,8 +18,11 @@ import { createHash } from 'node:crypto';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { TestPartner } from '../partner/test-partner.js';
 
-/** TEST: confirmations the TEST partner waits for before it credits a pay-in. Not a partner's terms. */
-export const TEST_PAY_IN_CONFIRMATIONS = 2;
+/**
+ * TEST: confirmations the TEST partner waits for before it credits a pay-in. Not a partner's terms. The stack's TEST chain
+ * mines about a block a second, so a pay-in is seen pending for about this many seconds before it is credited.
+ */
+export const TEST_PAY_IN_CONFIRMATIONS = 12;
 /** The partner asset a pay-in is credited as. */
 export const PAY_IN_ASSET = 'USDC';
 /** keccak256("Transfer(address,address,uint256)"): an ERC-20 transfer's log topic. */
