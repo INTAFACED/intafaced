@@ -198,6 +198,7 @@ test(`${J} #3 presses Amend on a futures order: the venue amends it in place, or
   await dialog.getByRole('textbox', { name: 'Amount left', exact: true }).fill('0.001');
   await expect(dialog).toContainText('Lowering the amount keeps your place in the queue; the venue changes the order in place.');
   // Nothing changes until it is confirmed: typed, not pressed, the order rests as it was and nothing was prepared.
+  // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing happens: a typed change sends nothing in this time
   await page.waitForTimeout(1_000);
   expect(door.of('prepare')).toHaveLength(0);
   expect(await venueOrder(s.owner, a)).toEqual(before);
