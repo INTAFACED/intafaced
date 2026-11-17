@@ -3185,6 +3185,10 @@ describe('svc-bank money PG-hard', () => {
         // Salary by direct deposit (J-bank-30): the partner bank holds the money; the ledger posts nothing.
         'salary_credits.amount': 'a RECORD of one payroll network credit as the network sent it; the money is the partner move it names',
         'salary_split_legs.amount': 'an INSTRUCTION: one split leg sent to the partner bank under its key, fixed when the credit arrived',
+        // Pay yourself (J-bank-31): the venue and the partner hold the money; the ledger posts nothing.
+        'pay_yourself_moves.amount':
+          'an INSTRUCTION: one venue withdrawal the person prepared or signed under its move key; the venue and the partner record the money',
+        'pay_yourself_rules.cap': 'a POLICY limit the person set: the most one weekly move may prepare',
       };
 
       const guard = moneyColumnGuard(columns, MONEY_COLUMNS);
