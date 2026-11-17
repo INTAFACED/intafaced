@@ -1817,6 +1817,9 @@ importers:
       '@intafaced/ledger-client':
         specifier: workspace:*
         version: link:../../packages/ledger-client
+      '@intafaced/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
       '@trpc/server':
         specifier: ^11.28.0
         version: 11.28.2(@types/ws@8.18.2)(fastify@5.12.8)(next@16.4.6(@opentelemetry/api@1.10.0)(@playwright/test@1.65.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(typescript@7.0.2)
