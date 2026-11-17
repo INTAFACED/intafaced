@@ -2657,7 +2657,8 @@
       { "n": 3, "slices": ["CB-copy-pro-share-02"], "noSlice": false },
       { "n": 4, "slices": ["CB-copy-pro-share-02"], "noSlice": false },
       { "n": 5, "slices": ["CB-copy-pro-share-03"], "noSlice": false },
-      { "n": 6, "slices": ["CB-copy-23"], "noSlice": false }
+      { "n": 6, "slices": ["CB-copy-23"], "noSlice": false },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -2729,8 +2730,9 @@
       { "n": 3, "slices": ["CB-ops-01"], "noSlice": false },
       { "n": 4, "slices": ["CB-ops-01", "CB-copy-12"], "noSlice": false },
       { "n": 5, "slices": ["CB-ops-01"], "noSlice": false },
-      { "n": 6, "slices": ["CB-copy-pro-share-11", "CB-copy-pro-share-06"], "noSlice": false },
-      { "n": 7, "slices": ["CB-copy-pro-share-09", "CB-copy-pro-share-03"], "noSlice": false }
+      { "n": 6, "slices": ["CB-copy-pro-share-11", "CB-copy-pro-share-06"], "noSlice": false, "later": "custody" },
+      { "n": 7, "slices": ["CB-copy-pro-share-03"], "noSlice": false },
+      { "n": 8, "slices": ["CB-copy-pro-share-09"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -2926,7 +2928,8 @@
       { "n": 3, "slices": ["CB-bots-api-signal-06"], "noSlice": false },
       { "n": 4, "slices": ["CB-bots-api-signal-06"], "noSlice": false },
       { "n": 5, "slices": ["CB-bots-api-signal-06"], "noSlice": false },
-      { "n": 6, "slices": ["CB-bots-api-signal-07"], "noSlice": false }
+      { "n": 6, "slices": ["CB-bots-api-signal-07"], "noSlice": false },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -6017,7 +6020,7 @@
       { "n": 4, "slices": ["MC-launch-03"], "noSlice": false },
       { "n": 5, "slices": ["RC-more-catalogue-22"], "noSlice": false },
       { "n": 6, "slices": ["RC-more-catalogue-23"], "noSlice": false },
-      { "n": 7, "slices": ["RC-more-catalogue-24"], "noSlice": false },
+      { "n": 7, "slices": ["RC-more-catalogue-24"], "noSlice": false, "deferred": true },
       { "n": 8, "slices": ["MC-launch-01"], "noSlice": false }
     ]
   },
@@ -6212,7 +6215,8 @@
       { "n": 9, "slices": ["OPS-accounts-desk-02"], "noSlice": false, "deferred": true },
       { "n": 10, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 11, "slices": ["OPS-accounts-desk-03"], "noSlice": false },
-      { "n": 12, "slices": ["OPS-accounts-desk-03"], "noSlice": false }
+      { "n": 12, "slices": ["OPS-accounts-desk-03"], "noSlice": false },
+      { "n": 13, "slices": [], "noSlice": true, "deferred": true }
     ]
   },
   {
@@ -6291,7 +6295,8 @@
       { "n": 4, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
       { "n": 5, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
       { "n": 6, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
-      { "n": 7, "slices": ["OPS-ledger-desk-05"], "noSlice": false }
+      { "n": 7, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
+      { "n": 8, "slices": ["OPS-ledger-desk-05"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -7987,7 +7992,8 @@
       { "n": 5, "slices": [], "noSlice": true },
       { "n": 6, "slices": [], "noSlice": true },
       { "n": 7, "slices": ["RC-support-public-07", "RC-support-public-06"], "noSlice": false },
-      { "n": 8, "slices": ["SP-tickets-04"], "noSlice": false }
+      { "n": 8, "slices": ["SP-tickets-04"], "noSlice": false },
+      { "n": 9, "slices": ["RC-support-public-07", "RC-support-public-06"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -8383,21 +8389,6 @@
       { "n": 6, "slices": [], "noSlice": true },
       { "n": 7, "slices": [], "noSlice": true },
       { "n": 8, "slices": ["D-venue-09"], "noSlice": false }
-    ]
-  },
-  {
-    "id": "J-wallet-23",
-    "title": "I approve a trading key once per session, so I do not sign every order with my wallet",
-    "module": "wallet",
-    "persona": "pro-trader",
-    "tier": "core",
-    "order": 2,
-    "steps": [
-      { "n": 1, "slices": [], "noSlice": true },
-      { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true },
-      { "n": 5, "slices": [], "noSlice": true }
     ]
   }
 ]
