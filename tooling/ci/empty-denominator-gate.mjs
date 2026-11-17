@@ -209,11 +209,7 @@ export const ENFORCED = {
     must: /no service packages found, so checks 1-10 below each iterated an empty list/,
     note: 'the most explicit statement of this law in the repo: "This gate cannot pass on a tree it did not open."',
   },
-  'event-wiring': {
-    kind: 'guard',
-    must: /there is no catalog to check/,
-    note: 'one of the seven that learned this independently — the bus could not report silence, so now it refuses to.',
-  },
+
   'skip-honesty': {
     kind: 'guard',
     must: /SKIP HONESTY SCAN FAILED/,

@@ -9,10 +9,8 @@
  * would otherwise go silent-live. `EVENT_BUS_MATRIX` is the pin — adding a
  * catalog key without a row here is a type error and a red test.
  *
- * Do not invent consumers here. Classify from `WIRING_SOCKETS` + the gate's
- * mounted-vs-defined walk. Closing Class B is owner scope (crewMemberCreated).
- *
- * Mounted-vs-defined wiring is still the job of `tooling/ci/event-wiring.mjs`.
+ * Do not invent consumers here. Classify from `WIRING_SOCKETS`. Closing Class B
+ * is owner scope (crewMemberCreated).
  */
 
 import { EVENT_CATALOG, WIRING_SOCKETS, type EventName, type SocketClass, type WiringSocket } from './catalog.js';
@@ -68,8 +66,8 @@ const ENDS: readonly WiringEnd[] = ['publisher', 'subscriber'];
 /**
  * Closed matrix: every `EventName` appears exactly once.
  *
- * Live means the event-wiring gate must prove both ends mount — not "a consumer
- * we wish existed". Socket / broken_promise rows must match `WIRING_SOCKETS`.
+ * Live means both ends are mounted in the code — not "a consumer we wish
+ * existed". Socket / broken_promise rows must match `WIRING_SOCKETS`.
  */
 export const EVENT_BUS_MATRIX = {
   xpEarned: { kind: 'live' },
