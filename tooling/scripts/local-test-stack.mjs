@@ -2259,7 +2259,8 @@ async function healthTable({ gateMarket = false } = {}) {
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
-  const w = [17, 12, 8];
+  // The name column fits its longest name (`test-wallet-provider (TEST)`), so a name never runs into its port.
+  const w = [Math.max(17, ...rows.map((r) => String(r[0]).length + 1)), 12, 8];
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
   const marketBad = mk.state === 'down' || mk.state === 'stale';
