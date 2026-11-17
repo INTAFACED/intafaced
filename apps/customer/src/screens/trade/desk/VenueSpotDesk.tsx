@@ -84,6 +84,7 @@ import { spotVenueCopy } from './venue-copy';
 import { VenueMarketPanel } from './VenueMarketData';
 import { VenueChartOrders } from './VenueChartOrders';
 import { NotOfferedTypes, UnitFlag, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
+import { VenueConditionalOrders } from './VenueConditionalOrders';
 import { VenueMarketRules } from './VenueMarketRules';
 import { VenueCancelMany, VenueEditOrder } from './VenueOrderChanges';
 import { VenueDeadMan } from './VenueDeadMan';
@@ -582,6 +583,7 @@ export function VenueSpotDesk({
           </div>
         </TabsPanel>
       </Tabs>
+      <VenueConditionalOrders market={market} owner={owner} venueName={status.venue.displayName} />
       <Tabs value={tab} onValueChange={(x) => setTab(x as typeof tab)} className="dk-panel dk-bottom" data-testid="venue-bottom">
         <TabsList divider className="dk-tabs dk-tabs--grow" aria-label={v('Open orders')}>
           <TabsTab value="open">{v('Open orders')}</TabsTab>

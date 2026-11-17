@@ -634,6 +634,99 @@ export interface ProtectionRequest {
   attachTo?: string;
 }
 
+// ── Conditional spot orders (J-cex-spot-08; svc-trade src/venue/spot-conditionals.ts) ─────────────────────────────
+
+export const SPOT_CONDITIONAL_KINDS = ['stop_limit', 'stop_market', 'oco', 'bracket', 'oto'] as const;
+export type SpotConditionalKind = (typeof SPOT_CONDITIONAL_KINDS)[number];
+export const SPOT_LEG_ROLES = ['stop', 'take_profit', 'stop_loss', 'entry', 'close'] as const;
+export type SpotLegRole = (typeof SPOT_LEG_ROLES)[number];
+
+export const spotLegSchema = z.object({
+  role: z.enum(SPOT_LEG_ROLES),
+  side: z.enum(['buy', 'sell']),
+  type: z.enum(['limit', 'market']),
+  price: decimalSchema.nullable(),
+  triggerPrice: decimalSchema.nullable(),
+  quantity: decimalSchema,
+  restsOn: z.enum(['venue', 'engine']),
+  signedBy: z.enum(['wallet', 'agent']),
+  status: z.enum(['waiting', 'armed', 'triggered', 'open', 'partially_filled', 'filled', 'cancelled', 'failed']),
+  orderKey: z.string().nullable(),
+  venueClientOrderId: z.string().nullable(),
+  filled: decimalSchema.nullable(),
+  locked: decimalSchema.nullable(),
+  lockedAsset: z.string().nullable(),
+  linkedTo: z.enum(SPOT_LEG_ROLES).nullable(),
+});
+export type SpotLegView = z.infer<typeof spotLegSchema>;
+
+export const spotConditionalSchema = z.object({
+  id: z.string(),
+  clientOrderId: z.string(),
+  kind: z.enum(SPOT_CONDITIONAL_KINDS),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  quantity: decimalSchema,
+  status: z.enum(['entry', 'placing', 'open', 'armed', 'firing', 'cancelling', 'fired', 'filled', 'failed', 'cancelled']),
+  restsOn: z.literal('engine'),
+  label: z.string(),
+  agentPermission: z.object({ agentAddress: z.string() }),
+  triggerSource: z.literal('last'),
+  triggerPrice: decimalSchema.nullable(),
+  limitPrice: decimalSchema.nullable(),
+  takeProfitPrice: decimalSchema.nullable(),
+  entryPrice: decimalSchema.nullable(),
+  entryTif: z.enum(['GTC', 'IOC']).nullable(),
+  closePrice: decimalSchema.nullable(),
+  exitQuantity: decimalSchema.nullable(),
+  referencePrice: decimalSchema.nullable(),
+  failure: z.string().nullable(),
+  cancelReason: z.string().nullable(),
+  createdAt: z.string(),
+  legs: z.array(spotLegSchema),
+});
+export type SpotConditionalView = z.infer<typeof spotConditionalSchema>;
+
+export const spotConditionalCreatedSchema = z.union([
+  z.object({ restsOn: z.literal('venue'), actionKey: z.string(), prepared: preparedAnswerSchema.shape.prepared, reused: z.boolean() }),
+  z.object({
+    restsOn: z.literal('engine'),
+    conditional: spotConditionalSchema,
+    reused: z.boolean(),
+    entry: preparedAnswerSchema.nullable(),
+  }),
+]);
+export type SpotConditionalCreated = z.infer<typeof spotConditionalCreatedSchema>;
+
+export const spotFeeLegSchema = z.object({
+  role: z.enum(SPOT_LEG_ROLES),
+  side: z.enum(['buy', 'sell']),
+  liquidity: z.enum(['maker', 'taker']),
+  price: decimalSchema,
+  quantity: decimalSchema,
+  venueFeeBps: decimalSchema.nullable(),
+  builderFeeBps: decimalSchema.nullable(),
+  feeAsset: z.string(),
+  estimatedFee: decimalSchema.nullable(),
+});
+export type SpotFeeLeg = z.infer<typeof spotFeeLegSchema>;
+
+/** One conditional spot order: only the price fields its kind takes are sent. Amounts are decimal strings. */
+export interface SpotConditionalRequest {
+  owner: string;
+  symbol: string;
+  kind: SpotConditionalKind;
+  side: 'buy' | 'sell';
+  quantity: string;
+  triggerPrice?: string;
+  limitPrice?: string;
+  takeProfitPrice?: string;
+  entryPrice?: string;
+  entryTif?: 'GTC' | 'IOC';
+  closePrice?: string;
+  clientOrderId: string;
+}
+
 // ── Intents, as the door takes them: every Amount a decimal string ─────────────────────────────────────────────────
 
 export interface OrderIntent {
@@ -900,6 +993,16 @@ export function venueApi(api: ApiClient) {
     cancelProtection: (id: string) => api.rest(`/venue/protections/${encodeURIComponent(id)}`, protectionViewSchema, { method: 'DELETE' }),
     protectionAgent: (owner: string, signal?: AbortSignal) => read('/protection-agent', protectionAgentSchema, { owner }, signal),
     prepareProtectionAgent: (owner: string) => write('/protection-agent/prepare', preparedAnswerSchema, { owner }),
+    /** The person's conditional spot orders: stops, OCOs, brackets and linked closes (J-cex-spot-08). */
+    spotOrders: (owner: string, signal?: AbortSignal) =>
+      read('/spot-orders', z.object({ orders: z.array(spotConditionalSchema) }), { owner }, signal),
+    createSpotOrder: (input: SpotConditionalRequest) => write('/spot-orders', spotConditionalCreatedSchema, input),
+    reviewSpotOrder: (input: SpotConditionalRequest) => write('/spot-orders/review', z.object({ legs: z.array(spotFeeLegSchema) }), input),
+    modifySpotOrder: (id: string, body: { triggerPrice: string; limitPrice?: string }) =>
+      api.rest(`/venue/spot-orders/${encodeURIComponent(id)}`, spotConditionalSchema, { method: 'PATCH', body }),
+    cancelSpotOrder: (id: string) => api.rest(`/venue/spot-orders/${encodeURIComponent(id)}`, spotConditionalSchema, { method: 'DELETE' }),
+    spotAgent: (owner: string, signal?: AbortSignal) => read('/spot-agent', protectionAgentSchema, { owner }, signal),
+    prepareSpotAgent: (owner: string) => write('/spot-agent/prepare', preparedAnswerSchema, { owner }),
   };
 }
 export type VenueApi = ReturnType<typeof venueApi>;
