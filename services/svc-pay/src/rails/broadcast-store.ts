@@ -21,8 +21,22 @@
 /** Sentinel while a worker owns the right to broadcast but has not yet put a hash. */
 export const BROADCAST_PENDING = '__pending__' as const;
 
+/**
+ * Sentinel for a key a status query answered `not_sent` (PayoutQuery.tla, NeverPaidTwice): a reconciler gives the held
+ * money back on that answer, so no send may ever leave under the key afterwards.
+ */
+export const BROADCAST_CLOSED = '__closed__' as const;
+
 export type ClaimResult =
-  { readonly kind: 'mine' } | { readonly kind: 'done'; readonly txHash: string } | { readonly kind: 'resume'; readonly signedRaw: string };
+  | { readonly kind: 'mine' }
+  | { readonly kind: 'done'; readonly txHash: string }
+  | { readonly kind: 'resume'; readonly signedRaw: string }
+  | { readonly kind: 'closed' };
+
+/** `closed`: nothing was or will ever be sent under the key. `held`: a send holds the key, or its hash has landed. */
+export type CloseResult = 'closed' | 'held';
+
+const isHash = (v: string | null | undefined): v is string => Boolean(v) && v !== BROADCAST_PENDING && v !== BROADCAST_CLOSED;
 
 export interface BroadcastStore {
   /** Prior txHash for this business key, or null if never completed. */
@@ -46,6 +60,11 @@ export interface BroadcastStore {
   put(idempotencyKey: string, txHash: string): Promise<string>;
   /** True once signed raw is journalled (resume-able). Required before RPC. */
   hasSigned(idempotencyKey: string): Promise<boolean>;
+  /**
+   * Take the key's claim for a `not_sent` answer, with the same atomic insert `claim` uses. Won (or closed before):
+   * `closed`, and every later `claim` answers `closed`, so nothing is sent. Lost to a send: `held`.
+   */
+  close(idempotencyKey: string): Promise<CloseResult>;
 }
 
 /** In-memory journal — tests and single-process local runners. Not multi-replica safe. */
@@ -56,13 +75,23 @@ export class MemoryBroadcastStore implements BroadcastStore {
 
   async get(idempotencyKey: string): Promise<string | null> {
     const v = this.map.get(idempotencyKey);
-    if (!v || v === BROADCAST_PENDING) return null;
-    return v;
+    return isHash(v) ? v : null;
+  }
+
+  async close(idempotencyKey: string): Promise<CloseResult> {
+    // Check + set with no await between — atomic on the JS event loop, like `claim`.
+    const existing = this.map.get(idempotencyKey);
+    if (!existing) {
+      this.map.set(idempotencyKey, BROADCAST_CLOSED);
+      return 'closed';
+    }
+    return existing === BROADCAST_CLOSED ? 'closed' : 'held';
   }
 
   async claim(idempotencyKey: string): Promise<ClaimResult> {
     // Check + set with no await between — atomic on the JS event loop.
     const existing = this.map.get(idempotencyKey);
+    if (existing === BROADCAST_CLOSED) return { kind: 'closed' };
     if (existing && existing !== BROADCAST_PENDING) {
       return { kind: 'done', txHash: existing };
     }
@@ -94,6 +123,9 @@ export class MemoryBroadcastStore implements BroadcastStore {
     if (!existing) {
       throw new Error(`broadcast putSigned for ${idempotencyKey}: no claim row (call claim first)`);
     }
+    if (existing === BROADCAST_CLOSED) {
+      throw new Error(`broadcast putSigned for ${idempotencyKey}: the key was closed by a not_sent answer`);
+    }
     if (existing !== BROADCAST_PENDING) {
       // Already settled — signed bytes are irrelevant; keep first hash.
       return;
@@ -110,7 +142,13 @@ export class MemoryBroadcastStore implements BroadcastStore {
     if (txHash === BROADCAST_PENDING) {
       throw new Error('txHash must not be the pending sentinel');
     }
+    if (txHash === BROADCAST_CLOSED) {
+      throw new Error('txHash must not be the closed sentinel');
+    }
     const existing = this.map.get(idempotencyKey);
+    if (existing === BROADCAST_CLOSED) {
+      throw new Error(`broadcast put for ${idempotencyKey}: the key was closed by a not_sent answer`);
+    }
     if (existing && existing !== BROADCAST_PENDING) return existing;
     this.map.set(idempotencyKey, txHash);
     this.#release(idempotencyKey);
@@ -173,8 +211,21 @@ export class PostgresBroadcastStore implements BroadcastStore {
       SELECT tx_hash FROM pay.crypto_broadcasts WHERE idempotency_key = ${idempotencyKey}
     `) as ReadonlyArray<{ tx_hash: string }>;
     const v = rows[0]?.tx_hash;
-    if (!v || v === BROADCAST_PENDING) return null;
-    return v;
+    return isHash(v) ? v : null;
+  }
+
+  async close(idempotencyKey: string): Promise<CloseResult> {
+    const inserted = (await this.sql`
+      INSERT INTO pay.crypto_broadcasts (idempotency_key, tx_hash)
+      VALUES (${idempotencyKey}, ${BROADCAST_CLOSED})
+      ON CONFLICT (idempotency_key) DO NOTHING
+      RETURNING idempotency_key
+    `) as ReadonlyArray<{ idempotency_key: string }>;
+    if (inserted.length > 0) return 'closed';
+    const rows = (await this.sql`
+      SELECT tx_hash FROM pay.crypto_broadcasts WHERE idempotency_key = ${idempotencyKey}
+    `) as ReadonlyArray<{ tx_hash: string }>;
+    return rows[0]?.tx_hash === BROADCAST_CLOSED ? 'closed' : 'held';
   }
 
   async claim(idempotencyKey: string): Promise<ClaimResult> {
@@ -197,6 +248,7 @@ export class PostgresBroadcastStore implements BroadcastStore {
         await new Promise((r) => setTimeout(r, pollMs));
         continue;
       }
+      if (row.tx_hash === BROADCAST_CLOSED) return { kind: 'closed' };
       if (row.tx_hash && row.tx_hash !== BROADCAST_PENDING) {
         return { kind: 'done', txHash: row.tx_hash };
       }
@@ -236,6 +288,9 @@ export class PostgresBroadcastStore implements BroadcastStore {
     if (!row) {
       throw new Error(`broadcast putSigned for ${idempotencyKey}: no claim row (call claim first)`);
     }
+    if (row.tx_hash === BROADCAST_CLOSED) {
+      throw new Error(`broadcast putSigned for ${idempotencyKey}: the key was closed by a not_sent answer`);
+    }
     if (row.tx_hash && row.tx_hash !== BROADCAST_PENDING) return;
     if (row.signed_raw && row.signed_raw !== signedRaw) {
       throw new Error(`broadcast putSigned for ${idempotencyKey}: signed payload mismatch`);
@@ -245,8 +300,8 @@ export class PostgresBroadcastStore implements BroadcastStore {
   }
 
   async put(idempotencyKey: string, txHash: string): Promise<string> {
-    if (txHash === BROADCAST_PENDING) {
-      throw new Error('txHash must not be the pending sentinel');
+    if (txHash === BROADCAST_PENDING || txHash === BROADCAST_CLOSED) {
+      throw new Error('txHash must not be a sentinel');
     }
     // Only replace pending (or same hash). Never overwrite a different settled hash.
     const updated = (await this.sql`
@@ -262,7 +317,10 @@ export class PostgresBroadcastStore implements BroadcastStore {
       SELECT tx_hash FROM pay.crypto_broadcasts WHERE idempotency_key = ${idempotencyKey}
     `) as ReadonlyArray<{ tx_hash: string }>;
     const v = existing[0]?.tx_hash;
-    if (v && v !== BROADCAST_PENDING) return v;
+    if (v === BROADCAST_CLOSED) {
+      throw new Error(`broadcast put for ${idempotencyKey}: the key was closed by a not_sent answer`);
+    }
+    if (isHash(v)) return v;
     throw new Error(`broadcast put for ${idempotencyKey}: no claim row (call claim first)`);
   }
 }
