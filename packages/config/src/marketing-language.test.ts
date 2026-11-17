@@ -47,8 +47,8 @@ describe('marketing language ban (D26-P0-16 / §8.9)', () => {
     expect(findUnsealedMarketingClaims('            audited: "Template audited",')).toEqual([]);
   });
 
-  it('stays in lockstep with the CI gate source (seal + words)', () => {
-    const gatePath = join(process.cwd(), '../../tooling/ci/marketing-language-scan.mjs');
+  it('stays in lockstep with the copy lint rule that applies it (seal + words)', () => {
+    const gatePath = join(process.cwd(), '../../tooling/lint/oxlint-plugin-garden/copy-rules.js');
     const gate = readFileSync(gatePath, 'utf8');
     expect(gate).toContain(OWNER_SEAL_MARKER);
     for (const word of MARKETING_BAN_WORDS) {
