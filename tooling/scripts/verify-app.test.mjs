@@ -19,6 +19,7 @@ import {
   lsofPorts,
   parseHealth,
   planDrive,
+  recordedDrive,
   againCommand,
   installedAnvil,
   reportTests,
@@ -410,4 +411,38 @@ test('anvil: the stack’s own rule first; else the checkout’s, Foundry’s, t
   assert.equal(installedAnvil(args({ LOCAL_STACK_ANVIL_BIN: '/x/anvil' })), null);
   have.add('/usr/bin/anvil');
   assert.equal(installedAnvil(args()), null);
+});
+
+test('run.json: a whole-journey drive records its run as `journey` does; a drive of steps records none (#8757)', async () => {
+  const world = () => {
+    const records = [];
+    return { records, io: { tree: () => 'tree1', now: () => 1700000000000, record: (r) => records.push(r) } };
+  };
+  const files = ['J-x-01.pw.mjs'];
+  const pass = world();
+  assert.equal(await recordedDrive([], files, pass.io, async () => 0), 0);
+  assert.deepEqual(pass.records, [
+    { tree: 'tree1', files, startedAt: 1700000000000, pid: process.pid, code: null },
+    { tree: 'tree1', files, startedAt: 1700000000000, pid: process.pid, code: 0 },
+  ]);
+  const fail = world();
+  assert.equal(await recordedDrive([], files, fail.io, async () => 1), 1);
+  assert.deepEqual(
+    fail.records.map((r) => r.code),
+    [null, 1],
+  );
+  const part = world();
+  assert.equal(await recordedDrive([2], files, part.io, async () => 0), 0);
+  assert.deepEqual(part.records, []);
+  // A drive that crashes leaves only the start record, code null: never a pass.
+  const crash = world();
+  await assert.rejects(
+    recordedDrive([], files, crash.io, async () => {
+      throw new Error('boom');
+    }),
+  );
+  assert.deepEqual(
+    crash.records.map((r) => r.code),
+    [null],
+  );
 });
