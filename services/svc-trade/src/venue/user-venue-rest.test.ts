@@ -7,6 +7,7 @@ import { parseAmount } from '@intafaced/ledger-client/money';
 import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError } from '@intafaced/contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
+import { venueClientOrderId } from '@intafaced/venue-contracts';
 import { HttpUserVenue } from './http-user-venue.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
@@ -806,5 +807,56 @@ describe('/api/v1/venue/*', () => {
     });
     expect(odd.status).toBe(400);
     expect(await odd.text()).toContain("figures is 'live', 'stale' or 'unknown'");
+  });
+});
+
+describe('/api/v1/venue/orders/by-client-id (J-cex-spot-15 #5)', () => {
+  it("reads one venue order by the bot's own client id, the same as by the venue's client order id", async () => {
+    const account = { venueId: sim.venue.id, owner, subAccount: null };
+    sim.deposit(account, 'USDC', parseAmount('100'), 'chain:rest-by-client-id:1');
+    const clientOrderKey = `bot:${USER.userId}:by-client-id:1`;
+    const bid = {
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: parseAmount('0.001'),
+      price: parseAmount('59000'),
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey,
+      builderFee: null,
+    } as const;
+    const prepared = await sim.prepare(account, { role: 'owner', address: owner }, bid);
+    const t = prepared.typedData as TestVenueTypedData;
+    const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+    expect(await sim.submit(prepared, { digest: prepared.digest, signature, signedBy: owner })).toMatchObject({ accepted: true });
+
+    await mount(door());
+    const byKey = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderKey=${encodeURIComponent(clientOrderKey)}`,
+    });
+    expect(byKey.statusCode, byKey.body).toBe(200);
+    expect(byKey.json().value).toMatchObject({ venueClientOrderId: venueClientOrderId(sim.venue.id, clientOrderKey), status: 'open' });
+    const byVenueId = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderId=${venueClientOrderId(sim.venue.id, clientOrderKey)}`,
+    });
+    expect(byVenueId.json().value).toEqual(byKey.json().value);
+
+    // Both ids, or neither, is a malformed request; a random id is never a client id (floor 3).
+    const both = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderKey=${clientOrderKey}&clientOrderId=0x00`,
+    });
+    expect(both.statusCode).toBe(400);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/venue/orders/by-client-id?owner=${owner}` })).statusCode).toBe(400);
+    const random = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderKey=0b9f3a52-6f1c-4c55-9f0e-8f1d2c3b4a59`,
+    });
+    expect(random.statusCode, random.body).toBe(422);
+    expect(random.json().intafacedCode).toBe('trade.venue.invalid_client_order_key');
   });
 });

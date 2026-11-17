@@ -993,7 +993,8 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     path: '/api/v1/venue/orders/by-client-id',
     product: 'accounts',
     access: 'private',
-    summary: 'One venue order by its client order id: how an answer that was not definite is read back',
+    summary:
+      'One venue order by your own client id (clientOrderKey) or the venue client order id: its state, and how an answer that was not definite is read back',
   },
   {
     name: 'venueOrderHistory',
