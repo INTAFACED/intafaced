@@ -194,6 +194,12 @@ export interface TestPartnerSwitches {
    */
   readonly holderName: string | null;
   /**
+   * `held`: the partner holds back its answer on every USDC pay-in to this person (J-bank-31 #6): a transfer it has seen
+   * stays pending, "on its way", and is not credited or counted as spendable until the switch goes back to `answered`
+   * (the default), when it is credited once.
+   */
+  readonly payIn: 'answered' | 'held';
+  /**
    * An asset id: the TEST partner reports one open TEST order of this person's reserving that currency (J-bank-01 #3: a
    * currency with an open order cannot be removed). null, the default, is no open order.
    */
@@ -219,6 +225,7 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   identityCase: 'accepted',
   bankRail: 'none',
   holderName: null,
+  payIn: 'answered',
   openOrder: null,
 });
 

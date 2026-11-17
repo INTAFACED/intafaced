@@ -78,7 +78,7 @@ export interface ApprovalConsumeInput {
 
 export type ApprovalConsumeResult =
   | { readonly ok: true; readonly approverId: string; readonly requesterId: string }
-  | { readonly ok: false; readonly code: 'approval_missing' | 'approval_reused' | 'approval_mismatch' };
+  | { readonly ok: false; readonly code: 'approval_missing' | 'approval_reused' | 'approval_mismatch' | 'approval_unavailable' };
 
 export interface ApprovalBook {
   consume(input: ApprovalConsumeInput): Promise<ApprovalConsumeResult>;
@@ -134,7 +134,9 @@ export async function consumeApproval(
         ? 'approval is missing'
         : result.code === 'approval_reused'
           ? 'approval was already consumed'
-          : 'approval does not match this scope, payload, or a second operator';
+          : result.code === 'approval_unavailable'
+            ? 'the approval service did not answer; nothing was written'
+            : 'approval does not match this scope, payload, or a second operator';
     throw new TradeOpsError(result.code, message);
   }
   return { approverId: result.approverId, requesterId: result.requesterId };

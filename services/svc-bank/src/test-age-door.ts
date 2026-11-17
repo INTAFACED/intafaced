@@ -41,3 +41,21 @@ export function ageBusinessInvite(sql: Sql): TestAgeSubject {
     return row ? { createdAt: iso(row.created_at), expiresAt: iso(row.expires_at) } : null;
   };
 }
+
+/**
+ * A person's weekly pay yourself rule (J-bank-31 #7), its next run moved `ms` earlier, so its day has come as if the
+ * time had gone by. Only the next run moves: the profit it counts is still from when it last ran, or was set.
+ */
+export function agePayYourselfRule(sql: Sql): TestAgeSubject {
+  return async (id, ms) => {
+    if (!UUID.test(id)) return null;
+    const rows = await sql<{ next_run_at: Date }[]>`
+      UPDATE bank.pay_yourself_rules
+      SET next_run_at = next_run_at - make_interval(secs => ${ms / 1000})
+      WHERE id = ${id}::uuid
+      RETURNING next_run_at
+    `;
+    const row = rows[0];
+    return row ? { nextRunAt: iso(row.next_run_at) } : null;
+  };
+}
