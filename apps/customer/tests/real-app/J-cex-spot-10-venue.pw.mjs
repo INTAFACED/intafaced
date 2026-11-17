@@ -17,6 +17,8 @@ import {
   venueForThisFile,
   venueInfo,
   venueRecord,
+  venueRunState,
+  venueWrites,
 } from './venue.mjs';
 
 // J-cex-spot-10 #1 #2 #3 #4 #6 #9 on the venue model (docs/roadmap/journeys.json): a person sees what they pay on their
@@ -38,11 +40,7 @@ const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
-function state() {
-  const s = run.read();
-  if (!s.account || !s.walletKey) throw new Error(`${J} #1 made no account and wallet, so this step has no one to act as`);
-  return { ...s, owner: privateKeyToAccount(s.walletKey).address.toLowerCase() };
-}
+const state = () => venueRunState(run, J);
 const desk = (symbol) => `/trade/spot/${symbol}`;
 const ref = () => `84532:0x${randomBytes(32).toString('hex')}:0`;
 const traderOwner = (name) => otherTraderKey(name).address.toLowerCase();
@@ -57,16 +55,6 @@ function pct(bps) {
   const neg = units < 0n;
   const shown = fromUnits((neg ? -units : units) / 100n);
   return `${neg ? '-' : ''}${shown}%`;
-}
-
-/** Every signing write the page sends to the door (prepare, submit), so a step can show nothing was sent. */
-function writes(page) {
-  const sent = [];
-  page.on('request', (r) => {
-    const p = new URL(r.url()).pathname;
-    if (r.method() === 'POST' && (p === '/api/v1/venue/prepare' || p === '/api/v1/venue/submit')) sent.push(p);
-  });
-  return sent;
 }
 
 /** The venue's preview the page asks for on `act` (typing into the ticket): its answer, which must be the venue's. */
@@ -246,7 +234,7 @@ test(`${J} #1 previews a maker limit and a taker market: the venue's maker and t
     await route.fulfill({ response: res, json: body });
   });
   const wallet = await openVenueDesk(page, s.account, desk(market.symbol), s.walletKey);
-  const sent = writes(page);
+  const sent = venueWrites(page);
   const asked = wallet.requests.length;
   await expect(page.getByTestId('venue-header')).toContainText('maker 9 bps, taker 9 bps');
   const ledgerBefore = await ledgerOf(s);
@@ -397,7 +385,7 @@ test(`${J} #3 trades where our builder fee is not set: refused "builder fee not 
   try {
     restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE_BUILDER_FEE', 'off');
     const wallet = await openVenueDesk(page, s.account, desk(market.symbol), s.walletKey);
-    const sent = writes(page);
+    const sent = venueWrites(page);
     const asked = wallet.requests.length;
     // A limit sell: it would carry our builder fee, which is blank. The ticket says so in words; nothing can be sent.
     await orderTab(page, 'Limit').click();
