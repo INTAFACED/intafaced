@@ -39,8 +39,8 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
  *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
+ *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode}, /book {symbol,depth},
  *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
- *        /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
@@ -769,6 +769,13 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.builderClaims(str(body, 'builder'));
     case '/leverage':
       return sim.leverage(account(body), str(body, 'symbol'));
+    case '/leverage-change': {
+      const bps = body.leverageBps;
+      if (typeof bps !== 'number' || !Number.isInteger(bps) || bps < 1) throw new VenueWireError('leverageBps is a whole number');
+      const mode = body.marginMode;
+      if (mode !== 'cross' && mode !== 'isolated') throw new VenueWireError('marginMode is cross or isolated');
+      return sim.leverageChange(account(body), str(body, 'symbol'), bps, mode);
+    }
     case '/sub-accounts':
       return sim.subAccounts(account(body));
     case '/transfer':

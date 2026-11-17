@@ -22,6 +22,7 @@ import {
   type UserVenueDescriptor,
   type UserVenueFill,
   type UserVenueLeverage,
+  type UserVenueLeverageChange,
   type UserVenueMarketMargin,
   type UserVenueSettlement,
   type UserVenueMarket,
@@ -44,6 +45,7 @@ import {
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
+  type VenueMarginMode,
 } from '@intafaced/venue-contracts';
 
 /**
@@ -347,6 +349,16 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     return this.read('/leverage', { account, symbol });
+  }
+
+  /** What a leverage change would do to the open position on `symbol`, by the venue's own rule (J-derivatives-05 #4). */
+  leverageChange(
+    account: UserVenueAccount,
+    symbol: string,
+    leverageBps: number,
+    marginMode: VenueMarginMode,
+  ): Promise<AsOf<UserVenueLeverageChange>> {
+    return this.read('/leverage-change', { account, symbol, leverageBps, marginMode });
   }
 
   /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */

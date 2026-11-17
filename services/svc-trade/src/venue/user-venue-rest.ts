@@ -138,6 +138,9 @@ export async function refusedAgentKey(reply: FastifyReply, principal: Principal,
 type Query = {
   owner?: string;
   subAccount?: string;
+  /** J-derivatives-05 #4: a leverage change's leverage (basis points of 1x) and margin mode. */
+  leverageBps?: string;
+  marginMode?: string;
   clientOrderId?: string;
   since?: string;
   symbol?: string;
@@ -405,6 +408,22 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
     },
+    // J-derivatives-05 #4: what a leverage change would do to the open position's margin, by the venue's own rule, read
+    // before anything is signed; a venue that reads none refuses not_offered, and the app says it states no difference.
+    '/api/v1/venue/leverage-change': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const bps = Number(q.leverageBps);
+      if (!Number.isInteger(bps) || bps < 1) throw new VenueWireError('leverageBps is a whole number of basis points of 1x');
+      if (q.marginMode !== 'cross' && q.marginMode !== 'isolated') throw new VenueWireError('marginMode is cross or isolated');
+      const venue = await d.venue();
+      if (!venue.leverageChange)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} states no margin difference for a leverage change`,
+        });
+      return venue.leverageChange(a, q.symbol, bps, q.marginMode);
+    },
     // J-derivatives-27 #7: the person's balance in the margin account a market's deployer keeps for it, on the main
     // account; a venue that reads none refuses not_offered.
     '/api/v1/venue/market-margin': async (d, q, a) => {
@@ -467,6 +486,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/deposits',
     '/api/v1/venue/withdrawal-terms',
     '/api/v1/venue/leverage',
+    '/api/v1/venue/leverage-change',
     '/api/v1/venue/market-margin',
     '/api/v1/venue/settlements',
     '/api/v1/venue/scheduled-cancel',
@@ -478,7 +498,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       if (!(await admit(req, reply, 'trade:read'))) return;
       return answer(
         reply,
-        async (d) => read(d, req.query, await d.account(req.query.owner ?? '', req.query.subAccount ?? null)),
+        async (d) => read(d, req.query, await d.readableAccount(req.query.owner ?? '', req.query.subAccount ?? null)),
         req.query.venueId,
       );
     });
