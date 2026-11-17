@@ -71,6 +71,18 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueMarginTier (J-derivatives-02 #2): the notional a tier starts at and its maintenance rate
   'fromNotional',
   'maintenanceRate',
+  // UserVenuePosition.maintenanceMargin and UserVenueLeverageChange (J-derivatives-05 #2 #4)
+  'maintenanceMargin',
+  'positionSize',
+  'marginNow',
+  'marginAfter',
+  'difference',
+  // UserVenueIsolatedMargin and UserVenueAccountSummary (J-derivatives-06 #1 #2 #3)
+  'minimumMargin',
+  'removable',
+  'equity',
+  'usedMargin',
+  'marginRatio',
   // VenueFeeTier and VenueAccountFees (J-cex-spot-10 #2 #6)
   'fromVolume',
   'volume',
@@ -97,6 +109,8 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'builderFeeCapBps',
   'makerFeeBps',
   'takerFeeBps',
+  'maintenanceMargin',
+  'marginRatio',
   'volume',
   'value',
 ]);

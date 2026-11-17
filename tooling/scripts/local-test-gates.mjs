@@ -121,6 +121,12 @@ const LIFECYCLE_DAYS = 30;
 const RENEW_BELOW_DAYS = 7;
 /** Only the 24/7 crypto spot books: the other schedules are market-hours books that are closed at times. */
 export const OPENABLE_SCHEDULE = 'crypto-24x7';
+/**
+ * The TEST session schedule (open one minute a week): only a TEST listing keeps it, and it is opened like a 24/7 book so
+ * its published lifecycle says the session is shut (`trade.market_closed`) rather than that nothing was published
+ * (J-cex-spot-14 #6).
+ */
+export const TEST_SESSION_SCHEDULE = 'test-sunday-minute';
 
 // ── Containment guard (exported for tests) ──────────────────────────────────
 
@@ -323,7 +329,12 @@ export function operatorIdentity(letter) {
  * labelled TEST perpetual (`test: true`, listed only by `local-test-gates.mjs futures`) for the derivatives journeys. */
 export function openableMarkets(markets) {
   return markets.filter(
-    (m) => m.active && m.orderable && (m.spot || (m.swap && m.test === true)) && !m.paper && m.schedule === OPENABLE_SCHEDULE,
+    (m) =>
+      m.active &&
+      m.orderable &&
+      (m.spot || (m.swap && m.test === true)) &&
+      !m.paper &&
+      (m.schedule === OPENABLE_SCHEDULE || (m.test === true && m.schedule === TEST_SESSION_SCHEDULE)),
   );
 }
 

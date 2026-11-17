@@ -47,8 +47,7 @@ const blankIsUnset = <T extends z.ZodTypeAny>(schema: T) =>
  * `EDGE_PRINCIPAL_SECRET` is here because this service self-mounts /trpc. It is
  * not a custody key and grants nothing on-chain: it only lets this service tell
  * a principal the edge vouched for from one a caller typed. Most of the surface
- * is permissionless; the registry procedures are not, and they are the reason
- * (docs/decisions/mount-boundary.md).
+ * is permissionless; the registry procedures are not, and they are the reason.
  */
 const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
   z.object({

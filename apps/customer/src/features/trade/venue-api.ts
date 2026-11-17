@@ -64,6 +64,19 @@ export const venueStatusSchema = z.union([
       .optional(),
     // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
     routes: z.boolean().optional(),
+    // Every configured venue with its health and the position modes it offers (J-derivatives-28, J-derivatives-05 #1 #3).
+    // Absent from an older door: the primary venue alone.
+    venues: z
+      .array(
+        z.object({
+          venueId: z.string().nullable(),
+          displayName: z.string().nullable(),
+          test: z.boolean(),
+          health: z.object({ state: z.string() }).passthrough(),
+          positionModes: z.array(z.enum(['one_way', 'hedge'])).optional(),
+        }),
+      )
+      .optional(),
   }),
 ]);
 export type VenueStatus = z.infer<typeof venueStatusSchema>;
@@ -358,8 +371,49 @@ export const venuePositionSchema = z.object({
   margin: decimalSchema,
   leverageBps: z.number().int().positive(),
   liquidationPrice: maybeKnown(decimalSchema),
+  // The margin the venue requires to keep the position open (J-derivatives-05 #2); absent from an older door: not published.
+  maintenanceMargin: maybeKnown(decimalSchema).optional(),
 });
 export type VenuePosition = z.infer<typeof venuePositionSchema>;
+
+/** What a leverage change would do to the open position's margin, by the venue's own rule (J-derivatives-05 #4). */
+const venueLeverageChangeSchema = z.object({
+  symbol: z.string(),
+  leverageBps: z.number().int().positive(),
+  marginMode,
+  maxLeverageBps: z.number().int().positive().nullable(),
+  positionSize: decimalSchema,
+  marginNow: decimalSchema,
+  marginAfter: decimalSchema,
+  difference: signedDecimalSchema,
+});
+export type VenueLeverageChange = z.infer<typeof venueLeverageChangeSchema>;
+
+/** An open isolated position's margin and the venue's own limit for removing it (J-derivatives-06 #2 #3). */
+const venueIsolatedMarginSchema = z.object({
+  symbol: z.string(),
+  side: z.enum(['long', 'short']),
+  size: decimalSchema,
+  margin: decimalSchema,
+  minimumMargin: decimalSchema,
+  removable: decimalSchema,
+  free: decimalSchema,
+  asset: z.string(),
+  liquidationPrice: maybeKnown(decimalSchema),
+  rule: z.string(),
+});
+export type VenueIsolatedMargin = z.infer<typeof venueIsolatedMarginSchema>;
+
+/** The account's margin as the venue reports it (J-derivatives-06 #1). */
+const venueAccountSummarySchema = z.object({
+  asset: z.string(),
+  equity: signedDecimalSchema,
+  free: decimalSchema,
+  usedMargin: decimalSchema,
+  maintenanceMargin: decimalSchema,
+  marginRatio: maybeKnown(decimalSchema),
+});
+export type VenueAccountSummary = z.infer<typeof venueAccountSummarySchema>;
 
 export const venueWithdrawalSchema = z.object({
   nonce: z.string(),
@@ -828,7 +882,9 @@ export type VenueIntent =
       asset: string;
       amount: string;
       moveKey: string;
-    };
+    }
+  // J-derivatives-06 #2 #3: margin added to or removed from an open isolated position, one signed venue change.
+  | { kind: 'update_isolated_margin'; symbol: string; direction: 'add' | 'remove'; amount: string; changeKey: string };
 
 // ── Business keys ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -870,6 +926,9 @@ export const keys = {
   cancelBatch: (owner: string, draft: string) => `cancel-batch:${part(owner)}:${draft}`,
   /** One press of the dead-man switch: arming, refreshing or removing the venue's scheduled cancel (J-cex-spot-07). */
   scheduleCancel: (owner: string, draft: string) => `schedule-cancel:${part(owner)}:${draft}`,
+  /** One reviewed margin change on an isolated position (J-derivatives-06 #2 #3). */
+  isolatedMargin: (owner: string, symbol: string, direction: 'add' | 'remove', draft: string) =>
+    `margin:${part(owner)}:${part(symbol)}:${direction}:${draft}`,
   marketMargin: (owner: string, symbol: string, direction: 'into_market' | 'out_of_market', draft: string) =>
     `market-margin:${part(owner)}:${part(symbol)}:${direction === 'into_market' ? 'in' : 'out'}:${draft}`,
 };
@@ -960,7 +1019,7 @@ export function venueApi(api: ApiClient) {
     api.rest(`/venue${path}`, schema, { method: 'POST', body });
   return {
     status: (signal?: AbortSignal) => api.rest('/venue/status', venueStatusSchema, { signal }),
-    markets: (signal?: AbortSignal) => read('/markets', asOf(z.array(venueMarketSchema)), {}, signal),
+    markets: (signal?: AbortSignal, venueId?: string) => read('/markets', asOf(z.array(venueMarketSchema)), { venueId }, signal),
     bestPrices: (symbol: string, signal?: AbortSignal) => read('/best-prices', venueBestPricesReadSchema, { symbol }, signal),
     book: (symbol: string, depth: number, signal?: AbortSignal) =>
       read('/book', venueBookReadSchema, { symbol, depth: String(depth) }, signal),
@@ -969,8 +1028,8 @@ export function venueApi(api: ApiClient) {
     candles: (symbol: string, interval: string, limit: number, signal?: AbortSignal) =>
       read('/candles', venueCandlesReadSchema, { symbol, interval, limit: String(limit) }, signal),
     gatedList: (signal?: AbortSignal) => read('/gated-list', asOf(z.array(venueGatedContractSchema)), {}, signal),
-    balances: (owner: string, signal?: AbortSignal, subAccount?: string) =>
-      read('/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount }, signal),
+    balances: (owner: string, signal?: AbortSignal, subAccount?: string, venueId?: string) =>
+      read('/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount, venueId }, signal),
     openOrders: (owner: string, signal?: AbortSignal) => read('/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),
     /** The orders this person's door kept on the owner's accounts, oldest first, a page at a time (J-agents-21 #7). */
     keptOrders: (owner: string, cursor?: string, signal?: AbortSignal) => read('/orders', venueOrderPageSchema, { owner, cursor }, signal),
@@ -984,11 +1043,32 @@ export function venueApi(api: ApiClient) {
       read('/orders/record', venueOrderRecordSchema, { owner, clientOrderId }, signal),
     orderByClientId: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
-    fills: (owner: string, since: string, signal?: AbortSignal) => read('/fills', asOf(z.array(venueFillSchema)), { owner, since }, signal),
-    positions: (owner: string, signal?: AbortSignal) => read('/positions', asOf(z.array(venuePositionSchema)), { owner }, signal),
+    fills: (owner: string, since: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
+      read('/fills', asOf(z.array(venueFillSchema)), { owner, since, ...at }, signal),
+    /** The positions on one account: the main account, or one of the owner's sub-accounts, on a venue (J-derivatives-05). */
+    positions: (owner: string, signal?: AbortSignal, at: { venueId?: string; subAccount?: string } = {}) =>
+      read('/positions', asOf(z.array(venuePositionSchema)), { owner, ...at }, signal),
     /** The owner's own sub-accounts, as the venue lists them on the main account (J-agents-08 #2). */
-    subAccounts: (owner: string, signal?: AbortSignal) =>
-      read('/sub-accounts', asOf(z.array(z.object({ subAccount: z.string(), name: z.string() }))), { owner }, signal),
+    subAccounts: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/sub-accounts', asOf(z.array(z.object({ subAccount: z.string(), name: z.string() }))), { owner, venueId }, signal),
+    /** What a leverage change would do to the open position's margin, read before anything is signed (J-derivatives-05 #4). */
+    leverageChange: (
+      owner: string,
+      q: { symbol: string; leverageBps: number; marginMode: VenueMarginMode; venueId?: string },
+      signal?: AbortSignal,
+    ) =>
+      read(
+        '/leverage-change',
+        asOf(venueLeverageChangeSchema),
+        { owner, symbol: q.symbol, leverageBps: String(q.leverageBps), marginMode: q.marginMode, venueId: q.venueId },
+        signal,
+      ),
+    /** An open isolated position's margin and the venue's removal limit, read before anything is signed (J-derivatives-06 #2 #3). */
+    isolatedMargin: (owner: string, q: { symbol: string; venueId?: string }, signal?: AbortSignal) =>
+      read('/isolated-margin', asOf(venueIsolatedMarginSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),
+    /** The account's equity, free, used margin, maintenance and margin ratio as the venue reports them (J-derivatives-06 #1). */
+    accountSummary: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/account-summary', asOf(venueAccountSummarySchema), { owner, venueId }, signal),
     /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
     marketMargin: (owner: string, symbol: string, signal?: AbortSignal) =>
       read('/market-margin', asOf(venueMarketMarginSchema), { owner, symbol }, signal),

@@ -408,9 +408,14 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
 
     const channel = parseChannel(url.searchParams.get('channel'));
     if (channel === null) return reject(socket, 400, 'Bad Request');
+    // `since`: the depth sequence a reconnecting client already holds (J-cex-spot-14 #8). Only the book has a sequence
+    // to resume from; anything but a whole number, or on another channel, is refused rather than ignored.
+    const sinceRaw = url.searchParams.get('since');
+    const since = sinceRaw === null ? null : /^(0|[1-9][0-9]{0,15})$/.test(sinceRaw) ? Number(sinceRaw) : NaN;
+    if (since !== null && (!Number.isSafeInteger(since) || channel !== 'depth')) return reject(socket, 400, 'Bad Request');
 
     wss.handleUpgrade(request, socket, head, (ws) => {
-      const detach = channel === 'trades' ? tradeHub.attach(marketId, sinkFor(ws)) : hub.attach(marketId, sinkFor(ws));
+      const detach = channel === 'trades' ? tradeHub.attach(marketId, sinkFor(ws)) : hub.attach(marketId, sinkFor(ws), { since });
       // Capacity refuse closes the sink inside attach — terminate so the client
       // never sits half-open with zero frames (mirrors private gateway).
       if (!detach) {

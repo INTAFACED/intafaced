@@ -71,7 +71,7 @@ test('gate files: the review additions (rules every agent loads, repo-wide confi
     'docs/agents/build-slice.md',
     'services/svc-x/AGENTS.md',
     'tooling/x/SKILL.md',
-    '.cursor/rules/inta.mdc',
+    '.cursor/rules/any.mdc',
     '.claude/settings.json',
     '.claude/agents/explore.md',
     '.github/dependabot.yml',

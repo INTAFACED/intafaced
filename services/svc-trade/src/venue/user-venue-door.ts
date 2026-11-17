@@ -794,6 +794,26 @@ export class UserVenueDoor {
     return { venueId: venue.venue.id, owner: o, subAccount: subAccount ?? null };
   }
 
+  /**
+   * The account a read names, where a sub-account is read only when the venue lists it under this owner's main account
+   * (J-derivatives-05 #6): a sibling's id, another wallet's sub-account, is refused, never read as this person's.
+   */
+  async readableAccount(owner: string, subAccount?: string | null): Promise<UserVenueAccount> {
+    const account = await this.account(owner, subAccount);
+    if (account.subAccount === null) return account;
+    const id = account.subAccount.trim().toLowerCase();
+    const venue = await this.venue();
+    const listed = hasSubAccountReads(venue) ? (await venue.subAccounts({ ...account, subAccount: null })).value : [];
+    if (!listed.some((s) => s.subAccount.toLowerCase() === id)) {
+      throw new UserVenueDoorError(
+        `${id} is not one of the sub-accounts ${venue.venue.displayName} lists under this wallet's main account`,
+        'trade.venue_sub_account_not_own',
+        403,
+      );
+    }
+    return account;
+  }
+
   /** Each listed market (its kind and tick), read once a minute, so an order costs no extra venue read. */
   private marketList: { at: number; markets: Map<string, UserVenueMarket> } | null = null;
 
@@ -1276,6 +1296,7 @@ export class UserVenueDoor {
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
+    else if (intent.kind === 'update_isolated_margin') key = intent.changeKey;
     else key = actionKey;
     const k = (key ?? '').trim();
     if (k.length < 3 || k.length > 200 || UUID_RE.test(k) || !BUSINESS_KEY_RE.test(k)) {

@@ -31,7 +31,7 @@ import { DEFAULT_FUTURES_MARK_POLICY, acceptableForEntry } from './futures/mark-
 import { markSourceFromBook } from './futures/mark-source.js';
 
 /**
- * Mount boundary for private CCXT REST (docs/decisions/mount-boundary.md).
+ * Mount boundary for private CCXT REST.
  *
  * Principal arrives the way index.ts builds it — through createEdgeContext
  * over real headers — not as a Context literal. Unsigned self-asserted
