@@ -168,7 +168,6 @@ export const FACTORY_SCRIPTS = [
   'tooling/scripts/ci-checks.test.mjs',
   'tooling/scripts/fleet-tip-image.mjs',
   'tooling/scripts/journey-baseline-guard.test.mjs',
-  'tooling/scripts/journey-clauses-v1.test.mjs',
   'tooling/scripts/journey-fail-fast-retries.test.mjs',
   'tooling/scripts/journey-freeze-guard.test.mjs',
   'tooling/scripts/journey-navigation.test.mjs',
@@ -321,7 +320,6 @@ export const HELPER = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.mjs)$
  */
 export const STACK_HELPERS = [
   'agents.mjs',
-  'clauses-v1.mjs',
   'copy.mjs',
   'desk.mjs',
   'dex.mjs',
