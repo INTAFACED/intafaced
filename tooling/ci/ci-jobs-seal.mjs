@@ -83,6 +83,49 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
   return { ok: false, wait: false, lines: problems.map((p) => `${id}: ${p}`) };
 }
 
+/** The money browser checks' workflow (#8708) and the paths it runs on, as its `pull_request` and `push` triggers list them
+ *  (ci-jobs-seal.test.mjs keeps the three lists equal). A pattern ending in `/**` is a folder; any other is one file. */
+export const MONEY_WORKFLOW_PATH = '.github/workflows/customer-money-browser.yml';
+export const MONEY_JOB = 'Money browser checks';
+export const MONEY_PATHS = [
+  'apps/customer/**',
+  'packages/ui/**',
+  'packages/i18n/**',
+  'packages/exchange-contract/**',
+  'packages/contracts/**',
+  '.github/workflows/customer-money-browser.yml',
+];
+export const touchesMoney = (files) =>
+  (files ?? []).some((f) => MONEY_PATHS.some((p) => (p.endsWith('/**') ? f.startsWith(p.slice(0, -2)) : f === p)));
+
+/**
+ * The money browser checks on this exact head (#8708): the newest pull_request run of MONEY_WORKFLOW_PATH there decides,
+ * as CI's newest run does. A change that touches none of MONEY_PATHS owes no run and is not held. One that touches them
+ * needs that run finished with its MONEY_JOB passed: still going waits, and none, red, cancelled or skipped fails closed
+ * (a pull request's own copy of the workflow could drop its trigger). `files` null (unreadable) counts as touching.
+ * Returns { ok, wait, lines }. Pure.
+ */
+export function moneyVerdict({ runs, jobs, files, sha }) {
+  if (files !== null && !touchesMoney(files))
+    return { ok: true, wait: false, lines: ['the money browser checks: the change touches none of their paths, so none is owed'] };
+  const run =
+    (runs ?? [])
+      .filter((r) => r?.head_sha === sha && r?.event === 'pull_request' && r?.path === MONEY_WORKFLOW_PATH)
+      .sort((a, b) => b.id - a.id)[0] ?? null;
+  if (!run)
+    return {
+      ok: false,
+      wait: false,
+      lines: ['the money browser checks: the change touches their paths and no run of them is on this head; push again or re-open'],
+    };
+  const id = `the money browser checks, run ${run.id} (attempt ${run.run_attempt ?? 1})`;
+  const job = (jobs ?? []).filter((j) => j?.name === MONEY_JOB).sort((a, b) => (b.id ?? 0) - (a.id ?? 0))[0];
+  if (!job || job.status !== 'completed')
+    return { ok: false, wait: true, lines: [`${id} on this head has not finished; the seal re-runs when it does`] };
+  if (job.conclusion === 'success') return { ok: true, wait: false, lines: [`${id}: passed`] };
+  return { ok: false, wait: false, lines: [`${id}: ${job.conclusion}; fix the money screen or its check and push`] };
+}
+
 async function api(path, token) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
@@ -124,10 +167,22 @@ async function main() {
       if (r.length < 100) break;
     }
   const files = queue ? [] : await changedFiles(get, REPO, PR_NUMBER);
-  const v = judgeCiJobs({ run, jobs, files, forceFull: queue });
-  for (const l of v.lines) console.log(`${v.ok ? '✓' : '✖'} ${l}`);
-  if (v.ok) return;
-  for (const l of v.lines) console.error(`::error title=CI merge seal::${l}`);
+  const ci = judgeCiJobs({ run, jobs, files, forceFull: queue });
+  // The money browser checks (#8708), on a pull request only: read when the change touches their paths.
+  let money = { ok: true, lines: [] };
+  if (!queue && (files === null || touchesMoney(files))) {
+    const mruns = (
+      await get(`/repos/${REPO}/actions/workflows/customer-money-browser.yml/runs?head_sha=${sha}&event=pull_request&per_page=100`)
+    )?.workflow_runs;
+    if (!Array.isArray(mruns)) throw new Error(`customer-money-browser.yml runs on ${sha}: not a list`);
+    const newest = mruns.filter((r) => r?.head_sha === sha).sort((a, b) => b.id - a.id)[0];
+    const mjobs = newest ? (await get(`/repos/${REPO}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs : [];
+    if (!Array.isArray(mjobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
+    money = moneyVerdict({ runs: mruns, jobs: mjobs, files, sha });
+  } else if (!queue) money = moneyVerdict({ runs: [], jobs: [], files, sha });
+  for (const v of [ci, money]) for (const l of v.lines) console.log(`${v.ok ? '✓' : '✖'} ${l}`);
+  if (ci.ok && money.ok) return;
+  for (const v of [ci, money]) if (!v.ok) for (const l of v.lines) console.error(`::error title=CI merge seal::${l}`);
   process.exit(1);
 }
 
