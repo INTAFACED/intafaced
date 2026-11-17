@@ -272,11 +272,13 @@ export function VenueEditOrder({
   );
 }
 
-type Scope = { kind: 'market'; symbol: string } | { kind: 'selected' } | { kind: 'all' } | { kind: 'spot' };
+type Scope =
+  { kind: 'market'; symbol: string } | { kind: 'selected' } | { kind: 'all' } | { kind: 'spot' } | { kind: 'label'; label: string };
 
 /**
  * Cancel several resting orders in one signed action, asked first: this market's, the ones selected, every market's, or
- * spot only. The venue answers each id; an unknown or already final one is reported and the rest are cancelled.
+ * spot only, or (where the page keeps the person's own labels, J-derivatives-04 #4) the ones under one label. The venue
+ * answers each id; an unknown or already final one is reported and the rest are cancelled.
  */
 export function VenueCancelMany({
   orders,
@@ -287,6 +289,8 @@ export function VenueCancelMany({
   run,
   selected,
   onDone,
+  spotOnly = true,
+  labelOf,
 }: {
   orders: readonly VenueOrder[];
   market: VenueMarket;
@@ -297,8 +301,13 @@ export function VenueCancelMany({
   run: RunAction;
   selected: readonly VenueOrder[];
   onDone: () => void;
+  /** Offer "Cancel all: spot only" (the spot desk). The futures desk lists only its own product's orders. */
+  spotOnly?: boolean;
+  /** The person's own label on an order, by client id: given, orders can be cancelled by label. */
+  labelOf?: (clientOrderId: string) => string | undefined;
 }) {
   const { t } = spotVenueCopy.useCopy();
+  const [label, setLabel] = useState('');
   const [scope, setScope] = useState<Scope | null>(null);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
@@ -315,7 +324,9 @@ export function VenueCancelMany({
         ? selected.filter((o) => o.venueClientOrderId)
         : s.kind === 'spot'
           ? live.filter((o) => spot.has(o.symbol))
-          : live;
+          : s.kind === 'label'
+            ? live.filter((o) => labelOf?.(o.venueClientOrderId!) === s.label)
+            : live;
   const chosen = scope ? inScope(scope) : [];
 
   function open(s: Scope) {
@@ -374,13 +385,18 @@ export function VenueCancelMany({
         ? t('Cancel selected title')
         : scope?.kind === 'spot'
           ? t('Cancel spot title')
-          : t('Cancel every title');
+          : scope?.kind === 'label'
+            ? t('Cancel label title', { label: scope.label })
+            : t('Cancel every title');
   const intro =
     scope?.kind === 'market'
       ? t('Cancel market intro', { count: chosen.length, symbol: scope.symbol })
       : scope?.kind === 'spot'
         ? t('Cancel spot intro', { count: chosen.length })
-        : t('Cancel many intro', { count: chosen.length });
+        : scope?.kind === 'label'
+          ? t('Cancel label intro', { count: chosen.length, label: scope.label })
+          : t('Cancel many intro', { count: chosen.length });
+  const wanted = label.trim();
   return (
     <div className="dk-cancel-many" data-testid="venue-cancel-many">
       {most < 1 ? (
@@ -398,11 +414,24 @@ export function VenueCancelMany({
           <Button variant="secondary" disabled={!owner || live.length === 0} onClick={() => open({ kind: 'all' })}>
             {t('Cancel every market')}
           </Button>{' '}
-          <Button variant="secondary" disabled={!owner || live.length === 0} onClick={() => open({ kind: 'spot' })}>
-            {t('Cancel spot only')}
-          </Button>
+          {spotOnly ? (
+            <Button variant="secondary" disabled={!owner || live.length === 0} onClick={() => open({ kind: 'spot' })}>
+              {t('Cancel spot only')}
+            </Button>
+          ) : null}
         </p>
       )}
+      {most >= 1 && labelOf ? (
+        <p className="dk-cancel-label">
+          <label className="field">
+            <span>{t('Cancel label field')}</span>
+            <input aria-label={t('Cancel label field')} value={label} onChange={(e) => setLabel(e.target.value)} />
+          </label>{' '}
+          <Button variant="secondary" disabled={!owner || wanted === ''} onClick={() => open({ kind: 'label', label: wanted })}>
+            {t('Cancel label')}
+          </Button>
+        </p>
+      ) : null}
       <AlertDialog open={scope !== null} onOpenChange={(next) => (next ? null : close())}>
         {scope ? (
           <AlertDialogContent className="dk-review" data-testid="venue-cancel-ask">

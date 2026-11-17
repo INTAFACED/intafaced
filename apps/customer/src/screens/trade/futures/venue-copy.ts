@@ -105,6 +105,8 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   Price: 'Price',
   'Worst price': 'Worst price (slippage limit)',
   'Margin asset': 'Margin asset',
+  'Label optional': 'Label (optional)',
+  'Label bad': 'A label is up to 36 letters, digits and . _ : - with no spaces. Nothing was sent.',
   'Margin mismatch': 'Margin on {symbol} is posted in {settle}; {asset} cannot be used as its margin. Nothing was sent.',
   'Review long': 'Review long',
   'Review short': 'Review short',
