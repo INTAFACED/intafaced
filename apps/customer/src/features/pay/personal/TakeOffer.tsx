@@ -15,6 +15,8 @@ import { TraderName, useTraders } from './Trader';
 import { P2PEligibilityPanel, StaySafe } from './Eligibility';
 import { TakeSettlementNotice } from './Settlement';
 import { StepUpConfirm } from '../../money/StepUpConfirm';
+import { ContractEscrowChoice, type EscrowChoice } from './ContractEscrow';
+import { contractEscrowCopy as escrowCopy } from './contract-escrow-copy';
 import type { StepUpBegin } from '../../account/security-step-up';
 import {
   checkTake,
@@ -344,6 +346,8 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
   const methods = offerMethodIds(offer);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('');
+  // RC-p2p-02: who holds the seller's coins, chosen here and fixed once the order is placed.
+  const [escrowChoice, setEscrowChoice] = useState<EscrowChoice>({ kind: 'ledger' });
   // A fiat amount the service turns into the coin amount; editing the coin amount clears it.
   const [fiat, setFiat] = useState('');
   const [converted, setConverted] = useState<ApiResult<string> | 'loading' | null>(null);
@@ -540,6 +544,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
         quote: review.quote,
         current: () => mounted.current && reviewToken.current === token,
         ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+        ...(escrowChoice.kind === 'contract' ? { contractEscrow: { buyerWallet: escrowChoice.buyerWallet } } : {}),
       });
     } catch (err) {
       if (mounted.current) setBusy(false);
@@ -732,6 +737,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
           </select>
         </label>
         <TakeSettlementNotice offer={offer} method={method} />
+        <ContractEscrowChoice pay={pay} offer={offer} buyerTakes={!selling} onChange={setEscrowChoice} />
         <div className="p2p-quote" aria-live="polite" data-testid="take-quote-area">
           <h4>{t('takeQuoteTitle')}</h4>
           {shown === null ? (
@@ -771,6 +777,12 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
                 amount: displayAmount(review.quote.amount),
                 asset: offer.asset,
               })}
+            </p>
+            <p className="muted" data-testid="take-review-escrow">
+              {escrowCopy.t('escrowType')}:{' '}
+              {escrowChoice.kind === 'contract'
+                ? `${escrowCopy.t('escrowContract')} · ${escrowCopy.t('escrowWallet', { address: escrowChoice.buyerWallet })}`
+                : escrowCopy.t('escrowLedger')}
             </p>
             <TakeReviewDetails
               offer={offer}

@@ -142,6 +142,22 @@ export const tradeSchema = z.object({
   escrowedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
+  /** RC-p2p-02: who holds the coins: the ledger, or the escrow contract (no ledger entry). Fixed at take. */
+  escrowKind: z.enum(['ledger', 'contract']).optional(),
+  /** RC-p2p-02: the contract deal's terms (fixed at take) and, once the seller attached it, the deal. Null on a ledger order. */
+  contract: z
+    .object({
+      chainId: z.number().int().positive(),
+      token: z.string(),
+      units: z.string().regex(/^[1-9][0-9]*$/),
+      buyerWallet: z.string(),
+      disputeWindowSeconds: z.number().int().positive(),
+      timeout: z.literal('refund_seller'),
+      dealId: z.string().nullable(),
+      sellerWallet: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
   /** `trades.get` only: the ad's terms when the order was placed (later ad edits never change them); null when the order predates the copy. */
   terms: z.string().nullable().optional(),
   /** `trades.get` only: the readable status the order list shows. */
@@ -883,3 +899,17 @@ export const shareLinkSchema = z.object({
   revokedAt: z.string().datetime().nullable(),
 });
 export type ShareLink = z.infer<typeof shareLinkSchema>;
+
+/** RC-p2p-02 `trades.contractEscrow`: the contract escrow for one asset, offered or refused with its blocker. */
+export const contractEscrowOfferSchema = z.object({
+  available: z.boolean(),
+  blocker: z.string().nullable(),
+  reason: z.string().nullable(),
+  network: z.object({ chainId: z.number().int().positive(), label: z.string(), escrow: z.string() }).nullable(),
+  token: z.object({ address: z.string(), decimals: z.number().int() }).nullable(),
+  disputeWindowSeconds: z.number().int().positive().nullable(),
+  timeout: z.literal('refund_seller'),
+  mainnet: z.object({ available: z.literal(false), blocker: z.literal('audit.external') }),
+  audited: z.literal(false),
+});
+export type ContractEscrowOffer = z.infer<typeof contractEscrowOfferSchema>;
