@@ -2216,6 +2216,16 @@ async function healthTable({ gateMarket = false } = {}) {
     procs['rail-statements']?.pid ?? '-',
     statements.status === 200 ? 'ok (TEST)' : `DOWN (${statements.status})`,
   ]);
+  // The TEST adapters behind a service's outside door: each a row of its own, so the table names every port the stack's
+  // marker holds. One this start left off (the user-venue switch, or an `--only` without it) reads "off", which doesn't fail.
+  for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) {
+    if (!procs[name]) {
+      rows.push([`${name} (TEST)`, PORTS[name], '-', 'off (not started)']);
+      continue;
+    }
+    const adapter = await httpGet(`${urlOf(name)}/health`, 2500);
+    rows.push([`${name} (TEST)`, PORTS[name], procs[name].pid ?? '-', adapter.status === 200 ? 'ok (TEST)' : `DOWN (${adapter.status})`]);
+  }
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
     'customer',
@@ -2249,7 +2259,7 @@ async function healthTable({ gateMarket = false } = {}) {
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
   const marketBad = mk.state === 'down' || mk.state === 'stale';
-  return rows.slice(0, -1).every((r) => /^(ok|absent)\b/.test(String(r[3]))) && !(gateMarket && marketBad);
+  return rows.slice(0, -1).every((r) => /^(ok|absent|off)\b/.test(String(r[3]))) && !(gateMarket && marketBad);
 }
 
 /** `--only a,b` -> ['a','b'] (validated against the services this script knows); null when absent. */

@@ -140,7 +140,10 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   expect(new Set(names).size, 'one row per service').toBe(names.length);
   // Against the stack's own inventory of what it started (its marker's ports), each exactly once.
   const marker = JSON.parse(readFileSync(path.join(STATE, 'LOCAL-TEST-STACK.json'), 'utf8'));
-  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
+  // The TEST adapters behind a service's outside door have rows of their own; the stack starts the venues only with the
+  // user-venue switch on, so one it left off reads "off". The wallet provider starts with every full stack.
+  const ADAPTERS = ['test-venue', 'test-venue-b', 'test-wallet-provider'];
+  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls', ...ADAPTERS];
   const started = Object.keys(marker.ports)
     .filter((name) => name !== 'natsMonitor')
     .map((name) => (PLAIN.includes(name) ? name : `svc-${name}`));
@@ -148,7 +151,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // is still checked below.
   const NOT_PORTS = ['chain', 'market-maker'];
   expect(names.filter((name) => !NOT_PORTS.includes(name)).sort()).toEqual([...started].sort());
-  for (const [name, health] of rows) expect(health, `${name} health`).toMatch(/^ok\b/);
+  for (const [name, health] of rows)
+    expect(health, `${name} health`).toMatch(ADAPTERS.includes(name) && name !== 'test-wallet-provider' ? /^(ok|off)\b/ : /^ok\b/);
 
   // The tester profile's seed service: off unless asked, it runs the founder seed (init, then enrol) and the test-content
   // seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
