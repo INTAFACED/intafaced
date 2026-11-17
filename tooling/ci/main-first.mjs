@@ -109,7 +109,10 @@ export async function dispatchBusy(runs, jobsOf, self) {
  * The deferred runs to re-run: `runs` are WORKFLOW's recent runs, any status; `jobsOf(id)` gives one run's latest jobs.
  * Per branch and event, only the newest run counts (an older one is superseded, and re-running it would cancel the newer
  * in their concurrency group); it is re-run when it is completed, off main, created within RELEASE_WINDOW_MS of `now`,
- * and its touch job marked it deferred. Pure apart from `jobsOf`. Returns ids, oldest first, at most RELEASE_MAX.
+ * and its touch job marked it deferred. A run whose jobs can't be read is passed over, as in mainWaiting: GitHub answers
+ * 502 every time on a 64-shard run's jobs page (runs 43984802314 and 44002204748, 17 Nov 2026), and one such run in the
+ * window threw the whole release, leaving intafaced #8729's deferred journeys run unreleased for 40 minutes. A 403 or 429
+ * still stops it. Pure apart from `jobsOf`. Returns ids, oldest first, at most RELEASE_MAX.
  */
 export async function toRelease(runs, jobsOf, now = Date.now()) {
   const newest = new Map();
@@ -122,7 +125,14 @@ export async function toRelease(runs, jobsOf, now = Date.now()) {
   const out = [];
   for (const r of [...newest.values()].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))) {
     if (r.status !== 'completed' || now - Date.parse(r.created_at) > RELEASE_WINDOW_MS) continue;
-    const jobs = await jobsOf(r.id);
+    let jobs;
+    try {
+      jobs = await jobsOf(r.id);
+    } catch (e) {
+      if (/GitHub (403|429)/.test(e?.message ?? '')) throw e;
+      console.log(`::notice::run ${r.id}'s jobs could not be read (${e?.message}); passed over`);
+      continue;
+    }
     const touch = Array.isArray(jobs) ? jobs.find((j) => j?.name === TOUCH_JOB) : null;
     if ((touch?.steps ?? []).some((st) => st?.name === DEFER_MARK && st?.conclusion === 'success')) out.push(r.id);
     if (out.length >= RELEASE_MAX) break;
@@ -314,6 +324,21 @@ async function selfTest() {
   ];
   const got = await toRelease(runs, rOf, now);
   if (JSON.stringify(got) !== JSON.stringify([27, 21, 26])) fail('release picked', got);
+  // #8729: a run whose jobs page answers 502 every time (a 64-shard run) is passed over; the deferred runs still go.
+  const big = r(29, 'f', 25);
+  const brokenOf = async (id) => {
+    if (id === 29) throw new Error('GitHub 502 on /actions/runs/29/jobs?filter=latest&per_page=100');
+    return rjobs[id];
+  };
+  const past502 = await toRelease([...runs, big], brokenOf, now).catch((e) => e.message);
+  if (JSON.stringify(past502) !== JSON.stringify([27, 21, 26])) fail('a 502 on one run stopped the release', past502);
+  // A 403 or 429 still stops it: never read past a refusal.
+  const refusedOf = async (id) => {
+    if (id === 29) throw new Error('GitHub 429 on /actions/runs/29/jobs: stopping, not retrying');
+    return rjobs[id];
+  };
+  const refused = await toRelease([...runs, big], refusedOf, now).catch(() => 'stopped');
+  if (refused !== 'stopped') fail('a 429 did not stop the release', refused);
   if (bad) process.exit(1);
   console.log('main-first self-test ok');
 }
