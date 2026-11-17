@@ -4,7 +4,7 @@ import { z } from 'zod';
  * AGENTS USAGE PAYMENT: the S2S door svc-agents uses to learn how a person pays for agent usage, and to collect one
  * sealed usage window from them (J-agents-01; launch money model, docs/adr/2026-11-10-launch-money-model.md).
  *
- * At launch INTAFACED holds no customer money (OWNER 226). A usage window is earned in our ledger as owed by the person
+ * At launch INTAFACED holds no customer money. A usage window is earned in our ledger as owed by the person
  * (`chargeEarn`), and collected from their payment method by their partner, which carries the payment out for them; the
  * partner's payment id is the one fact the ledger's `chargeCollect` is keyed on. svc-agents never reads svc-bank's
  * tables or the partner; it asks this route, signed as `svc-agents`.

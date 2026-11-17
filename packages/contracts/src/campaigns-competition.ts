@@ -14,7 +14,7 @@ export const COMPETITION_REFUSAL_CODES = [
 // ── Trading competitions (CM-promotions-events-01, J-campaigns-11) ─────────────────────────────────────────────────
 
 /**
- * What a competition ranks by. Only `volume` is built: ranking by returns waits for the owner (OWNER 87) and refuses
+ * What a competition ranks by. Only `volume` is built: ranking by returns waits for the owner and refuses
  * activation `owner.decision`.
  */
 export const COMPETITION_BASES = ['volume', 'returns'] as const;
