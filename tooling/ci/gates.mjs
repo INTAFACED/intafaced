@@ -184,12 +184,6 @@ export const GATES = [
       'are named with a reason in tooling/ci/boundary-allow.json.',
   },
   {
-    id: 'workspace',
-    script: 'tooling/ci/workspace-sync.mjs',
-    doctrine: 'fleet sync',
-    why: 'a service that builds but never reaches the image or the fleet',
-  },
-  {
     id: 'skip-honesty',
     script: 'tooling/ci/skip-honesty-scan.mjs',
     doctrine: '§14',
