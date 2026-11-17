@@ -112,7 +112,7 @@ describe('PostgresBroadcastStore — two connections cannot double-send', () => 
             expect(claim.signedRaw).toBe('0xraw');
             await store.put('payout:e13:db:1', '0xabc');
           } else {
-            expect(claim.txHash).toBe('0xabc');
+            expect(claim).toEqual({ kind: 'done', txHash: '0xabc' });
           }
         }),
       ),

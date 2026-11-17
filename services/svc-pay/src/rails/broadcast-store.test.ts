@@ -76,7 +76,7 @@ describe('MemoryBroadcastStore — Class M claim/put ordering', () => {
             expect(claim.signedRaw).toBe('0xraw');
             await store.put('payout:w1:1', '0xabc');
           } else {
-            expect(claim.txHash).toBe('0xabc');
+            expect(claim).toEqual({ kind: 'done', txHash: '0xabc' });
           }
         }),
       ),
@@ -164,7 +164,7 @@ describe('PostgresBroadcastStore — Class M claim/put (fake SQL)', () => {
             expect(claim.signedRaw).toBe('0xraw');
             await store.put('payout:w1:1', '0xabc');
           } else {
-            expect(claim.txHash).toBe('0xabc');
+            expect(claim).toEqual({ kind: 'done', txHash: '0xabc' });
           }
         }),
       ),
