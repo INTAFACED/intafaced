@@ -69,7 +69,7 @@ import {
   stackCustodyOff,
 } from './local-test-state.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
-import { slotEnv, stackUrl } from './local-test-facts.mjs';
+import { slotEnv, stackRecords, stackUrl, writeStackRecord } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -92,7 +92,6 @@ export function stackPaths(home = os.homedir()) {
     secrets: path.join(stateDir, 'secrets.json'),
     accounts: path.join(stateDir, 'market-accounts.json'),
     runDir: path.join(stateDir, 'run'),
-    pidFile: path.join(stateDir, 'run', 'market.json'),
     walkFile: path.join(stateDir, 'run', 'market-walk.json'),
     shiftFile: path.join(stateDir, 'run', 'market-shift.json'),
     holdFile: path.join(stateDir, 'run', 'market-hold.json'),
@@ -1755,14 +1754,12 @@ async function openFuturesQuoteIds(maker, m) {
 // ── Process control ─────────────────────────────────────────────────────────
 
 export const STALE_AFTER_MS = 2 * 60 * 1000;
+/** The maker's record in the stack's one process record (local-test-facts.mjs `stackRecords`, under `market`). */
 function readRecord(p) {
-  try {
-    const rec = JSON.parse(fs.readFileSync(p.pidFile, 'utf8'));
-    return Number.isInteger(rec?.pid) ? rec : null;
-  } catch {
-    return null;
-  }
+  const rec = stackRecords(p.stateDir).market;
+  return Number.isInteger(rec?.pid) ? rec : null;
 }
+const forgetRecord = (p) => writeStackRecord(p.stateDir, 'market', null);
 function runningPid(p) {
   const rec = readRecord(p);
   if (!rec) return null;
@@ -1907,7 +1904,7 @@ async function startBackground(p, args, { wait }) {
     child.unref();
     fs.closeSync(fd);
     const kernelStart = readKernelStart(child.pid) ?? undefined; // held to it exactly on Linux (#7488)
-    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), kernelStart, args, argv }), { mode: 0o600 });
+    writeStackRecord(p.stateDir, 'market', { pid: child.pid, startedAt: nowIso(), kernelStart, args, argv });
     console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
   } finally {
     release();
@@ -1964,13 +1961,13 @@ async function main() {
     const pid = runningPid(p);
     if (!pid) {
       const had = readRecord(p);
-      fs.rmSync(p.pidFile, { force: true });
+      forgetRecord(p);
       return console.log(had ? 'test market was already down; forgot it, so ensure will not restart it' : 'test market is not running');
     }
     process.kill(pid, 'SIGTERM');
     if (!(await waitForExit(() => Boolean(runningPid(p)))))
       die(`pid ${pid} is still cancelling orders after ${STOP_CAP_MS / 1000} s; it has not stopped (check ${p.log})`);
-    fs.rmSync(p.pidFile, { force: true });
+    forgetRecord(p);
     return console.log('test market stopped, resting test orders cancelled');
   }
   if (cmd === 'status') {

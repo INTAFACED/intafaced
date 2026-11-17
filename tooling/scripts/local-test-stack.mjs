@@ -90,6 +90,9 @@ import {
   slotPorts,
   STACK_PORTS,
   stackPids,
+  stackRecords,
+  stackRecordsFile,
+  writeStackRecords,
 } from './local-test-facts.mjs';
 import { reduceMaps } from './journey-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
@@ -164,7 +167,7 @@ const SLOT = localStackSlot();
 const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
-  procs: path.join(STATE, 'run', 'processes.json'),
+  procs: stackRecordsFile(STATE),
   s2sMode: path.join(STATE, 'run', 's2s-mode'),
   run: path.join(STATE, 'run'),
   tls: path.join(STATE, 'tls'),
@@ -496,14 +499,9 @@ function localOperatorIds() {
 
 // ── Process records (pid file + argv) ───────────────────────────────────────
 
-function readProcs() {
-  try {
-    return readJson(P.procs);
-  } catch {
-    return {};
-  }
-}
-const writeProcs = (procs) => writePrivate(P.procs, JSON.stringify(procs, null, 2));
+/** This stack's one process record (local-test-facts.mjs `stackRecords`), the TEST market maker's included. */
+const readProcs = () => stackRecords(STATE);
+const writeProcs = (procs) => writeStackRecords(STATE, procs);
 
 /** Verify each record independently, including while other stack services are down. */
 function ownedAlive(rec) {
@@ -2693,17 +2691,25 @@ async function cmdStart(flags) {
  * A stack that never ran the market is left alone, and a failure here never fails the stack.
  */
 function ensureMarket() {
-  const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), 'ensure'], {
+  const r = marketTool('ensure');
+  say(`  market maker: ${r.text}`);
+}
+
+/** Runs one `local-test-market.mjs` command on this stack: its status and its output on one line. */
+function marketTool(cmd) {
+  const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), cmd], {
     env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: STATE, ...slotEnv() },
     encoding: 'utf8',
   });
   const text = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').filter(Boolean).join(' | ');
-  say(`  market maker: ${text || `ensure exited ${r.status}`}`);
+  return { status: r.status, text: text || `${cmd} exited ${r.status}` };
 }
 
 async function cmdStop(names = []) {
   const procs = readProcs();
   const order = [
+    // First, while Edge still runs: the maker cancels its resting TEST orders as it stops.
+    'market',
     'team-tls',
     'admin',
     'apex',
@@ -2728,6 +2734,13 @@ async function cmdStop(names = []) {
     if (only && !only.includes(name)) continue;
     const rec = procs[name];
     if (!rec) continue;
+    if (name === 'market') {
+      // The maker's own stop: it holds the maker to its record and waits while it cancels its orders.
+      const r = marketTool('stop');
+      say(`  market maker: ${r.text}`);
+      if (r.status !== 0) bad = true;
+      continue;
+    }
     if (rec.pid && psCommand(rec.pid) && !ownedAlive(rec)) {
       say(`  ${name}: pid ${rec.pid} no longer matches the recorded command line or start time, refusing to signal it`);
       bad = true;

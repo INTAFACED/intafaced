@@ -54,9 +54,52 @@ const readJsonOr = (file, fallback) => {
     return fallback;
   }
 };
-/** The PIDs a state folder's stack runs: its recorded processes and its Postgres. */
+/**
+ * The one record of every process a state folder's stack started, by name: each service `local-test-stack.mjs` starts
+ * and the TEST market maker `local-test-market.mjs` starts (`market`). The owner test (`stackPids`), `stop` and the
+ * market's own commands all read this, so a process the stack started can never read as someone else's. Failure it
+ * prevents: the market kept its pid in a file of its own, so a finished build's stack read as owned for as long as its
+ * market ran (slots 0 and 1 held 21 and 19 hours on 17 Nov), and `stop` left the market running.
+ */
+export const stackRecordsFile = (state) => path.join(state, 'run', 'processes.json');
+// Before the market's record moved here it lived in run/market.json; a stack started then is still read whole.
+// Drop this fallback once no running stack predates it (after 2026-12-01).
+const legacyMarketFile = (state) => path.join(state, 'run', 'market.json');
+
+export function stackRecords(state) {
+  const records = readJsonOr(stackRecordsFile(state), {}) ?? {};
+  if (!records.market) {
+    const legacy = readJsonOr(legacyMarketFile(state), null);
+    if (Number.isInteger(legacy?.pid)) records.market = legacy;
+  }
+  return records;
+}
+
+/**
+ * Sets (or with null, removes) one process's record in `stackRecords`, written whole through a rename so a reader never
+ * sees half a file. Returns the records written.
+ */
+export function writeStackRecord(state, name, rec) {
+  const records = stackRecords(state);
+  if (rec) records[name] = rec;
+  else delete records[name];
+  writeStackRecords(state, records);
+  if (name === 'market') fs.rmSync(legacyMarketFile(state), { force: true });
+  return records;
+}
+
+/** Writes the whole of `stackRecords` through a rename. */
+export function writeStackRecords(state, records) {
+  const file = stackRecordsFile(state);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(records, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
+/** The PIDs a state folder's stack runs: every process in its one record (`stackRecords`) and its Postgres. */
 export function stackPids(state) {
-  const procs = Object.values(readJsonOr(path.join(state, 'run', 'processes.json'), {})).map((r) => r?.pid);
+  const procs = Object.values(stackRecords(state)).map((r) => r?.pid);
   let pg = null;
   try {
     pg = Number(fs.readFileSync(path.join(state, 'data', 'postgres', 'postmaster.pid'), 'utf8').split('\n')[0]);
