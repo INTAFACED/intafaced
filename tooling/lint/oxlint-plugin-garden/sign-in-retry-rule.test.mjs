@@ -69,7 +69,7 @@ test("main's two sign-in retries fire and name the one-sign-in fix", skip, () =>
   const bank = out.find((l) => l.startsWith(`${BANK}:7:`));
   assert.ok(admin?.includes('signInOnceMore in a journey'), out.join('\n'));
   assert.ok(bank?.includes('stepAfterRefusal in a journey'), out.join('\n'));
-  assert.ok(bank.includes('founderSignIn in apps/customer/tests/real-app/admin.mjs'), bank);
+  assert.ok(bank.includes("the founder console's founderSignIn, or a journey's own nextCode"), bank);
 });
 
 test('one sign-in that fails on a refusal, and the gates’ own operator sign-in, pass', skip, () => {

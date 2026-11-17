@@ -28,8 +28,8 @@ const noSignInRetry = {
           node,
           message:
             `${name} in a journey sets up a second sign-in after a refused one, which hides the refusal. Sign in once with a ` +
-            "real, unused step (founderSignIn in apps/customer/tests/real-app/admin.mjs, or the journey's own nextCode from " +
-            'identity-factors.mjs) and let a refusal fail the test; when one fires, fix its cause in the product or the stack',
+            "real, unused step (the founder console's founderSignIn, or a journey's own nextCode) and let a refusal fail " +
+            'the test; when one fires, fix its cause in the product or the stack',
         });
       },
     };
