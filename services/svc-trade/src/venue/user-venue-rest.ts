@@ -11,7 +11,8 @@
  *   GET  /api/v1/venue/trades?symbol=BTC-USDC&limit=50  the venue's newest prints there, newest first
  *   GET  /api/v1/venue/candles?symbol=BTC-USDC&interval=15m&limit=240   candles of the venue's prints, oldest first
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
- *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
+ *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=|clientOrderKey=   the venue's order, by its venue client id or
+ *                                                      by the caller's own client id (the key it placed it under)
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
  *   GET  /api/v1/venue/withdrawal-terms?owner=&asset=   the venue's published withdrawal fee, network fee and arrival time (J-bank-31 #3)
@@ -68,6 +69,7 @@ import {
   type VenueSigner,
   type VenueCandleInterval,
   VENUE_CANDLE_INTERVALS,
+  venueClientOrderId,
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
@@ -142,6 +144,8 @@ type Query = {
   leverageBps?: string;
   marginMode?: string;
   clientOrderId?: string;
+  /** J-cex-spot-15 #5: the caller's own client id, the business key its order was placed under. */
+  clientOrderKey?: string;
   since?: string;
   symbol?: string;
   cursor?: string;
@@ -379,9 +383,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.subAccounts(a);
     },
+    // J-cex-spot-15 #5: a bot looks its order up by its own client id (`clientOrderKey`, the business key it placed the
+    // order under), or by the venue's client order id; the venue answers with the order's own state.
     '/api/v1/venue/orders/by-client-id': async (d, q, a) => {
-      if (!q.clientOrderId) throw new VenueWireError('clientOrderId is required');
-      return (await d.venue()).orderByClientId(a, q.clientOrderId);
+      if (q.clientOrderId && q.clientOrderKey) throw new VenueWireError('send clientOrderId or clientOrderKey, not both');
+      const id = q.clientOrderKey ? venueClientOrderId(a.venueId, q.clientOrderKey) : q.clientOrderId;
+      if (!id) throw new VenueWireError('clientOrderId or clientOrderKey is required');
+      return (await d.venue()).orderByClientId(a, id);
     },
     '/api/v1/venue/fills': async (d, q, a) => {
       const since = new Date(q.since ?? '');
