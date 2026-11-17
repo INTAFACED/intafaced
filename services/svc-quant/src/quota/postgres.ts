@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { QUANT_IDEMPOTENCY_CONFLICT, QuantError } from '../errors.js';
 import { accountCounts } from './counts.js';
@@ -6,7 +7,6 @@ import {
   judgeNeeds,
   QUOTA_RESOURCES,
   type AppliedProfile,
-  type Db,
   type QuotaGate,
   type QuotaLimitRow,
   type QuotaRepository,
@@ -62,7 +62,7 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
   const seed = options.seed ?? null;
   let seeded: Promise<void> | null = null;
 
-  async function query<T>(db: Db, text: string, params: readonly unknown[]): Promise<T[]> {
+  async function query<T>(db: Queryable, text: string, params: readonly unknown[]): Promise<T[]> {
     return db.unsafe(text, params as never[]);
   }
 
@@ -99,13 +99,13 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
     return seeded;
   }
 
-  async function appliedIn(db: Db, accountId: string): Promise<AppliedProfile | null> {
+  async function appliedIn(db: Queryable, accountId: string): Promise<AppliedProfile | null> {
     const rows = await query<{ profile: string }>(db, `SELECT profile FROM ${assignments} WHERE account_id = $1`, [accountId]);
     if (rows[0]) return { name: rows[0].profile, source: 'assigned' };
     return options.defaultProfile ? { name: options.defaultProfile, source: 'default' } : null;
   }
 
-  async function limitsIn(db: Db, profile: string): Promise<QuotaLimitRow[]> {
+  async function limitsIn(db: Queryable, profile: string): Promise<QuotaLimitRow[]> {
     const rows = await query<LimitSql>(
       db,
       `SELECT resource, limit_value::text AS limit_value, set_at FROM ${limitsTable} WHERE profile = $1`,
@@ -121,7 +121,12 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
   }
 
   /** A stored operator write under this key: the same write replays it, a different one refuses. */
-  async function priorWrite<T>(db: Db, key: string, action: string, same: (stored: Record<string, unknown>) => boolean): Promise<T | null> {
+  async function priorWrite<T>(
+    db: Queryable,
+    key: string,
+    action: string,
+    same: (stored: Record<string, unknown>) => boolean,
+  ): Promise<T | null> {
     const rows = await query<{ action: string; request: Record<string, unknown>; response: T }>(
       db,
       `SELECT action, request, response FROM ${audit} WHERE idempotency_key = $1`,

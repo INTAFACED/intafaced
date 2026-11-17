@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql, TransactionSql } from 'postgres';
 import {
   OWN_AGENT_RETENTION_KINDS,
@@ -130,13 +131,11 @@ const DEFAULT_CONTROLS: ControlRow = {
   shared_at: null,
 };
 
-type Db = Sql | TransactionSql;
-
 /** The person's memory, data controls and share for one of their own agents. The caller has checked the agent is theirs. */
 export class OwnMemoryStore {
   constructor(private readonly sql: Sql) {}
 
-  async controls(ownerId: string, agentId: string, db: Db = this.sql): Promise<ControlRow> {
+  async controls(ownerId: string, agentId: string, db: Queryable = this.sql): Promise<ControlRow> {
     const rows = await db<ControlRow[]>`
       SELECT memory_enabled, keep_transcripts, share_transcripts, share_memory, shared_at
         FROM agents.own_agent_data_controls WHERE owner_id = ${ownerId} AND agent_id = ${agentId}

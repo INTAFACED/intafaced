@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   MY_VOUCHERS_LIMIT,
@@ -104,14 +104,14 @@ export type AttemptLimits = { perAccount: number; perAddress: number; windowSeco
  * What a voucher used: a cash voucher's redemption intents that hold or spent value, as the campaign budget counts them;
  * a fee-saver's orders it was taken on (its face is its orders).
  */
-const USED = (sql: Sql) => sql`
+const USED = (sql: Queryable) => sql`
   (CASE WHEN v.kind = 'fee_saver' THEN (SELECT count(*) FROM campaigns.fee_saver_uses u WHERE u.voucher_id = v.id)::numeric
   ELSE COALESCE((SELECT sum(i.amount) FROM campaigns.reward_intents i
     WHERE i.campaign_id = v.campaign_id AND i.account_id = v.claimed_by
       AND left(i.period, length('voucher:' || v.id || ':')) = 'voucher:' || v.id || ':'
       AND i.state NOT IN ('failed', 'forfeited', 'withheld', 'cancelled')), 0) END)::text`;
 
-const SELECT_VOUCHER = (sql: Sql) => sql`
+const SELECT_VOUCHER = (sql: Queryable) => sql`
   SELECT v.id, v.campaign_id, v.code, v.code_last4, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.fee_discount_bps,
     ${USED(sql)} AS used_amount, v.claim_by, v.use_by, v.claimed_by, v.claimed_at, v.expired_at,
     c.name AS campaign_name, c.state AS campaign_state, c.starts_at, c.ends_at, c.participation

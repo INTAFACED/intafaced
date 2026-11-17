@@ -110,6 +110,27 @@ async function withBankValueBlank(key, who, fn) {
     await atPartner(who);
   }
 }
+let gatesCtx;
+/** One card-issuer event through the bank's ops door, approved by the stack's two TEST founders, as card-sim requires. */
+async function cardEvent(actionType, procedure, fields, hashed = fields) {
+  gatesCtx ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    return { gates, ctx, sessions: await gates.approverSessions(ctx) };
+  })();
+  const { gates, ctx, sessions } = await gatesCtx;
+  const approval = await gates.twoPerson(ctx, sessions, {
+    actionType,
+    targetService: 'svc-bank',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash: gates.bankPayloadHash(actionType, hashed),
+    policyVersion: gates.MARKERS.policyVersion,
+  });
+  const res = await ctx.edge.mutate('bank', procedure, { ...fields, ...approval }, await sessions.a.treasuryToken());
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+  return res.json.result.data;
+}
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
 /** The spaces as facts: the partner's `asOf` says when it was asked, which every read changes, so it is left out. */
 const withoutReadTime = (rows) =>
@@ -174,7 +195,9 @@ test(`${J} #2 reads the account panel: the published TEST terms, and with the ow
   });
 });
 
-test(`${J} #3 adds a currency once, and removing one that holds money is refused with Send and Convert`, async ({ page }) => {
+test(`${J} #3 adds a currency once, and removing one the partner reports with a balance, hold or open order is refused with Send and Convert`, async ({
+  page,
+}) => {
   const who = person();
   await signIn(page, who);
   await page.goto('/bank');
@@ -187,7 +210,7 @@ test(`${J} #3 adds a currency once, and removing one that holds money is refused
   expect((await (await bank(who)).mutate('currencies.add', { assetId: 'USDC' })).ok).toBe(true);
   expect((await spaces(who)).filter((s) => s.kind === 'primary' && s.assetId === 'USDC')).toHaveLength(1);
 
-  await page.getByTestId('currency-USDT').getByRole('button', { name: 'Remove USDT' }).click();
+  await page.getByTestId('currency-USDT').getByRole('button', { name: 'Remove USDT', exact: true }).click();
   const refused = page.getByTestId('currency-in-use');
   await expect(refused).toContainText('USDT is still in use');
   await expect(refused).toContainText('bank.currency_in_use');
@@ -195,10 +218,44 @@ test(`${J} #3 adds a currency once, and removing one that holds money is refused
   await expect(refused.getByRole('link', { name: 'Convert' })).toHaveAttribute('href', '/trade/convert');
   expect(main(await spaces(who)).balance).toBe('100');
 
-  // An empty currency comes off.
-  await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC' }).click();
-  await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
-  await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
+  // USDC reads 0 at the partner bank, and still cannot come off while the partner reports a hold or an open order in it.
+  expect((await spaces(who)).find((s) => s.kind === 'primary' && s.assetId === 'USDC')).toMatchObject({ balance: '0' });
+  const own = await bank(who);
+  const refusedInUse = async () => {
+    expect(await own.mutate('currencies.remove', { assetId: 'USDC' })).toMatchObject({ ok: false, code: 'bank.currency_in_use' });
+    await page.reload();
+    await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC', exact: true }).click();
+    await expect(page.getByTestId('currency-in-use')).toContainText('bank.currency_in_use');
+    await expect(page.getByTestId('currency-USDC')).toBeVisible();
+  };
+  // A hold: a TEST card purchase the TEST card partner holds in USDC, until the partner lets the hold run out.
+  const issued = await own.mutate('cards.issue', { cardId: randomUUID(), assetId: 'USDC', perAuthorizationLimit: '50' });
+  expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
+  const bought = { cardId: issued.data.id, authorizationRef: `jb01-${randomUUID()}`, amount: '5' };
+  expect(await cardEvent('bank.card_authorize', 'ops.cardAuthorize', { ...bought, merchant: 'TEST Shop' }, bought)).toMatchObject({
+    decision: 'approved',
+  });
+  await refusedInUse();
+  // The partner lets the hold run out (it reads it as past its hold time from the next read on), and the step puts it
+  // back to its own hold time at its end.
+  expect(await own.mutate('testPartner.set', { cardHold: 'expired' })).toMatchObject({ ok: true });
+  try {
+    // An open order: the TEST partner reports one open TEST order reserving USDC.
+    expect(await own.mutate('testPartner.set', { openOrder: 'USDC' })).toMatchObject({ ok: true, data: { openOrder: 'USDC' } });
+    try {
+      await refusedInUse();
+    } finally {
+      expect(await own.mutate('testPartner.set', { openOrder: null })).toMatchObject({ ok: true, data: { openOrder: null } });
+    }
+
+    // An empty currency, with no hold and no order in it, comes off.
+    await page.reload();
+    await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC', exact: true }).click();
+    await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
+    await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
+  } finally {
+    expect(await own.mutate('testPartner.set', { cardHold: 'live' })).toMatchObject({ ok: true });
+  }
 
   // Where the partner has no currency accounts (the TEST partner switched to offer none): "not offered by the partner",
   // and no currency account is opened.

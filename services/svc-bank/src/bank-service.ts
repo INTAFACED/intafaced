@@ -476,7 +476,6 @@ export function createBankServices(
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
   const accountTerms = () => parseAccountTerms(options.accountTerms);
-  const currencies = new CurrencyService(sql, ledger, spaces, { currencies: options.accountCurrencies });
   const profiles = new ProfileService(sql);
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
@@ -552,6 +551,12 @@ export function createBankServices(
   // dev or test stack with the TEST stand-in chosen.
   // A person the TEST partner holds money for has their paid purchase credited by the partner itself, not the ledger.
   const partnerPurchases = testPartnerPurchases(options.testPartner);
+  // Removing a currency reads what the partner still holds in it: its card holds, its purchase holds and its open orders.
+  const currencies = new CurrencyService(sql, ledger, spaces, {
+    currencies: options.accountCurrencies,
+    cardHolds: partnerHolds,
+    purchases: partnerPurchases,
+  });
   const addMoney = new AddMoneyService(sql, ramps, { ledger, partner: options.onrampPartner ?? null, purchases: partnerPurchases });
   // The same owner values as the crypto address book: its cap, and the payout cooling-off window.
   const linkedAccounts = new LinkedAccountService(sql, {

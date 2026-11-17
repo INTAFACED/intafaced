@@ -1,7 +1,7 @@
 import type postgres from 'postgres';
 import type { PayoutBoard } from '@intafaced/contracts/campaigns-payout-board';
 import { payoutBoard } from './payout-board.js';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { REWARD_ASSET, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   REWARD_STATUS_OF,
@@ -183,7 +183,7 @@ export const rewardKeyOf = (campaignId: string, accountId: string, period: strin
 export const NOT_HOLDING = ['failed', 'forfeited', 'withheld', 'cancelled'] as const;
 
 export async function limitRefusalOf(
-  tx: postgres.Sql,
+  tx: Queryable,
   campaignId: string,
   accountId: string,
   limits: CampaignLimits | null,
@@ -213,7 +213,7 @@ export const LIMIT_WORDS = {
  * What a campaign's reward intents hold or spent of its budget: every one not failed, forfeited or withheld (as the
  * `campaign_rows` view counts it). Read with the campaign row locked, so two writes never both fit the last room.
  */
-export async function drawnOf(tx: postgres.Sql, campaignId: string): Promise<bigint> {
+export async function drawnOf(tx: Queryable, campaignId: string): Promise<bigint> {
   const [drawn] = await tx<{ total: string }[]>`
     SELECT COALESCE(sum(amount), 0)::text AS total FROM campaigns.reward_intents
     WHERE campaign_id = ${campaignId} AND state NOT IN ${tx(NOT_HOLDING)}`;

@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { TransactionSql } from 'postgres';
 import type { Amount } from '@intafaced/ledger-client';
 import type { FundsReading } from '../funds.js';
 
@@ -52,6 +52,6 @@ export interface SpendGate {
     /** True only from the team run route, after membership and role were read (`ThinkInput.teamRun`). */
     teamRun?: boolean;
   }): Promise<SpendReservationView>;
-  commitIn(tx: Sql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView>;
+  commitIn(tx: TransactionSql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView>;
   release(input: { userId: string; reservationKey: string }): Promise<SpendReservationView>;
 }

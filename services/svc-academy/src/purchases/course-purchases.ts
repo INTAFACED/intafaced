@@ -22,6 +22,7 @@
  *
  * Nothing here signs, holds a key, or posts a customer balance.
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql, TransactionSql } from 'postgres';
 import type { AcademyCoursePurchase, AcademyCoursePurchaseView, AcademyStaffPurchase } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
@@ -49,8 +50,6 @@ export interface CoursePurchaseDeps {
   /** Identity's linked wallets: a payer must be one of the buyer's own. Without it nothing is sold. */
   readonly wallets: LinkedWalletsPort | null;
 }
-
-type Db = Sql | TransactionSql;
 
 type CourseRow = { id: string; slug: string; state: string; pricing: 'free' | 'paid'; price: string | null; price_asset: string | null };
 
@@ -124,7 +123,7 @@ export class CoursePurchases {
   }
 
   /** True when the learner holds a recorded, unrefunded purchase of the course: what the certificate track needs. */
-  async holdsPurchase(db: Db, courseId: string, userId: string): Promise<boolean> {
+  async holdsPurchase(db: Queryable, courseId: string, userId: string): Promise<boolean> {
     const [row] = await db<Array<{ n: number }>>`
       SELECT 1 AS n FROM academy.course_purchases
        WHERE course_id = ${courseId} AND user_id = ${userId} AND state = 'posted'
@@ -578,7 +577,7 @@ export class CoursePurchases {
 
   // ── Reads ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  private async publishedCourse(db: Db, slug: string): Promise<CourseRow> {
+  private async publishedCourse(db: Queryable, slug: string): Promise<CourseRow> {
     const [course] = await db<CourseRow[]>`
       SELECT id, slug, state, pricing, price::text AS price, price_asset FROM academy.courses WHERE slug = ${slug}
     `;
@@ -586,7 +585,7 @@ export class CoursePurchases {
     return course;
   }
 
-  private async latest(db: Db, courseId: string, userId: string): Promise<PurchaseRow | null> {
+  private async latest(db: Queryable, courseId: string, userId: string): Promise<PurchaseRow | null> {
     const [row] = await db<PurchaseRow[]>`
       SELECT * FROM academy.course_purchases
        WHERE course_id = ${courseId} AND user_id = ${userId} ORDER BY n DESC LIMIT 1
@@ -594,7 +593,7 @@ export class CoursePurchases {
     return row ?? null;
   }
 
-  private async byKey(db: Db, key: string): Promise<PurchaseRow | null> {
+  private async byKey(db: Queryable, key: string): Promise<PurchaseRow | null> {
     const [row] = await db<PurchaseRow[]>`
       SELECT * FROM academy.course_purchases WHERE purchase_key = ${key}
     `;

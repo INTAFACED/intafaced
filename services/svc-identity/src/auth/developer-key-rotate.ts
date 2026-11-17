@@ -5,6 +5,7 @@
  * maximum; while that is blank, any overlap above 0 refuses. A key is replaced at most once: a rotation retried after a
  * lost reply answers with the replacement already made, without its secret, and mints nothing.
  */
+import type { Queryable } from '@intafaced/db';
 import type { ApiKeyRotateInput, ApiKeyRotateOutput } from '@intafaced/contracts/api-keys';
 import type { Sql } from 'postgres';
 import type { PayStepUpFactorProof } from './auth-service.js';
@@ -49,7 +50,7 @@ export async function rotateDeveloperKey(
   caller: Caller,
   input: ApiKeyRotateInput & { factorProof?: PayStepUpFactorProof | undefined },
   /** Runs inside the rotation's transaction once the replacement exists (a rotation request marks itself approved). */
-  onRotated?: (tx: Sql, replacementId: string) => Promise<void>,
+  onRotated?: (tx: Queryable, replacementId: string) => Promise<void>,
 ): Promise<ApiKeyRotateOutput> {
   const now = deps.now?.() ?? new Date();
   const repeat = await replacementOf(deps.sql, caller.userId, input.keyId);

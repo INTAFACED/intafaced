@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
 
 /**
@@ -570,7 +570,7 @@ export class MerchantPayoutDestinationStore implements MerchantPayoutDestination
     return toState(row, now);
   }
 
-  private async applyPromotion(sql: Sql, merchantId: string, railId: string, now: Date): Promise<void> {
+  private async applyPromotion(sql: Queryable, merchantId: string, railId: string, now: Date): Promise<void> {
     await sql`
       UPDATE pay.merchant_payout_destinations
          SET kind = pending_kind,

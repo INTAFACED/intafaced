@@ -18,7 +18,7 @@
  * revision refuses `bank.ops_revision_conflict`. The history is append-only (a database trigger refuses edits).
  */
 import { scopedProcedure } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
@@ -256,7 +256,7 @@ export class DestinationFraudList implements DestinationFraudListPort {
     }));
   }
 
-  private async history(sql: Sql, network: string, address: string, revision: number): Promise<HistoryRow | null> {
+  private async history(sql: Queryable, network: string, address: string, revision: number): Promise<HistoryRow | null> {
     const rows = await sql<HistoryRow[]>`
       SELECT network, address_key, revision, listed, reason, requested_by, approved_by
         FROM bank.destination_fraud_list_history WHERE change_key = ${fraudChangeKey(network, address, revision)}

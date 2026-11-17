@@ -4,6 +4,7 @@
  * Doctrine §2: notify schema only. No trade tables. Prices are text.
  */
 
+import type { Queryable } from '@intafaced/db';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { isValidPositivePrice } from './decimal.js';
@@ -352,7 +353,7 @@ export class PostgresAlertStore implements AlertStore {
   async create(input: CreatePriceAlertInput): Promise<PriceAlert> {
     const { kind, source } = assertCreate(input);
     const id = randomUUID();
-    const insert = (sql: Sql) => sql<AlertRow[]>`
+    const insert = (sql: Queryable) => sql<AlertRow[]>`
       INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency, source, channels, webhook_url)
       VALUES (${id}, ${input.userId}, ${input.marketId.trim()}, ${kind}, ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
         ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${sql.json((input.extras ?? []) as never)},
@@ -369,13 +370,13 @@ export class PostgresAlertStore implements AlertStore {
         WHERE user_id = ${input.userId} AND kind = ${kind} AND status IN ('active', 'stopped')
       `;
       if ((counted?.n ?? 0) >= maxOpen) throw new AlertQuotaReachedError(maxOpen);
-      return mapRow((await insert(tx as unknown as Sql))[0]!);
+      return mapRow((await insert(tx))[0]!);
     });
   }
 
   async createMany(inputs: readonly CreatePriceAlertInput[], maxOpen: number): Promise<readonly PriceAlert[]> {
     if (inputs.length === 0) return [];
-    return this.sql.begin((tx) => insertPriceAlerts(tx as unknown as Sql, inputs, maxOpen));
+    return this.sql.begin((tx) => insertPriceAlerts(tx, inputs, maxOpen));
   }
 
   async countOpen(userId: string, kind: SourcedAlertKind): Promise<number> {
@@ -607,7 +608,7 @@ function storedSource(r: AlertRow): AlertPriceSource {
  * `maxOpen`. Shared by `createMany` and the watchlist rules, which write their own row in the same transaction.
  */
 export async function insertPriceAlerts(
-  tx: Sql,
+  tx: Queryable,
   inputs: readonly CreatePriceAlertInput[],
   maxOpen: number,
 ): Promise<readonly PriceAlert[]> {

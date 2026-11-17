@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import { ONGOING_TRADE_STATUSES } from './take-limits.js';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 
 export interface BoardOffer {
@@ -77,7 +77,7 @@ export interface WriteClaim {
 
 /** Insert the key or report the earlier write. Caller inserts the subject after `claimed`. */
 export async function claimWriteKey(
-  tx: Sql,
+  tx: Queryable,
   input: { actorId: string; scope: string; idempotencyKey: string; requestHash: string },
 ): Promise<WriteClaim> {
   const inserted = await tx<Array<{ idempotency_key: string }>>`
@@ -100,7 +100,7 @@ export async function claimWriteKey(
 }
 
 export async function finishWriteKey(
-  tx: Sql,
+  tx: Queryable,
   input: { actorId: string; scope: string; idempotencyKey: string; subjectId: string },
 ): Promise<void> {
   await tx`
@@ -119,12 +119,12 @@ export function throwWriteClaim(claim: WriteClaim): void {
 }
 
 /** Serialises a block and a take between the same two people (either order of the pair), for this transaction. */
-export async function lockContactPair(tx: Sql, a: string, b: string): Promise<void> {
+export async function lockContactPair(tx: Queryable, a: string, b: string): Promise<void> {
   const [low, high] = a < b ? [a, b] : [b, a];
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.contact_pair:${low}:${high}`}, 0))`;
 }
 
-export async function eitherBlocked(sql: Sql, a: string, b: string): Promise<boolean> {
+export async function eitherBlocked(sql: Queryable, a: string, b: string): Promise<boolean> {
   const rows = await sql<Array<{ n: number }>>`
     SELECT 1 AS n FROM p2p.contacts
      WHERE kind = 'block'

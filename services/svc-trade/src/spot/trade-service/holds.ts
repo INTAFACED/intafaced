@@ -4,8 +4,7 @@
  * Moved out of `trade-service.ts` as it was (owner decision 2026-10-23): `TradeService` keeps one method per
  * function here, which passes itself as `svc`.
  */
-import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, recipes, sub, type Amount } from '@intafaced/ledger-client';
 import { appendOrderEvent, parentIdFromClientOrder } from '../../orders/order-events.js';
 import { FeeScheduleError, REGULAR_FEE_TIER, fundedMakerRebateBps, makerRebateBpsFor, type OwnerFeeSchedule } from '../fee-schedule.js';
@@ -183,7 +182,7 @@ export async function fillEvidence(svc: TradeServiceInternal, orderId: string): 
   return { count: Number(countRaw), qty: parseAmount(rows[0]?.qty ?? '0') };
 }
 
-export async function remainingHold(svc: TradeServiceInternal, sql: Sql, order: OrderRecord): Promise<Amount> {
+export async function remainingHold(svc: TradeServiceInternal, sql: Queryable, order: OrderRecord): Promise<Amount> {
   // A buy consumed quote, a sell consumed base. Expressed as a CASE over a
   // bound parameter rather than a dynamic column name: the two are the same
   // query plan, and this one cannot be turned into an injection by a future

@@ -37,6 +37,11 @@ const switches = z
       .regex(/^TEST \P{Cc}{1,120}$/u)
       .nullable(),
     payIn: z.enum(['answered', 'held']),
+    /** The asset the TEST partner reports one open TEST order in (J-bank-01 #3), or null for none. */
+    openOrder: z
+      .string()
+      .regex(/^[A-Z0-9]{2,16}$/)
+      .nullable(),
   })
   .strict();
 

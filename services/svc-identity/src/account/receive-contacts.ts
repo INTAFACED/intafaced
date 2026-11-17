@@ -24,7 +24,7 @@
  */
 import { randomInt, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { assertNotSecurityLocked } from '../auth/security-lock.js';
 import type { PasswordResetMail } from '../auth/password-reset.js';
 import { hashToken } from '../auth/passwords.js';
@@ -317,7 +317,7 @@ export class ReceiveContactService {
   }
 
   /** No more codes inside one code life than the address cap, counted over every address the account touched. */
-  private async assertSendBudget(tx: Sql, userId: string, max: number, codeTtlSeconds: number, now: Date): Promise<void> {
+  private async assertSendBudget(tx: Queryable, userId: string, max: number, codeTtlSeconds: number, now: Date): Promise<void> {
     const since = new Date(now.getTime() - codeTtlSeconds * 1000);
     const sent = await tx<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM receive_contact_audit
@@ -329,7 +329,7 @@ export class ReceiveContactService {
   }
 
   private async audit(
-    tx: Sql,
+    tx: Queryable,
     actor: ReceiveActor,
     channel: ReceiveChannel,
     event: 'added' | 'code_sent' | 'verified' | 'removed',
@@ -342,7 +342,7 @@ export class ReceiveContactService {
     `;
   }
 
-  private async view(q: Sql, userId: string): Promise<ReceiveContactList> {
+  private async view(q: Queryable, userId: string): Promise<ReceiveContactList> {
     const rows = await q<Array<{ id: string; channel: ReceiveChannel; target: string; verified: boolean }>>`
       SELECT id, channel, target::text AS target, verified_at IS NOT NULL AS verified
         FROM receive_contacts WHERE user_id = ${userId} ORDER BY created_at, id
@@ -359,7 +359,7 @@ export class ReceiveContactService {
     }
   }
 
-  private async requireLive(q: Sql, actor: ReceiveActor): Promise<void> {
+  private async requireLive(q: Queryable, actor: ReceiveActor): Promise<void> {
     const rows = await q<Array<{ live: boolean }>>`
       SELECT EXISTS (
         SELECT 1 FROM sessions
@@ -370,7 +370,7 @@ export class ReceiveContactService {
   }
 
   /** A live session, no security lock, and an active account, with the account row held for the rest of the change. */
-  private async requireActive(tx: Sql, actor: ReceiveActor): Promise<void> {
+  private async requireActive(tx: Queryable, actor: ReceiveActor): Promise<void> {
     await this.requireLive(tx, actor);
     await assertNotSecurityLocked(tx, actor.userId);
     const rows = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${actor.userId} FOR UPDATE`;

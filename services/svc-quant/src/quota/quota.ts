@@ -1,5 +1,5 @@
+import type { Queryable } from '@intafaced/db';
 import { QUANT_QUOTA_RESOURCES, QUANT_SANDBOX_LIMITS, type QuantQuotaResource, type QuantSandboxLimit } from '@intafaced/contracts';
-import type { Sql, TransactionSql } from 'postgres';
 import type { AccountCounts } from './counts.js';
 import { QUANT_QUOTA_EXCEEDED, QUANT_QUOTA_PROFILE_UNSET, QUANT_QUOTA_UNSET, QuantError } from '../errors.js';
 
@@ -55,8 +55,6 @@ export interface SandboxLimitRow {
   readonly setAt: string;
 }
 
-export type Db = Sql | TransactionSql;
-
 /** One resource a write adds to: what the account holds now (counted after the lock) and how much this write adds. */
 export interface QuotaNeed {
   readonly resource: QuotaResource;
@@ -83,8 +81,8 @@ export interface QuotaLimitRow {
  * count can't drift from the data and two writes racing at the limit can't both pass.
  */
 export interface QuotaGate {
-  lock(db: Db | null, accountId: string, resources: readonly QuotaResource[]): Promise<void>;
-  check(db: Db | null, accountId: string, needs: readonly QuotaNeed[]): Promise<void>;
+  lock(db: Queryable | null, accountId: string, resources: readonly QuotaResource[]): Promise<void>;
+  check(db: Queryable | null, accountId: string, needs: readonly QuotaNeed[]): Promise<void>;
 }
 
 /** The operator's writes and the reads behind `quota.get`. */
