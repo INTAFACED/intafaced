@@ -40,7 +40,7 @@ const BANK = 'apps/customer/tests/real-app/J-bank-02.pw.mjs';
 
 test("main's two sign-in retries fire and name the one-sign-in fix", skip, () => {
   const out = findings({
-    // apps/customer/tests/real-app/admin.mjs before project-state#2764
+    // apps/customer/tests/real-app/admin.mjs before the retries went
     [ADMIN]: [
       "import { founderStepRefused, founderTotp, signInOnceMore } from '../../../../tooling/scripts/local-test-gates.mjs';",
       'export async function founderSignIn(page, key) {',
@@ -50,7 +50,7 @@ test("main's two sign-in retries fire and name the one-sign-in fix", skip, () =>
       '  });',
       '}',
     ].join('\n'),
-    // J-bank-02's own retry before project-state#2764
+    // J-bank-02's own retry before the retries went
     [BANK]: [
       'async function signInWithCode(page, who) {',
       '  const refused = await attempt();',

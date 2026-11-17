@@ -108,7 +108,7 @@ async function codeFor() {
 
 /**
  * Signs in in the browser with the password and the next authenticator code (after #6 set one up), once. Every code sent
- * is a real, unused step; a refused sign-in fails the step rather than being tried again (project-state#2764).
+ * is a real, unused step; a refused sign-in fails the step rather than being tried again.
  */
 async function signInWithCode(page, who) {
   const totpCode = await codeFor();

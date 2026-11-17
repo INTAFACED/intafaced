@@ -1,9 +1,9 @@
 // garden/no-sign-in-retry: a journey signs in once; a refused sign-in fails its test instead of being tried again.
 // Two retries had grown in the journeys (`signInOnceMore` behind the founder console's sign-in, and J-bank-02's own, each
 // counting the refused step spent with `stepAfterRefusal` and signing in once more). The cause they covered, a fresh
-// one-time code equal to a spent step's code, was fixed in svc-identity (#8487), and in pull-request runs neither fired
-// again (project-state#2764); a retry would only hide the next real refusal. The gates' own operator sign-in in
-// tooling/scripts is not a journey and is not judged here.
+// one-time code equal to a spent step's code, was fixed in svc-identity (#8487); after it a retry fired once in about
+// 380 pull-request and dispatched runs and hid why, as a second try always does. A refused sign-in now fails and names
+// identity's answer. The gates' own operator sign-in in tooling/scripts is not a journey and is not judged here.
 const JOURNEY_CODE = /(^|\/)apps\/customer\/tests\//u;
 const RETRY_PARTS = new Set(['stepAfterRefusal', 'signInOnceMore']);
 

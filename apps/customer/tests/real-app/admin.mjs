@@ -27,7 +27,7 @@ export async function founderSignIn(page, key = 'a') {
   // The console signs in as the stack's one TEST browser, so identity's new-device check does not stop a founder here.
   await page.context().addCookies([localTestAdminDeviceCookie(ADMIN)]);
   // One sign-in with a real, unused step. A refusal fails the test, naming identity's answer: it is recorded first, so
-  // the next sign-in sends a step after any identity can hold, but it is never hidden by a second try (project-state#2764).
+  // the next sign-in sends a step after any identity can hold, but it is never hidden by a second try.
   const { outcome, answers } = await consoleSignIn(page, founder, () => founderTotp(ctx, key, founder.totpSecret));
   if (outcome === 'refused') {
     const { refused, current } = founderStepRefused(ctx, key);
