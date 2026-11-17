@@ -1,7 +1,7 @@
 // The lint ratchet on planted pull requests in a throwaway repository: a rise fails and names the rule, a rise paid for
 // in the same file passes, a change that switches the rule off in its own .oxlintrc.json is still judged by main's, a
-// moved function passes, a rule named in printOnly only prints, a new fixed wait fails under main's own ratchet.json,
-// and a rule that replaced a test of added files fails there.
+// moved function passes, no rule only prints (a printOnly key left in ratchet.json excuses nothing), a new fixed wait
+// fails under main's own ratchet.json, and a rule that replaced a test of added files fails there.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -120,12 +120,12 @@ test('a function moved from one file to a new one does not fail', skip, () => {
   }
 });
 
-test('a rule named in printOnly prints the rise and fails nothing', skip, () => {
+test('no rule only prints: a printOnly key left in ratchet.json does not excuse a rise', skip, () => {
   const r = repo({ printOnly: { 'garden/no-double-cast': 'a planted reason' } });
   try {
     const { code, out } = r.pr({ 'src/b.ts': CAST });
-    assert.equal(code, 0, out);
-    assert.match(out, /rose \+1; prints only/u);
+    assert.equal(code, 1, out);
+    assert.match(out, /FAILS: \+1/u);
   } finally {
     r.done();
   }
