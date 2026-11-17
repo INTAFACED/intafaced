@@ -72,6 +72,8 @@ export const positionsCopy = defineCopy('trade.positions', {
   closeAll: 'Close all positions',
   closeAllTitle: 'Close all: review',
   closeAllLead: 'Each position below is closed once, at the market, by its own signed order on its own venue.',
+  closeAllApprove:
+    '{venue}: your account there hasn’t approved our builder fee of {fee} bps, which every order on it carries. Confirming signs that one-time approval first, then its closes.',
   closeAllConfirm: 'Confirm and close {count}',
   closeAllCancel: 'Keep them open',
   closeAllNone: 'There are no open positions to close.',

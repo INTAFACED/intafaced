@@ -390,14 +390,33 @@ test(`${J} #5 closes all positions: a reviewed list, then each position closed o
       `${p.side === 'long' ? 'Long' : 'Short'} ${p.size} ${p.symbol} on ${venue.name}`,
     );
   await expect(review.locator('li')).toHaveCount(3);
+  // Every order on a venue carries our builder fee: a venue whose account hasn't approved it is named in the review, and
+  // its one-time approval is signed first (the Starts line traded straight on the venues, so none has).
+  const builder = (await (await api(s.account)).get('/api/v1/venue/status')).body.builder;
+  const unapproved = [];
+  if (builder)
+    for (const venue of [v.a, v.b])
+      if (toUnits(await record(venue, s.owner, '/builder-fee-approval', { builder: builder.address })) < toUnits(builder.feeBps))
+        unapproved.push(venue);
+  for (const venue of unapproved)
+    await expect(review.locator(`[data-approve-venue="${venue.id}"]`)).toContainText(
+      `${venue.name}: your account there hasn’t approved our builder fee of ${builder.feeBps} bps`,
+    );
+  await expect(review.locator('[data-approve-venue]')).toHaveCount(unapproved.length);
   expect(door.of('prepare')).toHaveLength(0);
   const asked = signatures(wallet);
+  const prompts = 3 + unapproved.length;
   await review.getByRole('button', { name: 'Confirm and close 3', exact: true }).click();
-  for (let i = 0; i < 3; i += 1) await continueInWallet(page);
+  for (let i = 0; i < prompts; i += 1) await continueInWallet(page);
   await expect(review.locator('li', { hasText: 'Filled on the venue.' })).toHaveCount(3, { timeout: 30_000 });
-  expect(signatures(wallet)).toBe(asked + 3);
+  expect(signatures(wallet)).toBe(asked + prompts);
+  for (const venue of unapproved)
+    expect(toUnits(await record(venue, s.owner, '/builder-fee-approval', { builder: builder.address }))).toBe(toUnits(builder.feeBps));
   // Each closed once: one reduce-only order per position, on its own venue, for its whole size.
-  const sent = door.of('prepare').map((c) => ({ venueId: c.body.venueId, intent: c.body.intent }));
+  const sent = door
+    .of('prepare')
+    .filter((c) => c.body.intent.kind === 'place_order')
+    .map((c) => ({ venueId: c.body.venueId, intent: c.body.intent }));
   expect(sent).toHaveLength(3);
   for (const { venue, p } of open) {
     const mine = sent.filter((x) => x.venueId === venue.id && x.intent.symbol === p.symbol);
@@ -416,7 +435,7 @@ test(`${J} #5 closes all positions: a reviewed list, then each position closed o
   for (const venue of [v.a, v.b]) fillsBefore[venue.id] = (await record(venue, s.owner, '/fills', { since: s.startedAt })).length;
   await review.getByRole('button', { name: 'Confirm and close 3', exact: true }).click();
   await expect(review.locator('li', { hasText: 'This is the same action as before' })).toHaveCount(3, { timeout: 30_000 });
-  expect(signatures(wallet)).toBe(asked + 3);
+  expect(signatures(wallet)).toBe(asked + prompts);
   for (const venue of [v.a, v.b])
     expect((await record(venue, s.owner, '/fills', { since: s.startedAt })).length).toBe(fillsBefore[venue.id]);
   await expect(page.getByTestId('positions-all')).toContainText('No open positions on any connected venue.', { timeout: 20_000 });

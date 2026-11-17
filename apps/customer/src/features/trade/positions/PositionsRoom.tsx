@@ -3,6 +3,7 @@ import { Button, DataTable, EmptyState, Loading, Page } from '../../../shared/ui
 import { useSession } from '../../session/session';
 import { usePolled } from '../../protocol/wallet/use-polled';
 import { closeWorstPrice } from '../../../screens/trade/futures/VenueFuturesDesk';
+import { compareDecimal } from '../../../data/decimal';
 import { useVenueMode } from '../use-venue-mode';
 import {
   canonicalDecimal,
@@ -191,6 +192,7 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
         run={run}
         onDone={reload}
         test={status.test}
+        builder={status.builder}
       />
       <Modes venues={venues} />
       {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
@@ -296,6 +298,7 @@ function AllPositions({
   run,
   onDone,
   test,
+  builder,
 }: {
   owner: string;
   reads: VenueRead[] | null;
@@ -305,6 +308,7 @@ function AllPositions({
   run: RunAction;
   onDone: () => void;
   test: boolean;
+  builder: VenueUp['builder'];
 }) {
   const { t } = positionsCopy.useCopy();
   const headers = useHeaders();
@@ -359,7 +363,7 @@ function AllPositions({
           onClose={() => setOpen(null)}
         />
       ) : null}
-      <CloseAll rows={rows} marketOf={marketOf} owner={owner} run={run} onDone={onDone} />
+      <CloseAll rows={rows} marketOf={marketOf} owner={owner} run={run} onDone={onDone} builder={builder} />
     </section>
   );
 }
@@ -548,8 +552,9 @@ function Leverage({
 
 /**
  * Close all (#5): a reviewed list of every open position on every venue, then each closed once by its own reduce-only
- * order on its own venue. The review's close ids are held until each answers definitely, so a second press is the same
- * closes, never a second order.
+ * order on its own venue. A venue whose account has not yet approved our builder fee is named in the review, and its
+ * one-time approval is signed before its closes, as every order review asks for it. The review's close ids are held
+ * until each answers definitely, so a second press is the same closes, never a second order.
  */
 function CloseAll({
   rows,
@@ -557,24 +562,56 @@ function CloseAll({
   owner,
   run,
   onDone,
+  builder,
 }: {
   rows: Row[];
   marketOf: (venueId: string, symbol: string) => VenueMarket | undefined;
   owner: string;
   run: RunAction;
   onDone: () => void;
+  builder: VenueUp['builder'];
 }) {
   const { t } = positionsCopy.useCopy();
-  const [review, setReview] = useState<{ id: string; rows: Row[] } | null>(null);
+  const venue = useVenueApi();
+  const [review, setReview] = useState<{ id: string; rows: Row[]; approve: Venue[] } | null>(null);
   const [results, setResults] = useState<Record<string, ActionResult>>({});
   const [busy, setBusy] = useState(false);
+
+  async function open() {
+    setResults({});
+    const listed = rows.filter((r) => !/^0(\.0*)?$/.test(r.position.size));
+    const venues = [...new Map(listed.map((r) => [r.venue.id, r.venue])).values()];
+    const approve: Venue[] = [];
+    if (builder) {
+      for (const v of venues) {
+        const read = await venue.builderFeeApproval(owner, undefined, v.id);
+        if (!read.ok || compareDecimal(read.data.value, builder.feeBps) === -1) approve.push(v);
+      }
+    }
+    setReview({ id: draftId(), rows: listed, approve });
+  }
 
   async function confirm() {
     if (!review || busy) return;
     setBusy(true);
     const out: Record<string, ActionResult> = {};
+    const refusedOn = new Map<string, ActionResult>();
     try {
+      if (builder)
+        for (const v of review.approve) {
+          const answer = await run(
+            { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
+            { actionKey: keys.builderApproval(owner, builder.address, builder.feeBps, v.id), venueId: v.id },
+          );
+          if (answer.kind !== 'outcome' || !answer.outcome.accepted) refusedOn.set(v.id, answer);
+        }
       for (const [i, row] of review.rows.entries()) {
+        const refused = refusedOn.get(row.venue.id);
+        if (refused) {
+          out[rowKey(row)] = refused;
+          setResults({ ...out });
+          continue;
+        }
         const p = row.position;
         const tick = marketOf(row.venue.id, p.symbol)?.tickSize ?? '0';
         out[rowKey(row)] = await run(
@@ -602,13 +639,7 @@ function CloseAll({
 
   return (
     <div className="form-stack" data-testid="positions-close-all">
-      <Button
-        variant="secondary"
-        onClick={() => {
-          setResults({});
-          setReview({ id: draftId(), rows: rows.filter((r) => !/^0(\.0*)?$/.test(r.position.size)) });
-        }}
-      >
+      <Button variant="secondary" onClick={() => void open()}>
         {t('closeAll')}
       </Button>
       {review ? (
@@ -619,6 +650,13 @@ function CloseAll({
           ) : (
             <>
               <p className="muted">{t('closeAllLead')}</p>
+              {builder
+                ? review.approve.map((v) => (
+                    <p key={v.id} data-approve-venue={v.id}>
+                      {t('closeAllApprove', { venue: v.name, fee: builder.feeBps })}
+                    </p>
+                  ))
+                : null}
               <ul>
                 {review.rows.map((row) => (
                   <li key={rowKey(row)} data-venue={row.venue.id} data-symbol={row.position.symbol}>
