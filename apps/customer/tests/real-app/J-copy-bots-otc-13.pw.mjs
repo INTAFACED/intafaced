@@ -502,12 +502,15 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   const settle = await me.post('/api/trade/trpc/otc.settle', { quoteId: settledId });
   expect(settle.status, JSON.stringify(settle.body).slice(0, 300)).toBe(200);
   expect((await read(settledId)).lifecycle).toBe('settled');
+  // Both founders are signed in before the open quote is asked: a sign-in can wait out a TOTP step, and the quote is
+  // firm for 60 s only (the stack's quoteTtlMs), so the desk must read it well inside that.
+  const reads = await founderReads();
+  await founderSignIn(page, 'a');
   // An open quote: asked and left alone, read inside its time to live.
   const openId = await ask();
   expect((await read(openId)).lifecycle).toBe('open');
-
-  const reads = await founderReads();
-  await moduleRoom(page);
+  await page.goto(`${ADMIN}/trade-ops/copy-bots-otc`);
+  await expect(page.getByRole('heading', { name: 'Copy, bots and OTC', level: 1 })).toBeVisible(UNBUILT);
   await page.getByRole('tab', { name: 'Quote desk' }).click();
   const quotes = page.getByRole('table', { name: 'Quotes', exact: true });
   await expect(cellOf(quotes, openId, 3)).toHaveText(/\S/);
