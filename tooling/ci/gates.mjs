@@ -207,6 +207,15 @@ export const GATES = [
       'gate reproduces that bug and emits the exact fix that was applied.',
   },
   {
+    id: 'service-tracing',
+    script: 'tooling/ci/service-tracing.mjs',
+    doctrine: '§14',
+    why:
+      'every service a compose file runs starts tracing: a Node entry calls startTelemetry and registerProcessHooks, ' +
+      'the Java gateway loads the OpenTelemetry agent. svc-mining-pool ran with no tracer and svc-fix with none at all, ' +
+      'and only a report-only script ever said so.',
+  },
+  {
     id: 'secret-rotation-readiness',
     script: 'tooling/ci/secret-rotation-readiness-scan.mjs',
     doctrine: '§16 / D26-P3-05',
@@ -284,6 +293,8 @@ export const NOT_GATES = {
     'not a gate: the node:test file of architecture-map.mjs, replayed on project-state#2338 (the count of 24 packages for 29; no svc-campaigns row) with planted faults (a row for a deleted service, a missing package). tooling-tests.mjs runs it with every other tooling test.',
   'custody-layer-check.mjs':
     'not a gate on its own: check 4 of custody-scan.mjs (the custody switch, OWNER 226), imported and run by it, so the `custody` gate runs it. A separate module so its plants can run in a sandbox copy without touching the tree.',
+  'service-tracing.test.mjs':
+    'not a gate: the node:test file of service-tracing.mjs, with planted faults (svc-mining-pool as it was, a commented-out call, svc-fix with no agent, a jar named only in a comment). tooling-tests.mjs runs it with every other tooling test.',
   'custody-layer-check.test.mjs':
     'not a gate: the node:test file of custody-layer-check.mjs, with planted faults (a customer-balance posting outside the inventory; the default turned on; the runtime refusal removed; a missing inventory). tooling-tests.mjs runs it with every other tooling test.',
   'api-budget.mjs':
@@ -418,7 +429,7 @@ export const NOT_GATES = {
     'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged) and --before-push (every gate but LEFT_TO_CI_BEFORE_PUSH, each a gate with its reason). tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
-    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test; CI does not run it.',
+    'run by hand with `pnpm gate` — it walks every service and is the §14 Definition of Done, not a repo-wide scan. Neither CI nor verify runs it; service-tracing.mjs is the gate for the one fault it found that CI did not catch.',
 
   'verify.mjs':
     'the verify runner itself — it CALLS this list. Listing it as a gate would make it invoke itself. It exists so the infrastructure verdict prints even when turbo halts early, which a `&&` chain cannot do.',
