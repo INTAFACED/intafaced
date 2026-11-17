@@ -29,6 +29,7 @@
     "garden/no-made-up-principal": "error",
     "garden/exact-locator": "error",
     "garden/no-action-in-retry": "error",
+    "garden/no-sign-in-retry": "error",
     "typescript/no-explicit-any": "error",
     "react-hooks/exhaustive-deps": "error",
     "react/refs": "off",

@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { test } from './journey.mjs';
 import path from 'node:path';
-import { founderStepRefused, founderTotp, makeContext, signInOnceMore } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { founderStepRefused, founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME, localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { EDGE, stackUrl } from './stack.mjs';
 
@@ -27,27 +26,13 @@ export async function founderSignIn(page, key = 'a') {
   const { ctx, founder } = await founderEntry(key);
   // The console signs in as the stack's one TEST browser, so identity's new-device check does not stop a founder here.
   await page.context().addCookies([localTestAdminDeviceCookie(ADMIN)]);
-  // A code the console refuses is tried once more at a step after any identity can hold, as the gates' own sign-in does.
-  await signInOnceMore({
-    attempt: () => consoleSignIn(page, founder, () => founderTotp(ctx, key, founder.totpSecret)),
-    onRefused: () => founderStepRefused(ctx, key),
-    log: (line) => retryNoted(key, line),
-  });
-  return { userId: founder.userId, handle: founder.handle };
-}
-
-/**
- * A retry that fired, made visible with both steps: a `founder-totp-retry` annotation on the running test (in the
- * report, so how often it fires is counted) and a log line. If it fires on most runs, the cause is elsewhere.
- */
-function retryNoted(key, line) {
-  const description = `founder ${key}: ${line}`;
-  console.log(`founder sign-in retry: ${description}`);
-  try {
-    test.info().annotations.push({ type: 'founder-totp-retry', description });
-  } catch {
-    // Outside a running test (a script), the log line is the record.
+  // One sign-in with a real, unused step. A refusal fails the test: it is recorded first, so the next sign-in sends a
+  // step after any identity can hold, but it is never hidden by a second try (project-state#2764).
+  if ((await consoleSignIn(page, founder, () => founderTotp(ctx, key, founder.totpSecret))) === 'refused') {
+    const { refused, current } = founderStepRefused(ctx, key);
+    throw new Error(`the founder console refused founder ${key}'s sign-in at TOTP step ${refused} (clock at step ${current})`);
   }
+  return { userId: founder.userId, handle: founder.handle };
 }
 
 /**
