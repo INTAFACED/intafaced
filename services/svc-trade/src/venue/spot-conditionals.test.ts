@@ -263,6 +263,11 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
     ]);
     expect((await balance(BASE)).locked).toBe(a('1'));
     expect(store.rows.get(row.id)).toMatchObject({ status: 'fired' });
+    // The person cancels it: the resting limit is cancelled on the venue and its lock released.
+    const view = await s.cancel(person, row.id);
+    expect(view.legs[0]).toMatchObject({ role: 'stop', status: 'cancelled', locked: '0' });
+    expect(await order(spotKeys.fire(row))).toMatchObject({ status: 'canceled' });
+    expect((await balance(BASE)).locked).toBe(a('0'));
   });
 
   it('a stop-market fires as one IOC sell at the owner’s protection; a frozen account gets no order and the stop fails in words', async () => {

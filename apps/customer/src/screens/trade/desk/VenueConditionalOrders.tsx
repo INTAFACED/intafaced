@@ -406,6 +406,8 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
   const [trigger, setTrigger] = useState(o.triggerPrice ?? '');
   const [limit, setLimit] = useState(o.limitPrice ?? '');
   const [refusal, setRefusal] = useState<Refusal | null>(null);
+  // A fired stop-limit's limit order that still rests on the venue can be cancelled there too.
+  const resting = o.kind === 'stop_limit' && o.status === 'fired' && ['open', 'partially_filled'].includes(o.legs[0]?.status ?? '');
   const live = LIVE.has(o.status);
   const modifiable = live && o.kind !== 'oto' && o.triggerPrice !== null;
 
@@ -468,7 +470,7 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
             </Button>
           </span>
         ) : null}
-        {live ? (
+        {live || resting ? (
           <Button size={32} variant="secondary" aria-label={`${t('Cancel')} ${o.clientOrderId}`} onClick={() => void cancel()}>
             {t('Cancel')}
           </Button>

@@ -646,6 +646,12 @@ export class VenueSpotConditionals {
         return this.view((await this.deps.store.get(principal.userId, id))!, new Map());
       }
     }
+    // A fired stop-limit whose limit order still rests on the venue: that order is cancelled there, releasing its lock.
+    if (row.status === 'fired' && row.kind === 'stop_limit') {
+      const sent = await this.orderOf(row, spotKeys.fire(row));
+      if (sent?.state === 'accepted' && sent.order && !FINAL.has(sent.order.status)) await this.cancelOnVenue(row, spotKeys.fire(row));
+      return this.view(row, new Map());
+    }
     const now = await this.deps.store.get(principal.userId, id);
     if (now?.status === 'cancelled' || now?.status === 'cancelling') return this.view(now, new Map());
     throw new SpotConditionalError('trade.spot_conditional_final', `that order is already ${now?.status ?? 'gone'}`, 409);
@@ -976,17 +982,7 @@ export class VenueSpotConditionals {
       const read = await this.orderOf(row, key).catch(() => null);
       const order = read?.state === 'accepted' ? read.order : null;
       const status: SpotLegStatus = order
-        ? order.status === 'filled'
-          ? 'filled'
-          : order.status === 'partially_filled'
-            ? 'partially_filled'
-            : FINAL.has(order.status)
-              ? order.filled !== ZERO
-                ? 'partially_filled'
-                : 'cancelled'
-              : order.filled !== ZERO
-                ? 'partially_filled'
-                : 'open'
+        ? legStatusOf(order)
         : read?.state === 'refused'
           ? 'failed'
           : row.status === 'cancelled' || row.status === 'failed'
@@ -1023,8 +1019,8 @@ export class VenueSpotConditionals {
           : row.status === 'firing'
             ? 'triggered'
             : row.status === 'fired'
-              ? order && order.status !== 'filled' && !FINAL.has(order.status)
-                ? 'open'
+              ? order
+                ? legStatusOf(order)
                 : 'filled'
               : row.status === 'failed'
                 ? 'failed'
@@ -1094,6 +1090,13 @@ export class VenueSpotConditionals {
       legs,
     };
   }
+}
+
+/** A venue order's state as a leg reads it: a final order that filled part of itself reads partly filled. */
+function legStatusOf(order: UserVenueOrder): SpotLegStatus {
+  if (order.status === 'filled') return 'filled';
+  if (FINAL.has(order.status)) return order.filled !== ZERO ? 'partially_filled' : 'cancelled';
+  return order.filled !== ZERO ? 'partially_filled' : 'open';
 }
 
 function outcomeOf(
