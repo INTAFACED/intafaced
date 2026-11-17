@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { recipes, type RecipeName } from './index.js';
-import { RECIPE_MATRIX } from './live-path-inventory.js';
+import { RECIPE_SOCKETS } from './live-path-inventory.js';
 
 /**
  * THE RECIPE REGISTRY IS THE PRODUCT SURFACE.
@@ -84,11 +84,9 @@ describe('recipes registry', () => {
     expect(paySrc).toMatch(/\brecipes\.chargebackWon\b/);
     expect(paySrc).toMatch(/\brecipes\.chargebackShortfallRecovered\b/);
 
+    // Live: no §13 socket row (the posts above are the production caller).
     for (const name of ['chargebackOpen', 'chargebackShortfall', 'chargebackWon', 'chargebackShortfallRecovered'] as const) {
-      const row = RECIPE_MATRIX[name];
-      expect(row.kind).toBe('live');
-      if (row.kind !== 'live') continue;
-      expect(row.proof).toBe('services/svc-pay/src/chargeback-ledger.ts');
+      expect(Object.keys(RECIPE_SOCKETS)).not.toContain(name);
     }
 
     const closure = md.split('\n').find((line) => line.includes('D26-P2-11 live-path closure'));

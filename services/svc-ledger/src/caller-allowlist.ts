@@ -9,7 +9,7 @@ import type { RecipeName } from '@intafaced/ledger-client';
  * A service that only builds a ledger client and never posts is not listed.
  *
  * Not granted, on purpose:
- *   · `subAccountTransfer` — `RECIPE_MATRIX` cites svc-identity `router.ts`,
+ *   · `subAccountTransfer` — a §13 socket in `RECIPE_SOCKETS`; svc-identity `router.ts`,
  *     which only mentions the recipe in a comment. Nothing posts it.
  *   · `orderHoldAmend` — svc-trade `qty-up-amend.ts` no longer calls it.
  *   · `marketMakerSeedFund`, listing fee, premium placement
