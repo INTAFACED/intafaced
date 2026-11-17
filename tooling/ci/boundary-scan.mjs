@@ -13,6 +13,8 @@
  *   B-reads   no non-test package reads another service's source from disk (`readFileSync(join(ROOT, 'services', ...))`),
  *             and no service reads another service's directory.
  *   B-cycle   no dependency cycle between workspace packages (`dependencies`, `devDependencies`, `peerDependencies`).
+ *   F-vue     no Vue: no `vue`, `vuex`, `nuxt`, `@vue/*`, `@nuxt/*` or `vue-*` dependency in the root package.json or any
+ *             workspace package's (the front end is React; AGENTS.md, owner's decisions).
  *
  * MONEY FENCE (one custodial ledger, business-key idempotency)
  *   M-entries no ledger entry (`direction: 'debit'|'credit'`) built in non-test code outside packages/ledger-client and
@@ -281,18 +283,36 @@ function workspaceCycles(root) {
   return findCycles(graph).map((c) => ({ rule: 'B-cycle', file: 'package.json', detail: c.join(' -> ') }));
 }
 
+const DEP_KINDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+/** A Vue package: the front end is React (AGENTS.md, the owner's decisions), so none may come back. */
+const VUE_PACKAGE = /^(?:vue|vuex|nuxt)$|^@(?:vue|nuxt)\/|^vue-/;
+
+/** The F-vue findings of one package.json. */
+export function vueDeps(file, json) {
+  return DEP_KINDS.flatMap((k) =>
+    Object.keys(json[k] ?? {})
+      .filter((n) => VUE_PACKAGE.test(n))
+      .map((n) => ({ rule: 'F-vue', file, detail: `${k} ${n}` })),
+  );
+}
+
 function packageDeps(root) {
   const out = [];
-  for (const group of GROUPS) {
+  const rootJson = join(root, 'package.json');
+  if (existsSync(rootJson)) out.push(...vueDeps('package.json', JSON.parse(readFileSync(rootJson, 'utf8'))));
+  for (const group of [...GROUPS, 'tooling']) {
     const base = join(root, group);
     if (!existsSync(base)) continue;
     for (const d of readdirSync(base)) {
       const pj = join(base, d, 'package.json');
       if (!existsSync(pj)) continue;
       const json = JSON.parse(readFileSync(pj, 'utf8'));
-      for (const k of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+      const file = `${group}/${d}/package.json`;
+      out.push(...vueDeps(file, json));
+      if (group === 'tooling') continue;
+      for (const k of DEP_KINDS) {
         for (const n of Object.keys(json[k] ?? {})) {
-          if (n.startsWith('@intafaced/svc-')) out.push({ rule: 'B-deps', file: `${group}/${d}/package.json`, detail: `${k} ${n}` });
+          if (n.startsWith('@intafaced/svc-')) out.push({ rule: 'B-deps', file, detail: `${k} ${n}` });
         }
       }
     }
@@ -493,6 +513,18 @@ function selfTest() {
     if (read > KEY_EXPR_CAP + 1) throw new Error(`an unterminated ${name} key expression read ${read} characters`);
   }
   eq(t('idempotencyKey: '.repeat(20000)), [], 'a flood of unterminated keys scans and finds nothing');
+  const vue = (json) => vueDeps('apps/x/package.json', json).map((x) => x.detail);
+  eq(vue({ dependencies: { vue: '3.5.0' } }), ['dependencies vue'], 'a vue dependency');
+  eq(
+    vue({ devDependencies: { '@vue/compiler-sfc': '3', 'vue-router': '4', nuxt: '3' }, peerDependencies: { vuex: '4' } }),
+    ['devDependencies @vue/compiler-sfc', 'devDependencies vue-router', 'devDependencies nuxt', 'peerDependencies vuex'],
+    'the Vue family in every dependency kind',
+  );
+  eq(
+    vue({ dependencies: { react: '19', 'react-dom': '19', vitest: '4', vite: '7', 'eslint-plugin-vuejs-accessibility': '1' } }),
+    [],
+    'React, Vite and lookalikes pass',
+  );
   const f = { rule: 'B-deps', file: 'a/package.json', detail: 'devDependencies @intafaced/svc-x' };
   eq(applyAllow([f], [{ rule: 'B-deps', file: 'a/package.json', reason: 'r' }]).open, [], 'allowed');
   eq(applyAllow([], [{ rule: 'B-deps', file: 'a/package.json', reason: 'r' }]).stale.length, 1, 'stale allow entry');
