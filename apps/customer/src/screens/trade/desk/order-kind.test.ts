@@ -38,7 +38,7 @@ describe('changing a stop that has not fired', () => {
     filled: '0',
     triggered: null,
     exit: null,
-  } as unknown as Order;
+  } as Order;
   it('a waiting stop-market or stop-limit can have its trigger changed', () => {
     expect(canEditStop(stop)).toBe(true);
     expect(canEditStop({ ...stop, type: 'stop_limit' })).toBe(true);

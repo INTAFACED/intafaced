@@ -47,7 +47,7 @@ function userSql(user: { email: string; totp_secret: string | null }): Sql {
     if (q.includes('SELECT email, totp_secret')) return [user];
     throw new Error(`unexpected sql: ${q}`);
   };
-  return Object.assign(fn, { json: (v: unknown) => v }) as unknown as Sql;
+  return Object.assign(fn, { json: (v: unknown) => v }) as Sql;
 }
 
 function makeAuth(key: string | undefined, sql: Sql = blankSql()) {

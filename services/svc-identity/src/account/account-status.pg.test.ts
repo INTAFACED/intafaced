@@ -262,6 +262,31 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect(await desk.read('00000000-0000-4000-8000-000000000000', 'staff')).toBeNull();
     });
 
+    it('a staff close with a grace date reads closed, with its date and code, and stops only trading (J-identity-14 #1)', async () => {
+      const userId = await person();
+      await db.sql`UPDATE users SET closed_reason = 'other', close_grace_until = now() + interval '14 days' WHERE id = ${userId}`;
+      const grace = (await db.sql<Array<{ grace: Date }>>`SELECT close_grace_until AS grace FROM users WHERE id = ${userId}`)[0]!.grace;
+      const own = accountStatusSchema.parse(await desk.read(userId, 'owner'));
+      expect(own).toMatchObject({ state: 'closed', reasonCode: 'other', cannot: [{ action: 'trade', kind: 'closed' }] });
+      expect(own.restrictions).toEqual([
+        {
+          kind: 'closed',
+          reasonCode: 'other',
+          since: null,
+          blocks: ['trade'],
+          lift: { by: 'staff' },
+          capability: null,
+          owner: null,
+          graceUntil: grace.toISOString(),
+        },
+      ]);
+      expect(own.canStill).toEqual(expect.arrayContaining(['sign_in', 'withdraw_to_address', 'add_withdrawal_address']));
+      // A fraud finding is never tipped off to the owner, in grace or after.
+      await db.sql`UPDATE users SET closed_reason = 'fraud' WHERE id = ${userId}`;
+      expect(await desk.read(userId, 'owner')).toMatchObject({ state: 'closed', reasonCode: null });
+      expect(await desk.read(userId, 'staff')).toMatchObject({ state: 'closed', reasonCode: 'fraud' });
+    });
+
     it('`mine` reads only the caller; `of` is for admin:read', async () => {
       const userId = await person();
       const other = await person();
@@ -272,7 +297,7 @@ if (!(await postgresAvailable(TEST_URL))) {
           service: null,
           region: 'DE',
           requestId: 'req-status',
-        } as unknown as Context);
+        } as Context);
       expect((await caller(['identity:read']).accountStatus.mine()).state).toBe('active');
       await expect(caller(['identity:read']).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
       expect((await caller(['admin:read']).accountStatus.of({ userId: other })).state).toBe('frozen');
@@ -285,7 +310,7 @@ if (!(await postgresAvailable(TEST_URL))) {
           service,
           region: 'DE',
           requestId: 'req-status',
-        } as unknown as Context);
+        } as Context);
       await expect(as({ kid: 'key-1' }).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
       await expect(as({ sub_account: 'sub-1' }).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
       await expect(as({}, 'svc-ops').accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });

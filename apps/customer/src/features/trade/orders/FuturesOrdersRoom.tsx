@@ -22,6 +22,7 @@ import { useSession } from '../../session/session';
 import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
 import { appendPage } from './history-query';
 import { ordersCopy } from './orders-copy';
+import { venueOrdersCopy } from './venue-orders-copy';
 import './orders.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -58,15 +59,16 @@ export function writeFuturesParams(params: FuturesParams): string {
 }
 
 /** Spot or futures orders: the two halves of the orders room, each with its own address. */
-export function ProductSwitch({ product }: { product: 'spot' | 'futures' }) {
+export function ProductSwitch({ product }: { product: 'spot' | 'futures' | 'venue' }) {
   const { t } = futuresOrdersCopy.useCopy();
+  const venue = venueOrdersCopy.useCopy().t;
   return (
     <ChoiceGroup
-      items={['spot', 'futures']}
+      items={['spot', 'futures', 'venue']}
       value={product}
       label={t('productLabel')}
-      labels={{ spot: t('productSpot'), futures: t('productFutures') }}
-      onChange={(next) => navigate(next === 'futures' ? '/trade/orders?product=futures' : '/trade/orders', true)}
+      labels={{ spot: t('productSpot'), futures: t('productFutures'), venue: venue('productVenue') }}
+      onChange={(next) => navigate(next === 'spot' ? '/trade/orders' : `/trade/orders?product=${next}`, true)}
     />
   );
 }

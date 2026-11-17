@@ -1,7 +1,13 @@
 import { quantSignalRulesSchema } from '@intafaced/contracts';
 import type { Sql, TransactionSql } from 'postgres';
-import { QUANT_IDEMPOTENCY_CONFLICT, QuantError } from '../errors.js';
-import { sameContent, type TemplatePublishInput, type TemplateRepository, type TemplateVersion } from './repository.js';
+import { QUANT_IDEMPOTENCY_CONFLICT, QUANT_TEMPLATE_NOT_FOUND, QuantError } from '../errors.js';
+import {
+  sameContent,
+  type TemplateListing,
+  type TemplatePublishInput,
+  type TemplateRepository,
+  type TemplateVersion,
+} from './repository.js';
 
 interface TemplateSql {
   template_id: string;
@@ -36,10 +42,26 @@ function versionOf(row: TemplateSql): TemplateVersion {
   };
 }
 
+interface ListingSql {
+  template_id: string;
+  listed: boolean;
+  set_at: Date | string;
+}
+
+function listingOf(row: ListingSql): TemplateListing {
+  const at = row.set_at instanceof Date ? row.set_at : new Date(row.set_at);
+  if (Number.isNaN(at.getTime())) throw new QuantError('quant.params_invalid', 'timestamp is not readable');
+  return { id: row.template_id, listed: row.listed, setAt: at.toISOString() };
+}
+
 const COLUMNS = 'template_id, version, name, description, rules, release_note, published_at';
 
 export function createPostgresTemplateRepository(sql: Sql, schema = 'quant', now: () => Date = () => new Date()): TemplateRepository {
   const templates = relation(schema, 'templates');
+  const listing = relation(schema, 'template_listing');
+  // A template is listed unless its newest listing row withdrew it; one with no row is listed.
+  const listedOnly = `NOT EXISTS (SELECT 1 FROM (SELECT l.listed FROM ${listing} l WHERE l.template_id = t.template_id
+      ORDER BY l.seq DESC LIMIT 1) newest WHERE newest.listed = false)`;
 
   async function query<T>(db: Sql | TransactionSql, text: string, params: readonly unknown[]): Promise<T[]> {
     return db.unsafe(text, params as never[]);
@@ -87,8 +109,8 @@ export function createPostgresTemplateRepository(sql: Sql, schema = 'quant', now
       const rows = await query<TemplateSql>(
         sql,
         // Byte order (COLLATE "C"), the same order the cursor compares in and the in-memory store sorts in.
-        `SELECT DISTINCT ON (template_id COLLATE "C") ${COLUMNS} FROM ${templates}
-          WHERE ($1::text IS NULL OR template_id COLLATE "C" > $1)
+        `SELECT DISTINCT ON (template_id COLLATE "C") ${COLUMNS} FROM ${templates} t
+          WHERE ($1::text IS NULL OR template_id COLLATE "C" > $1) AND ${listedOnly}
           ORDER BY template_id COLLATE "C", version DESC
           LIMIT $2`,
         [cursor ?? null, limit + 1],
@@ -98,8 +120,39 @@ export function createPostgresTemplateRepository(sql: Sql, schema = 'quant', now
     },
 
     async get(id) {
-      const rows = await query<TemplateSql>(sql, `SELECT ${COLUMNS} FROM ${templates} WHERE template_id = $1 ORDER BY version DESC`, [id]);
+      const rows = await query<TemplateSql>(
+        sql,
+        `SELECT ${COLUMNS} FROM ${templates} t WHERE template_id = $1 AND ${listedOnly} ORDER BY version DESC`,
+        [id],
+      );
       return rows.length ? rows.map(versionOf) : null;
+    },
+
+    async setListed(input) {
+      return sql.begin(async (tx) => {
+        // Key first, then template, as publish takes them, so a replay and a publish never wait on each other.
+        await query(tx, `SELECT pg_advisory_xact_lock(hashtext($1))`, [`${schema}.template.listing.key:${input.idempotencyKey}`]);
+        await query(tx, `SELECT pg_advisory_xact_lock(hashtext($1))`, [`${schema}.template.listing:${input.id}`]);
+        const prior = await query<ListingSql>(tx, `SELECT template_id, listed, set_at FROM ${listing} WHERE idempotency_key = $1`, [
+          input.idempotencyKey,
+        ]);
+        if (prior[0]) {
+          if (prior[0].template_id !== input.id || prior[0].listed !== input.listed)
+            throw new QuantError(QUANT_IDEMPOTENCY_CONFLICT, 'idempotencyKey was used for a different listing change');
+          return listingOf(prior[0]);
+        }
+        const published = await query(tx, `SELECT 1 FROM ${templates} WHERE template_id = $1 LIMIT 1`, [input.id]);
+        if (!published[0]) throw new QuantError(QUANT_TEMPLATE_NOT_FOUND, 'template not found');
+        const inserted = await query<ListingSql>(
+          tx,
+          `INSERT INTO ${listing} (template_id, seq, listed, reason, set_by, idempotency_key, set_at)
+           VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM ${listing} WHERE template_id = $1), $2, $3, $4, $5, $6)
+           RETURNING template_id, listed, set_at`,
+          [input.id, input.listed, input.reason, input.setBy, input.idempotencyKey, now().toISOString()],
+        );
+        if (!inserted[0]) throw new QuantError('quant.params_invalid', 'template listing was not stored');
+        return listingOf(inserted[0]);
+      });
     },
   };
 }

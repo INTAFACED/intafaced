@@ -267,7 +267,7 @@ export class ActionApprovalService {
       throw this.terminal(again, 'action_approval.not_approved');
     }
     if (next.kind === 'same_person') await this.onSamePersonConsumed?.(next, consumedAt);
-    return { ...toActionApproval(next), ...approvalProvenance(next), ...(founderAttestation ?? {}) };
+    return { ...toActionApproval(next), ...approvalProvenance(next), ...founderAttestation };
   }
 
   /**

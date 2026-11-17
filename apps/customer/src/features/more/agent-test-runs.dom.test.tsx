@@ -63,6 +63,7 @@ const engineRun = (requestId: string, ask: string): OwnAgentTestRun => ({
   content: null,
   outputSchema: null,
   guard: { content: null, outcome: 'answered', code: null, approval: null },
+  memory: null,
   cost: '0',
   assetId: 'USDT',
   label: 'TEST',

@@ -17,13 +17,15 @@ import { SessionRelay } from './session/relay.js';
 import { ChainObserver } from './events.js';
 import { protocolHealthHonesty } from './health-honesty.js';
 import { createPeers } from './blockers/peers.js';
-import { createProtocolRouter, type ProtocolRouter } from './router.js';
+import { createProtocolRouter } from './router.js';
 import { parseGasPercentileSetting } from './chain/gas-price.js';
 import { badgeChainIsMainnet, badgeChainIsRestartable, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
 import { PostgresAddressRiskStore } from './address-risk/risk.pg.js';
+import { PostgresComplianceStore } from './address-risk/compliance.pg.js';
+import { PostgresTrustDeskStore } from './address-risk/trust-desk.pg.js';
 import { walletSessionFromSetting } from './address-book/session.js';
 import { PostgresAddressBookStore } from './address-book/book.pg.js';
 import { venueConnectionTtlFromSetting, walletSanctionsFromSetting } from './venue-wallet/connection.js';
@@ -190,6 +192,7 @@ export const appRouter = createProtocolRouter({
       : null,
   claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
   venue: () => env.PROTOCOL_VENUE_ADDRESS as `0x${string}`,
+  lendingMarket: () => env.PROTOCOL_LENDING_MARKET_ADDRESS as `0x${string}`,
   swapV2: () =>
     isZeroAddress(env.PROTOCOL_ROUTER_V2_ADDRESS) ||
     isZeroAddress(env.PROTOCOL_SOVEREIGN_PERMIT_ADDRESS) ||
@@ -218,6 +221,7 @@ export const appRouter = createProtocolRouter({
   },
   // No AML list source is connected, so the sanctioned set is empty and the risk card says the list is not loaded.
   addressRisk: { store: new PostgresAddressRiskStore(db.sql), screeningLoaded: () => false },
+  compliance: { store: new PostgresComplianceStore(db.sql), trustDesk: new PostgresTrustDeskStore(db.sql) },
   addressBook: {
     store: new PostgresAddressBookStore(db.sql),
     session: () => walletSessionSetting,

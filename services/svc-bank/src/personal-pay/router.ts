@@ -317,6 +317,8 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
               minAmount: z.string().nullable(),
               maxAmount: z.string().nullable(),
               cutOffTime: z.string().nullable(),
+              /** On a SWIFT corridor, who bears the banks' charges as the partner answers it (SHA, OUR, BEN); null when it gave none. */
+              swiftCharges: z.enum(['SHA', 'OUR', 'BEN']).nullable(),
               /** The delivery methods a payout partner pays out on; a send on any other is refused before anything is posted. */
               payoutMethods: z.array(z.string()),
             }),
@@ -519,6 +521,23 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         ),
     }),
     ops: router({
+      /** The TEST stand-in's own record of a send it paid out (local stack only): what it converted, and how many times. */
+      standInPayout: scopedProcedure('admin:read', { module: 'bank' })
+        .input(z.object({ sendId: z.string().guid() }).strict())
+        .output(
+          z.object({
+            sendId: z.string(),
+            quoteId: z.string(),
+            assetId: z.string(),
+            amount: z.string(),
+            toCurrency: z.string(),
+            rate: z.string(),
+            receiveAmount: z.string(),
+            conversions: z.number().int(),
+            calls: z.number().int(),
+          }),
+        )
+        .query(({ input }) => guard(async () => bank.globalSend.standInPayout(input.sendId))),
       holds: scopedProcedure('admin:read', { module: 'bank' })
         .input(z.object({ limit: limitField }).strict())
         .output(z.array(operatorHoldView.extend({ send: sendView.extend({ userId: z.string() }) })))

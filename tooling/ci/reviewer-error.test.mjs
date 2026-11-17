@@ -357,6 +357,8 @@ const readEdit = (s) =>
       'mkdir -p "$dir/second" && for x in "$dir" "$dir/second"; do echo p > "$x/prompt.txt"; echo "{}" > "$x/schema.json"; done',
     )
     .replace('gh api ', 'echo 0 || gh api ')
+    .replace('WAIT_MINUTES=50 node "$GITHUB_WORKSPACE/tooling/ci/step-pictures.mjs" wait', ': wait')
+    .replace('node "$GITHUB_WORKSPACE/tooling/ci/step-pictures.mjs" attach', ': attach')
     .replace('node "$GITHUB_WORKSPACE/tooling/ci/step-read.mjs" read "$dir"', 'echo READ-ANSWER');
 
 test('the proof read: both calls go to the second key on a usage refusal; a refusal about the change is not retried', () => {

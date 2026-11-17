@@ -7,7 +7,7 @@
  */
 import { MatchingEngine, type EmergencyCmd } from './engine.js';
 import { operatorRefuse, readOperatorId } from './halt.js';
-import type { MarketDelistResult, MarketExpireResult, MarketHaltResult, MarketId, VenueKillResult } from './types.js';
+import type { MarketExpireResult, MarketHaltResult, MarketId, VenueKillResult } from './types.js';
 
 export const MISSING_EVIDENCE = 'missing_evidence' as const;
 export const DELIST_POLICY_MISSING = 'delist_policy_missing' as const;
@@ -108,16 +108,16 @@ function emergencyGate(cmd: EmergencyCmd): EmergencyGate {
 
 export function installRulebookRefuse(ctor: typeof MatchingEngine = MatchingEngine): void {
   const proto = ctor.prototype as {
-    halt: (marketId: MarketId, cmd: EmergencyCmd) => Promise<MarketHaltResult>;
-    resume: (marketId: MarketId, cmd: EmergencyCmd) => Promise<MarketHaltResult>;
-    haltAll: (cmd: EmergencyCmd) => Promise<VenueKillResult>;
-    resumeAll: (cmd: EmergencyCmd) => Promise<VenueKillResult>;
-    expire: (marketId: MarketId, cmd: EmergencyCmd) => Promise<MarketExpireResult>;
-    delist: (marketId: MarketId, cmd: DelistCmd) => Promise<MarketDelistResult>;
+    halt: MatchingEngine['halt'];
+    resume: MatchingEngine['resume'];
+    haltAll: MatchingEngine['haltAll'];
+    resumeAll: MatchingEngine['resumeAll'];
+    expire: MatchingEngine['expire'];
+    delist: MatchingEngine['delist'];
     listMarket?: (cmd: ListMarketCmd) => Promise<MarketListResult>;
-    isHalted: (marketId: MarketId) => boolean;
-    isExpired: (marketId: MarketId) => boolean;
-    isDelisted: (marketId: MarketId) => boolean;
+    isHalted: MatchingEngine['isHalted'];
+    isExpired: MatchingEngine['isExpired'];
+    isDelisted: MatchingEngine['isDelisted'];
     isVenueHalted: boolean;
     [FLAG]?: boolean;
   };

@@ -34,7 +34,6 @@ import {
  */
 type Page = FounderMerchantSectionPage;
 type AnyItem = Page['items'][number];
-type ApiKeysPage = Extract<Page, { catalog: unknown }>;
 type ProfilePage = Extract<Page, { current: unknown }>;
 interface ItemMap {
   payments: Extract<AnyItem, { railAdapter: string }>;

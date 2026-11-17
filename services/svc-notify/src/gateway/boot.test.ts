@@ -5,12 +5,12 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { sleep as pause } from '@intafaced/contracts/sleep';
 
 const entry = fileURLToPath(new URL('../../dist/gateway/index.js', import.meta.url));
 const bearer = 'synthetic-independent-relay-private-bearer';
 const upstreamToken = 'synthetic-distinct-upstream-private-token';
 const sendUrl = 'https://not-contacted.example.invalid/send';
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function freePort() {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {

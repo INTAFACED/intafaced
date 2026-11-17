@@ -1,6 +1,16 @@
 import { add, div, formatAmount, mul, parseAmount, sub } from '@intafaced/ledger-client/money';
-import { QUANT_SANDBOX_ESCAPE, QUANT_SANDBOX_SYNTAX, QUANT_SANDBOX_TIMEOUT, QUANT_SANDBOX_UNWIRED, QuantError } from '../errors.js';
-import type { PaperBook, PaperFill } from './book.js';
+import {
+  QUANT_SANDBOX_ESCAPE,
+  QUANT_SANDBOX_LIMIT_UNSET,
+  QUANT_SANDBOX_MEMORY,
+  QUANT_SANDBOX_OUTPUT,
+  QUANT_SANDBOX_SYNTAX,
+  QUANT_SANDBOX_TIMEOUT,
+  QUANT_SANDBOX_UNWIRED,
+  QuantError,
+} from '../errors.js';
+import type { OrderAck, OrderEvent, PaperBook, PaperFill, ReverseLeg } from './book.js';
+import type { RunLimits } from './limits.js';
 import { assertPublishedSandboxMaxOps, assertPublishedSandboxMaxSource } from './max.js';
 
 /**
@@ -17,6 +27,8 @@ export type Language = 'javascript' | 'typescript' | 'python';
 export interface IsolateLimits {
   readonly maxOps: number | undefined;
   readonly maxSource: number | undefined;
+  /** The plan's run limits (wall-clock, memory, output). Absent refuses `quant.sandbox_limit_unset` before anything runs. */
+  readonly run?: RunLimits | undefined;
 }
 
 export interface IsolateResult {
@@ -25,6 +37,8 @@ export interface IsolateResult {
   readonly pnl: string;
   readonly fills: readonly PaperFill[];
   readonly positions: readonly { symbol: string; qty: string }[];
+  readonly events: readonly OrderEvent[];
+  readonly legs: readonly ReverseLeg[];
 }
 
 const FORBIDDEN =
@@ -32,7 +46,24 @@ const FORBIDDEN =
 
 type Tok = { k: 'num'; v: string } | { k: 'str'; v: string } | { k: 'id'; v: string } | { k: 'op'; v: string } | { k: 'nl' } | { k: 'eof' };
 
-type Val = string | boolean | null | Host | readonly unknown[];
+type Val = string | boolean | null | Host | Rec | readonly unknown[];
+
+/** A read-only record the runtime hands back (an order's acknowledgement, a reversal's legs). Fields only, no methods. */
+interface Rec {
+  readonly $rec: Readonly<Record<string, Val>>;
+}
+
+function rec(fields: Record<string, Val>): Rec {
+  return { $rec: fields };
+}
+
+function ackOf(ack: OrderAck): Rec {
+  return rec({ id: ack.id, status: ack.status, reason: ack.reason });
+}
+
+function isRec(v: Val): v is Rec {
+  return typeof v === 'object' && v !== null && !Array.isArray(v) && '$rec' in v;
+}
 
 interface Host {
   readonly $host: 'market' | 'oms' | 'book' | 'console';
@@ -147,12 +178,19 @@ function isHost(v: Val): v is Host {
   return typeof v === 'object' && v !== null && !Array.isArray(v) && '$host' in v;
 }
 
+function plain(v: Val): unknown {
+  if (isRec(v)) return Object.fromEntries(Object.entries(v.$rec).map(([k, x]) => [k, plain(x)]));
+  if (Array.isArray(v)) return v.map((x) => plain(x as Val));
+  return v;
+}
+
 function stringify(v: Val): string {
   if (v === null) return 'null';
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (typeof v === 'string') return v;
-  if (Array.isArray(v)) return JSON.stringify(v);
+  if (Array.isArray(v)) return JSON.stringify(plain(v));
   if (isHost(v)) return `[${v.$host}]`;
+  if (isRec(v)) return JSON.stringify(plain(v));
   return 'unknown';
 }
 
@@ -173,6 +211,8 @@ function isTruthy(v: Val): boolean {
 export function runIsolate(language: Language, source: string, book: PaperBook, limits: IsolateLimits, wired: boolean): IsolateResult {
   const maxSource = assertPublishedSandboxMaxSource(limits.maxSource);
   const maxOps = assertPublishedSandboxMaxOps(limits.maxOps);
+  const run = limits.run;
+  if (!run) throw new QuantError(QUANT_SANDBOX_LIMIT_UNSET, 'the sandbox limits of the plan are not set, so no run starts');
   assertIsolateWired(wired);
   if (source.length > maxSource) {
     throw new QuantError(QUANT_SANDBOX_SYNTAX, `source longer than ${maxSource} characters`);
@@ -201,16 +241,50 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
   let live = true;
   let exited = false;
   const shouldEvaluate = (): boolean => live && !exited;
+  // The run limits are enforced here, by the interpreter, never by the strategy: the clock and the counters are host
+  // values the strategy cannot reach.
+  const started = performance.now();
   const bump = () => {
     ops += 1;
     if (ops > maxOps) throw new QuantError(QUANT_SANDBOX_TIMEOUT, `exceeded ${maxOps} operations`);
+    if (performance.now() - started > run.wallClockMs) {
+      throw new QuantError(QUANT_SANDBOX_TIMEOUT, `wall_clock_ms: exceeded ${run.wallClockMs} ms of wall-clock time`);
+    }
+  };
+  // Memory: the bytes of text the run's values hold, two per character, checked before a longer text is made.
+  const memoryRefusal = (bytes: number) =>
+    new QuantError(QUANT_SANDBOX_MEMORY, `memory_bytes: ${bytes} bytes would pass the limit of ${run.memoryBytes} bytes`);
+  const sizeOf = (v: Val): number => {
+    if (typeof v === 'string') return v.length * 2;
+    if (Array.isArray(v) || isRec(v)) return JSON.stringify(plain(v)).length * 2;
+    return 0;
+  };
+  const setVar = (name: string, value: Val) => {
+    let held = sizeOf(value);
+    for (const [other, v] of env) if (other !== name) held += sizeOf(v);
+    if (held > run.memoryBytes) throw memoryRefusal(held);
+    env.set(name, value);
+  };
+  // Output: the bytes of log the run writes, UTF-8. The log stops at the limit and the run ends.
+  let written = 0;
+  const emit = (line: string) => {
+    const bytes = Buffer.byteLength(line, 'utf8') + 1;
+    if (written + bytes > run.outputBytes) {
+      throw new QuantError(
+        QUANT_SANDBOX_OUTPUT,
+        `output_bytes: the log reached the limit of ${run.outputBytes} bytes after ${logs.length} lines`,
+      );
+    }
+    written += bytes;
+    logs.push(line);
   };
 
   const callHost = (host: Host, method: string, args: Val[]): Val => {
     bump();
     const knownMethod =
       (host.$host === 'market' && ['last', 'bid', 'ask'].includes(method)) ||
-      (host.$host === 'oms' && ['buy', 'sell', 'venueBuy', 'venueSell'].includes(method)) ||
+      (host.$host === 'oms' &&
+        ['buy', 'sell', 'limitBuy', 'limitSell', 'cancel', 'setPyramiding', 'reverse', 'venueBuy', 'venueSell'].includes(method)) ||
       (host.$host === 'book' && ['cash', 'pnl', 'position', 'fills'].includes(method)) ||
       (host.$host === 'console' && method === 'log');
     if (!knownMethod) throw new QuantError(QUANT_SANDBOX_ESCAPE, `unknown ${host.$host} method ${method}`);
@@ -231,14 +305,28 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       if (method === 'ask') return book.ask(a0());
       throw new QuantError(QUANT_SANDBOX_ESCAPE, `unknown market method ${method}`);
     }
+    const an = (i: number, what: string) => {
+      const v = args[i];
+      if (typeof v !== 'string') throw new QuantError(QUANT_SANDBOX_SYNTAX, `${host.$host}.${method} needs a string ${what}`);
+      return v;
+    };
     if (host.$host === 'oms') {
-      if (method === 'buy') {
-        book.buy(a0(), a1());
+      if (method === 'buy') return ackOf(book.buy(a0(), a1()));
+      if (method === 'sell') return ackOf(book.sell(a0(), a1()));
+      if (method === 'limitBuy') return ackOf(book.limitBuy(a0(), a1(), an(2, 'limit price'), an(3, 'time in force')));
+      if (method === 'limitSell') return ackOf(book.limitSell(a0(), a1(), an(2, 'limit price'), an(3, 'time in force')));
+      if (method === 'cancel') return ackOf(book.cancel(a0()));
+      if (method === 'setPyramiding') {
+        book.setPyramiding(a0());
         return null;
       }
-      if (method === 'sell') {
-        book.sell(a0(), a1());
-        return null;
+      if (method === 'reverse') {
+        const ran = book.reverse(a0(), an(1, 'target position'));
+        return rec({
+          legs: ran.legs.map((leg) =>
+            rec({ leg: leg.leg, side: leg.side, qty: leg.qty, outcome: leg.outcome, order: leg.order, reason: leg.reason }),
+          ),
+        });
       }
       if (method === 'venueBuy') return book.venueBuy(a0(), a1()) as unknown as Val;
       if (method === 'venueSell') return book.venueSell(a0(), a1()) as unknown as Val;
@@ -253,7 +341,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
     }
     if (host.$host === 'console') {
       if (method === 'log') {
-        logs.push(args.map(stringify).join(' '));
+        emit(args.map(stringify).join(' '));
         return null;
       }
       throw new QuantError(QUANT_SANDBOX_ESCAPE, `unknown console method ${method}`);
@@ -263,7 +351,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
 
   const printFn = (args: Val[]): Val => {
     if (!live || exited) return null;
-    logs.push(args.map(stringify).join(' '));
+    emit(args.map(stringify).join(' '));
     return null;
   };
 
@@ -364,7 +452,20 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
           }
           throw new QuantError(QUANT_SANDBOX_ESCAPE, 'only runtime API methods may be called');
         }
-        throw new QuantError(QUANT_SANDBOX_ESCAPE, 'property access is limited to runtime API methods');
+        // A record the runtime handed back reads its own fields; a list reads its length. Nothing else has properties.
+        if (!shouldEvaluate()) {
+          v = null;
+          continue;
+        }
+        if (isRec(v) && Object.prototype.hasOwnProperty.call(v.$rec, m.v)) {
+          v = v.$rec[m.v] as Val;
+          continue;
+        }
+        if (Array.isArray(v) && m.v === 'length') {
+          v = String(v.length);
+          continue;
+        }
+        throw new QuantError(QUANT_SANDBOX_ESCAPE, 'property access is limited to runtime API methods and the fields they return');
       }
       break;
     }
@@ -394,7 +495,11 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
 
   const binAdd = (op: string, a: Val, b: Val): Val => {
     if (!shouldEvaluate()) return '0';
-    if (typeof a === 'string' && typeof b === 'string' && !(isAmountString(a) && isAmountString(b))) return a + b;
+    if (typeof a === 'string' && typeof b === 'string' && !(isAmountString(a) && isAmountString(b))) {
+      const bytes = (a.length + b.length) * 2;
+      if (bytes > run.memoryBytes) throw memoryRefusal(bytes);
+      return a + b;
+    }
     if (!isAmountString(a) || !isAmountString(b)) throw new QuantError(QUANT_SANDBOX_SYNTAX, 'arithmetic needs decimal strings');
     if (op === '+') return formatAmount(add(parseAmount(a), parseAmount(b)));
     return formatAmount(sub(parseAmount(a), parseAmount(b)));
@@ -488,7 +593,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       }
       eatOp('=');
       const val = parseExpr();
-      env.set(name.v, val);
+      setVar(name.v, val);
       tryOp(';');
       return;
     }
@@ -503,7 +608,7 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
       p++;
       eatOp('=');
       const val = parseExpr();
-      env.set(t.v, val);
+      setVar(t.v, val);
       tryOp(';');
       return;
     }
@@ -571,12 +676,17 @@ export function runIsolate(language: Language, source: string, book: PaperBook, 
     skipNl();
   }
 
+  // The script has ended: resting limit orders meet the TEST price path once.
+  book.settle();
   const symbols = new Set(book.fills().map((f) => f.symbol));
   return {
     logs,
     cash: book.cash(),
     pnl: book.pnl(),
     fills: book.fills(),
-    positions: [...symbols].map((symbol) => ({ symbol, qty: book.position(symbol) })),
+    // A flat symbol is no position.
+    positions: [...symbols].map((symbol) => ({ symbol, qty: book.position(symbol) })).filter((p) => parseAmount(p.qty) !== 0n),
+    events: book.events(),
+    legs: book.legs(),
   };
 }

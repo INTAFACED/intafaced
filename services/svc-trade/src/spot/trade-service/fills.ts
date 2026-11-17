@@ -124,7 +124,24 @@ export async function settleOutcome(
   // same thing with all three: the order is done, release what is left.
   for (const cancellation of cancellations) {
     await svc.recordOcoLegEnd(cancellation.orderId, cancellation.remainingQty, cancellation.reason);
-    await svc.finalize(cancellation.orderId, 'cancelled', cancellation.reason);
+    // A resting order pulled by self-trade prevention may have been partly matched by ANOTHER submission whose
+    // settlement is still on its way (#8560): this submission's own fills are written above, that one's may not be.
+    // `finalize` then refuses and the order keeps its hold; the engine's cancel event for the pull closes it once
+    // that fill lands. The remainder is kept on the row for a later cancel to read.
+    if (ocoLegParent(cancellation.orderId) === null) {
+      await svc.sql`
+        UPDATE trade.orders SET engine_left_qty = ${cancellation.remainingQty}::numeric
+         WHERE id = ${cancellation.orderId} AND engine_left_qty IS NULL
+      `;
+    }
+    try {
+      await svc.finalize(cancellation.orderId, 'cancelled', cancellation.reason, {
+        engineLeftQty: parseAmount(cancellation.remainingQty),
+      });
+    } catch (err) {
+      if (!(err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill')) throw err;
+      continue;
+    }
     // A leg cancellation may leave the parent open (fail closed), so only an ordinary order leaves `touched`.
     if (ocoLegParent(cancellation.orderId) === null) touched.delete(cancellation.orderId);
   }
@@ -167,7 +184,7 @@ export async function finalizeOcoWhenNoLegLive(
   // Release only when the settled fills cover everything the legs executed; otherwise the hold stays and the
   // late fill's own settlement closes the order (filled, or through the next leg event).
   if (!(await svc.ocoExecutionSettled(parentId))) return false;
-  await svc.finalize(parentId, status, reason);
+  await svc.finalize(parentId, status, reason, { noEngineFill: 'oco_legs_settled' });
   return true;
 }
 

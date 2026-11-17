@@ -241,8 +241,8 @@ describe('failing closed', () => {
   it('does not throw out of decide, whatever it is given', () => {
     const s = new KillSwitchState();
     for (const bad of [null, undefined, 42, {}, []]) {
-      expect(() => s.decide(bad as unknown as string, 'POST')).not.toThrow();
-      expect(s.decide(bad as unknown as string, 'POST').refused).toBe(true);
+      expect(() => s.decide(bad as string, 'POST')).not.toThrow();
+      expect(s.decide(bad as string, 'POST').refused).toBe(true);
     }
   });
 });

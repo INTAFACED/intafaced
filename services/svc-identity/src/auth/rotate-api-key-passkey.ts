@@ -3,14 +3,14 @@
  * Empty creds → auth.passkey_missing. Creds without lastVerifiedAt →
  * auth.passkey_verify_unavailable. No invented challenge. AuthService mints the secret.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 import { rotateApiKey, type RotatedApiKey } from './rotate-api-key.js';
 
 export async function rotateApiKeyAfterPasskey(
   minter: ApiKeyMinter,
-  sql: Sql,
+  sql: Queryable,
   input: { userId: string; keyId: string; grantorScopes: readonly string[]; grantorKid?: string | null },
   encKey: Buffer | null = null,
 ): Promise<RotatedApiKey> {

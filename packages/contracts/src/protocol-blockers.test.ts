@@ -153,7 +153,7 @@ describe('standing blockers', () => {
   });
 
   it('is part of every answer the engine gives, healthy or with every source down', () => {
-    const allDown = { chain: down, audit: down, indexer: down, dex: down, health: down } as unknown as ProtocolSnapshot;
+    const allDown = { chain: down, audit: down, indexer: down, dex: down, health: down } as ProtocolSnapshot;
     for (const action of PROTOCOL_ACTIONS) {
       const standing = standingBlockers(action).map((b) => b.code);
       expect(standing.length, action).toBeGreaterThan(0);

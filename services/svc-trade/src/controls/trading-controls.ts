@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import {
   accountControlInputSchema,
@@ -114,7 +114,7 @@ type IntentRow = {
 };
 
 /** One local guard covers preparation, grant/finalization, and restriction/drain. */
-async function guard(tx: Sql, userId: string): Promise<void> {
+async function guard(tx: Queryable, userId: string): Promise<void> {
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`trade.account-controls:${userId}`}, 0))`;
 }
 
@@ -128,7 +128,7 @@ export class TradingControls implements TradingAdmissionPort {
   private state(userId: string, row?: { restricted: boolean; version: string }): AccountControlState {
     return { target: { area: 'trading', userId }, restricted: row?.restricted ?? false, version: row?.version ?? '0' };
   }
-  private async loadState(tx: Sql, userId: string): Promise<AccountControlState> {
+  private async loadState(tx: Queryable, userId: string): Promise<AccountControlState> {
     const [row] = await tx<Array<{ restricted: boolean; version: string }>>`
       SELECT restricted, version::text FROM trade.account_restrictions WHERE user_id = ${userId}`;
     return this.state(userId, row);
@@ -415,7 +415,7 @@ export class TradingControls implements TradingAdmissionPort {
     return result;
   }
   private async finalize(
-    tx: Sql,
+    tx: Queryable,
     intent: IdentityOperationIntent,
     decision: IdentityOperationDecision,
   ): Promise<CommittedOperationAdmission | null> {
@@ -439,7 +439,7 @@ export class TradingControls implements TradingAdmissionPort {
       WHERE user_id = ${intent.operation.userId} AND business_id = ${intent.businessId}`;
     return admission;
   }
-  private async drain(tx: Sql, userId: string): Promise<boolean> {
+  private async drain(tx: Queryable, userId: string): Promise<boolean> {
     const pending = await tx<IntentRow[]>`SELECT intent, payload, decision, admission FROM trade.operation_intents
       WHERE user_id = ${userId} AND identity_requested AND decision IS NULL ORDER BY business_id`;
     try {

@@ -15,6 +15,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { REGULAR_FEE_TIER, type OwnerFeeSchedule } from './fee-schedule.js';
 import { tierForVolume, tierSnapshotKey, volumeWindow, type FeeTierProgram } from './fee-tiers.js';
 import { HOUSE_MM_USER_UUID } from './ids.js';
+import { passInForce, type TierPassRow } from './tier-passes.js';
 
 /** Why each kind of volume is or is not counted, as the page says it. Codes, so the copy stays the screen's. */
 export const VOLUME_EXCLUSIONS = ['other_quotes', 'futures_and_options', 'bots_and_copy', 'sub_accounts', 'assets'] as const;
@@ -164,24 +165,35 @@ export async function trialsInForce(sql: Sql, userId: string, at: Date): Promise
 }
 
 /**
- * The tier an order `userId` places at `at` is charged at: the higher of the last snapshot's tier and any VIP trial in
- * force, each while the schedule in force has a tier programme that still names it, else regular (no programme:
+ * The tier an order `userId` places at `at` is charged at: the higher of the last snapshot's tier, any VIP trial in
+ * force and the trial pass in force (tier-passes.ts), each while the schedule in force has a tier programme that still names it, else regular (no programme:
  * "Thresholds not set").
  */
 export async function feeTierAt(sql: Sql, schedule: OwnerFeeSchedule, userId: string, at: Date): Promise<string> {
   if (schedule.published !== true || !schedule.tierProgram) return REGULAR_FEE_TIER;
-  const [snapshot, trials] = await Promise.all([snapshotInForce(sql, userId, at), trialsInForce(sql, userId, at)]);
-  return tierOf(schedule, snapshot, trials);
+  const [snapshot, trials, pass] = await Promise.all([
+    snapshotInForce(sql, userId, at),
+    trialsInForce(sql, userId, at),
+    passInForce(sql, userId, at),
+  ]);
+  return tierOf(schedule, snapshot, trials, pass);
 }
 
 /**
- * The tier `snapshot` and `trials` give under `schedule`: the highest of them the programme in force still names (its
+ * The tier `snapshot`, `trials` and `pass` give under `schedule`: the highest of them the programme in force still names (its
  * thresholds rise, so the later one is higher), else regular.
  */
-export function tierOf(schedule: OwnerFeeSchedule, snapshot: TierSnapshotRow | null, trials: readonly VipTrialRow[] = []): string {
+export function tierOf(
+  schedule: OwnerFeeSchedule,
+  snapshot: TierSnapshotRow | null,
+  trials: readonly VipTrialRow[] = [],
+  pass: Pick<TierPassRow, 'tierId'> | null = null,
+): string {
   if (schedule.published !== true || !schedule.tierProgram) return REGULAR_FEE_TIER;
   const order = schedule.tierProgram.thresholds.map((threshold) => threshold.tierId);
-  const named = [snapshot?.tierId, ...trials.map((trial) => trial.tierId)].filter((tier): tier is string => !!tier && order.includes(tier));
+  const named = [snapshot?.tierId, ...trials.map((trial) => trial.tierId), pass?.tierId].filter(
+    (tier): tier is string => !!tier && order.includes(tier),
+  );
   return named.reduce<string>((best, tier) => (order.indexOf(tier) > order.indexOf(best) ? tier : best), REGULAR_FEE_TIER);
 }
 

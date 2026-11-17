@@ -36,6 +36,28 @@ function toWire(req: PostRequest) {
 }
 
 describe('recipe-gate', () => {
+  it('accepts the agent usage charge as svc-agents posts it: earned, then collected into our money at the partner (J-agents-01)', () => {
+    const earned = recipes.chargeEarn({
+      module: 'agents',
+      saleId: '22222222-2222-4222-8222-222222222222.2026-11-15#0012',
+      userId: USER,
+      assetId: 'USDT',
+      price: { perUnit: amt('0.0123') },
+      units: 1n,
+    });
+    const collected = recipes.chargeCollect({
+      module: 'agents',
+      userId: USER,
+      to: { kind: 'partner-reserve', partnerId: 'test' },
+      paymentId: 'test-partner-move-0a1b2c3d4e5f-000000000001',
+      assetId: 'USDT',
+      amount: amt('0.0123'),
+    });
+    expect(recipeCandidates(toWire(earned))).toEqual(['chargeEarn']);
+    expect(recipeCandidates(toWire(collected))).toEqual(['chargeCollect']);
+    expect(() => assertKnownRecipePost(toWire(collected))).not.toThrow();
+  });
+
   it('samples every registry recipe so the allowlist cannot silently drop one', () => {
     expect(unsampledRecipeNames()).toEqual([]);
   });
@@ -44,6 +66,54 @@ describe('recipe-gate', () => {
     for (const sample of recipeGateSamples()) {
       expect(recipeCandidates(sample.post), sample.name).toContain(sample.name);
     }
+  });
+
+  it('accepts our fee on a hosted-checkout payment exactly as svc-pay posts it, under module pay (J-merchant-04)', () => {
+    // svc-pay payment-service/lifecycle.ts outsideCustodyFeePost: the partner on a bank payment, the business on one to its own wallet.
+    const partner = recipes.partnerFeeEarn({
+      partnerId: 'bank-transfer-sandbox',
+      module: 'pay',
+      paymentId: '11111111-1111-4111-8111-111111111111',
+      assetId: 'EUR',
+      grossAmount: amt('30'),
+      rate: { bps: 250 },
+    });
+    const merchant = recipes.merchantFeeEarn({
+      module: 'pay',
+      merchantId: USER,
+      paymentId: '11111111-1111-4111-8111-111111111111',
+      assetId: 'USDT',
+      grossAmount: amt('100'),
+      rate: { bps: 250 },
+    });
+    expect(recipeCandidates(toWire(partner))).toContain('partnerFeeEarn');
+    expect(recipeCandidates(toWire(merchant))).toContain('merchantFeeEarn');
+  });
+
+  it('accepts a move of our own funds with its costs, and refuses a cost leg sent to a customer instead', () => {
+    const move = (costs: Parameters<typeof recipes.ownFundsMove>[0]['costs']) =>
+      recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'venue-a' },
+        to: { kind: 'treasury-wallet', walletId: 'base:ops' },
+        assetId: 'USDC',
+        amount: amt('5'),
+        reference: '0xmove',
+        costs,
+      });
+    for (const costs of [
+      undefined,
+      [{ kind: 'network-fee' as const, paidTo: 'base', amount: amt('0.1') }],
+      [{ kind: 'venue-withdrawal-fee' as const, paidTo: 'venue-a', amount: amt('1') }],
+      [
+        { kind: 'venue-withdrawal-fee' as const, paidTo: 'venue-a', amount: amt('1') },
+        { kind: 'network-fee' as const, paidTo: 'base', amount: amt('0.1') },
+      ],
+    ]) {
+      expect(() => assertKnownRecipePost(toWire(move(costs)))).not.toThrow();
+    }
+    const wire = toWire(move([{ kind: 'network-fee', paidTo: 'base', amount: amt('0.1') }]));
+    const stolen = { ...wire, entries: [...wire.entries.slice(0, 2), { ...wire.entries[2]!, account: userAvailable(USER, 'USDC') }] };
+    expect(() => assertKnownRecipePost(stolen)).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
   });
 
   it('accepts a deposit recipe post', () => {

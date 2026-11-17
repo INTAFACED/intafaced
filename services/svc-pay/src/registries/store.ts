@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { NetworkState, VenueState, WalletRouteState } from './policy.js';
 import type { RegistryKind } from './schemas.js';
@@ -116,13 +117,13 @@ export async function listVenues(sql: Sql): Promise<Array<Stored<VenueState>>> {
   const rows = await sql<VenueRow[]>`SELECT * FROM pay.venue_registry ORDER BY priority ASC, venue_id ASC`;
   return rows.map(venueOf);
 }
-export async function getVenue(sql: Sql, venueId: string, lock = false): Promise<Stored<VenueState> | null> {
+export async function getVenue(sql: Queryable, venueId: string, lock = false): Promise<Stored<VenueState> | null> {
   const rows = lock
     ? await sql<VenueRow[]>`SELECT * FROM pay.venue_registry WHERE venue_id = ${venueId} FOR UPDATE`
     : await sql<VenueRow[]>`SELECT * FROM pay.venue_registry WHERE venue_id = ${venueId}`;
   return rows[0] ? venueOf(rows[0]) : null;
 }
-export async function insertVenue(sql: Sql, s: VenueState, actorId: string): Promise<Stored<VenueState>> {
+export async function insertVenue(sql: Queryable, s: VenueState, actorId: string): Promise<Stored<VenueState>> {
   const rows = await sql<VenueRow[]>`
     INSERT INTO pay.venue_registry (venue_id, display_name, mode, priority, enabled, min_order, max_order, supported_pairs, updated_by)
     VALUES (${s.venueId}, ${s.displayName}, ${s.mode}, ${s.priority}, ${s.enabled}, ${s.minOrder}, ${s.maxOrder},
@@ -130,7 +131,7 @@ export async function insertVenue(sql: Sql, s: VenueState, actorId: string): Pro
     RETURNING *`;
   return venueOf(rows[0]!);
 }
-export async function updateVenue(sql: Sql, s: VenueState, actorId: string): Promise<Stored<VenueState>> {
+export async function updateVenue(sql: Queryable, s: VenueState, actorId: string): Promise<Stored<VenueState>> {
   const rows = await sql<VenueRow[]>`
     UPDATE pay.venue_registry
        SET display_name = ${s.displayName}, mode = ${s.mode}, priority = ${s.priority}, enabled = ${s.enabled},
@@ -146,13 +147,13 @@ export async function listNetworks(sql: Sql): Promise<Array<Stored<NetworkState>
   const rows = await sql<NetworkRow[]>`SELECT * FROM pay.network_registry ORDER BY network_id ASC`;
   return rows.map(networkOf);
 }
-export async function getNetwork(sql: Sql, networkId: string, lock = false): Promise<Stored<NetworkState> | null> {
+export async function getNetwork(sql: Queryable, networkId: string, lock = false): Promise<Stored<NetworkState> | null> {
   const rows = lock
     ? await sql<NetworkRow[]>`SELECT * FROM pay.network_registry WHERE network_id = ${networkId} FOR UPDATE`
     : await sql<NetworkRow[]>`SELECT * FROM pay.network_registry WHERE network_id = ${networkId}`;
   return rows[0] ? networkOf(rows[0]) : null;
 }
-export async function insertNetwork(sql: Sql, s: NetworkState, actorId: string): Promise<Stored<NetworkState>> {
+export async function insertNetwork(sql: Queryable, s: NetworkState, actorId: string): Promise<Stored<NetworkState>> {
   const rows = await sql<NetworkRow[]>`
     INSERT INTO pay.network_registry (network_id, display_name, asset_codes, confirmations_required, enabled,
                                       fee_estimate_source, fee_estimate_amount, updated_by)
@@ -161,7 +162,7 @@ export async function insertNetwork(sql: Sql, s: NetworkState, actorId: string):
     RETURNING *`;
   return networkOf(rows[0]!);
 }
-export async function updateNetwork(sql: Sql, s: NetworkState, actorId: string): Promise<Stored<NetworkState>> {
+export async function updateNetwork(sql: Queryable, s: NetworkState, actorId: string): Promise<Stored<NetworkState>> {
   const rows = await sql<NetworkRow[]>`
     UPDATE pay.network_registry
        SET display_name = ${s.displayName}, asset_codes = ${sql.json(s.assetCodes)},
@@ -178,7 +179,12 @@ export async function listWalletRoutes(sql: Sql): Promise<StoredWalletRoute[]> {
   const rows = await sql<WalletRouteRow[]>`SELECT * FROM pay.wallet_routes ORDER BY network_id ASC, asset_code ASC`;
   return rows.map(routeOf);
 }
-export async function getWalletRoute(sql: Sql, assetCode: string, networkId: string, lock = false): Promise<StoredWalletRoute | null> {
+export async function getWalletRoute(
+  sql: Queryable,
+  assetCode: string,
+  networkId: string,
+  lock = false,
+): Promise<StoredWalletRoute | null> {
   const rows = lock
     ? await sql<WalletRouteRow[]>`
         SELECT * FROM pay.wallet_routes WHERE asset_code = ${assetCode} AND network_id = ${networkId} FOR UPDATE`
@@ -186,7 +192,7 @@ export async function getWalletRoute(sql: Sql, assetCode: string, networkId: str
         SELECT * FROM pay.wallet_routes WHERE asset_code = ${assetCode} AND network_id = ${networkId}`;
   return rows[0] ? routeOf(rows[0]) : null;
 }
-export async function insertWalletRoute(sql: Sql, s: WalletRouteState, actorId: string): Promise<StoredWalletRoute> {
+export async function insertWalletRoute(sql: Queryable, s: WalletRouteState, actorId: string): Promise<StoredWalletRoute> {
   const rows = await sql<WalletRouteRow[]>`
     INSERT INTO pay.wallet_routes (asset_code, network_id, payout_allowed, merchant_allow, merchant_deny, max_single_payout, updated_by)
     VALUES (${s.assetCode}, ${s.networkId}, ${s.payoutAllowed}, ${sql.json(s.merchantAllow)}, ${sql.json(s.merchantDeny)},
@@ -194,7 +200,7 @@ export async function insertWalletRoute(sql: Sql, s: WalletRouteState, actorId: 
     RETURNING *`;
   return routeOf(rows[0]!);
 }
-export async function updateWalletRoute(sql: Sql, s: WalletRouteState, actorId: string): Promise<StoredWalletRoute> {
+export async function updateWalletRoute(sql: Queryable, s: WalletRouteState, actorId: string): Promise<StoredWalletRoute> {
   const rows = await sql<WalletRouteRow[]>`
     UPDATE pay.wallet_routes
        SET payout_allowed = ${s.payoutAllowed}, merchant_allow = ${sql.json(s.merchantAllow)},
@@ -222,7 +228,7 @@ export interface EventRow {
 }
 
 export async function appendEvent(
-  sql: Sql,
+  sql: Queryable,
   e: {
     registry: RegistryKind;
     entryKey: string;

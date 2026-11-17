@@ -518,6 +518,11 @@ export type TradeErrorCode =
    */
   | 'trade.cancel_ahead_of_fill'
   /**
+   * `finalize` refused an engine-miss release (#8560): the miss was not first sighted the owner's floor ago with no
+   * listing since, or trade.fills show a fill. Reconcile only; the hold stays.
+   */
+  | 'trade.engine_miss_unproven'
+  /**
    * Operator `reconcileOrder` funded engine-miss: `trade.fills` does not prove
    * no fill. Hold stays. Never an automatic refund (lost fill looks like this).
    */
@@ -561,6 +566,8 @@ export type TradeErrorCode =
    * out of 1–5000. Never invent 200.
    */
   | 'trade.slippage_cap_unset'
+  /** Venue spot market order refused: TRADE_MARKET_SPREAD_LIMIT_BPS blank / non-integer / out of 1–5000. */
+  | 'trade.spread_limit_unset'
   | 'trade.slippage_tolerance_invalid'
   /**
    * Market sell or flatten with no owner protection floor. Preview and place

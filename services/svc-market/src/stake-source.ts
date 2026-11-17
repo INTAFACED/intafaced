@@ -50,8 +50,16 @@ import { MarketError } from './vendor-service.js';
 
 export interface SlotEntitlementSource {
   /** How many listing slots this user's current stake tier entitles them to. */
-  entitlementOf(userId: string): Promise<VendorEntitlement>;
+  entitlementOf(userId: string, signal?: AbortSignal): Promise<VendorEntitlement>;
 }
+
+/**
+ * How long one stake read may take. Same 5 s bound the other service-to-service
+ * reads use (svc-edge `session-revoked.ts`, svc-support `chat.ts`): past it the
+ * read fails closed as `market.stake_unavailable`, instead of holding the
+ * caller's request and its socket open for as long as svc-token hangs.
+ */
+export const STAKE_READ_TIMEOUT_MS = 5_000;
 
 export interface VendorEntitlement {
   /** The tier's name, for display. Read off the response, never computed here. */
@@ -65,23 +73,30 @@ export function createStakeSource(
   internalSecret: string,
   /** svc-market's own key. With it the call is key-signed for svc-token; `dual` also sends the shared-secret form. */
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+  timeoutMs: number = STAKE_READ_TIMEOUT_MS,
 ): SlotEntitlementSource {
   const url = baseUrl.replace(/\/$/, '');
   const sign = serviceCallSigner({ service: 'svc-market', audience: 'svc-token', legacySecret: internalSecret, s2s });
 
   return {
-    async entitlementOf(userId: string): Promise<VendorEntitlement> {
+    async entitlementOf(userId: string, signal?: AbortSignal): Promise<VendorEntitlement> {
+      // The caller's lifetime and this read's own bound: whichever ends first
+      // aborts the fetch and frees its socket.
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const lifetime = signal ? AbortSignal.any([signal, timeout]) : timeout;
       let response: Response;
       try {
         const target = `${url}/internal/stake/${encodeURIComponent(userId)}`;
         response = await fetch(target, {
           method: 'GET',
+          signal: lifetime,
           headers: {
             'content-type': 'application/json',
             ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
           },
         });
       } catch (err) {
+        if (signal?.aborted) throw signal.reason ?? err;
         throw new MarketError(`Stake gate unavailable: ${(err as Error).message}`, 'market.stake_unavailable');
       }
 
@@ -89,7 +104,10 @@ export function createStakeSource(
         throw new MarketError(`Stake gate unavailable (${response.status})`, 'market.stake_unavailable');
       }
 
-      const body = (await response.json().catch(() => null)) as { tier?: { name?: unknown; vendorSlots?: unknown } } | null;
+      const body = (await response.json().catch(() => {
+        if (signal?.aborted) throw signal.reason;
+        return null;
+      })) as { tier?: { name?: unknown; vendorSlots?: unknown } } | null;
       const slots = body?.tier?.vendorSlots;
 
       /**

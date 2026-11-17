@@ -174,7 +174,7 @@ describe('academy.certs D26-P1-C1 perk plane — real or refuse; no fake perk mo
     expect(
       certPerkPlanePinsInventPayoutClosed({
         ...certPerkPlaneStatus(),
-        academyHoldsPerkMoney: true as unknown as false,
+        academyHoldsPerkMoney: true as false,
       }),
     ).toBe(false);
   });

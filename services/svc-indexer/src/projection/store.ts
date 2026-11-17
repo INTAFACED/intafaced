@@ -1,5 +1,5 @@
 import type { Amount } from '@intafaced/ledger-client/money';
-import type { BlockHash, BookSide, ChainBlock, TakerSide } from '../chain/source.js';
+import type { BlockHash, ChainBlock, TakerSide } from '../chain/source.js';
 
 /**
  * THE PROJECTION STORE — the read model, and the reorg contract.

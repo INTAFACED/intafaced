@@ -64,6 +64,8 @@ describe('venue.ownActivity against the TEST simulator', () => {
       store,
       stepUp: approve,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      // Blank: these orders are limits, which the owner's market price protection never bounds.
+      slippageCapBps: null,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });
@@ -153,6 +155,18 @@ describe('venue.ownActivity against the TEST simulator', () => {
     const times = account.fills.map((f) => Date.parse(f.filledAt));
     expect([...times].sort((x, y) => x - y)).toEqual(times);
     expect(Number.isNaN(Date.parse(account.asOf))).toBe(false);
+    // J-portfolio-02 #6: the coins credited from outside, as the venue recorded them (here its one TEST deposit).
+    const arrivals = (await venue.arrivals!(own)).value;
+    expect(arrivals).toHaveLength(1);
+    expect(account.arrivals).toEqual([
+      {
+        arrivalId: 'deposit:own-activity:1',
+        kind: 'deposit',
+        asset: 'USDC',
+        amount: '20000',
+        arrivedAt: arrivals[0]!.arrivedAt.toISOString(),
+      },
+    ]);
   });
 
   it("another person never sees this person's venue account", async () => {

@@ -36,7 +36,7 @@ export function discoverWallets(
     if (!info || typeof info.uuid !== 'string' || typeof info.name !== 'string' || typeof info.rdns !== 'string' || !detail.provider)
       return;
     // An icon is only ever shown as an image source, and only when it is an inline image.
-    const icon = typeof info.icon === 'string' && /^data:image\//.test(info.icon) ? info.icon : '';
+    const icon = typeof info.icon === 'string' && info.icon.startsWith('data:image/') ? info.icon : '';
     found.set(info.uuid, { info: { uuid: info.uuid, name: info.name, rdns: info.rdns, icon }, provider: detail.provider });
     onChange([...found.values()]);
   };

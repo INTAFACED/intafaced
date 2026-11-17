@@ -87,7 +87,7 @@ function fakeSql(tables: { prerequisites: string[]; window: { from: Date; until:
       );
     if (text.includes('course_starts')) return Promise.resolve(tables.courseStartsAt ? [{ starts_at: tables.courseStartsAt }] : []);
     throw new Error(`unexpected query: ${text}`);
-  }) as unknown as Sql;
+  }) as Sql;
   return sql;
 }
 
@@ -120,13 +120,14 @@ describe('ReleaseAccess.assertMayReadSignedOut', () => {
 describe('public course page (AC-catalogue-03)', () => {
   it('lists a card per course with published items, and opens a course with its syllabus, outcomes and no invented text', async () => {
     const caller = createAcademyRouter({
+      publicCourses: async () => listPublicCourses(),
       publicCourse: (slug: string) =>
         publicCourse(
           slug,
           () => null,
           async () => true,
         ),
-    } as unknown as AcademyService).createCaller(anonymous());
+    } as AcademyService).createCaller(anonymous());
     const cards = await caller.publicCourses();
     expect(new Set(cards.map((c) => c.slug))).toEqual(new Set(listCurriculum().map((r) => r.path)));
     for (const card of cards) expect(card.items).toBe(listCurriculum({ path: card.slug }).length);
@@ -141,13 +142,14 @@ describe('public course page (AC-catalogue-03)', () => {
 
   it('gives the same not-found for an unknown course and a lesson slug', async () => {
     const caller = createAcademyRouter({
+      publicCourses: async () => listPublicCourses(),
       publicCourse: (slug: string) =>
         publicCourse(
           slug,
           () => null,
           async () => true,
         ),
-    } as unknown as AcademyService).createCaller(anonymous());
+    } as AcademyService).createCaller(anonymous());
     await expect(caller.publicCourse({ slug: 'no-such-course' })).rejects.toSatisfy((e) => causeOf(e) === 'academy.course_not_found');
     await expect(caller.publicCourse({ slug: first.slug })).rejects.toSatisfy((e) => causeOf(e) === 'academy.course_not_found');
   });

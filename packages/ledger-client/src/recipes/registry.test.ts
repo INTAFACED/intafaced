@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { recipes, type RecipeName } from './index.js';
-import { RECIPE_MATRIX } from './live-path-inventory.js';
+import { RECIPE_SOCKETS } from './live-path-inventory.js';
 
 /**
  * THE RECIPE REGISTRY IS THE PRODUCT SURFACE.
@@ -44,11 +44,14 @@ import { RECIPE_MATRIX } from './live-path-inventory.js';
  * chargeEarn + chargeCollect (a charge a customer owes us, earned and collected into one of our own-funds places, own accounts only, launch money model rule 1) → 99.
  * partnerFeeEarn + partnerFeeSettle (our fee on a partner-processed payment, earned and settled by the partner into our own funds, own accounts only, launch money model rule 1) → 101.
  * feeGiveBackOwe + feeGiveBackPayOut (a fee a customer paid on a fill, given back from our own funds to their own wallet with two approvers, own accounts only, launch money model rule 1) → 103.
+ * merchantFeeEarn (our fee on a payment paid straight to the business's own wallet, owed to us by the business, own accounts only, launch money model rule 1, J-merchant-04) → 104.
+ * academyPurchase + academyPurchaseRefund (a paid Academy course bought from the buyer's own wallet into one of our own-funds places, and its staff refund, own accounts only, J-academy-07) → 106.
+ * rewardReclaim (a reward we owe and have not paid, cancelled by a risk decision back to the rewards engine, own accounts only, J-campaigns-18) → 107.
  */
 describe('recipes registry', () => {
   it('exports every named recipe and nothing unnamed', () => {
     const names = Object.keys(recipes) as RecipeName[];
-    expect(names.length).toBe(103);
+    expect(names.length).toBe(107);
     expect(names).toContain('marketPurchase');
     expect(names).toContain('businessApprovalHold');
     expect(names).toContain('businessPayroll');
@@ -65,7 +68,7 @@ describe('recipes registry', () => {
     const mdPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'RECIPES.md');
     const md = readFileSync(mdPath, 'utf8');
     const countMatch = md.match(/\*\*(\d+) pure recipes\.\*\*/);
-    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('103');
+    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('107');
 
     const rowNames = [...md.matchAll(/^\| `([a-zA-Z][a-zA-Z0-9]*)`\s*\|/gm)].map((m) => m[1]!);
     const registry = Object.keys(recipes).sort();
@@ -81,11 +84,9 @@ describe('recipes registry', () => {
     expect(paySrc).toMatch(/\brecipes\.chargebackWon\b/);
     expect(paySrc).toMatch(/\brecipes\.chargebackShortfallRecovered\b/);
 
+    // Live: no §13 socket row (the posts above are the production caller).
     for (const name of ['chargebackOpen', 'chargebackShortfall', 'chargebackWon', 'chargebackShortfallRecovered'] as const) {
-      const row = RECIPE_MATRIX[name];
-      expect(row.kind).toBe('live');
-      if (row.kind !== 'live') continue;
-      expect(row.proof).toBe('services/svc-pay/src/chargeback-ledger.ts');
+      expect(Object.keys(RECIPE_SOCKETS)).not.toContain(name);
     }
 
     const closure = md.split('\n').find((line) => line.includes('D26-P2-11 live-path closure'));

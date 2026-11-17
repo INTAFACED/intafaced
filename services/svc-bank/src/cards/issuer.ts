@@ -161,6 +161,12 @@ export interface CardIssuerAdapter {
     partnerRef: string;
   }>;
 
+  /**
+   * LOCAL TEST, the simulator only: the TEST card partner's own book for one cardholder (`test-card-partner-record.ts`),
+   * so a journey compares what the app shows with what the partner itself recorded (J-bank-27 #3 #4). Reads only.
+   */
+  testRecord?(userId: string): TestCardPartnerBook;
+
   /** Freeze, unfreeze or close the card at the issuer. */
   setStatus(input: { cardId: string; issuerRef: string; status: 'active' | 'frozen' | 'closed' }): Promise<void>;
 
@@ -337,6 +343,18 @@ export function cardProgrammeOutput(programme: CardProgramme): CardProgramme {
   return { id: programme.id, simulated: programme.simulated, displayName: programme.displayName };
 }
 
+/** The TEST card partner's book for one cardholder: what it reports they can spend, its provisional credits, its terms. */
+export interface TestCardPartnerBook {
+  readonly balances: Readonly<Record<string, string>> | null;
+  readonly credits: readonly {
+    readonly partnerRef: string;
+    readonly assetId: string;
+    readonly amount: string;
+    readonly reversed: boolean;
+  }[];
+  readonly lossLiability: CardPartnerTerms['lossLiability'];
+}
+
 export function cardSim(options: { displayName?: string; partner?: CardPartnerTerms } = {}): CardIssuerAdapter {
   // The TEST partner's answers (`BANK_CARD_SIM_PARTNER_JSON`), copied so a caller's object cannot change them later.
   const partner: CardPartnerTerms = { ...(options.partner ?? NOTHING_REPORTED), test: true };
@@ -401,6 +419,13 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
       if (credit && input.settlement === 'reversed') credit.reversed = true;
       return { partnerRef: testRef(input.settlement, input.requestId) };
     },
+    testRecord: (userId) => ({
+      balances: withCredits(partner.balances, userId, credits),
+      credits: [...credits.values()]
+        .filter((c) => c.userId === userId)
+        .map((c) => ({ partnerRef: c.partnerRef, assetId: c.assetId, amount: formatAmount(c.amount), reversed: c.reversed })),
+      lossLiability: partner.lossLiability,
+    }),
   };
 }
 

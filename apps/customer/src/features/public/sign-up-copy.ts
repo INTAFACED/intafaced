@@ -28,6 +28,12 @@ const messages = {
   useEmail: 'Use email instead',
   country: 'Country you live in',
   countryPick: 'Choose a country',
+  subdivision: 'Province or territory you live in',
+  subdivisionPick: 'Choose a province or territory',
+  usPerson: 'Are you a US person?',
+  usPersonHint: 'A US citizen, a green-card holder or a US resident, wherever you live now.',
+  usPersonYes: 'Yes, I am a US person',
+  usPersonNo: 'No, I am not a US person',
   nationality: 'Nationality (optional)',
   nationalityPick: 'Same as above, or choose',
   dateOfBirth: 'Date of birth',
@@ -54,8 +60,12 @@ const messages = {
   'identity.underage': 'You are under the minimum age to open an account. Nothing was created.',
   'identity.country_invalid': 'Choose the country you live in, and your nationality if you give one, from the list.',
   'identity.region_blocked': 'We cannot open accounts for this country right now. Nothing was created.',
-  'identity.subdivision_required':
-    'We need the state or province you live in for this country, and this page has no field for it. Nothing was created.',
+  regionBlockedBecause: 'We cannot open an account where you live. {reason} Nothing was created.',
+  'identity.subdivision_required': 'Choose the province or territory you live in from the list. Nothing was created.',
+  subdivisionNoField: 'We need the state or province you live in for this country, and this page has no field for it. Nothing was created.',
+  'identity.us_person_blocked':
+    'We cannot open accounts for US persons (US citizens, green-card holders and US residents, wherever they live). This is from your own answer. Nothing was created.',
+  'identity.us_person_unanswered': 'Answer whether you are a US person. We never take a blank answer as no. Nothing was created.',
   'identity.screening_unset': 'Sign-up is paused: the sanctions screening list is not set. Nothing was created.',
   'identity.signup_expired': 'This sign-up has run out. Start again with your details.',
   'identity.signup_code_invalid': 'That code is not right. Check the newest email and try again.',
@@ -69,6 +79,7 @@ const messages = {
   'auth.email_taken': 'That email already has an account. Sign in instead.',
   'vendor.email':
     'Email delivery is switched off in this build, so a sign-up code cannot be sent. Nothing was switched to another channel: pick one yourself.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   'vendor.sms':
     'Phone sign-up needs a text-message provider, which is not connected in this build. Nothing was sent by any other channel: use email instead.',
 } as const;

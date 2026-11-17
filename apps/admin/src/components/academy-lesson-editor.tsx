@@ -70,7 +70,7 @@ function Blocks({ blocks, testId }: { blocks: readonly AcademyLessonBlock[]; tes
               </p>
             );
           case 'image':
-            // eslint-disable-next-line @next/next/no-img-element -- an https address staff typed, shown as it is
+            // An <img>, not next/image: an https address staff typed, shown as it is.
             return <img key={i} src={b.url} alt={b.alt} width={320} referrerPolicy="no-referrer" />;
           case 'audio':
             return (

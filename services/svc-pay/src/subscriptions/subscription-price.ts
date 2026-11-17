@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client';
 import { PayError } from '../payment-service.js';
 import { lockActiveLivePrice } from '../catalog/price-lock.js';
@@ -11,7 +11,7 @@ import { lockActiveLivePrice } from '../catalog/price-lock.js';
  * so a price that said anything else would be a label that lies. The mandate's terms are read inside the caller's
  * transaction, which holds the mandate's row lock; the price and product are held by `lockActiveLivePrice` until it ends.
  */
-export async function subscriptionPrice(tx: Sql, merchantId: string, priceId: string, mandate: { id: string }): Promise<void> {
+export async function subscriptionPrice(tx: Queryable, merchantId: string, priceId: string, mandate: { id: string }): Promise<void> {
   const [terms] = await tx<Array<{ asset_id: string; amount: string; cadence: string }>>`
     SELECT asset_id, amount::text, cadence FROM pay.subscription_mandates WHERE id = ${mandate.id}`;
   const price = await lockActiveLivePrice(tx, merchantId, priceId);

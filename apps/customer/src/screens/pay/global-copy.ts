@@ -120,6 +120,18 @@ const en = {
   recallSending: 'Asking…',
   recallAsked: 'You asked for this back: {reason}. We will show the answer here.',
   recallAnswered: 'You asked for this back: {reason}.',
+  checkLabel: 'Not in the list? Enter a country code',
+  checkButton: 'Check',
+  checkUnsupported: 'Sending to {country} is not supported: there is no corridor there. Only the destinations in the list can be sent to.',
+  checkSupported: 'Sending to {country} is supported: choose it in the list above.',
+  checkBad: 'Enter a two-letter country code, such as DE.',
+  swiftCharges: 'SWIFT charges',
+  swiftSHA:
+    'Shared (SHA): you pay the sending charge, and the banks along the way and the receiving bank may take theirs from what arrives.',
+  swiftOUR: 'You pay them all (OUR): no bank takes its charge from what arrives.',
+  swiftBEN: 'The recipient pays them all (BEN): every bank may take its charge from what arrives.',
+  swiftUnset: 'The partner gave no SWIFT charge handling for this destination.',
+  failedNeeds: 'Needs: {blocker}',
 } as const;
 
 const es = {
@@ -243,6 +255,18 @@ const es = {
   recallSending: 'Enviando…',
   recallAsked: 'Pediste que lo devuelvan: {reason}. Te mostraremos la respuesta aquí.',
   recallAnswered: 'Pediste que lo devuelvan: {reason}.',
+  checkLabel: '¿No está en la lista? Escribe un código de país',
+  checkButton: 'Comprobar',
+  checkUnsupported: 'Enviar a {country} no es posible: no hay un corredor allí. Solo se puede enviar a los destinos de la lista.',
+  checkSupported: 'Enviar a {country} es posible: elígelo en la lista de arriba.',
+  checkBad: 'Escribe un código de país de dos letras, como DE.',
+  swiftCharges: 'Comisiones SWIFT',
+  swiftSHA:
+    'Compartidas (SHA): tú pagas la comisión de envío, y los bancos intermedios y el banco receptor pueden cobrar la suya de lo que llega.',
+  swiftOUR: 'Las pagas todas (OUR): ningún banco cobra su comisión de lo que llega.',
+  swiftBEN: 'Las paga el destinatario (BEN): cada banco puede cobrar su comisión de lo que llega.',
+  swiftUnset: 'El socio no indicó cómo se reparten las comisiones SWIFT para este destino.',
+  failedNeeds: 'Necesita: {blocker}',
 } as const;
 
 const fr = {
@@ -366,6 +390,19 @@ const fr = {
   recallSending: 'Envoi…',
   recallAsked: 'Tu as demandé le retour : {reason}. La réponse s’affichera ici.',
   recallAnswered: 'Tu as demandé le retour : {reason}.',
+  checkLabel: 'Pas dans la liste ? Saisis un code pays',
+  checkButton: 'Vérifier',
+  checkUnsupported:
+    'L’envoi vers {country} n’est pas possible : aucun corridor n’y va. Seules les destinations de la liste sont possibles.',
+  checkSupported: 'L’envoi vers {country} est possible : choisis-le dans la liste ci-dessus.',
+  checkBad: 'Saisis un code pays de deux lettres, comme DE.',
+  swiftCharges: 'Frais SWIFT',
+  swiftSHA:
+    'Partagés (SHA) : tu paies les frais d’envoi, et les banques intermédiaires et la banque du destinataire peuvent prélever les leurs sur ce qui arrive.',
+  swiftOUR: 'Tu les paies tous (OUR) : aucune banque ne prélève ses frais sur ce qui arrive.',
+  swiftBEN: 'Le destinataire les paie tous (BEN) : chaque banque peut prélever ses frais sur ce qui arrive.',
+  swiftUnset: 'Le partenaire n’a pas indiqué la répartition des frais SWIFT pour cette destination.',
+  failedNeeds: 'Nécessite : {blocker}',
 } as const;
 
 export const globalCopy = defineCopy('customer.payGlobal', en, { es, fr });

@@ -1,9 +1,11 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
-import type { z } from 'zod';
-import Fastify from 'fastify';
+import { createIdentityExtraControls, unconfiguredExtraControls } from './safety/extra-controls.js';
+import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
+import { z } from 'zod';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { edgeTrustFromEnv } from '@intafaced/config';
+import { edgeTrustFromEnv, isExplicitDevOrTest } from '@intafaced/config';
 import {
   createEdgeContext,
   createPayCustodyDepositClient,
@@ -35,12 +37,24 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { moneyHeldBy, testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { firstAdministrator, registerAgentsUsagePayment } from './agents/usage-payment.js';
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
-import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
+import { payrollCreditBody, payrollPartnerFor, payrollReverseBody } from './salary/payroll-sim.js';
+import { createRealisedSource } from './pay-yourself/realised-source.js';
+import { testPayInRailFor } from './pay-yourself/test-pay-in.js';
+import { salaryView } from './salary/salary.router.js';
+import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
+import { rampMetricsView } from './ops/ramp-metrics.js';
+import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
+import {
+  answerTestCardPartnerRecord,
+  TEST_CARD_PARTNER_RECORD_BASE,
+  TEST_CARD_PARTNER_RECORD_PATHS,
+} from './cards/test-card-partner-record.js';
 import {
   payoutCancelledBody,
   payoutFailedBody,
@@ -50,6 +64,8 @@ import {
   redriveBody,
 } from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
+import { BILL_RETURN_REASONS } from './business/business-bills.js';
+import { billView } from './router/business-bills.router.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';
 import { incomeSorterBody } from './sorter/income-sorter.js';
@@ -92,7 +108,9 @@ import { registerClosureCheck } from './closure/closure-check.js';
 import { registerAgentsTeamMembership, teamMembershipFor } from './agents/team-membership.js';
 import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
+import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { ageBusinessInvite, agePayYourselfRule, ageSharedPotInvite } from './test-age-door.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -121,6 +139,9 @@ registerProcessHooks(
  * the consumer on the other side cannot attach at all.
  */
 
+// The TEST age door (packages/service-kit test-age.ts): off unless TEST_AGE_DOOR=on, which refuses to start outside a
+// TEST stack, so it is read before anything opens.
+const testAgeDoor = testAgeDoorOpen(process.env);
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
@@ -158,18 +179,39 @@ const assetRegistry = createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SER
 /** Who takes add-money payments: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
 const onrampPartner = onrampPartnerFor(
   env.BANK_ONRAMP_PARTNER,
-  { catalogueJson: env.BANK_PAYIN_SIM_JSON, pageUrl: env.BANK_PAYIN_SIM_PAGE_URL, returnUrl: env.BANK_PAYIN_SIM_RETURN_URL },
+  {
+    catalogueJson: env.BANK_PAYIN_SIM_JSON,
+    pageUrl: env.BANK_PAYIN_SIM_PAGE_URL,
+    returnUrl: env.BANK_PAYIN_SIM_RETURN_URL,
+    deliverUrl: env.BANK_PAYIN_SIM_DELIVER_URL,
+  },
   { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
 );
 
 /** The TEST partner bank and ramp: none unless chosen, and it refuses to boot outside dev/test. It holds no money. */
 const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+/** The TEST partner's USDC pay-in a venue can withdraw to (J-bank-31): none unless the TEST chain is given. */
+const payInRail = testPayInRailFor(testPartner, {
+  rpcUrl: env.BANK_TEST_PAY_IN_RPC_URL,
+  chainId: env.BANK_TEST_PAY_IN_CHAIN_ID,
+  token: env.BANK_TEST_PAY_IN_TOKEN,
+});
 
 /** What each kind of activity line means for tax: the owner's map once set; a TEST one only when chosen on dev/test. */
 const taxEffects = taxEffectsFor(env.BANK_TAX_EFFECTS, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
 
+/** The card issuer adapter; `none` unless chosen. Held here so the simulator's TEST record can be mounted below. */
+const cardIssuer = cardIssuerFor(
+  env.BANK_CARD_ISSUER,
+  { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+  // The TEST partner card adapter's switches; refused at boot outside dev/test (CUSTODY-DELTA §4).
+  cardSimPartnerFor(env.BANK_CARD_SIM_PARTNER_JSON, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+);
+
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  // J-bank-24 #5: a webhook endpoint on loopback, over http, only on an explicit dev or test stack (the URL guard's hatch).
+  bankApi: { allowLocalHttp: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production' },
   taxEffects,
   // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
   custodyLayer: env.LEDGER_CUSTODY_LAYER,
@@ -219,7 +261,10 @@ const bank = createBankServices(sql, ledger, history, {
     : unconfiguredBusinessDirectory(),
   // `bank.activity.list`: svc-ledger `historyPage` (read-only), cursors signed under the service secret.
   activity: {
-    pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    // The TEST fault (J-home-ia-01 #5) fails every history read; boot refuses it outside an explicit dev or test process.
+    pages: parseActivityTestFault(env.BANK_ACTIVITY_TEST_FAULT, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV })
+      ? failingHistoryPages()
+      : createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
     cursorSecret: env.INTERNAL_SERVICE_SECRET,
     // Where the person's own svc-pay withdrawals went (J-portfolio-03 #2), asked by withdrawal id; svc-pay's tables stay its own.
     payWithdrawals: createPayWithdrawalAddressesClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET }),
@@ -252,6 +297,11 @@ const bank = createBankServices(sql, ledger, history, {
   },
   /** The owner's card dispute cap (J-bank-27 #4). Blank refuses `bank.card_dispute_cap_unset`; malformed refuses to start. */
   cardDisputeCap: parseDisputeCap(env.BANK_CARD_DISPUTE_CAP_JSON),
+  /** The card programme desk (J-bank-26): the cardholder sanctions list, and the simulator on a dev or test stack only. */
+  cardProgramme: {
+    sanctions: () => env.BANK_CARDHOLDER_SANCTIONS,
+    simulatorAllowed: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production',
+  },
   /**
    * THE OTHER HALF THAT WAS MISSING, and it was missing in the same shape.
    *
@@ -266,12 +316,7 @@ const bank = createBankServices(sql, ledger, history, {
    * deployment gets by SAYING ANYTHING.
    */
   cards: {
-    issuer: cardIssuerFor(
-      env.BANK_CARD_ISSUER,
-      { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
-      // The TEST partner card adapter's switches; refused at boot outside dev/test (CUSTODY-DELTA §4).
-      cardSimPartnerFor(env.BANK_CARD_SIM_PARTNER_JSON, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
-    ),
+    issuer: cardIssuer,
     /** The owner's list of assets a card may pay from (BK-ccrypto-01). Blank refuses `bank.card_spend_assets_unset`. */
     spendAssets: parseSpendAssets(env.BANK_CARD_SPEND_ASSETS),
     /** The owner's count of wrong PIN tries that block a card's PIN (J-bank-14 #3). Blank declines a PIN by name. */
@@ -285,6 +330,13 @@ const bank = createBankServices(sql, ledger, history, {
       rates: parseCashbackRates(env.BANK_CARD_CASHBACK_RATES_JSON),
       ...(env.IDENTITY_URL ? { rankTier: createIdentityRankTier(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) } : {}),
       simulatorPays: cardSimCashbackFor(env.BANK_CARD_SIM_CASHBACK, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+    },
+    /**
+     * Cashback earned on a partner-held capture (J-bank-13 #7) is handed to the rewards programme on the bus, once per
+     * authorisation; svc-campaigns owes it in USDC and pays it to the person's own wallet. Publishing moves no value.
+     */
+    cashbackEarned: async (earned) => {
+      await bus.publish('bankCardCashbackEarned', { ...earned }, { idempotencyKey: `bank.card_cashback:${earned.authorizationId}` });
     },
     /**
      * THE JIT CONVERSION RATE (§18), and what this wiring does NOT claim.
@@ -377,11 +429,28 @@ const bank = createBankServices(sql, ledger, history, {
   /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
   earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
   blockedRegionNotice: env.BANK_BLOCKED_REGION_NOTICE,
+  onboardingRequirements: env.BANK_ONBOARDING_REQUIREMENTS_JSON,
+  infoRequestUpload: env.BANK_INFO_REQUEST_UPLOAD_JSON,
+  reopenWindowDays: env.BANK_REOPEN_WINDOW_DAYS,
+  /** The payroll network for salary by direct deposit: unset unless the TEST stand-in was chosen (dev/test, TEST partner). */
+  payrollPartner: payrollPartnerFor(
+    env.BANK_PAYROLL_PARTNER,
+    testPartner,
+    { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+    env.BANK_PAYROLL_SIM_RECORDS_DIR?.trim() || undefined,
+  ),
+  directDepositReversalDays: env.BANK_DIRECT_DEPOSIT_REVERSAL_DAYS,
+  /** J-bank-31: the partner's pay-in, and svc-trade's read of the person's realised trading result. */
+  payInRail,
+  realisedSource: createRealisedSource({ tradeUrl: env.TRADE_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: ledgerS2s }),
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
   incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT,
   sharedPotInviteMinutes: env.BANK_SHARED_POT_INVITE_MINUTES,
+  businessInviteMinutes: env.BANK_BUSINESS_INVITE_MINUTES,
+  // The TEST bill reader stands in only where the TEST partner bank does.
+  billReader: testPartner ? env.BANK_BILL_READER : undefined,
   sharedPotPeopleCap: env.BANK_SHARED_POT_PEOPLE_CAP,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
@@ -443,6 +512,11 @@ const approvalConsumer = env.IDENTITY_URL
   : unwiredApprovalConsumer();
 
 export const appRouter = createBankRouter(bank, {
+  // The person's own extra checks (BK-safe-01): read from identity on every send to another person. No IDENTITY_URL refuses
+  // those sends with bank.extra_controls_unset rather than acting as if no extras were set.
+  extraControls: env.IDENTITY_URL
+    ? createIdentityExtraControls(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+    : unconfiguredExtraControls(),
   scheduledTransfersEnabled: env.SCHEDULED_TRANSFERS_ENABLED,
   interestAccrualEnabled: env.INTEREST_ACCRUAL_ENABLED,
   loanAccrualEnabled: env.LOAN_ACCRUAL_ENABLED,
@@ -451,6 +525,8 @@ export const appRouter = createBankRouter(bank, {
   autoInvestConvertWired: usableTradeConvertUrl(env.TRADE_URL),
   approvals: approvalConsumer,
   stepUp: createStepUpGate({ mode: env.BANK_STEP_UP_MONEY_OUT, approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
+  // A business statement reaching back past the partner's strong customer authentication age always needs one (J-bank-23 #3).
+  statementStepUp: createStepUpGate({ mode: 'required', approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
 });
 export type AppRouter = typeof appRouter;
 
@@ -466,8 +542,32 @@ const edgeContext = createEdgeContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
+registerTestAgeDoor(app, {
+  open: testAgeDoor,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  subjects: {
+    'shared-pot-invite': ageSharedPotInvite(sql),
+    'business-invite': ageBusinessInvite(sql),
+    'pay-yourself-rule': agePayYourselfRule(sql),
+  },
+  installRawBody: false,
+});
 registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerAgentsTeamMembership(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, read: (u, b) => teamMembershipFor(sql, u, b) });
+// How a person pays for agent usage, and one payment of a sealed window, carried out by their partner (J-agents-01).
+registerAgentsUsagePayment(app, {
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  freeze: ledgerPostingFreeze(env.LEDGER_URL),
+  businessPayer: (businessId) => firstAdministrator(sql, businessId),
+  heldBy: (userId) => {
+    const held = moneyHeldBy(testPartner, userId, env.LEDGER_CUSTODY_LAYER);
+    return held === 'partner' && testPartner
+      ? { kind: 'partner', bank: testPartner.bank, partnerId: 'test' }
+      : { kind: held === 'partner' ? 'none' : held };
+  },
+});
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 app.get('/ready', async () =>
@@ -793,12 +893,36 @@ jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
 );
 /**
+ * A business's bill payments (J-bank-20 #4, #5). `bill-pay/run-due` sends the scheduled payments whose day has come, once
+ * each (a cancelled one is never picked up). `bill-pay/returned` is the partner's report that the payee's bank sent a
+ * payment back: the amount is given back to the business's partner account once. Signed job doors, never a customer's.
+ */
+jobDoor('/internal/jobs/bill-pay/run-due', z.object({ limit: z.number().int().min(1).max(500) }).strict(), (b) =>
+  bank.businessBills.runDue(b),
+);
+jobDoor(
+  '/internal/jobs/bill-pay/returned',
+  z.object({ paymentId: z.string().guid(), reason: z.enum(BILL_RETURN_REASONS) }).strict(),
+  async (b) => billView(await bank.businessBills.returned(b)),
+);
+/**
  * The pay-in partner's side of add money (J-bank-02 #3, #5): it says a payment it opened was paid, and the bank credits
  * the quote's receive amount once. A signed job door, never a customer or a staff session: with no partner wired it
  * refuses `bank.fiat_ramp_socket`. On the stack only the TEST stand-in (`payin-sim`) answers, and its page (mounted only
  * with it) is where the payer approves.
  */
-jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, (b) => bank.addMoney.paid(b));
+jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, async (b) => {
+  const request = await bank.addMoney.paid(b);
+  // The partner's own book (J-bank-28 #3): it said this order was paid.
+  if (request.onramp) onrampPartner?.book?.paid(request.onramp.onrampId);
+  return request;
+});
+/** The same partner says a credited payment was sent back (J-bank-02 #7): the credit is taken out once, as it reports. */
+jobDoor('/internal/jobs/payin-sim/returned', payinReturnedBody, async (b) => {
+  const request = await bank.addMoney.returned(b);
+  if (request.onramp) onrampPartner?.book?.returned(request.onramp.onrampId);
+  return request;
+});
 /**
  * The printer's and courier's side of a physical card (BK-cissue-03, J-bank-13 #4): a card produced, shipped, delivered.
  * A signed job door, never a customer or a staff session. No printer or courier is connected (`hardware`): on any
@@ -807,6 +931,107 @@ jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, (b) => bank.addMoney.pai
  */
 jobDoor('/internal/jobs/card-sim/shipment', cardShipmentJobBody, (b) => bank.cardOrders.recordShipment(b));
 if (onrampPartner) registerPayinSimPage(app, bank.addMoney, onrampPartner);
+/**
+ * LOCAL TEST: the TEST partner bank's own book on loopback (`partner/test-partner-record.ts`), so a journey compares what
+ * the app shows with what the partner itself recorded. Mounted only with the TEST partner, which refuses to start outside
+ * `dev`/`test`; a caller off loopback is refused.
+ */
+if (testPartner) {
+  const record = testPartner;
+  const read = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    const below = req.url.split('?')[0]!.slice(TEST_PARTNER_RECORD_BASE.length);
+    const [status, body] = answerTestPartnerRecord(record, req.method, below, req.body ?? null);
+    return reply.code(status).header('cache-control', 'no-store').send(body);
+  };
+  app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/direct-debits`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/dd-refund`, read);
+}
+/**
+ * LOCAL TEST: the TEST ramp partner's own report on loopback (J-bank-28 #3), so a journey compares the finance desk's ramp
+ * metrics with what the partner itself recorded. Mounted only with the pay-in stand-in, which refuses to start outside
+ * `dev`/`test`; a caller off loopback is refused.
+ */
+const rampBook = onrampPartner?.book;
+if (rampBook) {
+  app.get('/test-ramp-partner/report', async (req, reply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    return reply
+      .code(200)
+      .header('cache-control', 'no-store')
+      .send({ label: 'TEST', value: rampMetricsView(rampBook.report()).partner });
+  });
+  // The TEST age door: the partner's clock passes for one order it opened (no wall-clock wait in a journey).
+  app.post('/test-ramp-partner/age', async (req, reply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    const body = (req.body ?? {}) as { orderId?: unknown; seconds?: unknown };
+    if (typeof body.orderId !== 'string' || typeof body.seconds !== 'number') {
+      return reply.code(400).send({ error: 'orderId and seconds are required' });
+    }
+    const aged = rampBook.age(body.orderId, Math.round(body.seconds * 1000));
+    return reply
+      .code(aged ? 200 : 404)
+      .header('cache-control', 'no-store')
+      .send(aged ? { label: 'TEST', aged: true } : { error: 'no such order' });
+  });
+}
+/**
+ * LOCAL TEST: the TEST card partner's own book on loopback (`cards/test-card-partner-record.ts`), so a journey compares
+ * the app's dispute credit, balance and loss liability with what the card partner itself recorded (J-bank-27 #3 #4).
+ * Mounted only when the issuer is the simulator, which refuses a live posture; a caller off loopback is refused.
+ */
+const cardRecord = cardIssuer.testRecord?.bind(cardIssuer);
+if (cardRecord) {
+  const recorder = { programme: cardIssuer.programme, testRecord: cardRecord };
+  const read = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    const below = req.url.split('?')[0]!.slice(TEST_CARD_PARTNER_RECORD_BASE.length);
+    const [status, body] = answerTestCardPartnerRecord(recorder, req.method, below, req.body ?? null);
+    return reply.code(status).header('cache-control', 'no-store').send(body);
+  };
+  for (const path of TEST_CARD_PARTNER_RECORD_PATHS) {
+    if (path === '/venue') app.get(`${TEST_CARD_PARTNER_RECORD_BASE}${path}`, read);
+    else app.post(`${TEST_CARD_PARTNER_RECORD_BASE}${path}`, read);
+  }
+}
+/**
+ * The payroll network's side of salary paid in by direct deposit (J-bank-30, BK-salary-03): a credit to account details
+ * the partner issued, and the employer's reversal of one. Signed job doors, never a customer or a staff session: with no
+ * network wired they refuse `rail.bank`, and on the stack only the TEST stand-in (`payroll-sim`) answers, called by a test
+ * as the network would. The same network id again moves nothing twice.
+ */
+jobDoor('/internal/jobs/payroll-sim/credit', payrollCreditBody, async (b) => salaryView(await bank.salary.credit(b)));
+jobDoor('/internal/jobs/payroll-sim/reverse', payrollReverseBody, async (b) =>
+  salaryView({ credit: await bank.salary.reverse(b.networkId), replayed: false }),
+);
+/** The TEST partner watches its TEST pay-in addresses on the TEST chain, one pass at a time (J-bank-31). */
+if (payInRail) {
+  let polling = false;
+  setInterval(() => {
+    if (polling) return;
+    polling = true;
+    payInRail
+      .poll()
+      .catch((err: unknown) =>
+        process.stderr.write(
+          `${JSON.stringify({ level: 'warn', msg: 'bank.test_pay_in.poll_failed', message: err instanceof Error ? err.message : String(err) })}\n`,
+        ),
+      )
+      .finally(() => {
+        polling = false;
+      });
+  }, 1_000).unref();
+}
+/**
+ * Pay yourself (J-bank-31): every weekly rule whose day has come prepares one move for the person's signature. A signed
+ * job door, never a customer's; it prepares, and sends nothing.
+ */
+jobDoor('/internal/jobs/pay-yourself/run-due', z.object({ limit: z.number().int().min(1).max(500) }).strict(), (b) =>
+  bank.payYourself.runDue(b),
+);
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 
 /**
@@ -887,6 +1112,7 @@ const recoveryJobs = startBankRecoveryJobs({
   transferNotices: { announceUnannounced: (limit) => bank.personalPay.announceUnannounced(limit) },
   cashOuts: bank.cashOut,
   receivedHolds: bank.receivedHolds,
+  webhookDeliveries: bank.bankApi,
   onWarn: (message) => app.log.warn(message),
   onError: (name, err) => app.log.error({ err, job: name }, 'bank recovery job tick failed'),
   onResult: (name, counts) =>

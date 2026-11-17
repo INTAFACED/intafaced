@@ -5,7 +5,7 @@
  * page says so. The count comes from the case history (`kyc_case_events`), so it cannot drift from the cases.
  * At the cap a new request is refused `kyc.attempts_exhausted` with the seconds left, never silently dropped.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 
 export class KycAttemptsError extends Error {
@@ -62,7 +62,7 @@ export function parseKycAttemptLimit(env: {
  * Locked when the last `maxDenials` rejections all fall inside one window, until `lockoutHours` after the newest of
  * them. That holds for the whole lockout even when it is longer than the window. `denialsInWindow` counts back from now.
  */
-export async function readKycAttempts(sql: Sql, limit: KycAttemptLimit | null, userId: string): Promise<KycAttempts & { now: Date }> {
+export async function readKycAttempts(sql: Queryable, limit: KycAttemptLimit | null, userId: string): Promise<KycAttempts & { now: Date }> {
   if (!limit) {
     const [{ now }] = await sql<[{ now: Date }]>`SELECT now() AS now`;
     return { limit: null, denialsInWindow: null, lockedUntil: null, now };
@@ -89,7 +89,7 @@ export async function readKycAttempts(sql: Sql, limit: KycAttemptLimit | null, u
 }
 
 /** Before a request is stored: at the cap, refused with the seconds left. */
-export async function assertAttemptsLeft(sql: Sql, limit: KycAttemptLimit | null, userId: string): Promise<void> {
+export async function assertAttemptsLeft(sql: Queryable, limit: KycAttemptLimit | null, userId: string): Promise<void> {
   const { lockedUntil, now } = await readKycAttempts(sql, limit, userId);
   if (!lockedUntil) return;
   const retryAfterSeconds = Math.max(1, Math.ceil((new Date(lockedUntil).getTime() - now.getTime()) / 1000));

@@ -4,11 +4,11 @@ import { z } from 'zod';
  * THE CAPITAL MONITOR (RC-ops-console-06, J-ops-console-24 #1): INTAFACED's own funds beside its buffer thresholds.
  *
  * Four sources, each named on every figure, and none turned into a zero when it cannot be read:
- *   · Our own funds at each named place (a venue builder account, a partner reserve, a treasury wallet; OWNER 288), the
+ *   · Our own funds at each named place (a venue builder account, a partner reserve, a treasury wallet), the
  *     ledger's figure beside the outside figure it is checked against and that figure's own time (`places`).
  *   · INTAFACED's own funds, from svc-ledger's `ownFunds` read: house and module accounts only. Every account that holds a
  *     customer's money (`isCustomerBalanceAccount` in `packages/ledger-client/src/custody-layer.ts`) is left out in the
- *     ledger's query, so customer money is never counted as ours (OWNER 226), and so are the pots holding someone else's
+ *     ledger's query, so customer money is never counted as ours, and so are the pots holding someone else's
  *     money outside that split (a confirmed staff hold, a locked campaign reward, the futures clearing pot). Treasury
  *     boundary accounts are the outside world's side of a rail, not funds, and the burn account holds tokens out of supply.
  *   · The builder account at each venue, as the venue reports it with its as-of time, beside the venue's published minimum
@@ -58,7 +58,7 @@ export const ledgerOwnFundsAccountSchema = z.object({
 export type LedgerOwnFundsAccount = z.infer<typeof ledgerOwnFundsAccountSchema>;
 
 /**
- * The named places our own money sits outside our own book (project-state OWNER.md item 288; b2 change 3): our builder
+ * The named places our own money sits outside our own book (b2 change 3): our builder
  * account at a venue, a reserve a partner holds of ours, our treasury wallet on a chain. Each is one ledger account per
  * place and asset (`venueBuilderAccount`, `partnerReserve`, `treasuryWallet` in ledger-client), never a customer's.
  */

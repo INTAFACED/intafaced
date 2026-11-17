@@ -288,3 +288,42 @@ describe('a note and a payment reference travel with a transfer', () => {
     expect(requests[0]!.body.transferId).toBe(transferId);
   });
 });
+
+describe('a move between spaces the partner bank holds (OWNER 226)', () => {
+  const from = {
+    id: '7880f322-b31d-4de1-a3eb-ebdd38f11709',
+    assetId: 'USDT',
+    kind: 'primary' as const,
+    name: 'Primary',
+    balance: '100',
+    goalTarget: null,
+    lockedUntil: null,
+    ledgerAccount: null,
+  };
+  const to = { ...from, id: '422cdfae-55ad-43b8-a36c-ac93d6e34715', kind: 'named' as const, name: 'Trip TEST' };
+  const move = (reply: unknown) =>
+    createMoneyClient(createApiClient({ fetch: async () => wire(reply) })).transfer([from, to], {
+      transferId: 'f4f21135-782d-4796-b6e8-342ef967e0ea',
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: '20',
+    });
+  const partnerMove = { id: 'TEST-move-1', label: 'TEST partner bank', movedAt: '2026-11-15T00:00:00.000Z' };
+
+  it('is confirmed with the partner’s move and says the ledger posted nothing', async () => {
+    const result = await move({ ledgerTxId: null, amount: '20', partnerMove });
+    expect(result).toMatchObject({ ok: true, data: { amount: '20', partnerMoveId: 'TEST-move-1', heldBy: 'TEST partner bank' } });
+    expect(result.ok && 'ledgerTxId' in result.data).toBe(false);
+    expect(result.ok && 'ledgerPosting' in result.data && result.data.ledgerPosting).toMatch(/^None/);
+  });
+
+  // An unreadable reply to a write can't prove nothing moved, so it is "uncertain", never a confirmation.
+  it('does not confirm a reply that names neither book, or both', async () => {
+    expect(await move({ ledgerTxId: null, amount: '20', partnerMove: null })).toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(await move({ ledgerTxId: 'tx-1', amount: '20', partnerMove })).toMatchObject({ ok: false, reason: 'uncertain' });
+  });
+
+  it('still reads a ledger reply as before', async () => {
+    expect(await move({ ledgerTxId: 'tx-1', amount: '20', partnerMove: null })).toMatchObject({ ok: true, data: { ledgerTxId: 'tx-1' } });
+  });
+});

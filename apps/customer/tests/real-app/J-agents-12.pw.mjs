@@ -417,22 +417,23 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
   }
 });
 
-/** What a key may read of a person's sessions, each once, with an input naming the person's session A or its first run. */
-const readInputs = () => ({
-  'session.detail': { sessionId: kept('sessionId') },
-  'session.selected': undefined,
-  'session.log': { sessionId: kept('sessionId'), limit: 50 },
-  'session.mine': { limit: 10 },
-  'session.events': { sessionId: kept('sessionId'), limit: 50 },
-  'run.list': { sessionId: kept('sessionId'), limit: 50 },
-  'run.get': { runId: kept('runId') },
-  'run.events': { runId: kept('runId'), limit: 50 },
-  'usage.current': { sessionId: kept('sessionB') },
-  'log.mine': { limit: 50 },
-});
+/**
+ * What a key may read of a person's sessions, each once, with an input naming the person's session A or its first run.
+ * The list is the agents service's own (services/svc-agents/src/session-reads.ts), whose unit test compares it with the
+ * router, so a read added to the router fails on its own pull request rather than here on main (#8495).
+ */
+async function readInputs() {
+  const { sessionReadInputs } = await import(new URL('../../../../services/svc-agents/dist/router.js', import.meta.url).href);
+  return sessionReadInputs({
+    sessionId: kept('sessionId'),
+    runId: kept('runId'),
+    requestId: kept('requestId'),
+    sessionB: kept('sessionB'),
+  });
+}
 
 test(`${J} #1 calls the session API with a key lacking the agents read scope: refused`, async () => {
-  const inputs = readInputs();
+  const inputs = await readInputs();
   // Every read of the session API, as the service's own router lists them, is tried exactly once. The session API is the
   // part of the router about a person's sessions and what ran in them: their sessions (session.*), runs (run.*), usage
   // windows (usage.*) and log (log.*). The other routers (routes, the doors, ops, the agents' own rooms) are not
@@ -562,6 +563,8 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
     cost: kept('cost'),
     assetId: kept('assetId'),
     metered: true,
+    // An ask that names no market is not research: it carries no provenance (J-agents-10 #4).
+    provenance: null,
     refusalCodes: [],
     ...stamps,
   });
@@ -578,6 +581,8 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
     cost: kept('laterCost'),
     assetId: kept('assetId'),
     metered: true,
+    // An ask that names no market is not research: it carries no provenance (J-agents-10 #4).
+    provenance: null,
     refusalCodes: [],
     ...stamps,
   });
@@ -594,6 +599,7 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
     cost: null,
     assetId: null,
     metered: null,
+    provenance: null,
     refusalCodes: [TASK_REFUSAL.code],
     ...stamps,
   });

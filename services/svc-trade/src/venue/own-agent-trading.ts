@@ -140,6 +140,8 @@ export interface AllowanceView {
   readonly agentAddress: string;
   /** Whether the venue's own record still lists the agent permission on the sub-account. */
   readonly permissionOnVenue: boolean;
+  /** Whether this service holds a signer for the allowance's agent key now. False once revoked: our copy is dropped and signs nothing more. */
+  readonly agentKeyHeld: boolean;
   readonly revokedAt: Date | null;
   readonly next: AllowanceNext | null;
   /** The venue's refusal of the agent permission, when the allowance was abandoned for one. */
@@ -426,6 +428,7 @@ export class OwnAgentTrading {
       endsAt: a.endsAt,
       agentAddress: a.agentAddress,
       permissionOnVenue: onVenue,
+      agentKeyHeld: this.signers.has(a.agentAddress),
       revokedAt: a.revokedAt,
       next,
       refusal,
@@ -570,6 +573,38 @@ export class OwnAgentTrading {
       clientOrderKey: key,
       builderFee: null,
     };
+  }
+
+  /**
+   * What a rebalance of the agent's sub-account works from (J-agents-18 #1 #2; own-agent-rebalance.ts): the agent's
+   * usable allowance once svc-agents' gate allows the sub-account, the venue, and what the allowance has left. Reads only.
+   */
+  async rebalanceRoom(
+    principal: Principal,
+    agentIdRaw: string,
+  ): Promise<{ agentId: string; allowance: AllowanceRecord; venue: UserVenue; account: UserVenueAccount; left: Amount }> {
+    assertPerson(principal);
+    const agentId = uuid(agentIdRaw, 'agentId');
+    const a = await this.usable(principal.userId, agentId);
+    await this.assertPolicy(principal.userId, agentId, a.subAccount);
+    const venue = await this.venue();
+    const left = allowanceLeft(a.amount, await this.deps.store.draws(a.userId, a.allowanceId));
+    return { agentId, allowance: a, venue, account: this.sub(a), left };
+  }
+
+  /** Whether the venue this service trades on is a TEST venue. */
+  async onTestVenue(): Promise<boolean> {
+    return isTestVenue((await this.venue()).venue);
+  }
+
+  /** A market order's terms on the allowance's sub-account as `place` sets them: market, worst price and notional. Reads only. */
+  async quote(
+    venue: UserVenue,
+    a: AllowanceRecord,
+    order: { readonly side: 'buy' | 'sell'; readonly base: string; readonly size: Amount },
+  ): Promise<{ symbol: string; lotSize: Amount; price: Amount; notional: Amount }> {
+    const t = await this.terms(venue, a, { side: order.side, base: order.base, size: formatAmount(order.size), type: 'market' });
+    return { symbol: t.market.symbol, lotSize: t.market.lotSize, price: t.price, notional: mul(t.size, t.price, 'ceil') };
   }
 
   /**
@@ -724,7 +759,9 @@ export class OwnAgentTrading {
         await this.deps.door.prepare(
           principal,
           { owner: a.owner, subAccount: a.subAccount, signer: { role: 'agent', address: a.agentAddress }, intent },
-          { agentAccount: true },
+          // The order's worst price is already the owner's agent bound against the book (`terms`), so the door's own
+          // spot protection is not applied on top of it.
+          { agentAccount: true, ownWorstPrice: true },
         )
       ).prepared;
     } catch (error) {

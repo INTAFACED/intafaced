@@ -72,7 +72,7 @@ function service(rows: Balance[], tickers?: Record<string, string>, assets: Asse
   const ledger = {
     balances: async (ownerType: string, ownerId: string) =>
       rows.filter((r) => r.account.ownerType === ownerType && r.account.ownerId === ownerId),
-  } as unknown as Pick<LedgerClient, 'balances'>;
+  } as Pick<LedgerClient, 'balances'>;
   const source: TickerSource | undefined = tickers
     ? {
         prices: async (): Promise<PriceBook> => ({
@@ -84,8 +84,7 @@ function service(rows: Balance[], tickers?: Record<string, string>, assets: Asse
   return new PortfolioService(ledger, noSpaces, { ...(source ? { tickers: source } : {}), assets, now: () => NOW });
 }
 
-const call = (svc: PortfolioService, userId: string) =>
-  createBankRouter({ portfolio: svc } as unknown as BankServices).createCaller(signed(userId));
+const call = (svc: PortfolioService, userId: string) => createBankRouter({ portfolio: svc } as BankServices).createCaller(signed(userId));
 
 describe('bank.portfolio.allocation', () => {
   const rows = [

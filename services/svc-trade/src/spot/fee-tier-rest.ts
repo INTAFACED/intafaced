@@ -23,10 +23,36 @@ import {
   trialGiving,
   trialsInForce,
 } from './fee-tier-store.js';
+import { endExpiredPasses, passInForce, passesOf } from './tier-passes.js';
 import { nextSnapshotInstant, nextThreshold, tierForVolume, volumeWindow } from './fee-tiers.js';
 import { privateRead } from '../route-inventory.js';
 
 export const ACCOUNT_FEE_TIER_PATH = '/api/v1/account/fee-tier';
+
+/** Trial pass rows a read returns, newest grant first. */
+export const FEE_TIER_PASS_ROWS = 10;
+
+/**
+ * Each tier's published spot rates in the owner's default pair group, and its taker multiplier: the tier's taker rate
+ * over regular's (0.9 is a tenth off). Null where the schedule has no rows, or no row for the tier there; the multiplier
+ * is null when regular's taker rate is 0.
+ */
+export function tierRates(
+  schedule: OwnerFeeSchedule,
+  tierIds: readonly string[],
+): Array<{ tierId: string; makerBps: number; takerBps: number; takerMultiplier: string | null }> | null {
+  if (schedule.published !== true || !schedule.rows || !schedule.defaultPairGroup) return null;
+  const group = schedule.defaultPairGroup;
+  const row = (tierId: string) => schedule.rows?.find((r) => r.pairGroup === group && r.tierId === tierId) ?? null;
+  const regular = row(REGULAR_FEE_TIER);
+  if (!regular) return null;
+  return [REGULAR_FEE_TIER, ...tierIds].flatMap((tierId) => {
+    const r = row(tierId);
+    if (!r) return [];
+    const multiplier = regular.takerBps > 0 ? (r.takerBps / regular.takerBps).toFixed(4).replace(/\.?0+$/, '') : null;
+    return [{ tierId, makerBps: r.makerBps, takerBps: r.takerBps, takerMultiplier: multiplier }];
+  });
+}
 
 /** Snapshot rows a read returns, newest first. */
 export const FEE_TIER_SNAPSHOT_ROWS = 10;
@@ -66,12 +92,16 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
     }
     const userId = principal.userId;
     const program = schedule.tierProgram ?? null;
-    const [inForce, snapshots, trials] = await Promise.all([
+    // A pass whose span is over ends here if the sweep has not ended it yet: once, at its end time (tier-passes.ts).
+    await endExpiredPasses(deps.sql, at, userId);
+    const [inForce, snapshots, trials, pass, passes] = await Promise.all([
       snapshotInForce(deps.sql, userId, at),
       snapshotsOf(deps.sql, userId, FEE_TIER_SNAPSHOT_ROWS),
       trialsInForce(deps.sql, userId, at),
+      passInForce(deps.sql, userId, at),
+      passesOf(deps.sql, userId, FEE_TIER_PASS_ROWS),
     ]);
-    const tier = tierOf(schedule, inForce, trials);
+    const tier = tierOf(schedule, inForce, trials, pass);
     // The VIP trial the tier comes from (vip-review.ts), or none. A snapshot that gives the same tier is named instead:
     // the tier does not end with the trial.
     const trial = inForce?.tierId === tier ? null : trialGiving(tier, trials);
@@ -89,6 +119,9 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
         nextSnapshotAt: null,
         lastSnapshot: null,
         trial: null,
+        pass,
+        passes,
+        rates: null,
         snapshots,
         excluded: VOLUME_EXCLUSIONS,
       });
@@ -127,6 +160,12 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
       nextSnapshotAt: nextAt?.toISOString() ?? null,
       lastSnapshot: source,
       trial,
+      pass,
+      passes,
+      rates: tierRates(
+        schedule,
+        program.thresholds.map((threshold) => threshold.tierId),
+      ),
       snapshots,
       excluded: VOLUME_EXCLUSIONS,
     });

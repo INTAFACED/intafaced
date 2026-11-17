@@ -10,7 +10,7 @@ import { z } from 'zod';
  */
 
 /**
- * Whether the owner recorded a GO on INTACHAIN P1 (decision D-134, merged as #4640). The GO clears only the P1 blocker:
+ * Whether the owner recorded a GO on INTACHAIN P1 (decision D-134). The GO clears only the P1 blocker:
  * bridge, stake and unstake still stop at the missing chain and bridge services, every action stays not audited, and no
  * testnet is labelled mainnet.
  */

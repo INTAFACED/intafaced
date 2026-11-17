@@ -10,7 +10,7 @@ it.each(['', '   ', undefined])('L380 blank/missing clientAlgoId %j is refused (
     cancelChild: async () => {},
     bestOpposingPrice: async () => 50n,
     markFor: async (m: string) => ({ marketId: m, price: 50n, asOf: new Date(t), quality: 'mid' as const }),
-  } as unknown as TwapEnginePorts);
+  } as TwapEnginePorts);
   expect(() =>
     e.create(
       '22222222-2222-2222-2222-222222222222',

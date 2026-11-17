@@ -518,8 +518,9 @@ if (!db) {
       expect(await code(s.issueVoucher({ campaignId: c.id, code: 'TEST-E1', actor: A }))).toBe('campaign.invalid_transition');
       // The database holds the rule too: a voucher row naming a revision that was never approved is refused.
       await expect(
-        db!.sql`INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by)
-          VALUES ('vch_x', ${c.id}, 'X1X1', 'voucher:issue:x', 9, 'USDT', '1', ${A})`,
+        db!
+          .sql`INSERT INTO campaigns.vouchers (id, campaign_id, code, code_hash, code_last4, issue_key, revision, face_asset, face_amount, issued_by)
+          VALUES ('vch_x', ${c.id}, 'X1X1', encode(sha256('X1X1'::bytea), 'hex'), 'X1X1', 'voucher:issue:x', 9, 'USDT', '1', ${A})`,
       ).rejects.toThrow(/vouchers_revision_fk/);
       expect(await s.listVouchers({ campaignId: c.id })).toEqual([]);
     });

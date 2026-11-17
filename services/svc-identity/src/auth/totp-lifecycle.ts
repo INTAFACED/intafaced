@@ -12,7 +12,7 @@
  * Secrets and codes are never logged or returned except the new secret at replace start.
  */
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { AuthError } from './auth-service.js';
 import { hashToken } from './passwords.js';
 import { recordSuccess, reserveAttempt } from './attempt-lockout.js';
@@ -76,7 +76,7 @@ export class TotpLifecycle {
     return this.deps.now?.() ?? new Date();
   }
 
-  private async lock(tx: Sql, userId: string): Promise<UserRow> {
+  private async lock(tx: Queryable, userId: string): Promise<UserRow> {
     const rows = await tx<UserRow[]>`
       SELECT status, email, totp_secret, totp_label, totp_enrolled_at, totp_last_step, recovery_code_hashes
       FROM users WHERE id = ${userId} FOR UPDATE`;
@@ -119,12 +119,13 @@ export class TotpLifecycle {
    * Count one MFA attempt, then prove the current authenticator inside the locked write. Returns whether a
    * recovery code was spent. The TOTP step is recorded so the same code cannot be replayed.
    */
-  private async proveCurrent(tx: Sql, userId: string, u: UserRow, code: string): Promise<{ recoveryCodeSpent: boolean }> {
+  private async proveCurrent(tx: Queryable, userId: string, u: UserRow, code: string): Promise<{ recoveryCodeSpent: boolean }> {
     const secret = this.openSecret(u.totp_secret!);
-    const matched = secret === null ? null : matchTotpStep(secret, code);
-    if (matched !== null) {
+    if (secret !== null && matchTotpStep(secret, code) !== null) {
       const last = u.totp_last_step === null ? null : BigInt(u.totp_last_step);
-      if (last === null || matched > last) {
+      // Only an unspent step matches: a fresh code equal to a spent step's code is still this step's code.
+      const matched = matchTotpStep(secret, code, { after: last });
+      if (matched !== null) {
         await tx`UPDATE users SET totp_last_step = ${matched.toString()} WHERE id = ${userId}`;
         return { recoveryCodeSpent: false };
       }

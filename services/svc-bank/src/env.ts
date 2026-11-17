@@ -12,6 +12,7 @@ import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
 import { PAYOUT_PARTNER_SETTINGS } from './cash-out/payout-sim.js';
+import { PAYROLL_PARTNER_SETTINGS } from './salary/payroll-sim.js';
 import { ONRAMP_PARTNER_SETTINGS } from './ramps/payin-sim.js';
 import { DD_SCHEME_SETTINGS } from './direct-debits/scheme.js';
 
@@ -308,6 +309,35 @@ const schema = serviceEnvSchema
        */
       BANK_PAYOUT_SIM_RECORDS_DIR: z.string().optional(),
       /**
+       * WHO CARRIES SALARY PAID IN BY DIRECT DEPOSIT (J-bank-30). `none` (default) | `payroll-sim`.
+       *
+       * `none` refuses every salary door with `rail.bank`. `payroll-sim` is a TEST payroll network for the local stack and
+       * journey tests only (`salary/payroll-sim.ts`): its credits and reversals are signed job calls, and the money is the
+       * TEST partner bank's. The service refuses to start with it outside dev or test, or without `BANK_TEST_PARTNER=test`.
+       */
+      BANK_PAYROLL_PARTNER: z.enum(PAYROLL_PARTNER_SETTINGS).default('none'),
+      /**
+       * LOCAL TEST: the folder where the payroll stand-in keeps its own record of rail `payroll-sim`. Unset or blank,
+       * nothing is written. Set in a process whose raw `APP_ENV` is not exactly `dev` or `test`, or not absolute, the
+       * service refuses to start.
+       */
+      BANK_PAYROLL_SIM_RECORDS_DIR: z.string().optional(),
+      /**
+       * The owner's window, in whole days after a salary credit arrived, in which the employer may reverse it (J-bank-30).
+       * NO DEFAULT. Blank / unset / not a whole number of days from 1 to 3650 → every reversal refuses
+       * `bank.direct_deposit_reversal_window_unset`.
+       */
+      BANK_DIRECT_DEPOSIT_REVERSAL_DAYS: z.string().optional(),
+      /**
+       * LOCAL TEST: the TEST partner's USDC pay-in (J-bank-31, `pay-yourself/test-pay-in.ts`): the stack's loopback TEST
+       * chain RPC, its chain id and the TEST USD token the partner credits as USDC. All three set, with
+       * `BANK_TEST_PARTNER=test`, the TEST partner gives each person a TEST pay-in address a venue can withdraw to, and
+       * credits what arrives there once. Any blank: no pay-in, and every pay yourself write refuses `bank.pay_in_unset`.
+       */
+      BANK_TEST_PAY_IN_RPC_URL: z.string().optional(),
+      BANK_TEST_PAY_IN_CHAIN_ID: z.string().optional(),
+      BANK_TEST_PAY_IN_TOKEN: z.string().optional(),
+      /**
        * WHO TAKES ADD-MONEY PAYMENTS ON A TEST STACK. `none` (default) | `payin-sim` (J-bank-02 #3, #5).
        *
        * `none` leaves fiat pay-in as `socket.psp-partners`: an accepted price still ends `bank.fiat_ramp_socket` and nothing
@@ -323,6 +353,12 @@ const schema = serviceEnvSchema
       BANK_PAYIN_SIM_PAGE_URL: z.string().optional(),
       /** LOCAL TEST: the customer app's loopback page the stand-in sends the payer back to. Read only with `payin-sim`. */
       BANK_PAYIN_SIM_RETURN_URL: z.string().optional(),
+      /**
+       * LOCAL TEST: the TEST partner's delivery on the stack's TEST chain (J-dex-protocol-05 #4), loopback. Set, a purchase
+       * for the buyer's own wallet is delivered there once the payer approves, and the stand-in says it paid with that
+       * transfer. Unset, a wallet purchase waits for the partner's "paid" job call. Read only with `payin-sim`.
+       */
+      BANK_PAYIN_SIM_DELIVER_URL: z.string().optional(),
 
       /**
        * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.
@@ -581,6 +617,13 @@ const schema = serviceEnvSchema
       BANK_CARD_DISPUTE_CAP_JSON: z.string().optional(),
 
       /**
+       * The owner's cardholder sanctions list (J-bank-26 #2): names separated by `|`, each screened against every new card
+       * programme cardholder and their beneficial owners. NO DEFAULT. Blank refuses `bank.cardholder_screening_unset`
+       * and no cardholder is created.
+       */
+      BANK_CARDHOLDER_SANCTIONS: z.string().optional(),
+
+      /**
        * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",
        * "ownership": "<text>" }`, what slashing means for a saver and who owns a staked saving. NO DEFAULT. Blank / unset / not in shape → `earn.riskDisclosure` refuses
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.
@@ -593,6 +636,27 @@ const schema = serviceEnvSchema
        * doors refuse there either way (`denied.region_blocked`), so the wording never decides who is blocked.
        */
       BANK_BLOCKED_REGION_NOTICE: z.string().optional(),
+
+      /**
+       * The owner's own requirements for holding a bank account, shown beside the partner's in onboarding (BK-acct-05,
+       * J-bank-17 #1), as a JSON array of plain sentences. NO DEFAULT. Blank / unset / not in shape → onboarding shows the
+       * partner's steps and requirements and names the owner's as not published (`bank.onboarding_requirements_unset`).
+       */
+      BANK_ONBOARDING_REQUIREMENTS_JSON: z.string().optional(),
+
+      /**
+       * The owner's size cap and file types for an answer to the partner's information request (BK-acct-05, J-bank-17 #2):
+       * `{ "allowedTypes": ["application/pdf"], "maxBytes": n }`. NO DEFAULT. Blank / unset / not in shape → an answer
+       * refuses `bank.info_request_upload_unset` and nothing is sent to the partner.
+       */
+      BANK_INFO_REQUEST_UPLOAD_JSON: z.string().optional(),
+
+      /**
+       * The owner's window, in whole days after a bank account closed, in which it may be reopened (BK-acct-06, J-bank-17
+       * #6). NO DEFAULT. Blank / unset / not a whole number of days from 1 to 3650 → reopening refuses
+       * `bank.reopen_window_unset`.
+       */
+      BANK_REOPEN_WINDOW_DAYS: z.string().optional(),
 
       /**
        * Owner-published currencies an account may hold, comma separated asset ids ("USDT,USDC,BTC"). NO DEFAULT. Blank /
@@ -627,6 +691,20 @@ const schema = serviceEnvSchema
        * number → inviting someone to a pot, and accepting an invite, refuse `bank.joint_unset`. Boot stays up.
        */
       BANK_SHARED_POT_INVITE_MINUTES: z.string().optional(),
+
+      /**
+       * Owner-set minutes a business team invite stays open (J-bank-19 #3), 1 to 43200. NO DEFAULT. Blank / unset / not a
+       * whole number → every team invite refuses `bank.business_invite_lifetime_unset`. Boot stays up.
+       */
+      BANK_BUSINESS_INVITE_MINUTES: z.string().optional(),
+
+      /**
+       * Who reads an uploaded business bill (J-bank-20 #1). `off` | `test-lines`. NO ENGINE IS CHOSEN. `off`: every field
+       * is typed by hand. `test-lines` is a TEST stand-in that reads a TEST bill's labelled lines, shown as "Preview · sample
+       * data"; it is read only where the TEST partner bank runs (BANK_TEST_PARTNER=test, dev or test stacks), and ignored
+       * everywhere else.
+       */
+      BANK_BILL_READER: z.enum(['off', 'test-lines']).default('off'),
 
       /**
        * Owner-set number of people one pot may be shared with, open invites included (BK-acct-09), 1 to 50. NO DEFAULT.
@@ -789,6 +867,9 @@ const schema = serviceEnvSchema
 
       /** TEST only (J-portfolio-11 #5): a wait inside every export render. Checked against the raw APP_ENV at boot (index.ts). */
       BANK_STATEMENT_JOBS_TEST_RENDER_HOLD_MS: z.string().optional(),
+
+      /** TEST only (J-home-ia-01 #5): `on` fails every activity history read. Checked against the raw APP_ENV at boot (index.ts). */
+      BANK_ACTIVITY_TEST_FAULT: z.string().optional(),
     }),
   );
 

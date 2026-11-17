@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { LaunchError } from './errors.js';
 
@@ -420,7 +420,7 @@ export class LaunchService {
   constructor(private readonly sql: Sql) {}
 
   private async selectEvents(
-    db: Sql,
+    db: Queryable,
     where: { id?: string; statuses?: LaunchStatus[]; type?: LaunchType; limit?: number; forUpdate?: boolean },
   ) {
     return db<EventRow[]>`
@@ -693,7 +693,7 @@ export class LaunchService {
   }
 
   /** One row per account with active stake at `takenAt`, then the seal: count, total and hash. */
-  private async sealSnapshot(tx: Sql, eventId: string, takenAt: Date): Promise<void> {
+  private async sealSnapshot(tx: Queryable, eventId: string, takenAt: Date): Promise<void> {
     const holdings = await tx<Array<{ user_id: string; basis: string }>>`
       SELECT user_id, sum(amount)::text AS basis
         FROM token.stakes

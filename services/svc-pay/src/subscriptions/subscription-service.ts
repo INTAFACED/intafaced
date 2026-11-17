@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { assertCollectionMethodAvailable, collectionMethodOf, type CollectionMethod } from './merchant-disp-bill-rep-collection-method.js';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { fingerprintRequest } from '../rest-idempotency.js';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
@@ -581,7 +581,7 @@ export class SubscriptionService {
     return this.readSubscription(this.sql, subscriptionId);
   }
 
-  private async readSubscription(sql: Sql, subscriptionId: string): Promise<SubscriptionRecord> {
+  private async readSubscription(sql: Queryable, subscriptionId: string): Promise<SubscriptionRecord> {
     const rows = await sql<SubRow[]>`
       SELECT id, mandate_id, merchant_id, customer_id, next_run_at, status,
                 cancelled_at, path, created_at, anchor_at, anchor_occurrence,
@@ -1619,7 +1619,7 @@ export class SubscriptionService {
   }
 
   private async rejectCycle(
-    tx: Sql,
+    tx: Queryable,
     executionId: string,
     code: string,
     attemptCount: number,
@@ -1638,7 +1638,7 @@ export class SubscriptionService {
   }
 
   /** The payment openInvoice already committed for this period, if one exists. */
-  private async createdPaymentId(tx: Sql, subscriptionId: string, occurrence: number): Promise<string | null> {
+  private async createdPaymentId(tx: Queryable, subscriptionId: string, occurrence: number): Promise<string | null> {
     const prior = await tx<Array<{ payment_id: string; matches: boolean }>>`
       SELECT e.payment_id,
         (p.merchant_id = s.merchant_id AND m.merchant_id = s.merchant_id AND m.customer_id = s.customer_id
@@ -1663,7 +1663,7 @@ export class SubscriptionService {
    * Store that payment on the execution. The amount and the status stay as
    * they are: this is the invoice already created, not a new charge.
    */
-  private async attachCreatedPayment(tx: Sql, executionId: string, subscriptionId: string, occurrence: number): Promise<void> {
+  private async attachCreatedPayment(tx: Queryable, executionId: string, subscriptionId: string, occurrence: number): Promise<void> {
     const paymentId = await this.createdPaymentId(tx, subscriptionId, occurrence);
     if (!paymentId) return;
     await tx`
@@ -1766,7 +1766,7 @@ export class SubscriptionService {
 
   private async requireMerchant(
     merchantId: string,
-    sql: Sql = this.sql,
+    sql: Queryable = this.sql,
   ): Promise<{ id: string; status: string; kybStatus: MerchantKybStatus }> {
     const rows = await sql<Array<{ id: string; status: string; kyb_status: MerchantKybStatus }>>`
       SELECT id, status, kyb_status FROM pay.merchants WHERE id = ${merchantId}

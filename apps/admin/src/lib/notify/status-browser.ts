@@ -1,10 +1,7 @@
 /** Browser hop for the status page desk. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { StatusDeskReply, StatusDeskView } from './status-model';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchStatusDesk(signal?: AbortSignal): Promise<StatusDeskView | null> {
   try {

@@ -4,7 +4,7 @@ import type { Context } from '@intafaced/contracts';
 import { getPreferences, setPreferences } from './preferences.js';
 import { UI_VIEW_NAMESPACE, parseUiView } from './ui-view.js';
 
-const context = { principal: { userId: 'U-1' }, service: null } as unknown as Context;
+const context = { principal: { userId: 'U-1' }, service: null } as Context;
 /** Anything that reaches the database fails the test: these paths must refuse first. */
 const noDatabase = new Proxy(() => undefined, {
   apply() {

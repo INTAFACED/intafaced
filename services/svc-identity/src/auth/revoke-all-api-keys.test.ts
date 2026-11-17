@@ -23,7 +23,7 @@ function keyStore(keys: KeyRow[]) {
       return writes;
     },
     keys,
-  }) as unknown as Parameters<typeof revokeAllApiKeys>[0] & { writes: number; keys: KeyRow[] };
+  }) as Parameters<typeof revokeAllApiKeys>[0] & { writes: number; keys: KeyRow[] };
 }
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

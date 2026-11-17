@@ -16,8 +16,11 @@ import {
   type MaybeKnown,
   type OrderIntent,
   type VenueFill,
+  type VenueBestPrices,
+  type VenueGatedContract,
   type VenueMarginMode,
   type VenueMarket,
+  type VenueOrder,
   type VenuePosition,
   type VenuePreview,
   type VenueSession,
@@ -39,9 +42,11 @@ import {
   VenueHeader,
   WalletBar,
   heldKeys,
+  heldTags,
   outcomeText,
   keepsDraft,
   ReadBack,
+  useAsOfText,
   useOwner,
   useVenueAccount,
   useVenueActions,
@@ -54,14 +59,26 @@ import {
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
+import { slippageLimit } from '../desk/venue-desk';
+import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
+import { VenueDeadMan } from '../desk/VenueDeadMan';
+import { spotVenueCopy } from '../desk/venue-copy';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
+import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
+import { venueProtectCopy } from './venue-protect-copy';
+import { VenueCollateral, VenueTiers } from './VenueRisk';
+import { venueRiskCopy } from './venue-risk-copy';
+import { roomLeft, takenAssets } from './venue-risk-logic';
+import { canonical, protectionClientId } from './venue-protect-logic';
 import type { RoutePreview } from '../../../features/trade/venue-api';
 
 /** Resting order types the futures desk names; any the venue does not list is shown with its refusal and sends nothing. */
 const RESTING_TYPES = ['stop', 'take_profit', 'trailing_stop'] as const;
 const MODES: readonly VenueMarginMode[] = ['isolated', 'cross'];
-/** How far from the mark a close's worst price sits (its slippage limit), in percent. */
+/** How far from the mark a close's worst price sits when it is a limit order (no market type), in percent. */
 const CLOSE_SLIPPAGE_PERCENT = 5n;
+/** A label the person puts on an order: the orders room's own rule (up to 36 letters, digits and . _ : -, no spaces). */
+export const ORDER_LABEL = /^[A-Za-z0-9._:-]{1,36}$/;
 
 /** The futures desk in venue mode: every perpetual the venue lists, on the customer's own venue account. */
 export function VenueFuturesDesk({ mode, symbol }: { mode: Extract<VenueMode, { mode: 'on' }>; symbol: string | null }) {
@@ -101,8 +118,51 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
           </div>
         ) : null}
       </section>
+      <GatedList status={status} />
       {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
     </div>
+  );
+}
+
+/**
+ * J-derivatives-01 #2: every contract marked open or blocked for this account, with each reason as svc-trade's gated list
+ * names it (the region and level gate, our builder fee, our listing, the venue's own state). It reads on its own, so a
+ * person the region or level gate blocks still sees why.
+ */
+function GatedList({ status }: { status: VenueUp }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const venue = useVenueApi();
+  const asOfText = useAsOfText();
+  const gated = usePolled((signal) => venue.gatedList(signal), 'venue-gated-list', 5_000);
+  const rows: VenueGatedContract[] = gated.data?.value ?? [];
+  return (
+    <section className="dk-panel" aria-label={t('Gated list')} data-testid="venue-gated-list">
+      <h2 className="dk-tab-title">
+        {t('Gated list')} <TestMark test={status.test} />
+      </h2>
+      <ReadProblem failure={gated.failure} venueName={status.venue.displayName} />
+      <ul className="form-stack">
+        {rows.map((c) => (
+          <li key={c.symbol} data-testid="venue-gate" data-symbol={c.symbol} data-open={c.open ? 'true' : 'false'}>
+            <strong>{c.symbol}</strong> <span data-testid="venue-gate-state">{c.open ? t('Gated open') : t('Gated blocked')}</span>
+            {c.blockers.length > 0 ? (
+              <ul>
+                {c.blockers.map((b) => (
+                  <li key={b.code} data-code={b.code}>
+                    {b.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {gated.data ? (
+        <p className="muted" data-testid="venue-gated-as-of">
+          {asOfText(gated.data.asOf)}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -133,9 +193,13 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
       </ul>
       <ContractStrip market={market} test={status.test} />
       <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
+      <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
       <WalletBar />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
+      {owner ? (
+        <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
+      ) : null}
       {owner && market.marginAccount?.known ? (
         <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
       ) : null}
@@ -326,7 +390,9 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
               <dd className="numeric" data-testid="venue-open-interest-cap">
                 {market.openInterest.value.capSize === null
                   ? t('Open interest no cap')
-                  : t('Open interest cap value', { cap: market.openInterest.value.capSize, base: market.baseAsset })}
+                  : market.listedBy.known && market.listedBy.value.kind === 'venue'
+                    ? t('Open interest venue cap value', { cap: market.openInterest.value.capSize, base: market.baseAsset })
+                    : t('Open interest cap value', { cap: market.openInterest.value.capSize, base: market.baseAsset })}
               </dd>
             </div>
           </>
@@ -662,6 +728,14 @@ function Ticket({
   const [size, setSize] = useState('');
   const [price, setPrice] = useState('');
   const [marginAsset, setMarginAsset] = useState(market.quoteAsset);
+  const [takeProfit, setTakeProfit] = useState('');
+  const [stopLoss, setStopLoss] = useState('');
+  const [reduceOnly, setReduceOnly] = useState(false);
+  const [label, setLabel] = useState('');
+  const [attached, setAttached] = useState<Attached | null>(null);
+  const p = venueProtectCopy.useCopy().t;
+  const r = venueRiskCopy.useCopy().t;
+  const signPrepared = useSignPrepared(owner);
   const [problem, setProblem] = useState<string | null>(null);
   const [review, setReview] = useState<{ intent: OrderIntent; preview: AsOf<VenuePreview> } | null>(null);
   const [result, setResult] = useState<ActionResult | null>(null);
@@ -669,14 +743,31 @@ function Ticket({
   const counter = useRef(0);
   const sending = useRef(false);
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
+  const tags = useMemo(() => heldTags(owner), [owner]);
+  /** The order's key held for a Cancel after a reload, and its label kept beside it (the venue stores no label). */
+  const hold = (answer: ActionResult, intent: OrderIntent) => {
+    if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId) {
+      keysHeld.set(answer.clientOrderId, intent.clientOrderKey);
+      if (label.trim() !== '') tags.set(answer.clientOrderId, label.trim());
+    }
+  };
   const assets = [...new Set([market.quoteAsset, ...(account.balances.data?.value.map((b) => b.asset) ?? [])])];
   const offered = market.orderTypes.filter((x): x is 'limit' | 'market' => x === 'limit' || x === 'market');
 
   async function openReview() {
     setProblem(null);
     setResult(null);
-    if (marginAsset !== market.quoteAsset)
+    setAttached(null);
+    // What the venue publishes it takes as margin decides, naming the venue (J-derivatives-02 #4); with no list published,
+    // a perpetual's margin is its settle asset.
+    const taken = takenAssets(market);
+    if (taken && !taken.includes(marginAsset))
+      return setProblem(
+        r('Margin not taken', { venue: status.venue.displayName, asset: marginAsset, symbol: market.symbol, taken: taken.join(', ') }),
+      );
+    if (!taken && marginAsset !== market.quoteAsset)
       return setProblem(t('Margin mismatch', { symbol: market.symbol, settle: market.quoteAsset, asset: marginAsset }));
+    if (label.trim() !== '' && !ORDER_LABEL.test(label.trim())) return setProblem(t('Label bad'));
     if (!size.trim()) return setProblem(v('Enter amount'));
     if (!price.trim()) return setProblem(v('Enter price'));
     if (!onStep(size, market.lotSize)) return setProblem(v('Not a step', { field: v('Amount'), step: market.lotSize }));
@@ -689,7 +780,7 @@ function Ticket({
       amount: canonicalDecimal(size),
       price: canonicalDecimal(price),
       timeInForce: type === 'market' ? 'IOC' : (market.timeInForce[0] ?? 'GTC'),
-      reduceOnly: false,
+      reduceOnly,
       clientOrderKey: keys.order(owner, market.symbol, draftId(Date.now(), counter.current++)),
       builderFee: null,
     };
@@ -701,7 +792,15 @@ function Ticket({
       return;
     }
     const preview = await venue.preview(owner, intent);
-    if (!preview.ok) return setProblem(v('Outcome refused', { detail: preview.message }));
+    if (!preview.ok) {
+      // Past the open-interest cap: the venue's reason, and the room left where the venue reports both figures (J-derivatives-02 #7).
+      // The figures are read fresh from the venue, so the room is the venue's now, not the desk's last poll.
+      const fresh = preview.code === 'trade.venue.open_interest_above_cap' ? await venue.markets() : null;
+      const now = fresh?.ok ? fresh.data.value.find((m) => m.symbol === market.symbol) : undefined;
+      const room = now ? roomLeft(now) : null;
+      const refused = v('Outcome refused', { detail: preview.message });
+      return setProblem(room === null ? refused : `${refused}. ${r('Room left', { room: displayAmount(room), base: market.baseAsset })}`);
+    }
     setReview({ intent, preview: preview.data });
   }
 
@@ -710,11 +809,50 @@ function Ticket({
     sending.current = true;
     const answer = await run(review.intent);
     sending.current = false;
-    if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
-      keysHeld.set(answer.clientOrderId, review.intent.clientOrderKey);
+    hold(answer, review.intent);
     setResult(answer);
     setLast(answer);
     account.reload();
+    if (answer.kind === 'outcome' && answer.outcome.accepted) await attach(review.intent, answer.outcome.order?.filled ?? '0');
+  }
+
+  /**
+   * The ticket's take profit and stop loss, attached to the entry once it filled (J-derivatives-03 #4): each on the size it
+   * filled, on the other side, and each a trigger order the person signs in their wallet.
+   */
+  async function attach(entry: OrderIntent, filledRaw: string) {
+    const legs = (
+      [
+        ['take_profit', takeProfit.trim()],
+        ['stop_loss', stopLoss.trim()],
+      ] as const
+    ).filter(([, price]) => price !== '');
+    if (entry.reduceOnly || legs.length === 0) return;
+    const filled = canonical(filledRaw);
+    if (parseAmount(filled) <= 0n) return setAttached({ state: 'nothing' });
+    setAttached({ state: 'working' });
+    const set: Array<'take_profit' | 'stop_loss'> = [];
+    for (const [kind, price] of legs) {
+      const created = await venue.createProtection({
+        owner,
+        symbol: entry.symbol,
+        kind,
+        side: entry.side === 'buy' ? 'sell' : 'buy',
+        quantity: filled,
+        triggerPrice: canonical(price),
+        triggerSource: (market.triggerSources ?? []).includes('mark') ? 'mark' : (market.triggerSources?.[0] ?? 'mark'),
+        clientOrderId: protectionClientId(Date.now(), counter.current++),
+        attachTo: entry.clientOrderKey,
+      });
+      const refused = !created.ok
+        ? { message: created.message, code: created.code ?? null }
+        : created.data.restsOn === 'venue'
+          ? refusalOf(await signPrepared(created.data), (r) => outcomeText(v, r))
+          : null;
+      if (refused) return setAttached({ state: 'failed', kind, filled, set, refusal: refused });
+      set.push(kind);
+    }
+    setAttached({ state: 'done', filled, set });
   }
 
   const perp = review?.preview.value.perpetual ?? null;
@@ -760,6 +898,27 @@ function Ticket({
         />
       </label>
       <label className="field">
+        <span>{p('Take profit optional')}</span>
+        <input
+          inputMode="decimal"
+          aria-label={p('Take profit optional')}
+          value={takeProfit}
+          onChange={(e) => setTakeProfit(e.target.value)}
+        />
+      </label>
+      <label className="field">
+        <span>{p('Stop loss optional')}</span>
+        <input inputMode="decimal" aria-label={p('Stop loss optional')} value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} />
+      </label>
+      <label className="field">
+        <input type="checkbox" checked={reduceOnly} onChange={(e) => setReduceOnly(e.target.checked)} />
+        <span>{p('Reduce-only')}</span>
+      </label>
+      <label className="field">
+        <span>{t('Label optional')}</span>
+        <input aria-label={t('Label optional')} value={label} onChange={(e) => setLabel(e.target.value)} />
+      </label>
+      <label className="field">
         <span>{t('Margin asset')}</span>
         <select aria-label={t('Margin asset')} value={marginAsset} onChange={(e) => setMarginAsset(e.target.value)}>
           {assets.map((a) => (
@@ -789,8 +948,7 @@ function Ticket({
           resend={resend}
           confirmLabel={side === 'buy' ? t('Open long') : t('Open short')}
           onSent={(answer) => {
-            if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
-              keysHeld.set(answer.clientOrderId, routed.intent.clientOrderKey);
+            hold(answer, routed.intent);
             setLast(answer);
             account.reload();
           }}
@@ -812,7 +970,9 @@ function Ticket({
           onClose={() => {
             setReview(null);
             setResult(null);
+            setAttached(null);
           }}
+          after={attached ? <AttachedLine attached={attached} /> : null}
           extra={
             perp ? (
               <>
@@ -849,12 +1009,71 @@ function Ticket({
   );
 }
 
+type Attached =
+  | { state: 'working' }
+  | { state: 'nothing' }
+  | { state: 'done'; filled: string; set: Array<'take_profit' | 'stop_loss'> }
+  | {
+      state: 'failed';
+      kind: 'take_profit' | 'stop_loss';
+      filled: string;
+      set: Array<'take_profit' | 'stop_loss'>;
+      refusal: { message: string; code: string | null };
+    };
+
+/** What became of the take profit and stop loss attached to an entry order. */
+function AttachedLine({ attached }: { attached: Attached }) {
+  const { t } = venueProtectCopy.useCopy();
+  const setWords = (set: Array<'take_profit' | 'stop_loss'>, filled: string) =>
+    set.length === 2
+      ? t('Attached both', { filled })
+      : set[0] === 'take_profit'
+        ? t('Attached take profit', { filled })
+        : set[0] === 'stop_loss'
+          ? t('Attached stop loss', { filled })
+          : '';
+  if (attached.state === 'failed') {
+    return (
+      <div role="alert" className="failure" data-testid="venue-attached-failed">
+        {attached.set.length > 0 ? <p>{setWords(attached.set, attached.filled)}</p> : null}
+        <p>{t('Attach failed', { kind: t(`kind_${attached.kind}`).toLowerCase(), detail: attached.refusal.message })}</p>
+        {attached.refusal.code ? <p className="muted">{t('Code', { code: attached.refusal.code })}</p> : null}
+      </div>
+    );
+  }
+  return (
+    <p role="status" data-testid="venue-attached">
+      {attached.state === 'working'
+        ? t('Attaching')
+        : attached.state === 'nothing'
+          ? t('Attach nothing filled')
+          : setWords(attached.set, attached.filled)}
+    </p>
+  );
+}
+
 /** Initial margin plus the venue's fee plus our builder fee, all the venue's figures in the settle asset; null when any is not known. */
 export function totalToCommit(p: VenuePreview): string | null {
   const perp = p.perpetual;
   if (!perp || !perp.initialMargin.known || !p.venueFee.known || !p.builderFee.known) return null;
   if (p.venueFee.value.asset !== p.lock.asset || p.builderFee.value.asset !== p.lock.asset) return null;
   return sumDecimals([perp.initialMargin.value, p.venueFee.value.amount, p.builderFee.value.amount]);
+}
+
+/**
+ * A market close's worst price: the owner's price protection from the venue's best price on the side the close meets,
+ * as svc-trade bounds every market order (`slippageLimit`, the spot desk's own). With the cap blank or no best price on
+ * that side, the mark-based price goes and svc-trade refuses it by name (`trade.slippage_cap_unset`,
+ * `trade.no_reference_price`); never an unbounded order.
+ */
+export function closeMarketPrice(
+  position: VenuePosition,
+  tick: string,
+  read: { value: VenueBestPrices; slippageCapBps: MaybeKnown<string> } | null,
+): string {
+  const side = position.side === 'long' ? 'sell' : 'buy';
+  const bound = read && read.slippageCapBps.known ? slippageLimit(side, read.value, read.slippageCapBps.value, tick) : null;
+  return bound ?? closeWorstPrice(position, tick);
 }
 
 /** A close's worst price: CLOSE_SLIPPAGE_PERCENT from the mark, on the tick, against the position. */
@@ -880,9 +1099,17 @@ function Blotter({
   run: RunAction;
 }) {
   const { t } = futuresVenueCopy.useCopy();
+  const s = spotVenueCopy.useCopy().t;
   const [tab, setTab] = useState<'positions' | 'orders' | 'history'>('positions');
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
+  const tags = useMemo(() => heldTags(owner), [owner]);
+  const tagOf = (clientOrderId: string) => tags.get(clientOrderId);
   const [cancelResult, setCancelResult] = useState<ActionResult | null>(null);
+  // J-derivatives-04 #3, #4: a resting order changed (amended in place, or a reviewed cancel-and-replace) and orders
+  // cancelled by id, by contract and by label, singly and in one signed batch.
+  const [editing, setEditing] = useState<VenueOrder | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const open = account.openOrders.data?.value ?? [];
   const positions = account.positions.data;
   return (
     <section className="dk-panel" data-testid="venue-blotter">
@@ -894,22 +1121,80 @@ function Blotter({
         labels={{ positions: t('Positions'), orders: t('Orders'), history: t('History') }}
       />
       {tab === 'positions' ? (
-        <PositionsTable positions={positions} market={market} owner={owner} run={run} test={status.test} onDone={account.reload} />
+        <PositionsTable
+          positions={positions}
+          market={market}
+          owner={owner}
+          run={run}
+          test={status.test}
+          venueName={status.venue.displayName}
+          ordersPerAction={status.ordersPerAction ?? 1}
+          onDone={account.reload}
+        />
       ) : tab === 'orders' ? (
         <>
           <OrdersTable
             orders={account.openOrders.data}
             test={status.test}
             cancelled={[]}
+            tagOf={tagOf}
+            onEdit={setEditing}
+            select={{
+              selected,
+              header: s('Select'),
+              label: (id) => s('Select order', { id }),
+              onToggle: (id) =>
+                setSelected((now) => {
+                  const next = new Set(now);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                }),
+            }}
             onCancel={(o) => {
-              const key = o.venueClientOrderId ? keysHeld.get(o.venueClientOrderId) : undefined;
-              if (key)
-                void run({ kind: 'cancel_order', symbol: o.symbol, clientOrderKey: key }).then(
-                  (r) => (setCancelResult(r), account.reload()),
-                );
+              const id = o.venueClientOrderId;
+              if (!id) return;
+              const key = keysHeld.get(id);
+              const done = (r: ActionResult) => (setCancelResult(r), account.reload());
+              if (key) void run({ kind: 'cancel_order', symbol: o.symbol, clientOrderKey: key }).then(done);
+              // An order this page didn't place (a replacement, or one placed elsewhere) is cancelled by its venue id,
+              // under one key per order, so a second press is the same cancel.
+              else if ((status.cancelsPerAction ?? 0) >= 1)
+                void run(
+                  { kind: 'cancel_orders', orders: [{ symbol: o.symbol, venueClientOrderId: id }] },
+                  { actionKey: keys.cancelBatch(owner, `one-${id.slice(2)}`) },
+                ).then(done);
             }}
           />
           <OutcomeLine result={cancelResult} owner={owner} />
+          <VenueDeadMan status={status} owner={owner} run={run} />
+          <VenueCancelMany
+            orders={open}
+            market={market}
+            markets={[market]}
+            status={status}
+            owner={owner}
+            run={run}
+            spotOnly={false}
+            labelOf={tagOf}
+            selected={open.filter((o) => o.venueClientOrderId && selected.has(o.venueClientOrderId))}
+            onDone={() => {
+              setSelected(new Set());
+              account.reload();
+            }}
+          />
+          {editing ? (
+            <VenueEditOrder
+              key={editing.venueClientOrderId ?? ''}
+              order={editing}
+              market={editing.symbol === market.symbol ? market : null}
+              status={status}
+              owner={owner}
+              run={run}
+              onDone={account.reload}
+              onClose={() => setEditing(null)}
+            />
+          ) : null}
         </>
       ) : (
         <>
@@ -927,6 +1212,8 @@ function PositionsTable({
   owner,
   run,
   test,
+  venueName,
+  ordersPerAction,
   onDone,
 }: {
   positions: AsOf<VenuePosition[]> | null;
@@ -934,11 +1221,19 @@ function PositionsTable({
   owner: string;
   run: RunAction;
   test: boolean;
+  venueName: string;
+  /** The most orders the venue takes in one signed action (status `ordersPerAction`). */
+  ordersPerAction: number;
   onDone: () => void;
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
+  const p = venueProtectCopy.useCopy().t;
   const rows = positions?.value ?? [];
+  // The open dialog, with the position as it was when it was opened: it stays open when the position closes.
+  const [open, setOpen] = useState<{ kind: 'protect' | 'reverse'; position: VenuePosition } | null>(null);
+  const liveOf = (symbol: string) => rows.find((r) => r.symbol === symbol && parseAmount(r.size) > 0n) ?? null;
+  const dialogMarket = open && open.position.symbol === market.symbol ? market : null;
   return (
     <div data-testid="venue-positions">
       <TestMark test={test} />
@@ -960,39 +1255,73 @@ function PositionsTable({
             '',
           ]}
         >
-          {rows.map((p) => (
-            <tr key={p.symbol} data-symbol={p.symbol}>
-              <td>{p.symbol}</td>
-              <td>{word(v, 'side', p.side)}</td>
+          {rows.map((row) => (
+            <tr key={row.symbol} data-symbol={row.symbol}>
+              <td>{row.symbol}</td>
+              <td>{word(v, 'side', row.side)}</td>
               <td className="numeric" data-cell="size">
-                {p.size}
+                {row.size}
               </td>
               <td className="numeric" data-cell="entry">
-                {p.entryPrice}
+                {row.entryPrice}
               </td>
               <td className="numeric" data-cell="mark">
-                {p.markPrice}
+                {row.markPrice}
               </td>
               <td className="numeric" data-cell="unrealised">
-                {p.unrealisedPnl}
+                {row.unrealisedPnl}
               </td>
               <td className="numeric" data-cell="margin">
-                {p.margin}
+                {row.margin}
               </td>
               <td className="numeric" data-cell="leverage">
-                {`${leverageTimes(p.leverageBps)}x ${t(`mode_${p.marginMode}`)}`}
+                {`${leverageTimes(row.leverageBps)}x ${t(`mode_${row.marginMode}`)}`}
               </td>
               <td className="numeric" data-cell="liquidation">
-                <Known value={p.liquidationPrice} render={(x) => x} />
+                <Known value={row.liquidationPrice} render={(x) => x} />
               </td>
               <td>
-                <CloseControl position={p} market={market} owner={owner} run={run} onDone={onDone} />
+                <CloseControl position={row} market={market} owner={owner} run={run} onDone={onDone} />
+                {row.symbol === market.symbol ? (
+                  <>
+                    <Button variant="secondary" onClick={() => setOpen({ kind: 'protect', position: row })}>
+                      {p('Protect button', { symbol: row.symbol })}
+                    </Button>{' '}
+                    <Button variant="secondary" onClick={() => setOpen({ kind: 'reverse', position: row })}>
+                      {p('Reverse button', { symbol: row.symbol })}
+                    </Button>
+                  </>
+                ) : null}
               </td>
             </tr>
           ))}
         </DataTable>
       )}
       <AsOfLine asOf={positions?.asOf ?? null} />
+      {open && dialogMarket && open.kind === 'protect' ? (
+        <ProtectDialog
+          market={dialogMarket}
+          position={liveOf(open.position.symbol)}
+          side={open.position.side}
+          owner={owner}
+          venueName={venueName}
+          run={run}
+          onClose={() => setOpen(null)}
+        />
+      ) : null}
+      {open && dialogMarket && open.kind === 'reverse' ? (
+        <ReverseDialog
+          snapshot={open.position}
+          live={liveOf(open.position.symbol)}
+          market={dialogMarket}
+          owner={owner}
+          run={run}
+          together={ordersPerAction >= 2}
+          worstPrice={(position) => closeWorstPrice(position, dialogMarket.tickSize)}
+          onDone={onDone}
+          onClose={() => setOpen(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1018,9 +1347,11 @@ function CloseControl({
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
+  const venue = useVenueApi();
   const [percent, setPercent] = useState('40');
   const [result, setResult] = useState<{ amount: string; result: ActionResult } | null>(null);
-  const draft = useRef<{ percent: string; size: string; id: string } | null>(null);
+  // The worst price is read once per close id, so a double press sends the same close at the same price.
+  const draft = useRef<{ percent: string; size: string; id: string; price: Promise<string> } | null>(null);
   // The client id of a not-definite close the venue's own record has since settled.
   const [settledId, setSettledId] = useState<string | null>(null);
   const read = result?.result.kind === 'unknown' ? result.result : null;
@@ -1031,19 +1362,32 @@ function CloseControl({
     const p = Number(percent);
     if (!Number.isInteger(p) || p < 1 || p > 100) return;
     // One close id per (percent, size) until a definite answer: a second press is the same close.
+    const type = market.orderTypes.includes('market') ? 'market' : 'limit';
     if (!draft.current || draft.current.percent !== percent || draft.current.size !== position.size)
-      draft.current = { percent, size: position.size, id: draftId() };
+      draft.current = {
+        percent,
+        size: position.size,
+        id: draftId(),
+        price:
+          type === 'market'
+            ? venue.bestPrices(position.symbol).then(
+                (best) => closeMarketPrice(position, market.tickSize, best.ok ? best.data : null),
+                () => closeMarketPrice(position, market.tickSize, null),
+              )
+            : Promise.resolve(closeWorstPrice(position, market.tickSize)),
+      };
+    const { id, price } = draft.current;
     const amount = p === 100 ? position.size : partOf(position.size, p, market.lotSize);
     const answer = await run({
       kind: 'place_order',
       symbol: position.symbol,
       side: position.side === 'long' ? 'sell' : 'buy',
-      type: market.orderTypes.includes('market') ? 'market' : 'limit',
+      type,
       amount,
-      price: closeWorstPrice(position, market.tickSize),
+      price: await price,
       timeInForce: 'IOC',
       reduceOnly: true,
-      clientOrderKey: keys.close(owner, position.symbol, draft.current.id),
+      clientOrderKey: keys.close(owner, position.symbol, id),
       builderFee: null,
     });
     if (!keepsDraft(answer)) draft.current = null;

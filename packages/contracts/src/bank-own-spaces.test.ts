@@ -62,7 +62,7 @@ describe('bank own spaces client', () => {
     const client = createBankOwnSpacesClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: (async () => reply({ spaces: [] })) as unknown as typeof fetch,
+      fetcher: (async () => reply({ spaces: [] })) as typeof fetch,
     });
     await expect(client.list(input)).resolves.toEqual({ state: 'read', spaces: [] });
   });
@@ -76,7 +76,7 @@ describe('bank own spaces client', () => {
     ['a short secret', { bankUrl: 'http://bank.internal', secret: 'short' }],
   ])('answers unavailable without fetching for %s', async (_name, options) => {
     const fetcher = vi.fn();
-    const client = createBankOwnSpacesClient({ ...options, fetcher: fetcher as unknown as typeof fetch });
+    const client = createBankOwnSpacesClient({ ...options, fetcher: fetcher as typeof fetch });
     await expect(client.list(input)).resolves.toEqual(UNAVAILABLE);
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -86,7 +86,7 @@ describe('bank own spaces client', () => {
     const client = createBankOwnSpacesClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.list({ userId: '' })).resolves.toEqual(UNAVAILABLE);
     expect(fetcher).not.toHaveBeenCalled();
@@ -101,7 +101,7 @@ describe('bank own spaces client', () => {
     const client = createBankOwnSpacesClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.list(input)).resolves.toEqual(UNAVAILABLE);
   });
@@ -115,7 +115,7 @@ describe('bank own spaces client', () => {
       bankUrl: 'http://bank.internal',
       secret: SECRET,
       timeoutMs: 20,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.list(input)).resolves.toEqual(UNAVAILABLE);
   });
