@@ -301,7 +301,8 @@ full with the taker's settlement still on its way, or a second cancel may have o
 order keeps its hold and its fill (`finalizeIfComplete`) or the engine's cancel event closes it. A miss never
 releases. After `HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS` from the first miss (`engine_absent_since`) with nothing heard
 (a submit whose outcome was unknown may never have reached the engine), a cancel moves the order to
-`recovery_required` (`RECONCILIATION_REQUIRED`) with its hold, for the reconcile path to resolve.
+`recovery_required` (`RECONCILIATION_REQUIRED`) with its hold, for the reconcile path to resolve; the scheduled
+engine ↔ ledger reconcile does the same on its next tick, without waiting for a second cancel (#7025).
 
 ---
 

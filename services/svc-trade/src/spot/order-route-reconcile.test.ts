@@ -512,4 +512,60 @@ describe('svc-trade order-route-reconcile (H8a PG-hard)', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });
+
+  // #7025: a cancel that found the engine without the order marks it for reconciliation only when someone cancels
+  // again past the in-flight bound. The scheduled tick marks it by itself, and keeps its hold: the fill may still land.
+  describe('scheduled reconcile: an engine miss past the in-flight bound', () => {
+    const quiet = {
+      listMarkets: async () => ({ markets: [btcusdt.id] }),
+      reconcile: async () => ({ checked: 1, agreed: 1, refusals: 0, ok: true, findings: [] }),
+    };
+
+    async function openAbsent(clientOrderId: string, absentForSeconds: number | null): Promise<string> {
+      await fund(ALICE, 'USDT', '1000');
+      const orderId = orderIdFor(ALICE, btcusdt.id, clientOrderId);
+      await sql`
+        INSERT INTO trade.orders (
+          id, user_id, market_id, client_order_id, side, type, price, qty, status, tif,
+          hold_asset, hold_amount, fee_discount_bps, engine_absent_at_cancel, engine_absent_since
+        ) VALUES (
+          ${orderId}, ${ALICE}, ${btcusdt.id}, ${clientOrderId}, 'buy', 'limit',
+          ${'100'}::numeric, ${'2'}::numeric, 'open', 'GTC',
+          'USDT', ${'200'}::numeric, 0, ${absentForSeconds !== null},
+          ${absentForSeconds === null ? null : sql`now() - make_interval(secs => ${absentForSeconds})`}
+        )
+      `;
+      await ledger.post(recipes.orderHold({ orderId, userId: ALICE, assetId: 'USDT', amount: amt('200') }));
+      return orderId;
+    }
+
+    it('moves an order missed past the bound to recovery_required, hold kept, nothing posted', async () => {
+      const orderId = await openAbsent('miss-old', HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS + 1);
+      const posts = ledger.journal().length;
+      const result = await runEngineLedgerReconcileTick({ sql, ledger, matching: quiet });
+      expect(result.markedRecoveryRequired).toEqual([orderId]);
+      const [row] = await sql<Array<{ status: string; recovery_reason: string; reconciliation_key: string }>>`
+        SELECT status, recovery_reason, reconciliation_key FROM trade.orders WHERE id = ${orderId}
+      `;
+      expect(row).toEqual({
+        status: 'recovery_required',
+        recovery_reason: 'RECONCILIATION_REQUIRED',
+        reconciliation_key: `trade.order.reconcile:${orderId}:RECONCILIATION_REQUIRED`,
+      });
+      expect(await heldFor(ALICE, 'USDT', orderId)).toBe('200');
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('leaves an order missed inside the bound, and one never missed, open', async () => {
+      const young = await openAbsent('miss-young', HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS - 60);
+      const never = await openAbsent('miss-never', null);
+      const result = await runEngineLedgerReconcileTick({ sql, ledger, matching: quiet });
+      expect(result.markedRecoveryRequired).not.toContain(young);
+      expect(result.markedRecoveryRequired).not.toContain(never);
+      expect((await trade.findOrder(young))?.status).toBe('open');
+      expect((await trade.findOrder(never))?.status).toBe('open');
+      expect(await heldFor(ALICE, 'USDT', young)).toBe('200');
+    });
+  });
 });
