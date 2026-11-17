@@ -29,6 +29,25 @@ import { spotVenueCopy } from './venue-copy';
 // ledger, and a doubtful answer is never sent again as a new action.
 
 type Note = { tone: 'good' | 'bad'; text: string; code?: string } | null;
+
+/**
+ * The desk's modal hides the rest of the page from assistive tech and pointer input while it is open, and the wallet's own
+ * "Check before you sign" sheet renders in the page: so while the wallet asks, the modal steps aside and comes back with
+ * its state once the wallet answers (VenueFollowWizard does the same).
+ */
+export function useAsk(run: RunAction): [RunAction, boolean] {
+  const [signing, setSigning] = useState(false);
+  const ask: RunAction = async (...args) => {
+    setSigning(true);
+    try {
+      return await run(...args);
+    } finally {
+      setSigning(false);
+    }
+  };
+  return [ask, signing];
+}
+
 type T = ReturnType<typeof spotVenueCopy.useCopy>['t'];
 
 const isLive = (o: VenueOrder) => o.status === 'open' || o.status === 'partially_filled';
@@ -100,6 +119,7 @@ export function VenueEditOrder({
 }) {
   const { t } = spotVenueCopy.useCopy();
   const venue = useVenueApi();
+  const [ask, signing] = useAsk(run);
   const [amount, setAmount] = useState(order.remaining);
   const [price, setPrice] = useState(order.price);
   const [note, setNote] = useState<Note>(null);
@@ -144,7 +164,7 @@ export function VenueEditOrder({
   const changeAmount = () =>
     send(async () => {
       setNote(null);
-      const answer = await run(
+      const answer = await ask(
         { kind: 'amend_order', symbol: order.symbol, venueClientOrderId: cloid, amount: amount.trim(), price: order.price },
         { actionKey: keys.amend(owner, cloid, amount) },
       );
@@ -177,7 +197,7 @@ export function VenueEditOrder({
   const confirm = () =>
     send(async () => {
       if (!review) return;
-      const answer = await run(
+      const answer = await ask(
         { kind: 'replace_order', symbol: order.symbol, venueClientOrderId: cloid, order: review.intent },
         { actionKey: review.key },
       );
@@ -188,7 +208,7 @@ export function VenueEditOrder({
   const pricePlaces = placesOf(market?.tickSize ?? order.price);
   const amountPlaces = placesOf(market?.lotSize ?? order.remaining);
   return (
-    <AlertDialog open onOpenChange={(next) => (next || busy ? null : onClose())}>
+    <AlertDialog open={!signing} onOpenChange={(next) => (next || busy ? null : onClose())}>
       <AlertDialogContent className="dk-review" data-testid="venue-edit">
         <AlertDialogHeader>
           <AlertDialogTitle>{t('Edit title', { side: order.side, symbol: order.symbol })}</AlertDialogTitle>
@@ -307,6 +327,7 @@ export function VenueCancelMany({
   labelOf?: (clientOrderId: string) => string | undefined;
 }) {
   const { t } = spotVenueCopy.useCopy();
+  const [ask, signing] = useAsk(run);
   const [label, setLabel] = useState('');
   const [scope, setScope] = useState<Scope | null>(null);
   const [busy, setBusy] = useState(false);
@@ -346,7 +367,7 @@ export function VenueCancelMany({
     setBusy(true);
     draft.current ??= draftId();
     const sent = chosen.map((o) => ({ symbol: o.symbol, venueClientOrderId: o.venueClientOrderId! }));
-    const answer = await run({ kind: 'cancel_orders', orders: sent }, { actionKey: keys.cancelBatch(owner, draft.current) });
+    const answer = await ask({ kind: 'cancel_orders', orders: sent }, { actionKey: keys.cancelBatch(owner, draft.current) });
     sending.current = false;
     setBusy(false);
     const bad = notDone(t, answer);
@@ -432,7 +453,7 @@ export function VenueCancelMany({
           </Button>
         </p>
       ) : null}
-      <AlertDialog open={scope !== null} onOpenChange={(next) => (next ? null : close())}>
+      <AlertDialog open={scope !== null && !signing} onOpenChange={(next) => (next ? null : close())}>
         {scope ? (
           <AlertDialogContent className="dk-review" data-testid="venue-cancel-ask">
             <AlertDialogHeader>

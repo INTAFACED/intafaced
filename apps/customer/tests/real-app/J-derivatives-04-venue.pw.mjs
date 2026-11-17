@@ -118,7 +118,7 @@ const blotter = (page) => page.getByTestId('venue-blotter');
 const rowOf = (page, cloid) => page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${cloid}"]`);
 
 async function ordersTab(page) {
-  await blotter(page).getByRole('tab', { name: 'Open orders', exact: true }).click();
+  await blotter(page).getByRole('button', { name: 'Open orders', exact: true }).click();
   await expect(page.getByTestId('venue-open-orders')).toBeVisible();
 }
 
