@@ -197,6 +197,8 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   await open(page);
   const root = page.getByTestId('if-money');
   await expect(page.getByTestId('money-label')).toContainText('Est. total value');
+  // PLANTED FAULT for #8708: this throwaway pull request is closed unmerged.
+  await expect(page.getByTestId('money-label')).toContainText('planted-fault-8708');
   await expectHero(page, '$12,481.91');
   await expect(root).toHaveAttribute('data-source', 'server');
   await expect(page.getByTestId('money-change')).toContainText('+$206.26');
