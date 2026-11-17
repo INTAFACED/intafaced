@@ -20,6 +20,7 @@ import {
 } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { withPartner } from './partner.mjs';
+import { agePast } from './test-age.mjs';
 
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account.
 // The person's bank money is held at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`, the launch
@@ -911,7 +912,6 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
     await close(page);
   };
   await invite(viewer, 'viewer');
-  const firstInviteAt = Date.now();
   await invite(partner, 'contributor');
   // Two open invites fill the TEST cap: a third is refused by name, and nothing is stored for it.
   const full = await api.mutate('sharedPots.invite', { inviteId: randomUUID(), spaceId: pot.id, handle: third.handle, role: 'viewer' });
@@ -945,8 +945,14 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   expect(await mainOf(partner)).toBe(partnerBefore - toUnits('5'));
   await ledgerUnchanged(partner, partnerLedger);
 
-  // The viewer's invite has outlived the TEST two minutes: it shows as ended, and accepting it is refused by name.
-  await page.waitForTimeout(Math.max(0, firstInviteAt + 2 * 60_000 + 5_000 - Date.now()));
+  // The viewer's invite has outlived the TEST two minutes: it shows as ended, and accepting it is refused by name. The
+  // TEST age door makes that one invite two minutes older instead of waiting them out; no clock moves.
+  const viewerInvites = (await viewerApi.query('sharedPots.list', { limit: 50 })).data.invites.filter((i) => i.spaceId === pot.id);
+  expect(viewerInvites).toHaveLength(1);
+  const [toViewer] = viewerInvites;
+  expect(toViewer.expired).toBe(false);
+  expect(Date.parse(toViewer.expiresAt) - Date.parse(toViewer.createdAt)).toBe(2 * 60_000);
+  await agePast('bank', 'shared-pot-invite', toViewer.inviteId, toViewer.expiresAt);
   await signOutBrowser(page.context());
   await signIn(page, viewer);
   await page.goto('/bank/spaces');
@@ -958,6 +964,7 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await refusedDialog.getByRole('button', { name: 'Accept', exact: true }).click();
   await expect(refusedDialog).toContainText('This invite has ended. Ask the pot’s owner for a new one.');
   const expiredId = await ended.getAttribute('data-invite');
+  expect(expiredId).toBe(toViewer.inviteId);
   expect(await viewerApi.mutate('sharedPots.accept', { inviteId: expiredId })).toMatchObject({ ok: false, code: 'bank.invite_expired' });
   expect((await viewerApi.query('sharedPots.list', { limit: 50 })).data.shared).toEqual([]);
 

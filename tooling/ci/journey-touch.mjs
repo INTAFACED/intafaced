@@ -19,14 +19,21 @@
  *     product path in it (shared setup, scripts, admin-app paths, packages it can't map, a switched-off, missing or
  *     stale map: full). Its journeys join the `files` list, and `reach` says why;
  *   - named (theo-01 part 1, project-state#2065, OWNER 296): a pull request whose title or branch names a journey
- *     (`J-<area>-<n>`, namedJourneyIds) that has a journey file at its head is judged on that journey. Its product paths
- *     go to neither the full run nor the map: it runs the journeys it names and every journey test file it changes, and
- *     nothing else. (The map's `full` journeys, which no recorded run speaks for, ran here too until 14 Nov 2026: from
- *     9 to 14 Nov they turned 10 failed pull request runs red and only one of those was the pull request's fault, while
- *     they took a named run from 1 shard and about 10 minutes to 8 shards and 24 to 26; project-state#2332. Main's full
- *     run holds them.) Every other full path above still makes it full. Main runs every journey after every merge and is the backstop: a break of another journey is
- *     caught there and reverted (OWNER 249 (3): "a PR runs only the journeys it touches, the full suite runs on main
- *     after a merge, a red main is reverted"). A product pull request that names no journey keeps the rules above;
+ *     (`J-<area>-<n>`, namedJourneyIds) that has a journey file at its head runs the journeys it names and every journey
+ *     test file it changes, and its product paths also go to the map, as an unnamed one's do: the journeys the map
+ *     records reaching them join the run, and a path the map can't narrow makes the change full. (Until 17 Nov 2026 a
+ *     named pull request's product paths went to neither the full run nor the map, and main's full run was the only
+ *     check on other journeys. Four named pull requests that ran their own journey alone each broke another one on
+ *     main and were reverted: #8113 J-campaigns-01, #8153 J-cex-spot-17, #8542 J-copy-bots-otc-03, #8139
+ *     J-identity-04; the map makes each of them full, journey-touch.test.mjs "replay, 4 real pull requests".) The map's
+ *     `full` journeys, which no recorded run speaks for, are still not added to a named run (reachSelect `unrecorded`):
+ *     from 9 to 14 Nov they turned 10 failed pull request runs red and only one of those was the pull request's fault,
+ *     while they took a named run from 1 shard and about 10 minutes to 8 shards and 24 to 26; project-state#2332. Main's
+ *     full run holds them. A map that is switched off, stale or unreadable makes the change full; only with no map
+ *     input at all (`reach` null: a call without --reach, or a seal io that reads no main runs or journey files) do the
+ *     named journeys alone run, as before. Every other full path above still makes it full. Main runs every journey after every merge and is the
+ *     backstop (OWNER 249 (3): "a PR runs only the journeys it touches, the full suite runs on main after a merge, a red
+ *     main is reverted"). A product pull request that names no journey keeps the rules above;
  *   - stack (theo-01 part 2, OWNER 296: "A change to one service's own test-stack file runs the journeys that use that
  *     file"): a named pull request's change to a service's own stack file (STACK_FILE: `local-stack-services/<service>.mjs`,
  *     `test-owner-values/<service>.json`), or to a root deploy file the stack never reads (ROOT_DEPLOY_FILE), also
@@ -444,7 +451,8 @@ function kindOf(p) {
  * paths run only the journeys whose recorded reach touches them, when every other path allows it and the map can speak
  * for each of them; anything else is full. Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names],
  * reach?: [lines] }. `named`: what namedInputs gives for a pull request that names a journey, or null; with it, product
- * paths run the named journeys instead of the full suite or the map, and `named` says why. With
+ * paths run the named journeys besides what the map selects for them (never its always-run list), or the named
+ * journeys alone when `reach` is null, and `named` says why. With
  * it, a service's own stack file adds the journeys that use it, when nothing else is full (`stack` lists those paths,
  * `importers` those journeys); otherwise it is full like any other.
  */
@@ -462,7 +470,7 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
   }
   let because;
   let byName;
-  if (product.length && named) {
+  if (product.length && named && !reach) {
     // Judged on the journeys it names (theo-01 part 1); another full path still makes the whole change full.
     if (full.length) for (const p of product) full.push({ path: printable(p), why: PRODUCT });
     else {
@@ -478,10 +486,16 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
       subscribes: reach.subscribes,
       head: reach.head ?? null,
       ...(reach.mode ? { mode: reach.mode } : {}),
+      unrecorded: !named,
     });
     if (sel.mode === 'files') {
       for (const f of sel.files) files.add(f);
       because = sel.because.map(printable);
+      // A named pull request runs its named journeys too, besides what its product paths reach.
+      if (named) {
+        for (const f of named.files) files.add(f);
+        byName = `it names ${named.ids.join(', ')}, so its ${product.length} product path(s) run ${named.files.join(', ')} and the ${sel.files.length} journey file(s) the touched-journeys map says reach them`;
+      }
     } else for (const p of product) full.push({ path: printable(p), why: printable(sel.why) });
   } else for (const p of product) full.push({ path: printable(p), why: PRODUCT });
   // Decided last, so any other full path, product code included, makes the stack files full with it.
@@ -495,7 +509,12 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
   const list = withSiblings(files, named?.journeyFiles ?? reach?.journeyFiles ?? null);
   const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list };
   if (byName && !full.length)
-    return { ...out, named: printable(byName), ...(importers ? { stack: stack.map((x) => x.path), importers } : {}) };
+    return {
+      ...out,
+      named: printable(byName),
+      ...(because ? { reach: because } : {}),
+      ...(importers ? { stack: stack.map((x) => x.path), importers } : {}),
+    };
   return because && !full.length ? { ...out, reach: because } : out;
 }
 
@@ -868,7 +887,7 @@ async function main() {
     journeyFiles: checkoutJourneyFiles(),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
-  const t = journeyTouch(paths, atHead, named ? null : reach, named);
+  const t = journeyTouch(paths, atHead, reach, named);
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));
   if (t.mode === 'full') {

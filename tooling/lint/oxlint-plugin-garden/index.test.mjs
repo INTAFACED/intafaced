@@ -65,7 +65,9 @@ test('the six garden rules fire on their weeds and name the fix', { skip: !exist
     out.some(
       (l) =>
         l.includes('no-wait-for-timeout') &&
-        l.includes('agePast (the test-age helper in apps/customer/tests/real-app; svc-trade and svc-campaigns have the door today') &&
+        l.includes(
+          'agePast (the test-age helper in apps/customer/tests/real-app; svc-trade, svc-campaigns and svc-bank have the door today',
+        ) &&
         l.includes('locator, response or event') &&
         l.includes('oxlint-disable-next-line garden/no-wait-for-timeout -- why'),
     ),
