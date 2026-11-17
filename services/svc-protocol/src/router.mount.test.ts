@@ -10,7 +10,7 @@ import { createProtocolRouter } from './router.js';
 import type { ProtocolRouterDeps } from './router.js';
 
 /**
- * THE MOUNT BOUNDARY, for svc-protocol (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-protocol.
  *
  * The context comes from `createEdgeContext` over real headers, as `index.ts`
  * builds it, rather than from a `Context` literal that would keep passing on a

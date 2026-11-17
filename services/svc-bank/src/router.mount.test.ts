@@ -8,7 +8,7 @@ import { createBankRouter } from './router.js';
 import type { BankServices } from './bank-service.js';
 
 /**
- * THE MOUNT BOUNDARY, for svc-bank (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-bank.
  *
  * The context is built the way `index.ts` builds it — through
  * `createEdgeContext` over real headers — not as a `Context` literal. A literal
