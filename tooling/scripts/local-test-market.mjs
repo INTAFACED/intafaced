@@ -1940,7 +1940,7 @@ async function main() {
   }
   const p = guard.paths;
   // Custody off (OWNER 226, OWNER 288): the TEST market maker serves only INTAFACED's own order book, which is off with
-  // custody off (project-state research/fable-money-2026-11-10/changes/b2-reconcile-and-freeze.md, change 5: its fills
+  // custody off (project-state product/fable-money-2026-11-10/changes/b2-reconcile-and-freeze.md, change 5: its fills
   // settle through a customer-balance post the ledger refuses), and it is funded by deposits to its two accounts in our
   // ledger. So on such a stack nothing that quotes, trades, funds or writes its history runs; each says so and exits 0,
   // so the stack's setup goes on. Launch journeys trade at the TEST venue instead.

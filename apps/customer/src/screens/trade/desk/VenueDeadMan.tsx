@@ -15,6 +15,7 @@ import {
 import { deadManChoices, otherSeconds } from './dead-man';
 import { clockSeconds } from './time';
 import { spotVenueCopy } from './venue-copy';
+import { useAsk } from './VenueOrderChanges';
 
 type T = ReturnType<typeof spotVenueCopy.useCopy>['t'];
 type Note = { tone: 'good' | 'bad'; text: string } | null;
@@ -30,6 +31,7 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
   const { t } = spotVenueCopy.useCopy();
   const { timeZone } = usePreferences();
   const venue = useVenueApi();
+  const [ask, signing] = useAsk(run);
   const offered = status.scheduledCancel ?? null;
   const choices = deadManChoices(offered?.timeoutsSec);
   const read = usePolled(
@@ -74,7 +76,7 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
     sending.current = true;
     setBusy(true);
     draft.current ??= draftId();
-    const answer = await run({ kind: 'schedule_cancel', timeoutSec, time: null }, { actionKey: keys.scheduleCancel(owner, draft.current) });
+    const answer = await ask({ kind: 'schedule_cancel', timeoutSec, time: null }, { actionKey: keys.scheduleCancel(owner, draft.current) });
     if (answer.kind === 'outcome' || answer.kind === 'refused' || answer.kind === 'rejected') draft.current = null;
     let text = problem(t, answer, choices);
     if (text === null) {
@@ -106,7 +108,7 @@ export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: s
       <button type="button" className="dk-cancel-all" aria-haspopup="dialog" data-testid="venue-dead-man" onClick={() => setOpen(true)}>
         {label}
       </button>
-      <AlertDialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
+      <AlertDialog open={open && !signing} onOpenChange={(next) => (next ? setOpen(true) : close())}>
         {open ? (
           <AlertDialogContent className="dk-review">
             <AlertDialogHeader>

@@ -202,6 +202,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_together_owner_only'
   | 'trade.venue_order_not_resting'
   | 'trade.venue_order_amount_raise'
+  // J-derivatives-04 #6: a whole-position take profit and stop loss rest, and another whole close was asked for.
+  | 'trade.venue_whole_close_taken'
   | 'trade.venue_action_key_invalid'
   | 'idempotency.conflict'
   | 'idempotency.in_progress'
@@ -1150,6 +1152,57 @@ export class UserVenueDoor {
       invalid(`the replacement is a ${resting.side}, as the order it replaces`);
   }
 
+  /**
+   * J-derivatives-04 #6 (its words of 17 Nov 2026): one take profit and one stop loss for the whole position may rest
+   * together; a part one doesn't count. A new resting order that would close the whole position is refused when a
+   * whole-position order of its own role already rests, and a resting whole close that is neither (a reduce-only limit)
+   * is refused when both rest. An immediate close (IOC, a market close) is never refused here: it rests nothing. A
+   * replacement is judged without the order it replaces. Nothing is prepared or stored when refused.
+   */
+  private async assertOneWholeClose(venue: UserVenue, account: UserVenueAccount, intent: VenueIntent): Promise<void> {
+    const orders =
+      intent.kind === 'place_order'
+        ? [intent]
+        : intent.kind === 'place_orders'
+          ? intent.orders
+          : intent.kind === 'replace_order'
+            ? [intent.order]
+            : [];
+    const closes = orders.filter((o) => o.reduceOnly && (o.trigger != null || o.timeInForce !== 'IOC'));
+    if (closes.length === 0) return;
+    const positions = (await venue.positions(account)).value;
+    let resting: readonly UserVenueOrder[] | null = null;
+    for (const order of closes) {
+      const position = positions.find((p) => p.symbol === order.symbol && p.size !== 0n);
+      // Closing only: the order is on the other side of the position, and covers all of it.
+      if (!position || (position.side === 'long') === (order.side === 'buy') || order.amount < position.size) continue;
+      resting ??= (await venue.openOrders(account)).value;
+      const replaced = intent.kind === 'replace_order' ? intent.venueClientOrderId : null;
+      const whole = resting.filter(
+        (o) =>
+          o.symbol === order.symbol &&
+          o.reduceOnly &&
+          o.side === order.side &&
+          o.venueClientOrderId !== replaced &&
+          (o.status === 'open' || o.status === 'partially_filled') &&
+          o.remaining >= position.size,
+      );
+      const roleOf = (o: { trigger?: { role: 'take_profit' | 'stop_loss' } | null }) => o.trigger?.role ?? null;
+      const tp = whole.find((o) => roleOf(o) === 'take_profit');
+      const sl = whole.find((o) => roleOf(o) === 'stop_loss');
+      const role = roleOf(order);
+      const taken = role === 'take_profit' ? tp : role === 'stop_loss' ? sl : tp && sl ? tp : undefined;
+      if (!taken) continue;
+      throw new UserVenueDoorError(
+        `one take profit and one stop loss for the whole position may rest together on ${order.symbol}, and ${
+          role === null ? 'both' : `a ${role === 'take_profit' ? 'take profit' : 'stop loss'} for the whole ${formatAmount(position.size)}`
+        } already rest${role === null ? '' : 's'} (${taken.venueClientOrderId ?? 'no client id'}); part take profits and stop losses don't count. Nothing was sent`,
+        'trade.venue_whole_close_taken',
+        409,
+      );
+    }
+  }
+
   /** The key the action is stored under: the intent's own business key where it has one. */
   private businessKey(intent: VenueIntent, actionKey: string | null | undefined): string {
     let key: string | null | undefined;
@@ -1302,6 +1355,7 @@ export class UserVenueDoor {
       await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     }
     if (finalIntent.kind === 'amend_order' || finalIntent.kind === 'replace_order') await this.assertNoRaise(venue, account, finalIntent);
+    await this.assertOneWholeClose(venue, account, finalIntent);
     finalIntent = await eachOrder(finalIntent, (order) => this.admitPlace(venue.venue.id, order));
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
