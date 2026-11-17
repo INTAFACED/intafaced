@@ -1345,8 +1345,11 @@ export async function namedSealInputs({ io, pull, head }) {
 export async function reachInputs({ io, paths, head, base, text }) {
   const kinds = paths.map((p) => [p, pathKind(p)]);
   const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
-  // Any other full path makes the whole change full, so nothing below would be used: read nothing.
-  if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product) || !io.mainRuns || !io.journeyFiles) return null;
+  // Any other full path makes the whole change full, so nothing below would be used: read nothing. A stack file is not
+  // one of those: a named pull request narrows it to the journeys using it, and its product paths still go to the map,
+  // as the touch job sends them (journey-touch.mjs main; #8139 changed one).
+  if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product && !k.stack) || !io.mainRuns || !io.journeyFiles)
+    return null;
   const map = await runMap(io, head);
   let behind = null;
   try {

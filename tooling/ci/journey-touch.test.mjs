@@ -1684,6 +1684,11 @@ test('replay, the seal: each of the 4 named pull requests no longer seals on a r
       [...c.title.matchAll(/ #(\d+)/g)].map((m) => [`${namedJourneyIds({ title: c.title })[0]}#${m[1]}`, 'passed']),
     );
     const newest = REPLAY.map.runs[0];
+    const id = namedJourneyIds({ title: c.title })[0];
+    const steps = `const J = '${id}';\n${Object.keys(states)
+      .map((s) => `test(\`\${J} #${s.split('#')[1]} x\`, () => {});`)
+      .join('\n')}\n`;
+    const stackNames = c.paths.filter((p) => pathKind(p).stack).map((p) => `'../../../../${p}'`);
     const out = await sealPull({
       repo: REPO,
       number: c.number,
@@ -1693,8 +1698,10 @@ test('replay, the seal: each of the 4 named pull requests no longer seals on a r
         runs: async () => [run(1)],
         reportOf: async () => ({ states, ran }),
         files: async () => c.paths,
-        text: async (f, ref) =>
-          ref === HEAD && RUN_FILE.test(f) ? 'test(`${J} #1 x`, () => {});' : ref === HEAD && c.subscribes.includes(f) ? '.subscribe(' : '',
+        // Its changed journey file holds the steps its title names; its service files that subscribe say so.
+        text: async (f, ref) => (ref === HEAD && RUN_FILE.test(f) ? steps : ref === HEAD && c.subscribes.includes(f) ? '.subscribe(' : ''),
+        // The journey files using its stack file name it, as its importers did at the merge (#8139).
+        journeyTexts: async () => new Map(c.journeyFiles.map((f) => [f, (c.importers ?? []).includes(f) ? stackNames.join('\n') : ''])),
         verdictOf: async (r) => ({ ...clean, missing: c.journeyFiles.filter((f) => !r.ran.includes(f)) }),
         reachMap: async () => REPLAY.map,
         mainRuns: async () => [run(2, { id: newest.id, head_branch: 'main', event: 'push', created_at: newest.created })],
@@ -1703,6 +1710,12 @@ test('replay, the seal: each of the 4 named pull requests no longer seals on a r
       },
     });
     assert.equal(out.ok, false, `#${c.number}: ${out.lines.join('\n')}`);
-    assert.match(out.lines.join('\n'), /full run/, `#${c.number}: ${out.lines.join('\n')}`);
+    // Held for the full run the map asks for, not for anything else in the fake (the old named line ends "main's full
+    // run judges the rest"). #8139's stack file goes full with its product code, so its reason is the stack file's.
+    const why = /full run: it changes (what can reach any journey|the journey stack's shared setup)/;
+    assert.match(out.lines.join('\n'), why, `#${c.number}: ${out.lines.join('\n')}`);
+    assert.doesNotMatch(out.lines.join('\n'), /main's full run judges the rest/, `#${c.number}`);
+    // The same run on a head that touched nothing else would have sealed: the named rule's own lines are clean.
+    for (const s of Object.keys(states)) assert.match(out.lines.join('\n'), new RegExp(`${s}: passed`), `#${c.number}: ${s}`);
   }
 });

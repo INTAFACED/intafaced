@@ -29,8 +29,9 @@
  *     `full` journeys, which no recorded run speaks for, are still not added to a named run (reachSelect `unrecorded`):
  *     from 9 to 14 Nov they turned 10 failed pull request runs red and only one of those was the pull request's fault,
  *     while they took a named run from 1 shard and about 10 minutes to 8 shards and 24 to 26; project-state#2332. Main's
- *     full run holds them. Without a readable map (the seal's io can't read one) the named journeys alone run, as
- *     before. Every other full path above still makes it full. Main runs every journey after every merge and is the
+ *     full run holds them. A map that is switched off, stale or unreadable makes the change full; only with no map
+ *     input at all (`reach` null: a call without --reach, or a seal io that reads no main runs or journey files) do the
+ *     named journeys alone run, as before. Every other full path above still makes it full. Main runs every journey after every merge and is the
  *     backstop (OWNER 249 (3): "a PR runs only the journeys it touches, the full suite runs on main after a merge, a red
  *     main is reverted"). A product pull request that names no journey keeps the rules above;
  *   - stack (theo-01 part 2, OWNER 296: "A change to one service's own test-stack file runs the journeys that use that
