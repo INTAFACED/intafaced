@@ -326,6 +326,11 @@ interface AccountState {
   readonly retiredAgents: Set<string>;
   /** Main account only: its balance in each market deployer's own margin account, by the margin account's name. */
   readonly marketMargins: Map<string, { free: Amount; locked: Amount }>;
+  /**
+   * TEST only (J-campaigns-19 #5): a loss past margin the venue booked as a deficit, by asset. It is kept apart from the
+   * balances, which never go below zero, and reported against them: the account's reported balance there may be negative.
+   */
+  readonly deficits: Map<string, Amount>;
   /** Its settlements in market events (a deployer's halt, a split), oldest first. */
   readonly settlements: UserVenueSettlement[];
   /** Its scheduled cancel (J-cex-spot-07): when the venue cancels every open order, and what it last did. */
@@ -753,16 +758,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /**
    * TEST only (J-campaigns-19 #5): a loss past the account's margin that the venue booked as a deficit, once per
-   * `lossRef`. The asset's free balance falls by `amount` and may go below zero, so the account's equity there is
-   * negative, as a venue reports one whose loss outran its collateral. Nothing else changes.
+   * `lossRef`. The asset's reported free balance falls by `amount` and may go below zero, so the account's equity there
+   * is negative, as a venue reports one whose loss outran its collateral. The deficit is held apart from the balances the
+   * simulator trades on, so its no-negative-balance invariant still holds for every account. Nothing else changes.
    */
   bookDeficit(account: UserVenueAccount, asset: string, amount: Amount, lossRef: string): boolean {
     if (compare(amount, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'a deficit must be positive');
     const state = this.account(account);
     if (state.deposits.has(`deficit:${lossRef}`)) return false;
     state.deposits.add(`deficit:${lossRef}`);
-    const balance = this.balance(state, asset);
-    balance.free = sub(balance.free, amount);
+    state.deficits.set(asset, add(state.deficits.get(asset) ?? ZERO, amount));
     return true;
   }
 
@@ -1549,9 +1554,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   async balances(account: UserVenueAccount): Promise<AsOf<readonly UserVenueBalance[]>> {
     this.up();
     const state = this.account(account);
-    const list = [...state.balances.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([asset, b]) => ({ asset, free: b.free, locked: b.locked, total: add(b.free, b.locked) }));
+    const assets = new Set([...state.balances.keys(), ...state.deficits.keys()]);
+    const list = [...assets]
+      .sort((a, b) => a.localeCompare(b))
+      .map((asset) => {
+        const b = state.balances.get(asset) ?? { free: ZERO, locked: ZERO };
+        const free = sub(b.free, state.deficits.get(asset) ?? ZERO);
+        return { asset, free, locked: b.locked, total: add(free, b.locked) };
+      });
     return this.asOf(list);
   }
 
@@ -1863,6 +1873,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         transfers: new Map(),
         retiredAgents: new Set(),
         marketMargins: new Map(),
+        deficits: new Map(),
         settlements: [],
         scheduled: { cancelsAt: null, lastFired: null },
       };
