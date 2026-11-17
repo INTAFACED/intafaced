@@ -53,7 +53,7 @@ export interface EscrowView {
   actions: OrderAction[];
 }
 
-type TradeFacts = Pick<Trade, 'status' | 'resolution' | 'buyerId' | 'sellerId' | 'escrowedAt'>;
+type TradeFacts = Pick<Trade, 'status' | 'resolution' | 'buyerId' | 'sellerId' | 'escrowedAt'> & Partial<Pick<Trade, 'escrowKind'>>;
 
 export function roleIn(trade: Pick<Trade, 'buyerId' | 'sellerId'>, userId: string | null): Role {
   if (!userId) return 'observer';
