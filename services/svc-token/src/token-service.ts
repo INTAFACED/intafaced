@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import {
   formatAmount,
@@ -706,7 +706,7 @@ function proposalTitle(body: unknown): { title: string | null; reason: 'proposal
 
 /** NULL, whitespace, or `{}` — an undecided ladder, not a zero discount. */
 /** The stored fee-decay column as it is; a missing singleton row refuses. */
-async function readFeeDiscountRow(sql: Sql, opts: { forUpdate?: boolean } = {}): Promise<unknown> {
+async function readFeeDiscountRow(sql: Queryable, opts: { forUpdate?: boolean } = {}): Promise<unknown> {
   const rows = opts.forUpdate
     ? await sql<Array<{ fee_discount_schedule: unknown }>>`SELECT fee_discount_schedule FROM token.token_params WHERE id = true FOR UPDATE`
     : await sql<Array<{ fee_discount_schedule: unknown }>>`SELECT fee_discount_schedule FROM token.token_params WHERE id = true`;
@@ -1139,7 +1139,7 @@ export class TokenService {
    * later unstake cannot shrink the quorum bar and a stake opened after the
    * window cannot raise it.
    */
-  private async snapshotActiveStake(sql: Sql): Promise<{ total: Amount; byUser: Map<string, Amount> }> {
+  private async snapshotActiveStake(sql: Queryable): Promise<{ total: Amount; byUser: Map<string, Amount> }> {
     const rows = await sql<Array<{ id: string; user_id: string; amount: string }>>`
       SELECT id, user_id, amount
         FROM token.stakes
@@ -1894,7 +1894,7 @@ export class TokenService {
     );
   }
 
-  private async readYieldWindowHeader(sql: Sql, windowId: string): Promise<Amount | null> {
+  private async readYieldWindowHeader(sql: Queryable, windowId: string): Promise<Amount | null> {
     const rows = await sql<Array<{ total_amount: string }>>`
       SELECT total_amount FROM token.yield_windows WHERE window_id = ${windowId}
     `;
@@ -1902,7 +1902,7 @@ export class TokenService {
     return row ? parseAmount(row.total_amount) : null;
   }
 
-  private async readYieldPlan(sql: Sql, windowId: string): Promise<YieldPlanRow[]> {
+  private async readYieldPlan(sql: Queryable, windowId: string): Promise<YieldPlanRow[]> {
     const rows = await sql<Array<{ user_id: string; amount: string; ledger_tx_id: string | null }>>`
       SELECT user_id, amount, ledger_tx_id FROM token.yield_payouts
        WHERE window_id = ${windowId} ORDER BY user_id ASC
@@ -2887,8 +2887,8 @@ export class TokenService {
 
     // One read of every active stake per attempt, locked in id order. The author's stake for the proposer rule comes
     // from the same read, so two authors creating at once take their row locks in one order and cannot deadlock.
-    const snapshots = new WeakMap<Sql, Promise<Map<string, Amount>>>();
-    const snapshotOf = (tx: Sql) => {
+    const snapshots = new WeakMap<Queryable, Promise<Map<string, Amount>>>();
+    const snapshotOf = (tx: Queryable) => {
       let read = snapshots.get(tx);
       if (!read) {
         read = this.snapshotActiveStake(tx).then((snap) => snap.byUser);
@@ -3156,7 +3156,7 @@ export class TokenService {
   }
 
   /** Per-choice tally of a non-basic proposal from its stored ballots. */
-  private async choiceTallyOf(sql: Sql, card: ProposalRecord): Promise<ChoiceTally | null> {
+  private async choiceTallyOf(sql: Queryable, card: ProposalRecord): Promise<ChoiceTally | null> {
     if (card.votingType === 'basic') return null;
     const rows = await sql<Array<{ weight: string; choice: VoteChoice | null; ballot: unknown }>>`
       SELECT weight::text AS weight, choice, ballot

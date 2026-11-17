@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { BankError } from '../errors.js';
 import {
@@ -392,7 +393,7 @@ export class SharedPotService {
     });
   }
 
-  private async ownInviteForUpdate(tx: Sql, inviteId: string, userId: string): Promise<InviteRow> {
+  private async ownInviteForUpdate(tx: Queryable, inviteId: string, userId: string): Promise<InviteRow> {
     const [row] = await tx<InviteRow[]>`
       SELECT id, space_id, inviter_user_id, invitee_user_id, role, created_at, expires_at, accepted_at, declined_at,
              cancelled_at, expires_at <= now() AS expired
@@ -468,7 +469,7 @@ export class SharedPotService {
   }
 
   /** The caller's role in someone else's pot, or null when they are not a member. */
-  async roleOf(spaceId: string, userId: string, db: Sql = this.sql): Promise<SharedPotRole | null> {
+  async roleOf(spaceId: string, userId: string, db: Queryable = this.sql): Promise<SharedPotRole | null> {
     const [row] = await db<Array<{ role: SharedPotRole }>>`
       SELECT role FROM bank.shared_pot_members WHERE space_id = ${spaceId}::uuid AND user_id = ${userId}
     `;
@@ -585,7 +586,7 @@ export class SharedPotService {
    * the freeze lands; otherwise the change is refused and rolled back. A closed card is unlinked, and the card that
    * replaces it, if any, takes its place. A card linked to no pot changes nothing here.
    */
-  async noteCardStatus(tx: Sql, change: CardStatusChange): Promise<void> {
+  async noteCardStatus(tx: Queryable, change: CardStatusChange): Promise<void> {
     const [link] = await tx<Array<{ space_id: string }>>`
       SELECT space_id FROM bank.shared_pot_cards WHERE card_id = ${change.cardId}::uuid
     `;

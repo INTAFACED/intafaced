@@ -9,7 +9,7 @@ import {
 } from './card-controls.js';
 import { createHash } from 'node:crypto';
 import type { PendingQuery, Row, Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   InsufficientFundsError,
   LedgerError,
@@ -707,7 +707,7 @@ export interface CardStatusChange {
   /** Set when the card was closed because this card replaces it. */
   replacementCardId?: string;
 }
-export type CardStatusHook = (tx: Sql, change: CardStatusChange) => Promise<void>;
+export type CardStatusHook = (tx: Queryable, change: CardStatusChange) => Promise<void>;
 
 export class CardService {
   private readonly issuer: CardIssuerAdapter;
@@ -932,7 +932,7 @@ export class CardService {
     return this.programmeTerms;
   }
 
-  private async assertUnderCount(sql: Sql, userId: string, cardType: 'virtual' | 'physical', limit: number): Promise<void> {
+  private async assertUnderCount(sql: Queryable, userId: string, cardType: 'virtual' | 'physical', limit: number): Promise<void> {
     const held = await this.heldCount(userId, cardType, sql);
     if (held >= limit) {
       throw new BankError(
@@ -948,7 +948,7 @@ export class CardService {
    * authorisation not yet captured or given back (whose hold is the first holder's), and over the new holder's count limit.
    * Runs inside `tx`, so the caller records the move in the same transaction.
    */
-  async reassignOwner(tx: Sql, cardId: string, toUserId: string): Promise<{ fromUserId: string; card: CardRecord }> {
+  async reassignOwner(tx: Queryable, cardId: string, toUserId: string): Promise<{ fromUserId: string; card: CardRecord }> {
     this.assertModuleEnabled();
     this.assertIssuerMayMutate();
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`card-count:${toUserId}`}))`;
@@ -980,7 +980,7 @@ export class CardService {
   }
 
   /** Active or frozen cards of one kind this person holds: what the count limit counts. A closed card is not held. */
-  async heldCount(userId: string, cardType: 'virtual' | 'physical', sql: Sql = this.sql): Promise<number> {
+  async heldCount(userId: string, cardType: 'virtual' | 'physical', sql: Queryable = this.sql): Promise<number> {
     const [row] = await sql<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM bank.cards WHERE user_id = ${userId} AND card_type = ${cardType} AND status <> 'closed'
     `;
@@ -4151,7 +4151,7 @@ export class CardService {
   }
 
   private async operatorCommand(
-    sql: Sql,
+    sql: Queryable,
     clientRequestId: string,
   ): Promise<{ card_id: string; target_status: string; reason: string; result_status: string; frozen_by: string | null } | null> {
     const rows = await sql<
@@ -4192,7 +4192,7 @@ export class CardService {
   }
 
   private async claimCommand(
-    tx: Sql,
+    tx: Queryable,
     cardId: string,
     commandId: string,
     kind: 'set_limits' | 'set_channels',
@@ -4423,7 +4423,7 @@ export class CardService {
    * Set a card's status under its row lock. True when the status it had differs from `status`: two callers making the
    * same change at once change it once, so a hook hears it once.
    */
-  private async updateStatus(tx: Sql, cardId: string, set: PendingQuery<Row[]>, status: CardRecord['status']): Promise<boolean> {
+  private async updateStatus(tx: Queryable, cardId: string, set: PendingQuery<Row[]>, status: CardRecord['status']): Promise<boolean> {
     const [old] = await tx<Array<{ status: string }>>`
       UPDATE bank.cards c SET ${set}, updated_at = now()
         FROM (SELECT id, status FROM bank.cards WHERE id = ${cardId} FOR UPDATE) o

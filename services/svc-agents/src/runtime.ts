@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { publishPendingAgentAlerts } from './alerts/routes.js';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { fundsRefusalParams, fundsShortfall, readFunds, type FundsPort } from './funds.js';
@@ -1417,7 +1417,7 @@ export function estimateInputTokens(system: string | undefined, messages: readon
  * wrote its action row: the row and its text land together or not at all. The purge is index.ts's timer
  * (purgeExpiredTranscripts), never this transaction.
  */
-async function keepTranscript(tx: Sql, actionId: string, userId: string, text: string, days: number): Promise<void> {
+async function keepTranscript(tx: Queryable, actionId: string, userId: string, text: string, days: number): Promise<void> {
   await tx`
     INSERT INTO agents.agent_transcripts (action_id, user_id, text, expires_at)
     VALUES (${actionId}, ${userId}, ${text}, now() + make_interval(days => ${days}))

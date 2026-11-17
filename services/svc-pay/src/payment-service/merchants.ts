@@ -4,9 +4,8 @@
  * Moved out of `payment-service.ts` as it was (owner decision 2026-10-23): `PayService` keeps one method per
  * function here, which passes itself as `svc`.
  */
-import type { Sql } from 'postgres';
 import { kybBindingMatches, loadKybDecisionBinding } from '../kyb-decision-binding.js';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { cleanMerchantName, MERCHANT_NAME_MAX, resolveMerchantNames } from '../merchant-names.js';
 import { assertCategoryApprovable } from '../onboarding-policy/category.js';
 import type { KybActor, MerchantRecord, MerchantRow, PayServiceInternal } from '../payment-service.js';
@@ -70,7 +69,7 @@ export async function createMerchant(
   return toMerchant(row);
 }
 
-export async function getMerchant(svc: PayServiceInternal, merchantId: string, connection: Sql = svc.sql): Promise<MerchantRecord> {
+export async function getMerchant(svc: PayServiceInternal, merchantId: string, connection: Queryable = svc.sql): Promise<MerchantRecord> {
   const rows = await connection<MerchantRow[]>`
     SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
       FROM pay.merchants WHERE id = ${merchantId}
@@ -81,7 +80,7 @@ export async function getMerchant(svc: PayServiceInternal, merchantId: string, c
 }
 
 /** Serialize eligibility reads with KYB/status writers in the money-door transaction. */
-export async function lockMerchantEligibility(svc: PayServiceInternal, sql: Sql, merchantId: string): Promise<MerchantRecord> {
+export async function lockMerchantEligibility(svc: PayServiceInternal, sql: Queryable, merchantId: string): Promise<MerchantRecord> {
   const rows = await sql<MerchantRow[]>`
     SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
       FROM pay.merchants WHERE id = ${merchantId} FOR SHARE

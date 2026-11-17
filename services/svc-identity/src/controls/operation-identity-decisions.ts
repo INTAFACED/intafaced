@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   identityOperationDecisionInputSchema,
   identityOperationDecisionSchema,
@@ -20,7 +20,7 @@ type CredentialCheck = { subject: CurrentAuthorityInput | null; expiresAt: Date 
 export class OperationIdentityDecisions {
   constructor(private readonly sql: Sql) {}
 
-  private async credential(tx: Sql, intent: IdentityOperationIntent): Promise<CredentialCheck> {
+  private async credential(tx: Queryable, intent: IdentityOperationIntent): Promise<CredentialCheck> {
     let subject: CurrentAuthorityInput | null = null;
     if (intent.authority.kind === 'credential' || intent.authority.kind === 'payfac_credential') subject = intent.authority.subject;
     else if (intent.authority.kind === 'delegation') {

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   ALERT_KINDS,
@@ -188,7 +188,7 @@ export function splitOf(asset: string, limit: string, reserved: string, spent: s
   return { asset, limit: formatAmount(l), reserved: formatAmount(r), spent: formatAmount(s), left: formatAmount(l - r - s) };
 }
 
-const SELECT_BATCH = (sql: Sql) => sql`
+const SELECT_BATCH = (sql: Queryable) => sql`
   SELECT b.*, p.published_by, p.published_at FROM campaigns.code_batches b
   LEFT JOIN campaigns.code_publications p ON p.batch_id = b.id`;
 
@@ -558,7 +558,7 @@ export class WatchService {
     input: { campaignId: string; reference: string; actor: string },
     source: CodeBatch['source'],
     count: number,
-    fill: (tx: Sql, insert: (tx: Sql, codes: readonly string[], offset: number) => Promise<Set<string>>) => Promise<void>,
+    fill: (tx: Queryable, insert: (tx: Queryable, codes: readonly string[], offset: number) => Promise<Set<string>>) => Promise<void>,
   ): Promise<CodeBatchResult> {
     return transaction(this.sql, async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`codes:batch:${input.campaignId}:${input.reference}`}))`;
@@ -570,7 +570,7 @@ export class WatchService {
       await tx`
         INSERT INTO campaigns.code_batches (id, campaign_id, reference, source, count, created_by, created_at)
         VALUES (${batchId}, ${row.id}, ${input.reference}, ${source}, ${count}, ${input.actor}, ${this.now()})`;
-      const insert = async (t: Sql, codes: readonly string[], offset: number) => {
+      const insert = async (t: Queryable, codes: readonly string[], offset: number) => {
         const rows = codes.map((code, i) => ({
           id: `vch_${randomUUID()}`,
           campaign_id: row.id,

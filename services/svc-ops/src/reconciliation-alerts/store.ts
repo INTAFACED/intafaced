@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import type { ReconciliationEvaluation, ReconciliationEvaluationCursor } from '@intafaced/contracts/ledger-reconciliation';
@@ -45,8 +46,6 @@ const sha256 = (text: string): string => createHash('sha256').update(text).diges
 /** The hash an acceptance freezes: SHA-256 (hex) of the evidence as the contract orders it. */
 export const evidenceHash = (evidence: unknown): string => sha256(opsAlertEvidenceCanonical(evidence));
 const LIVE = ['open', 'acknowledged'] as const;
-
-type Db = Sql | TransactionSql;
 
 interface AlertRow {
   id: string;
@@ -97,7 +96,7 @@ interface SnoozeRow {
   expired_at: Date | null;
 }
 
-const ALERT_COLUMNS = (sql: Db, now: Date) => sql`
+const ALERT_COLUMNS = (sql: Queryable, now: Date) => sql`
   a.id, a.kind, a.state, a.control_id, a.asset_id, a.period_start, a.period_end, a.severity, a.occurrences, a.first_seen,
   a.last_seen, a.evidence, a.ack_by, a.ack_at, a.ack_note, a.notices_sent, a.last_notice_at, a.version,
   a.cause, a.error_code, a.error_phase, a.resolution, a.resolved_by, a.resolved_at, a.corrective_tx_ids::text[] AS corrective_tx_ids,
@@ -172,7 +171,7 @@ export class ReconciliationAlertStore {
     `;
   }
 
-  async source(db: Db = this.sql): Promise<OpsAlertSource> {
+  async source(db: Queryable = this.sql): Promise<OpsAlertSource> {
     const [row] = await db<{ last_ok_at: Date | null; error_message: string | null; error_since: Date | null }[]>`
       SELECT last_ok_at, error_message, error_since FROM ops.reconciliation_feed WHERE source = ${SOURCE}
     `;
@@ -389,7 +388,7 @@ export class ReconciliationAlertStore {
     return { source: await this.source(), alerts: page, next };
   }
 
-  async get(alertId: string, db: Db = this.sql): Promise<OpsAlertDetail> {
+  async get(alertId: string, db: Queryable = this.sql): Promise<OpsAlertDetail> {
     const now = this.now();
     const [row] = await db<AlertRow[]>`SELECT ${ALERT_COLUMNS(db, now)} WHERE a.id = ${alertId}`;
     if (!row) throw new OpsError(OPS_ALERT_NOT_FOUND, 'No reconciliation alert has this id.');

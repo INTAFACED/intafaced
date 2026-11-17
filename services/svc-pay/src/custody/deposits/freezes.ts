@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { router, TRPCError } from '@intafaced/contracts';
@@ -145,7 +146,11 @@ export function unfreezeApprovalFields(input: Pick<DepositUnfreezeInput, 'userId
 export interface DepositFreezeBook {
   holdAddress(networkId: string, address: string): Promise<number>;
   /** Runs `lift` and puts the address's held deposits back to be judged in one transaction, then credits each that is due. */
-  release<T>(networkId: string, address: string, lift: (tx: Sql) => Promise<T>): Promise<{ lifted: T; released: number; credited: number }>;
+  release<T>(
+    networkId: string,
+    address: string,
+    lift: (tx: Queryable) => Promise<T>,
+  ): Promise<{ lifted: T; released: number; credited: number }>;
 }
 
 export interface DepositFreezesMountDeps {

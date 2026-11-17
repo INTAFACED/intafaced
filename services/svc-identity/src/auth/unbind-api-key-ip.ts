@@ -2,12 +2,12 @@
  * Unbind one IP from an API key allowlist. Exact IPv4/IPv6 after trim.
  * No invented CIDR. The rest of the list stays. Empty after unbind stays open.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { ApiKeyIpError } from './auth-service-ip.js';
 import { normalizeIp } from './api-key-ip.js';
 
 export async function unbindApiKeyIpAllowlist(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
   keyId: string,
   rawIp: string,

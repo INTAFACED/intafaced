@@ -25,6 +25,7 @@
  * `amend_released`. Remainder owed back is derived from fills plus that column.
  */
 
+import type { Queryable } from '@intafaced/db';
 import { NO_PAUSES, botOrdersHalted, type PauseSnapshot } from '../copy/platform-pauses.js';
 import type { Sql } from 'postgres';
 import { TradingControlError, type TradingAdmissionPort, type TradingOperationKind } from '../controls/trading-controls.js';
@@ -1503,7 +1504,7 @@ export class TradeService {
     return holds.fillEvidence(this.internal, orderId);
   }
 
-  private async remainingHold(sql: Sql, order: OrderRecord): Promise<Amount> {
+  private async remainingHold(sql: Queryable, order: OrderRecord): Promise<Amount> {
     return holds.remainingHold(this.internal, sql, order);
   }
 

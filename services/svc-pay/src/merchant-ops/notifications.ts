@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { MerchantOpsError } from './errors.js';
 import { iso } from './money.js';
@@ -47,7 +48,7 @@ export interface NewNotification {
  * it is that person's own preference, applied when they read (`NotificationService`).
  * Returns the new id, or null when it was a repeat.
  */
-export async function recordMerchantNotification(sql: Sql, n: NewNotification): Promise<string | null> {
+export async function recordMerchantNotification(sql: Queryable, n: NewNotification): Promise<string | null> {
   const rows = await sql<Array<{ id: string }>>`
     INSERT INTO pay.merchant_notifications (merchant_id, kind, title, body, subject_type, subject_id, dedupe_key)
     VALUES (${n.merchantId}, ${n.kind}, ${n.title}, ${n.body ?? null}, ${n.subjectType ?? null}, ${n.subjectId ?? null}, ${n.dedupeKey ?? null})

@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   accountKey,
   accountPurpose,
@@ -61,7 +61,7 @@ export interface PostgresLedgerOptions extends IdempotencyConflictOptions {
   readonly clockSkewBoundMs?: number | null;
   readonly now?: () => Date;
   /** Defaults to `clock_timestamp()`. Tests pass the service's reader. */
-  readonly readDatabaseNow?: (sql: Sql) => Promise<Date>;
+  readonly readDatabaseNow?: (sql: Queryable) => Promise<Date>;
 }
 
 /**
@@ -917,7 +917,7 @@ export class PostgresLedger implements LedgerClient {
    * New writes only. Caller has already missed both idempotency lookups.
    * A blank bound reads no clock and is not treated as 0.
    */
-  private async refuseNewWriteOnClockSkew(tx: Sql): Promise<void> {
+  private async refuseNewWriteOnClockSkew(tx: Queryable): Promise<void> {
     const bound = this.options.clockSkewBoundMs;
     if (bound === undefined || bound === null) return;
     const now = this.options.now ?? (() => new Date());
@@ -928,7 +928,7 @@ export class PostgresLedger implements LedgerClient {
     }
   }
 
-  private async upsertAccount(tx: Sql, ref: AccountRef): Promise<{ id: string; balance: bigint }> {
+  private async upsertAccount(tx: Queryable, ref: AccountRef): Promise<{ id: string; balance: bigint }> {
     // ON CONFLICT DO UPDATE (rather than DO NOTHING) so RETURNING always yields
     // a row, and so the row is locked for this transaction either way.
     const rows = await tx<Array<{ id: string; balance: string }>>`
@@ -974,7 +974,7 @@ export class PostgresLedger implements LedgerClient {
     return (await this.loadClaimedTxByKey(tx, key))?.tx ?? null;
   }
 
-  private async loadClaimedTxByKey(tx: Sql, key: string): Promise<{ tx: LedgerTx; fingerprint: string | null } | null> {
+  private async loadClaimedTxByKey(tx: Queryable, key: string): Promise<{ tx: LedgerTx; fingerprint: string | null } | null> {
     // One statement snapshot: separate claim/journal probes can straddle a
     // concurrent commit and falsely call the just-committed row unclaimed.
     const rows = await tx<ClaimRow[]>`
@@ -996,7 +996,7 @@ export class PostgresLedger implements LedgerClient {
     return { tx: await this.hydrate(tx, rows[0]!), fingerprint: rows[0]!.request_fingerprint ?? null };
   }
 
-  private async hydrate(sql: Sql, row: TxRow): Promise<LedgerTx> {
+  private async hydrate(sql: Queryable, row: TxRow): Promise<LedgerTx> {
     const entries = await sql<EntryRow[]>`
       SELECT id, tx_id, account_id, asset_id, direction, amount, balance_after
         FROM ledger_entries WHERE tx_id = ${row.id} ORDER BY id ASC

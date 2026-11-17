@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type {
   HumanTokenTier,
@@ -164,7 +165,7 @@ const CHECKLIST_COLUMNS =
 export class PostgresTrustDeskStore implements TrustDeskStore {
   constructor(private readonly sql: Sql) {}
 
-  private async tierOf(q: Sql, chainId: number, token: string): Promise<ProtocolTokenTier> {
+  private async tierOf(q: Queryable, chainId: number, token: string): Promise<ProtocolTokenTier> {
     const rows = await q<TierRow[]>`
       SELECT k.token, t.tier, t.prior_tier, t.reason, t.since, r.requester_id, r.approver_id,
              p.id AS p_id, p.tier AS p_tier, p.reason AS p_reason, p.requester_id AS p_requester_id, p.asked_at AS p_asked_at
@@ -200,8 +201,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
     reason: string;
     requesterId: string;
   }): Promise<TierAskOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const rows = await q<{ id: string }[]>`
         INSERT INTO protocol.token_tier_requests (chain_id, token, tier, reason, requester_id)
         VALUES (${input.chainId}, ${input.token}, ${input.tier}, ${input.reason}, ${input.requesterId})
@@ -215,8 +215,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async approveTier(input: { chainId: number; requestId: string; approverId: string }): Promise<TierApproveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [request] = await q<{ id: string; token: string; tier: HumanTokenTier; reason: string; requester_id: string }[]>`
         SELECT id, token, tier, reason, requester_id FROM protocol.token_tier_requests
         WHERE id = ${input.requestId} AND chain_id = ${input.chainId} AND status = 'pending' FOR UPDATE`;
@@ -239,8 +238,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async removeTier(input: { chainId: number; token: string; reason: string; actorId: string }): Promise<TierRemoveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [current] = await q<{ tier: HumanTokenTier; prior_tier: HumanTokenTier | null; request_id: string }[]>`
         SELECT tier, prior_tier, request_id FROM protocol.token_tiers
         WHERE chain_id = ${input.chainId} AND token = ${input.token} FOR UPDATE`;
@@ -291,8 +289,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
     approverId: string;
     reason: string;
   }): Promise<OnboardingApproveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [row] = await q<ChecklistRow[]>`
         SELECT ${q.unsafe(CHECKLIST_COLUMNS)} FROM protocol.pool_onboarding
         WHERE id = ${input.checklistId} AND chain_id = ${input.chainId} AND status = 'open' FOR UPDATE`;
@@ -314,7 +311,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
     return rows.map(toNameTag);
   }
 
-  private async nameTagOf(q: Sql, id: string): Promise<ProtocolNameTagRequest> {
+  private async nameTagOf(q: Queryable, id: string): Promise<ProtocolNameTagRequest> {
     const [row] = await q<NameTagRow[]>`${q.unsafe(NAME_TAG_SELECT)} WHERE n.id = ${id}`;
     return toNameTag(row!);
   }
@@ -329,8 +326,7 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async approveNameTag(input: { chainId: number; requestId: string; approverId: string }): Promise<NameTagApproveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [row] = await q<{ id: string; address: string; tag: string; reason: string; first_approver_id: string | null }[]>`
         SELECT id, address, tag, reason, first_approver_id FROM protocol.name_tag_requests
         WHERE id = ${input.requestId} AND chain_id = ${input.chainId} AND status = 'pending' FOR UPDATE`;

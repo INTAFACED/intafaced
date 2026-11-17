@@ -3,13 +3,13 @@
  * Hostname after trim/URL parse. No invented localhost. Empty list stays unset.
  * Invalid origins refuse before create — no leftover unbound key.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { ApiKeyOriginError, bindApiKeyOriginAllowlist, normalizeOrigin } from './auth-service-origin.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 
 export async function mintApiKeyWithOriginAllowlist(
   minter: ApiKeyMinter,
-  sql: Sql,
+  sql: Queryable,
   input: {
     userId: string;
     name: string;

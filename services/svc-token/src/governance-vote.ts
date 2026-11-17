@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -59,7 +60,7 @@ export const SNAPSHOT_INSERT_CHUNK = 5000;
  * nor a half snapshot. Each account row is written once (primary key).
  */
 export async function sealSnapshot(
-  tx: Sql,
+  tx: Queryable,
   input: { proposalId: string; takenAt: Date; byUser: ReadonlyMap<string, Amount> },
 ): Promise<{ count: number; total: Amount; hash: string }> {
   const rows = [...input.byUser.entries()].filter(([, power]) => power > 0n).map(([userId, power]) => ({ userId, power }));
@@ -109,7 +110,7 @@ export function sealFromRow(row: {
  * total or hash that disagrees refuses `token.governance_snapshot_missing`:
  * a ballot is never weighed against rows that are not the sealed ones.
  */
-export async function readSealedSnapshot(tx: Sql, proposalId: string, seal: SnapshotSeal): Promise<Map<string, Amount>> {
+export async function readSealedSnapshot(tx: Queryable, proposalId: string, seal: SnapshotSeal): Promise<Map<string, Amount>> {
   const rows = await tx<Array<{ user_id: string; power: string }>>`
     SELECT user_id, power::text AS power
       FROM token.governance_snapshots

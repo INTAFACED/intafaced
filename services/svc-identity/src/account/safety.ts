@@ -6,7 +6,7 @@
  * `identity.extra_controls_unset`. Reading and removing extras still work while it is blank.
  */
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { ExtraControl, ExtraControlsFor, SafetyRead } from '@intafaced/contracts/identity-safety';
 
 export const EXTRA_CONTROLS_UNSET = 'identity.extra_controls_unset';
@@ -47,7 +47,7 @@ async function extrasOf(sql: Sql, userId: string): Promise<ExtrasRow | null> {
   return rows[0] ?? null;
 }
 
-async function consentOf(sql: Sql, userId: string): Promise<{ consent: boolean; changed_at: Date } | null> {
+async function consentOf(sql: Queryable, userId: string): Promise<{ consent: boolean; changed_at: Date } | null> {
   const rows = await sql<Array<{ consent: boolean; changed_at: Date }>>`
     SELECT consent, changed_at FROM location_consent_events WHERE user_id = ${userId}
     ORDER BY changed_at DESC, id DESC LIMIT 1`;

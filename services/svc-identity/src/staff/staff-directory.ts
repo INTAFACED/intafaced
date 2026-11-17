@@ -14,6 +14,7 @@
  * An email that already has an identity account is refused `auth.email_taken` for now: binding an existing account to
  * a staff record is a later change. Nothing here is money.
  */
+import type { Queryable } from '@intafaced/db';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import {
@@ -85,7 +86,7 @@ export interface StaffDirectoryDeps {
   /** Makes the invited person's account and runs `claim` in the same transaction (`AuthService.registerInvitedStaff`). */
   readonly registerAccount: (
     input: { email: string; password: string; deviceKey?: string | null },
-    claim: (tx: Sql, userId: string) => Promise<void>,
+    claim: (tx: Queryable, userId: string) => Promise<void>,
   ) => Promise<string>;
   readonly clock?: () => Date;
 }
@@ -185,7 +186,7 @@ export class StaffDirectory {
     return { staff: staffEntryOf(result.row), mailed, approverId: result.approverId, auditId: result.auditId };
   }
 
-  private async openToken(q: Sql, token: string, lock: boolean): Promise<{ staff: StaffRow; expiresAt: Date } | null> {
+  private async openToken(q: Queryable, token: string, lock: boolean): Promise<{ staff: StaffRow; expiresAt: Date } | null> {
     const hash = tokenHashOf(token);
     const rows = await q<Array<{ token_hash: string; staff_id: string; expires_at: Date; used_at: Date | null }>>`
       SELECT token_hash, staff_id, expires_at, used_at FROM staff_invite_tokens WHERE token_hash = ${hash}
