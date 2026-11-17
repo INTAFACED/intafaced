@@ -13,7 +13,7 @@ import { StoreVenueRoutingGate } from './venue-listing.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, UserVenueDoorError, type BuilderFeeValue } from './user-venue-door.js';
 
-// J-derivatives-04 #6 at the door (row d115, 17 Nov 2026): one take profit and one stop loss for the whole position may
+// J-derivatives-04 #6 at the door (its words of 17 Nov 2026): one take profit and one stop loss for the whole position may
 // rest together; part ones don't count; another whole close is refused before anything is prepared. Against the TEST
 // venue simulator over loopback HTTP, on a TEST long of 1 ETH-PERP. Every figure is TEST.
 

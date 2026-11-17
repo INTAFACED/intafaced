@@ -404,8 +404,8 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
 });
 
-// The custodial Later branch (OWNER 226), kept on our own book: a second closing order is refused there. It is no step's
-// proof: #6's words changed on 17 Nov 2026 (row d115), and #6 is proven on the venue in J-derivatives-04-venue.pw.mjs.
+// The custodial Later branch, kept on our own book: a second closing order is refused there. It is no step's
+// proof: #6's words changed on 17 Nov 2026, and #6 is proven on the venue in J-derivatives-04-venue.pw.mjs.
 test(`${J}, the custodial Later branch, checked on our own book: a second closing order on a closing position is refused`, async ({
   page,
 }) => {

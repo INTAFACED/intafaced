@@ -20,7 +20,7 @@ import {
 // J-derivatives-04's venue steps on the person's own venue account (the launch money model: the venue holds the margin
 // and the orders, the ledger posts nothing), in the running app against the stack's TEST venue simulator
 // (packages/venue-sim). #3 and #5 are the steps CUSTODY-DELTA marks Adapted (amend, cancel-on-disconnect); #4 and #6 are
-// proven here on the venue too, since trading on our own engine is out at launch (OWNER 226, 237). One test per step,
+// proven here on the venue too, since trading on our own engine is out at launch. One test per step,
 // titled "J-derivatives-04 #<n>", run in order on one TEST account; #1 and #2 are in J-derivatives-04.pw.mjs.
 //
 // Every order, lock, schedule and answer is read from the TEST venue itself, never the page. #3 to #5 rest TEST buys on

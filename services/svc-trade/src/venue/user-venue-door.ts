@@ -1153,7 +1153,7 @@ export class UserVenueDoor {
   }
 
   /**
-   * J-derivatives-04 #6 (row d115, 17 Nov 2026): one take profit and one stop loss for the whole position may rest
+   * J-derivatives-04 #6 (its words of 17 Nov 2026): one take profit and one stop loss for the whole position may rest
    * together; a part one doesn't count. A new resting order that would close the whole position is refused when a
    * whole-position order of its own role already rests, and a resting whole close that is neither (a reduce-only limit)
    * is refused when both rest. An immediate close (IOC, a market close) is never refused here: it rests nothing. A
