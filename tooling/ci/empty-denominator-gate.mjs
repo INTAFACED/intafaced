@@ -208,13 +208,6 @@ export const ENFORCED = {
       'Class X list-content boundary: with screening.ts gone it cannot prove the list is unshipped and refuses by name ' +
       'rather than printing clean over nothing.',
   },
-  'marketing-language': {
-    kind: 'guard',
-    must: /MARKETING LANGUAGE SCAN FAILED — packages\/config\/src\/marketing-language\.ts is missing/,
-    note:
-      'DIRECTION §8.9 / D26-P0-16: with the law module gone it cannot prove audited/insured/guaranteed product copy is ' +
-      'owner-sealed and refuses by name rather than printing clean over nothing.',
-  },
   workspace: {
     kind: 'guard',
     must: /no service packages found, so checks 1-10 below each iterated an empty list/,

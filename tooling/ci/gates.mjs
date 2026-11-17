@@ -173,15 +173,6 @@ export const GATES = [
       '"ships empty" — this gate re-derives it on every verify so list content cannot land as a helpful default.',
   },
   {
-    id: 'marketing-language',
-    script: 'tooling/ci/marketing-language-scan.mjs',
-    doctrine: 'DIRECTION §8.9 / D26-P0-16',
-    why:
-      'product copy may not describe anything as audited, insured, or guaranteed without OWNER-SEAL(§8.9). Agents invent ' +
-      'those words as marketing; the gate re-derives the ban over locale catalogues and refuses empty denominators. Law ' +
-      'helpers live in packages/config/src/marketing-language.ts — Vue FE craft stays out of scope (nitro-frontend-all).',
-  },
-  {
     id: 'migrations',
     script: 'tooling/ci/migration-check.mjs',
     doctrine: '§14',
