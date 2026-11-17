@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url';
 const APP = fileURLToPath(new URL('../../', import.meta.url));
 
 /**
- * Every route the app's navigation and menus name, plus rooms they reach only by a parameter. The room report
- * (look-sweep.mjs) and the look gate (tooling/ci/look-gate) both open this list, so they judge the same rooms.
+ * Every route the app's navigation and menus name, plus rooms they reach only by a parameter. The look gate
+ * (tooling/ci/look-gate) opens this list, so it judges every room.
  */
 export function sweepRoutes() {
   // The room table lives in one file per area (src/app/rooms/<area>.ts, project-state #2616).
