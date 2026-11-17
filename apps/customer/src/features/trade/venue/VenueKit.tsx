@@ -298,6 +298,7 @@ function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   if (intent.kind === 'withdraw') return intent.withdrawalKey;
   if (intent.kind === 'cancel_order') return actionKey ?? keys.cancel(intent.clientOrderKey);
   if (intent.kind === 'market_margin_transfer') return intent.moveKey;
+  if (intent.kind === 'update_isolated_margin') return intent.changeKey;
   return actionKey ?? '';
 }
 

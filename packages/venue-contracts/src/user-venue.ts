@@ -335,6 +335,23 @@ export interface MarketMarginTransferIntent {
 }
 
 /**
+ * Add margin to, or remove margin from, the account's open isolated position on one perpetual (J-derivatives-06 #2 #3),
+ * one signed venue action (Hyperliquid: `updateIsolatedMargin`). `add` moves free collateral into the position's margin;
+ * `remove` moves it back, and the venue refuses a removal that would take the margin below its own limit for the
+ * position (`isolatedMargin().minimumMargin`), in words. Nothing leaves the venue and the ledger posts nothing. An agent
+ * may sign it (the auto top-up). Stored under its business key (`margin:<owner>:<symbol>:<draft>`).
+ */
+export interface UpdateIsolatedMarginIntent {
+  readonly kind: 'update_isolated_margin';
+  readonly symbol: string;
+  readonly direction: 'add' | 'remove';
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this change: a retry re-sends the same bytes, and the venue applies it once. */
+  readonly changeKey: string;
+}
+
+/**
  * Several orders the venue takes in one signed action, applied in the order given (Hyperliquid: one `order` action with
  * several `orders`, grouping `na`, read 2026-11-15): the wallet signs once, and each order keeps its own client order key,
  * so each is placed at most once and read back by its own client id. Offered only on a venue whose descriptor declares
@@ -365,7 +382,8 @@ export type VenueIntent =
   | RevokeAgentIntent
   | CreateSubAccountIntent
   | SubAccountTransferIntent
-  | MarketMarginTransferIntent;
+  | MarketMarginTransferIntent
+  | UpdateIsolatedMarginIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -723,6 +741,40 @@ export interface UserVenuePosition {
    * position's margin and its unrealised result). Absent or `known: false` where the venue publishes none.
    */
   readonly maintenanceMargin?: MaybeKnown<Amount>;
+}
+
+/**
+ * One isolated position's margin as the venue holds it, and how far it may be lowered (J-derivatives-06 #3), read before
+ * anything is signed: `minimumMargin` is the venue's own limit for the position now, `removable` what a removal may
+ * take (margin less that limit, never below zero), and `free` what an addition may draw on.
+ */
+export interface UserVenueIsolatedMargin {
+  readonly symbol: string;
+  readonly side: 'long' | 'short';
+  readonly size: Amount;
+  readonly margin: Amount;
+  readonly minimumMargin: Amount;
+  readonly removable: Amount;
+  readonly free: Amount;
+  readonly asset: string;
+  readonly liquidationPrice: MaybeKnown<Amount>;
+  /** The venue's words for its removal limit, shown as written. */
+  readonly rule: string;
+}
+
+/**
+ * The account's margin as the venue reports it (J-derivatives-06 #1): equity (collateral and unrealised result), free
+ * collateral, the margin its positions use, their maintenance requirement, and the margin ratio (maintenance over equity,
+ * a fraction), each an exact decimal in the collateral asset. `marginRatio` is `known: false` where equity is not above
+ * zero.
+ */
+export interface UserVenueAccountSummary {
+  readonly asset: string;
+  readonly equity: Amount;
+  readonly free: Amount;
+  readonly usedMargin: Amount;
+  readonly maintenanceMargin: Amount;
+  readonly marginRatio: MaybeKnown<Amount>;
 }
 
 /**
@@ -1584,6 +1636,14 @@ export interface UserVenue {
     leverageBps: number,
     marginMode: VenueMarginMode,
   ): Promise<AsOf<UserVenueLeverageChange>>;
+
+  /**
+   * The open isolated position's margin on `symbol` and the venue's limit for removing it (J-derivatives-06 #2 #3).
+   * Refuses `venue_rejected` with no isolated position open there. Optional: a venue that reads none leaves it out.
+   */
+  isolatedMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueIsolatedMargin>>;
+  /** The account's margin summary as the venue reports it (J-derivatives-06 #1). Optional: absent, not read. */
+  accountSummary?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>>;
 }
 
 /**
@@ -1687,6 +1747,19 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
     assertBusinessKey(venueId, intent.moveKey, 'move key');
   }
   if (intent.kind === 'create_sub_account') assertBusinessKey(venueId, intent.subAccountKey, 'sub-account key');
+  if (intent.kind === 'update_isolated_margin') {
+    if (intent.direction !== 'add' && intent.direction !== 'remove') {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `margin direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a margin change must be positive' });
+    }
+    assertBusinessKey(venueId, intent.changeKey, 'change key');
+  }
 }
 
 /**

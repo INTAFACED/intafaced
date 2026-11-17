@@ -104,3 +104,8 @@ export function leverageBpsOfTimes(text: string): number | null {
   if (!/^[1-9]\d{0,3}$/.test(t)) return null;
   return Number(t) * 10_000;
 }
+
+/** A fraction the venue reports (`0.0123`) as a percent, exact to its last digit: `1.23`. Nothing is rounded. */
+export function percentOf(fraction: string): string {
+  return str(num(fraction) * 100n);
+}

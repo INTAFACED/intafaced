@@ -81,6 +81,7 @@ GET /api/v1/ticker/:symbol public trade:read
 GET /api/v1/tickers public trade:read
 GET /api/v1/time public trade:read
 GET /api/v1/trades/:symbol public trade:read
+GET /api/v1/venue/account-summary private trade:read
 GET /api/v1/venue/agent-accounts private trade:read
 GET /api/v1/venue/agent-accounts/:id private trade:read
 GET /api/v1/venue/agent-accounts/connections private trade:read
@@ -98,6 +99,7 @@ GET /api/v1/venue/fees public trade:read
 GET /api/v1/venue/fills private trade:read
 GET /api/v1/venue/funding-history public trade:read
 GET /api/v1/venue/gated-list private trade:read
+GET /api/v1/venue/isolated-margin private trade:read
 GET /api/v1/venue/leverage private trade:read
 GET /api/v1/venue/leverage-change private trade:read
 GET /api/v1/venue/market-margin private trade:read

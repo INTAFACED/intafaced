@@ -244,6 +244,18 @@ describe('/api/v1/venue/*', () => {
     expect(bad.statusCode).toBe(400);
   });
 
+  it("J-derivatives-06 #1 #3: account-summary and isolated-margin answer the venue's own figures; no position refuses in words", async () => {
+    await mount(door());
+    const summary = await app.inject({ method: 'GET', url: `/api/v1/venue/account-summary?owner=${owner}` });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json().value).toMatchObject({ asset: expect.any(String), marginRatio: expect.any(Object) });
+    for (const k of ['equity', 'free', 'usedMargin', 'maintenanceMargin']) expect(typeof summary.json().value[k]).toBe('string');
+    const none = await app.inject({ method: 'GET', url: `/api/v1/venue/isolated-margin?owner=${owner}&symbol=BTC-PERP` });
+    expect(none.statusCode).toBe(422);
+    expect(JSON.stringify(none.json())).toContain('no position is open on BTC-PERP');
+    expect((await app.inject({ method: 'GET', url: `/api/v1/venue/isolated-margin?owner=${owner}` })).statusCode).toBe(400);
+  });
+
   it("best-prices answers the venue's best bid and ask as decimal strings, and refuses without a symbol", async () => {
     await mount(door());
     const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });

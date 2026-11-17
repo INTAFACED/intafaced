@@ -33,6 +33,8 @@ import {
   type UserVenueFill,
   type UserVenueLeverage,
   type UserVenueLeverageChange,
+  type UserVenueIsolatedMargin,
+  type UserVenueAccountSummary,
   type UserVenueListing,
   type UserVenueMarginAccountRule,
   type UserVenueMarginTier,
@@ -1344,6 +1346,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       case 'update_leverage':
         this.checkLeverageOnItsFace(intent.symbol, intent.leverageBps, intent.marginMode);
         return;
+      case 'update_isolated_margin': {
+        const market = this.market(intent.symbol);
+        if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${intent.symbol} is spot: it has no position margin`);
+        const position = this.openIsolated(state, intent.symbol);
+        // A removal below the venue's limit is refused before the wallet is asked to sign it, and again at submit.
+        if (intent.direction === 'remove') this.checkRemovable(position, intent.amount);
+        return;
+      }
       case 'withdraw':
         if (compare(intent.amount, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'a withdrawal must be positive');
         if (account.subAccount !== null) {
@@ -1839,6 +1849,63 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     });
   }
 
+  /** The open isolated position's margin on `symbol` and the TEST venue's removal limit (J-derivatives-06 #2 #3). */
+  async isolatedMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueIsolatedMargin>> {
+    this.up();
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is spot: it has no position margin`);
+    const state = this.account(account);
+    const p = this.openIsolated(state, symbol);
+    const asset = market.marginAccount?.collateralAsset ?? market.quoteAsset;
+    const usdc = this.lockBalance(state, market.marginAccount?.name ?? null, asset);
+    const floor = this.marginAt(p, p.leverageBps);
+    return this.asOf({
+      symbol,
+      side: p.side,
+      size: p.size,
+      margin: p.margin,
+      minimumMargin: floor,
+      removable: max(ZERO, sub(p.margin, floor)),
+      free: usdc.free,
+      asset,
+      liquidationPrice: this.liquidationPrice(market, p),
+      rule: `TEST rule: margin may be removed down to the position's entry value at its leverage (${p.leverageBps / 10_000}x)`,
+    });
+  }
+
+  /**
+   * The account's margin summary in its perpetual collateral (J-derivatives-06 #1): equity is every unit of collateral it
+   * holds, free and locked, plus each position's unrealised result at the mark; used margin is the positions' margin.
+   */
+  async accountSummary(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>> {
+    this.up();
+    const state = this.account(account);
+    const perps = [...this.marketsBySymbol.values()].filter((m) => m.kind === 'perpetual' && !m.marginAccount);
+    const asset = perps[0]?.quoteAsset ?? 'USDC';
+    const b = this.balance(state, asset);
+    let unrealised = ZERO;
+    let used = ZERO;
+    let maintenance = ZERO;
+    for (const [symbol, p] of state.positions) {
+      if (p.size === ZERO) continue;
+      const market = this.market(symbol);
+      if (market.marginAccount || market.quoteAsset !== asset) continue;
+      unrealised = add(unrealised, this.pnl(p, this.marks.get(symbol) ?? p.entryPrice, p.size));
+      used = add(used, p.margin);
+      const m = this.maintenanceOf(market, p);
+      if (m.known) maintenance = add(maintenance, m.value);
+    }
+    const equity = add(add(b.free, b.locked), unrealised);
+    return this.asOf({
+      asset,
+      equity,
+      free: b.free,
+      usedMargin: used,
+      maintenanceMargin: maintenance,
+      marginRatio: compare(equity, ZERO) > 0 ? { known: true, value: div(maintenance, equity, 'ceil') } : { known: false },
+    });
+  }
+
   async agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
     this.up();
     return this.asOf([...this.account(account).agents.values()]);
@@ -1879,6 +1946,31 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const rule = this.marginAccountOf(symbol);
     const b = this.account(account).marketMargins.get(rule.name) ?? { free: ZERO, locked: ZERO };
     return this.asOf({ symbol, ...rule, free: b.free, locked: b.locked, total: add(b.free, b.locked) });
+  }
+
+  /** A removal of `amount` from `p`'s margin, refused in words below the venue's limit (its entry value at its leverage). */
+  private checkRemovable(p: PositionState, amount: Amount): void {
+    const floor = this.marginAt(p, p.leverageBps);
+    const removable = max(ZERO, sub(p.margin, floor));
+    if (compare(amount, removable) > 0)
+      refuse(
+        this.venue.id,
+        'venue_rejected',
+        `removing ${formatAmount(amount)} would leave ${formatAmount(sub(p.margin, amount))} margin, below this venue's minimum of ${formatAmount(floor)} for the position (its entry value at ${p.leverageBps / 10_000}x); at most ${formatAmount(removable)} can be removed`,
+      );
+  }
+
+  /** The account's open isolated position on `symbol`, or a refusal in words. */
+  private openIsolated(state: AccountState, symbol: string): PositionState {
+    const p = state.positions.get(symbol);
+    if (!p || p.size === ZERO) refuse(this.venue.id, 'venue_rejected', `no position is open on ${symbol}, so it has no margin to change`);
+    if (p.marginMode !== 'isolated')
+      refuse(
+        this.venue.id,
+        'venue_rejected',
+        `the position on ${symbol} is on cross margin: only an isolated position's margin is changed on its own`,
+      );
+    return p;
   }
 
   private mainOnly(account: UserVenueAccount): void {
@@ -2411,6 +2503,33 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         }
         state.leverage.set(intent.symbol, { leverageBps: intent.leverageBps, marginMode: intent.marginMode });
         return accepted(null, null);
+      }
+      case 'update_isolated_margin': {
+        // One signed change moves collateral between free and the position's margin, once (J-derivatives-06 #2 #3); a
+        // removal is refused below the venue's limit for the position, in words, and nothing moves.
+        const position = this.openIsolated(state, intent.symbol);
+        const market = this.market(intent.symbol);
+        const usdc = this.lockBalance(
+          state,
+          market.marginAccount?.name ?? null,
+          market.marginAccount?.collateralAsset ?? market.quoteAsset,
+        );
+        if (intent.direction === 'add') {
+          if (compare(intent.amount, usdc.free) > 0)
+            return refused(
+              'insufficient_balance',
+              `free margin ${formatAmount(usdc.free)} does not cover the ${formatAmount(intent.amount)} to add`,
+            );
+          usdc.free = sub(usdc.free, intent.amount);
+          usdc.locked = add(usdc.locked, intent.amount);
+          position.margin = add(position.margin, intent.amount);
+        } else {
+          // validate() above refused a removal past the venue's limit.
+          usdc.locked = sub(usdc.locked, intent.amount);
+          usdc.free = add(usdc.free, intent.amount);
+          position.margin = sub(position.margin, intent.amount);
+        }
+        return accepted(prepared.nonce, null);
       }
       case 'approve_builder_fee':
         state.builderApprovals.set(intent.builder.toLowerCase(), intent.maxFeeBps);
