@@ -240,7 +240,7 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
       expect(mine).toHaveLength(calls);
       for (const line of mine) {
         expect(line).toMatchObject({ level: 30, subject: 'intafaced.identity.user.created', attempt: 1, msg: 'bus delivered' });
-        expect(Object.keys(line).sort()).toEqual(['attempt', 'durable', 'event', 'level', 'msg', 'subject', 'time']);
+        expect(Object.keys(line ?? {}).sort()).toEqual(['attempt', 'durable', 'event', 'level', 'msg', 'subject', 'time']);
       }
       expect(mine.at(-1)!.time as number).toBeGreaterThanOrEqual(before);
       expect(lines.join('\n')).not.toContain(payload.userId);
