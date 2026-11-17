@@ -3,11 +3,20 @@ import { randomBytes } from 'node:crypto';
 import { createWalletClient, encodeFunctionData, http, parseAbi, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { EDGE, ORIGIN, api, journeyState, restartWithSetting } from './stack.mjs';
-import { confirm, signIn, signUp, verify } from './desk.mjs';
+import { api, journeyState, restartWithSetting } from './stack.mjs';
+import { confirm, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
-import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
+import {
+  indexedTransfers,
+  partnerLines,
+  pricesPublished,
+  signInWithWallet,
+  signedOnVenue,
+  testChainRead,
+  walletPerson,
+} from './sources.mjs';
 import {
   continueInWallet,
   otherTraderKey,
@@ -21,9 +30,8 @@ import {
   venueRecord,
 } from './venue.mjs';
 
-// J-portfolio-01 #1 #3 #4 #5 #6, in the running app (docs/roadmap/journeys.json; project-state operation-zero/modules/
-// portfolio/acceptance/journeys.md): after I trade, I see what I hold, what is locked and what it is worth, on the launch
-// model (OWNER 226): INTAFACED holds none of this person's money. With svc-trade's user-venue door on for this file
+// J-portfolio-01 #1 #3 #4 #5 #6, in the running app (docs/roadmap/journeys.json): after I trade, I see what I hold, what is locked and what it is worth, on the launch
+// model: INTAFACED holds none of this person's money. With svc-trade's user-venue door on for this file
 // (venueForThisFile), /money lists what each place holding it reports: the connected wallet (read from the stack's TEST
 // chain at one block), the venue account (the stack's TEST venue simulator) and the partner account (the stack's TEST
 // partner bank), each figure checked here against that source's own record, never against the page. #2 #7 #8 are in
@@ -72,11 +80,8 @@ test.afterAll(() => {
   restartWithSetting('ops', 'LOCAL_STACK_VALUATION_PRICES', null);
 });
 
-function state() {
-  const s = run.read();
-  if (!s.account || !s.walletKey) throw new Error(`${J}'s TEST setup made no account and wallet, so this step has no one to act as`);
-  return { ...s, owner: privateKeyToAccount(s.walletKey).address.toLowerCase() };
-}
+const state = () => walletPerson(run, J);
+const withWallet = (page) => signInWithWallet(page, state());
 
 // ── exact decimals ───────────────────────────────────────────────────────────
 const SCALE = 10n ** 18n;
@@ -118,48 +123,17 @@ const share = (value, total) => `${fixed(round((value * 100n * SCALE) / total, 2
 const sum = (list) => list.reduce((a, b) => a + b, 0n);
 
 // ── each source's own record ─────────────────────────────────────────────────
-/** svc-ops' published prices, as anyone reads them (the read is public). */
-async function publishedPrices() {
-  const res = await fetch(`${EDGE}/api/ops/trpc/valuation.prices`, { headers: { origin: ORIGIN } });
-  const body = await res.json();
-  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body.result.data;
-}
-/** One read from the TEST chain's node itself. */
-async function node(method, params) {
-  const res = await fetch(testChain().gateUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-  });
-  const body = await res.json();
-  if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
-  return body.result;
-}
 /** The stack's TEST chain's TEST USD (services/svc-protocol/scripts/seed-test-chain.ts TEST_TOKENS.USD), 6 decimals. */
 const TEST_USD = '0x000000000000000000000000000000000000d011';
 /** The chain's own figures for `owner` at `block`: TEST ETH and TEST USD as decimals. */
 async function chainAt(owner, block) {
   const tag = `0x${BigInt(block).toString(16)}`;
   const data = `0x70a08231${owner.slice(2).padStart(64, '0')}`;
-  const [eth, usd] = await Promise.all([node('eth_getBalance', [owner, tag]), node('eth_call', [{ to: TEST_USD, data }, tag])]);
+  const [eth, usd] = await Promise.all([
+    testChainRead('eth_getBalance', [owner, tag]),
+    testChainRead('eth_call', [{ to: TEST_USD, data }, tag]),
+  ]);
   return { ETH: decimal(BigInt(eth)), TESTUSD: decimal(BigInt(usd) * 10n ** 12n) };
-}
-/** The wallet's own record: its token transfers as the TEST chain's indexer has them. */
-async function walletRecord(who, owner) {
-  const session = await api(who);
-  const input = encodeURIComponent(JSON.stringify({ chainId: CHAIN_ID, address: owner }));
-  const res = await session.get(`/api/indexer/trpc/explorer.address.txs?input=${input}`);
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  return res.body.result.data.rows;
-}
-/** The partner's own record of its moves for this person: the bank's lines that carry the partner's name. */
-async function partnerRecord(who) {
-  const session = await api(who);
-  const input = encodeURIComponent(JSON.stringify({ limit: 200 }));
-  const res = await session.get(`/api/bank/trpc/activity.list?input=${input}`);
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  return res.body.result.data.items.filter((item) => item.heldAt);
 }
 /** The partner's own figure for the person, as svc-bank reads it from the partner (`spaces.list` rows with `heldAt`). */
 async function partnerHeld(who, asset) {
@@ -172,27 +146,6 @@ async function partnerHeld(who, asset) {
 const openOrders = async (owner) => (await venueRecord(owner, '/open-orders')).value;
 const lockOn = (orders, asset) => sum(orders.filter((o) => o.lockedAsset === asset).map((o) => units(o.locked)));
 
-/** The person signs one action on the TEST venue with their own wallet key, as their wallet would. */
-async function signOnVenue(walletKey, intent) {
-  const key = privateKeyToAccount(walletKey);
-  const owner = key.address.toLowerCase();
-  const prepared = await testVenue('/prepare', { account: await venueAccount(owner), signer: { role: 'owner', address: owner }, intent });
-  expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
-  const typed = prepared.body.typedData;
-  const signature = await key.signTypedData({
-    domain: typed.domain,
-    types: typed.types,
-    primaryType: typed.primaryType,
-    message: typed.message,
-  });
-  const sent = await testVenue('/submit', {
-    prepared: prepared.body,
-    signature: { digest: prepared.body.digest, signature, signedBy: owner },
-  });
-  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
-  expect(sent.body.definite && sent.body.accepted, JSON.stringify(sent.body)).toBe(true);
-  return sent.body;
-}
 const order = (owner, side, type, { amount, price }, timeInForce, tag) => ({
   kind: 'place_order',
   symbol: SYMBOL,
@@ -207,11 +160,6 @@ const order = (owner, side, type, { amount, price }, timeInForce, tag) => ({
 });
 
 // ── the page ─────────────────────────────────────────────────────────────────
-async function withWallet(page) {
-  const { account: who, walletKey } = state();
-  await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
-  await signIn(page, who);
-}
 /** Assets open with the wallet connected. */
 async function openAssets(page, { fresh = true } = {}) {
   const { owner } = state();
@@ -334,11 +282,11 @@ test.beforeAll(async ({ browser }) => {
       ...order(otherTraderKey(seller).address.toLowerCase(), 'sell', 'limit', BOUGHT, 'GTC', 'ask'),
     });
     expect(rested.definite && rested.accepted, JSON.stringify(rested)).toBe(true);
-    await signOnVenue(walletKey, order(owner, 'buy', 'limit', BOUGHT, 'IOC', 'buy'));
+    await signedOnVenue(walletKey, order(owner, 'buy', 'limit', BOUGHT, 'IOC', 'buy'));
     await expect.poll(async () => (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.length).toBe(1);
 
     // The open order the journey starts with.
-    await signOnVenue(walletKey, order(owner, 'buy', 'limit', RESTING, 'GTC', 'rest'));
+    await signedOnVenue(walletKey, order(owner, 'buy', 'limit', RESTING, 'GTC', 'rest'));
     const [resting] = await openOrders(owner);
     expect(resting?.status).toBe('open');
 
@@ -360,7 +308,7 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
   test.setTimeout(180_000);
   const { account: who, owner, ledgerStart } = state();
   const { displayName: venueName } = await venueInfo();
-  const prices = await publishedPrices();
+  const prices = await pricesPublished();
   expect(prices).toMatchObject({ published: true, test: true, source: 'TEST price list' });
   const price = new Map(prices.prices.map((row) => [row.asset, units(row.usd)]));
   await openAssets(page);
@@ -470,11 +418,11 @@ async function sellOnDesk(page, owner) {
     .locator('[role=tab]', { hasText: /^Limit$/ })
     .first()
     .click();
-  await page.getByRole('textbox', { name: 'Price' }).nth(1).fill(SELL.price);
+  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(1).fill(SELL.price);
   const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview');
-  await page.getByRole('textbox', { name: 'Amount' }).nth(1).fill(SELL.amount);
+  await page.getByRole('textbox', { name: 'Amount', exact: true }).nth(1).fill(SELL.amount);
   expect((await preview).status()).toBe(200);
-  await page.getByRole('button', { name: 'Sell BTC' }).click();
+  await page.getByRole('button', { name: 'Sell BTC', exact: true }).click();
   await confirm(page, 'sell');
   await continueInWallet(page);
   await expect(page.getByTestId('venue-bottom').getByTestId('venue-outcome')).toContainText('Open on the venue.');
@@ -533,8 +481,8 @@ test(`${J} #4 reads stake and collateral separately: a TEST stake and a TEST fut
     stakeRef: `stake:${owner}:pf1`,
   });
   expect(staked.status, JSON.stringify(staked.body)).toBe(200);
-  await signOnVenue(walletKey, { kind: 'update_leverage', symbol: PERP, leverageBps: LONG.leverageBps, marginMode: 'isolated' });
-  await signOnVenue(walletKey, { ...order(owner, 'buy', 'limit', LONG, 'IOC', 'long'), symbol: PERP });
+  await signedOnVenue(walletKey, { kind: 'update_leverage', symbol: PERP, leverageBps: LONG.leverageBps, marginMode: 'isolated' });
+  await signedOnVenue(walletKey, { ...order(owner, 'buy', 'limit', LONG, 'IOC', 'long'), symbol: PERP });
   let positions;
   await expect.poll(async () => (positions = (await venueRecord(owner, '/positions')).value).length, { timeout: 20_000 }).toBe(1);
   const margin = sum(positions.map((p) => units(p.margin)));
@@ -602,7 +550,7 @@ test(`${J} #6 opens what makes a number: the source records behind it (chain tra
   test.setTimeout(240_000);
   const { account: who, owner, txHash } = state();
   // Each source's own records for one figure on Assets.
-  const chain = (await walletRecord(who, owner)).flatMap((row) =>
+  const chain = (await indexedTransfers(who, owner)).flatMap((row) =>
     row.transfers
       .filter((t) => t.direction !== 'self' && t.token.symbol === 'TESTUSD')
       .map(() => ({ ref: row.hash.toLowerCase(), at: row.timestamp * 1000 })),
@@ -613,7 +561,7 @@ test(`${J} #6 opens what makes a number: the source records behind it (chain tra
     .filter((f) => f.symbol.split('-')[0] === 'BTC')
     .map((f) => ({ ref: f.fillId, at: Date.parse(f.filledAt) }));
   expect(fills.length).toBeGreaterThan(0);
-  const partner = (await partnerRecord(who))
+  const partner = (await partnerLines(who))
     .filter((item) => item.asset === 'USDT' || item.assetId === 'USDT')
     .map((item) => ({ ref: item.txId, at: Date.parse(item.postedAt ?? item.at) }));
   expect(partner.length).toBeGreaterThan(0);

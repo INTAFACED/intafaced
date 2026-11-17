@@ -8,7 +8,7 @@ import { awayBid, chosePro, confirm, deskPath, fundedTrader, held, openOrders, r
 // USDT, holding TEST BTC and ETH bought on the desk and TEST EUR that no market prices. Amounts are checked against the
 // ledger (the customer's own balance read), values against the bank's own valuation read just before and just after the
 // page loads (the TEST market maker keeps moving prices), never against what the page itself computed.
-// On the launch model (OWNER 226) steps #1 #3 #4 #5 #6 read each place that holds the money, not our ledger: those
+// On the launch model, where INTAFACED holds none of the customer's money, steps #1 #3 #4 #5 #6 read each place that holds the money, not our ledger: those
 // steps are J-portfolio-01-venue.pw.mjs's. The tests here keep the ledger branch (the custodial layer, kept and switched
 // off) as it is, titled for the door off; #2 #7 #8 stay steps of this file.
 const J = 'J-portfolio-01';
