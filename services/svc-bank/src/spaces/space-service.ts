@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import {
   formatAmount,
   parseAmount,
@@ -8,7 +8,7 @@ import {
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { BankError } from '../errors.js';
 import { assertSpacesListLimit } from '../owner-list-limit.js';
 import { heldFigureWire, type ReportedFigureWire } from '@intafaced/venue-contracts';
@@ -233,7 +233,7 @@ export class SpaceService {
    * `spaces_one_primary_idx` makes the race safe — two concurrent calls produce
    * one row.
    */
-  async ensurePrimary(userId: string, assetId: string, name = 'Main', db: Sql = this.sql): Promise<SpaceRecord> {
+  async ensurePrimary(userId: string, assetId: string, name = 'Main', db: Queryable = this.sql): Promise<SpaceRecord> {
     const rows = await db<SpaceRow[]>`
       INSERT INTO bank.spaces (user_id, asset_id, kind, name)
       VALUES (${userId}, ${assetId}, 'primary', ${name})
@@ -271,7 +271,7 @@ export class SpaceService {
   }
 
   /** Lookup only. Does not invent a dest user or a primary space. */
-  async findPrimary(userId: string, assetId: string, db: Sql = this.sql): Promise<SpaceRecord | null> {
+  async findPrimary(userId: string, assetId: string, db: Queryable = this.sql): Promise<SpaceRecord | null> {
     const id = userId.trim();
     if (!id) return null;
     const rows = await db<SpaceRow[]>`
@@ -284,7 +284,7 @@ export class SpaceService {
   }
 
   /** Show a removed currency on the account again. A label: nothing moves. */
-  async restoreCurrency(userId: string, assetId: string, db: Sql = this.sql): Promise<void> {
+  async restoreCurrency(userId: string, assetId: string, db: Queryable = this.sql): Promise<void> {
     await db`
       UPDATE bank.spaces SET removed_at = NULL, updated_at = now()
        WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'primary' AND removed_at IS NOT NULL
@@ -323,7 +323,7 @@ export class SpaceService {
    * One customer's space labels, changed one call at a time: creates, restores and currency removals for a customer
    * take the same advisory lock. Read committed, so each statement after the lock sees what the call before it committed.
    */
-  async underSpaceLock<T>(userId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
+  async underSpaceLock<T>(userId: string, fn: (tx: Queryable) => Promise<T>): Promise<T> {
     return transaction(
       this.sql,
       async (tx) => {
@@ -352,7 +352,7 @@ export class SpaceService {
     await this.unarchive(spaceId);
   }
 
-  private async assertRoomForSpace(tx: Sql, userId: string, max: number): Promise<void> {
+  private async assertRoomForSpace(tx: Queryable, userId: string, max: number): Promise<void> {
     const count = await tx<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM bank.spaces WHERE user_id = ${userId} AND kind = 'named' AND archived_at IS NULL
     `;
@@ -372,7 +372,7 @@ export class SpaceService {
       goalTarget?: Amount | null;
       lockedUntil?: Date | null;
     },
-    db: Sql = this.sql,
+    db: Queryable = this.sql,
   ): Promise<SpaceRecord> {
     let rows: SpaceRow[];
     try {
@@ -418,7 +418,7 @@ export class SpaceService {
    * the same pool while holding the first (GitHub issue #4621). A read takes no
    * lock either way: the spaces row is read committed on whichever connection.
    */
-  async find(spaceId: string, db: Sql = this.sql): Promise<SpaceRecord | null> {
+  async find(spaceId: string, db: Queryable = this.sql): Promise<SpaceRecord | null> {
     const rows = await db<SpaceRow[]>`
       SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
         FROM bank.spaces WHERE id = ${spaceId}
@@ -427,7 +427,7 @@ export class SpaceService {
     return row ? toRecord(row) : null;
   }
 
-  async get(spaceId: string, db: Sql = this.sql): Promise<SpaceRecord> {
+  async get(spaceId: string, db: Queryable = this.sql): Promise<SpaceRecord> {
     const space = await this.find(spaceId, db);
     if (!space) throw new BankError(`Space ${spaceId} not found`, 'bank.space_not_found');
     return space;
@@ -629,7 +629,7 @@ export class SpaceService {
   }
 
   /** Resolve a space for a money path, refusing the states that must not move value. */
-  async resolveForDebit(spaceId: string, now: Date, db: Sql = this.sql): Promise<SpaceRecord> {
+  async resolveForDebit(spaceId: string, now: Date, db: Queryable = this.sql): Promise<SpaceRecord> {
     const space = await this.get(spaceId, db);
     if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
     const until = lockEnd(space, now);
@@ -660,7 +660,7 @@ export class SpaceService {
   async resolveForCredit(
     spaceId: string,
     opts: { actingUserId?: string; alreadyBooked?: () => Promise<boolean> } = {},
-    db: Sql = this.sql,
+    db: Queryable = this.sql,
   ): Promise<SpaceRecord> {
     const space = await this.get(spaceId, db);
     if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
@@ -759,7 +759,7 @@ export class SpaceService {
    * Read one named, live pot of this owner under a row lock for a change of its goal, lock or bills pot role. Refuses the
    * primary space (the account itself has no goal or lock), an archived pot and another owner's pot, the last as not found.
    */
-  async ownPotForUpdate(tx: Sql, spaceId: string, userId: string): Promise<SpaceRecord> {
+  async ownPotForUpdate(tx: Queryable, spaceId: string, userId: string): Promise<SpaceRecord> {
     const rows = await tx<SpaceRow[]>`
       SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
         FROM bank.spaces
@@ -777,7 +777,7 @@ export class SpaceService {
   }
 
   /** One pot change in a read-committed transaction: the row lock in `ownPotForUpdate` orders racing changes. */
-  underRowLock<T>(fn: (tx: Sql) => Promise<T>): Promise<T> {
+  underRowLock<T>(fn: (tx: TransactionSql) => Promise<T>): Promise<T> {
     return transaction(this.sql, fn, { isolation: 'read committed' });
   }
 

@@ -15,8 +15,9 @@
  * (`certexport:<n>`), and refuses rather than cut when the list holds more rows than one export may. Blank, both refuse
  * `academy.report_limit_unset`. A certificate carries no value: no money moves here.
  */
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import type {
   AcademyActivateCertDesignInput,
   AcademyCertDesign,
@@ -44,8 +45,6 @@ export const certDesignRefusals = defineRefusals('CertDesignError', {
   'academy.report_not_found': 'NOT_FOUND',
 });
 const refuse = certDesignRefusals.refuse;
-
-type Db = Sql | TransactionSql;
 
 type RevisionRow = {
   cert_id: string;
@@ -169,7 +168,7 @@ export class CertDesigns {
     return { items };
   }
 
-  async design(certId: string, db: Db = this.sql): Promise<AcademyCertDesign> {
+  async design(certId: string, db: Queryable = this.sql): Promise<AcademyCertDesign> {
     this.assertKnown(certId);
     const [head] = await db<HeadRow[]>`
       SELECT revision, active_revision, activated_by, activated_at FROM academy.cert_designs WHERE cert_id = ${certId}
@@ -238,7 +237,7 @@ export class CertDesigns {
     });
   }
 
-  private async saved(tx: Db, certId: string): Promise<AcademySaveCertDesignResult> {
+  private async saved(tx: Queryable, certId: string): Promise<AcademySaveCertDesignResult> {
     const design = await this.design(certId, tx);
     const active = design.design?.activeRevision ?? null;
     if (active === null) return { design, warning: null };
@@ -334,7 +333,7 @@ export class CertDesigns {
     };
   }
 
-  private async issuedRowsOf(db: Db, certificate: string | null, limit: number) {
+  private async issuedRowsOf(db: Queryable, certificate: string | null, limit: number) {
     const rows = await db<
       Array<{
         public_id: string;

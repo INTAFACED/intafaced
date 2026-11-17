@@ -28,7 +28,7 @@ import {
   type SandboxList,
   type SandboxRecord,
 } from '@intafaced/contracts/developer-sandboxes';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
 import { guardedApiKeyAction } from './api-key-fresh-factor.js';
@@ -101,17 +101,17 @@ const NAME = new RegExp(`^[^\\p{Cc}\\p{Cf}]{1,${SANDBOX_NAME_MAX}}$`, 'u');
 type SandboxRow = { id: string; name: string; created_at: Date };
 const toSandbox = (row: SandboxRow): SandboxRecord => ({ id: row.id, name: row.name, createdAt: row.created_at.toISOString() });
 
-async function heldCount(sql: Sql, userId: string): Promise<number> {
+async function heldCount(sql: Queryable, userId: string): Promise<number> {
   const rows = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM developer_sandboxes WHERE user_id = ${userId}`;
   return rows[0]?.n ?? 0;
 }
 
-async function sandboxCapFor(deps: DeveloperSandboxesDeps, userId: string, sql: Sql): Promise<number | null> {
+async function sandboxCapFor(deps: DeveloperSandboxesDeps, userId: string, sql: Queryable): Promise<number | null> {
   if (!deps.sandboxCapByTier) return null;
   return deps.sandboxCapByTier.get(await deps.kycTier(userId, sql)) ?? null;
 }
 
-async function sandboxReplay(sql: Sql, userId: string, requestId: string, name: string): Promise<SandboxCreateOutput | null> {
+async function sandboxReplay(sql: Queryable, userId: string, requestId: string, name: string): Promise<SandboxCreateOutput | null> {
   const rows = await sql<SandboxRow[]>`
     SELECT id, name, created_at FROM developer_sandboxes WHERE user_id = ${userId} AND request_id = ${requestId}`;
   const row = rows[0];
@@ -124,7 +124,7 @@ async function sandboxReplay(sql: Sql, userId: string, requestId: string, name: 
 
 /** The first sandbox needs no cap; a second and later one needs the owner's cap for the account's level. A set cap of
  * 0 holds for the first one too. */
-async function assertMayHoldAnother(deps: DeveloperSandboxesDeps, userId: string, sql: Sql): Promise<void> {
+async function assertMayHoldAnother(deps: DeveloperSandboxesDeps, userId: string, sql: Queryable): Promise<void> {
   const held = await heldCount(sql, userId);
   const cap = await sandboxCapFor(deps, userId, sql);
   if (held === 0 && cap === null) return;
@@ -173,7 +173,7 @@ export async function listSandboxes(deps: DeveloperSandboxesDeps, userId: string
   };
 }
 
-async function ownSandbox(sql: Sql, userId: string, sandboxId: string): Promise<SandboxRow> {
+async function ownSandbox(sql: Queryable, userId: string, sandboxId: string): Promise<SandboxRow> {
   const rows = await sql<
     SandboxRow[]
   >`SELECT id, name, created_at FROM developer_sandboxes WHERE id = ${sandboxId} AND user_id = ${userId}`;
@@ -219,7 +219,7 @@ async function keyReplay(sql: Sql, userId: string, requestId: string, fingerprin
   return row;
 }
 
-async function assertKeyNameFree(sql: Sql, userId: string, name: string): Promise<void> {
+async function assertKeyNameFree(sql: Queryable, userId: string, name: string): Promise<void> {
   const taken = await sql`
     SELECT id FROM api_keys
     WHERE user_id = ${userId} AND revoked = false AND (expires_at IS NULL OR expires_at > now()) AND lower(name) = lower(${name})
@@ -227,7 +227,7 @@ async function assertKeyNameFree(sql: Sql, userId: string, name: string): Promis
   if (taken[0]) throw new DeveloperKeyError('You already have a key with this name', 'identity.key_name_taken');
 }
 
-async function assertUnderKeyCap(deps: DeveloperSandboxesDeps, userId: string, sql: Sql): Promise<void> {
+async function assertUnderKeyCap(deps: DeveloperSandboxesDeps, userId: string, sql: Queryable): Promise<void> {
   const cap = deps.capByTier?.get(await deps.kycTier(userId, sql)) ?? null;
   if (cap === null) throw new DeveloperKeyError('The number of API keys an account may hold is not set', 'identity.key_cap_unset');
   const rows = await sql<Array<{ n: number }>>`

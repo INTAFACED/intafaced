@@ -492,7 +492,7 @@ async function inTransaction<T>(sql: Sql, body: (tx: Sql) => Promise<T>): Promis
   try {
     await conn`BEGIN`;
     try {
-      const result = await body(conn as unknown as Sql);
+      const result = await body(conn);
       await conn`COMMIT`;
       return result;
     } catch (error) {

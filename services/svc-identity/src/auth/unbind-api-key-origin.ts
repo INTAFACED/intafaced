@@ -2,11 +2,11 @@
  * Unbind one origin from an API key allowlist. Hostname after trim/URL parse.
  * The rest of the list stays. Empty after unbind stays unset (not localhost).
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { ApiKeyOriginError, normalizeOrigin } from './auth-service-origin.js';
 
 export async function unbindApiKeyOriginAllowlist(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
   keyId: string,
   rawOrigin: string,

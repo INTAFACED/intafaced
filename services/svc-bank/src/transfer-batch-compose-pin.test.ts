@@ -18,15 +18,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const NAME = 'TRANSFER_BATCH_SIZE';
 const EMPTY_PASS = `${NAME}: \${${NAME}:-}`;
 
 function bankServiceBlock(source: string): string {
-  const match = source.match(/^  svc-bank:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-bank service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-bank');
 }
 
 function countAssignments(source: string, name: string): number {

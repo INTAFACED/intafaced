@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { PayError } from '../payment-service/internal.js';
 
 export interface LockedPrice {
@@ -15,7 +15,7 @@ export interface LockedPrice {
  * wait on each other in a circle. Replace price and archiving the product wait for the caller, and nothing new is made on
  * a price or product archived under it.
  */
-export async function lockActiveLivePrice(tx: Sql, merchantId: string, priceId: string): Promise<LockedPrice> {
+export async function lockActiveLivePrice(tx: Queryable, merchantId: string, priceId: string): Promise<LockedPrice> {
   const [product] = await tx<Array<{ status: string }>>`
     SELECT p.status FROM pay.catalog_products p
      WHERE p.id = (SELECT pr.product_id FROM pay.catalog_prices pr WHERE pr.id = ${priceId}::uuid AND pr.merchant_id = ${merchantId})

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { founderChangeHash } from '@intafaced/contracts/founder-change-hash';
 import {
   IDENTITY_ARCHIVE_ACTION_TYPE,
@@ -342,7 +342,7 @@ export class FounderControls {
     return { configured: this.configured };
   }
 
-  private async lock(tx: Sql): Promise<void> {
+  private async lock(tx: Queryable): Promise<void> {
     // All founder commands share this order. Existing refresh locks session then
     // user, so we also lock affected sessions before sorted user rows.
     await lockFounderControls(tx);
@@ -413,7 +413,7 @@ export class FounderControls {
     context: Context,
     targetId: string,
     fn: (
-      tx: Sql,
+      tx: Queryable,
       founder: {
         readonly refusal: 'operator.denied' | 'mfa.required' | null;
         readonly actorId: string | null;
@@ -449,7 +449,7 @@ export class FounderControls {
    * founder now, and consumed once.
    */
   async spendFounderApproval(
-    tx: Sql,
+    tx: Queryable,
     want: IdentityApprovalWant,
   ): Promise<{ readonly approverId: string; readonly refusal: null } | { readonly refusal: 'mismatch' | 'consumed' }> {
     const bound = await this.consumeIdentityApproval(tx, want, false);
@@ -463,7 +463,7 @@ export class FounderControls {
    * before it writes. A pure read passes `forUpdate: false` and reads one snapshot without taking a lock.
    */
   private async actor(
-    tx: Sql,
+    tx: Queryable,
     context: Context,
     targetId?: string,
     { forUpdate = true }: { forUpdate?: boolean } = {},
@@ -505,7 +505,7 @@ export class FounderControls {
   }
 
   private async audit(
-    tx: Sql,
+    tx: Queryable,
     requestId: string,
     actorId: string | null,
     kind: 'identity' | 'entitlement' | 'bootstrap' | 'closure' | 'tier' | 'archive',
@@ -518,7 +518,7 @@ export class FounderControls {
     return auditId;
   }
 
-  private async replay(tx: Sql, requestId: string, hash: string): Promise<{ conflict: boolean; result: unknown } | null> {
+  private async replay(tx: Queryable, requestId: string, hash: string): Promise<{ conflict: boolean; result: unknown } | null> {
     const [row] = await tx<
       Array<{ fingerprint: string; result: unknown }>
     >`SELECT r.fingerprint, a.result FROM founder_control_requests r JOIN founder_control_audit a ON a.audit_id = r.audit_id WHERE r.request_id = ${requestId}`;
@@ -829,7 +829,7 @@ export class FounderControls {
    * Returns the approver, or the refusal when the row does not bind or was spent (the caller refuses and nothing changes).
    */
   private async consumeUnfreezeApproval(
-    tx: Sql,
+    tx: Queryable,
     input: IdentityAccountControlInput,
     targetId: string,
     actorId: string,
@@ -856,7 +856,7 @@ export class FounderControls {
    * leaves it unspent, so a caller can refuse for its own reasons first.
    */
   private async consumeIdentityApproval(
-    tx: Sql,
+    tx: Queryable,
     want: IdentityApprovalWant,
     spend = true,
   ): Promise<{ readonly approverId: string; readonly refusal: null } | { readonly refusal: 'mismatch' | 'consumed' }> {
@@ -950,7 +950,7 @@ export class FounderControls {
    * not configured) answers `false`. A storage failure THROWS, so the caller can tell "cannot tell" from "no" and
    * still refuse closed.
    */
-  async isLiveFounder(userId: string, query?: Sql): Promise<boolean> {
+  async isLiveFounder(userId: string, query?: Queryable): Promise<boolean> {
     const parsed = canonicalUuid.safeParse(userId);
     if (!parsed.success || !this.configured || !this.pair || !this.pair.includes(parsed.data)) return false;
     const sql = query ?? this.sql;
@@ -1587,7 +1587,7 @@ export class FounderControls {
     }
   }
 
-  private async archiveStateOf(tx: Sql, userId: string): Promise<AccountArchiveState | null> {
+  private async archiveStateOf(tx: Queryable, userId: string): Promise<AccountArchiveState | null> {
     const [row] = await tx<
       Array<{
         status: 'active' | 'frozen' | 'closed';
@@ -1792,7 +1792,7 @@ export class FounderControls {
   }
 
   /** No row: never put on a tier, version 0. */
-  private async tierStateOf(tx: Sql, userId: string): Promise<AccountTierState> {
+  private async tierStateOf(tx: Queryable, userId: string): Promise<AccountTierState> {
     const [row] = await tx<
       Array<{ tier_id: string; version: string }>
     >`SELECT tier_id, version::text AS version FROM account_tier_assignments WHERE user_id = ${userId}`;
@@ -1803,7 +1803,7 @@ export class FounderControls {
    * Account state as the closure desk reads it. Customer-closed: the customer finalised a closure (account_closures) and
    * staff gave no other code, or staff closed it with `customer_request`. Only a customer-closed account can be reopened.
    */
-  private async closureStateOf(tx: Sql, userId: string): Promise<AccountClosureState | null> {
+  private async closureStateOf(tx: Queryable, userId: string): Promise<AccountClosureState | null> {
     const [row] = await tx<
       Array<{
         status: 'active' | 'frozen' | 'closed';

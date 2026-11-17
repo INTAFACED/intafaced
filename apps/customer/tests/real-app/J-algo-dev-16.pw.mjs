@@ -221,6 +221,29 @@ async function saveSignalStrategy(page, name) {
   await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
 }
 
+/**
+ * The round trips #3's strategy closes on these 1m bars ([at, open, high, low, close, volume]). Its averages are 1 and 2
+ * bars, so the fast one is above the slow one exactly when a bar closes above the one before: it buys when that starts
+ * (a close above the one before, after one that was not) and sells when a close falls below the one before, and each
+ * signal fills at a later bar's open, so the last bar fills nothing. Resampling needs at least 2 closed round trips
+ * (`quant.montecarlo_trades_insufficient`), and a window early in a shard can hold fewer price turns than that (#8727:
+ * "this run closed 1 round trip"), so #3 waits for a window holding one more than it needs; what #3 then reads is the
+ * service's own count (`data-trips`).
+ */
+function roundTrips(bars) {
+  const close = (i) => Number(bars[i][4]);
+  let long = false;
+  let trips = 0;
+  for (let i = 2; i < bars.length - 1; i++) {
+    if (!long && close(i) > close(i - 1) && close(i - 1) <= close(i - 2)) long = true;
+    else if (long && close(i) < close(i - 1)) {
+      long = false;
+      trips += 1;
+    }
+  }
+  return trips;
+}
+
 async function monteCarlo(room, seed) {
   const panel = room.getByTestId('quant-montecarlo');
   await panel.getByLabel('Seed').fill(String(seed));
@@ -243,7 +266,7 @@ test(`${J} #3 runs Monte Carlo resampling on a completed backtest: drawdown and 
 }) => {
   test.setTimeout(20 * 60_000);
   await developer(page);
-  const window = await tapeWindow(60);
+  const window = await tapeWindow(60, { least: 3, count: roundTrips, what: 'round trips of the strategy on its bars' });
   const name = `TEST resampled ${RUN_ID}`.slice(0, 60);
   await saveSignalStrategy(page, name);
   // The ruin level is the strategy's equity-stop floor, set on its risk screen (TEST value, under the 1000 cash).

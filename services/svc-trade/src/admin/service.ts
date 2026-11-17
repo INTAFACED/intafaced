@@ -1396,8 +1396,7 @@ export class TradeOpsAdmin {
       minAgeSeconds: run.minAge,
       ranAt: at.toISOString(),
     };
-    await this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    await this.deps.sql.begin(async (q) => {
       await q`INSERT INTO trade.operator_reconcile_sweeps (id, client_request_id, occurred_at, result)
         VALUES (${randomUUID()}, ${run.clientRequestId}, ${at.toISOString()}, ${q.json(result as never)})`;
       await storeRequest(q, run.clientRequestId, 'reconcile_sweep', run.fingerprint, result);

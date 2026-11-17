@@ -11,6 +11,7 @@ import { AgentAccounts, parseAgentAccountValues, type AgentAccountView } from '.
 import { InMemoryAgentAccountStore } from '../venue/agent-account-store.js';
 import { InMemoryAgentConnectionStore } from '../venue/agent-connection-store.js';
 import { AgentOrders } from '../venue/agent-orders.js';
+import { TradingControlError } from '../controls/trading-controls.js';
 import { HttpUserVenue } from '../venue/http-user-venue.js';
 import { InMemoryPreparedActionStore } from '../venue/prepared-action-store.js';
 import { UserVenueDoor } from '../venue/user-venue-door.js';
@@ -96,6 +97,13 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
   let sub: UserVenueAccount;
   let accountId: string;
   let run = 0;
+  /** The follower's account admission as trade-service gives it: refused while the account is frozen. */
+  let frozen: boolean;
+  let admissions: Array<{ businessId: string; parent: string }>;
+  const admitCopy = async (_p: Principal, businessId: string, _payload: Record<string, string>, parent: string) => {
+    if (frozen) throw new TradingControlError('auth.account_frozen');
+    admissions.push({ businessId, parent });
+  };
 
   const stepUp: StepUpCheck = {
     async require(req) {
@@ -106,6 +114,8 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
 
   beforeEach(async () => {
     run += 1;
+    frozen = false;
+    admissions = [];
     actions = new InMemoryPreparedActionStore();
     door = new UserVenueDoor({
       connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 20_000 }),
@@ -139,6 +149,7 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
       copyStore,
       placedMirrors: async () => mirrors,
       slippageCapBps: 50,
+      admitCopy,
     });
     sim.deposit(main(leaderKey.address), 'USDC', a('5000'), `deposit:test:venue-copy:leader:${run}`);
     sim.deposit(main(followerKey.address), 'USDC', a('1000'), `deposit:test:venue-copy:follower:${run}`);
@@ -246,6 +257,40 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
     expect(fill).toMatchObject({ userId: LEADER, marketId: 'BTC-USDC', side: 'buy' });
     // The same fill named for someone who never signed for that account is not theirs.
     expect(await desk.leaderFill(fills[0]!.fillId, FOLLOWER)).toBeNull();
+  });
+
+  it("admits each copy against the follower's account before the agent key signs, and a frozen follower's copy is refused with nothing sent (#8184)", async () => {
+    const since = new Date(Date.now() - 1);
+    await leaderBuys('0.002', 1);
+    const copied = await copyNewFills(since);
+    expect(admissions).toEqual(
+      copied.map((f) => ({
+        businessId: `order:${venueMirrorKey(FOLLOW, copyMirrorClientOrderId(FOLLOW, f.fillId))}`,
+        parent: `copy.follow:${FOLLOW}`,
+      })),
+    );
+    expect(admissions.length).toBeGreaterThan(0);
+
+    // Frozen after the follow was written: the next leader fill gets no copy, and nothing is stored or sent under its key.
+    frozen = true;
+    await leaderBuys('0.001', 2);
+    const seen = new Set(copied.map((f) => f.fillId));
+    const next = (await desk.leaderFillsSince(LEADER, { at: since, fillId: null }, 20)).find((f) => !seen.has(f.fillId));
+    const fill = (await desk.leaderFill(next!.fillId, LEADER))!;
+    const clientOrderId = copyMirrorClientOrderId(FOLLOW, next!.fillId);
+    const before = (await subFills()).length;
+    await expect(
+      desk.placeMirror(principal(FOLLOWER), {
+        followId: FOLLOW,
+        symbol: fill.marketId,
+        side: fill.side,
+        qty: fill.qty,
+        price: a('60500'),
+        clientOrderId,
+      }),
+    ).rejects.toMatchObject({ code: 'auth.account_frozen' });
+    expect(await actions.find(FOLLOWER, venueMirrorKey(FOLLOW, clientOrderId))).toBeNull();
+    expect((await subFills()).length).toBe(before);
   });
 
   it('places each copy as one venue order on the agent sub-account, sent once, and reads the position as the venue reports it', async () => {
@@ -370,6 +415,7 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
       copyStore,
       placedMirrors: async () => mirrors,
       slippageCapBps: null,
+      admitCopy,
     });
     const [position] = (await blank.positions({ followId: FOLLOW, followerId: FOLLOWER }))!;
     const closeKey = copyCloseKey(FOLLOW, position!.leaderFillId, null);

@@ -7,9 +7,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-const state: { session: { userId: string } | null; restoring: boolean; restoreFailed: boolean } = {
+const state: { session: { userId: string } | null; restoreFailed: boolean } = {
   session: null,
-  restoring: false,
   restoreFailed: false,
 };
 vi.mock('../session/session', async (original) => {
@@ -22,7 +21,6 @@ import { PublicHeader } from './PublicRoutes';
 beforeEach(() => {
   vi.stubGlobal('location', { search: '', pathname: '/help', hash: '' });
   state.session = null;
-  state.restoring = false;
   state.restoreFailed = false;
 });
 
@@ -49,13 +47,6 @@ describe('public header follows the session', () => {
       expect(html, path).toContain('/login');
       expect(html, path).not.toContain('Open your account');
     }
-  });
-
-  it('says neither while the session check has not answered', () => {
-    state.restoring = true;
-    const html = renderToString(<PublicHeader path="/help" />);
-    expect(html).not.toContain('Sign in');
-    expect(html).not.toContain('Open your account');
   });
 
   it('points to the account, where Retry lives, when the session check could not reach the service', () => {

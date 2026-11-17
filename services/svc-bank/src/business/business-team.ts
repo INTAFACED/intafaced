@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import {
@@ -1172,7 +1172,7 @@ export class BusinessTeamService {
     if (!permissionsOf(me).includes(permission)) throw forbidden(permission);
   }
 
-  private async seatAdvisor(sql: Sql, accountId: string, userId: string): Promise<void> {
+  private async seatAdvisor(sql: Queryable, accountId: string, userId: string): Promise<void> {
     await sql`
       INSERT INTO bank.business_members (account_id, user_id, role, advisor)
       VALUES (${accountId}::uuid, ${userId}, 'viewer', true)
@@ -1180,7 +1180,7 @@ export class BusinessTeamService {
     `;
   }
 
-  private async account(sql: Sql, accountId: string): Promise<AccountRow> {
+  private async account(sql: Queryable, accountId: string): Promise<AccountRow> {
     const rows = await sql<AccountRow[]>`
       SELECT id, name, asset_id, status, owner_user_id FROM bank.business_accounts WHERE id = ${accountId}::uuid
     `;
@@ -1188,13 +1188,13 @@ export class BusinessTeamService {
     return rows[0];
   }
 
-  private async activeAccount(sql: Sql, accountId: string): Promise<AccountRow> {
+  private async activeAccount(sql: Queryable, accountId: string): Promise<AccountRow> {
     const account = await this.account(sql, accountId);
     if (account.status !== 'active') throw new BankError('This business account is closed.', 'bank.business_closed');
     return account;
   }
 
-  private async memberRows(sql: Sql, accountId: string): Promise<MemberRow[]> {
+  private async memberRows(sql: Queryable, accountId: string): Promise<MemberRow[]> {
     return sql<MemberRow[]>`
       SELECT m.user_id, m.role, m.custom_role_id, m.department_id, m.advisor, r.permissions, r.name AS role_name
         FROM bank.business_members m
@@ -1204,7 +1204,7 @@ export class BusinessTeamService {
     `;
   }
 
-  private async memberOrNull(sql: Sql, accountId: string, userId: string): Promise<MemberRow | null> {
+  private async memberOrNull(sql: Queryable, accountId: string, userId: string): Promise<MemberRow | null> {
     const rows = await sql<MemberRow[]>`
       SELECT m.user_id, m.role, m.custom_role_id, m.department_id, m.advisor, r.permissions, r.name AS role_name
         FROM bank.business_members m
@@ -1214,14 +1214,14 @@ export class BusinessTeamService {
     return rows[0] ?? null;
   }
 
-  private async member(sql: Sql, accountId: string, userId: string): Promise<MemberRow> {
+  private async member(sql: Queryable, accountId: string, userId: string): Promise<MemberRow> {
     await this.account(sql, accountId);
     const row = await this.memberOrNull(sql, accountId, userId);
     if (!row) throw notMember();
     return row;
   }
 
-  private async roleIn(sql: Sql, accountId: string, roleId: string): Promise<{ id: string; name: string; permissions: string[] }> {
+  private async roleIn(sql: Queryable, accountId: string, roleId: string): Promise<{ id: string; name: string; permissions: string[] }> {
     const rows = await sql<Array<{ id: string; name: string; permissions: string[] }>>`
       SELECT id, name, permissions FROM bank.business_custom_roles WHERE id = ${roleId}::uuid AND account_id = ${accountId}::uuid
     `;
@@ -1229,27 +1229,27 @@ export class BusinessTeamService {
     return rows[0];
   }
 
-  private async ruleRows(sql: Sql, accountId: string): Promise<RuleRow[]> {
+  private async ruleRows(sql: Queryable, accountId: string): Promise<RuleRow[]> {
     return sql<RuleRow[]>`
       SELECT id, over_amount, payee, payment_type, approvals, created_at FROM bank.business_payment_rules
        WHERE account_id = ${accountId}::uuid ORDER BY created_at ASC, id ASC
     `;
   }
 
-  private async paymentRowOrNull(sql: Sql, paymentId: string, lock = false): Promise<PaymentRow | null> {
+  private async paymentRowOrNull(sql: Queryable, paymentId: string, lock = false): Promise<PaymentRow | null> {
     const rows = lock
       ? await sql<PaymentRow[]>`SELECT * FROM bank.business_payments WHERE id = ${paymentId}::uuid FOR UPDATE`
       : await sql<PaymentRow[]>`SELECT * FROM bank.business_payments WHERE id = ${paymentId}::uuid`;
     return rows[0] ?? null;
   }
 
-  private async paymentRow(sql: Sql, paymentId: string, lock = false): Promise<PaymentRow> {
+  private async paymentRow(sql: Queryable, paymentId: string, lock = false): Promise<PaymentRow> {
     const row = await this.paymentRowOrNull(sql, paymentId, lock);
     if (!row) throw new BankError('No payment of this business has that id.', 'bank.business_approval_not_found');
     return row;
   }
 
-  private async inviteRow(sql: Sql, inviteId: string, lock = false): Promise<InviteRow | null> {
+  private async inviteRow(sql: Queryable, inviteId: string, lock = false): Promise<InviteRow | null> {
     const rows = lock
       ? await sql<InviteRow[]>`
           SELECT *, (expires_at <= now()) AS expired FROM bank.business_invites WHERE id = ${inviteId}::uuid FOR UPDATE`
@@ -1266,7 +1266,7 @@ export class BusinessTeamService {
     return rows[0];
   }
 
-  private async inviteView(sql: Sql, inviteId: string): Promise<TeamInvite> {
+  private async inviteView(sql: Queryable, inviteId: string): Promise<TeamInvite> {
     const rows = await sql<Array<InviteRow & { role_name: string | null }>>`
       SELECT i.*, (i.expires_at <= now()) AS expired, r.name AS role_name
         FROM bank.business_invites i LEFT JOIN bank.business_custom_roles r ON r.id = i.custom_role_id

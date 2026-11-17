@@ -25,8 +25,8 @@ const CONFIG = {
   rules: { 'garden/no-double-cast': 'error', 'garden/no-promise-copy': 'error' },
 };
 
-/** A repository whose main holds the config, the real plugin and `starts`; returns helpers to plant a pull request. */
-function repo(starts, config = CONFIG) {
+/** A repository whose main holds the config, the real plugin, `starts` and `onMain`; returns helpers to plant a pull request. */
+function repo(starts, config = CONFIG, onMain = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'lint-ratchet-'));
   const git = (...args) => execFileSync('git', args, { cwd: dir, env: ENV, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const write = (files) => {
@@ -50,6 +50,7 @@ function repo(starts, config = CONFIG) {
     '.oxlintrc.json': config,
     'tooling/lint/ratchet.json': starts,
     'src/a.ts': `${CAST}export function moved() {\n  return ("x" as unknown as number) * 2;\n}\n`,
+    ...onMain,
   });
   git('add', '-A');
   git('commit', '-q', '--no-verify', '-m', 'main');
@@ -173,8 +174,34 @@ test('a copy rule fails a planted promise in the Trade lane', skip, () => {
   }
 });
 
+test('one rule with several kinds: a removed copy of one kind never pays for an added copy of another', skip, () => {
+  const svc = 'services/svc-x/src/x.ts';
+  const r = repo(
+    ENFORCING,
+    { ...CONFIG, rules: { 'garden/use-shared-helper': 'error' } },
+    { [svc]: 'export const get = (u: string) => fetch(u);\n' },
+  );
+  try {
+    // The known-good state: the same kind removed and added in one file passes.
+    const same = r.pr({ [svc]: 'export const get = (u: string) => fetch(`${u}/v2`);\n' });
+    assert.equal(same.code, 0, same.out);
+    // The planted fault: the fetch copy goes and a local money scale arrives in the same file.
+    const { code, out } = r.pr({ [svc]: 'export const SCALE = 10n ** 18n;\n' });
+    assert.equal(code, 1, out);
+    assert.match(out, /garden\/use-shared-helper\[local-scale\] rose from 0 to 1/u);
+  } finally {
+    r.done();
+  }
+});
+
 test('the verdict: names and sums', () => {
   assert.equal(ruleOf({ code: 'garden(no-double-cast)' }), 'garden/no-double-cast');
+  // One rule, several kinds: each kind is its own count, so one kind's removal never pays for another's addition.
+  assert.equal(
+    ruleOf({ code: 'garden(use-shared-helper)', message: '[local-scale] local `10n ** 18n` scale: import the scale' }),
+    'garden/use-shared-helper[local-scale]',
+  );
+  assert.equal(ruleOf({ code: 'garden(no-double-cast)', message: '`as unknown as` turns type checking off' }), 'garden/no-double-cast');
   assert.equal(ruleOf({ message: 'Unused oxlint-disable directive (no problems were reported).' }), 'unused-suppression');
   const v = compare({ 'a/b': { f: 1 } }, { 'a/b': { f: 1, g: 1 } }, {});
   assert.equal(v.failing.length, 1);

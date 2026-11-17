@@ -15,7 +15,7 @@
  * ledger posting freeze.
  */
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { SecurityLockView } from '@intafaced/contracts';
 
 export type SecurityLockCode = 'identity.security_locked' | 'identity.security_lock_unlock_wait_unset' | 'identity.security_lock_not_found';
@@ -49,7 +49,7 @@ type LockRow = {
 };
 
 /** The open lock row, with whether it still holds on the database clock. `tx` may be a transaction or the pool. */
-async function openLock(tx: Sql, userId: string): Promise<(LockRow & { id: string }) | null> {
+async function openLock(tx: Queryable, userId: string): Promise<(LockRow & { id: string }) | null> {
   const rows = await tx<Array<LockRow & { id: string }>>`
     SELECT id, set_by, locked_at, unlock_requested_at, unlocks_at,
            (unlocks_at IS NULL OR unlocks_at > now()) AS holds
@@ -75,13 +75,13 @@ function viewOf(userId: string, row: LockRow | null): SecurityLockView {
  * Refuses `identity.security_locked` while the account's lock holds. Call it inside the writer's transaction after the
  * user row lock, so the answer stands until the write commits.
  */
-export async function assertNotSecurityLocked(tx: Sql, userId: string): Promise<void> {
+export async function assertNotSecurityLocked(tx: Queryable, userId: string): Promise<void> {
   const row = await openLock(tx, userId);
   if (row?.holds) throw new SecurityLockError('identity.security_locked', row.unlocks_at);
 }
 
 /** Whether the account's lock holds now, for a writer that waits on it instead of refusing. */
-export async function securityLockHolds(tx: Sql, userId: string): Promise<boolean> {
+export async function securityLockHolds(tx: Queryable, userId: string): Promise<boolean> {
   return (await openLock(tx, userId))?.holds === true;
 }
 
@@ -126,7 +126,7 @@ export class SecurityLock {
   async lockWith<T>(
     userId: string,
     by: { kind: 'self' | 'support'; userId: string },
-    record: (tx: Sql, lock: { id: string; changed: boolean }) => Promise<T>,
+    record: (tx: Queryable, lock: { id: string; changed: boolean }) => Promise<T>,
   ): Promise<{ change: SecurityLockChange; recorded: T }> {
     const result = await transaction(this.sql, async (tx) => {
       const user = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
