@@ -1,8 +1,19 @@
 // World: book, restart, stack
-import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { openDesk, openOrders, signIn } from './desk.mjs';
-import { api, DEVICE_KEY, EDGE, fund, journeyState, mailedCodes, ORIGIN, signOutBrowser, signUpInBrowser, tool } from './stack.mjs';
+import {
+  api,
+  DEVICE_KEY,
+  EDGE,
+  fund,
+  journeyState,
+  mailedCodes,
+  ORIGIN,
+  signOutBrowser,
+  signUpInBrowser,
+  testPerson,
+  tool,
+} from './stack.mjs';
 
 // J-identity-22, in the running app (docs/roadmap/journeys.json): the app lets nobody in until the country list is set.
 // Starts on the TEST stack with identity's blocked-countries list set; every person here is a TEST person. #1 restarts
@@ -13,12 +24,6 @@ const J = 'J-identity-22';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
-
-function person(prefix) {
-  const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
-  // A fresh TEST password per run, kept only in the run file (mode 600).
-  return { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
-}
 
 /**
  * Identity restarted on one blocked-countries list (`LOCAL_STACK_IDENTITY_SCREENING`, tooling/scripts/local-stack-services/
@@ -81,10 +86,10 @@ test(`${J} #1 with the blocked-countries list switched off for one restart, sign
 }) => {
   test.setTimeout(420_000);
   // Someone who already has an account, made while the list was set, to try signing in.
-  const known = person('jk');
+  const known = testPerson('jk');
   await signUpInBrowser(page, known);
   await signOutBrowser(page.context());
-  const newcomer = person('jn');
+  const newcomer = testPerson('jn');
 
   identityList('unset');
   try {
@@ -144,7 +149,7 @@ test(`${J} #2 with the TEST list back, a person whose account was made before th
 }) => {
   test.setTimeout(480_000);
   // A Cuba resident signs up while identity's list does not yet list Cuba.
-  const cuban = person('jc');
+  const cuban = testPerson('jc');
   identityList(null, BEFORE_CUBA);
   try {
     await signUpInBrowser(page, cuban, { country: 'CU' });
