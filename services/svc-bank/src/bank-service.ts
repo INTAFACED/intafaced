@@ -82,6 +82,8 @@ import { ScheduledNoticeService, type ScheduledNoticeSink } from './rules/schedu
 import { unsetDirectDebitScheme, type DirectDebitScheme } from './direct-debits/scheme.js';
 import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
+import { SalaryService } from './salary/salary-service.js';
+import type { PayrollPartner } from './salary/payroll-sim.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
@@ -136,6 +138,8 @@ export interface BankServices extends BusinessServices, DeveloperApiServices, Ca
   /** PF-statements-02: background exports, made by a worker and listed in the document centre. */
   readonly statementJobs: StatementJobService;
   readonly accountDetails: AccountDetailsService;
+  /** J-bank-30: salary paid in by direct deposit, at the partner bank. `rail.bank` while no payroll network is wired. */
+  readonly salary: SalaryService;
   /** The owner's base-tier account terms (BK-acct-01). Blank refuses `bank.account_terms_unset`. */
   readonly accountTerms: () => AccountTerms;
   /** BK-acct-04: the owner's plan table (null is blank) and account fee table (null is none published). */
@@ -217,6 +221,10 @@ export interface BankServiceOptions extends BusinessServiceOptions, DeveloperApi
   onrampPartner?: OnrampPartner | null;
   /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
   testPartner?: TestPartner | null;
+  /** The payroll network for salary by direct deposit (J-bank-30). Unset: every salary door refuses `rail.bank`. */
+  payrollPartner?: PayrollPartner | null;
+  /** `BANK_DIRECT_DEPOSIT_REVERSAL_DAYS`: how long an employer may reverse a salary credit. Blank refuses every reversal. */
+  directDepositReversalDays?: string | undefined;
   /** The tax-effect map (`activity/tax-effects.ts`). Unset: `activity.taxEffects` refuses by name. */
   taxEffects?: TaxEffectMap | null;
   /**
@@ -460,6 +468,12 @@ export function createBankServices(
   const statementJobs = new StatementJobService(sql, statements, options.statementJobs ?? { leaseMs: null });
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
+  const salary = new SalaryService(sql, {
+    payroll: options.payrollPartner ?? null,
+    accountDetails,
+    sorter,
+    reversalDays: () => options.directDepositReversalDays,
+  });
   const accountTerms = () => parseAccountTerms(options.accountTerms);
   const currencies = new CurrencyService(sql, ledger, spaces, { currencies: options.accountCurrencies });
   const profiles = new ProfileService(sql);
@@ -611,6 +625,7 @@ export function createBankServices(
     statements,
     statementJobs,
     accountDetails,
+    salary,
     accountTerms,
     accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
     dormancy: new DormancyService(sql, custody, parseDormancyRules(options.dormancyRules)),
