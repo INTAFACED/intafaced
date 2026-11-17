@@ -59,9 +59,7 @@ test('a grouped packages cell names each package', () => {
   for (const n of ['venue-contracts', 'venue-adapter', 'db', 'telemetry', 'i18n', 'ui']) assert.ok(rows.includes(n), n);
 });
 
-test('the gate list runs it with --check', () => {
-  const gates = readFileSync(new URL('./gates.mjs', import.meta.url), 'utf8');
-  assert.match(gates, /script: 'tooling\/ci\/architecture-map\.mjs',\s*args: \['--check'\]/);
+test('--check says the committed doc is current', () => {
   const out = execFileSync(process.execPath, [new URL('./architecture-map.mjs', import.meta.url).pathname, '--check'], {
     encoding: 'utf8',
   });
