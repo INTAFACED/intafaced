@@ -201,7 +201,7 @@ async function getTrpc(
 
 describe('R-fx public doors — FX separate, holiday/rail named', () => {
   it('GET forex.productStatus names convert refuse + holiday/rail degrade', async () => {
-    const router = createTradeRouter({} as unknown as TradeService);
+    const router = createTradeRouter({} as TradeService);
     const app = Fastify({ logger: false });
     await app.register(fastifyTRPCPlugin, {
       prefix: '/trpc',

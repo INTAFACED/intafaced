@@ -21,6 +21,7 @@ import { listedTestStore } from '../../venue/venue-listing-store.js';
 import { StoreVenueRoutingGate } from '../../venue/venue-listing.js';
 import { LiveRunError, LiveRuns, parseLiveRunValues, type LiveRunView } from './live-runs.js';
 import { MemoryFreezeRead, type StrategySource } from './ports.js';
+import type { HaltView } from './halts.js';
 import { InMemoryLiveRunStore, liveLiquidateKey, liveOrderKey } from './store.js';
 
 // J-algo-dev-07 at the service, against the TEST venue simulator over loopback HTTP. Every figure is TEST. The person's
@@ -64,9 +65,24 @@ const noStepUp: StepUpCheck = {
 
 const strategies: StrategySource = {
   async version(_forwarded, id, version) {
-    if (id === 'signal') return { name: 'TEST signal', version, blocks: [], signalRules: true };
+    if (id === 'signal') return { name: 'TEST signal', version, blocks: [], signalRules: true, approvalRequired: false };
+    if (id === 'unapproved') {
+      return {
+        name: 'TEST unapproved',
+        version,
+        blocks: [{ side: 'buy', symbol: 'BTC-PERP', qty: '0.01' }],
+        signalRules: false,
+        approvalRequired: true,
+      };
+    }
     if (id !== 'trend' || version !== 1) return null;
-    return { name: 'TEST trend', version: 1, blocks: [{ side: 'buy', symbol: 'BTC-PERP', qty: '0.01' }], signalRules: false };
+    return {
+      name: 'TEST trend',
+      version: 1,
+      blocks: [{ side: 'buy', symbol: 'BTC-PERP', qty: '0.01' }],
+      signalRules: false,
+      approvalRequired: false,
+    };
   },
 };
 
@@ -114,6 +130,9 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
   let runs: LiveRuns;
   let sub: UserVenueAccount;
   let venueDown = false;
+  /** The risk desk's halts as this TEST answers them (halts.ts), by `<user>:<strategy>`; haltsDown: they can't be read. */
+  const halted = new Map<string, HaltView>();
+  let haltsDown = false;
 
   async function own(account: UserVenueAccount, intent: VenueIntent) {
     const prepared = await sim.prepare(account, { role: 'owner', address: owner }, intent);
@@ -160,6 +179,12 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
         if (tier === null) throw new Error('TEST: identity down');
         return tier;
       },
+      halts: {
+        async haltOf(userId, strategyId) {
+          if (haltsDown) throw new Error('TEST: halts unreadable');
+          return halted.get(`${userId}:${strategyId}`) ?? null;
+        },
+      },
       now,
     });
   }
@@ -168,6 +193,8 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
   beforeEach(async () => {
     k += 1;
     venueDown = false;
+    halted.clear();
+    haltsDown = false;
     clock = Date.now();
     sim.deposit(main(), 'USDC', a('2000'), `deposit:test:live-run:${k}`);
     const made = await own(main(), { kind: 'create_sub_account', name: `live-${k}`, subAccountKey: `own:live:${k}` });
@@ -221,6 +248,8 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     expect(blank.detail).toEqual({ field: 'restartAttempts' });
     expect((await refused(runs.start(person, {}, terms({ strategyId: 'signal' }), 'DE'))).code).toBe('quant.live_plan_unsupported');
     expect((await refused(runs.start(person, {}, terms({ strategyId: 'missing' }), 'DE'))).code).toBe('quant.studio_not_found');
+    // The account's approval policy is on and this version holds no current approval by a different member (J-algo-dev-16 #4).
+    expect((await refused(runs.start(person, {}, terms({ strategyId: 'unapproved' }), 'DE'))).code).toBe('quant.approval_required');
     expect(await store.listForUser(USER)).toEqual([]);
   });
 
@@ -485,5 +514,60 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     const bought = d.venue!.fills.filter((f) => f.side === 'buy').reduce((s, f) => s + f.amount, ZERO);
     expect(bought).toBe(d.venue!.positions[0]!.size);
     expect(d.log.map((e) => e.kind)).toEqual(expect.arrayContaining(['deployed', 'started', 'strategy_order']));
+  });
+  it('J-algo-dev-11: a halted strategy places no new order and starts no run, a reduce-only exit passes, and a restore trades again', async () => {
+    const halt: HaltView = {
+      id: '99999999-9999-4999-8999-999999999911',
+      userId: USER,
+      strategyId: 'trend',
+      scope: 'one',
+      reason: 'TEST risk review',
+      haltedBy: 'operator-1',
+      haltApprover: null,
+      haltedAt: new Date(clock).toISOString(),
+    };
+    let v = await runs.start(person, {}, terms(), 'DE');
+    v = await runs.submit(person, v.runId, v.next!.actionKey, await sign(v.next!.prepared));
+    expect(v.state).toBe('running');
+    // Halted before its first step: the step places nothing, and says so once.
+    halted.set(`${USER}:trend`, halt);
+    await runs.tick();
+    await runs.tick();
+    expect(await store.orders(USER, v.runId)).toEqual([]);
+    const events = await store.events(USER, v.runId);
+    expect(events.filter((e) => e.kind === 'halted')).toHaveLength(1);
+    expect((await runs.list(person))[0]!.halt).toMatchObject({ reason: 'TEST risk review', scope: 'one' });
+    // A manual order and a new run of the strategy are refused by name, storing nothing.
+    const manual = await refused(
+      runs.manualOrder(person, v.runId, { seq: 1, side: 'buy', type: 'market', symbol: 'BTC-PERP', size: '0.01' }),
+    );
+    expect(manual).toMatchObject({ code: 'quant.strategy_halted', status: 423 });
+    expect(manual.detail).toMatchObject({ haltReason: 'TEST risk review' });
+    const before = (await store.listForUser(USER)).length;
+    expect((await refused(runs.start(person, {}, terms(), 'DE'))).code).toBe('quant.strategy_halted');
+    expect(await store.listForUser(USER)).toHaveLength(before);
+    expect(await store.orders(USER, v.runId)).toEqual([]);
+
+    // Halts that can't be read hold the run too; never read as no halt.
+    halted.delete(`${USER}:trend`);
+    haltsDown = true;
+    await runs.tick();
+    expect(await store.orders(USER, v.runId)).toEqual([]);
+    expect(
+      (await refused(runs.manualOrder(person, v.runId, { seq: 1, side: 'buy', type: 'market', symbol: 'BTC-PERP', size: '0.01' }))).code,
+    ).toBe('quant.halt_unavailable');
+    haltsDown = false;
+
+    // Restored: the next pass places the block, and the log says the halt was lifted.
+    await runs.tick();
+    expect(await store.orders(USER, v.runId)).toMatchObject([{ kind: 'strategy', block: 0, state: 'accepted' }]);
+    expect((await positions())[0]!.size).toBe(a('0.01'));
+
+    // Halted again, the reduce-only exit still passes and closes the position once.
+    halted.set(`${USER}:trend`, halt);
+    const out = await runs.liquidate(person, v.runId, { seq: 1 });
+    expect(out.run.state).toBe('flat');
+    expect(out.orders).toMatchObject([{ kind: 'liquidate', reduceOnly: true, side: 'sell', state: 'accepted' }]);
+    expect(await positions()).toEqual([]);
   });
 });

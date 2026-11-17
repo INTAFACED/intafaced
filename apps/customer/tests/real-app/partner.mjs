@@ -4,7 +4,7 @@ import { api } from './stack.mjs';
  * The TEST partner bank and ramp's switches for one person (CUSTODY-DELTA §4; svc-bank `partner/test-partner.ts`). The
  * stack runs the TEST partner (`BANK_TEST_PARTNER=test`); each switch is that person's only and starts off.
  */
-export const PARTNER_OFF = Object.freeze({
+const PARTNER_OFF = Object.freeze({
   notOffered: [],
   fee: 'known',
   reserve: 'none',

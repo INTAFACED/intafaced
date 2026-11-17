@@ -3,7 +3,6 @@ import { QUANT_SHARE_SEQ_STALE, QuantError } from '../errors.js';
 import {
   resultShareKey,
   shareOpenKind,
-  type ShareCreateInput,
   type ShareLink,
   type ShareOpenInput,
   type ShareOpened,

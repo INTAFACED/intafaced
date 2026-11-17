@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
@@ -10,10 +11,20 @@ import { openTemplateRepository } from './templates/open.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
+import { idempotencyKeyHeaderOf, openKeyIdempotencyRepository, refuseKeyCall } from './key-api/key-api.js';
 import { openRunRepository } from './runs/open.js';
 import { openStrategyRepository } from './studio/open.js';
 import { openQuota } from './quota/open.js';
+import { JetStreamEventBus } from '@intafaced/events';
+import { openNotifyRepository } from './notify/open.js';
+import { openRiskRepository } from './risk/open.js';
+import { openTeamRepository } from './team/open.js';
+import { openLibraryRepository } from './library/open.js';
+import { parseLicences, parseRealismChecklist } from './library/service.js';
+import { sweepFillAlerts } from './notify/sweep.js';
 import { openLifecycleRepository } from './lifecycle/open.js';
+import { openApprovalRepository } from './approval/repository.js';
+import { capturePass, createMemoryLakeStore, createPostgresLakeStore, type LakeSettings } from './lake/lake.js';
 import { parseQuotaSeed } from './quota/quota.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -47,11 +58,33 @@ const quota = openQuota(
   { defaultProfile: env.QUANT_DEFAULT_QUOTA_PROFILE ?? null, seed: parseQuotaSeed(env.QUANT_TEST_QUOTA_SEED) },
 );
 const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
+const keyIdempotency = openKeyIdempotencyRepository(
+  { DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX },
+  (url, max) => postgres(url, { max, onnotice: () => undefined }),
+);
 const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
 const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const lifecycle = openLifecycleRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const shares = openShareRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+const notify = openNotifyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+const risk = openRiskRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+// Strategy teams (J-algo-dev-08): a new collaborator counts against the owner's plan inside the insert's transaction.
+const team = openTeamRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
+const library = openLibraryRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+// The live approval policy and approvals (J-algo-dev-16 #4).
+const approvals = openApprovalRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+// The market data lake (J-algo-dev-16 #2): its own rows in svc-quant's schema, captured from svc-trade's public routes.
+const lakeSettings: LakeSettings = {
+  symbols: (env.QUANT_LAKE_SYMBOLS ?? '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0),
+  captureSeconds: env.QUANT_LAKE_CAPTURE_SECONDS === undefined ? null : Number(env.QUANT_LAKE_CAPTURE_SECONDS),
+  retentionDays: env.QUANT_LAKE_RETENTION_DAYS === undefined ? null : Number(env.QUANT_LAKE_RETENTION_DAYS),
+};
+const lakeSql = env.DATABASE_URL && env.DATABASE_POOL_MAX ? postgres(env.DATABASE_URL, { max: 2, onnotice: () => undefined }) : null;
+const lakeStore = lakeSql ? createPostgresLakeStore(lakeSql) : createMemoryLakeStore();
 
 function embedOrigins(raw: string | undefined): readonly string[] | null {
   if (!raw) return null;
@@ -92,10 +125,26 @@ export const appRouter = createQuantRouter({
   },
   strategies: strategies.repository,
   runs: runs.repository,
+  keyIdempotency: keyIdempotency.repository,
   disclosure: disclosure.repository,
   templates: templates.repository,
   quota: quota.repository,
+  notify: notify.repository,
+  risk: risk.repository,
+  team: team.repository,
+  library: {
+    repository: library.repository,
+    licences: parseLicences(env.QUANT_LIBRARY_LICENCES),
+    checklist: parseRealismChecklist(env.QUANT_REALISM_CHECKLIST),
+  },
+  editLockSeconds: env.QUANT_EDIT_LOCK_SECONDS === undefined ? null : Number(env.QUANT_EDIT_LOCK_SECONDS),
   lifecycle: lifecycle.repository,
+  approvals: approvals.repository,
+  monteCarlo: {
+    runs: env.QUANT_MONTECARLO_RUNS === undefined ? null : Number(env.QUANT_MONTECARLO_RUNS),
+    minTrades: env.QUANT_MONTECARLO_MIN_TRADES === undefined ? null : Number(env.QUANT_MONTECARLO_MIN_TRADES),
+  },
+  dataLake: { store: lakeStore, settings: lakeSettings },
   releaseNoteMax: env.QUANT_RELEASE_NOTE_MAX === undefined ? null : Number(env.QUANT_RELEASE_NOTE_MAX),
   share: {
     repository: shares.repository,
@@ -119,7 +168,15 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext(req),
+    // A key reaches only the strategy API, each procedure under its scope (J-algo-dev-14); a session is unchanged.
+    createContext: ({ req, info }) => {
+      const ctx = edgeContext(req);
+      refuseKeyCall(
+        ctx.principal,
+        info.calls.map((call) => call.path),
+      );
+      return { ...ctx, idempotencyKeyHeader: idempotencyKeyHeaderOf(req.headers) };
+    },
   } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
 });
 
@@ -129,16 +186,95 @@ app.log.info(
   'svc-quant ready',
 );
 
+/**
+ * `ownedStreams: ['quant']`: this process creates `INTAFACED_QUANT`, whose one subject says a paper strategy filled under
+ * a fill alert (AL-alerts-01). The bus is connected on first need and again on each sweep until it answers: while it is
+ * unreachable nothing is marked announced, so the fills go out once it is back, with no restart.
+ */
+let bus: JetStreamEventBus | null = null;
+let connecting: Promise<JetStreamEventBus | null> | null = null;
+const connectBus = (): Promise<JetStreamEventBus | null> => {
+  if (bus) return Promise.resolve(bus);
+  connecting ??= JetStreamEventBus.connect({
+    servers: env.NATS_URL,
+    producer: env.SERVICE_NAME,
+    streamPrefix: env.NATS_STREAM_PREFIX,
+    ownedStreams: ['quant'],
+  })
+    .then((connected) => (bus = connected))
+    .catch((err: unknown) => {
+      app.log.warn({ err }, 'svc-quant: event bus unreachable, fill alerts wait for the next sweep');
+      return null;
+    })
+    .finally(() => {
+      connecting = null;
+    });
+  return connecting;
+};
+
+/** How often the server looks for new paper fills under fill alerts: a cadence, not a business value. */
+const FILL_SWEEP_MS = 15_000;
+let sweeping: Promise<unknown> | null = null;
+const fillSweep = setInterval(() => {
+  if (sweeping || !env.DATABASE_URL) return;
+  sweeping = sweepFillAlerts({
+    notify: notify.repository,
+    runs: runs.repository,
+    strategies: strategies.repository,
+    history,
+    fees,
+    sink: async () => {
+      const connected = await connectBus();
+      if (!connected) return null;
+      return async (fill) => {
+        await connected.publish('quantOrderFilled', fill, { idempotencyKey: fill.eventId });
+      };
+    },
+    log: (message, err) => app.log.warn({ err }, message),
+  })
+    .catch((err: unknown) => app.log.warn({ err }, 'svc-quant: fill alert sweep failed; the next sweep tries again'))
+    .finally(() => {
+      sweeping = null;
+    });
+}, FILL_SWEEP_MS);
+fillSweep.unref();
+
+// The lake's capture (J-algo-dev-16 #2): one pass per interval while symbols, interval, svc-trade and the store are set.
+// A pass that fails stores nothing and the next one tries again; the time it missed reads as a gap.
+let capturing: Promise<unknown> | null = null;
+const lakeCapture =
+  lakeSql && env.TRADE_URL && lakeSettings.symbols.length > 0 && lakeSettings.captureSeconds !== null
+    ? setInterval(() => {
+        if (capturing) return;
+        capturing = capturePass({ tradeUrl: env.TRADE_URL!, settings: lakeSettings, store: lakeStore, now: () => Date.now() })
+          .catch((err: unknown) => app.log.warn({ err }, 'svc-quant: lake capture pass failed; the next pass tries again'))
+          .finally(() => {
+            capturing = null;
+          });
+      }, lakeSettings.captureSeconds * 1000)
+    : null;
+lakeCapture?.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      clearInterval(fillSweep);
+      if (lakeCapture) clearInterval(lakeCapture);
       await app.close();
+      await bus?.close();
+      await notify.close();
+      await risk.close();
+      await team.close();
+      await library.close();
       await strategies.close();
       await runs.close();
+      await keyIdempotency.close();
       await disclosure.close();
       await templates.close();
       await quota.close();
       await lifecycle.close();
+      await approvals.close();
+      await lakeSql?.end({ timeout: 5 });
       process.exit(0);
     })();
   });

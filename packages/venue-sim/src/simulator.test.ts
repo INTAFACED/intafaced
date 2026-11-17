@@ -158,6 +158,25 @@ defineUserVenueConformance(
   { describe, it, expect: expect as never },
 );
 
+describe('TEST venue simulator: a booked deficit (J-campaigns-19 #5)', () => {
+  it('reports a negative balance once per loss, and every other account still trades', async () => {
+    const w = world();
+    w.sim.deposit(w.other, 'USDC', a('50'), 'chain:o:deficit');
+    expect(w.sim.bookDeficit(w.other, 'USDC', a('80'), 'loss:1')).toBe(true);
+    expect(w.sim.bookDeficit(w.other, 'USDC', a('80'), 'loss:1')).toBe(false);
+    expect(balanceOf((await w.sim.balances(w.other)).value, 'USDC')).toEqual({
+      asset: 'USDC',
+      free: a('-30'),
+      locked: ZERO,
+      total: a('-30'),
+    });
+    // The deficit never enters the balances the simulator trades on, so its invariant holds and a submit still lands.
+    w.sim.deposit(w.trader, 'USDC', a('100'), 'chain:t:deficit');
+    const done = await w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') });
+    expect(done.outcome).toMatchObject({ definite: true, accepted: true });
+  });
+});
+
 describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
   it('#4 a deposit shows free 1,000 and used 0, and a replayed deposit event adds nothing', async () => {
     const w = world();
@@ -316,6 +335,45 @@ describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
     const again = await w.sim.submit(prepared, signature);
     expect(again.definite && again.accepted).toBe(true);
     expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC').free).toBe(a('989'));
+  });
+});
+
+describe('TEST venue simulator: J-cex-spot-01 #5 the public tape and candles', () => {
+  it('every match is one print at the maker price with the taker side, newest first, and candles group them by interval', async () => {
+    const w = world();
+    expect((await w.sim.trades('BTC-USDC', 10)).value).toEqual([]);
+    expect((await w.sim.candles('BTC-USDC', '1m', 10)).value).toEqual([]);
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:tape');
+    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:tape');
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.1', 'order:o:tape:1'));
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60100', '0.1', 'order:o:tape:2'));
+    // One buy that crosses both asks: two matches, two prints, each at its maker's price.
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60100', '0.15', 'order:t:tape:1'));
+    const tape = (await w.sim.trades('BTC-USDC', 10)).value;
+    expect(tape.map((p) => [p.price, p.amount, p.takerSide])).toEqual([
+      [a('60100'), a('0.05'), 'buy'],
+      [a('60000'), a('0.1'), 'buy'],
+    ]);
+    expect(new Set(tape.map((p) => p.tradeId)).size).toBe(2);
+    expect((await w.sim.trades('BTC-USDC', 1)).value).toHaveLength(1);
+    // A sell into a resting bid two minutes later: a print of its own, in a new 1m candle.
+    for (let i = 0; i < 120; i += 1) w.tick();
+    w.sim.deposit(w.other, 'USDC', a('10000'), 'chain:o:tape:2');
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'buy', '59900', '0.02', 'order:o:tape:3'));
+    w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:tape:2');
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'sell', '59900', '0.02', 'order:t:tape:2'));
+    expect((await w.sim.trades('BTC-USDC', 10)).value[0]).toMatchObject({ price: a('59900'), amount: a('0.02'), takerSide: 'sell' });
+    const candles = (await w.sim.candles('BTC-USDC', '1m', 10)).value;
+    expect(candles.map((c) => [c.openPrice, c.highPrice, c.lowPrice, c.closePrice, c.baseVolume])).toEqual([
+      [a('60000'), a('60100'), a('60000'), a('60100'), a('0.15')],
+      [a('59900'), a('59900'), a('59900'), a('59900'), a('0.02')],
+    ]);
+    expect(candles.every((c) => c.openAt.getTime() % 60_000 === 0)).toBe(true);
+    // One 1h candle holds all three prints.
+    expect((await w.sim.candles('BTC-USDC', '1h', 10)).value.map((c) => [c.openPrice, c.closePrice, c.baseVolume])).toEqual([
+      [a('60000'), a('59900'), a('0.17')],
+    ]);
+    expect(await refusal(w.sim.trades('NOPE-USDC', 10))).toBe('unknown_market');
   });
 });
 
@@ -813,7 +871,7 @@ describe('TEST venue simulator: council round 1 regressions', () => {
         w.sim.prepare(w.trader, w.wallet.signer, {
           kind: 'amend_order',
           symbol: 'BTC-USDC',
-          clientOrderKey: 'order:t:am',
+          venueClientOrderId: '0xam',
           amount: a('1'),
           price: a('1'),
         }),

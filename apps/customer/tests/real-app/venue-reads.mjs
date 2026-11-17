@@ -1,17 +1,16 @@
-import { keccak256, toHex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
-import { api, toUnits, tool } from './stack.mjs';
+import { api, stackUrl, tool, toUnits } from './stack.mjs';
+import { venueRecord } from './venue.mjs';
 
 // The person's venue account, read from the stack's LOCAL TEST venue (packages/venue-sim) itself, never our ledger,
 // engine or door. svc-trade's door is off unless LOCAL_STACK_USER_VENUE=on: `venueOn` and `venueOff` switch it. All TEST.
 
 /** The LOCAL TEST venue's own loopback address (local-test-stack.mjs PORTS['test-venue']). */
-export const TEST_VENUE = 'http://127.0.0.1:14560';
+export const TEST_VENUE = stackUrl('test-venue');
 
-/** The venue's markets for the venue journeys (local-test-venue.mjs: BTC-USDC cash spot, BTC-PERP isolated only). */
+/** The venue's cash spot market for the venue journeys (local-test-venue.mjs). */
 export const VENUE_SPOT = 'BTC-USDC';
-export const VENUE_PERP = 'BTC-PERP';
 
 /** Trade restarted with LOCAL_STACK_USER_VENUE set to `value`, or unset. */
 function restartTrade(value) {
@@ -67,14 +66,13 @@ export async function venueRead(who, route, owner, query = {}) {
   const nonce = route.startsWith('withdrawals/') ? decodeURIComponent(route.slice('withdrawals/'.length)) : undefined;
   const path = nonce ? '/withdrawal' : SIM_READS[route];
   expect(path, `${route} is a venue read`).toBeTruthy();
-  const account = { venueId: await testVenueId(), owner: owner.trim().toLowerCase(), subAccount: null };
   const extra = {
     ...(nonce === undefined ? {} : { nonce }),
     ...(query.clientOrderId === undefined ? {} : { venueClientOrderId: query.clientOrderId }),
     ...(query.since === undefined ? {} : { since: query.since }),
   };
-  const { status, body } = await testVenue(path, { account, ...extra });
-  expect(status, `${route}: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
+  // The venue fixture's own read (venue.mjs): the TEST venue's record for this account, on loopback.
+  const body = await venueRecord(owner.trim(), path, extra);
   expect(typeof body.asOf, `${route} carries the venue's as-of time`).toBe('string');
   expect(Number.isNaN(Date.parse(body.asOf)), body.asOf).toBe(false);
   return body;
@@ -100,11 +98,6 @@ export async function venueOrder(who, owner, clientOrderId) {
 /** The venue's fills for `owner` since `since`. */
 export async function venueFills(who, owner, since) {
   return (await venueRead(who, 'fills', owner, { since: since.toISOString() })).value;
-}
-
-/** The venue's positions for `owner`. */
-export async function venuePositions(who, owner) {
-  return (await venueRead(who, 'positions', owner)).value;
 }
 
 /** One of the LOCAL TEST venue's own routes (its reads and its TEST controls), straight on loopback. */
@@ -174,20 +167,15 @@ export async function otherVenueTrader(funds) {
   };
 }
 
-/** The venue's own best bid and ask on `symbol`, never our engine's book. */
+/**
+ * The venue's own best bid and ask on `symbol`, across every account resting on its book, never our engine's book. Not
+ * only the TEST makers': another journey's trader may leave a better order resting (J-campaigns-04's bid), and a step
+ * that prices "one tick above the best bid" must be above that one too (intafaced #8426).
+ */
 export async function venueBook(symbol) {
-  const venueId = await testVenueId();
-  const makers = ['bid', 'ask'].map((name) =>
-    privateKeyToAccount(keccak256(toHex(`intafaced TEST venue maker ${name}`))).address.toLowerCase(),
-  );
-  const orders = [];
-  for (const owner of makers) {
-    const { status, body } = await testVenue('/open-orders', { account: { venueId, owner, subAccount: null } });
-    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-    orders.push(...body.value.filter((o) => o.symbol === symbol));
-  }
-  const bids = orders.filter((o) => o.side === 'buy').map((o) => toUnits(o.price));
-  const asks = orders.filter((o) => o.side === 'sell').map((o) => toUnits(o.price));
-  expect(bids.length > 0 && asks.length > 0, `the TEST venue has a two-sided book on ${symbol}`).toBe(true);
-  return { bid: bids.reduce((a, b) => (b > a ? b : a)), ask: asks.reduce((a, b) => (b < a ? b : a)) };
+  const { status, body } = await testVenue('/best-prices', { symbol });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  const { bid, ask } = body.value;
+  expect(bid !== null && ask !== null, `the TEST venue has a two-sided book on ${symbol}`).toBe(true);
+  return { bid: toUnits(bid), ask: toUnits(ask) };
 }

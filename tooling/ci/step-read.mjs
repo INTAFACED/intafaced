@@ -40,6 +40,15 @@ import {
 
 export const READ_BRIEF = new URL('./test-judge/READ.md', import.meta.url);
 export const READ_VERDICTS = ['FAITHFUL', 'WEAK', 'MISMATCH'];
+/**
+ * What the step's end picture shows (step-pictures.mjs; project-state #2693): SHOWN, NOT SHOWN (the picture shows another
+ * part of the screen), BROKEN (something the step names, or the screen it lives on, is visibly missing, empty, cut off or
+ * overlapping), or NOT READ (no picture). The reader's verdict answers the test question alone; a BROKEN picture caps it
+ * at WEAK here, marked `capped`, so the count of record lifts that call once a later read sees another picture, not only
+ * once the test changes (the fix for a broken screen is product code). A step with no picture is NOT READ whatever the
+ * reader answers, and the count of record never counts a NOT READ step.
+ */
+export const PICTURE_VERDICTS = ['SHOWN', 'NOT SHOWN', 'BROKEN', 'NOT READ'];
 /** The most steps one call reads; more, and none is read (the count requests them as before). */
 export const MAX_READS = 150;
 /** The most helper files (the shared harness included) one read is given. */
@@ -71,8 +80,9 @@ const READ_ITEMS = {
       verdict: { type: 'string', enum: READ_VERDICTS },
       refusal: { type: 'boolean' },
       note: { type: 'string' },
+      picture: { type: 'string', enum: PICTURE_VERDICTS },
     },
-    required: ['step', 'verdict', 'refusal', 'note'],
+    required: ['step', 'verdict', 'refusal', 'note', 'picture'],
     additionalProperties: false,
   },
 };
@@ -202,14 +212,20 @@ export async function buildReads({
       const block = `\nBEGIN UNTRUSTED FILE at the head (${head.slice(0, 10)}) ${jf}\n${fence(headFiles.get(jf))}\nEND UNTRUSTED FILE`;
       const b = Buffer.byteLength(block) + 1;
       if (size + b > MAX_PROMPT_BYTES - 64_000) left.push(jf);
-      else (parts.push(block), (size += b));
+      else {
+        parts.push(block);
+        size += b;
+      }
     }
     // The harness the tests call into, so a helper's check is read with the test (as the test part reads it).
     for (const [h, t] of harness) {
       const block = `\nBEGIN UNTRUSTED FILE at the head (${head.slice(0, 10)}) ${h}\n${fence(t)}\nEND UNTRUSTED FILE`;
       const b = Buffer.byteLength(block) + 1;
       if (size + b > MAX_PROMPT_BYTES - 64_000) left.push(h);
-      else (parts.push(block), (size += b));
+      else {
+        parts.push(block);
+        size += b;
+      }
     }
     if (left.length) parts.push(`\nLeft out for size: ${left.join('; ')}`);
     parts.push('\nAnswer with the structured reads only.');
@@ -259,8 +275,12 @@ export async function writeReads(dir, opts) {
   return `reading #${opts.pr} at ${opts.head}: ${got.required.length} step(s), ${got.secondRequired.length} with a second reader; ${got.read.notRead.length} not read`;
 }
 
-/** One reader call's answer (`--output-format json`) checked against the steps it was asked, or why it can't be used. */
-export function readAnswer(path, required) {
+/**
+ * One reader call's answer (`--output-format json`) checked against the steps it was asked, or why it can't be used.
+ * `pictures`: meta.json's pictures (step id without spaces -> its picture); a step with none reads NOT READ, and a BROKEN
+ * picture caps a FAITHFUL verdict at WEAK, so neither can pass whatever the reader answers.
+ */
+export function readAnswer(path, required, pictures = {}) {
   if (!existsSync(path)) return { ok: false, why: 'the reader wrote no answer' };
   let out;
   try {
@@ -272,7 +292,12 @@ export function readAnswer(path, required) {
     return { ok: false, why: `the reader ended with an error (${out?.subtype ?? 'none'})` };
   const given = out.structured_output?.reads;
   const good = (e) =>
-    e && typeof e.step === 'string' && READ_VERDICTS.includes(e.verdict) && typeof e.refusal === 'boolean' && typeof e.note === 'string';
+    e &&
+    typeof e.step === 'string' &&
+    READ_VERDICTS.includes(e.verdict) &&
+    typeof e.refusal === 'boolean' &&
+    typeof e.note === 'string' &&
+    PICTURE_VERDICTS.includes(e.picture);
   if (!Array.isArray(given) || !given.every(good)) return { ok: false, why: 'the reads are not well-formed' };
   const by = new Map();
   for (const e of given) {
@@ -284,7 +309,19 @@ export function readAnswer(path, required) {
   for (const s of required) {
     const e = by.get(norm(s));
     if (!e) return { ok: false, why: `the reader left ${s} unanswered` };
-    lines.push({ step: s, verdict: e.verdict, refusal: e.refusal, note: e.note });
+    const pic = pictures?.[countKey(s)];
+    const picture = pic ? e.picture : 'NOT READ';
+    const capped = picture === 'BROKEN' && e.verdict === 'FAITHFUL';
+    lines.push({
+      step: s,
+      verdict: capped ? 'WEAK' : e.verdict,
+      refusal: e.refusal,
+      note: e.note,
+      picture,
+      picture_file: pic?.file ?? null,
+      picture_run: pic?.run ?? null,
+      capped,
+    });
   }
   return { ok: true, lines };
 }
@@ -310,18 +347,24 @@ export function readDoc(meta, lines, { reader, run, builder, set }) {
       red_before: null,
       green_after: null,
       readers: [{ thread: `${run}/${reader}`, verdict: l.verdict, refusal: l.refusal, note: redact(l.note, set) }],
+      picture: { seen: l.picture ?? 'NOT READ', file: l.picture_file ?? null, run: l.picture_run ?? null, capped: l.capped === true },
     })),
     not_read: meta.read.notRead.map((n) => ({ step: countKey(n.step), why: n.why })),
   };
 }
 
-/** The commit status for this head: success only when every reader read every step FAITHFUL; counts only (public). */
+/**
+ * The commit status for this head: success only when every reader read every step FAITHFUL and saw its picture (SHOWN
+ * or NOT SHOWN); counts only (public).
+ */
 export function readStatus(lines) {
   const vs = lines.map((l) => l.verdict);
   const counts = READ_VERDICTS.filter((v) => vs.includes(v)).map((v) => `${vs.filter((x) => x === v).length} ${v}`);
+  const ps = lines.map((l) => l.picture ?? 'NOT READ');
+  const pics = ['BROKEN', 'NOT READ'].filter((v) => ps.includes(v)).map((v) => `${ps.filter((x) => x === v).length} picture ${v}`);
   return {
-    state: vs.every((v) => v === 'FAITHFUL') ? 'success' : 'failure',
-    description: `${counts.join(', ')} (the CI review's proof read)`,
+    state: vs.every((v) => v === 'FAITHFUL') && !pics.length ? 'success' : 'failure',
+    description: `${[...counts, ...pics].join(', ')} (the CI review's proof read)`,
   };
 }
 
@@ -329,9 +372,11 @@ export function readStatus(lines) {
 export function cmdRead(dir, env = process.env) {
   if (existsSync(join(dir, 'skip.txt'))) return { ok: true, why: `no read: ${readFileSync(join(dir, 'skip.txt'), 'utf8')}` };
   const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
-  const first = readAnswer(join(dir, 'answer.json'), meta.required);
+  const first = readAnswer(join(dir, 'answer.json'), meta.required, meta.pictures);
   if (!first.ok) return first;
-  const second = meta.secondRequired.length ? readAnswer(join(dir, 'second', 'answer.json'), meta.secondRequired) : { ok: true, lines: [] };
+  const second = meta.secondRequired.length
+    ? readAnswer(join(dir, 'second', 'answer.json'), meta.secondRequired, meta.pictures)
+    : { ok: true, lines: [] };
   if (!second.ok) return { ok: false, why: `the second reader: ${second.why}` };
   let builder = 'unknown';
   try {

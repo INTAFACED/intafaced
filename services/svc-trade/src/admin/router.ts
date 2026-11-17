@@ -126,7 +126,7 @@ function fail(error: unknown): never {
       error.code === 'vip_application_not_found' ||
       error.code === 'trade.venue_market_unknown'
         ? 'NOT_FOUND'
-        : error.code === 'trade.user_venue_off'
+        : error.code === 'trade.user_venue_off' || error.code === 'approval_unavailable'
           ? 'SERVICE_UNAVAILABLE'
           : 'BAD_REQUEST';
     throw new TRPCError({ code, message: error.message, cause: error });

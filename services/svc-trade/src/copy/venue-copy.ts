@@ -164,6 +164,17 @@ export interface VenueCopyDeps {
   readonly placedMirrors: (followId: string) => Promise<readonly VenueMirrorRow[]>;
   /** The owner's protection floor for a close: the most below the best bid a close may sell (blank refuses). */
   readonly slippageCapBps: number | null;
+  /**
+   * The follower's account admission for one copy (freeze, restriction, screening), as every TEST-book copy gets in
+   * `placeCopyMirror`: trade-service `admitAccountOperation(principal, 'copy.mirror', businessId, payload,
+   * 'copy.follow:<followId>')`. It throws when the account may not trade; it runs before the agent key signs.
+   */
+  readonly admitCopy: (
+    principal: Principal,
+    businessId: string,
+    payload: Record<string, string>,
+    parentBusinessId: string,
+  ) => Promise<unknown>;
 }
 
 export interface VenueMirrorRow {
@@ -303,13 +314,29 @@ export class VenueCopy {
     const b = input.followId ? await this.bound(input.followId) : null;
     if (!b || b.binding.followerId !== principal.userId) throw new CopyError('Follow not found', 'trade.copy_not_following');
     const key = venueMirrorKey(b.binding.followId, input.clientOrderId);
-    await this.deps.orders.placeOnAccount(principal, b.binding.accountId, key, {
+    const order = {
       symbol: input.symbol ?? input.marketId ?? '',
       side: input.side,
       amount: input.qty,
       price: input.price,
       timeInForce: 'GTC',
-    });
+    } as const;
+    // Admission was checked once when the follow was written; a follower frozen or flagged since gets no copy (#8184).
+    await this.deps.admitCopy(
+      principal,
+      `order:${key}`,
+      {
+        followId: b.binding.followId,
+        accountId: b.binding.accountId,
+        symbol: order.symbol,
+        side: order.side,
+        qty: formatAmount(order.amount),
+        price: formatAmount(order.price),
+        timeInForce: order.timeInForce,
+      },
+      `copy.follow:${b.binding.followId}`,
+    );
+    await this.deps.orders.placeOnAccount(principal, b.binding.accountId, key, order);
     return { orderId: key };
   }
 
@@ -394,11 +421,16 @@ export class VenueCopy {
     const b = await this.bound(followId);
     if (!b) return null;
     const out = [];
-    for (const m of [...(await this.deps.placedMirrors(followId))].reverse()) {
+    const mirrors = [...(await this.deps.placedMirrors(followId))].reverse();
+    // The sub-account's fills since the first copy, read once: each copy's own fills are the ones under its client order id.
+    const first = mirrors.at(-1)?.placedAt ?? null;
+    const fills = first ? await b.venue.fills(b.sub, new Date(first.getTime() - 60_000)) : null;
+    for (const m of mirrors) {
       const row = await this.deps.actions.find(followerId, m.orderKey);
       const cloid = row?.prepared.venueClientOrderId ?? null;
       const order = cloid ? (await b.venue.orderByClientId(b.sub, cloid)).value : null;
       const intent = row?.prepared.intent.kind === 'place_order' ? row.prepared.intent : null;
+      const own = cloid && fills ? fills.value.filter((f) => f.venueClientOrderId === cloid) : [];
       out.push({
         orderId: m.orderKey,
         market: m.symbol,
@@ -408,6 +440,22 @@ export class VenueCopy {
         price: formatAmount(order?.price ?? intent?.price ?? 0n),
         status: order?.status ?? (row?.signature ? 'unknown' : 'pending'),
         placedAt: m.placedAt.toISOString(),
+        venue: {
+          venueName: b.venue.venue.displayName,
+          test: isTestVenue(b.venue.venue),
+          asOf: (fills?.asOf ?? new Date()).toISOString(),
+          // Who signed the copy: the agent permission on the follower's sub-account, never the person's wallet.
+          placedBy: (row?.signature?.signedBy ?? row?.prepared.signer.address ?? b.account.agentAddress).toLowerCase(),
+          fills: own.map((f) => ({
+            fillId: f.fillId,
+            amount: formatAmount(f.amount),
+            price: formatAmount(f.price),
+            venueFee: formatAmount(f.venueFee),
+            builderFee: formatAmount(f.builderFee),
+            feeAsset: f.feeAsset,
+            filledAt: f.filledAt.toISOString(),
+          })),
+        },
       });
     }
     return out;

@@ -206,6 +206,8 @@ export async function payPendingWithdrawals(
 ): Promise<{ done: string[]; failed: string[] }> {
   const done: string[] = [];
   const failed: string[] = [];
+  // TEST: while withdrawals are held, nothing is paid out and every withdrawal stays pending.
+  if (sim.switches.withdrawalsHeld) return { done, failed };
   for (const pending of sim.pendingWithdrawals()) {
     if (pending.withdrawal.asset !== route.asset) continue;
     if (now.getTime() - pending.submittedAt.getTime() < settleAfterMs) continue;
@@ -246,7 +248,7 @@ export async function payPendingWithdrawals(
       const ok = await payer.receipt(payment.hash);
       if (ok === null) continue;
       // Settled elsewhere meanwhile (a TEST control): this pass reports nothing for it.
-      if (!sim.settleWithdrawal(pending.account, pending.nonce, ok ? 'done' : 'failed')) continue;
+      if (!sim.settleWithdrawal(pending.account, pending.nonce, ok ? 'done' : 'failed', payment.hash)) continue;
       (ok ? done : failed).push(pending.nonce);
     } catch (err) {
       onError(pending.nonce, err);

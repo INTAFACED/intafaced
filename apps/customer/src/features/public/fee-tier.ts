@@ -29,6 +29,19 @@ const benefitsSchema = z.object({
   withdrawalLimit24h: z.object({ asset: z.string().min(1), amount: decimal }).nullable(),
 });
 
+const passSchema = z.object({
+  passKey: z.string().min(1),
+  campaignId: z.string().min(1),
+  tierId: z.string().min(1),
+  startsAt: z.string().min(1),
+  endsAt: z.string().min(1),
+  grantedAt: z.string().min(1),
+  endedAt: z.string().nullable(),
+  endReason: z.enum(['expired', 'replaced']).nullable(),
+  replacedBy: z.string().nullable(),
+});
+export type FeeTierPass = z.infer<typeof passSchema>;
+
 export const EXCLUSIONS = ['other_quotes', 'futures_and_options', 'bots_and_copy', 'sub_accounts', 'assets'] as const;
 
 export const feeTierSchema = z.object({
@@ -57,6 +70,22 @@ export const feeTierSchema = z.object({
   /** The VIP trial the tier comes from (an approved application), or none. */
   trial: z
     .object({ applicationId: z.string().min(1), tierId: z.string().min(1), startsAt: z.string().min(1), endsAt: z.string().min(1) })
+    .nullable()
+    .optional(),
+  /** The VIP trial pass in force (a campaign reward, J-campaigns-14), or none. */
+  pass: passSchema.nullable().optional(),
+  /** The person's passes, newest grant first, each with how it ended. */
+  passes: z.array(passSchema).optional(),
+  /** Each tier's rates in the owner's default pair group, and its taker rate over regular's; null: no rows schedule. */
+  rates: z
+    .array(
+      z.object({
+        tierId: z.string().min(1),
+        makerBps: z.number().int().min(0),
+        takerBps: z.number().int().min(0),
+        takerMultiplier: decimal.nullable(),
+      }),
+    )
     .nullable()
     .optional(),
   snapshots: z.array(snapshotSchema),

@@ -28,6 +28,18 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Copy trading isn’t available right now',
     body: 'The copy service isn’t switched on here. Nothing was followed and no money moved.',
   },
+  'trade.copy_venue_wallet_rejected': {
+    title: 'Your wallet did not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed.',
+  },
+  'trade.copy_venue_wallet_failed': {
+    title: 'Your wallet could not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed. Try again.',
+  },
+  'trade.copy_venue_refused': {
+    title: 'The venue refused it',
+    body: 'Your wallet signed, but the venue did not accept it, so nothing is followed. Try again.',
+  },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },
   'trade.copy_not_following': { title: 'You don’t follow that leader', body: 'Check My follows and try again.' },
@@ -210,6 +222,38 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_divergence_basis_unset': {
     title: 'The price difference has no basis points',
     body: 'The leader price was zero, so the difference in basis points is not shown.',
+  },
+  'trade.copy_mode_owner_decision': {
+    title: 'Multiplier sizing is not offered: the platform has not decided it.',
+    body: 'Choose smart sync or a fixed amount. Nothing was followed.',
+  },
+  'trade.copy_mode_locked': {
+    title: 'The sizing mode can’t change while the follow is active.',
+    body: 'Stop this follow and start a new one to use another mode. Nothing was changed.',
+  },
+  'trade.copy_smart_sync_unavailable': {
+    title: 'Smart sync can’t size copies of this leader',
+    body: 'The leader holds nothing in this asset right now, so there is nothing to scale by. Use a fixed amount. Nothing was followed.',
+  },
+  'trade.copy_min_not_set': {
+    title: 'Copy trading has no minimum investment set',
+    body: 'The platform hasn’t set the smallest amount a copy may use, so no copy can start. Nothing was followed.',
+  },
+  'trade.copy_below_min_investment': {
+    title: 'That is below the minimum investment',
+    body: 'Raise the most in total to at least the minimum shown. Nothing was followed.',
+  },
+  'trade.copy_day_not_set': {
+    title: 'A daily limit can’t be counted',
+    body: 'The platform hasn’t set when a copy day starts. Leave the most per day blank. Nothing was changed.',
+  },
+  'trade.copy_market_cap_reached': {
+    title: 'That copy would pass your most per contract',
+    body: 'Copies in this market stop here; copies in your other markets go on.',
+  },
+  'trade.copy_daily_cap_reached': {
+    title: 'That copy would pass your most per day',
+    body: 'Copying resumes when the next copy day starts.',
   },
   'trade.copy_slippage_exceeded': {
     title: 'That copy is too far from the leader’s price',
@@ -499,9 +543,56 @@ const GRID: Readonly<Record<string, Words>> = {
   },
 };
 
+/** Signal publishing (svc-market `signals.*`, J-copy-bots-otc-22). */
+const SIGNALS: Readonly<Record<string, Words>> = {
+  'market.provider_criteria_not_set': {
+    title: 'Signal provider criteria are not set',
+    body: 'The platform hasn’t set what a signal provider needs, so no signal can be published. Nothing was published.',
+  },
+  'market.provider_criteria_not_met': {
+    title: 'You don’t meet the signal provider criteria',
+    body: 'A provider needs the verification level and the trading record shown here. Nothing was published.',
+  },
+  'market.provider_record_unavailable': {
+    title: 'Your trading record can’t be read right now',
+    body: 'Vetting needs it, so nothing was published. Try again shortly.',
+  },
+  'market.price_not_set': { title: 'Enter a price', body: 'A monthly fee needs its price. Nothing was published.' },
+  'market.subscription_period_unset': { title: 'Enter the period', body: 'A monthly fee needs how many days one payment covers.' },
+  'market.strategy_profit_share_forbidden': {
+    title: 'A profit share isn’t allowed',
+    body: 'A signal can’t charge a share of its subscribers’ profit. Choose free or a monthly fee. Nothing was published.',
+  },
+  'market.subscription_recurring_not_built': {
+    title: 'Recurring subscriptions aren’t built',
+    body: 'A buyer pays one period at a time; nothing renews by itself. Nothing was published.',
+  },
+  'market.vendor_not_found': { title: 'Apply to sell in the Market first', body: 'A signal is published by an approved Market seller.' },
+  'market.vendor_not_approved': {
+    title: 'Your Market seller application isn’t approved',
+    body: 'A signal is published by an approved Market seller. Nothing was published.',
+  },
+  'market.signal_not_found': { title: 'That signal wasn’t found', body: 'It may not be yours. Check My signals.' },
+  'market.signal_key_conflict': { title: 'Start a new form', body: 'This form was already used for a different signal.' },
+  'market.listing_invalid_price': { title: 'Check the price', body: 'The price must be a positive amount.' },
+  'market.signal_recommended_amount_invalid': {
+    title: 'Check the recommended amount',
+    body: 'It must be a positive amount, or left empty.',
+  },
+  'market.commission_not_configured': {
+    title: 'Market fees aren’t set',
+    body: 'A monthly fee signal is sold in the Market, which is closed until its commission is set. Nothing was published.',
+  },
+  'market.slots_exhausted': {
+    title: 'You have no free listing slot',
+    body: 'A monthly fee signal takes one Market listing slot. Archive one, or stake for more.',
+  },
+  'market.earnings_vendor_required': { title: 'No earnings', body: 'Earnings show once you sell in the Market.' },
+};
+
 export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>): RefusalCopy & { code: string | null } {
   const code = failure.code ?? null;
-  const words = code ? (COPY[code] ?? BOTS[code] ?? GRID[code] ?? DEVICE[code]) : undefined;
+  const words = code ? (COPY[code] ?? BOTS[code] ?? GRID[code] ?? DEVICE[code] ?? SIGNALS[code]) : undefined;
   if (words) return { ...words, code };
   if (failure.reason === 'unreachable') {
     return { title: 'Can’t reach the service', body: 'Nothing was changed. Check your connection and try again.', code };
@@ -520,4 +611,9 @@ export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>)
   return { ...refusalCopy(code ?? 'unknown'), code };
 }
 
-export const KNOWN_ROOM_CODES: readonly string[] = [...Object.keys(COPY), ...Object.keys(BOTS), ...Object.keys(GRID)];
+export const KNOWN_ROOM_CODES: readonly string[] = [
+  ...Object.keys(COPY),
+  ...Object.keys(BOTS),
+  ...Object.keys(GRID),
+  ...Object.keys(SIGNALS),
+];

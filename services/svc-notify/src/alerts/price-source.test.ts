@@ -43,7 +43,7 @@ function tradeSource(ticker: Record<string, unknown> | null) {
     if (u.includes('/api/v1/markets?limit=')) return new Response(JSON.stringify([{ id: MARKET_ID, symbol: 'BTC/USDT' }]), { status: 200 });
     tickerReads.push(u);
     return new Response(JSON.stringify(ticker === null ? null : { ...ticker, timestamp: NOW.getTime() }), { status: 200 });
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   return { marks: createTradeHttpMarkSource({ baseUrl: 'http://trade.test', fetchImpl, marketsLimit: 100 }), tickerReads };
 }
 

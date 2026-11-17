@@ -1,7 +1,7 @@
 import type { KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   approveKycCase,
   assertRejectable,
@@ -151,7 +151,8 @@ export { isEmailConfirmed };
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
-import { currentRequestIp, currentUserAgent } from './request-meta.js';
+import { currentRequestIp, currentRequestRegion, currentUserAgent } from './request-meta.js';
+import { recordSignInSignal } from '../account/safety.js';
 import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
 import { matchInvite, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
@@ -501,7 +502,7 @@ export type PayStepUpGrant = {
 
 /** What a guarded API-key action runs on: one open transaction, shared with its audit row. */
 export type ApiKeyActionScope = {
-  readonly tx: Sql;
+  readonly tx: Queryable;
   createApiKey: (input: Parameters<AuthService['createApiKey']>[0]) => ReturnType<AuthService['createApiKey']>;
   revokeApiKey: (userId: string, keyId: string, cause?: ApiKeyRevokedBy) => Promise<boolean>;
 };
@@ -580,7 +581,7 @@ export function predecessorSealCleanup(userId: string, sessionId: string): { tex
   };
 }
 
-export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: string): Promise<void> {
+export async function clearPredecessorSeal(tx: Queryable, userId: string, sessionId: string): Promise<void> {
   const query = predecessorSealCleanup(userId, sessionId);
   await tx.unsafe(query.text, query.values);
 }
@@ -651,7 +652,7 @@ export class AuthService {
   private emailConfirmSubjectKey: string | undefined;
   private emailConfirmNow: () => Date = () => new Date();
   /** Live founder directory. Unset means no founder desk scopes (fail closed). */
-  private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
+  private founderDirectory: { isFounder(userId: string, query?: Queryable): Promise<boolean> } | undefined;
   /** Lead-published founder grant. Blank grants nothing. */
   private founderSessionScopes: readonly Scope[] = [];
   /** The config string whose sha256 is written on each founder issuance. */
@@ -1152,7 +1153,7 @@ export class AuthService {
     base: readonly Scope[],
     userId: string,
     mfa: boolean,
-    query: Sql | undefined,
+    query: Queryable | undefined,
     gates: { readonly apiKey?: boolean; readonly subAccount?: boolean },
   ): Promise<{
     scopes: Scope[];
@@ -1212,7 +1213,7 @@ export class AuthService {
    * The caller's TEST staff role: their confirmed email's entry in the TEST roster, or null. With no roster (production)
    * it is always null and reads nothing. An unconfirmed email never counts, so a sign-up alone cannot take a role.
    */
-  async staffTestRole(userId: string, query?: Sql): Promise<StaffTestRoleName | null> {
+  async staffTestRole(userId: string, query?: Queryable): Promise<StaffTestRoleName | null> {
     if (this.staffTestRoster === undefined) return null;
     const rows = await (query ?? this.sql)<Array<{ email: string | null; email_verified_at: Date | string | null }>>`
       SELECT email::text AS email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
@@ -1224,7 +1225,7 @@ export class AuthService {
 
   /** One audit row for a live founder issuance. A non-founder writes nothing. */
   private async recordFounderScopeGrant(
-    query: Sql,
+    query: Queryable,
     userId: string,
     sessionId: string,
     founder: boolean,
@@ -1327,7 +1328,7 @@ export class AuthService {
   }
 
   /** The user, profile and rank rows of a new account, inside the caller's transaction. */
-  private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+  private async insertNewUser(tx: Queryable, input: RegisterInput, passwordHash: string): Promise<string> {
     // A handle someone gave up in a change is never handed out again (PP-send-request-03); the claim lock is shared with
     // a handle change, so the check below sees settled rows.
     await lockHandleClaim(tx, input.handle);
@@ -1360,7 +1361,7 @@ export class AuthService {
    */
   async registerInvitedStaff(
     input: { email: string; password: string; deviceKey?: string | null },
-    claim: (tx: Sql, userId: string) => Promise<void>,
+    claim: (tx: Queryable, userId: string) => Promise<void>,
   ): Promise<string> {
     const handle = `staff_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
     policyRefusal(() => {
@@ -1513,12 +1514,12 @@ export class AuthService {
   }
 
   /** The founder pair is pinned permanently by the first verified boot (founder-controls.ts). */
-  private async founderPairPinned(q: Sql): Promise<boolean> {
+  private async founderPairPinned(q: Queryable): Promise<boolean> {
     const rows = await q<Array<{ pinned: boolean }>>`SELECT true AS pinned FROM founder_control_configuration LIMIT 1`;
     return rows.length > 0;
   }
 
-  private async founderInviteSpent(q: Sql, hash: string): Promise<boolean> {
+  private async founderInviteSpent(q: Queryable, hash: string): Promise<boolean> {
     const rows = await q<Array<{ hash: string }>>`SELECT hash FROM founder_invites_used WHERE hash = ${hash}`;
     return rows.length > 0;
   }
@@ -1815,6 +1816,8 @@ export class AuthService {
     const sessionId = inserted.rows[0]!.id;
     const familyId = inserted.rows[0]!.family_id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
+    // The location signal (BK-safe-01): kept only under the person's consent, and never fails the sign-in.
+    await recordSignInSignal(this.sql, { userId, sessionId, region: currentRequestRegion() }, (detail, msg) => this.log.warn(detail, msg));
     // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
       this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
@@ -2046,7 +2049,7 @@ export class AuthService {
   }
 
   private async graceTokens(
-    tx: Sql,
+    tx: Queryable,
     session: {
       rotated_at: Date | null;
       successor_id: string | null;
@@ -2107,7 +2110,7 @@ export class AuthService {
    * caller burns the family. Does not rotate, revoke, or insert.
    */
   private async recoverTokens(
-    tx: Sql,
+    tx: Queryable,
     session: {
       id: string;
       user_id: string;
@@ -2449,6 +2452,29 @@ export class AuthService {
     return opened;
   }
 
+  /**
+   * The person's own password, for a change to their step-up extras (BK-safe-01). Counts on the password lockout like a
+   * sign-in. An API key or sub-account is refused: the person signs in themselves.
+   */
+  async confirmOwnPassword(input: { userId: string; actor: FactorActor; password: string }): Promise<void> {
+    if (input.actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    const rows = await this.sql<Array<{ password_hash: string; status: string }>>`
+      SELECT password_hash, status FROM users WHERE id = ${input.userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status === 'closed') throw new AuthError('Account is closed', 'auth.account_frozen');
+    await this.reserve(input.userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.password))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    await recordSuccess(this.sql, input.userId, 'password');
+  }
+
+  /** The database the account's own safety settings live in (account/safety.ts). */
+  get safetySql(): Sql {
+    return this.sql;
+  }
+
   /** The person's open compromised-account case, or null (J-identity-13 #3 to #5). */
   async compromiseCase(userId: string, actor: FactorActor): Promise<CompromiseCase | null> {
     if (actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
@@ -2539,8 +2565,7 @@ export class AuthService {
   }
 
   private async consumeTotpCode(userId: string, secret: string, code: string, at?: Date): Promise<void> {
-    const matched = matchTotpStep(secret, code, at ? { at } : {});
-    if (matched === null) {
+    if (matchTotpStep(secret, code, at ? { at } : {}) === null) {
       throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     }
     await transaction(this.sql, async (tx) => {
@@ -2550,7 +2575,9 @@ export class AuthService {
       if (!rows[0]) throw new AuthError('User not found', 'auth.not_found');
       const lastRaw = rows[0].totp_last_step;
       const lastStep = lastRaw === null || lastRaw === undefined ? null : BigInt(lastRaw);
-      if (lastStep !== null && matched <= lastStep) {
+      // Only an unspent step matches: a fresh code equal to a spent step's code is still this step's code.
+      const matched = matchTotpStep(secret, code, { ...(at ? { at } : {}), after: lastStep });
+      if (matched === null) {
         throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
       }
       // A replay guard, not a change to the record: updated_at stays (the restore watermark reads it as a write).
@@ -2839,7 +2866,7 @@ export class AuthService {
     /** True only when this create asked for pay:refund / pay:payout under a step-up token. */
     payStepUp?: boolean;
     /** Run on this open transaction instead of starting one (used by `withApiKeyAction`). */
-    executor?: Sql;
+    executor?: Queryable;
   }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; scopes: string[] }> {
     assertDelegateCannotGrant(input.grantorKid);
     assertDelegatableScopes(input.scopes, input.grantorScopes, { payStepUp: input.payStepUp === true });
@@ -2850,7 +2877,7 @@ export class AuthService {
       throw new AuthError('A sandbox key can only hold pay scopes', 'auth.sandbox_scope_not_pay');
     }
     const { key, hash, prefix } = generateApiKey(mode);
-    const insert = async (tx: Sql) => {
+    const insert = async (tx: Queryable) => {
       const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`;
       if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
       const own = await tx<Array<{ id: string }>>`SELECT id FROM account_self_freezes WHERE user_id = ${input.userId} AND state = 'frozen'`;
@@ -2971,7 +2998,7 @@ export class AuthService {
    * Revoke one key, recording why: `owner` (the person, also a rotation's old key) unless the caller says otherwise,
    * `system` when a create or rotation undoes a key it made but never handed over.
    */
-  async revokeApiKey(userId: string, keyId: string, cause: ApiKeyRevokedBy = 'owner', executor?: Sql): Promise<boolean> {
+  async revokeApiKey(userId: string, keyId: string, cause: ApiKeyRevokedBy = 'owner', executor?: Queryable): Promise<boolean> {
     const result = await (executor ??
       this
         .sql)`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = ${cause} WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
@@ -3051,7 +3078,7 @@ export class AuthService {
    */
   async sessionTier(
     userId: string,
-    sql: Sql = this.sql,
+    sql: Queryable = this.sql,
   ): Promise<{ tier: 'none' | 'basic' | 'full' | 'institutional'; tradingCleared: boolean }> {
     const rows = await sql<Array<{ tier: 'basic' | 'full' | 'institutional'; reviewed_by: string | null }>>`
       SELECT tier, reviewed_by FROM kyc_records
@@ -3070,7 +3097,7 @@ export class AuthService {
    * The highest level an operator approved, unlapsed. A trading-checks clear is never one: it opens trading alone, read
    * through the token's `trd` (`sessionTier`), so every gate and lookup that reads the level sees none (OWNER 258 (4)).
    */
-  async kycTier(userId: string, sql: Sql = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {
+  async kycTier(userId: string, sql: Queryable = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {
     return (await this.sessionTier(userId, sql)).tier;
   }
 
@@ -3866,9 +3893,9 @@ export class AuthService {
           if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
         }
         const scope: ApiKeyActionScope = {
-          tx: tx as unknown as Sql,
-          createApiKey: (create) => this.createApiKey({ ...create, executor: tx as unknown as Sql }),
-          revokeApiKey: (userId, keyId, cause) => this.revokeApiKey(userId, keyId, cause, tx as unknown as Sql),
+          tx: tx,
+          createApiKey: (create) => this.createApiKey({ ...create, executor: tx }),
+          revokeApiKey: (userId, keyId, cause) => this.revokeApiKey(userId, keyId, cause, tx),
         };
         const result = await run(scope);
         await tx`

@@ -9,7 +9,6 @@ import {
   navigatorDeclaredToolCount,
   navigatorMoneyDenylistCount,
   navigatorGuardrailBoardCard,
-  navigatorGuardrailStatusLine,
   parseNavigatorGuardrailStatusLine,
   navigatorGuardrailStatusLineMatches,
   navigatorGuardrailExportHeader,

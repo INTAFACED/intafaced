@@ -11,7 +11,7 @@
  */
 import { createHash, createHmac } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   KYC_PROFILE_STEPS,
   kycProfileFieldsSchema,
@@ -247,7 +247,7 @@ export class KycProfileDesk {
     };
   }
 
-  private async row(sql: Sql, userId: string, lock: boolean): Promise<Row | undefined> {
+  private async row(sql: Queryable, userId: string, lock: boolean): Promise<Row | undefined> {
     const [row] = await sql<Row[]>`SELECT tier, step, version, ciphertext, nonce, key_id, last_save, record_id, updated_at
       FROM kyc_profile_drafts WHERE user_id = ${userId} ${lock ? sql`FOR UPDATE` : sql``}`;
     return row;

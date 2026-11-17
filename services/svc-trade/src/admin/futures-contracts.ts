@@ -10,6 +10,7 @@
  * and the exact payload, and consumed once. Every write records an operator audit row and is idempotent on
  * `clientRequestId`. No ledger posting happens here, and no ledger write recipe is imported.
  */
+import type { Queryable } from '@intafaced/db';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -132,7 +133,7 @@ function viewOf(row: MarketLockRow): FuturesMarketView {
 const MARKET_COLUMNS = `id, symbol, base_asset, quote_asset, kind, status, asset_class, paper,
   futures_contract_style, futures_expiry_at, futures_settlement_fixing, futures_family, futures_settle_asset`;
 
-async function loadMarketRow(sql: Sql, by: { id: string } | { symbol: string }, lock = false): Promise<MarketLockRow | null> {
+async function loadMarketRow(sql: Queryable, by: { id: string } | { symbol: string }, lock = false): Promise<MarketLockRow | null> {
   const where = 'id' in by ? sql`id = ${by.id}` : sql`symbol = ${by.symbol}`;
   const rows = await sql<MarketLockRow[]>`
     SELECT ${sql.unsafe(MARKET_COLUMNS)} FROM trade.markets WHERE ${where} ${lock ? sql`FOR UPDATE` : sql``}`;
@@ -361,10 +362,10 @@ export class FuturesContractsAdmin {
         ) VALUES (
           ${next}::bigint, ${tx.json(tenors as never)}, ${principal.userId}, ${consumed.approverId}, ${approvalId}, ${reason}, ${at.toISOString()}
         )`;
-        const written = await readSchedule(tx as unknown as Sql);
-        await storeRequest(tx as unknown as Sql, clientRequestId, 'futures_schedule_set', fingerprint, written);
+        const written = await readSchedule(tx);
+        await storeRequest(tx, clientRequestId, 'futures_schedule_set', fingerprint, written);
         await writeOperatorAudit(
-          tx as unknown as Sql,
+          tx,
           {
             kind: 'futures_schedule.set',
             operatorId: principal.userId,
@@ -455,10 +456,10 @@ export class FuturesContractsAdmin {
           ${randomUUID()}, ${input.market}, ${next}::bigint, ${rate}::numeric, ${clamp},
           ${principal.userId}, ${consumed.approverId}, ${approvalId}, ${reason}, ${at.toISOString()}
         )`;
-        const written = premarketView(input.market, await readPremarketParams(tx as unknown as Sql, input.market));
-        await storeRequest(tx as unknown as Sql, clientRequestId, 'premarket_params_set', fingerprint, written);
+        const written = premarketView(input.market, await readPremarketParams(tx, input.market));
+        await storeRequest(tx, clientRequestId, 'premarket_params_set', fingerprint, written);
         await writeOperatorAudit(
-          tx as unknown as Sql,
+          tx,
           {
             kind: 'futures_premarket.set',
             operatorId: principal.userId,
@@ -518,8 +519,7 @@ export class FuturesContractsAdmin {
     });
 
     const at = this.deps.now();
-    const result = await this.deps.sql.begin(async (tx) => {
-      const sql = tx as unknown as Sql;
+    const result = await this.deps.sql.begin(async (sql) => {
       const locked = await loadMarketRow(sql, { id: input.market }, true);
       if (!locked || !isPremarket(locked)) {
         throw new TradeOpsError('premarket_not_pending', `market ${input.market} is no longer a prelaunch futures market`);
@@ -681,7 +681,7 @@ function validateTenors(input: ReadonlyArray<{ tenor: string; enabled: boolean }
   return rows.sort((a, b) => TENOR_LABELS.indexOf(a.tenor) - TENOR_LABELS.indexOf(b.tenor));
 }
 
-async function readSchedule(sql: Sql): Promise<FuturesSchedule> {
+async function readSchedule(sql: Queryable): Promise<FuturesSchedule> {
   const [row] = await sql<
     Array<{ version: string; tenors: unknown; operator_id: string; approver_id: string; created_at: Date }>
   >`SELECT version::text AS version, tenors, operator_id, approver_id, created_at

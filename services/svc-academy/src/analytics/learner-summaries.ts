@@ -5,7 +5,8 @@
  * learners who carry it. Pages run in learner id order; the page size is an owner value
  * (`ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE`): blank refuses `academy.learner_summaries_list_limit_unset`. Read only.
  */
-import type { Sql, TransactionSql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
+import type { Sql } from 'postgres';
 import type { AcademyLearnerSummaries, AcademyLearnerSummary } from '@intafaced/contracts';
 import { defineRefusals, requireSetting } from '@intafaced/service-kit';
 
@@ -23,10 +24,8 @@ export const analyticsRefusals = defineRefusals('AcademyAnalyticsError', {
   'academy.report_expired': 'PRECONDITION_FAILED',
 });
 
-type Db = Sql | TransactionSql;
-
 /** The learners with an open enrolment, in id order, after `after`, filtered by `tag`; at most `limit`. */
-export async function learnerIds(sql: Db, input: { tag: string | null; after: string | null; limit: number }): Promise<string[]> {
+export async function learnerIds(sql: Queryable, input: { tag: string | null; after: string | null; limit: number }): Promise<string[]> {
   const rows = await sql<Array<{ user_id: string }>>`
     SELECT user_id FROM (
       SELECT user_id FROM academy.cert_enrollments WHERE left_at IS NULL
@@ -42,7 +41,7 @@ export async function learnerIds(sql: Db, input: { tag: string | null; after: st
 }
 
 /** The summary of each learner in `users`, in that order. */
-export async function summariesOf(sql: Db, users: readonly string[]): Promise<AcademyLearnerSummary[]> {
+export async function summariesOf(sql: Queryable, users: readonly string[]): Promise<AcademyLearnerSummary[]> {
   if (users.length === 0) return [];
   const ids = [...users];
   const [counts, tags] = await Promise.all([

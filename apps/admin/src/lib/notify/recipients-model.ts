@@ -1,4 +1,5 @@
 import type { Part } from '@/lib/desk/part';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Recipient health: strict reader for svc-notify's `notify.operatorRecipients` (admin:read) and the request the release
@@ -41,9 +42,6 @@ export interface RecipientsRead {
 
 export type RecipientsView = Part<RecipientsRead>;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 const isIso = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
 const isNullableString = (v: unknown): v is string | null => v === null || typeof v === 'string';
 

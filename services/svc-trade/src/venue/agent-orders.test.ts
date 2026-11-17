@@ -83,8 +83,8 @@ function keyTable() {
   };
   return {
     reader,
-    add(keyId: string, userId: string, kind: 'agent' | 'personal', scopes: string[], revoked = false) {
-      keys.set(keyId, { userId, read: { state: 'found', keyId, kind, scopes, revoked } });
+    add(keyId: string, userId: string, kind: 'agent' | 'personal', scopes: string[], revoked = false, expiresAt: string | null = null) {
+      keys.set(keyId, { userId, read: { state: 'found', keyId, kind, scopes, revoked, expiresAt } });
     },
     setDown(v: boolean) {
       down = v;
@@ -294,6 +294,64 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
       expect((await refusedAs(orders.connect(person, second.accountId, { keyId, stepUpApprovalId: 'ok' }))).code).toBe(
         'agents.key_already_connected',
       );
+    });
+
+    // ── #19: the key's end date against the venue's longest agent permission ──
+    const DAY = 86_400_000;
+    it("#19: a key ending later than the venue's longest agent permission is refused naming it, before step-up; a valid one shows its end date", async () => {
+      const v = await openAccount();
+      const maxMs = sim.venue.agentValidityMaxMs!;
+      expect(maxMs).toBe(180 * DAY);
+      const tooLong = uuid('beef');
+      const longEnd = new Date(Date.now() + maxMs + DAY).toISOString();
+      keys.add(tooLong, USER, 'agent', ['trade:read', 'trade:write'], false, longEnd);
+      const before = stepUps.length;
+      const refused = await refusedAs(orders.connect(person, v.accountId, { keyId: tooLong, stepUpApprovalId: 'ok' }));
+      expect([refused.code, refused.status]).toEqual(['agents.key_expiry_above_venue_max', 422]);
+      expect(refused.message).toContain('at most 180 days');
+      expect(refused.message).toContain(sim.venue.displayName);
+      expect(stepUps.length).toBe(before);
+      expect(await orders.connections(person)).toEqual([]);
+
+      const valid = uuid('beef');
+      const end = new Date(Date.now() + 30 * DAY).toISOString();
+      keys.add(valid, USER, 'agent', ['trade:read', 'trade:write'], false, end);
+      const c = await orders.connect(person, v.accountId, { keyId: valid, stepUpApprovalId: 'ok' });
+      expect(c.expiry).toEqual({ known: true, expiresAt: new Date(end) });
+      expect((await orders.connections(person)).map((x) => [x.keyId, x.expiry])).toEqual([
+        [valid, { known: true, expiresAt: new Date(end) }],
+      ]);
+    });
+
+    it('#19: a key with no end date connects with none; an identity that could not be asked leaves the end date unknown, never blank', async () => {
+      const v = await openAccount();
+      const keyId = uuid('beef');
+      keys.add(keyId, USER, 'agent', ['trade:write']);
+      expect((await orders.connect(person, v.accountId, { keyId, stepUpApprovalId: 'ok' })).expiry).toEqual({
+        known: true,
+        expiresAt: null,
+      });
+      keys.setDown(true);
+      expect((await orders.connections(person)).map((x) => x.expiry)).toEqual([{ known: false }]);
+    });
+
+    it('#19: on a venue that declares no longest agent permission, a dated key is refused agents.venue_agent_expiry_max_unknown', async () => {
+      const v = await openAccount();
+      const real = await door.venue();
+      const venueOf = door.venue.bind(door);
+      door.venue = async () => {
+        const u = await venueOf();
+        return new Proxy(u, {
+          get: (t, p, r) => (p === 'venue' ? { ...real.venue, agentValidityMaxMs: undefined } : Reflect.get(t, p, r)),
+        });
+      };
+      const keyId = uuid('beef');
+      keys.add(keyId, USER, 'agent', ['trade:write'], false, new Date(Date.now() + DAY).toISOString());
+      const before = stepUps.length;
+      expect((await refusedAs(orders.connect(person, v.accountId, { keyId, stepUpApprovalId: 'ok' }))).code).toBe(
+        'agents.venue_agent_expiry_max_unknown',
+      );
+      expect(stepUps.length).toBe(before);
     });
   });
 

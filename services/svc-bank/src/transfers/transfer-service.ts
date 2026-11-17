@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { attachTransferMessageTx, bindTransferMessage } from './transfer-message.js';
 import { BookedTransferConflict, bookedTransferMatches } from './booked-transfer.js';
 import {
@@ -323,7 +323,7 @@ export class TransferService {
         const toPartner = this.spaces.custody.bankFor(to.userId);
         if (partner || toPartner) {
           if (!partner || toPartner !== partner) throw partnerCustodyMismatch();
-          if (!partnerAllowed || keySpace !== 'own') throw partnerPathNotBuilt();
+          if (!partnerAllowed) throw partnerPathNotBuilt();
           // The note and reference bind to the transfer id first, as on the ledger path; "already made" is the partner's.
           await bindTransferMessage(
             this.sql,
@@ -376,13 +376,19 @@ export class TransferService {
     );
   }
 
+  /**
+   * A send to another person's main space under the `p2p` key: the ledger's `bankTransfer` on the custodial layer, or,
+   * when the partner bank holds both people's money (OWNER 226), ONE partner move from the sender's account at the
+   * partner to the recipient's under the same business key (`bank.transfer.p2p:<transferId>:0`), and nothing posted to the
+   * ledger. One side at the partner and the other on the ledger is refused by name (`partnerCustodyMismatch`).
+   */
   async transferToUser(input: {
     transferId: string;
     fromSpaceId: string;
     toUserId: string;
     amount: Amount;
     now?: Date;
-  }): Promise<TransferResult> {
+  }): Promise<TransferResult | PartnerTransferResult> {
     const now = input.now ?? new Date();
     return withMoneySpan(
       'bank.transferToUser',
@@ -396,14 +402,17 @@ export class TransferService {
           // the caller must not be able to tell them apart.
           throw new BankError(RECIPIENT_CANNOT_RECEIVE_MESSAGE, 'bank.recipient_cannot_receive');
         }
-        return this.transfer({
-          transferId: input.transferId,
-          fromSpaceId: input.fromSpaceId,
-          toSpaceId: dest.id,
-          amount: input.amount,
-          keySpace: 'p2p',
-          now,
-        });
+        return this.move(
+          {
+            transferId: input.transferId,
+            fromSpaceId: input.fromSpaceId,
+            toSpaceId: dest.id,
+            amount: input.amount,
+            keySpace: 'p2p',
+            now,
+          },
+          true,
+        );
       },
     );
   }
@@ -1194,15 +1203,21 @@ export class TransferService {
           // (GitHub issue #4621). Plain reads, no lock needed.
           from = await this.spaces.resolveForDebit(schedule.fromSpaceId, now, tx);
           to = await this.spaces.resolveForCredit(schedule.toSpaceId, { actingUserId: from.userId }, tx);
+          // The sender's freeze is held at the edge, and this run never passes the edge: a frozen, closed or unknown
+          // sender's order to another person posts nothing. A move between the sender's own spaces leaves no account.
+          if (to.userId !== from.userId) await this.spaces.assertCanSend(from.userId);
         } catch (err) {
-          // `bank.recipient_cannot_receive` is a refusal of this occurrence like a
+          // `bank.recipient_cannot_receive` and `bank.sender_cannot_send` are refusals of this occurrence like a
           // lock or an archive: recorded on the run, one code, no state named.
           // `bank.recipient_check_unavailable` / `_unset` are NOT here: identity
           // being down must not consume the occurrence, so they rethrow and the
           // claim rolls back for the next pass.
           if (
             err instanceof BankError &&
-            (err.code === 'bank.space_locked' || err.code === 'bank.space_archived' || err.code === 'bank.recipient_cannot_receive')
+            (err.code === 'bank.space_locked' ||
+              err.code === 'bank.space_archived' ||
+              err.code === 'bank.recipient_cannot_receive' ||
+              err.code === 'bank.sender_cannot_send')
           ) {
             // Crash window: claim rolled back (or never committed settle) AFTER
             // ledger.post already moved value under bank.transfer.sched:<id>:<n>. A
@@ -1261,7 +1276,7 @@ export class TransferService {
   }
 
   private async settle(
-    tx: Sql,
+    tx: Queryable,
     executionId: string,
     schedule: ScheduleRecord,
     from: Awaited<ReturnType<SpaceService['get']>>,
@@ -1336,7 +1351,7 @@ export class TransferService {
    * and the next pass sends the same key again, which the partner answers with the move if it made it.
    */
   private async settleAtPartner(
-    tx: Sql,
+    tx: Queryable,
     executionId: string,
     schedule: ScheduleRecord,
     from: Awaited<ReturnType<SpaceService['get']>>,
@@ -1380,7 +1395,7 @@ export class TransferService {
    * `BookedTransferConflict`, so nothing is recorded on a movement nobody can account for.
    */
   private async topUpBillsPotAtPartner(
-    tx: Sql,
+    tx: Queryable,
     schedule: ScheduleRecord,
     pot: Awaited<ReturnType<SpaceService['get']>>,
     to: Awaited<ReturnType<SpaceService['get']>>,
@@ -1428,7 +1443,7 @@ export class TransferService {
    * nothing is recorded as paid or refused on a movement nobody can account for.
    */
   private async topUpBillsPot(
-    tx: Sql,
+    tx: Queryable,
     schedule: ScheduleRecord,
     pot: Awaited<ReturnType<SpaceService['get']>>,
     to: Awaited<ReturnType<SpaceService['get']>>,

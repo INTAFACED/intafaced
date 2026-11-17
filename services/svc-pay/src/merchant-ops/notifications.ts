@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { MerchantOpsError } from './errors.js';
 import { iso } from './money.js';
@@ -9,9 +10,11 @@ import { assertPermission, type MerchantCaller } from './roles.js';
  * open the portal. Nothing in this file sends email or SMS, and there is no
  * address or phone column anywhere to send to.
  *
- * Read state is per merchant (one feed per merchant), not per teammate.
- * Preferences: a kind with no row is ON. A `threshold` is whatever the merchant
- * typed (decimal string); there is no default number.
+ * The feed is the business's (one feed per merchant) and so is its read state.
+ * Preferences are each person's own (J-merchant-01 #6, "saved per person"): a
+ * person's view of the feed and their unread count leave out the kinds they
+ * turned off; a kind with no row for the person is ON. A `threshold` is
+ * whatever the person typed (decimal string); there is no default number.
  */
 export const NOTIFICATION_KINDS = [
   'payout_awaiting_approval',
@@ -40,14 +43,12 @@ export interface NewNotification {
 }
 
 /**
- * The producer door for other streams (W1 approvals, W5 halts, ...). Honors the
- * merchant's preference for the kind and is idempotent on `dedupeKey`.
- * Returns the new id, or null when the merchant turned the kind off or it was a repeat.
+ * The producer door for other streams (W1 approvals, W5 halts, ...). Records the
+ * notice on the business's feed, idempotent on `dedupeKey`; whether a person sees
+ * it is that person's own preference, applied when they read (`NotificationService`).
+ * Returns the new id, or null when it was a repeat.
  */
-export async function recordMerchantNotification(sql: Sql, n: NewNotification): Promise<string | null> {
-  const pref = await sql<Array<{ in_app: boolean }>>`
-    SELECT in_app FROM pay.merchant_notification_preferences WHERE merchant_id = ${n.merchantId} AND kind = ${n.kind}`;
-  if (pref[0] && !pref[0].in_app) return null;
+export async function recordMerchantNotification(sql: Queryable, n: NewNotification): Promise<string | null> {
   const rows = await sql<Array<{ id: string }>>`
     INSERT INTO pay.merchant_notifications (merchant_id, kind, title, body, subject_type, subject_id, dedupe_key)
     VALUES (${n.merchantId}, ${n.kind}, ${n.title}, ${n.body ?? null}, ${n.subjectType ?? null}, ${n.subjectId ?? null}, ${n.dedupeKey ?? null})
@@ -58,6 +59,14 @@ export async function recordMerchantNotification(sql: Sql, n: NewNotification): 
 
 export class NotificationService {
   constructor(private readonly sql: Sql) {}
+
+  /** The caller's own view of the feed: a notice whose kind the caller turned off is left out. */
+  private shown(caller: MerchantCaller) {
+    return this.sql`NOT EXISTS (
+      SELECT 1 FROM pay.merchant_notification_preferences p
+       WHERE p.merchant_id = ${caller.merchantId} AND p.user_id = ${caller.userId}
+         AND p.kind = pay.merchant_notifications.kind AND NOT p.in_app)`;
+  }
 
   async list(
     caller: MerchantCaller,
@@ -83,6 +92,7 @@ export class NotificationService {
              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
         FROM pay.merchant_notifications
        WHERE merchant_id = ${caller.merchantId}
+         AND ${this.shown(caller)}
          ${input.unreadOnly ? sql`AND read_at IS NULL` : sql``}
          ${input.kind ? sql`AND kind = ${input.kind}` : sql``}
          ${after ? sql`AND (created_at, id) < ((${after.ts}::text)::timestamptz, ${after.key}::uuid)` : sql``}
@@ -108,7 +118,8 @@ export class NotificationService {
   async unreadCount(caller: MerchantCaller) {
     assertPermission(caller, 'notifications.read');
     const rows = await this.sql<Array<{ n: number }>>`
-      SELECT count(*)::int AS n FROM pay.merchant_notifications WHERE merchant_id = ${caller.merchantId} AND read_at IS NULL`;
+      SELECT count(*)::int AS n FROM pay.merchant_notifications
+       WHERE merchant_id = ${caller.merchantId} AND read_at IS NULL AND ${this.shown(caller)}`;
     return { unread: rows[0]!.n };
   }
 
@@ -135,11 +146,12 @@ export class NotificationService {
     return { marked: updated.length };
   }
 
-  /** Every kind, with the merchant's choice or the on-by-default. */
+  /** Every kind, with the caller's own choice or the on-by-default. */
   async preferences(caller: MerchantCaller) {
     assertPermission(caller, 'notifications.read');
     const rows = await this.sql<Array<{ kind: string; in_app: boolean; threshold: string | null; updated_by: string; updated_at: Date }>>`
-      SELECT kind, in_app, threshold, updated_by, updated_at FROM pay.merchant_notification_preferences WHERE merchant_id = ${caller.merchantId}`;
+      SELECT kind, in_app, threshold, updated_by, updated_at FROM pay.merchant_notification_preferences
+       WHERE merchant_id = ${caller.merchantId} AND user_id = ${caller.userId}`;
     const byKind = new Map(rows.map((r) => [r.kind, r]));
     return NOTIFICATION_KINDS.map((kind) => {
       const r = byKind.get(kind);
@@ -161,9 +173,9 @@ export class NotificationService {
     // The current choice and its history row commit together, so the history never misses a change.
     await this.sql.begin(async (tx) => {
       await tx`
-        INSERT INTO pay.merchant_notification_preferences (merchant_id, kind, in_app, threshold, updated_by)
-        VALUES (${caller.merchantId}, ${input.kind}, ${input.inApp}, ${threshold}, ${caller.userId})
-        ON CONFLICT (merchant_id, kind) DO UPDATE
+        INSERT INTO pay.merchant_notification_preferences (merchant_id, user_id, kind, in_app, threshold, updated_by)
+        VALUES (${caller.merchantId}, ${caller.userId}, ${input.kind}, ${input.inApp}, ${threshold}, ${caller.userId})
+        ON CONFLICT (merchant_id, user_id, kind) DO UPDATE
           SET in_app = EXCLUDED.in_app, threshold = EXCLUDED.threshold, updated_by = EXCLUDED.updated_by, updated_at = now()`;
       await tx`
         INSERT INTO pay.merchant_notification_preference_events (merchant_id, kind, in_app, threshold, actor_id)
@@ -172,7 +184,7 @@ export class NotificationService {
     return (await this.preferences(caller)).find((p) => p.kind === input.kind)!;
   }
 
-  /** Every preference change, newest first: what was set, by whom and when. Changes before migration 0130 are not recorded. */
+  /** Every change to the caller's own preferences, newest first: what was set and when. Changes before migration 0130 are not recorded. */
   async preferenceHistory(caller: MerchantCaller, input: { limit?: number | undefined; cursor?: string }) {
     assertPermission(caller, 'notifications.read');
     const limit = requireLimit(input.limit);
@@ -185,7 +197,7 @@ export class NotificationService {
     const rows = await sql<Row[]>`
       SELECT seq::text AS seq_text, kind, in_app, threshold, actor_id, created_at
         FROM pay.merchant_notification_preference_events
-       WHERE merchant_id = ${caller.merchantId}
+       WHERE merchant_id = ${caller.merchantId} AND actor_id = ${caller.userId}
          ${after ? sql`AND seq < ${after.key}::bigint` : sql``}
        ORDER BY seq DESC
        LIMIT ${limit + 1}`;

@@ -4,11 +4,27 @@
  * and out; sums are scaled bigint (order-math `scaled`), so no float ever touches a price or an amount. The depth
  * curve's drawing coordinates are the only numbers, and they are pixels, never money.
  */
-import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
+import type { OrderBook } from '@intafaced/exchange-contract/schemas';
 import { groupLevels, type RawLevel } from './book-math';
 import { formatAmount } from '../../../shared/money';
 import { scaled } from './order-math';
 import type { QueuePosition } from '../../../features/trade/trade-api';
+import type { DeskMarket } from './market';
+
+/** What the DOM needs of a market: today's desk market, or a venue market read as one (venue-flow.ts). */
+export type FlowMarket = Pick<DeskMarket, 'symbol' | 'base' | 'quote' | 'tickSize' | 'lotSize' | 'open'>;
+
+/**
+ * One print on the tape, as time and sales reads it: today's public trades, or a venue's prints. A venue may not publish
+ * which side took (`null`).
+ */
+export interface TapePrint {
+  id: string;
+  timestamp: number;
+  side: 'buy' | 'sell' | null;
+  price: string;
+  amount: string;
+}
 
 const unscale = (units: bigint): string => formatAmount(units);
 
@@ -158,7 +174,7 @@ export function buildLadder(
 export interface TapeRow {
   id: string;
   timestamp: number;
-  side: 'buy' | 'sell';
+  side: 'buy' | 'sell' | null;
   price: string;
   /** Base amount. */
   amount: string;
@@ -186,7 +202,7 @@ const mulUnits = (a: bigint, b: bigint) => (a * b) / 10n ** 18n;
  * nothing (the field says why).
  */
 export function tapeView(
-  trades: readonly Trade[],
+  trades: readonly TapePrint[],
   options: { minAmount: string; units: TapeUnits; accumulate: boolean; limit?: number },
 ): TapeView {
   const min = options.minAmount.trim() === '' ? 0n : (scaled(options.minAmount.trim()) ?? 0n);

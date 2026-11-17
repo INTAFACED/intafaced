@@ -6,17 +6,7 @@ import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { EmptyState, Field, Page } from './ui-kit';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
-import {
-  PayAmount,
-  PayDetails,
-  PayNotice,
-  PayPagination,
-  PaySection,
-  PayState,
-  ReviewedAction,
-  Status,
-  MutationResult,
-} from './components';
+import { PayAmount, PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { id, type Trade, type TradeDestination } from './schemas';
 import { CancelOrder, RequestCancel } from './p2p-cancel';
 import { displayAmount } from '../../shared/money';

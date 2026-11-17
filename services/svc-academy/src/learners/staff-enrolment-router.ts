@@ -49,7 +49,7 @@ export function staffEnrolmentProcedures(staff: StaffEnrolment) {
     staffEnrolments: read()
       .input(academyStaffEnrolmentsInputSchema.optional())
       .output(academyStaffEnrolmentsSchema)
-      .query(({ input }) => guard(() => staff.events({ ...(input ?? {}), limit: HISTORY }))),
+      .query(({ input }) => guard(() => staff.events({ ...input, limit: HISTORY }))),
 
     bulkEnrol: write()
       .input(academyBulkEnrolInputSchema)
@@ -64,7 +64,7 @@ export function staffEnrolmentProcedures(staff: StaffEnrolment) {
     courseInvitations: read()
       .input(academyCourseInvitationsInputSchema.optional())
       .output(academyCourseInvitationsSchema)
-      .query(({ input }) => guard(() => staff.invitations({ ...(input ?? {}), limit: HISTORY }))),
+      .query(({ input }) => guard(() => staff.invitations({ ...input, limit: HISTORY }))),
 
     sendBulkEmail: write()
       .input(academySendBulkEmailInputSchema)
@@ -74,7 +74,7 @@ export function staffEnrolmentProcedures(staff: StaffEnrolment) {
     bulkEmails: read()
       .input(academyBulkEmailsInputSchema.optional())
       .output(academyBulkEmailsSchema)
-      .query(({ input }) => guard(() => staff.bulkEmails({ ...(input ?? {}), limit: HISTORY }))),
+      .query(({ input }) => guard(() => staff.bulkEmails({ ...input, limit: HISTORY }))),
 
     bulkEmail: read()
       .input(academyBulkEmailInputSchema)

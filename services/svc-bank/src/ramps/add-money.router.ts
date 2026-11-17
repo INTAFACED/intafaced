@@ -59,7 +59,7 @@ const request = z.object({
   method: z.enum(ONRAMP_METHODS),
   country: z.string(),
   rail,
-  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited', 'returned']),
+  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited', 'returned', 'delivered']),
   refusalCode: z.string().nullable(),
   onramp: onramp.nullable(),
   createdAt: z.string(),
@@ -69,6 +69,9 @@ const request = z.object({
   creditedAmount: z.string().nullable(),
   creditedBy: z.enum(['ledger', 'partner']).nullable(),
   returnedAt: z.string().nullable(),
+  walletAddress: z.string().nullable(),
+  deliveredAt: z.string().nullable(),
+  deliveryTx: z.string().nullable(),
 });
 
 export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard: <T>(fn: () => Promise<T>) => Promise<T>) {
@@ -103,6 +106,18 @@ export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard
             method: z.enum(ONRAMP_METHODS),
             country,
             quoteId: z.string().guid().optional(),
+            /** Buy to wallet (J-dex-protocol-05 #4): the person's own wallet the partner delivers to, not a balance here. */
+            walletAddress: z
+              .string()
+              .trim()
+              .regex(/^0x[0-9a-fA-F]{40}$/)
+              .optional(),
+            /** That wallet's EIP-191 signature over the request's own message (`walletDeliveryMessage`), proving it is theirs. */
+            walletSignature: z
+              .string()
+              .trim()
+              .regex(/^0x[0-9a-fA-F]{130}$/)
+              .optional(),
           })
           .strict(),
       )

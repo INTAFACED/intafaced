@@ -150,7 +150,7 @@ if (!compose) {
   let current = null;
   let inServices = false;
   for (const line of compose.split('\n')) {
-    if (/^services:/.test(line)) {
+    if (line.startsWith('services:')) {
       inServices = true;
       continue;
     }

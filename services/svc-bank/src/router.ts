@@ -16,12 +16,15 @@ import { createLimitsRouter } from './transfers/limit-requests.js';
 import { createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
+import { createSalaryRouter } from './salary/salary.router.js';
+import { createPayYourselfRouter } from './pay-yourself/pay-yourself.router.js';
 import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
 import { createAddMoneyRouter } from './ramps/add-money.router.js';
 import { createLinkedAccountsRouter } from './linked-accounts/linked-accounts.router.js';
 import { createCashOutRouter } from './cash-out/cash-out.router.js';
 import { createRailSendsRouter } from './rail-sends/rail-sends.router.js';
 import { createSafetyRouter } from './safety/safety.router.js';
+import { createBankAccountRouter } from './onboarding/bank-account.router.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
@@ -49,6 +52,12 @@ import { createSharedPotsRouter } from './spaces/shared-pots.router.js';
 import { createRecoveryRouter } from './recovery/recovery.router.js';
 import { createRampsRouter } from './router/ramps.router.js';
 import { createBusinessRouter } from './router/business.router.js';
+import { createBusinessTeamRouter } from './router/business-team.router.js';
+import { createBusinessBillsRouter } from './router/business-bills.router.js';
+import { createBusinessPayoutsRouter } from './router/business-payouts.router.js';
+import { createBusinessCardsRouter } from './router/business-cards.router.js';
+import { createBusinessBooksRouter } from './router/business-books.router.js';
+import { createBankApiRouter } from './router/bank-api.router.js';
 
 /**
  * svc-bank's API.
@@ -104,6 +113,12 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const autoInvest = createAutoInvestRouter(c);
   const ramps = createRampsRouter(c);
   const business = createBusinessRouter(c);
+  const businessTeam = createBusinessTeamRouter(c);
+  const businessBills = createBusinessBillsRouter(c);
+  const businessPayouts = createBusinessPayoutsRouter(c);
+  const businessCards = createBusinessCardsRouter(c);
+  const businessBooks = createBusinessBooksRouter(c);
+  const bankApi = createBankApiRouter(c);
 
   return router({
     health: publicProcedure
@@ -354,6 +369,12 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     }),
     autoInvest,
     business,
+    businessTeam,
+    businessBills,
+    businessPayouts,
+    businessCards,
+    businessBooks,
+    bankApi,
     analytics,
     plans: limitsTables.plans,
     partnerHolds: limitsTables.partnerHolds,
@@ -362,6 +383,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     activity: createActivityRouter(bank),
     statements: createStatementsRouter(bank),
     accountDetails: createAccountDetailsRouter(bank, guard),
+    /** J-bank-30: salary paid in by direct deposit, at the partner bank. `rail.bank` while no payroll network is wired. */
+    salary: createSalaryRouter(bank, guard),
+    /** J-bank-31: pay yourself from your trading, one venue withdrawal to your own partner account. */
+    payYourself: createPayYourselfRouter(bank, guard),
     accounts: createAccountsRouter(bank, guard),
     currencies: createCurrenciesRouter(bank, guard),
     addMoney: createAddMoneyRouter(bank, guard),
@@ -393,6 +418,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     sorter: createSorterRouter(bank, guard),
     /** CUSTODY-DELTA §4: the person's own TEST partner bank and ramp switches; refuses `bank.test_partner_off` off the TEST stack. */
     testPartner: createTestPartnerRouter(bank, guard),
+    /** BK-acct-05, BK-acct-06 (J-bank-17): onboarding, information requests, reviews, closure and data rights at the partner. */
+    bankAccount: createBankAccountRouter(bank, guard),
     /** PP-money-balance-05: payments from strangers held for the person to accept; a blank period refuses holding. */
     holds: createHoldsRouter(bank, guard),
     /** BK-acct-09: pots shared with viewers and contributors; blank owner values refuse `bank.joint_unset`. */

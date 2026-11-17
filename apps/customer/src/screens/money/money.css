@@ -753,6 +753,9 @@
     font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
     color: var(--if-fg-2);
   }
+  .money-act__ref {
+    overflow-wrap: anywhere;
+  }
   .money-act__time {
     color: var(--if-fg-2);
     font-variant-numeric: tabular-nums;

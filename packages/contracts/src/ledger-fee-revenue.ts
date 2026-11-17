@@ -3,7 +3,7 @@
  *
  * A read over the ledger, served to svc-ops so the venue report can set revenue
  * against the operator-entered costs in the same asset. The ledger answers per
- * venue and asset (project-state OWNER.md item 288; b2 change 3): fees earned
+ * venue and asset (b2 change 3): fees earned
  * (debits to `fees:*` accounts), fees given back (credits out of them:
  * corrections and distributions), the signed difference, and fees collected.
  * Earned is not cash: a builder fee the venue charged is owed to us until the

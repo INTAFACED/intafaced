@@ -17,6 +17,15 @@ import {
   candidates,
   dependentPackages,
   harnessImports,
+  customerImporters,
+  importTargets,
+  moduleKeys,
+  pathReach,
+  headWanted,
+  nodeTargets,
+  patchText,
+  readHead,
+  sinceMap,
   mapText,
   verifyMap,
   loadMap,
@@ -26,14 +35,15 @@ import {
   runsBehind,
   serviceDir,
   sourceOwner,
+  subscribesVia,
 } from './journey-reach-map.mjs';
-import { journeyTouch } from './journey-touch.mjs';
-import { JOURNEYS_WORKFLOW, sealPull } from './journey-seal.mjs';
+import { checkoutHead, journeyTouch } from './journey-touch.mjs';
+import { JOURNEYS_WORKFLOW, reachInputs, sealPull } from './journey-seal.mjs';
 import { manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT_DIR = fileURLToPath(new URL('../..', import.meta.url));
@@ -596,6 +606,434 @@ test('planted: each full fallback', () => {
   assert.match(none.full[BOTH], /holds no record of it/);
 });
 
+// ---- A customer file no run recorded takes the journeys of the files that load it (#8648) ----
+
+const SRC = 'apps/customer/src';
+const IMPORTERS = {
+  [`${SRC}/features/tax/tax.css`]: [`${SRC}/features/tax/TaxRoom.tsx`],
+  [`${SRC}/features/bank/cards.css`]: [`${SRC}/features/bank/bank.css`],
+  [`${SRC}/features/bank/bank.css`]: [`${SRC}/features/bank/Cards.tsx`, `${SRC}/features/bank/Cards.test.tsx`],
+  [`${SRC}/app/registry.ts`]: [`${SRC}/app/registry.test.ts`],
+  [`${SRC}/app/pw-only.ts`]: [`${SRC}/app/pw-only.pw.mjs`],
+  [`${SRC}/app/boot.ts`]: [`${SRC}/main.tsx`, 'apps/customer/vite.config.ts'],
+  [`${SRC}/app/docs.ts`]: [`${SRC}/main.tsx`],
+  [`${SRC}/screens/harness/main.tsx`]: [`${SRC}/screens/harness/index.html`],
+  [`${SRC}/screens/rooms/load.ts`]: [`${SRC}/main.tsx`],
+};
+const LOADERS = build(RUNS, { importers: IMPORTERS, built: [`${SRC}/app/docs.ts`] });
+const COMPUTED = build(RUNS, { importers: IMPORTERS, computed: [`${SRC}/screens/rooms/load.ts`] });
+/**
+ * loadersReach's `head` as a checkout of it reads: the changed files' `texts`, the unknown files the merge base holds
+ * (`based`), and each folder's entries: every file the map knows and every changed file still at the head, plus `extra`.
+ */
+const at = (texts = [], { based = [], extra = [], map = LOADERS } = {}) => {
+  const dirs = new Map();
+  const files = [
+    ...Object.keys(map.customer),
+    ...Object.keys(map.importers ?? {}),
+    ...texts.filter(([, t]) => t !== null).map(([f]) => f),
+    ...extra,
+  ];
+  for (const f of files)
+    for (let d = posix.dirname(f), n = posix.basename(f); d !== '.'; n = posix.basename(d), d = posix.dirname(d))
+      dirs.set(d, (dirs.get(d) ?? new Set()).add(n));
+  return { texts: new Map(texts), based: new Set(based), dirs };
+};
+const loaders = (path, head = at(), map = LOADERS) => pathReach(map, path, false, head);
+const names = (r) => (r.journeys ?? []).map((i) => LOADERS.journeys[i]).sort();
+
+test('importTargets: every way a file names another to load, resolved against it; packages left out', () => {
+  const t = [
+    "import { a } from './a';",
+    "export * from '../b/index.js';",
+    "import type { C } from './c.tsx';",
+    "import './side.css';",
+    "const d = await import('./d');",
+    "const e = import(/* @vite-ignore */ './e');",
+    "const f = require('./f.cjs');",
+    "const w = new URL('./worker.ts?worker', import.meta.url);",
+    "import x from 'react';",
+    "import y from '@intafaced/ui';",
+    "const home = '/src/main.tsx';",
+  ].join('\n');
+  assert.deepEqual(importTargets(t, `${SRC}/app/x.tsx`).sort(), [
+    `${SRC}/app/a`,
+    `${SRC}/app/c.tsx`,
+    `${SRC}/app/d`,
+    `${SRC}/app/e`,
+    `${SRC}/app/f.cjs`,
+    `${SRC}/app/side.css`,
+    `${SRC}/app/worker.ts`,
+    `${SRC}/b/index.js`,
+  ]);
+  const css =
+    "@import './base.css';\n@import url(\"../fonts.css\");\n.a { background: url(./bg.png); }\n.b { composes: c from './c.module.css'; }";
+  assert.deepEqual(importTargets(css, `${SRC}/app/x.css`).sort(), [
+    `${SRC}/app/base.css`,
+    `${SRC}/app/bg.png`,
+    `${SRC}/app/c.module.css`,
+    `${SRC}/fonts.css`,
+  ]);
+  assert.deepEqual(importTargets('<script type="module" src="/src/main.tsx"></script>', 'apps/customer/index.html'), [`${SRC}/main.tsx`]);
+  assert.deepEqual(moduleKeys(`${SRC}/b/index.ts`), [
+    `${SRC}/b/index.ts`,
+    `${SRC}/b/index`,
+    `${SRC}/b`,
+    `${SRC}/b/index.js`,
+    `${SRC}/b/index.jsx`,
+  ]);
+  assert.deepEqual(moduleKeys(`${SRC}/a.css`), [`${SRC}/a.css`], 'a style sheet is loaded by its full name only');
+});
+
+test('planted: a customer file no run recorded takes the journeys of the files that load it, never fewer', () => {
+  assert.deepEqual(names(loaders(`${SRC}/features/tax/tax.css`)), [TAX], 'a style sheet: the journeys that ran the room loading it');
+  assert.deepEqual(
+    names(loaders(`${SRC}/features/bank/cards.css`)),
+    [BANK],
+    'followed up through a style sheet no run recorded; a unit test loads nothing',
+  );
+  // A file this pull request adds takes the journeys of the changed files that load it at the head.
+  const fresh = `${SRC}/features/tax/TaxRules.tsx`;
+  const texts = [
+    [fresh, 'export const x = 1;'],
+    [`${SRC}/features/tax/TaxRoom.tsx`, "import { x } from './TaxRules';"],
+    [`${SRC}/features/bank/Cards.tsx`, "import { x } from '../tax/TaxRules.js';"],
+    [`${SRC}/features/tax/TaxRules.test.tsx`, "import { x } from './TaxRules';"],
+  ];
+  assert.deepEqual(names(loaders(fresh, at(texts))), [BANK, TAX]);
+  assert.deepEqual(
+    reachSelect({
+      map: LOADERS,
+      paths: [fresh, `${SRC}/features/tax/TaxRoom.tsx`],
+      behind: 0,
+      atHead: FILES,
+      head: at(texts),
+      mode: 'reach',
+    }).files,
+    [BANK, POPUP, TAX],
+    'through reachSelect: the selection holds what its loaders reach',
+  );
+  // A customer file that loads what it doesn't spell (a glob, a computed import) may load any customer file.
+  const y = `${SRC}/features/tax/y.ts`;
+  assert.deepEqual(
+    names(loaders(y, at([[y, '']], { map: COMPUTED }), COMPUTED)),
+    [BANK, TAX],
+    'load.ts may load it; main.tsx loads load.ts',
+  );
+  assert.deepEqual(names(loaders(`${SRC}/features/tax/tax.css`, at([], { map: COMPUTED }), COMPUTED)), [BANK, TAX]);
+  const glob = [
+    [`${SRC}/x/new.ts`, ''],
+    [`${SRC}/y/glob.ts`, "const all = import.meta.glob('../x/*.ts');"],
+  ];
+  assert.match(
+    loaders(`${SRC}/x/new.ts`, at(glob)).full,
+    /nothing but tests loads apps\/customer\/src\/y\/glob.ts/,
+    'a changed file that globs loads it',
+  );
+});
+
+test('planted: where the map cannot know who loads a customer file, it is full', () => {
+  const full = (r, why) => {
+    assert.ok(r.full, JSON.stringify(r));
+    assert.match(r.full, why);
+  };
+  full(pathReach(MAP, `${SRC}/features/tax/tax.css`, false, at()), /^no journey was recorded running this customer source file$/);
+  full(loaders(`${SRC}/features/tax/tax.css`, null), /the files that load it at the head couldn't be read/);
+  full(loaders(`${SRC}/features/tax/tax.css`, {}), /the files that load it at the head couldn't be read/, 'a read that failed');
+  full(loaders(`${SRC}/app/registry.ts`), /nothing but tests loads/);
+  full(loaders(`${SRC}/app/pw-only.ts`), /nothing but tests loads/, 'a Playwright file in the source is its own config’s test');
+  const brand = `${SRC}/features/tax/Brand.tsx`;
+  full(loaders(brand, at([[brand, '']])), /nothing but tests loads/, 'a new file nothing changed loads');
+  // A file the map doesn't know that this pull request doesn't add: main added it after the map was built, and files the
+  // map never read may load it (the checker's case: a follow-up to a file merged hours earlier).
+  const rules = `${SRC}/features/tax/TaxRules.tsx`;
+  const follow = [
+    [rules, 'export const x = 2;'],
+    [`${SRC}/features/tax/TaxRoom.tsx`, "import { x } from './TaxRules';"],
+  ];
+  full(loaders(rules, at(follow, { based: [rules] })), /TaxRules.tsx is newer than the map/);
+  full(
+    loaders(rules, at([[`${SRC}/features/tax/TaxRoom.tsx`, "import { x } from './TaxRules';"]])),
+    /is newer than the map/,
+    'not a changed file',
+  );
+  full(loaders(`${SRC}/app/boot.ts`), /apps\/customer\/vite.config.ts loads/, 'loaded from outside the customer source');
+  full(loaders(`${SRC}/app/docs.ts`), /Node code \(the journey harness or the app's build\) runs/);
+  full(loaders(`${SRC}/screens/harness/main.tsx`), /index.html loads/, 'a page loads it');
+  const ts = `${SRC}/features/tax/TaxRoom.ts`;
+  full(
+    loaders(ts, at([[ts, '']])),
+    /is new and shares its import name with TaxRoom.tsx/,
+    'a new x.ts beside x.tsx: an unchanged import may now load it',
+  );
+  const fees = `${SRC}/features/tax/Fees.ts`;
+  full(
+    loaders(fees, at([[fees, '']], { extra: [`${SRC}/features/tax/Fees.tsx`] })),
+    /shares its import name with Fees.tsx/,
+    'beside a file main added after the map was built: the head’s own folder says so',
+  );
+  const index = `${SRC}/features/tax/index.ts`;
+  full(
+    loaders(index, at([[index, '']], { extra: [`${SRC}/features/tax.tsx`] })),
+    /shares its import name with tax.tsx/,
+    'x/index.ts beside x.tsx',
+  );
+  full(loaders(fees, { ...at([[fees, '']]), dirs: new Map() }), /couldn't be listed at the head/);
+  full(
+    loaders(`${SRC}/features/tax/tax.css`, at([['tooling/scripts/x.mjs', "import '../../apps/customer/src/features/tax/tax.css';"]])),
+    /tooling\/scripts\/x.mjs, which runs in Node, loads/,
+    'a changed file outside the customer source that loads it',
+  );
+  const sel = reachSelect({ map: LOADERS, paths: [`${SRC}/app/registry.ts`], behind: 0, atHead: FILES, head: at(), mode: 'reach' });
+  assert.equal(sel.mode, 'full');
+  assert.match(sel.why, /nothing but tests/);
+});
+
+test('headWanted, the seal and the touch job: the head is read only for a customer file the map has no record of', async () => {
+  const fresh = `${SRC}/features/tax/New.tsx`;
+  const index = `${SRC}/features/tax/index.ts`;
+  const paths = [`${SRC}/features/tax/tax.css`, `${SRC}/features/tax/TaxRoom.tsx`, 'services/svc-tax/README.md', fresh, index];
+  assert.deepEqual(headWanted(LOADERS, paths), {
+    texts: [paths[0], paths[1], fresh, index],
+    unknown: [fresh, index],
+    dirs: [`${SRC}/features`, `${SRC}/features/tax`],
+  });
+  assert.equal(headWanted(LOADERS, [`${SRC}/features/tax/TaxRoom.tsx`]), null, 'every customer file recorded: nothing read');
+  assert.equal(headWanted(MAP, paths), null, 'a map with no importers reads nothing');
+  const MB = 'b'.repeat(40);
+  const io = {
+    mainRuns: async () => [],
+    journeyFiles: async () => FILES,
+    reachMap: async () => LOADERS,
+    runs: async () => [],
+    dirNames: async (d) => (d.endsWith('/tax') ? ['TaxRoom.tsx', 'New.tsx', 'index.ts'] : ['tax']),
+    mergeBase: async () => MB,
+    // Main changed main.tsx since the map's head: its new side is read, and it counts as newer than the map.
+    compare: async (a, b) =>
+      a === HEAD && b === MB
+        ? { status: 'ahead', files: [{ filename: `${SRC}/main.tsx`, status: 'modified', patch: '@@ -1 +1 @@\n+x' }] }
+        : null,
+  };
+  const text = async (p, ref) => (ref === MB ? (p === index ? 'x' : null) : p.endsWith('TaxRoom.tsx') ? "import './tax.css';" : '');
+  const r = await reachInputs({ io, paths, head: HEAD, base: 'c'.repeat(40), text });
+  assert.deepEqual([...r.head.texts.keys()], [paths[0], paths[1], fresh, index, `${SRC}/main.tsx`]);
+  assert.deepEqual([...r.head.based], [`${SRC}/main.tsx`, index], 'index.ts is on the merge base: main added it after the map');
+  assert.deepEqual([...r.head.dirs.get(`${SRC}/features/tax`)], ['TaxRoom.tsx', 'New.tsx', 'index.ts']);
+  const broken = await reachInputs({ io, paths, head: HEAD, base: 'c'.repeat(40), text: async () => { throw new Error('HTTP 502'); } }); // prettier-ignore
+  assert.deepEqual(broken.head, {}, 'a read that fails leaves the head unknown: full');
+  const noList = await reachInputs({ io: { ...io, dirNames: undefined }, paths, head: HEAD, base: 'c'.repeat(40), text });
+  assert.deepEqual(noList.head, {});
+  const noCompare = await reachInputs({ io: { ...io, compare: undefined }, paths, head: HEAD, base: 'c'.repeat(40), text });
+  assert.deepEqual(noCompare.head, {}, "main's changes since the map unread: full");
+  // The touch job reads the same from its checkout of the head.
+  const root = mkdtempSync(join(tmpdir(), 'reach-head-'));
+  try {
+    mkdirSync(join(root, SRC, 'features/tax'), { recursive: true });
+    writeFileSync(join(root, SRC, 'features/tax/TaxRoom.tsx'), "import './tax.css';");
+    writeFileSync(join(root, SRC, 'features/tax/New.tsx'), '');
+    writeFileSync(join(root, SRC, 'features/tax/index.ts'), 'x');
+    const base =
+      (over = {}) =>
+      async () => ({ mergeBase: MB, atBase: async (p) => p === index, compare: io.compare, ...over });
+    const h = await checkoutHead(LOADERS, paths, { root, base: base() });
+    assert.deepEqual([...h.texts.keys()], [paths[0], paths[1], fresh, index, `${SRC}/main.tsx`]);
+    assert.equal(h.texts.get(paths[0]), null, 'removed at the head');
+    assert.deepEqual([...h.based], [`${SRC}/main.tsx`, index]);
+    assert.deepEqual([...h.dirs.get(`${SRC}/features/tax`)].sort(), ['New.tsx', 'TaxRoom.tsx', 'index.ts']);
+    assert.deepEqual(await checkoutHead(LOADERS, paths, { root, base: base({ atBase: async () => { throw new Error('HTTP 502'); } }) }), {}); // prettier-ignore
+    assert.deepEqual(await checkoutHead(LOADERS, paths, { root, base: async () => { throw new Error('no merge base'); } }), {}); // prettier-ignore
+    assert.equal(await checkoutHead(MAP, paths, { root, base: base() }), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('planted: what main changed between the map and the merge base loads a file too (sinceMap, patchText)', async () => {
+  const MB = 'b'.repeat(40);
+  const map = { runs: [{ head: HEAD }] };
+  const patch = "@@ -1,2 +1,2 @@\n import a from './a';\n-import b from './b';\n+import c from './c';\n@@ -40 +40 @@\n+const m = import(";
+  const plus = patchText(patch, '+');
+  assert.ok(importTargets(plus, `${SRC}/app/x.ts`).includes(`${SRC}/app/c`), 'the new side’s import');
+  assert.match(plus, /import\(\n;/, 'a hunk ends cut off: its open load reads as computed');
+  assert.doesNotMatch(patchText(patch, '-'), /^import c from/m, 'the old side holds no added line');
+  const files = [
+    { filename: `${SRC}/app/x.ts`, status: 'modified', patch },
+    { filename: `${SRC}/app/gone.ts`, status: 'removed' },
+    { filename: `${SRC}/app/to.ts`, previous_filename: `${SRC}/app/from.ts`, status: 'renamed', patch: '@@ -1 +1 @@\n+y' },
+    { filename: `${SRC}/app/big.ts`, status: 'modified' },
+    { filename: `${SRC}/app/x.test.ts`, status: 'modified', patch },
+    { filename: 'docs/a.md', status: 'modified', patch },
+    { filename: 'tooling/scripts/s.mjs', status: 'added', patch: "@@ -0,0 +1 @@\n+import '../../apps/customer/src/a.ts';" },
+  ];
+  const ahead = await sinceMap(map, MB, async (a, b) => (a === HEAD && b === MB ? { status: 'ahead', files } : null));
+  assert.deepEqual(
+    [...ahead].map(([f, t]) => [f, t === undefined ? 'read' : t === null ? 'gone' : 'patch']),
+    [
+      [`${SRC}/app/x.ts`, 'patch'],
+      [`${SRC}/app/gone.ts`, 'gone'],
+      [`${SRC}/app/to.ts`, 'read'],
+      [`${SRC}/app/from.ts`, 'gone'],
+      [`${SRC}/app/big.ts`, 'read'],
+      ['tooling/scripts/s.mjs', 'patch'],
+    ],
+  );
+  // A merge base older than the map: the map's head compared from it, read on its old side.
+  const behind = await sinceMap(map, MB, async (a, b) =>
+    a === HEAD ? { status: 'behind', files: [] } : a === MB && b === HEAD ? { status: 'ahead', files } : null,
+  );
+  assert.equal(behind.get(`${SRC}/app/gone.ts`), undefined, 'removed since, no patch given: the merge base holds it, read it');
+  assert.equal(behind.get(`${SRC}/app/from.ts`), undefined, 'renamed since: the merge base holds the old name, read it');
+  assert.equal(behind.get(`${SRC}/app/to.ts`), null);
+  assert.equal(behind.get('tooling/scripts/s.mjs'), null, 'added since: the merge base doesn’t hold it');
+  assert.match(behind.get(`${SRC}/app/x.ts`), /import b from/);
+  assert.deepEqual([...(await sinceMap(map, HEAD, async () => null))], [], 'the merge base is the map’s head');
+  const throws = (compare, mb = MB, m = map) => assert.rejects(sinceMap(m, mb, compare));
+  await throws(async () => ({ status: 'diverged', files: [] }));
+  await throws(async () => ({ status: 'ahead', files: Array.from({ length: 300 }, (_, i) => ({ filename: `docs/${i}.md` })) }), MB);
+  await throws(async () => ({ status: 'ahead' }));
+  await throws(async () => ({ status: 'ahead', files: [] }), 'main');
+  await throws(async () => ({ status: 'ahead', files: [] }), MB, { runs: [] });
+  // The map's graph is read at its newest run's head.
+  const seen = [];
+  const graphed = build(RUNS, { graph: (sha) => (seen.push(sha), { importers: { [`${SRC}/app/n.ts`]: [] }, built: [], computed: [] }) });
+  assert.deepEqual(seen, [HEAD]);
+  assert.deepEqual(graphed.importers, { [`${SRC}/app/n.ts`]: [] });
+  // The checker's case: a file this pull request adds, loaded by a changed file, and by a glob main added after the map.
+  const fresh = `${SRC}/features/tax/TaxRules.tsx`;
+  const want = { texts: [fresh, `${SRC}/features/bank/Cards.tsx`], unknown: [fresh], dirs: [`${SRC}/features/tax`] };
+  const pr = {
+    [fresh]: 'export const x = 1;',
+    [`${SRC}/features/bank/Cards.tsx`]: "import { x } from '../tax/TaxRules';",
+  };
+  const glob = {
+    filename: `${SRC}/features/tax/TaxRoom.tsx`,
+    status: 'modified',
+    patch: "@@ -3 +3 @@\n+const all = import.meta.glob('./*.tsx');",
+  };
+  const head = (changed) =>
+    readHead(LOADERS, want, {
+      read: async (p) => pr[p] ?? null,
+      list: async () => ['TaxRoom.tsx', 'TaxRules.tsx', 'tax.css'],
+      mergeBase: MB,
+      atBase: async () => false,
+      compare: async () => ({ status: 'ahead', files: changed }),
+    });
+  assert.deepEqual(names(loaders(fresh, await head([]))), [BANK], 'nothing on main loads it: its own loader’s journeys');
+  assert.deepEqual(names(loaders(fresh, await head([glob]))), [BANK, TAX], 'the glob main added loads it: TaxRoom’s journeys too');
+  const imp = { ...glob, patch: "@@ -3 +3 @@\n+import { x } from './TaxRules';" };
+  assert.deepEqual(names(loaders(fresh, await head([imp]))), [BANK, TAX], 'an import main added');
+  const cut = { ...glob, patch: "@@ -3,2 +3,2 @@\n const all = import(\n+  './TaxRules'\n@@ -9 +9 @@\n+x" };
+  assert.deepEqual(names(loaders(fresh, await head([cut]))), [BANK, TAX], 'an import whose keyword the patch cuts off');
+  const added = { filename: `${SRC}/features/tax/Other.tsx`, status: 'added', patch: "@@ -0,0 +1 @@\n+import './TaxRules';" };
+  assert.match(loaders(fresh, await head([added])).full, /Other.tsx is newer than the map/, 'a file main added that loads it');
+  // A recorded file the build runs loads it: what the build emits, no record ties to a journey.
+  const docs = { ...glob, filename: `${SRC}/app/docs.ts`, patch: "@@ -1 +1 @@\n+import '../features/tax/TaxRules';" };
+  assert.match(loaders(fresh, await head([docs])).full, /apps\/customer\/src\/app\/docs.ts, which runs in Node, loads/);
+  // What runs in Node grows after the map (the checker's round 3 case): a file read at the head that the harness or the
+  // build runs, loading a customer file the map doesn't hold as run there, may run it in every journey.
+  const node = (filename, line) => ({ filename, status: 'modified', patch: `@@ -1 +1,2 @@\n x\n+${line}` });
+  const harnessed = { ...LOADERS, harness: [...LOADERS.harness, `${SRC}/features/bank/Cards.tsx`] };
+  const nodeHead = (changed, map = LOADERS) =>
+    readHead(map, want, {
+      read: async (p) => pr[p] ?? null,
+      list: async () => ['TaxRoom.tsx', 'TaxRules.tsx', 'tax.css'],
+      mergeBase: MB,
+      atBase: async () => false,
+      compare: async () => ({ status: 'ahead', files: changed }),
+    });
+  for (const [why, files, map] of [
+    ['the harness runs a recorded loader', [], harnessed],
+    [
+      'a harness script starts loading a customer file',
+      [node('tooling/scripts/s.mjs', "import '../../apps/customer/src/features/bank/Cards.tsx';")],
+    ],
+    ['the build starts loading a customer file', [node('apps/customer/vite.config.ts', "import './src/features/bank/Cards';")]],
+    [
+      'a journey file starts loading one',
+      [node('apps/customer/tests/real-app/helpers/x.mjs', "import '../../../src/features/bank/Cards.tsx';")],
+    ],
+  ])
+    assert.ok(loaders(fresh, await nodeHead(files, map), map).full, why);
+  assert.match(
+    loaders(`${SRC}/features/bank/cards.css`, at([], { map: harnessed }), harnessed).full,
+    /the journey harness runs apps\/customer\/src\/features\/bank\/Cards.tsx, which loads it/,
+    'a recorded loader the harness runs, from main’s graph',
+  );
+  // Node code that builds a load's path (the checker's round 4 case): its quoted paths count, and pieces of one are full.
+  for (const [why, file, line] of [
+    ['a harness script', 'tooling/scripts/s.mjs', "await import(path.join(ROOT, 'apps/customer/src/features/bank/Cards.tsx'));"],
+    ['the build', 'apps/customer/vite.config.ts', "await runnerImport(resolve(__dirname, 'src/features/bank/Cards.tsx'));"],
+    [
+      'a journey helper',
+      'apps/customer/tests/real-app/helpers/x.mjs',
+      "await import(pathToFileURL(join(HERE, '../../../src/features/bank/Cards.tsx')).href);",
+    ],
+    ['a path in pieces', 'tooling/scripts/s.mjs', "await import(path.join(ROOT, 'apps', 'customer', 'src', name));"],
+    ['a template path', 'tooling/scripts/s.mjs', 'await import(`${HERE}/../../apps/x/src/${name}`);'],
+  ]) {
+    assert.ok(loaders(fresh, await nodeHead([node(file, line)])).full, why);
+    // GitHub gives no patch: the file is read whole at the head.
+    pr[file] = line;
+    assert.ok(loaders(fresh, await nodeHead([{ filename: file, status: 'modified' }])).full, `${why}, read whole`);
+    delete pr[file];
+  }
+  assert.deepEqual(
+    nodeTargets("await import(path.join(ROOT, 'services/svc-x/dist/a.js'));", 'tooling/scripts/s.mjs'),
+    { targets: [], any: false },
+    'a built path elsewhere names no customer file',
+  );
+  assert.deepEqual(
+    nodeTargets("const title = 'customer src';", 'tooling/scripts/s.mjs'),
+    { targets: [], any: false },
+    'no load built from a path: plain text',
+  );
+  assert.deepEqual(
+    names(loaders(fresh, await nodeHead([node('apps/customer/vite.config.ts', "import './src/app/docs';")]))),
+    [BANK],
+    'loading what the build already runs changes nothing',
+  );
+});
+
+test('customerImporters on this repository: who loads a style sheet, the build’s own files, a file only a test loads', () => {
+  const { importers, built, computed } = customerImporters();
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim();
+  assert.deepEqual(customerImporters(ROOT_DIR, head), customerImporters(ROOT_DIR), 'read at a commit, the same as its checkout');
+  assert.ok(importers[`${SRC}/features/trade/news/news.css`].includes(`${SRC}/features/trade/news/NewsRooms.tsx`));
+  assert.ok(importers[`${SRC}/main.tsx`].includes('apps/customer/index.html'));
+  assert.ok(built.includes(`${SRC}/app/boot.ts`), 'vite.config.ts imports it');
+  assert.ok(
+    built.includes(`${SRC}/features/developers/developers-files.ts`),
+    'vite.config.ts loads it with new URL() and runs it in the build',
+  );
+  assert.equal(built.includes(`${SRC}/main.tsx`), false, 'the app itself is not the build’s Node code');
+  for (const h of harnessImports().filter((x) => x.startsWith(`${SRC}/`))) assert.ok(built.includes(h), `the harness runs ${h}`);
+  // Node code that loads a customer folder or a templated path may load any customer file (round 5's static cases).
+  for (const [why, line] of [
+    ['a template', 'await import(`${ROOT}/apps/customer/src/app/${name}.ts`);'],
+    ['a folder', "for (const n of readdirSync(new URL('../../apps/customer/src/app/sub/', import.meta.url))) await import(n);"],
+  ]) {
+    const dir = mkdtempSync(join(tmpdir(), 'reach-node-'));
+    try {
+      mkdirSync(join(dir, SRC, 'app/sub'), { recursive: true });
+      mkdirSync(join(dir, 'tooling/scripts'), { recursive: true });
+      writeFileSync(join(dir, SRC, 'app/sub/x.ts'), 'export const x = 1;\n');
+      writeFileSync(join(dir, 'tooling/scripts/s.mjs'), `${line}\n`);
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      execFileSync('git', ['add', '-A'], { cwd: dir });
+      assert.ok(customerImporters(dir).built.includes(`${SRC}/app/sub/x.ts`), why);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  assert.deepEqual(importers[`${SRC}/app/room-templates.ts`], [], 'only its unit test imports it; a scaffold reads it as text');
+  for (const f of computed) assert.match(f, /^apps\/customer\/src\//);
+  assert.equal(importers[`${SRC}/features/pay/portal/w3c2.pw.mjs`], undefined, 'a Playwright file in the source is a test');
+  for (const [f, v] of Object.entries(importers)) {
+    assert.doesNotMatch(f, /\.(test|spec)\./);
+    for (const g of v) assert.doesNotMatch(g, /\.(test|spec)\.[cm]?[jt]sx?$/, `${f}: a unit test loads nothing`);
+  }
+});
+
 test('planted: the off switch and the builder’s refusal', () => {
   assert.equal(REACH_MAP_MODE, 'reach', 'on: setting it to full turns every product change back to the full suite');
   assert.equal(
@@ -752,6 +1190,10 @@ test('the committed map holds only shapes a public map may hold', () => {
     'harness',
     'subscribers',
     'money',
+    'importers',
+    'built',
+    'computed',
+    'busLogged',
   ]);
   for (const k of Object.keys(map)) assert.ok(allowed.has(k), `unexpected key ${k}`);
   for (const r of map.runs) {
@@ -768,7 +1210,12 @@ test('the committed map holds only shapes a public map may hold', () => {
       assert.match(p, PATH);
       for (const x of v) assert.ok(Number.isInteger(x) || PATH.test(x), `${k}.${p}`);
     }
-  for (const p of [...(map.harness ?? []), ...(map.subscribers ?? []), ...(map.money ?? [])]) assert.match(p, PATH);
+  for (const p of [...(map.harness ?? []), ...(map.subscribers ?? []), ...(map.money ?? []), ...(map.built ?? []), ...(map.computed ?? [])])
+    assert.match(p, PATH);
+  for (const [p, v] of Object.entries(map.importers ?? {})) {
+    assert.match(p, PATH);
+    for (const x of v) assert.match(x, PATH, `importers.${p}`);
+  }
   for (const f of Object.keys(map.full ?? {})) assert.match(f, JOURNEY);
 });
 
@@ -937,4 +1384,97 @@ test('planted: a committed map too old to read makes a one-service change full; 
   });
   assert.equal(asked, Date.parse('2026-11-08T17:30:00Z'));
   assert.equal(sealed.ok, true, sealed.lines.join('\n'));
+});
+
+test('planted (#8657): a subscriber narrows only when every record the map is built from ran with a bus that logs each delivery', () => {
+  // svc-notify's handler ran while BOTH ran and served nothing: the delivery line makes it active there.
+  const logged = (recs) => recs.map((r) => ({ ...r, bus: true }));
+  const withNotify = () => records().map((r) => (r.file === BOTH ? { ...r, active: [...r.active, 'notify'] } : r));
+  const runs = (flag) => [3, 2, 1].map((id) => run(id, `2026-11-08T1${id + 2}:00:00Z`, flag(id) ? logged(withNotify()) : withNotify()));
+  const on = build(runs(() => true));
+  assert.equal(on.busLogged, true);
+  const sel = (map, paths, subscribes = () => false) => reachSelect({ map, paths, behind: 0, atHead: FILES, mode: 'reach', subscribes });
+  assert.deepEqual(sel(on, ['services/svc-notify/src/send.ts']).files, [BOTH, POPUP], 'its handler’s journeys, not the full suite');
+  assert.deepEqual(sel(on, ['packages/telemetry/src/x.ts']).files, [BOTH, POPUP], 'a package only the subscriber uses');
+  const added = sel(on, ['services/svc-notify/src/wire.ts'], () => true);
+  assert.equal(added.mode, 'full', 'a file that can add a subscription stays full');
+  assert.match(added.why, /subscribes to bus events, itself or through a file it imports/);
+  // One run recorded before the bus logged deliveries: the map can't say where a handler ran.
+  const mixed = build(runs((id) => id !== 1));
+  assert.equal(mixed.busLogged, undefined);
+  assert.match(sel(mixed, ['services/svc-notify/src/send.ts']).why, /svc-notify subscribes to bus events/);
+  assert.match(sel(mixed, ['packages/telemetry/src/x.ts']).why, /svc-notify depends on packages\/telemetry and subscribes/);
+  assert.equal(MAP.busLogged, undefined, 'records with no claim: as before');
+});
+
+test('subscribesVia (#8657): a file subscribes when it, or a file of its service it imports, calls the bus subscribe', async () => {
+  const files = {
+    'services/svc-notify/src/events.ts':
+      'export async function attach(bus, event, h) { return bus.subscribe(event, h, { durable: event }); }',
+    'services/svc-notify/src/wire.ts':
+      "import { attach } from './events.js';\nexport const go = (bus) => attach(bus, 'orderFilled', () => {});",
+    'services/svc-notify/src/deep.ts': "import { go } from './wire.js';\nexport { go };",
+    'services/svc-notify/src/send.ts':
+      "import { fmt } from './fmt';\nimport { x } from '../../svc-trade/src/events.js';\nexport const send = fmt;",
+    'services/svc-notify/src/fmt/index.ts': 'export const fmt = (s) => s;',
+    'services/svc-trade/src/events.ts': 'bus.subscribe(x)',
+  };
+  const read = async (p) => files[p] ?? null;
+  assert.equal(await subscribesVia('services/svc-notify/src/events.ts', read), true, 'its own call');
+  assert.equal(await subscribesVia('services/svc-notify/src/wire.ts', read), true, 'through attach, in another file');
+  assert.equal(await subscribesVia('services/svc-notify/src/deep.ts', read), true, 'followed through the service');
+  assert.equal(await subscribesVia('services/svc-notify/src/send.ts', read), false, 'another service is not followed');
+  assert.equal(await subscribesVia('services/svc-notify/src/gone.ts', read), false, 'a removed file adds nothing');
+  const broken = async (p) => {
+    if (p.endsWith('fmt.ts')) throw new Error('HTTP 502');
+    return files[p] ?? null;
+  };
+  assert.equal(await subscribesVia('services/svc-notify/src/send.ts', broken), true, 'a read that fails is full');
+  assert.equal(await subscribesVia('services/svc-notify/src/deep.ts', read, 2), true, 'too many files to read is full');
+  // The real tree: svc-notify's status page and index reach its subscriptions; a plain module does not.
+  const disk = (p) => {
+    try {
+      return readFileSync(join(ROOT_DIR, p), 'utf8');
+    } catch {
+      return null;
+    }
+  };
+  assert.equal(await subscribesVia('services/svc-notify/src/index.ts', disk), true);
+  assert.equal(await subscribesVia('services/svc-trade/src/index.ts', disk), true);
+});
+
+test('planted (#8657): the touch job and the seal both read a subscription added through an imported helper', async () => {
+  const { subscribesIn } = await import('./journey-touch.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'subs-'));
+  try {
+    mkdirSync(join(dir, 'services/svc-notify/src'), { recursive: true });
+    writeFileSync(join(dir, 'services/svc-notify/src/events.ts'), 'export const attach = (bus, e, h) => bus.subscribe(e, h, {});');
+    writeFileSync(join(dir, 'services/svc-notify/src/wire.ts'), "import { attach } from './events.js';\nattach(bus, 'orderFilled', h);");
+    writeFileSync(join(dir, 'services/svc-notify/src/send.ts'), 'export const send = 1;');
+    const subs = await subscribesIn(
+      ['services/svc-notify/src/wire.ts', 'services/svc-notify/src/send.ts', 'services/svc-notify/src/gone.ts'],
+      dir,
+    );
+    assert.deepEqual(
+      [subs('services/svc-notify/src/wire.ts'), subs('services/svc-notify/src/send.ts'), subs('services/svc-notify/src/gone.ts')],
+      [true, false, false],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const text = async (f) =>
+    ({
+      'services/svc-notify/src/events.ts': 'export const attach = (bus, e, h) => bus.subscribe(e, h, {});',
+      'services/svc-notify/src/wire.ts': "import { attach } from './events.js';",
+      'services/svc-notify/src/send.ts': 'export const send = 1;',
+    })[f] ?? null;
+  const io = { mainRuns: async () => [], journeyFiles: async () => FILES, reachMap: async () => MAP };
+  const r = await reachInputs({
+    io,
+    paths: ['services/svc-notify/src/wire.ts', 'services/svc-notify/src/send.ts'],
+    head: HEAD,
+    base: HEAD,
+    text,
+  });
+  assert.deepEqual([r.subscribes('services/svc-notify/src/wire.ts'), r.subscribes('services/svc-notify/src/send.ts')], [true, false]);
 });

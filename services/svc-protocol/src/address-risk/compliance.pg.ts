@@ -91,8 +91,7 @@ export class PostgresComplianceStore implements ComplianceStore {
   }
 
   async approve(input: { chainId: number; reviewId: string; approverId: string }): Promise<ApproveOutcome> {
-    return this.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    return this.sql.begin(async (q) => {
       const [review] = await q<(ReviewRow & { address: string; evidence_url: string | null })[]>`
         SELECT v.id, v.report_id, v.kind, v.reason, v.status, v.requester_id, v.approver_id, v.asked_at, v.decided_at,
                r.address, r.evidence_url

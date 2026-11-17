@@ -24,6 +24,7 @@ export const PAGE_SECTION_IDS = [
   'order-types',
   'bot-policy',
   'idempotency',
+  'quant',
 ] as const;
 /** A section whose page is written in this portal. DevelopersRoutes keeps one component per id (a typed record). */
 export type PageSectionId = (typeof PAGE_SECTION_IDS)[number];
@@ -57,11 +58,13 @@ export const SECTIONS: readonly Section[] = [
   { id: 'protocols', audience: 'institutional', waitsFor: 'DV-websocket-01' },
   { id: 'webhooks', audience: 'embedded', published: { href: '/pay/developer/webhooks' } },
   { id: 'sandbox', audience: 'embedded', published: { href: '/developers/sandbox' } },
+  { id: 'business-cards', audience: 'embedded', published: { href: '/bank/business/cards#card-api' } },
   { id: 'apps', audience: 'broker', published: { href: '/developers/apps' } },
   { id: 'quickstart', audience: 'practice', page: true },
   { id: 'sdks', audience: 'practice', waitsFor: 'DV-tools-01' },
   { id: 'cli', audience: 'practice', waitsFor: 'DV-tools-02' },
   { id: 'mcp', audience: 'practice', waitsFor: 'DV-tools-02' },
+  { id: 'quant', audience: 'practice', page: true },
   { id: 'explorer', audience: 'practice', page: true },
   { id: 'openapi', audience: 'practice', page: true },
   { id: 'support', audience: 'practice', waitsFor: 'DV-portal-03' },

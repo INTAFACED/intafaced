@@ -138,12 +138,16 @@ function StartForm(props: {
   const [delay, setDelay] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
+  const [cashRefusal, setCashRefusal] = useState<string | null>(null);
+  const [feedRefused, setFeedRefused] = useState(false);
   // The run count each version had when this dialog opened: the start's key, kept until it is confirmed or cancelled.
   const [ordinals] = useState(() => new Map(props.counts.map((row) => [row.strategyVersion, row.runs])));
   async function start() {
     if (busy) return;
     setBusy(true);
     setFailure(null);
+    setCashRefusal(null);
+    setFeedRefused(false);
     const chosen = Number(version);
     const res = await api.mutate(
       'quant',
@@ -160,8 +164,12 @@ function StartForm(props: {
       quantPaperRunSchema,
     );
     setBusy(false);
-    if (res.ok) props.onStarted(res.data);
-    else setFailure(res);
+    if (res.ok) return props.onStarted(res.data);
+    // `quant.paper_cash_unset — cash — …` names the cash; `feed.market — …` is the outside feed, switched off here.
+    const named = /^quant\.paper_cash_unset — cash — (.*)$/.exec(res.message.trim());
+    if (named) return setCashRefusal(named[1]!);
+    if (res.message.trim().startsWith('feed.market')) return setFeedRefused(true);
+    setFailure(res);
   }
   const outside = feed !== 'own_venue';
   return (
@@ -181,7 +189,18 @@ function StartForm(props: {
           .sort((a, b) => b.version - a.version)
           .map((row) => ({ value: String(row.version), label: t('versionOf', { version: row.version }) }))}
       />
-      <Field label={t('cash')} value={cash} onChange={(event) => setCash(event.currentTarget.value)} inputMode="decimal" />
+      <Field
+        label={t('cash')}
+        value={cash}
+        onChange={(event) => setCash(event.currentTarget.value)}
+        inputMode="decimal"
+        error={cashRefusal ? t('cashRefused', { detail: cashRefusal }) : undefined}
+      />
+      {cashRefusal && (
+        <p role="alert" data-testid="quant-paper-refusal" data-input="cash" data-code="quant.paper_cash_unset">
+          {t('cashRefused', { detail: cashRefusal })}
+        </p>
+      )}
       <p data-testid="quant-paper-holdings">
         <strong>{t('holdings')}:</strong> {t('holdingsNone')}
       </p>
@@ -217,6 +236,11 @@ function StartForm(props: {
         {t('cancel')}
       </Button>
       {busy && <Loading label={t('starting')} />}
+      {feedRefused && (
+        <p role="alert" data-testid="quant-paper-refusal" data-input="feed" data-code="feed.market">
+          {t('feedRefused')}
+        </p>
+      )}
       {failure && <QuotaAwareFailure result={failure} retry={() => void start()} />}
     </form>
   );
@@ -232,7 +256,14 @@ function PaperRunView({ runId }: { runId: string }) {
   return (
     <Read resource={run.resource} retry={run.reload}>
       {(data) => (
-        <div data-testid="quant-paper-view" data-run-id={data.runId} data-state={data.state} data-priced={String(data.priced)}>
+        <div
+          data-testid="quant-paper-view"
+          data-label={data.claimLabel}
+          data-live={String(data.live)}
+          data-run-id={data.runId}
+          data-state={data.state}
+          data-priced={String(data.priced)}
+        >
           <p>
             <strong>{data.claimLabel}</strong>
           </p>
@@ -253,7 +284,15 @@ function PaperRunView({ runId }: { runId: string }) {
           ) : (
             <DataTable label={t('fills')} headers={[t('at'), t('side'), t('qty'), t('price'), t('fee')]}>
               {data.trades.map((trade, index) => (
-                <tr key={`${trade.ts}:${index}`} data-testid="quant-paper-fill">
+                <tr
+                  key={`${trade.ts}:${index}`}
+                  data-testid="quant-paper-fill"
+                  data-ts={trade.ts}
+                  data-side={trade.side}
+                  data-qty={trade.qty}
+                  data-price={trade.price}
+                  data-bar-price={trade.barPrice}
+                >
                   <td lang="zxx">{utcText(trade.ts)}</td>
                   <td>{trade.side === 'buy' ? t('buy') : t('sell')}</td>
                   <td lang="zxx">{trade.qty}</td>

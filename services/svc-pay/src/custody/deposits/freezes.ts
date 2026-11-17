@@ -1,6 +1,13 @@
+import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { router, TRPCError } from '@intafaced/contracts';
+import {
+  depositFreezeResultSchema,
+  depositFreezeViewSchema,
+  depositUnfreezeResultSchema,
+  type DepositFreezeView,
+} from '@intafaced/contracts/pay-deposit-freezes';
 import {
   consumePayApproval,
   payActionPayloadHash,
@@ -70,22 +77,8 @@ export const depositUnfreezeInputSchema = z
   .strict();
 export type DepositUnfreezeInput = z.infer<typeof depositUnfreezeInputSchema>;
 
-export const depositFreezeViewSchema = z
-  .object({
-    id: z.string(),
-    userId: z.string(),
-    networkId: z.string(),
-    address: z.string(),
-    reason: z.string(),
-    frozenBy: z.string(),
-    frozenAt: z.string(),
-    unfrozenBy: z.string().nullable(),
-    unfreezeApprover: z.string().nullable(),
-    unfreezeReason: z.string().nullable(),
-    unfrozenAt: z.string().nullable(),
-  })
-  .strict();
-export type DepositFreezeView = z.infer<typeof depositFreezeViewSchema>;
+// The output shapes live in contracts, so the admin console reads what this declares (one file, no copy).
+export { depositFreezeViewSchema, depositFreezeResultSchema, depositUnfreezeResultSchema, type DepositFreezeView };
 
 export const depositAddressStateSchema = z
   .object({
@@ -108,12 +101,6 @@ export const depositAddressStateSchema = z
   })
   .strict();
 
-export const depositFreezeResultSchema = z
-  .object({ freeze: depositFreezeViewSchema, held: z.number().int(), creditedUntouched: z.number().int() })
-  .strict();
-export const depositUnfreezeResultSchema = z
-  .object({ freeze: depositFreezeViewSchema, released: z.number().int(), credited: z.number().int() })
-  .strict();
 export const depositUnfreezePreviewSchema = z.object({ actionType: z.string(), payloadHash: z.string() }).strict();
 
 interface FreezeRow {
@@ -159,7 +146,11 @@ export function unfreezeApprovalFields(input: Pick<DepositUnfreezeInput, 'userId
 export interface DepositFreezeBook {
   holdAddress(networkId: string, address: string): Promise<number>;
   /** Runs `lift` and puts the address's held deposits back to be judged in one transaction, then credits each that is due. */
-  release<T>(networkId: string, address: string, lift: (tx: Sql) => Promise<T>): Promise<{ lifted: T; released: number; credited: number }>;
+  release<T>(
+    networkId: string,
+    address: string,
+    lift: (tx: Queryable) => Promise<T>,
+  ): Promise<{ lifted: T; released: number; credited: number }>;
 }
 
 export interface DepositFreezesMountDeps {

@@ -7,6 +7,7 @@
 import type { ChartInterval } from '../../trade/chart/candles';
 import { isChartInterval } from '../workbench';
 import { PALETTE, STUDIES, studyDef, type PaletteToken, type StudyKind } from './catalogue';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export interface StudyInstance {
   id: string;
@@ -163,7 +164,6 @@ export function updateStudy(
   return { ...store, studies: store.studies.map((s) => (s.id === id ? { ...s, ...patch } : s)) };
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const kinds = new Set<string>(STUDIES.map((s) => s.kind));
 const isInputs = (value: unknown): value is Record<string, string> =>
   isRecord(value) && Object.values(value).every((v) => typeof v === 'string' && v.length <= 16);

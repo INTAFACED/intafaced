@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   identityOperationDecisionInputSchema,
   identityOperationDecisionSchema,
@@ -20,7 +20,7 @@ type CredentialCheck = { subject: CurrentAuthorityInput | null; expiresAt: Date 
 export class OperationIdentityDecisions {
   constructor(private readonly sql: Sql) {}
 
-  private async credential(tx: Sql, intent: IdentityOperationIntent): Promise<CredentialCheck> {
+  private async credential(tx: Queryable, intent: IdentityOperationIntent): Promise<CredentialCheck> {
     let subject: CurrentAuthorityInput | null = null;
     if (intent.authority.kind === 'credential' || intent.authority.kind === 'payfac_credential') subject = intent.authority.subject;
     else if (intent.authority.kind === 'delegation') {
@@ -101,10 +101,14 @@ export class OperationIdentityDecisions {
           let refusal: Refusal | 'admission.cancelled' | null = input.mode === 'resolve_or_cancel' ? 'admission.cancelled' : null;
           let identityVersion = '0';
           let credentialExpiry: Date | null = null;
+          // A staff close with a grace date (J-identity-14 #1): the account may still withdraw, but trades no more.
+          let closing = false;
           if (refusal === null) {
-            const [user] = await tx<Array<{ status: string; version: string }>>`
-            SELECT status, identity_control_version::text AS version FROM users WHERE id = ${intent.operation.userId} FOR SHARE
+            const [user] = await tx<Array<{ status: string; version: string; closing: boolean }>>`
+            SELECT status, identity_control_version::text AS version, close_grace_until IS NOT NULL AS closing
+            FROM users WHERE id = ${intent.operation.userId} FOR SHARE
           `;
+            closing = user?.closing === true;
             if (!user || user.status !== 'active') refusal = 'auth.account_frozen';
             else {
               identityVersion = user.version;
@@ -125,7 +129,7 @@ export class OperationIdentityDecisions {
             const [trading] = await tx<Array<{ restricted: boolean }>>`
             SELECT restricted FROM trading_restrictions WHERE user_id = ${intent.operation.userId} FOR SHARE
           `;
-            if (trading?.restricted) refusal = 'trade.account_restricted';
+            if (trading?.restricted || closing) refusal = 'trade.account_restricted';
           }
           const decision: IdentityOperationDecision =
             refusal !== null

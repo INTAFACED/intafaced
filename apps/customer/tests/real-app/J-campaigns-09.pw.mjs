@@ -6,6 +6,7 @@ import { test, expect } from './journey.mjs';
 import { ROOT, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -149,9 +150,7 @@ const desk = async (page) => {
     await page.goto(DESK);
     await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
     const address = page.getByTestId('venue-wallet-address');
-    const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-    await expect(connect.or(address)).toBeVisible();
-    if (await connect.isVisible()) await connect.click();
+    await connectWhenAsked(page, address);
     await expect(address).toHaveText(wallet.address);
   }
   return { ...s, wallet, owner: wallet.address };
@@ -193,7 +192,7 @@ async function venuePreviewAt(owner, { type, price, amount }, clientOrderKey, fe
         timeInForce: type === 'limit' ? 'GTC' : 'IOC',
         reduceOnly: false,
         clientOrderKey,
-        builderFee: { builder: '0x7e57000000000000000000000000000000000b1d', feeBps },
+        builderFee: { builder: '0x116d8f7751e72306d499dd61ae826e46a726c632', feeBps },
       },
     })
   ).value;

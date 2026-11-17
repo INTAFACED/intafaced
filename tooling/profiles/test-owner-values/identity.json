@@ -116,6 +116,11 @@
       "value": "1800",
       "note": "A recovery link a Support case mails works for thirty minutes, so the journey can send it, use it once and see a second use refused (J-identity-05 #5)."
     },
+    "IDENTITY_EXTRA_CONTROLS_MIN": {
+      "service": "identity",
+      "value": "2",
+      "note": "A person who sets step-up extras chooses at least two checks, so the bank room can show one check refused and two saved (J-bank-18 #4). `LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN=off` on a restart leaves it blank, as production is until the owner sets it."
+    },
     "IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS": {
       "service": "identity",
       "value": "86400",
@@ -360,6 +365,11 @@
       "service": "identity",
       "value": "2",
       "note": "TEST: the partner programme reaches two levels of a sub-tree, so a third-level invitee is counted and not shown (J-campaigns-07 #4)."
+    },
+    "IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS": {
+      "service": "identity",
+      "value": "300",
+      "note": "TEST: a rotated key may keep working beside its replacement for up to five minutes, so J-developer-07 can rotate with a 60-second overlap. `LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX=off` on a restart leaves it blank, so an overlap above 0 is refused (J-developer-07 #1)."
     }
   }
 }

@@ -26,9 +26,13 @@ export const TEST_KYB_ENTITY_TYPES = Object.freeze([
   }),
 ]);
 
-/** The largest file and the kinds of file the stack accepts: 1 MB, PDF or PNG. */
+/**
+ * The largest file and the kinds of file the stack accepts: 700 KiB, PDF or PNG. 700 KiB is the most svc-pay lets a
+ * rule publish (`kyb_upload_rules_max_bytes_fits_transport`): a file travels as base64 in one request, and the 1 MiB
+ * body limits in front of the service refuse anything larger before the rule is read.
+ */
 export const TEST_KYB_UPLOAD_RULES = Object.freeze({
-  maxBytes: 1024 * 1024,
+  maxBytes: 700 * 1024,
   contentTypes: Object.freeze(['application/pdf', 'image/png']),
 });
 

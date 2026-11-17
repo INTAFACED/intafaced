@@ -20,6 +20,7 @@ import { createLedgerClient } from '../ledger-client.js';
 import { MARKET_OPS_SCOPE, VendorService } from '../vendor-service.js';
 import type { SlotEntitlementSource, VendorEntitlement } from '../stake-source.js';
 import { CommerceService } from './commerce-service.js';
+import { sleep as delay } from '@intafaced/contracts/sleep';
 
 /**
  * market.commerce Stage C3 — listing subscriptions.
@@ -57,14 +58,10 @@ function isExcludedAccessMax(text: string): boolean {
   return /max\s*\(\s*access_until\s*\)/i.test(text) && /<>/.test(text);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /** Forward postgres.js, and hold the connection across a pause after the excluded max read. */
 function pauseAfterExcludedAccessMax(inner: Sql, afterRead: () => Promise<void>): Sql {
   const wrap = (source: Sql): Sql => {
-    const proxy = new Proxy(source as unknown as object, {
+    const proxy = new Proxy(source as object, {
       apply(target, _thisArg, argList: unknown[]) {
         const strings = argList[0] as TemplateStringsArray | undefined;
         const text = strings && Array.isArray(strings) ? strings.join('') : '';

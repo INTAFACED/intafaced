@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseExtraControlsMin } from './account/safety.js';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
@@ -280,6 +281,13 @@ const schema = serviceEnvSchema
        * oldest (I-signin-sessions-06). NO DEFAULT. Blank: no limit, and Security says so. Parsed by `parseSessionLimits`.
        */
       SESSION_MAX_CONCURRENT: z.string().optional(),
+      /**
+       * Owner setting: the longest a rotated key keeps working beside its replacement, in whole seconds (DV-keys-04,
+       * J-developer-07 #1). NO DEFAULT. Blank: a rotation with an overlap above 0 refuses
+       * `identity.key_rotate_overlap_unset`; an overlap of 0 still rotates. Parsed at start; anything but a whole number
+       * above 0 stops the service.
+       */
+      IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS: z.string().optional(),
       /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
@@ -670,6 +678,22 @@ const schema = serviceEnvSchema
             return z.NEVER;
           }
           return n;
+        }),
+      /**
+       * BK-safe-01 (J-bank-18 #4). The owner's least number of step-up extras a person must choose. NO DEFAULT: blank /
+       * unset → setting extras refuses (`identity.extra_controls_unset`); reading and removing them still work. A whole
+       * number 1 to 4, or the service stops.
+       */
+      IDENTITY_EXTRA_CONTROLS_MIN: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseExtraControlsMin(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
         }),
       /**
        * W-withdraw-09. Owner-set wait, in seconds, from an unlock request to when the customer security lock ends. NO

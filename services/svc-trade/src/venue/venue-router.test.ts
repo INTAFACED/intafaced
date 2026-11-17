@@ -17,7 +17,7 @@ import { HOUSE_EXPOSURE_ROUTED, routingReport, routingReportWire } from './routi
 // J-derivatives-28 #1 to #5 against two TEST venue simulators over loopback HTTP: A with a thin TEST ladder (1 BTC a
 // level, as the stack's first venue) and B with a deep one (5 BTC a level). Every figure is TEST.
 
-const USER = { userId: '11111111-1111-4111-8111-1111111128a1', sid: 's-28', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+const USER = { userId: '11111111-1111-4111-8111-1111111128a1', sid: 's-28', scopes: ['trade:read', 'trade:write'] } as Principal;
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue router')));
 const owner = key.address.toLowerCase();
 const BUILDER = { address: '0x00000000000000000000000000000000000b0028', feeBps: parseAmount('2') };
@@ -73,6 +73,8 @@ function router() {
         builder: BUILDER,
         // A labelled TEST bound, the widest; the bound is proven in user-venue-protection.test.ts.
         slippageCapBps: TEST_SLIPPAGE_CAP_BPS,
+        // A labelled TEST spread limit, wide of the TEST books here.
+        spreadLimitBps: 5000,
         now: () => new Date(),
         listings,
       }),

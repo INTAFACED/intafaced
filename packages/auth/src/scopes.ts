@@ -110,6 +110,11 @@ export const SCOPES = [
   // Protocol plane (read-only by definition: keys are the user's, not ours)
   'protocol:read',
 
+  // Algo dev's strategy API (J-algo-dev-14): read your projects, backtests and reports; start a backtest. Neither moves
+  // money: svc-quant holds no ledger grant, and stopping a live strategy is `trade:write` on the trade door.
+  'quant:read',
+  'quant:run',
+
   // Operator
   'admin:read',
   'admin:write',
@@ -385,6 +390,11 @@ const SESSION_SCOPE_LIST = [
   // Non-custodial and `minTier: 'none'`, so §22 says permissionless — and a
   // scope issued to nobody left the smart-account claim flow unreachable.
   'protocol:read',
+  // Algo dev (svc-quant), non-custodial and `minTier: 'none'`. A session reaches it as before; the two scopes exist so a
+  // person can copy them onto an API key for the strategy API (J-algo-dev-14). `:run` starts a backtest, which posts
+  // nothing and moves no value; it never implies `:read`.
+  'quant:read',
+  'quant:run',
   // `satisfies`, not a plain `as const`. The comment on WITHHELD_SCOPE_REASONS
   // credits the compiler with enforcing that every scope is either issued to a
   // session or withheld with a written reason — but nothing constrained the

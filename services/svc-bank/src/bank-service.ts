@@ -1,4 +1,5 @@
-import { testPartnerCustody, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
+import { parseBankAccountTerms, type BankAccountTerms } from './onboarding/bank-account-terms.js';
+import { testPartnerCustody, testPartnerDirectDebits, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
 import type { PartnerPurchaseCustody } from './partner/partner-purchases.js';
 import {
   bankCustodyLayer,
@@ -7,14 +8,14 @@ import {
   type PartnerCustody,
   type PostingFreeze,
 } from './partner/partner-bank.js';
-import { moneyHeldBy } from './partner/test-partner.js';
+import { assertPartnerOffers, moneyHeldBy } from './partner/test-partner.js';
 import { freezeGuardedCardHolds, testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
 import { AssetPauseService } from './ops/asset-pause.js';
 import { PartnerStopService, stopGuardedCardHolds, stopGuardedCustody, TEST_PARTNER_ID } from './partner/partner-stops.js';
 import { PartnerRefusalCounts } from './partner/partner-refusals.js';
 import type { Sql } from 'postgres';
-import type { CustodyLayerState, LedgerClient } from '@intafaced/ledger-client';
+import { parseAmount, type CustodyLayerState, type LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
 import { EarnService } from './earn/earn-service.js';
@@ -26,7 +27,7 @@ import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { CardDisputeService, type DisputeCap } from './cards/card-disputes.js';
-import { noCardIssuer } from './cards/issuer.js';
+import { noCardIssuer, type CardIssuerAdapter } from './cards/issuer.js';
 import { CardOrderService } from './cards/card-orders.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
@@ -51,7 +52,9 @@ import { SharedPotService } from './spaces/shared-pots.js';
 import { RecoveryClaimService } from './recovery/recovery-claims.js';
 import { unconfiguredIdentityRecovery, type IdentityRecoveryPort } from './recovery/identity-recovery.js';
 import { BillsPotService } from './spaces/bills-pot.js';
-import { BusinessService } from './business/business-service.js';
+import { composeCardProgrammeServices, type CardProgrammeServiceOptions, type CardProgrammeServices } from './cards/programme/compose.js';
+import { composeBusinessServices, type BusinessServiceOptions, type BusinessServices } from './business/compose.js';
+import { composeDeveloperApiServices, type DeveloperApiServiceOptions, type DeveloperApiServices } from './developer-api/compose.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
@@ -79,6 +82,9 @@ import { ScheduledNoticeService, type ScheduledNoticeSink } from './rules/schedu
 import { unsetDirectDebitScheme, type DirectDebitScheme } from './direct-debits/scheme.js';
 import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
+import { composeSalaryServices, type SalaryServiceOptions, type SalaryServices } from './salary/compose.js';
+import { payInCredited } from './pay-yourself/test-pay-in.js';
+import { composePayYourselfServices, type PayYourselfServiceOptions, type PayYourselfServices } from './pay-yourself/compose.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
@@ -92,10 +98,14 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  *
  * The composition root is one function so the wiring is visible in one place —
  * including that `SpendAnalytics` gets a READ port over the ledger and no
- * writer at all.
+ * writer at all. An area with services of its own composes them in its own
+ * `compose.ts` (the business bank: `business/compose.ts`), and this function
+ * spreads it; `bank-service.compose.test.ts` holds the line.
  */
 
-export interface BankServices {
+export interface BankServices extends AreaServices {
+  /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
+  readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
@@ -168,7 +178,6 @@ export interface BankServices {
   /** W-balances-05: svc-ledger's supported asset and network list, every state, as customers read it. */
   readonly supportedAssets: { list(): Promise<SupportedAssetView[]> };
   readonly autoInvest: AutoInvestService;
-  readonly business: BusinessService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
@@ -190,7 +199,19 @@ export interface BankServices {
   };
 }
 
-export interface BankServiceOptions {
+/** Each area's own options, composed in its own `compose.ts`. */
+/** Each area's services, made in its own `compose.ts` and spread by `createBankServices`. */
+interface AreaServices extends BusinessServices, DeveloperApiServices, CardProgrammeServices, SalaryServices, PayYourselfServices {}
+
+interface AreaServiceOptions
+  extends
+    BusinessServiceOptions,
+    DeveloperApiServiceOptions,
+    CardProgrammeServiceOptions,
+    SalaryServiceOptions,
+    PayYourselfServiceOptions {}
+
+export interface BankServiceOptions extends AreaServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
   /** `BANK_REQUEST_REMIND_POLICY_JSON`, parsed: the owner's reminder cap per window. Null refuses every reminder. */
@@ -285,6 +306,10 @@ export interface BankServiceOptions {
   earnRiskWording?: string | undefined;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
   blockedRegionNotice?: string | undefined;
+  /** `BANK_ONBOARDING_REQUIREMENTS_JSON`, `BANK_INFO_REQUEST_UPLOAD_JSON`, `BANK_REOPEN_WINDOW_DAYS` (J-bank-17). No defaults. */
+  onboardingRequirements?: string | undefined;
+  infoRequestUpload?: string | undefined;
+  reopenWindowDays?: string | undefined;
   /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
   accountCurrencies?: string | undefined;
   /** Owner-published number of live named spaces per account (`BANK_SPACE_LIMIT`). No default: blank refuses a create. */
@@ -422,6 +447,7 @@ export function createBankServices(
     securityLock: options.ramps?.securityLock,
     reviewRule: options.sendReviewRule ?? null,
     remindPolicy: options.remindPolicy ?? null,
+    custody,
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.
@@ -434,13 +460,13 @@ export function createBankServices(
   const analytics = new SpendAnalytics(spaces, history, custody);
   const budgets = new BudgetService(sql, analytics);
   const portfolio = new PortfolioService(ledger, spaces, {
-    ...(options.portfolio ?? {}),
+    ...options.portfolio,
     transferFees: { feesFor: (userId, txIds) => personalPay.feesFor(userId, txIds) },
     assets: options.portfolio?.assets ?? options.assetRegistry ?? null,
   });
   const activityRecords = new ActivityRecordService(sql);
   const activity = new ActivityService(spaces, {
-    ...(options.activity ?? {}),
+    ...options.activity,
     custody,
     records: activityRecords,
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
@@ -450,7 +476,6 @@ export function createBankServices(
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
   const accountTerms = () => parseAccountTerms(options.accountTerms);
-  const currencies = new CurrencyService(sql, ledger, spaces, { currencies: options.accountCurrencies });
   const profiles = new ProfileService(sql);
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
@@ -479,6 +504,9 @@ export function createBankServices(
       ? testPartnerCardHolds({
           terms: () => (cardIssuer.partnerTerms ? cardIssuer.partnerTerms() : NOTHING_REPORTED),
           switches: (userId) => options.testPartner!.switches(userId),
+          // Its provisional dispute credits count in the same spendable figure (the issuer keeps them),
+          // and the TEST partner's credited pay-ins (J-bank-31 #4: what the person paid themselves shows on the card).
+          credited: (userId, assetId) => testCardCredited(cardIssuer, userId, assetId) + payInCredited(options.payInRail, userId, assetId),
         })
       : null);
   const partnerHolds = unguardedHolds
@@ -490,9 +518,13 @@ export function createBankServices(
       )
     : null;
   const cards = new CardService(sql, ledger, {
-    ...(options.cards ?? {}),
+    ...options.cards,
     heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
     partnerHolds,
+    // The TEST partner's own "not offered" switch for phone wallets (J-bank-13 #8); no partner, the issuer alone decides.
+    assertWalletOffered:
+      options.cards?.assertWalletOffered ??
+      (options.testPartner ? (userId: string) => assertPartnerOffers(options.testPartner, userId, 'phone_wallet') : null),
     onCaptureSettled: options.cards?.onCaptureSettled ?? ((event) => autoInvest.applyRoundUp(event)),
     // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
     onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
@@ -519,6 +551,12 @@ export function createBankServices(
   // dev or test stack with the TEST stand-in chosen.
   // A person the TEST partner holds money for has their paid purchase credited by the partner itself, not the ledger.
   const partnerPurchases = testPartnerPurchases(options.testPartner);
+  // Removing a currency reads what the partner still holds in it: its card holds, its purchase holds and its open orders.
+  const currencies = new CurrencyService(sql, ledger, spaces, {
+    currencies: options.accountCurrencies,
+    cardHolds: partnerHolds,
+    purchases: partnerPurchases,
+  });
   const addMoney = new AddMoneyService(sql, ramps, { ledger, partner: options.onrampPartner ?? null, purchases: partnerPurchases });
   // The same owner values as the crypto address book: its cap, and the payout cooling-off window.
   const linkedAccounts = new LinkedAccountService(sql, {
@@ -543,15 +581,6 @@ export function createBankServices(
   const railPayees = new PayeeService(sql, () =>
     options.payeeCoolingHours !== undefined ? options.payeeCoolingHours : process.env[BANK_PAYEE_COOLING_HOURS_ENV],
   );
-  const business = new BusinessService(
-    sql,
-    ledger,
-    spaces,
-    transfers,
-    options.directory ?? unconfiguredBusinessDirectory(),
-    directoryLookups,
-  );
-
   const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
   const globalSend = new GlobalSendService(
     sql,
@@ -568,11 +597,18 @@ export function createBankServices(
     options.holdCancelHours !== undefined ? options.holdCancelHours : process.env[BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV],
   );
   globalSend.screenWith((sendId) => globalHolds.screen(sendId));
-  const directDebits = new DirectDebitService(sql, ledger, spaces, options.directDebitScheme ?? unsetDirectDebitScheme);
+  const directDebits = new DirectDebitService(
+    sql,
+    ledger,
+    spaces,
+    options.directDebitScheme ?? unsetDirectDebitScheme,
+    testPartnerDirectDebits(options.testPartner),
+  );
 
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
   return {
+    bankAccountTerms: parseBankAccountTerms(options),
     blockedRegionNotice: options.blockedRegionNotice,
     testPartner: options.testPartner ?? null,
     taxEffects: options.taxEffects ?? null,
@@ -580,6 +616,7 @@ export function createBankServices(
     sorter,
     billsPots,
     sharedPots,
+    ...composeDeveloperApiServices({ sql, spaces, sharedPots, custody, testPartner: options.testPartner ?? null }, options),
     recovery,
     transfers,
     personalPay,
@@ -595,6 +632,8 @@ export function createBankServices(
     statements,
     statementJobs,
     accountDetails,
+    ...composeSalaryServices({ sql, accountDetails, sorter }, options),
+    ...composePayYourselfServices({ sql, testPartner: options.testPartner ?? null }, options),
     accountTerms,
     accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
     dormancy: new DormancyService(sql, custody, parseDormancyRules(options.dormancyRules)),
@@ -608,6 +647,16 @@ export function createBankServices(
     cards,
     cardOrders,
     cardDisputes,
+    ...composeCardProgrammeServices(
+      {
+        sql,
+        cards,
+        directory: options.directory ?? unconfiguredBusinessDirectory(),
+        identity: options.recipients,
+        exportSecret: options.receiptSecret,
+      },
+      options,
+    ),
     ramps,
     addMoney,
     linkedAccounts,
@@ -627,7 +676,21 @@ export function createBankServices(
     deposits,
     supportedAssets,
     autoInvest,
-    business,
+    ...composeBusinessServices(
+      {
+        sql,
+        ledger,
+        spaces,
+        transfers,
+        custody,
+        postingFreeze,
+        noteRefusal: partnerRefusals.note,
+        directory: options.directory ?? unconfiguredBusinessDirectory(),
+        directoryLookups,
+        testPartner: options.testPartner != null,
+      },
+      options,
+    ),
     bills,
     globalSend,
     globalHolds,
@@ -672,8 +735,8 @@ export {
   RampService,
   DepositService,
   AutoInvestService,
-  BusinessService,
 };
+export { BusinessService } from './business/business-service.js';
 export { BankError, type BankErrorCode } from './errors.js';
 export {
   createIdentityRecipientState,
@@ -754,3 +817,10 @@ export { rampProgrammeFor, BANK_CRYPTO_LEDGER_RAIL, RAMP_SETTINGS, type RampProg
 export { type OnrampRecord, type OfframpRecord, type RampKind, type RampServiceOptions } from './ramps/ramp-service.js';
 export { categorise, SPEND_CATEGORIES, type SpendCategory, type SpendSummary } from './analytics/spend.js';
 export { memoryLedgerHistory, type LedgerHistory, type LedgerEntryRecord } from './analytics/ledger-history.js';
+
+/** The TEST card partner's provisional credits to one cardholder in one asset, not reversed, as its own book holds them. */
+function testCardCredited(issuer: CardIssuerAdapter, userId: string, assetId: string): bigint {
+  const book = issuer.testRecord?.(userId);
+  if (!book) return 0n;
+  return book.credits.filter((c) => c.assetId === assetId && !c.reversed).reduce((sum, c) => sum + parseAmount(c.amount), 0n);
+}

@@ -211,6 +211,10 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
           IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
         }),
     IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: testValue('IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS'),
+    // The owner's least number of step-up extras (J-bank-18 #4): a TEST value. `LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN=off`
+    // on a restart leaves it blank, as production is, so setting extras refuses identity.extra_controls_unset.
+    IDENTITY_EXTRA_CONTROLS_MIN:
+      process.env.LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN === 'off' ? '' : testValue('IDENTITY_EXTRA_CONTROLS_MIN'),
     // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
     // for, so a journey can see the lock still holding with its end time.
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
@@ -286,6 +290,12 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     // Blank refuses every key call at the edge (edge.limits_unset) and every limit request (identity.rate_limits_unset);
     // `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a start or restart leaves it blank so those can be seen.
     ...(process.env.LOCAL_STACK_IDENTITY_RATE_LIMITS === 'off' ? {} : { IDENTITY_API_RATE_LIMITS: testValue('IDENTITY_API_RATE_LIMITS') }),
+    // LOCAL TEST longest rotation overlap (J-developer-07 #1), labelled in the same profile, never an owner decision. Blank
+    // refuses a rotation with an overlap above 0; `LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX=off` on a restart leaves it
+    // blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX === 'off'
+      ? {}
+      : { IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS: testValue('IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS') }),
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),

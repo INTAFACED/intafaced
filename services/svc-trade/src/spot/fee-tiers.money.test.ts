@@ -90,7 +90,7 @@ describe('svc-trade fee tiers money', () => {
   /** Carol's sub-account belongs to Alice. */
   const SUB = '44444444-4444-4444-8444-444444444444';
   const subAccounts = {
-    get: async (id: string) => (id === SUB ? ({ id: SUB, parentUserId: ALICE, revoked: false } as unknown as SubAccountOwnership) : null),
+    get: async (id: string) => (id === SUB ? ({ id: SUB, parentUserId: ALICE, revoked: false } as SubAccountOwnership) : null),
   };
   /** The test authority, which also knows Alice's TEST follow as an admitted copy relationship. */
   const FOLLOW = '55555555-5555-4555-8555-555555555555';

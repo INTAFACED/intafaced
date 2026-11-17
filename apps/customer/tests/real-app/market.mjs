@@ -11,7 +11,7 @@ import { stackFile } from './stack.mjs';
  * - `cycle`: its newest whole cycle (local-test-market.mjs `writeCycleRecord`): per market, held, or how many quotes
  *   rest and the TEST price shift they were quoted at.
  */
-export const MARKET_FILES = {
+const MARKET_FILES = {
   pid: stackFile('run/market.json'),
   accounts: stackFile('market-accounts.json'),
   cycle: stackFile('run/market-cycle.json'),
@@ -26,10 +26,10 @@ const readJson = (file) => {
 };
 
 /** The maker's newest whole cycle, or null when it has written none. */
-export const readCycle = () => readJson(MARKET_FILES.cycle);
+const readCycle = () => readJson(MARKET_FILES.cycle);
 
 /** The pid in the maker's process record, or null when it has none. */
-export function makerPid() {
+function makerPid() {
   const rec = readJson(MARKET_FILES.pid);
   return Number.isInteger(rec?.pid) ? rec.pid : null;
 }
