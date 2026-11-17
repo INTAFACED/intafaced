@@ -10,6 +10,7 @@ describe('svc-tax compose mount', () => {
   it('fleet block exists on 4020 with refuse-closed owner map', () => {
     const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
     const block = composeServiceBlock(compose, 'svc-tax');
+    expect(block.startsWith('  svc-tax:\n'), 'svc-tax service block missing from docker-compose.apps.yml').toBe(true);
     expect(block).toContain("HTTP_PORT: '4020'");
     expect(block).toContain('LEDGER_URL: http://svc-ledger:4001');
     expect(block).toContain('BANK_URL: http://svc-bank:4009');
