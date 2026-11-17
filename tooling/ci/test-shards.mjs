@@ -12,12 +12,10 @@
  *   node tooling/ci/test-shards.mjs --shard 2/16          the turbo filters for shard 2 of 16, one per line
  *   node tooling/ci/test-shards.mjs --vitest-shard 2/16   the piece (`k/m`) shard 2 runs of its one package, or nothing
  *   node tooling/ci/test-shards.mjs --plan 16             every shard with its weight (for reading, not for CI)
- *   node tooling/ci/test-shards.mjs --self-test
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SHARD_COUNT } from './ci-affected.mjs';
 
 const GROUPS = ['apps', 'services', 'packages', 'tooling'];
 
@@ -27,7 +25,7 @@ const GROUPS = ['apps', 'services', 'packages', 'tooling'];
  * 42166557829 and 42167647396: vitest's own Duration for svc-pay 737 s, svc-identity 652 s, svc-p2p 487 s, svc-trade
  * 447 s, svc-bank 337 s; the next, customer, 242 s. Shard 3 of 8 (svc-pay) took 12.6 to 13.0 minutes of tests and
  * shard 4 of 8 (svc-identity, svc-p2p) 7.5 to 11.0, against 1.8 to 7.5 for the rest.) Each piece aims at about 250 s,
- * the slowest whole package's time. A package listed here that no longer has a test script fails the self-test.
+ * the slowest whole package's time. A package listed here that no longer has a test script fails test-shards.test.mjs.
  */
 export const SPLIT = {
   '@intafaced/svc-pay': 3,
@@ -131,85 +129,9 @@ export function coverage(list, packages) {
   return problems;
 }
 
-function selfTest() {
-  const assert = (cond, msg) => {
-    if (!cond) throw new Error(msg);
-  };
-  const pk = [
-    { name: 'a', weight: 50 },
-    { name: 'b', weight: 30 },
-    { name: 'c', weight: 30 },
-    { name: 'd', weight: 10 },
-    { name: 'e', weight: 5 },
-  ];
-  const shards = plan(pk, 3);
-  const all = shards.flatMap((s) => s.names).sort();
-  assert(JSON.stringify(all) === '["a","b","c","d","e"]', 'every package is in exactly one shard');
-  assert(JSON.stringify(plan(pk, 3)) === JSON.stringify(shards), 'the plan is deterministic');
-  assert(Math.max(...shards.map((s) => s.weight)) <= 50, 'no shard is heavier than the heaviest package here');
-  assert(plan(pk, 8).flatMap((s) => s.names).length === 5, 'more shards than packages still covers each once');
-  assert(
-    plan([], 4).every((s) => s.names.length === 0),
-    'an empty set gives empty shards',
-  );
-  // Split packages: pieces after the whole packages, each piece alone in its shard.
-  const sp = shardList(pk, 4, { a: 2 });
-  assert(
-    JSON.stringify(sp.map((s) => [s.names, s.piece])) ===
-      JSON.stringify([
-        [['b', 'd'], null],
-        [['c', 'e'], null],
-        [['a'], '1/2'],
-        [['a'], '2/2'],
-      ]),
-    'a split package runs as its pieces, after the whole packages',
-  );
-  assert(coverage(sp, pk).length === 0, 'the split covers every package once');
-  let threw = false;
-  try {
-    shardList(pk, 2, { a: 2 });
-  } catch {
-    threw = true;
-  }
-  assert(threw, 'too few shards for the pieces is refused, not an empty filter list');
-  // Planted faults: the coverage check must name each one.
-  const names = (list) => list.map((s) => ({ ...s, names: [...s.names] }));
-  const has = (list, text) => coverage(list, pk).some((p) => p.includes(text));
-  const dropped = names(sp);
-  dropped[0].names = ['b'];
-  assert(has(dropped, 'd is in no shard'), 'a dropped package fails');
-  const twice = names(sp);
-  twice[1].names.push('b');
-  assert(has(twice, 'b runs more than once'), 'a package in two shards fails');
-  const lostPiece = names(sp).slice(0, 3);
-  assert(has(lostPiece, 'a runs pieces 1/2, not 1/2, 2/2'), 'a lost piece fails');
-  const wholeAndPiece = names(sp);
-  wholeAndPiece[0].names.push('a');
-  assert(has(wholeAndPiece, 'a runs more than once'), 'a split package also run whole fails');
-  const empty = [...names(sp), { names: [], piece: null }];
-  assert(has(empty, 'has no package'), 'an empty shard fails');
-  // The real workspace: shards are disjoint and together equal the set `pnpm test` runs.
-  const real = testPackages();
-  assert(real.length > 0, 'the workspace has test packages');
-  for (const name of Object.keys(SPLIT))
-    assert(
-      real.some((p) => p.name === name),
-      `${name} is in SPLIT but has no test script; take it out of SPLIT`,
-    );
-  const realShards = shardList(real, SHARD_COUNT);
-  assert(realShards.length === SHARD_COUNT, 'one shard per matrix entry');
-  const problems = coverage(realShards, real);
-  assert(problems.length === 0, `the real shards: ${problems.join('; ')}`);
-  console.log(
-    `✓ test-shards --self-test OK (${real.length} packages in ${SHARD_COUNT} shards, ${Object.keys(SPLIT).length} of them in pieces)`,
-  );
-}
-
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  if (args.includes('--self-test')) {
-    selfTest();
-  } else if (args.includes('--plan')) {
+  if (args.includes('--plan')) {
     const count = Number(args[args.indexOf('--plan') + 1]);
     shardList(testPackages(), count).forEach((s, i) =>
       console.log(`${i + 1}/${count} ${s.piece ? `piece ${s.piece}` : `weight ${s.weight}`}: ${s.names.join(' ')}`),
@@ -235,7 +157,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (flag === '--shard') for (const name of shard.names) console.log(name);
     else if (shard.piece) console.log(shard.piece);
   } else {
-    console.error('usage: test-shards.mjs --shard <i>/<n> | --vitest-shard <i>/<n> | --plan <n> | --self-test');
+    console.error('usage: test-shards.mjs --shard <i>/<n> | --vitest-shard <i>/<n> | --plan <n>');
     process.exit(2);
   }
 }
