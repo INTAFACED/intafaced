@@ -424,6 +424,30 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.leverageChange(a, q.symbol, bps, q.marginMode);
     },
+    // J-derivatives-06 #2 #3: an open isolated position's margin and the venue's own limit for removing it, read before
+    // anything is signed; a venue that reads none refuses not_offered.
+    '/api/v1/venue/isolated-margin': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.isolatedMargin)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reads no isolated position margin`,
+        });
+      return venue.isolatedMargin(a, q.symbol);
+    },
+    // J-derivatives-06 #1: the account's equity, free, used margin, maintenance and margin ratio as the venue reports them.
+    '/api/v1/venue/account-summary': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.accountSummary)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no account margin summary`,
+        });
+      return venue.accountSummary(a);
+    },
     // J-derivatives-27 #7: the person's balance in the margin account a market's deployer keeps for it, on the main
     // account; a venue that reads none refuses not_offered.
     '/api/v1/venue/market-margin': async (d, q, a) => {
@@ -487,6 +511,8 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/withdrawal-terms',
     '/api/v1/venue/leverage',
     '/api/v1/venue/leverage-change',
+    '/api/v1/venue/isolated-margin',
+    '/api/v1/venue/account-summary',
     '/api/v1/venue/market-margin',
     '/api/v1/venue/settlements',
     '/api/v1/venue/scheduled-cancel',

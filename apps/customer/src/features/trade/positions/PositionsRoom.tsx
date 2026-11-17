@@ -11,7 +11,9 @@ import {
   keys,
   leverageTimes,
   type AsOf,
+  type VenueAccountSummary,
   type VenueFill,
+  type VenueIsolatedMargin,
   type VenueLeverageChange,
   type VenueMarket,
   type VenuePosition,
@@ -32,7 +34,17 @@ import {
   type ActionResult,
   type RunAction,
 } from '../venue/VenueKit';
-import { breakEven, leverageBpsOfTimes, marginRatio, notional, openingFees, pnlFormula, productOf, totalsOf } from './positions-math';
+import {
+  breakEven,
+  leverageBpsOfTimes,
+  marginRatio,
+  notional,
+  openingFees,
+  percentOf,
+  pnlFormula,
+  productOf,
+  totalsOf,
+} from './positions-math';
 import { positionsCopy } from './positions-copy';
 
 /**
@@ -190,6 +202,7 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
   const addressed = new URL(path, location.origin).searchParams.get('subAccount');
   return (
     <>
+      <AccountMetrics owner={owner} venues={venues.filter((v) => v.down === null)} />
       <AllPositions
         owner={owner}
         reads={reads.data}
@@ -325,7 +338,7 @@ function AllPositions({
 }) {
   const { t } = positionsCopy.useCopy();
   const headers = useHeaders();
-  const [open, setOpen] = useState<{ kind: 'detail' | 'leverage'; key: string } | null>(null);
+  const [open, setOpen] = useState<{ kind: 'detail' | 'leverage' | 'margin'; key: string } | null>(null);
   const openRow = open ? (rows.find((r) => rowKey(r) === open.key) ?? null) : null;
   return (
     <section className="dk-panel form-stack" aria-label={t('allTitle')} data-testid="positions-all">
@@ -356,7 +369,12 @@ function AllPositions({
                 </Button>{' '}
                 <Button variant="secondary" onClick={() => setOpen({ kind: 'leverage', key: rowKey(row) })}>
                   {t('changeLeverage')}
-                </Button>
+                </Button>{' '}
+                {row.position.marginMode === 'isolated' ? (
+                  <Button variant="secondary" onClick={() => setOpen({ kind: 'margin', key: rowKey(row) })}>
+                    {t('adjustMargin')}
+                  </Button>
+                ) : null}
               </td>
             </tr>
           ))}
@@ -375,6 +393,9 @@ function AllPositions({
           onDone={onDone}
           onClose={() => setOpen(null)}
         />
+      ) : null}
+      {open?.kind === 'margin' && openRow ? (
+        <IsolatedMargin key={open.key} row={openRow} owner={owner} run={run} onDone={onDone} onClose={() => setOpen(null)} />
       ) : null}
       <CloseAll rows={rows} marketOf={marketOf} owner={owner} run={run} onDone={onDone} builder={builder} />
     </section>
@@ -556,6 +577,222 @@ function Leverage({
         </div>
       ) : null}
       <OutcomeLine result={result} owner={owner} venueId={row.venue.id} />
+      <Button variant="secondary" onClick={onClose}>
+        {t('close')}
+      </Button>
+    </section>
+  );
+}
+
+/**
+ * Account metrics (J-derivatives-06 #1): each connected venue's own figures for the account, exact as the venue reports
+ * them, with their time: equity, free, used margin, maintenance margin and the margin ratio.
+ */
+function AccountMetrics({ owner, venues }: { owner: string; venues: readonly Venue[] }) {
+  const { t } = positionsCopy.useCopy();
+  const venue = useVenueApi();
+  const ids = venues.map((v) => v.id).join(',');
+  const reads = usePolled<{ venue: Venue; summary: AsOf<VenueAccountSummary> | null; failure: string | null }[]>(
+    async (signal) => {
+      const data = await Promise.all(
+        venues.map(async (v) => {
+          const r = await venue.accountSummary(owner, signal, v.id);
+          return { venue: v, summary: r.ok ? r.data : null, failure: r.ok ? null : r.message };
+        }),
+      );
+      return { ok: true, data };
+    },
+    `account-summary:${owner}:${ids}`,
+    VENUE_POLL_MS,
+  );
+  return (
+    <section className="dk-panel form-stack" aria-label={t('metricsTitle')} data-testid="account-metrics">
+      <h2 className="dk-tab-title">{t('metricsTitle')}</h2>
+      {reads.data === null ? <Loading label={t('metricsTitle')} /> : null}
+      {(reads.data ?? []).map(({ venue: v, summary, failure }) => (
+        <div key={v.id} data-venue={v.id}>
+          <h3 className="dk-tab-title">{t('metricsVenue', { venue: v.name })}</h3>
+          {failure ? (
+            <p className="failure" role="alert">
+              {t('metricsNotOffered', { venue: v.name, detail: failure })}
+            </p>
+          ) : null}
+          {summary ? (
+            <>
+              <p className="muted">{t('metricsLead', { venue: v.name, asset: summary.value.asset })}</p>
+              <dl>
+                <dt>{t('metricsEquity')}</dt>
+                <dd className="numeric" data-metric="equity">
+                  {summary.value.equity}
+                </dd>
+                <dt>{t('metricsFree')}</dt>
+                <dd className="numeric" data-metric="free">
+                  {summary.value.free}
+                </dd>
+                <dt>{t('metricsUsed')}</dt>
+                <dd className="numeric" data-metric="used">
+                  {summary.value.usedMargin}
+                </dd>
+                <dt>{t('metricsMaintenance')}</dt>
+                <dd className="numeric" data-metric="maintenance">
+                  {summary.value.maintenanceMargin}
+                </dd>
+                <dt>{t('metricsRatio')}</dt>
+                <dd className="numeric" data-metric="ratio">
+                  {summary.value.marginRatio.known
+                    ? t('metricsRatioValue', { ratio: percentOf(summary.value.marginRatio.value) })
+                    : t('metricsRatioNone')}
+                </dd>
+              </dl>
+              <AsOfLine asOf={summary.asOf} />
+            </>
+          ) : null}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/**
+ * Margin on one isolated position (J-derivatives-06 #2 #3): the venue's margin now, its own limit for removing it and the
+ * free balance, read before anything is signed; an addition or removal is one change the wallet signs, sent once under
+ * its draft's key, and the margin and liquidation price after are read back from the venue. A removal past the limit is
+ * refused by the venue in its own words, before the wallet is asked.
+ */
+function IsolatedMargin({
+  row,
+  owner,
+  run,
+  onDone,
+  onClose,
+}: {
+  row: Row;
+  owner: string;
+  run: RunAction;
+  onDone: () => void;
+  onClose: () => void;
+}) {
+  const { t } = positionsCopy.useCopy();
+  const venue = useVenueApi();
+  const p = row.position;
+  const words = { symbol: p.symbol, venue: row.venue.name };
+  const read = usePolled<AsOf<VenueIsolatedMargin> | { failure: string }>(
+    async (signal) => {
+      const r = await venue.isolatedMargin(owner, { symbol: p.symbol, venueId: row.venue.id }, signal);
+      return { ok: true, data: r.ok ? r.data : { failure: r.message } };
+    },
+    `isolated-margin:${owner}:${row.venue.id}:${p.symbol}`,
+    VENUE_POLL_MS,
+  );
+  const [amount, setAmount] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [after, setAfter] = useState<VenueIsolatedMargin | null>(null);
+  const draft = useRef<{ direction: 'add' | 'remove'; amount: string; id: string } | null>(null);
+  const now = read.data && 'value' in read.data ? read.data : null;
+
+  async function change(direction: 'add' | 'remove') {
+    setProblem(null);
+    setResult(null);
+    setAfter(null);
+    let canonical: string;
+    try {
+      canonical = canonicalDecimal(amount);
+    } catch {
+      return setProblem(t('marginEnterAmount'));
+    }
+    if ((compareDecimal(canonical, '0') ?? 0) <= 0) return setProblem(t('marginEnterAmount'));
+    const d = draft.current;
+    if (!d || d.direction !== direction || d.amount !== canonical) draft.current = { direction, amount: canonical, id: draftId() };
+    const answer = await run(
+      {
+        kind: 'update_isolated_margin',
+        symbol: p.symbol,
+        direction,
+        amount: canonical,
+        changeKey: keys.isolatedMargin(owner, p.symbol, direction, draft.current!.id),
+      },
+      { venueId: row.venue.id },
+    );
+    if (!keepsDraft(answer)) draft.current = null;
+    setResult(answer);
+    if (answer.kind === 'outcome' && answer.outcome.accepted) {
+      const back = await venue.isolatedMargin(owner, { symbol: p.symbol, venueId: row.venue.id });
+      if (back.ok) setAfter(back.data.value);
+    }
+    read.reload();
+    onDone();
+  }
+
+  return (
+    <section className="dk-panel form-stack" aria-label={t('marginTitle', words)} data-testid="position-margin">
+      <h3 className="dk-tab-title">{t('marginTitle', words)}</h3>
+      <p className="muted">{t('marginLead', words)}</p>
+      {read.data && 'failure' in read.data ? (
+        <p className="failure" role="alert">
+          {t('marginNotOffered', { venue: row.venue.name, detail: read.data.failure })}
+        </p>
+      ) : null}
+      {now ? (
+        <>
+          <dl>
+            <dt>{t('marginNow')}</dt>
+            <dd className="numeric" data-line="margin">
+              {now.value.margin}
+            </dd>
+            <dt>{t('marginMinimum')}</dt>
+            <dd className="numeric" data-line="minimum">
+              {now.value.minimumMargin}
+            </dd>
+            <dt>{t('marginRemovable')}</dt>
+            <dd className="numeric" data-line="removable">
+              {now.value.removable}
+            </dd>
+            <dt>{t('marginFree')}</dt>
+            <dd className="numeric" data-line="free">
+              {now.value.free}
+            </dd>
+            <dt>{t('marginLiquidation')}</dt>
+            <dd className="numeric" data-line="liquidation">
+              <Known value={now.value.liquidationPrice} render={(x) => x} />
+            </dd>
+          </dl>
+          <p className="muted" data-line="rule">
+            {t('marginRule', { venue: row.venue.name, rule: now.value.rule })}
+          </p>
+          <AsOfLine asOf={now.asOf} />
+          <label className="field">
+            <span>{t('marginAmount', { asset: now.value.asset })}</span>
+            <input
+              inputMode="decimal"
+              aria-label={t('marginAmount', { asset: now.value.asset })}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </label>
+          <Button onClick={() => void change('add')}>{t('marginAdd')}</Button>{' '}
+          <Button variant="secondary" onClick={() => void change('remove')}>
+            {t('marginRemove')}
+          </Button>
+        </>
+      ) : read.data === null ? (
+        <Loading label={t('marginTitle', words)} />
+      ) : null}
+      {problem ? (
+        <p className="failure" role="alert" data-testid="position-margin-problem">
+          {problem}
+        </p>
+      ) : null}
+      <OutcomeLine result={result} owner={owner} venueId={row.venue.id} />
+      {after ? (
+        <p data-testid="position-margin-after">
+          {t('marginAfter', {
+            venue: row.venue.name,
+            margin: after.margin,
+            liquidation: after.liquidationPrice.known ? after.liquidationPrice.value : '—',
+          })}
+        </p>
+      ) : null}
       <Button variant="secondary" onClick={onClose}>
         {t('close')}
       </Button>

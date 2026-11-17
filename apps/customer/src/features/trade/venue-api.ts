@@ -382,6 +382,32 @@ const venueLeverageChangeSchema = z.object({
 });
 export type VenueLeverageChange = z.infer<typeof venueLeverageChangeSchema>;
 
+/** An open isolated position's margin and the venue's own limit for removing it (J-derivatives-06 #2 #3). */
+const venueIsolatedMarginSchema = z.object({
+  symbol: z.string(),
+  side: z.enum(['long', 'short']),
+  size: decimalSchema,
+  margin: decimalSchema,
+  minimumMargin: decimalSchema,
+  removable: decimalSchema,
+  free: decimalSchema,
+  asset: z.string(),
+  liquidationPrice: maybeKnown(decimalSchema),
+  rule: z.string(),
+});
+export type VenueIsolatedMargin = z.infer<typeof venueIsolatedMarginSchema>;
+
+/** The account's margin as the venue reports it (J-derivatives-06 #1). */
+const venueAccountSummarySchema = z.object({
+  asset: z.string(),
+  equity: signedDecimalSchema,
+  free: decimalSchema,
+  usedMargin: decimalSchema,
+  maintenanceMargin: decimalSchema,
+  marginRatio: maybeKnown(decimalSchema),
+});
+export type VenueAccountSummary = z.infer<typeof venueAccountSummarySchema>;
+
 export const venueWithdrawalSchema = z.object({
   nonce: z.string(),
   asset: z.string(),
@@ -849,7 +875,9 @@ export type VenueIntent =
       asset: string;
       amount: string;
       moveKey: string;
-    };
+    }
+  // J-derivatives-06 #2 #3: margin added to or removed from an open isolated position, one signed venue change.
+  | { kind: 'update_isolated_margin'; symbol: string; direction: 'add' | 'remove'; amount: string; changeKey: string };
 
 // ── Business keys ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -891,6 +919,9 @@ export const keys = {
   cancelBatch: (owner: string, draft: string) => `cancel-batch:${part(owner)}:${draft}`,
   /** One press of the dead-man switch: arming, refreshing or removing the venue's scheduled cancel (J-cex-spot-07). */
   scheduleCancel: (owner: string, draft: string) => `schedule-cancel:${part(owner)}:${draft}`,
+  /** One reviewed margin change on an isolated position (J-derivatives-06 #2 #3). */
+  isolatedMargin: (owner: string, symbol: string, direction: 'add' | 'remove', draft: string) =>
+    `margin:${part(owner)}:${part(symbol)}:${direction}:${draft}`,
   marketMargin: (owner: string, symbol: string, direction: 'into_market' | 'out_of_market', draft: string) =>
     `market-margin:${part(owner)}:${part(symbol)}:${direction === 'into_market' ? 'in' : 'out'}:${draft}`,
 };
@@ -1025,6 +1056,12 @@ export function venueApi(api: ApiClient) {
         { owner, symbol: q.symbol, leverageBps: String(q.leverageBps), marginMode: q.marginMode, venueId: q.venueId },
         signal,
       ),
+    /** An open isolated position's margin and the venue's removal limit, read before anything is signed (J-derivatives-06 #2 #3). */
+    isolatedMargin: (owner: string, q: { symbol: string; venueId?: string }, signal?: AbortSignal) =>
+      read('/isolated-margin', asOf(venueIsolatedMarginSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),
+    /** The account's equity, free, used margin, maintenance and margin ratio as the venue reports them (J-derivatives-06 #1). */
+    accountSummary: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/account-summary', asOf(venueAccountSummarySchema), { owner, venueId }, signal),
     /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
     marketMargin: (owner: string, symbol: string, signal?: AbortSignal) =>
       read('/market-margin', asOf(venueMarketMarginSchema), { owner, symbol }, signal),

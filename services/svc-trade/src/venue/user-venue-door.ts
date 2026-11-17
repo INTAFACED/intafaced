@@ -1296,6 +1296,7 @@ export class UserVenueDoor {
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
+    else if (intent.kind === 'update_isolated_margin') key = intent.changeKey;
     else key = actionKey;
     const k = (key ?? '').trim();
     if (k.length < 3 || k.length > 200 || UUID_RE.test(k) || !BUSINESS_KEY_RE.test(k)) {

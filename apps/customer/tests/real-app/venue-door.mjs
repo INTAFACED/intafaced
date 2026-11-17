@@ -1,3 +1,4 @@
+import { privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
 import { api } from './stack.mjs';
 
@@ -22,4 +23,15 @@ export const ledgerView = async (who) => (await api(who)).balances();
 /** The ledger posted nothing since `s.ledger` was read for `s.account`. */
 export async function ledgerUntouched(s) {
   expect(await ledgerView(s.account)).toEqual(s.ledger);
+}
+
+/**
+ * The run's person, read from its journey state: their account, wallet key and the owner address it signs as. `first`
+ * names the step that makes them, for the error when it made no one.
+ */
+export function walletOwner(run, first) {
+  const s = run.read();
+  if (!s.account || !s.walletKey) throw new Error(`${first} made no account and wallet, so this step has no one to act as`);
+  const key = privateKeyToAccount(s.walletKey);
+  return { ...s, key, owner: key.address.toLowerCase() };
 }

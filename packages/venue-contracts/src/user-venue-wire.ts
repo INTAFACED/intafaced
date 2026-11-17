@@ -77,6 +77,12 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'marginNow',
   'marginAfter',
   'difference',
+  // UserVenueIsolatedMargin and UserVenueAccountSummary (J-derivatives-06 #1 #2 #3)
+  'minimumMargin',
+  'removable',
+  'equity',
+  'usedMargin',
+  'marginRatio',
   // VenueFeeTier and VenueAccountFees (J-cex-spot-10 #2 #6)
   'fromVolume',
   'volume',
@@ -101,6 +107,7 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'makerFeeBps',
   'takerFeeBps',
   'maintenanceMargin',
+  'marginRatio',
   'volume',
   'value',
 ]);
