@@ -61,17 +61,12 @@ describe('svc-p2p contract escrow (RC-p2p-02, J-p2p-21)', () => {
     ledger = new MemoryLedger();
     posts = [];
     // Every post the service sends, by its business key: a contract order must add none.
-    const counting = new Proxy(ledger, {
-      get(target, prop, receiver) {
-        if (prop === 'post')
-          return (tx: Parameters<LedgerClient['post']>[0]) => {
-            posts.push(tx.idempotencyKey);
-            return target.post(tx);
-          };
-        const value = Reflect.get(target, prop, receiver);
-        return typeof value === 'function' ? value.bind(target) : value;
-      },
-    }) as unknown as LedgerClient;
+    const post = ledger.post.bind(ledger);
+    ledger.post = (tx: Parameters<LedgerClient['post']>[0]) => {
+      posts.push(tx.idempotencyKey);
+      return post(tx);
+    };
+    const counting = ledger;
     const instruments = new InstrumentService(sql);
     p2p = new P2pService(sql, counting, new MemoryEventBus('svc-p2p'), {
       instruments,

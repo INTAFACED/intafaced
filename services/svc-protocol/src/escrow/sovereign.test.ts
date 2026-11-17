@@ -93,7 +93,7 @@ describe('protocol.escrow.deal read', () => {
       getBlock: async () => ({ number: 10n, timestamp: 1_000n }),
       readContract: async () => [SELLER, BUYER, TOKEN, held, ZERO, ZERO, 0, 300, status === 3 ? 1_300n : 0n, status, 0],
       getLogs: async () => (opened ? [{ args: { amount: 25_000_000n } }] : []),
-    }) as unknown as EscrowChain;
+    }) as EscrowChain;
 
   it('reads a locked deal with the amount it was opened for', async () => {
     const deal = await readDeal(chainWith(2, 25_000_000n), sepolia, '7');

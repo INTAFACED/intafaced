@@ -80,16 +80,18 @@ async function personPage(browser, who, walletKey, { passkey = null } = {}) {
 /** Continues one wallet sequence as the person does: the representation once for a fresh wallet, then the sheet. */
 async function continueInWallet(page) {
   const representation = page.locator('[data-panel="representation"]');
-  const sheet = page.getByRole('dialog', { name: 'Check before you sign' }).filter({ has: page.locator('[data-sheet="sequence"]') });
+  const sheet = page
+    .getByRole('dialog', { name: 'Check before you sign', exact: true })
+    .filter({ has: page.locator('[data-sheet="sequence"]') });
   await expect(representation.or(sheet)).toBeVisible({ timeout: 30_000 });
   if (await representation.isVisible()) await acceptRepresentation(page);
-  await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+  await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
   await expect(sheet).toHaveCount(0, { timeout: 30_000 });
 }
 
 /** The TEST wallet connected inside one part of the page, pressing its Connect when the part asks. */
 async function connectIn(part) {
-  const connect = part.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  const connect = part.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true });
   if (await connect.isVisible().catch(() => false)) await connect.click();
 }
 
@@ -99,7 +101,7 @@ async function takeWithContract(page) {
   const take = page.getByTestId('take-offer');
   await take.getByTestId('take-fiat-amount').fill('9.2');
   await take.locator('select').selectOption(METHOD);
-  await expect(take.getByLabel('Quantity in USDT')).toHaveValue('10');
+  await expect(take.getByLabel('Quantity in USDT', { exact: true })).toHaveValue('10');
   const escrow = take.getByTestId('take-escrow-type');
   await escrow.getByRole('radio', { name: /Contract escrow \(TEST\)/ }).check({ timeout: 30_000 });
   await connectIn(escrow);
@@ -108,7 +110,7 @@ async function takeWithContract(page) {
   await take.getByTestId('take-review').click();
   const dialog = page.getByTestId('take-review-dialog');
   await expect(dialog.getByTestId('take-review-escrow')).toContainText('Contract escrow (TEST)');
-  const passkey = dialog.getByRole('button', { name: 'Use a passkey' });
+  const passkey = dialog.getByRole('button', { name: 'Use a passkey', exact: true });
   const confirm = dialog.getByTestId('take-confirm');
   await expect(passkey.or(confirm).first()).toBeVisible();
   await ((await passkey.isVisible()) ? passkey : confirm).click();
@@ -121,7 +123,7 @@ async function sellerFunds(page, tradeId) {
   await page.goto(`/uc/order?tradeId=${tradeId}`);
   const panel = page.getByTestId('order-contract-escrow');
   await connectIn(panel);
-  await panel.getByRole('button', { name: 'Open and fund the deal in your wallet' }).click();
+  await panel.getByRole('button', { name: 'Open and fund the deal in your wallet', exact: true }).click();
   await continueInWallet(page); // approve + open
   await continueInWallet(page); // lock
   await expect(panel.getByTestId('order-deal-id')).toHaveText(/^#\d+$/, { timeout: 60_000 });
@@ -132,10 +134,10 @@ async function sellerFunds(page, tradeId) {
 async function markPaid(page, tradeId) {
   await page.goto(`/uc/order?tradeId=${tradeId}`);
   const order = page.getByRole('main');
-  await order.getByRole('button', { name: 'Mark payment sent' }).click();
+  await order.getByRole('button', { name: 'Mark payment sent', exact: true }).click();
   const review = page.getByRole('dialog');
   for (const box of await review.getByTestId('order-paid-checklist').getByRole('checkbox').all()) await box.check();
-  await review.getByRole('button', { name: 'Mark payment sent' }).click();
+  await review.getByRole('button', { name: 'Mark payment sent', exact: true }).click();
   await expect(review).toHaveCount(0);
   await expect(order).toContainText('Payment marked sent');
 }
@@ -255,7 +257,7 @@ test('J-p2p-21 #3 the buyer marks paid and the seller releases: the contract rel
   await sellerSide.page.goto(`/uc/order?tradeId=${state.tradeId}`);
   const panel = sellerSide.page.getByTestId('order-contract-escrow');
   await connectIn(panel);
-  await panel.getByRole('button', { name: 'Release from the contract in your wallet' }).click();
+  await panel.getByRole('button', { name: 'Release from the contract in your wallet', exact: true }).click();
   await continueInWallet(sellerSide.page);
   await expect(panel.getByTestId('order-deal-state')).toHaveText('Released to the buyer', { timeout: 60_000 });
 
@@ -306,10 +308,10 @@ test('J-p2p-21 #5 after the buyer marked paid, the seller finds no Cancel: relea
   await connectIn(panel);
   await expect(panel.getByTestId('order-contract-seller-paid')).toContainText('The order cannot be cancelled now.');
   const actions = panel.getByTestId('order-contract-actions');
-  await expect(actions.getByRole('button', { name: 'Release from the contract in your wallet' })).toBeVisible();
-  await expect(actions.getByRole('button', { name: 'Open a dispute on the contract' })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Release from the contract in your wallet', exact: true })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Open a dispute on the contract', exact: true })).toBeVisible();
   await expect(main.getByRole('button', { name: /cancel/i })).toHaveCount(0);
-  await expect(actions.getByRole('button', { name: 'Refund to me from the contract' })).toHaveCount(0);
+  await expect(actions.getByRole('button', { name: 'Refund to me from the contract', exact: true })).toHaveCount(0);
   await expect(panel.getByTestId('order-deal-state')).toHaveText('Funded and locked');
   await expect(panel.getByTestId('order-deal-held')).toHaveText(UNITS.toString());
   // A cancel asked of svc-p2p directly is refused too: the coins are the contract's.

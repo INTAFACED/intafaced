@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { decodeEventLog, parseAbi } from 'viem';
 import { Button } from '@intafaced/ui';
 import type { ProtocolEscrowBuildInput, ProtocolEscrowDeal } from '@intafaced/contracts/protocol-escrow';
@@ -32,31 +32,8 @@ const DEAL_OPENED = parseAbi([
   'event DealOpened(uint256 indexed dealId, address indexed seller, address indexed buyer, address token, uint128 amount, address arbiter, uint8 timeoutDisposition, uint32 disputeWindow)',
 ]);
 
-/** The order form's escrow choice. Its own wallet connection, so the buyer's address is the wallet they connected. */
-export function ContractEscrowChoice(props: {
-  pay: PersonalPayApi;
-  offer: Offer;
-  buyerTakes: boolean;
-  onChange: (choice: EscrowChoice) => void;
-}) {
-  return (
-    <WalletProvider>
-      <EscrowChoiceInner {...props} />
-    </WalletProvider>
-  );
-}
-
-function EscrowChoiceInner({
-  pay,
-  offer,
-  buyerTakes,
-  onChange,
-}: {
-  pay: PersonalPayApi;
-  offer: Offer;
-  buyerTakes: boolean;
-  onChange: (choice: EscrowChoice) => void;
-}) {
+/** What the order form's escrow choice reads and holds. Call it inside a WalletProvider (the take panel holds one). */
+export function useContractEscrowChoice(pay: PersonalPayApi, offer: Offer, buyerTakes: boolean) {
   const { t } = contractEscrowCopy.useCopy();
   const wallet = useWallet();
   const escrow = useResource((signal) => pay.contractEscrow(offer.asset, signal), `pay:contract-escrow:${offer.asset}`);
@@ -73,9 +50,17 @@ function EscrowChoiceInner({
         : terms && !terms.available
           ? t('escrowContractUnavailable', { reason: terms.reason ?? terms.blocker ?? '' })
           : null;
-  useEffect(() => {
-    onChange(kind === 'contract' && !blocked && address ? { kind: 'contract', buyerWallet: address } : { kind: 'ledger' });
-  }, [kind, blocked, address]);
+  // The order is placed with the contract only while it is chosen, offered and a wallet on the right network is connected.
+  const choice: EscrowChoice = kind === 'contract' && !blocked && address ? { kind: 'contract', buyerWallet: address } : { kind: 'ledger' };
+  return { wallet, kind, setKind, terms, address, blocked, choice };
+}
+
+export type ContractEscrowChoiceState = ReturnType<typeof useContractEscrowChoice>;
+
+/** The order form's escrow choice: the ledger, or the contract paying the wallet the buyer connects here. */
+export function ContractEscrowChoice({ state }: { state: ContractEscrowChoiceState }) {
+  const { t } = contractEscrowCopy.useCopy();
+  const { wallet, kind, setKind, terms, address, blocked } = state;
   const network = terms?.network?.label ?? '';
   return (
     <fieldset className="field" data-testid="take-escrow-type">
