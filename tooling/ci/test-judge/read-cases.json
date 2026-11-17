@@ -1,0 +1,103 @@
+{
+  "about": "Cases for READ.md, run by `node tooling/ci/brief-cases.mjs read` (project-state#2847). A bad case is a step whose test a reader called FAITHFUL and a hand check found WEAK; it scores 1 when the read is WEAK or MISMATCH. A control is a step two independent readers called FAITHFUL with no dispute; it passes when the read is FAITHFUL. `head` is the intafaced commit the test is read at; `words` the project-state commit its step words are read at, never copied here.",
+  "cases": [
+    {
+      "id": "copy-bots-otc-10-4",
+      "step": "J-copy-bots-otc-10 #4",
+      "kind": "bad",
+      "head": "c100f0b3f03085490da32e8998cd2582142c7eb0",
+      "words": "ff156226df6fcd914dc1dbc031d7b4f1c416700a"
+    },
+    {
+      "id": "wallet-02-2",
+      "step": "J-wallet-02 #2",
+      "kind": "bad",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "cex-spot-02-6",
+      "step": "J-cex-spot-02 #6",
+      "kind": "bad",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "wallet-05-2",
+      "step": "J-wallet-05 #2",
+      "kind": "bad",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "p2p-01-5",
+      "step": "J-p2p-01 #5",
+      "kind": "bad",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "cex-spot-03-8",
+      "step": "J-cex-spot-03 #8",
+      "kind": "bad",
+      "head": "574a2612939f4331b8fc3c8a6a8c1c13f3fc7d4e",
+      "words": "4c396f6d24ddd2a5b0026507d79af27514ee5089"
+    },
+    {
+      "id": "portfolio-01-3",
+      "step": "J-portfolio-01 #3",
+      "kind": "bad",
+      "head": "574a2612939f4331b8fc3c8a6a8c1c13f3fc7d4e",
+      "words": "4c396f6d24ddd2a5b0026507d79af27514ee5089"
+    },
+    {
+      "id": "cex-spot-01-9",
+      "step": "J-cex-spot-01 #9",
+      "kind": "bad",
+      "head": "574a2612939f4331b8fc3c8a6a8c1c13f3fc7d4e",
+      "words": "4c396f6d24ddd2a5b0026507d79af27514ee5089"
+    },
+    {
+      "id": "p2p-01-3",
+      "step": "J-p2p-01 #3",
+      "kind": "control",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "p2p-02-5",
+      "step": "J-p2p-02 #5",
+      "kind": "control",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "p2p-04-2",
+      "step": "J-p2p-04 #2",
+      "kind": "control",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "p2p-06-3",
+      "step": "J-p2p-06 #3",
+      "kind": "control",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "wallet-07-2",
+      "step": "J-wallet-07 #2",
+      "kind": "control",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "bank-01-7",
+      "step": "J-bank-01 #7",
+      "kind": "control",
+      "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
+      "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    }
+  ]
+}
