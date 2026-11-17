@@ -303,10 +303,11 @@ test('J-p2p-21 #5 after the buyer marked paid, the seller finds no Cancel: relea
 }) => {
   test.setTimeout(300_000);
   const state = journey();
-  // A new TEST passkey for this order: the one from #1 has already answered in #2's browser.
-  const passkey = await testPasskey(await api(state.buyer));
+  // The same TEST passkey as #2, its counter moved past the answer #2's browser gave (identity needs it to rise; a
+  // second passkey would need the account's second factor).
+  const passkey = { ...state.passkey, signCount: state.passkey.signCount + 10 };
   const sellerSide = await personPage(browser, state.seller, state.sellerWallet);
-  const buyerSide = await personPage(browser, state.buyer, buyerRun.key(), { passkey: passkey.saved() });
+  const buyerSide = await personPage(browser, state.buyer, buyerRun.key(), { passkey });
   const tradeId = await takeWithContract(buyerSide.page);
   const dealId = await sellerFunds(sellerSide.page, tradeId);
   await markPaid(buyerSide.page, tradeId);
