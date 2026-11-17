@@ -226,6 +226,9 @@ export const FLAG_REGISTRY: readonly FlagDef[] = [
   ),
   def('ledger.reconciliation', 'ledger', '0', 'Hourly snapshot + replay reconciliation job', NOT_ENFORCED),
   def('matching.engine', 'matching', null, 'Order matching engine accepts orders', serviceEnv('svc-matching', 'MATCHING_ENGINE_ENABLED')),
+  // FIX order entry is one door into matching. OFF turns new FIX orders away in svc-fix before they reach
+  // the engine, and every other door to matching keeps serving.
+  def('fix.gateway', 'matching', null, 'FIX order entry accepts new orders', serviceEnv('svc-fix', 'FIX_GATEWAY_ENABLED')),
 
   // Not on the drop clock — gated by build phase / licensing (§13 sockets)
   // `trade.futures` HAS A REAL SWITCH NOW, and this row is how the console stops

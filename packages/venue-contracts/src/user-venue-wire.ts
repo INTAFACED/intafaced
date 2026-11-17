@@ -71,6 +71,9 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueMarginTier (J-derivatives-02 #2): the notional a tier starts at and its maintenance rate
   'fromNotional',
   'maintenanceRate',
+  // VenueFeeTier and VenueAccountFees (J-cex-spot-10 #2 #6)
+  'fromVolume',
+  'volume',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -91,6 +94,7 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'builderFeeCapBps',
   'makerFeeBps',
   'takerFeeBps',
+  'volume',
   'value',
 ]);
 
@@ -145,6 +149,8 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'firedAt',
   // UserVenueWithdrawal (J-cex-spot-07 #5)
   'requestedAt',
+  // VenueAccountFees (J-cex-spot-10 #6)
+  'tierUpdatedAt',
 ]);
 
 /**

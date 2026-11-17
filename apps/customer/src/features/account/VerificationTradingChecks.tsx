@@ -145,7 +145,7 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
         {refused ? (
           words ? (
             <p className="failure" role="alert" data-code={refused.code ?? undefined}>
-              <Copy k={words} />
+              {words === 'regionBlocked' ? t('regionBlocked', { country: chosenName }) : <Copy k={words} />}
             </p>
           ) : (
             <div role="alert" data-code={refused.code ?? undefined}>

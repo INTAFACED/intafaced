@@ -1203,6 +1203,48 @@ export interface VenuePreviewFill {
   readonly averagePrice: Amount | null;
 }
 
+/** A maker and a taker rate in bps (scaled, as `UserVenueMarket.makerFeeBps`); a maker rate below zero is the venue's rebate. */
+export interface VenueFeeRates {
+  readonly makerFeeBps: MaybeKnown<Amount>;
+  readonly takerFeeBps: MaybeKnown<Amount>;
+}
+
+/** One row of the venue's published trading-fee tiers (J-cex-spot-10 #2 #6), lowest `fromVolume` first. */
+export interface VenueFeeTier {
+  /** The venue's own name for the tier. */
+  readonly name: string;
+  /** The counted volume the tier starts at, in `VenueFeeTiers.volumeAsset` (the first from zero). */
+  readonly fromVolume: Amount;
+  readonly spot: VenueFeeRates;
+  readonly perpetual: VenueFeeRates;
+}
+
+/** The venue's published fee tiers and how it counts the volume that places an account in one. */
+export interface VenueFeeTiers {
+  /** `null`: the venue publishes no tiers. */
+  readonly tiers: readonly VenueFeeTier[] | null;
+  readonly volumeAsset: string;
+  /** The days of trading the venue counts. */
+  readonly volumeDays: number;
+}
+
+/** One account's own fees as the venue reports them: its tier, the volume it counted, the rates it charges now. */
+export interface VenueAccountFees {
+  /** The tier's name, or `null` when the venue reports none. */
+  readonly tierName: string | null;
+  readonly volume: MaybeKnown<Amount>;
+  readonly spot: VenueFeeRates;
+  readonly perpetual: VenueFeeRates;
+  /** When the venue last placed the account in its tier; `null` when it does not say. */
+  readonly tierUpdatedAt: Date | null;
+}
+
+/** `UserVenue.feeStatus`: the schedule, and the account's own fees when an account was named. */
+export interface VenueFeeStatus {
+  readonly schedule: VenueFeeTiers;
+  readonly account: VenueAccountFees | null;
+}
+
 /**
  * What an order would do, as the venue would compute it now, without sending
  * anything (the Review screen's figures). Every line is the venue's, never
@@ -1226,6 +1268,11 @@ export interface VenueOrderPreview {
   readonly venueFee: MaybeKnown<VenueAssetAmount>;
   /** Our builder fee on the same basis; known zero when the order carries none. */
   readonly builderFee: MaybeKnown<VenueAssetAmount>;
+  /**
+   * The venue's maker and taker rates for this account on this market, as the venue charges them now (J-cex-spot-10 #1).
+   * Absent on an adapter that does not report them.
+   */
+  readonly rates?: VenueFeeRates;
   /**
    * What the order would fill now against the venue's book, and at what price:
    * `amount` in the base asset (zero when nothing crosses, then `averagePrice`
@@ -1462,6 +1509,11 @@ export interface UserVenue {
    * descriptor declares `scheduledCancel`.
    */
   scheduledCancel?(account: UserVenueAccount): Promise<AsOf<UserVenueScheduledCancel>>;
+  /**
+   * The venue's published fee tiers, and with an account its tier, counted volume and rates as the venue reports them
+   * (J-cex-spot-10 #2 #6). Absent on an adapter that does not read them; the door then refuses `not_offered`.
+   */
+  feeStatus?(account: UserVenueAccount | null): Promise<AsOf<VenueFeeStatus>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   /**

@@ -2216,6 +2216,20 @@ async function healthTable({ gateMarket = false } = {}) {
     procs['rail-statements']?.pid ?? '-',
     statements.status === 200 ? 'ok (TEST)' : `DOWN (${statements.status})`,
   ]);
+  // The TEST adapters behind a service's outside door: each a row of its own, so the table names every port the stack's
+  // marker holds. One this start left off (the user-venue switch, or an `--only` without it) reads "off", which doesn't fail.
+  // A venue's record outlives its process (a stop keeps it), so a stopped venue the switch doesn't ask for is off too;
+  // one the switch asks for that is not running is DOWN.
+  const venues = userVenueOn() ? userVenueCount(process.env.LOCAL_STACK_USER_VENUE) : 0;
+  const wanted = { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true };
+  for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) {
+    if (!procs[name] || (!wanted[name] && !ownedAlive(procs[name]))) {
+      rows.push([`${name} (TEST)`, PORTS[name], '-', 'off (not started)']);
+      continue;
+    }
+    const adapter = await httpGet(`${urlOf(name)}/health`, 2500);
+    rows.push([`${name} (TEST)`, PORTS[name], procs[name].pid ?? '-', adapter.status === 200 ? 'ok (TEST)' : `DOWN (${adapter.status})`]);
+  }
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
     'customer',
@@ -2245,11 +2259,12 @@ async function healthTable({ gateMarket = false } = {}) {
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
-  const w = [17, 12, 8];
+  // The name column fits its longest name (`test-wallet-provider (TEST)`), so a name never runs into its port.
+  const w = [Math.max(17, ...rows.map((r) => String(r[0]).length + 1)), 12, 8];
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
   const marketBad = mk.state === 'down' || mk.state === 'stale';
-  return rows.slice(0, -1).every((r) => /^(ok|absent)\b/.test(String(r[3]))) && !(gateMarket && marketBad);
+  return rows.slice(0, -1).every((r) => /^(ok|absent|off)\b/.test(String(r[3]))) && !(gateMarket && marketBad);
 }
 
 /** `--only a,b` -> ['a','b'] (validated against the services this script knows); null when absent. */

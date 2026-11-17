@@ -607,22 +607,19 @@ function newRunDir(label) {
 }
 
 /**
- * An anvil installed where Foundry puts one but not on PATH: the checkout's own `.tools/foundry/bin`
- * (local-infra-bootstrap.sh), `~/.foundry/bin` (foundryup), then the newest `~/.intafaced/foundry-<version>/`. Null when
- * LOCAL_STACK_ANVIL_BIN is set (the stack uses that) or anvil is on PATH, or when none is installed. The stack's own
- * rule (`anvilBin` in local-test-chain.mjs) stays as it is for CI; launch only names the found one to it.
+ * An anvil installed where Foundry puts one but not on PATH: `~/.foundry/bin` (foundryup), then the newest
+ * `~/.intafaced/foundry-<version>/`. Null when LOCAL_STACK_ANVIL_BIN is set (the stack uses that) or anvil is on PATH,
+ * or when none is installed. The stack's own rule (`anvilBin` in local-test-chain.mjs) stays as it is for CI; launch
+ * only names the found one to it.
  */
-export function installedAnvil({ env, home, checkout, exists, list }) {
+export function installedAnvil({ env, home, exists, list }) {
   if (env.LOCAL_STACK_ANVIL_BIN) return null;
   if ((env.PATH ?? '').split(path.delimiter).some((d) => d && exists(path.join(d, 'anvil')))) return null;
   const versions = list(path.join(home, '.intafaced'))
     .filter((d) => /^foundry-\d/.test(d))
     .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))
     .map((d) => path.join(home, '.intafaced', d, 'anvil'));
-  return (
-    [path.join(checkout, '.tools', 'foundry', 'bin', 'anvil'), path.join(home, '.foundry', 'bin', 'anvil'), ...versions].find(exists) ??
-    null
-  );
+  return [path.join(home, '.foundry', 'bin', 'anvil'), ...versions].find(exists) ?? null;
 }
 
 const listDir = (d) => {
@@ -718,7 +715,7 @@ async function launch(opts, io) {
   io.say(
     `${PREFIX} launch: ${hadStack ? `this checkout's stack is up on slot ${before.slot}; starting what is not running and rebuilding what changed` : 'starting a stack for this checkout'}`,
   );
-  const anvil = installedAnvil({ env: process.env, home: os.homedir(), checkout: CHECKOUT, exists: fs.existsSync, list: listDir });
+  const anvil = installedAnvil({ env: process.env, home: os.homedir(), exists: fs.existsSync, list: listDir });
   if (anvil) {
     io.say(`${PREFIX} launch: anvil is not on PATH; the TEST chain uses the installed ${anvil}`);
     // Every start in this launch reads it, the readying's restart of matching included, so none reports the chain missing.

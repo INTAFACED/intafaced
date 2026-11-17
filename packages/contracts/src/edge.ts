@@ -68,7 +68,7 @@ export function encodePrincipal(principal: Principal): string {
     sub: principal.sub,
     scopes: [...principal.scopes],
     tier: principal.tier,
-    // The trading checks' clear (OWNER 258 (4)): only trading gates read it, through `tradeTier`.
+    // The trading checks' clear: only trading gates read it, through `tradeTier`.
     ...(principal.trd === true ? { trd: true } : {}),
     mfa: principal.mfa,
     sid: principal.sid,

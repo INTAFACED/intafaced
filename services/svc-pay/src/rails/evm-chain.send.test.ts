@@ -16,14 +16,14 @@ const DEPTH = 4;
 
 const DEST = privateKeyToAccount(HOT_KEY).address;
 
-function chain(): EvmLiveChain {
+function chain(broadcasts = new MemoryBroadcastStore()): EvmLiveChain {
   return new EvmLiveChain({
     rpcUrl: 'http://127.0.0.1:9',
     chainId: 31337,
     deposits: TestnetDepositAddresses.fromFixturePhrase(MNEMONIC),
     signer: TestnetSigner.fromFixtureKey(HOT_KEY),
     assets: parseEvmAssets('ETH:native'),
-    broadcasts: new MemoryBroadcastStore(),
+    broadcasts,
     minConfirmations: DEPTH,
     requestTimeoutMs: 500,
   });
@@ -139,5 +139,31 @@ describe('EvmLiveChain lookupSend while a send is on its way', () => {
     // The reconciler gives the held money back on that answer; the payer's send then arrives under the same key.
     await port.send({ ...sendRequest, idempotencyKey: key }).catch(() => undefined);
     expect(broadcasts).toBe(0);
+  });
+});
+
+describe('EvmLiveChain sendDepth', () => {
+  async function depthFor(status: string | null, blockNumber = 5n, tip = 10n): Promise<unknown> {
+    const broadcasts = new MemoryBroadcastStore();
+    await broadcasts.claim('depth-key');
+    await broadcasts.put('depth-key', TX);
+    const port = chain(broadcasts);
+    const surface = Reflect.get(port, 'public') as {
+      getTransactionReceipt: (args: { hash: Hex }) => Promise<object | null>;
+      getBlockNumber: () => Promise<bigint>;
+    };
+    surface.getTransactionReceipt = async ({ hash }) => (status === null || hash !== TX ? null : { status, blockNumber });
+    surface.getBlockNumber = async () => tip;
+    return port.sendDepth('depth-key');
+  }
+
+  it('reads a mined success as its depth, and no receipt yet as 0', async () => {
+    expect(await depthFor('success')).toBe(6);
+    expect(await depthFor(null)).toBe(0);
+  });
+
+  it('tells a reverted receipt apart, with its own depth, so it never counts as confirmed', async () => {
+    expect(await depthFor('reverted')).toEqual({ reverted: true, depth: 6 });
+    expect(await depthFor('reverted', 10n, 10n)).toEqual({ reverted: true, depth: 1 });
   });
 });

@@ -1,5 +1,14 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 
+/** A send the chain mined and reverted: it moved nothing. `depth` counts its block and every block since. */
+export interface RevertedSend {
+  readonly reverted: true;
+  readonly depth: number;
+}
+
+/** How deep a send is: blocks for a mined success, a reverted send, or `null` when the chain cannot say. */
+export type SendDepth = number | RevertedSend | null;
+
 /**
  * The chain, as `crypto-native` needs it.
  *
@@ -99,9 +108,10 @@ export interface CryptoChainPort {
   /**
    * How deep the outbound transfer journalled for this business key is now: the blocks that include it and every block
    * after (W-withdraw-06). `null` means this port cannot say (it never saw the send, or forgot it): never a guess, so a
-   * withdrawal waiting on it stays held.
+   * withdrawal waiting on it stays held. A send the chain mined and reverted is `{ reverted: true, depth }`: it moved
+   * nothing, and once that depth reaches the owner's settle depth its hold may go back.
    */
-  sendDepth(idempotencyKey: string): Promise<number | null>;
+  sendDepth(idempotencyKey: string): Promise<SendDepth>;
   /**
    * One cheap liveness check. MemoryChain resolves. A live chain reads its
    * chain id and must not scan blocks. UnconfiguredChain throws.
@@ -171,7 +181,7 @@ export class MemoryChain implements CryptoChainPort {
   private readonly sent = new Map<string, { txHash: string }>();
   /** When each send answered, and any depth a test set for it (`setSendDepth`). */
   private readonly answeredAt = new Map<string, number>();
-  private readonly depthSet = new Map<string, number>();
+  private readonly depthSet = new Map<string, Exclude<SendDepth, null>>();
   private readonly outbound: Array<ChainSendRequest & { txHash: string }> = [];
   private nonce = 0;
   private broadcastError: Error | null = null;
@@ -236,7 +246,7 @@ export class MemoryChain implements CryptoChainPort {
     return { txHash };
   }
 
-  async sendDepth(idempotencyKey: string): Promise<number | null> {
+  async sendDepth(idempotencyKey: string): Promise<SendDepth> {
     this.takeCallError();
     if (!this.sent.has(idempotencyKey)) return null;
     const set = this.depthSet.get(idempotencyKey);
@@ -288,7 +298,7 @@ export class MemoryChain implements CryptoChainPort {
   }
 
   /** Set how deep the send under this business key reads, whatever the pace says — drives the confirm-later branch. */
-  setSendDepth(idempotencyKey: string, depth: number): void {
+  setSendDepth(idempotencyKey: string, depth: Exclude<SendDepth, null>): void {
     this.depthSet.set(idempotencyKey, depth);
   }
 
@@ -423,7 +433,7 @@ export class UnconfiguredChain implements CryptoChainPort {
     throw new ChainNotConfiguredError('look up an outbound transfer');
   }
 
-  async sendDepth(): Promise<number | null> {
+  async sendDepth(): Promise<SendDepth> {
     throw new ChainNotConfiguredError('read the depth of an outbound transfer');
   }
 

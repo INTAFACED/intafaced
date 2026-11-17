@@ -84,7 +84,6 @@ on:
       - 'tooling/scripts/local-stack-fixtures/**'
       - 'tooling/scripts/local-test-*.mjs'
       - 'tooling/scripts/journey-world.mjs'
-      - 'tooling/scripts/local-infra-bootstrap.sh'
       - 'tooling/scripts/roadmap.mjs'
       - 'tooling/scripts/journey-shards*.mjs'
       - 'tooling/scripts/journey-fail-fast.mjs'

@@ -54,6 +54,9 @@ import {
   type VenueBook,
   type VenueBookLevel,
   type VenueOrderPreview,
+  type VenueFeeRates,
+  type VenueFeeTiers,
+  type VenueFeeStatus,
   type VenueBestPrices,
   type VenueMarginMode,
   type VenueRefusalCode,
@@ -290,6 +293,8 @@ export interface SimSwitches {
 
 export interface SimOptions {
   readonly id?: string;
+  /** The venue's published fee tiers (J-cex-spot-10). Default: none published. */
+  readonly feeSchedule?: VenueFeeTiers;
   readonly displayName?: string;
   readonly clock: () => Date;
   readonly markets: readonly SimMarketConfig[];
@@ -343,6 +348,11 @@ interface AccountState {
   readonly settlements: UserVenueSettlement[];
   /** Its scheduled cancel (J-cex-spot-07): when the venue cancels every open order, and what it last did. */
   scheduled: { cancelsAt: Date | null; lastFired: { firedAt: Date; canceled: number } | null };
+  /**
+   * The fee tier the venue last placed this account in (J-cex-spot-10 #6): the tier's index in the published schedule,
+   * the volume it counted and when. `null` until the venue's first update: the base tier.
+   */
+  feeTier: { index: number; volume: Amount; updatedAt: Date } | null;
 }
 
 interface OrderState {
@@ -384,6 +394,8 @@ const FUNDING_HISTORY_ROWS = 500;
 const PRINTS_KEPT = 5_000;
 /** The most prints or candles one read answers. */
 const MARKET_READ_MAX = 500;
+
+const NO_RATES: VenueFeeRates = { makerFeeBps: { known: false }, takerFeeBps: { known: false } };
 
 function refuse(venueId: string, code: VenueRefusalCode, detail: string): never {
   throw new VenueRefusalError({ venueId, code, detail });
@@ -465,6 +477,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** Session markets whose home market is closed: the mark when it closed, and the reopen time the venue published. */
   private readonly offHours = new Map<string, { closedMark: Amount; reopensAt: Date | null }>();
   private readonly accounts = new Map<string, AccountState>();
+  /** The venue's published fee tiers and how it counts volume (J-cex-spot-10 #2 #6). */
+  private feeSchedule: VenueFeeTiers = { tiers: null, volumeAsset: 'USDC', volumeDays: 14 };
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
   /** TEST: who signed each order the venue accepted, as recovered from its bytes (account → client order id → signer). */
   private readonly orderSigners = new Map<string, Map<string, VenueSigner>>();
@@ -531,6 +545,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       ...(options.scheduledCancelMinLeadMs !== undefined ? { scheduledCancel: { minLeadMs: options.scheduledCancelMinLeadMs } } : {}),
     };
     this.clock = options.clock;
+    if (options.feeSchedule) this.setFeeSchedule(options.feeSchedule);
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
     this.switches = {
       venueDown: false,
@@ -1122,7 +1137,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const perp = market.kind === 'perpetual';
     const setting = perp ? state.leverage.get(market.symbol) : undefined;
     const builderFee = intent.builderFee ? { builder: intent.builderFee.builder.toLowerCase(), feeBps: intent.builderFee.feeBps } : null;
-    const { lockAsset, lockAmount } = this.orderLock(market, intent, setting, builderFee);
+    const { lockAsset, lockAmount } = this.orderLock(market, intent, setting, builderFee, state);
 
     // Walk the contra book as `place` matches it: other accounts' resting orders that cross, best price first, then
     // time (this account's own crossing orders are cancelled first by self-trade prevention, so they are not met).
@@ -1171,7 +1186,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       known: true,
       value: { amount: filled, averagePrice: filled === ZERO ? null : div(notional, filled, against) },
     };
-    const venueFee = line((r) => (r === 'maker' ? market.makerFeeBps : market.takerFeeBps));
+    const rates = this.ratesOf(state, market);
+    const venueFee = line((r) => (r === 'maker' ? rates.makerFeeBps : rates.takerFeeBps));
     const zeroFee: MaybeKnown<Amount> = { known: true, value: ZERO };
     // No builder fee on a spot buy (see `fill`): known zero, whatever the order carries.
     const builderLine = line(() => (builderFee && !feeInBase ? { known: true, value: builderFee.feeBps } : zeroFee));
@@ -1218,6 +1234,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       role,
       venueFee,
       builderFee: builderLine,
+      rates,
       fill,
       perpetual,
     });
@@ -1652,6 +1669,77 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return this.asOf(this.account(account).withdrawals.get(nonce) ?? null);
   }
 
+  /**
+   * The published fee tiers, and with an account its tier, the volume the venue counted for it and the rates it charges
+   * it now (J-cex-spot-10 #2 #6). The tier is the one the venue's last update placed the account in
+   * (`updateFeeTier`), never recomputed on a read.
+   */
+  async feeStatus(account: UserVenueAccount | null): Promise<AsOf<VenueFeeStatus>> {
+    this.up();
+    if (account === null) return this.asOf({ schedule: this.feeSchedule, account: null });
+    const state = this.account(account);
+    const tiers = this.feeSchedule.tiers;
+    const tier = tiers ? tiers[state.feeTier?.index ?? 0] : undefined;
+    const rates = (kind: 'spot' | 'perpetual'): VenueFeeRates => (tier && (state.feeTier?.index ?? 0) > 0 ? tier[kind] : NO_RATES);
+    return this.asOf({
+      schedule: this.feeSchedule,
+      account: {
+        tierName: tier?.name ?? null,
+        volume: state.feeTier ? { known: true, value: state.feeTier.volume } : { known: false },
+        // The base tier charges each market's own published rates (`ratesOf`), so the account has no one rate there.
+        spot: rates('spot'),
+        perpetual: rates('perpetual'),
+        tierUpdatedAt: state.feeTier?.updatedAt ?? null,
+      },
+    });
+  }
+
+  /** TEST control: the venue's published fee tiers. Each starts above the last; the first starts at zero. */
+  setFeeSchedule(schedule: VenueFeeTiers): void {
+    const tiers = schedule.tiers;
+    if (tiers) {
+      if (tiers.length === 0 || tiers[0]!.fromVolume !== ZERO) throw new Error('TEST fee tiers start with a tier from zero');
+      for (let i = 1; i < tiers.length; i++)
+        if (compare(tiers[i]!.fromVolume, tiers[i - 1]!.fromVolume) <= 0) throw new Error('TEST fee tiers rise in volume');
+      for (const t of tiers)
+        for (const r of [t.spot, t.perpetual])
+          if (r.takerFeeBps.known && compare(r.takerFeeBps.value, ZERO) < 0) throw new Error('a taker rate is never below zero');
+    }
+    this.feeSchedule = schedule;
+  }
+
+  /**
+   * TEST control: the venue's next update of one owner's fee tier (J-cex-spot-10 #6), as Hyperliquid updates tiers once a
+   * day. It counts the notional of the main account's fills over the schedule's days and places the account in the
+   * highest tier that volume reaches. Only the named owner moves, so no other account's rates change under it.
+   */
+  updateFeeTier(owner: string): { index: number; volume: Amount; updatedAt: Date } {
+    const state = this.account({ venueId: this.venue.id, owner, subAccount: null });
+    const since = this.clock().getTime() - this.feeSchedule.volumeDays * 86_400_000;
+    let volume = ZERO;
+    for (const f of state.fills) if (f.filledAt.getTime() >= since) volume = add(volume, mul(f.price, f.amount, QUOTE_ROUND));
+    let index = 0;
+    for (const [i, t] of (this.feeSchedule.tiers ?? []).entries()) if (compare(volume, t.fromVolume) >= 0) index = i;
+    state.feeTier = { index, volume, updatedAt: this.clock() };
+    return state.feeTier;
+  }
+
+  /**
+   * The rates this account pays on `market`: its tier's when the venue placed it above the base tier, else the market's
+   * own published rates (the base tier). A rate the tier leaves unpublished falls back to the market's.
+   */
+  private ratesOf(state: AccountState | null, market: SimMarketConfig): VenueFeeRates {
+    const own = { makerFeeBps: market.makerFeeBps, takerFeeBps: market.takerFeeBps };
+    const index = state?.feeTier?.index ?? 0;
+    const tier = index > 0 ? this.feeSchedule.tiers?.[index] : undefined;
+    if (!tier) return own;
+    const r = tier[market.kind === 'perpetual' ? 'perpetual' : 'spot'];
+    return {
+      makerFeeBps: r.makerFeeBps.known ? r.makerFeeBps : own.makerFeeBps,
+      takerFeeBps: r.takerFeeBps.known ? r.takerFeeBps : own.takerFeeBps,
+    };
+  }
+
   async builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
     this.up();
     return this.asOf(this.account(account).builderApprovals.get(builder.toLowerCase()) ?? ZERO);
@@ -1782,8 +1870,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   /** The fee a fill is charged: the published one, or the TEST switch's hidden one when it is not published. */
-  private chargedFeeBps(market: SimMarketConfig, role: 'maker' | 'taker'): Amount {
-    const published = role === 'maker' ? market.makerFeeBps : market.takerFeeBps;
+  private chargedFeeBps(market: SimMarketConfig, role: 'maker' | 'taker', state: AccountState | null): Amount {
+    const rates = this.ratesOf(state, market);
+    const published = role === 'maker' ? rates.makerFeeBps : rates.takerFeeBps;
     if (published.known) return published.value;
     return role === 'maker' ? this.switches.unpublishedMakerFeeBps : this.switches.unpublishedTakerFeeBps;
   }
@@ -1897,6 +1986,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         deficits: new Map(),
         settlements: [],
         scheduled: { cancelsAt: null, lastFired: null },
+        feeTier: null,
       };
       this.accounts.set(key, state);
     }
@@ -2418,7 +2508,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (intent.timeInForce === 'ALO' && contra().some((o) => o.account !== state && crossesPrice(o)))
       return refused('venue_rejected', 'post-only order would take liquidity');
 
-    const { lockAsset, lockPerUnit, lockAmount } = this.orderLock(market, intent, setting, builderFee);
+    const { lockAsset, lockPerUnit, lockAmount } = this.orderLock(market, intent, setting, builderFee, state);
     // A market with its deployer's own margin account locks there, never on the main account.
     const marginAccount = perp && market.marginAccount ? market.marginAccount.name : null;
     const balance = this.lockBalance(state, marginAccount, lockAsset);
@@ -2497,9 +2587,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     intent: PlaceUserOrderIntent,
     setting: { leverageBps: number } | undefined,
     builderFee: PreparedVenueAction['builderFee'],
+    state: AccountState,
   ): { lockAsset: string; lockPerUnit: Amount; lockAmount: Amount } {
     // A perp order also locks the most it can pay in fees: the fee charged, even when the venue does not publish it.
-    const maxFeeBps = add(this.chargedFeeBps(market, 'taker'), builderFee?.feeBps ?? ZERO);
+    const maxFeeBps = add(this.chargedFeeBps(market, 'taker', state), builderFee?.feeBps ?? ZERO);
     const feeBuffer = (notional: Amount) => div(mul(notional, maxFeeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
     let lockAsset: string;
     let lockPerUnit: Amount;
@@ -2598,7 +2689,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       [maker, 'maker'],
       [taker, 'taker'],
     ] as const) {
-      const feeBps = this.chargedFeeBps(market, role);
+      const feeBps = this.chargedFeeBps(market, role, side.account);
       // A spot buy pays its fees in the base it receives; everything else pays in the quote asset.
       const feeInBase = market.kind === 'spot' && side.order.side === 'buy';
       const feeBasis = feeInBase ? qty : mul(price, qty, QUOTE_ROUND);
@@ -2740,7 +2831,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         `a ${trigger.role === 'take_profit' ? 'take profit' : 'stop loss'} on this side must trigger ${want} the ${trigger.source} price ${formatAmount(now)}: this one would fire at once`,
       );
     }
-    const { lockAsset, lockPerUnit } = this.orderLock(market, intent, setting, builderFee);
+    const { lockAsset, lockPerUnit } = this.orderLock(market, intent, setting, builderFee, state);
     const amount = parent && parent.order.filled !== ZERO ? min(intent.amount, parent.order.filled) : intent.amount;
     const lockAmount = mul(lockPerUnit, intent.amount, QUOTE_ROUND);
     const marginAccount = market.marginAccount ? market.marginAccount.name : null;

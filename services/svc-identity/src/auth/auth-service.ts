@@ -225,6 +225,7 @@ export class AuthError extends Error {
       | 'auth.webauthn_invalid'
       | 'auth.webauthn_not_enrolled'
       | 'auth.webauthn_unconfigured'
+      | 'identity.screening_unset'
       | 'auth.domain_not_allowed'
       | 'auth.sub_account_required'
       | 'auth.sub_account_denied'
@@ -667,6 +668,26 @@ export class AuthService {
     this.sessionLimits = limits;
   }
 
+  /**
+   * True while the owner's blocked-countries list is not set (J-identity-22 #1). index.ts sets it to `countryListUnset`;
+   * a service built without it (a unit test) asks nothing.
+   */
+  private countryListUnset: (() => boolean) | undefined;
+
+  /** Sets the blocked-countries read: while it answers true, no sign-in door opens a session. */
+  setCountryListGate(unset: () => boolean): void {
+    this.countryListUnset = unset;
+  }
+
+  /** Refuses every sign-in while the blocked-countries list is not set; before any account is read, so it names none. */
+  private assertCountryListSet(): void {
+    if (this.countryListUnset?.())
+      throw new AuthError(
+        'Sign-in is paused: the blocked-countries list is not set. Nobody can sign in until it is.',
+        'identity.screening_unset',
+      );
+  }
+
   constructor(
     private readonly sql: Sql,
     private readonly bus: EventBus,
@@ -860,6 +881,8 @@ export class AuthService {
     ip?: string;
     deviceKey?: string | null;
   }): Promise<{ session: SessionTokens; accountType: AccountType; referrerId: string | null }> {
+    // A code asked for before the list was switched off makes no account while it is off (J-identity-22 #1).
+    this.assertCountryListSet();
     const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) =>
       this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash),
     );
@@ -1066,6 +1089,7 @@ export class AuthService {
 
   /** Code sign-in step 1: the same answer for every name; an active account is mailed a code. */
   async loginCodeRequest(input: { identifier: string }): Promise<LoginCodeAccepted> {
+    this.assertCountryListSet();
     return requestLoginCode(this.loginCodeDeps(), input);
   }
 
@@ -1317,6 +1341,8 @@ export class AuthService {
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
+    // No account is made while the blocked-countries list is not set (J-identity-22 #1).
+    this.assertCountryListSet();
     policyRefusal(() => {
       assertPasswordShape(input.password);
       assertPasswordNotIdentity(input.password, input);
@@ -1532,6 +1558,7 @@ export class AuthService {
     ip?: string;
     deviceKey?: string | null;
   }): Promise<SessionTokens> {
+    this.assertCountryListSet();
     const user = await this.passFirstFactor(input);
     // A locked-out reset whose wait has passed completes at a sign-in by password alone: the authenticator app goes, with
     // every session. A sign-in that brings a code is the person who still has the app or a recovery code.
@@ -1788,6 +1815,8 @@ export class AuthService {
     userId: string,
     options: { device?: string | undefined; ip?: string | undefined; mfa: boolean; trustedDeviceId?: string | null },
   ): Promise<SessionTokens> {
+    // Every door that opens a session (password, code, passkey, wallet, provider, device approval, sign-up) ends here.
+    this.assertCountryListSet();
     const refreshToken = generateToken(48);
     const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
     const inserted = await transaction(

@@ -111,7 +111,7 @@ jobs:
       # step whether its test still exercises and distinguishes what the step's words require; it decides alone when
       # nothing needs judging (PASS) or the change is too large (FAIL), else the one call below answers it too. (Failure
       # it prevents: proof v2's post-merge reach reads voided 545 proofs over one harness change that altered nothing the
-      # tests observe; project-state research/system-design-2026-11-07/E1-RESULT.md.) The step words are private: read
+      # tests observe; project-state product/E1-RESULT.md.) The step words are private: read
       # from project-state with PROJECT_STATE_READ_TOKEN (the App token minted above, else the old secret; read-only,
       # that repository only, and only when a step needs judging), written only to the prompt file, and never printed.
       # The pull request's code is read as text (the compare API and two shallow fetches of its base and head), never

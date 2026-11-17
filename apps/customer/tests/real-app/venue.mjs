@@ -202,3 +202,23 @@ export async function chainBalance(token, owner, blockNumber) {
     ...(blockNumber === undefined ? {} : { blockNumber }),
   });
 }
+
+/**
+ * A venue journey's run state: the account and wallet its #1 made, with the wallet's address as `owner`. A later step
+ * that finds none fails naming #1, never acting as someone else.
+ */
+export function venueRunState(run, journey) {
+  const s = run.read();
+  if (!s.account || !s.walletKey) throw new Error(`${journey} #1 made no account and wallet, so this step has no one to act as`);
+  return { ...s, owner: privateKeyToAccount(s.walletKey).address.toLowerCase() };
+}
+
+/** Every signing write the page sends to the door (prepare, submit), so a step can show nothing was sent. */
+export function venueWrites(page) {
+  const sent = [];
+  page.on('request', (r) => {
+    const p = new URL(r.url()).pathname;
+    if (r.method() === 'POST' && (p === '/api/v1/venue/prepare' || p === '/api/v1/venue/submit')) sent.push(p);
+  });
+  return sent;
+}

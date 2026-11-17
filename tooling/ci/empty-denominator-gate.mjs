@@ -146,9 +146,9 @@ export const ENFORCED = {
     must: /AGENTS\.md lost a core rule: file missing/,
     note: 'refuses by name when the agent entry files are absent, instead of reporting no stale rule over nothing.',
   },
-  reachability: {
+  'dead-code': {
     kind: 'guard',
-    must: /REACHABILITY - \d+ protected module\(s\) were deleted/,
+    must: /DEAD CODE - \d+ protected module\(s\) were deleted/,
     note: 'the protected keep-list is what makes emptiness loud: no subject means every protected module reads as deleted.',
   },
   'tooling-tests': {
@@ -212,6 +212,11 @@ export const ENFORCED = {
     kind: 'uncaught',
     must: /ENOENT[\s\S]*env\.ts/,
     note: 'reads packages/config/src/env.ts to learn which secrets exist. Refuses, by throw.',
+  },
+  'service-tracing': {
+    kind: 'guard',
+    must: /service-tracing: found no service commands in the compose files; refusing to pass over nothing/,
+    note: "its denominator is the compose files' service commands. With none it refuses by name.",
   },
   'secret-rotation-readiness': {
     kind: 'guard',

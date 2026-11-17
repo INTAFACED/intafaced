@@ -599,6 +599,9 @@ export function toTrpcError(err: unknown): TRPCError {
     case 'auth.sub_account_cap_unset':
       // Owner number unpublished — not a 401 (no identity) or 403 (known, not allowed).
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'identity.screening_unset':
+      // The owner's blocked-countries list is not set: the deployment's, never the person's (J-identity-22 #1).
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     case 'auth.webauthn_unconfigured':
     case 'auth.totp_key_missing':
       // Server misconfiguration — enrol cannot write plaintext. Ops must set IDENTITY_TOTP_SECRET_KEY.

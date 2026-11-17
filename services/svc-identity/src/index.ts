@@ -20,6 +20,7 @@ import { env } from './env.js';
 import { SignInChallengeService, parseSignInChallengePolicy } from './auth/signin-challenge.js';
 import { relaySecurityFactorEvents } from './auth/factor-changed-notice.js';
 import { AuthService } from './auth/auth-service.js';
+import { countryListUnset } from './auth/sign-up.js';
 import { parseStaffTestRoster } from '@intafaced/auth';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
@@ -393,6 +394,8 @@ const auth = new AuthService(
 // The owner's idle sign-out and device limit (I-signin-sessions-06); a value that is not a whole number stops the start.
 const sessionLimits = parseSessionLimits(env, { accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS });
 auth.setSessionLimits(sessionLimits);
+// While the owner's blocked-countries list is not set, no sign-in door opens a session (J-identity-22 #1).
+auth.setCountryListGate(countryListUnset);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
 /** The same keys on the inbound doors: a key-signed caller is named by its own key. */

@@ -6,6 +6,7 @@ DELETE /api/v1/orders/by-client-id/:clientOrderId private trade:write
 DELETE /api/v1/orders/by-client/:clientOrderId private trade:write
 DELETE /api/v1/positions/:id private trade:write
 DELETE /api/v1/venue/protections/:id private trade:write
+DELETE /api/v1/venue/spot-orders/:id private trade:write
 GET /api/v1/account/balance private trade:read
 GET /api/v1/account/fee-tier private trade:read
 GET /api/v1/account/fees private trade:read
@@ -92,6 +93,8 @@ GET /api/v1/venue/book private trade:read
 GET /api/v1/venue/builder-fee-approval private trade:read
 GET /api/v1/venue/candles private trade:read
 GET /api/v1/venue/deposits private trade:read
+GET /api/v1/venue/fee-tier private trade:read
+GET /api/v1/venue/fees public trade:read
 GET /api/v1/venue/fills private trade:read
 GET /api/v1/venue/funding-history public trade:read
 GET /api/v1/venue/gated-list private trade:read
@@ -114,6 +117,8 @@ GET /api/v1/venue/protections private trade:read
 GET /api/v1/venue/scheduled-cancel private trade:read
 GET /api/v1/venue/session private trade:read
 GET /api/v1/venue/settlements private trade:read
+GET /api/v1/venue/spot-agent private trade:read
+GET /api/v1/venue/spot-orders private trade:read
 GET /api/v1/venue/statements/:id/file private trade:read
 GET /api/v1/venue/status private trade:read
 GET /api/v1/venue/sub-accounts private trade:read
@@ -123,6 +128,7 @@ GET /api/v1/venue/withdrawals/:nonce private trade:read
 GET /api/v1/vip/applications private trade:read
 PATCH /api/v1/algo/:id private trade:write
 PATCH /api/v1/orders/:id private trade:write
+PATCH /api/v1/venue/spot-orders/:id private trade:write
 POST /api/v1/account/api-key/rotation private trade:write
 POST /api/v1/account/api-key/rotation/approve private trade:write
 POST /api/v1/algo private trade:write
@@ -200,6 +206,9 @@ POST /api/v1/venue/protections private trade:write
 POST /api/v1/venue/route-preview private trade:write
 POST /api/v1/venue/session/end private trade:write
 POST /api/v1/venue/session/start private trade:write
+POST /api/v1/venue/spot-agent/prepare private trade:write
+POST /api/v1/venue/spot-orders private trade:write
+POST /api/v1/venue/spot-orders/review private trade:write
 POST /api/v1/venue/statements private trade:write
 POST /api/v1/venue/submit private trade:write
 POST /api/v1/vip/applications private trade:write

@@ -19,7 +19,7 @@ import { SignerChainRefusedError, type EvmSigner } from './evm-signer.js';
 import { DepositSourceChainRefusedError, type DepositAddressSource } from './deposit-source.js';
 import { runDurableBroadcast } from './durable-broadcast.js';
 import { ERC20_TRANSFER_TOPIC, fromChainUnits, requireAsset, toChainUnits, type EvmAsset } from './evm-assets.js';
-import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './chain-port.js';
+import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort, SendDepth } from './chain-port.js';
 
 /**
  * LIVE EVM implementation of `CryptoChainPort`.
@@ -258,18 +258,18 @@ export class EvmLiveChain implements CryptoChainPort {
 
   /**
    * The depth of the send journalled under this key: the block that mined it and every block since. No hash journalled, no
-   * receipt yet, or a node that does not answer is `null` or 0, never a guess; a reverted receipt is `null` (it never
-   * counts as confirmed).
+   * receipt yet, or a node that does not answer is `null` or 0, never a guess. A reverted receipt never counts as confirmed:
+   * it reads `{ reverted: true, depth }`, so the caller can give the hold back once the revert itself is deep enough.
    */
-  async sendDepth(idempotencyKey: string): Promise<number | null> {
+  async sendDepth(idempotencyKey: string): Promise<SendDepth> {
     const hash = await this.broadcasts.get(idempotencyKey);
     if (!hash) return null;
     const receipt = await this.receiptFor(hash as Hex);
     if (!receipt) return 0;
-    if (receipt.status !== 'success') return null;
     const tip = await this.public.getBlockNumber();
-    const depth = tip - receipt.blockNumber + 1n;
-    return depth < 0n ? 0 : Number(depth);
+    const blocks = tip - receipt.blockNumber + 1n;
+    const depth = blocks < 0n ? 0 : Number(blocks);
+    return receipt.status === 'reverted' ? { reverted: true, depth } : depth;
   }
 
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {

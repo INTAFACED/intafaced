@@ -1093,6 +1093,24 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The most your wallet has approved for our builder fee on the venue',
   },
   {
+    name: 'venueFeeTier',
+    method: 'GET',
+    path: '/api/v1/venue/fee-tier',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Your fee tier on the venue as it reports it: the tier, the volume it counted, your maker and taker rates, and when it last placed you',
+  },
+  {
+    name: 'venueFees',
+    method: 'GET',
+    path: '/api/v1/venue/fees',
+    product: 'accounts',
+    access: 'public',
+    summary:
+      'The venue’s published fee tiers, each listed market’s maker and taker rates, the venue’s cap on a builder fee there, and our builder fee: blank reads not set',
+  },
+  {
     name: 'venueMarketVenues',
     method: 'GET',
     path: '/api/v1/venue/markets/:symbol/venues',
@@ -1370,6 +1388,65 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'The unsigned approval of that agent key, for your wallet to sign and send through /api/v1/venue/submit',
+  },
+  {
+    name: 'venueSpotOrders',
+    method: 'GET',
+    path: '/api/v1/venue/spot-orders',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Your stop-limit, stop-market, OCO, bracket and linked-close orders on your own venue account: each leg with where it rests, its trigger, what the venue locks for it now and its state',
+  },
+  {
+    name: 'venueSpotOrderCreate',
+    method: 'POST',
+    path: '/api/v1/venue/spot-orders',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Place a conditional spot order: a stop the venue holds answers its unsigned trigger order for your wallet; the rest is run by INTAFACED on our engine (201) under your agent permission, a bracket’s entry answered unsigned for your wallet',
+  },
+  {
+    name: 'venueSpotOrderReview',
+    method: 'POST',
+    path: '/api/v1/venue/spot-orders/review',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The fee of each leg of a conditional spot order, as maker or taker, from the venue’s published schedule and our builder fee',
+  },
+  {
+    name: 'venueSpotOrderModify',
+    method: 'PATCH',
+    path: '/api/v1/venue/spot-orders/:id',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Change a live stop’s trigger and limit, judged as a new one would be',
+  },
+  {
+    name: 'venueSpotOrderCancel',
+    method: 'DELETE',
+    path: '/api/v1/venue/spot-orders/:id',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Cancel a conditional spot order: what rests on the venue for it is cancelled there, releasing its lock',
+  },
+  {
+    name: 'venueSpotAgent',
+    method: 'GET',
+    path: '/api/v1/venue/spot-agent',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The agent key our engine signs your conditional spot orders with, and whether your venue account lists it approved; it can trade, never withdraw',
+  },
+  {
+    name: 'venueSpotAgentPrepare',
+    method: 'POST',
+    path: '/api/v1/venue/spot-agent/prepare',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The unsigned approval of the spot-order agent key, for your wallet to sign and send through /api/v1/venue/submit',
   },
   {
     name: 'liveRuns',

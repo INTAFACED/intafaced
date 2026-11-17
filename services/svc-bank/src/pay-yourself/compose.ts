@@ -1,14 +1,11 @@
-import type { Sql } from 'postgres';
+import type { BankRoot } from '../bank-root.js';
 import { ZERO, type Amount } from '@intafaced/ledger-client';
-import { partnerFeeKnown, type TestPartner } from '../partner/test-partner.js';
+import { partnerFeeKnown } from '../partner/test-partner.js';
 import { PayYourselfService } from './pay-yourself-service.js';
 import type { RealisedSource } from './realised-source.js';
 import type { PayInRail } from './test-pay-in.js';
 
-/**
- * Pay yourself from your trading (J-bank-31), made in its own place: `bank-service.ts` spreads these and does not change
- * for this journey (project-state #2656; `bank-service.compose.test.ts`).
- */
+/** Pay yourself from your trading (J-bank-31). An area of svc-bank (`area-chain.ts`). */
 export interface PayYourselfServices {
   /** J-bank-31: a venue withdrawal, signed once, to the person's own partner account. `bank.pay_in_unset` with no pay-in. */
   readonly payYourself: PayYourselfService;
@@ -23,17 +20,14 @@ export interface PayYourselfServiceOptions {
   payYourselfNow?: () => Date;
 }
 
-export function composePayYourselfServices(
-  ctx: { readonly sql: Sql; readonly testPartner: TestPartner | null },
-  options: PayYourselfServiceOptions,
-): PayYourselfServices {
+export function composePayYourselfArea(root: BankRoot, _made: object, options: PayYourselfServiceOptions): PayYourselfServices {
   return {
-    payYourself: new PayYourselfService(ctx.sql, {
+    payYourself: new PayYourselfService(root.sql, {
       payIn: options.payInRail ?? null,
       realised: options.realisedSource ?? null,
       // The TEST partner charges nothing for a pay-in (TEST) when it says what a move costs; with its fee switch
       // `unknown` it says nothing, read as "not known", never 0.
-      partnerFee: (userId): Amount | null => (partnerFeeKnown(ctx.testPartner, userId) ? ZERO : null),
+      partnerFee: (userId): Amount | null => (partnerFeeKnown(root.testPartner, userId) ? ZERO : null),
       ...(options.payYourselfNow ? { now: options.payYourselfNow } : {}),
     }),
   };

@@ -1225,3 +1225,59 @@ describe('book reads for the hand-run tools', () => {
     ]);
   });
 });
+
+describe('feeStatus reads userFees and sends nothing (J-cex-spot-10 #2 #6)', () => {
+  const USER_FEES = {
+    dailyUserVlm: [
+      { date: '2026-11-16', userCross: '1000.5', userAdd: '200', exchange: '1' },
+      { date: '2026-11-17', userCross: '0', userAdd: '50', exchange: '1' },
+    ],
+    feeSchedule: {
+      cross: '0.00045',
+      add: '0.00015',
+      spotCross: '0.0007',
+      spotAdd: '0.0004',
+      tiers: { vip: [{ ntlCutoff: '5000000.0', cross: '0.0004', add: '0.00012', spotCross: '0.0006', spotAdd: '0.0003' }], mm: [] },
+    },
+    userCrossRate: '0.00045',
+    userAddRate: '0.00015',
+    userSpotCrossRate: '0.0007',
+    userSpotAddRate: '-0.00001',
+  };
+  const bps = (v: string) => ({ known: true, value: a(v) });
+
+  it("the tiers from the base and feeSchedule.tiers.vip, the account's summed daily volume and its own rates", async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => USER_FEES;
+    const s = (await venueWith(fake).feeStatus(account)).value;
+    expect(s.schedule.tiers).toEqual([
+      {
+        name: 'Tier 0',
+        fromVolume: a('0'),
+        spot: { makerFeeBps: bps('4'), takerFeeBps: bps('7') },
+        perpetual: { makerFeeBps: bps('1.5'), takerFeeBps: bps('4.5') },
+      },
+      {
+        name: 'Tier 1',
+        fromVolume: a('5000000'),
+        spot: { makerFeeBps: bps('3'), takerFeeBps: bps('6') },
+        perpetual: { makerFeeBps: bps('1.2'), takerFeeBps: bps('4') },
+      },
+    ]);
+    expect(s.account).toEqual({
+      tierName: null,
+      volume: bps('1250.5'),
+      spot: { makerFeeBps: bps('-0.1'), takerFeeBps: bps('7') },
+      perpetual: { makerFeeBps: bps('1.5'), takerFeeBps: bps('4.5') },
+      tierUpdatedAt: null,
+    });
+    expect(fake.exchangeBodies).toHaveLength(0);
+  });
+
+  it('with no account, the schedule alone; a venue that sends no schedule publishes no tiers', async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => ({});
+    const s = (await venueWith(fake).feeStatus(null)).value;
+    expect(s).toEqual({ schedule: { tiers: null, volumeAsset: 'USDC', volumeDays: 14 }, account: null });
+  });
+});
