@@ -3,9 +3,11 @@ import { randomBytes } from 'node:crypto';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, journeyState } from './stack.mjs';
+import { signIn } from './desk.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
-import { testWalletKey } from './test-wallet.mjs';
-import { testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { testDeposit, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-cex-spot-15, the steps a developer's bot takes through our API on the venue (docs/roadmap/journeys.json): one test
 // per step, titled "J-cex-spot-15 #<n>". The journey's start is made once, as TEST setup: a verified TEST account with
@@ -112,8 +114,10 @@ test.beforeAll(async ({ browser }) => {
   }
 });
 
-test(`${J} #5 places an order with a client id through our API, looks it up by client id, cancels by client id: the venue order, then its state, then its cancel; a repeat returns the first outcome; the API signs with the user's agent permission only`, async () => {
-  test.setTimeout(180_000);
+test(`${J} #5 places an order with a client id through our API, looks it up by client id, cancels by client id: the venue order, then its state, then its cancel; a repeat returns the first outcome; the API signs with the user's agent permission only`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
   const s = state();
   // The agent permission is on the venue's own record of the account: the bot's key, named, approved by the wallet.
   const agents = (await venueRecord(s.owner, '/agents')).value;
@@ -187,4 +191,17 @@ test(`${J} #5 places an order with a client id through our API, looks it up by c
   expect(withdraw.prepared.body.intafacedCode).toBe('scope.interactive_only');
   expect(withdraw.sent).toBeNull();
   expect((await venueRecord(s.owner, '/balances')).value.find((b) => b.asset === 'USDC')).toEqual(usdcBefore);
+
+  // ── The person's own order history shows the bot's order on the venue: placed once, now cancelled ─────────────
+  await installTestWallet(page, { chainId: (await venueInfo()).chainId, privateKey: s.walletKey });
+  await signIn(page, s.who);
+  await page.goto('/trade/orders?product=venue');
+  await expect(page.getByRole('heading', { name: 'Order history', exact: true, level: 1 })).toBeVisible();
+  const address = page.getByTestId('venue-wallet-address');
+  await connectWhenAsked(page, address);
+  await expect(address).toHaveText(s.owner);
+  const row = page.getByTestId('venue-history').locator(`tbody tr[data-client-order-id="${cloid}"]`);
+  await expect(row).toHaveCount(1, { timeout: 20_000 });
+  await expect(row.locator('[data-cell="status"]')).toHaveText('Cancelled');
+  await expect(row).toContainText(SYMBOL);
 });
