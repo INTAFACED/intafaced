@@ -34,7 +34,6 @@ import {
   assertActiveLocalStack,
   localEmailOutboxPath,
   localPgBin,
-  localStackState,
   readLatestEmailConfirmToken,
   stackCustodyOff,
   custodyOffRefusal,
@@ -43,13 +42,14 @@ import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
+import { STACK_PORTS, stackUrl } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const STACK_SCRIPT = path.join(path.dirname(SCRIPT), 'local-test-stack.mjs');
 const MARKER_KIND = 'intafaced-local-test-stack';
 const LOCAL_HOST = '127.0.0.1';
-const EDGE = `http://${LOCAL_HOST}:14500`;
-const CUSTOMER_ORIGIN = `http://${LOCAL_HOST}:3210`;
+const EDGE = stackUrl('edge', LOCAL_HOST);
+const CUSTOMER_ORIGIN = stackUrl('customer', LOCAL_HOST);
 const PSQL = path.join(localPgBin(), 'psql');
 const DB_NAME = 'intafaced_local_test';
 const POLL_MS = 5000;
@@ -257,7 +257,24 @@ function writePrivateAtomic(file, obj) {
 function psql(secrets, role, sql) {
   const r = spawnSync(
     PSQL,
-    ['-X', '-At', '-F', '\t', '-v', 'ON_ERROR_STOP=1', '-h', LOCAL_HOST, '-p', '15460', '-U', role, '-d', DB_NAME, '-c', sql],
+    [
+      '-X',
+      '-At',
+      '-F',
+      '\t',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-h',
+      LOCAL_HOST,
+      '-p',
+      String(STACK_PORTS.postgres),
+      '-U',
+      role,
+      '-d',
+      DB_NAME,
+      '-c',
+      sql,
+    ],
     {
       encoding: 'utf8',
       env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
@@ -685,7 +702,7 @@ async function verifyPass({ secrets, state, log }) {
 function guard() {
   try {
     const found = assertLocalTarget({
-      urls: [EDGE, `http://${LOCAL_HOST}:14501`, `http://${LOCAL_HOST}:14502`, `http://${LOCAL_HOST}:14509`],
+      urls: [EDGE, ...['ledger', 'identity', 'bank'].map((name) => stackUrl(name, LOCAL_HOST))],
     });
     RUNTIME.script = pickStackScript({ marker: found.marker });
     RUNTIME.env = process.env.LOCAL_STACK_STATE === undefined ? process.env : { ...process.env, LOCAL_STACK_STATE: found.paths.stateDir };

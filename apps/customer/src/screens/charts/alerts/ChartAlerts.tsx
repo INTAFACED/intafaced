@@ -12,6 +12,7 @@
  * - The person's chart setting can take the levels off the chart (Chart settings, Alerts); the list under it stays.
  */
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { chartValue } from '../../../shared/chart-value';
 import { createPortal } from 'react-dom';
 import { useSession } from '../../../features/session/session';
 import type { DeskMarket } from '../../trade/desk/market';
@@ -105,7 +106,7 @@ export function ChartAlerts({
     const colour = getComputedStyle(document.documentElement).getPropertyValue('--if-fg').trim();
     const lines = shown.map((alert) =>
       host.main.createPriceLine({
-        price: Number(alert.targetPrice),
+        price: chartValue(alert.targetPrice),
         color: colour,
         lineWidth: 1,
         lineStyle: 1,
@@ -166,7 +167,7 @@ export function ChartAlerts({
   const paneTop = host ? pricePane(host).top : 0;
   const paneHeight = host ? pricePane(host).height : 0;
   const yOf = (price: string) => {
-    const y = host ? host.main.priceToCoordinate(Number(price)) : null;
+    const y = host ? host.main.priceToCoordinate(chartValue(price)) : null;
     return y === null || y < 0 || y > paneHeight ? null : paneTop + y;
   };
 

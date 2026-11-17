@@ -72,7 +72,7 @@ function leaseSql(options?: { onScan?: (merchantId: string) => void; block?: { g
     if (text.includes('chargeback.opening_planned')) return [];
     if (text.includes('pay.payout_admissions')) return [];
     throw new Error(text);
-  }) as unknown as Sql;
+  }) as Sql;
   return { sql, leases, deletes: () => deletes };
 }
 

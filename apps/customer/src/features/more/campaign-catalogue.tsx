@@ -19,6 +19,9 @@ import { Select } from './common';
 import { StatRow } from './depth-kit';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { CampaignTasks } from './campaign-tasks';
+import { CampaignCompetition } from './campaign-competition';
+import { CampaignDraw } from './campaign-draw';
+import { CampaignPool } from './campaign-pool';
 
 /**
  * The campaign rooms read from svc-campaigns (CM-campaign-types-01, J-campaigns-01): the catalogue at /campaigns, one
@@ -38,6 +41,7 @@ const JOIN_CODES = [
   'campaigns.region_blocked',
   'campaigns.participant_unread',
   'campaigns.review_not_needed',
+  'campaigns.seats_full',
 ] as const;
 type JoinCode = (typeof JOIN_CODES)[number];
 const joinCode = (code: string | undefined): JoinCode | null =>
@@ -373,6 +377,9 @@ function CampaignBody({
         <p className="muted">{t('joinNote')}</p>
       </Panel>
       {c.tasks && c.type !== 'welcome' ? <CampaignTasks campaign={c} /> : null}
+      {c.type === 'competition' ? <CampaignCompetition campaign={c} version={c.mine?.participationKey ?? 'none'} /> : null}
+      {c.type === 'draw' ? <CampaignDraw campaign={c} version={c.mine?.participationKey ?? 'none'} /> : null}
+      {c.type === 'pool' ? <CampaignPool campaign={c} version={c.mine?.participationKey ?? 'none'} /> : null}
     </>
   );
 }

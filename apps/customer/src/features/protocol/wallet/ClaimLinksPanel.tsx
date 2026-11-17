@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { encodeFunctionData, formatUnits, parseAbi } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import type { ProtocolClaimLink } from '@intafaced/contracts/protocol-wallet-tx';

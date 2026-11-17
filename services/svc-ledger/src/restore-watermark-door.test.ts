@@ -59,7 +59,7 @@ async function mount(asked: { read: number; other: number; bodies?: unknown[] })
         };
       },
     },
-  ) as unknown as LedgerService;
+  ) as LedgerService;
   const app = Fastify({ logger: false });
   registerS2sHttp(app, ledger, SHARED, {
     bodyBind: 'require',

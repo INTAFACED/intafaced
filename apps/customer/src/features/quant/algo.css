@@ -64,10 +64,18 @@
   border-radius: var(--if-r-sm);
 }
 
-/* The printable report (AL-report-03): printing while it is open prints the report alone, without the app around it. */
+/* The printable report (AL-report-03): printing while it is open prints the report alone, without the app around it,
+   on A4 pages, with no section split across two pages. */
+@page {
+  size: A4;
+  margin: 1.5rem;
+}
+
 @media print {
-  body:has(.quant-report-document) * {
-    visibility: hidden;
+  /* Everything outside the report's own branch takes no room, so no blank page prints after it. Important, because an
+     element's own inline display (a portal or overlay root) would otherwise keep it on paper. */
+  body:has(.quant-report-document) *:not(:has(.quant-report-document)):not(.quant-report-document, .quant-report-document *) {
+    display: none !important;
   }
 
   /* Important, because another room's print sheet hides every element with an important rule while it is loaded. */
@@ -76,10 +84,8 @@
     visibility: visible !important;
   }
 
-  body:has(.quant-report-document) .quant-report-document {
-    position: absolute;
-    inset-block-start: 0;
-    inset-inline: 0;
+  .quant-report-document section {
+    break-inside: avoid;
   }
 
   .quant-report-document .quant-no-print {
@@ -103,4 +109,38 @@
 
 .quant-source [data-op='added'] {
   color: var(--if-up-text);
+}
+
+/* The Data room (J-algo-dev-16 #2): one coverage bar per dataset; a gap is the bar's own background, never filled. */
+.quant-lake-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--if-space-3);
+}
+.quant-lake-symbol {
+  display: grid;
+  gap: var(--if-space-2);
+  margin-block: var(--if-space-3);
+}
+.quant-lake-dataset {
+  display: grid;
+  gap: var(--if-space-1);
+}
+.quant-lake-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--if-space-0-5) var(--if-space-3);
+  margin: 0;
+}
+.quant-lake-bar {
+  position: relative;
+  block-size: 0.75rem;
+  background: var(--if-panel);
+  border-radius: var(--if-r-sm);
+  overflow: hidden;
+}
+.quant-lake-covered {
+  position: absolute;
+  inset-block: 0;
+  background: var(--if-lime);
 }

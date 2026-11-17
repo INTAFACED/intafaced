@@ -195,7 +195,7 @@ describe('the direct door', () => {
     createPayRouter(
       {} as PayService,
       rails,
-      { withdraw } as unknown as UserMoneyService,
+      { withdraw } as UserMoneyService,
       null,
       undefined,
       undefined,

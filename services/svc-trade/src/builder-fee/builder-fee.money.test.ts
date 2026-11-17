@@ -67,6 +67,8 @@ beforeAll(async () => {
     store: actions,
     stepUp: approveStepUp,
     builder: BUILDER,
+    // Blank: these orders are limits, which the owner's market price protection never bounds.
+    slippageCapBps: null,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
   });
@@ -435,7 +437,7 @@ describe('review fixes: what stops a run, what is skipped, and what is a break',
     await postBuilderFees(deps());
     let posts = 0;
     const counting = { post: async (r: Parameters<MemoryLedger['post']>[0]) => ((posts += 1), ledger.post(r)) };
-    const again = await postBuilderFees({ ...deps(), ledger: counting as unknown as MemoryLedger });
+    const again = await postBuilderFees({ ...deps(), ledger: counting as MemoryLedger });
     expect(posts).toBe(0);
     expect(again.posted).toBe(0);
   });

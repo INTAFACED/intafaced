@@ -31,6 +31,7 @@ import {
 import { approvalPolicyEntries, approvalPolicySource, type ApprovalPolicySource } from '../auth/action-approval-policy.js';
 import { PrivilegedDualControlError, requirePrivilegedDualControl } from '../auth/privileged-dual-control.js';
 import type { ActionApprovalService } from '../auth/action-approval-service.js';
+import { isRecord } from '@intafaced/contracts/guards';
 
 type ConsoleRow = { readonly row: Record<string, string>; readonly version: number };
 
@@ -43,8 +44,6 @@ export class PolicyRowError extends Error {
     this.name = 'PolicyRowError';
   }
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** The deployment's setting with each console row standing in for its type. Pure. */
 export function overlayPolicyRows(deployment: string | undefined, rows: ReadonlyMap<string, ConsoleRow>): string | undefined {

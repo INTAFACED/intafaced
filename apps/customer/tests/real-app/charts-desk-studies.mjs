@@ -5,6 +5,31 @@ import { EDGE } from './stack.mjs';
 // chart itself reads, and each study's formula worked here, independently of the app (studies/math.ts states them).
 
 const SYMBOL = 'BTC/USDT';
+
+/** The open TEST market no journey trades and the market maker never quotes (tooling/scripts/seed-spot-test-listing.mjs
+ * `UNTRADED_TEST_SPOT`), so its public tape is empty whatever ran before it on the stack. */
+const UNTRADED = 'IFC/BTC';
+
+/**
+ * The open spot market whose public tape holds no trade, checked on the public routes (the markets list, its lifecycle,
+ * then its newest trade). A stack where it is not listed or open, or where something traded it, fails here by name.
+ */
+export async function untradedMarket() {
+  const list = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  expect(list.status).toBe(200);
+  const listed = (await list.json()).map((m) => m.symbol);
+  if (!listed.includes(UNTRADED))
+    throw new Error(`the TEST market ${UNTRADED} kept with no trades is not listed on this stack (listed: ${listed.join(', ')})`);
+  const life = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(UNTRADED)}`);
+  const state = life.ok ? (await life.json()).state : `HTTP ${life.status}`;
+  if (state !== 'OPEN') throw new Error(`the TEST market ${UNTRADED} kept with no trades is not open on this stack (${state})`);
+  const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(UNTRADED)}?limit=1`);
+  expect(tape.status).toBe(200);
+  const rows = await tape.json();
+  if (rows.length !== 0)
+    throw new Error(`the TEST market ${UNTRADED} kept with no trades has a trade on its public tape: ${JSON.stringify(rows[0])}`);
+  return UNTRADED;
+}
 export const STEP_MS = {
   '1m': 60_000,
   '5m': 300_000,
@@ -155,8 +180,7 @@ export const F = {
 };
 
 /** A study line's shown value at the legend's bar, by the series name the legend writes. */
-export const shownValue = (page, id, name) =>
-  page.locator(`[data-study="${id}"]`).locator(`[data-series="${name}"] .st-value-text`).first();
+const shownValue = (page, id, name) => page.locator(`[data-study="${id}"]`).locator(`[data-series="${name}"] .st-value-text`).first();
 
 /**
  * Waits until every listed line of a study shows its worked value to the tick: the shown number is the worked value

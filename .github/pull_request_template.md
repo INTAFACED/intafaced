@@ -1,6 +1,6 @@
 <!--
 Title: <type>(<scope>): <what changed>, or <service>: <journey> <what a person gets> (<steps>).
-A gate-file PR (GATE_PATHS in tooling/scripts/gate-file-guard.mjs) needs a ci: or gate: title.
+A gate-file PR (GATE_PATHS in tooling/scripts/gate-files.mjs) needs the CI review's PASS on its exact head.
 Rules: AGENTS.md.
 -->
 

@@ -408,7 +408,16 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   await page.goto('/developers/rest');
   await expect(page.getByRole('heading', { name: 'REST conventions', level: 1 })).toBeVisible();
   const body = page.getByRole('main');
-  for (const rule of [/\/api\/v1\/orders\/:id/, /JSON/, /UTC/, /UUID/, /decimal string/i]) await expect(body).toContainText(rule);
+  // Each convention is stated whole, not only named: what a URL holds, the JSON encoding, what a time is, what an id is,
+  // and that money is a decimal string.
+  for (const rule of [
+    'Resource addresses live under /api/v1 and name what they hold: /api/v1/orders, /api/v1/orders/:id, /api/v1/ticker/:symbol.',
+    'Requests and answers are JSON, in UTF-8, sent as application/json.',
+    'Times are UTC: timestamp is Unix milliseconds and datetime is the same instant in ISO 8601 with an offset.',
+    'Order ids are UUIDs, written as strings; an id that is not a UUID names no order and is refused as not found.',
+    'Every price, amount, fee and balance is a decimal string ("0.015"), never a JSON number.',
+  ])
+    await expect(body).toContainText(rule);
   // The symbol format, by example: spot, a linear perpetual, and the encoded form in a path.
   const SYMBOL = /^[A-Z0-9]+\/[A-Z0-9]+(:[A-Z0-9]+(-\d+)?)?$/;
   for (const example of ['BTC/USDT', 'BTC/USDT:USDT']) {
@@ -424,6 +433,8 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   const listedMarkets = await markets.json();
   expect(Array.isArray(listedMarkets) && listedMarkets.length > 0, JSON.stringify(listedMarkets).slice(0, 200)).toBe(true);
   for (const market of listedMarkets) expect(market.symbol).toMatch(SYMBOL);
+  // The running stack answers as the JSON rule says: application/json, in UTF-8.
+  expect(markets.headers()['content-type'] ?? '').toMatch(/^application\/json(;\s*charset=utf-8)?$/i);
 
   await page.goto('/developers/reference');
   await expect(page.getByRole('heading', { name: 'API reference', level: 1 })).toBeVisible();
@@ -463,12 +474,16 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
     await expect(row.getByRole('cell').first(), name).toContainText(stream.path);
     await expect(row.getByRole('cell').last(), name).toHaveText(stream.access === 'private' ? 'your own data; trade:read' : 'public');
   }
-  // The stack sets no multiplexed idle window (owner-unpublished), so that door is listed down with its typed code and
-  // every other door is up.
+  // The stack sets the multiplexed door's labelled TEST values (tooling/profiles/test-owner-values/ws.json), so every
+  // door, the multiplexed one included, is listed up with no refusal.
   expect(
     liveStreams.map(({ door, mounted, refusal }) => [door, mounted, refusal ?? null]),
     JSON.stringify(liveStreams),
-  ).toEqual(liveStreams.map(({ door }) => (door === 'mux' ? ['mux', false, 'ws.mux_idle_unset'] : [door, true, null])));
+  ).toEqual(liveStreams.map(({ door }) => [door, true, null]));
+  expect(
+    liveStreams.some(({ door }) => door === 'mux'),
+    'the inventory lists the multiplexed door',
+  ).toBe(true);
 
   // With the Customer server's WebSocket upstream blank, the inventory refuses with its typed code, and the reference
   // still lists every stream; restored, the inventory reads back the same.

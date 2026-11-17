@@ -34,7 +34,7 @@ function caller(overrides: Partial<ProtocolRouterDeps> = {}) {
     swapFeeCapWei: () => 100_000_000_000n,
     feeRelay: () => ({ relay: RELAY, url: 'http://127.0.0.1:2/relay', gasLimit: 400_000n }),
     ...overrides,
-  } as unknown as ProtocolRouterDeps).createCaller(anonymous());
+  } as ProtocolRouterDeps).createCaller(anonymous());
 }
 
 const order = (pool: string) => ({

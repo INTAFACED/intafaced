@@ -19,6 +19,7 @@
  */
 import { SHARD_COUNT, classify, sealNeeded, shardMatrix } from './ci-affected.mjs';
 import { START_JOB, pullFiles } from './journey-seal.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 
@@ -56,7 +57,8 @@ export function jobResults(jobs) {
  * then needed). `forceFull` for a merge queue's commit (runsEverything). Returns { ok, wait, lines }.
  */
 export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
-  if (!run) return { ok: false, wait: true, lines: ['CI (ci.yml) has not run on this head yet; the seal re-runs when it finishes'] };
+  if (!run)
+    return { ok: false, wait: true, lines: ['no CI ran for this pull request on this head: merge origin/main if it conflicts, else push'] };
   const id = `CI run ${run.id} (attempt ${run.run_attempt ?? 1})`;
   // A run is judged once every job but ci.yml's own seal has finished: a re-run of that seal alone puts the run back in
   // progress, and must not turn this seal red (the CI review on 7a7eb9a0, 8 Nov 2026). Its last job, START_JOB, is
@@ -81,11 +83,52 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
   return { ok: false, wait: false, lines: problems.map((p) => `${id}: ${p}`) };
 }
 
+/** The money browser checks' workflow (#8708) and the paths it runs on, as its `pull_request` and `push` triggers list them
+ *  (ci-jobs-seal.test.mjs keeps the three lists equal). A pattern ending in `/**` is a folder; any other is one file. */
+export const MONEY_WORKFLOW_PATH = '.github/workflows/customer-money-browser.yml';
+export const MONEY_JOB = 'Money browser checks';
+export const MONEY_PATHS = [
+  'apps/customer/**',
+  'packages/ui/**',
+  'packages/i18n/**',
+  'packages/exchange-contract/**',
+  'packages/contracts/**',
+  '.github/workflows/customer-money-browser.yml',
+];
+export const touchesMoney = (files) =>
+  (files ?? []).some((f) => MONEY_PATHS.some((p) => (p.endsWith('/**') ? f.startsWith(p.slice(0, -2)) : f === p)));
+
+/**
+ * The money browser checks on this exact head (#8708): when they ran there, the merge waits for their verdict. The newest
+ * pull_request run of MONEY_WORKFLOW_PATH on the head decides, as CI's newest run does: its MONEY_JOB passed is green;
+ * still going waits; red, cancelled, skipped or a finished run with no such job fails. With no run on the head nothing
+ * waits: a change that touches none of MONEY_PATHS (GitHub's paths filter started none), and a head pushed before the
+ * workflow ran on pull requests (open pull requests at this change's merge are not held for a run they never got;
+ * checker on #8713). `files` null (unreadable) is read as touching. Returns { ok, wait, lines }. Pure.
+ */
+export function moneyVerdict({ runs, jobs, files, sha }) {
+  if (files !== null && !touchesMoney(files))
+    return { ok: true, wait: false, lines: ['the money browser checks: the change touches none of their paths, so none is owed'] };
+  const run =
+    (runs ?? [])
+      .filter((r) => r?.head_sha === sha && r?.event === 'pull_request' && r?.path === MONEY_WORKFLOW_PATH)
+      .sort((a, b) => b.id - a.id)[0] ?? null;
+  if (!run) return { ok: true, wait: false, lines: ['the money browser checks: no run of them on this head, so nothing waits'] };
+  const id = `the money browser checks, run ${run.id} (attempt ${run.run_attempt ?? 1})`;
+  const job = (jobs ?? []).filter((j) => j?.name === MONEY_JOB).sort((a, b) => (b.id ?? 0) - (a.id ?? 0))[0];
+  if (!job && run.status === 'completed')
+    return { ok: false, wait: false, lines: [`${id} finished with no ${MONEY_JOB} job; re-run it or push`] };
+  if (!job || job.status !== 'completed')
+    return { ok: false, wait: true, lines: [`${id} on this head has not finished; the seal re-runs when it does`] };
+  if (job.conclusion === 'success') return { ok: true, wait: false, lines: [`${id}: passed`] };
+  return { ok: false, wait: false, lines: [`${id}: ${job.conclusion}; fix the money screen or its check and push`] };
+}
+
 async function api(path, token) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
   });
-  if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw new Error(httpMessage(path, res, (await res.text()).slice(0, 200)));
   return res.json();
 }
 
@@ -122,16 +165,28 @@ async function main() {
       if (r.length < 100) break;
     }
   const files = queue ? [] : await changedFiles(get, REPO, PR_NUMBER);
-  const v = judgeCiJobs({ run, jobs, files, forceFull: queue });
-  for (const l of v.lines) console.log(`${v.ok ? '✓' : '✖'} ${l}`);
-  if (v.ok) return;
-  for (const l of v.lines) console.error(`::error title=CI merge seal::${l}`);
+  const ci = judgeCiJobs({ run, jobs, files, forceFull: queue });
+  // The money browser checks (#8708), on a pull request only: read when the change touches their paths.
+  let money = { ok: true, lines: [] };
+  if (!queue && (files === null || touchesMoney(files))) {
+    const mruns = (
+      await get(`/repos/${REPO}/actions/workflows/customer-money-browser.yml/runs?head_sha=${sha}&event=pull_request&per_page=100`)
+    )?.workflow_runs;
+    if (!Array.isArray(mruns)) throw new Error(`customer-money-browser.yml runs on ${sha}: not a list`);
+    const newest = mruns.filter((r) => r?.head_sha === sha).sort((a, b) => b.id - a.id)[0];
+    const mjobs = newest ? (await get(`/repos/${REPO}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs : [];
+    if (!Array.isArray(mjobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
+    money = moneyVerdict({ runs: mruns, jobs: mjobs, files, sha });
+  } else if (!queue) money = moneyVerdict({ runs: [], jobs: [], files, sha });
+  for (const v of [ci, money]) for (const l of v.lines) console.log(`${v.ok ? '✓' : '✖'} ${l}`);
+  if (ci.ok && money.ok) return;
+  for (const v of [ci, money]) if (!v.ok) for (const l of v.lines) console.error(`::error title=CI merge seal::${l}`);
   process.exit(1);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((e) => {
-    console.error(`::error title=CI merge seal::${e.message}`);
+    console.error(`::error title=${titleFor(e.message, 'CI merge seal')}::${e.message}`);
     process.exit(1);
   });
 }

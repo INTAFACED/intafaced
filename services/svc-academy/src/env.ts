@@ -19,9 +19,11 @@ import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, service
  *   · svc-identity's `/internal/rank/:userId/perks` — how the service knows who
  *     may open a room (§4.1 `lobbyHostRights`).
  *
- * There is no LEDGER_URL, and that absence is the design: `academy` is
- * `custodial: false` and this process holds no credential that could reach
- * anything which moves value.
+ * `academy` is `custodial: false`: it holds no customer money. Its one ledger
+ * door (LEDGER_URL, J-academy-07) posts only INTAFACED's own money, the course
+ * revenue a buyer's wallet paid to INTAFACED's receiving address and its refund
+ * (`academyPurchase`, `academyPurchaseRefund`), each once the chain shows it.
+ * This process holds no key: a refund is sent by the owner's refund signer.
  */
 const MIME_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/;
 /** A comma-separated list; blank is unset. */
@@ -130,6 +132,15 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-roles-01: how many custom roles the academy may hold. Blank / unset is unpublished: creating a custom role
+       * refuses `academy.role_limit_unset`.
+       */
+      ACADEMY_CUSTOM_ROLE_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1000)]),
+      ),
+
+      /**
        * AC-rooms-01: the longest discussion post or reply, in characters. Blank / unset is unpublished: posting refuses
        * `academy.post_limit_unset`.
        */
@@ -190,10 +201,64 @@ const schema = serviceEnvSchema
       ACADEMY_GRADE_REPORT_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
 
       /**
+       * AC-certificates-03: how many issued certificates the staff list shows and one export of it may hold. Blank / unset
+       * is unpublished: the list and an export refuse `academy.report_limit_unset`.
+       */
+      ACADEMY_CERT_ISSUED_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
+
+      /**
+       * AC-analytics-01: how many learners one page of the founder console's learner summaries shows, at most the
+       * Academy's list ceiling (200). Blank / unset is unpublished: the read refuses `academy.learner_summaries_list_limit_unset`.
+       */
+      ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE: blankAsUnset(z.coerce.number().int().min(1).max(200)),
+
+      /**
+       * AC-analytics-02: how many report tasks the reports centre lists, at most 200. Blank / unset is unpublished: the
+       * list refuses `academy.report_tasks_list_limit_unset`.
+       */
+      ACADEMY_REPORT_TASKS_PAGE_SIZE: blankAsUnset(z.coerce.number().int().min(1).max(200)),
+
+      /**
+       * AC-analytics-02: minutes a finished reports-centre file is served before it expires, at most ten years. Blank /
+       * unset is unpublished: a report request refuses `academy.report_retention_unset`.
+       */
+      ACADEMY_REPORT_CENTRE_RETENTION_MINUTES: blankAsUnset(z.coerce.number().int().min(1).max(5_256_000)),
+
+      /**
+       * AC-analytics-02: seconds between report sweeps, which run requested reports. Blank / unset is unpublished: no
+       * sweep runs and a report request refuses `academy.report_sweep_unset`.
+       */
+      ACADEMY_REPORT_SWEEP_SECONDS: blankAsUnset(z.coerce.number().int().min(1).max(86_400)),
+
+      /**
        * AC-quizzes-04: the largest quiz curve file, in bytes, that is read. Blank / unset is unpublished: a curve upload
        * refuses `academy.bulk_limit_unset`; a larger file refuses `academy.bulk_file_too_large` before it is read.
        */
       ACADEMY_BULK_FILE_MAX_BYTES: blankAsUnset(z.coerce.number().int().min(1).max(900_000)),
+
+      /**
+       * AC-enrolment-03: how many addresses one bulk enrolment upload may hold. Blank / unset is unpublished: a bulk
+       * upload refuses `academy.bulk_limit_unset`; a longer upload refuses `academy.bulk_limit_exceeded`.
+       */
+      ACADEMY_BULK_ENROL_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(1000)),
+
+      /**
+       * AC-notifications-02: days without learning after which a learner is left out of a course email. Blank / unset is
+       * unpublished: a course email refuses `academy.inactivity_period_unset`.
+       */
+      ACADEMY_BULK_EMAIL_INACTIVE_DAYS: blankAsUnset(z.coerce.number().int().min(1).max(3650)),
+
+      /**
+       * AC-analytics-02: hours a finished learner export is kept. Blank / unset is unpublished: a request refuses
+       * `academy.report_retention_unset`.
+       */
+      ACADEMY_REPORT_RETENTION_HOURS: blankAsUnset(z.coerce.number().int().min(1).max(8760)),
+
+      /**
+       * AC-analytics-02: learner rows one learner export may hold. Blank / unset is unpublished: a request refuses
+       * `academy.report_limit_unset`; a longer export fails with that limit named.
+       */
+      ACADEMY_LEARNER_EXPORT_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
 
       /**
        * AC-access-grants-02: how many lines one page of the grant audit shows, at most the Academy's list ceiling (200).
@@ -346,6 +411,44 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
       ),
+
+      // ── Course payments from the buyer's own wallet (J-academy-07, AC-commerce-01) ─────────
+      // Owner values. The chain node a payment is read from, the chain it must be on, the token the price is paid in
+      // (its asset name on the ledger and its decimals), INTAFACED's own receiving address, and how many confirmations a
+      // payment needs before it is recorded. All seven or none: with any one blank, a paid track stays closed
+      // `payments_off` and Buy refuses `academy.payments_off`; nothing is sold and nothing is made up.
+      ACADEMY_PAYMENT_RPC_URL: blankAsUnset(z.string().url()),
+      ACADEMY_PAYMENT_CHAIN_ID: blankAsUnset(z.coerce.number().int().min(1).max(2_147_483_647)),
+      ACADEMY_PAYMENT_TOKEN_ADDRESS: blankAsUnset(
+        z
+          .string()
+          .trim()
+          .regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x token address'),
+      ),
+      ACADEMY_PAYMENT_TOKEN_DECIMALS: blankAsUnset(z.coerce.number().int().min(0).max(36)),
+      ACADEMY_PAYMENT_ASSET: blankAsUnset(
+        z
+          .string()
+          .trim()
+          .regex(/^[A-Z0-9]{2,12}$/, 'an asset code'),
+      ),
+      ACADEMY_PAYMENT_RECEIVER: blankAsUnset(
+        z
+          .string()
+          .trim()
+          .regex(/^0x[0-9a-fA-F]{40}$/, "INTAFACED's receiving address"),
+      ),
+      ACADEMY_PAYMENT_CONFIRMATIONS: blankAsUnset(z.coerce.number().int().min(1).max(1000)),
+      /**
+       * Where a refund is sent from INTAFACED's own funds: the signer that holds the receiving address's key and sends one
+       * token transfer per refund key, answering the same transaction for the same key. Blank: a refund refuses
+       * `academy.refund_sender_unset` and nothing is sent. This service holds no key.
+       */
+      ACADEMY_REFUND_SIGNER_URL: blankAsUnset(z.string().url()),
+      /** svc-ledger, for the purchase and refund posts (`academyPurchase`, `academyPurchaseRefund`). Blank: Buy refuses `academy.payments_off`. */
+      LEDGER_URL: blankAsUnset(z.string().url()),
+      /** How often the reconciler reads open purchases against the chain and the ledger. Blank: only a read reconciles. */
+      ACADEMY_PURCHASE_RECONCILE_SECONDS: blankAsUnset(z.coerce.number().int().min(1).max(3600)),
     }),
   );
 

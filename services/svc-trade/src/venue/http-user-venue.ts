@@ -6,13 +6,17 @@ import {
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
+  type UserVenueScheduledCancel,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueArrival,
   type UserVenueDeposit,
+  type UserVenueWithdrawalTerms,
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
   type UserVenueFill,
@@ -21,6 +25,7 @@ import {
   type UserVenueSettlement,
   type UserVenueMarket,
   type UserVenueOrder,
+  type UserVenueOrderRecord,
   type UserVenuePosition,
   type UserVenueSubAccount,
   type UserVenueSubAccountReads,
@@ -30,6 +35,10 @@ import {
   type VenueBook,
   type VenueOrderPreview,
   type VenueBestPrices,
+  type VenueFundingRow,
+  type VenueCandle,
+  type VenueCandleInterval,
+  type VenuePrint,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
@@ -235,6 +244,18 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/best-prices', { symbol });
   }
 
+  fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
+    return this.read('/funding-history', { symbol, since });
+  }
+
+  trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
+    return this.read('/trades', { symbol, limit });
+  }
+
+  candles(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>> {
+    return this.read('/candles', { symbol, interval, limit });
+  }
+
   /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
   prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
     return this.read('/prepare', { account, signer, intent });
@@ -273,6 +294,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/order-by-client-id', { account, venueClientOrderId });
   }
 
+  orderHistory(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>> {
+    return this.read('/order-history', { account });
+  }
+
   fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
     return this.read('/fills', { account, since });
   }
@@ -285,8 +310,16 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/withdrawal', { account, nonce });
   }
 
+  withdrawalTerms(asset: string): Promise<AsOf<UserVenueWithdrawalTerms>> {
+    return this.read('/withdrawal-terms', { asset });
+  }
+
   deposits(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>> {
     return this.read('/deposits', { account });
+  }
+
+  arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
+    return this.read('/arrivals', { account });
   }
 
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
@@ -296,6 +329,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
   builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
     return this.read('/builder-totals', { builder });
+  }
+
+  /** The TEST venue's own record of each claim of our builder fees (J-derivatives-17). */
+  builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
+    return this.read('/builder-claims', { builder });
   }
 
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
@@ -309,6 +347,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
   marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
     return this.read('/market-margin', { account, symbol });
+  }
+
+  /** The account's scheduled cancel as the venue records it (J-cex-spot-07). */
+  scheduledCancel(account: UserVenueAccount): Promise<AsOf<UserVenueScheduledCancel>> {
+    return this.read('/scheduled-cancel', { account });
   }
 
   /** The account's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */

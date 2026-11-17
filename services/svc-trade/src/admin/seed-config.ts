@@ -232,8 +232,7 @@ export class SeedConfigAdmin {
     const fingerprint = payloadHash({ kind: 'mm_seed_config', ...body });
     const prior = await loadRequest(this.deps.sql, clientRequestId, 'mm_seed_config', fingerprint);
     if (prior) return prior as SeedConfigRow;
-    const written = await this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    const written = await this.deps.sql.begin(async (q) => {
       // One writer per market at a time: the market row is locked, so a second write bound to the same version waits
       // here and is then refused as stale, before its approval is spent.
       const [market] = await q<Array<{ id: string; symbol: string }>>`

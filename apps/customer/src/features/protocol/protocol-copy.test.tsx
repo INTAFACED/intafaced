@@ -33,7 +33,7 @@ const render = (value: ReturnType<typeof failed>) =>
 describe('Protocol rooms speak plainly', () => {
   it('names a source that did not answer by what it is, never by a procedure', () => {
     const down = { status: 'down' as const, reason: 'unreachable', message: 'The service could not be reached.' };
-    const snapshot = { chain: down, audit: down, indexer: down, dex: down, health: down } as unknown as ProtocolSnapshot;
+    const snapshot = { chain: down, audit: down, indexer: down, dex: down, health: down } as ProtocolSnapshot;
     const sources = new Set<string>();
     for (const action of ['swap', 'addLiquidity', 'smartAccount', 'stake'] as const)
       for (const found of blockersFor(action, snapshot)) if (found.code === 'source_no_reply') sources.add(found.params.source!);
@@ -103,7 +103,7 @@ describe('Protocol rooms speak plainly', () => {
     expect(plainReason('The service refused this request (502).')).toBe('The service refused this request');
     expect(plainReason('Node is down...')).toBe('Node is down');
     const down = { status: 'down' as const, reason: 'error', message: 'The service refused this request (502).' };
-    const snapshot = { chain: down, audit: down, indexer: down, dex: down, health: down } as unknown as ProtocolSnapshot;
+    const snapshot = { chain: down, audit: down, indexer: down, dex: down, health: down } as ProtocolSnapshot;
     const found = blockersFor('swap', snapshot)[0]!;
     const sentence = t(found.key, found.params);
     expect(sentence).toBe('Cannot confirm: network status did not answer (the service refused this request).');
@@ -112,16 +112,14 @@ describe('Protocol rooms speak plainly', () => {
 
   it('says the service is not connected here only for the gateway\'s own "not connected" answer', () => {
     const unwired = { status: 'down' as const, reason: 'unreachable', message: 'x', code: 'edge.upstream_unwired' };
-    const snapshot = { chain: unwired, audit: unwired, indexer: unwired, dex: unwired, health: unwired } as unknown as ProtocolSnapshot;
+    const snapshot = { chain: unwired, audit: unwired, indexer: unwired, dex: unwired, health: unwired } as ProtocolSnapshot;
     const found = blockersFor('swap', snapshot)[0]!;
     expect(t(found.key, found.params)).toBe('The Protocol service is not connected here.');
     const dexSnapshot = {
       ...snapshot,
       chain: { status: 'ok', data: { reachable: true, configuredChainId: 84532, observedChainId: 84532 } },
     };
-    const dexFound = blockersFor('addLiquidity', dexSnapshot as unknown as ProtocolSnapshot).find(
-      (entry) => entry.code === 'source_not_connected',
-    )!;
+    const dexFound = blockersFor('addLiquidity', dexSnapshot as ProtocolSnapshot).find((entry) => entry.code === 'source_not_connected')!;
     expect(dexFound.params.service).toBe('DEX');
     // A 502 that carries another code is a plain "did not answer", never "not connected".
     const crashed = {
@@ -130,7 +128,7 @@ describe('Protocol rooms speak plainly', () => {
       message: 'The service could not be reached.',
       code: 'edge.upstream_unavailable',
     };
-    const crashedSnapshot = { ...snapshot, chain: crashed } as unknown as ProtocolSnapshot;
+    const crashedSnapshot = { ...snapshot, chain: crashed } as ProtocolSnapshot;
     expect(blockersFor('swap', crashedSnapshot)[0]!.code).toBe('source_no_reply');
   });
 
@@ -163,7 +161,7 @@ describe('Protocol rooms speak plainly', () => {
       indexer: down,
       dex: down,
       health: down,
-    } as unknown as ProtocolSnapshot;
+    } as ProtocolSnapshot;
     const found = blockersFor('swap', snapshot)[0]!;
     expect(t(found.key, found.params)).toBe('The chain is unreachable. The network did not answer.');
     expect(chainReasonWords('protocol.contract_not_deployed')).toBe('The contracts are not on this network.');

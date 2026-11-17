@@ -32,7 +32,7 @@ function sqlReturning(active: Array<{ id: string; amount: string }>): Sql {
     }
     throw new Error(`unexpected query: ${q}`);
   };
-  return Object.assign(fn, { json: (v: unknown) => v }) as unknown as Sql;
+  return Object.assign(fn, { json: (v: unknown) => v }) as Sql;
 }
 
 async function fundedService(active: Array<{ id: string; amount: string }>) {

@@ -1,5 +1,14 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 
+/** A send the chain mined and reverted: it moved nothing. `depth` counts its block and every block since. */
+export interface RevertedSend {
+  readonly reverted: true;
+  readonly depth: number;
+}
+
+/** How deep a send is: blocks for a mined success, a reverted send, or `null` when the chain cannot say. */
+export type SendDepth = number | RevertedSend | null;
+
 /**
  * The chain, as `crypto-native` needs it.
  *
@@ -68,6 +77,12 @@ export interface CryptoChainPort {
   /** Deterministic per (payment, asset) — the same payment always gets the same address. */
   acceptanceAddress(paymentId: string, assetId: string): Promise<string>;
   /**
+   * Watches an address that is not ours for one payment: a business's own receiving address (launch money model, OWNER
+   * 226), derived from the extended public key it gave. The chain reports transfers to it exactly as to an acceptance
+   * address, and nobody here can move what lands there. Returns the address as the chain will report it.
+   */
+  watchAddress(paymentId: string, assetId: string, address: string): Promise<string>;
+  /**
    * The inbound transfer to an acceptance address, if one has landed.
    *
    * Takes only the address, and the transfer says what asset arrived. The
@@ -93,9 +108,10 @@ export interface CryptoChainPort {
   /**
    * How deep the outbound transfer journalled for this business key is now: the blocks that include it and every block
    * after (W-withdraw-06). `null` means this port cannot say (it never saw the send, or forgot it): never a guess, so a
-   * withdrawal waiting on it stays held.
+   * withdrawal waiting on it stays held. A send the chain mined and reverted is `{ reverted: true, depth }`: it moved
+   * nothing, and once that depth reaches the owner's settle depth its hold may go back.
    */
-  sendDepth(idempotencyKey: string): Promise<number | null>;
+  sendDepth(idempotencyKey: string): Promise<SendDepth>;
   /**
    * One cheap liveness check. MemoryChain resolves. A live chain reads its
    * chain id and must not scan blocks. UnconfiguredChain throws.
@@ -165,7 +181,7 @@ export class MemoryChain implements CryptoChainPort {
   private readonly sent = new Map<string, { txHash: string }>();
   /** When each send answered, and any depth a test set for it (`setSendDepth`). */
   private readonly answeredAt = new Map<string, number>();
-  private readonly depthSet = new Map<string, number>();
+  private readonly depthSet = new Map<string, Exclude<SendDepth, null>>();
   private readonly outbound: Array<ChainSendRequest & { txHash: string }> = [];
   private nonce = 0;
   private broadcastError: Error | null = null;
@@ -174,6 +190,11 @@ export class MemoryChain implements CryptoChainPort {
   async acceptanceAddress(paymentId: string, assetId: string): Promise<string> {
     this.takeCallError();
     return `addr_${assetId.toLowerCase()}_${paymentId}`;
+  }
+
+  async watchAddress(_paymentId: string, _assetId: string, address: string): Promise<string> {
+    this.takeCallError();
+    return address;
   }
 
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
@@ -225,7 +246,7 @@ export class MemoryChain implements CryptoChainPort {
     return { txHash };
   }
 
-  async sendDepth(idempotencyKey: string): Promise<number | null> {
+  async sendDepth(idempotencyKey: string): Promise<SendDepth> {
     this.takeCallError();
     if (!this.sent.has(idempotencyKey)) return null;
     const set = this.depthSet.get(idempotencyKey);
@@ -277,7 +298,7 @@ export class MemoryChain implements CryptoChainPort {
   }
 
   /** Set how deep the send under this business key reads, whatever the pace says — drives the confirm-later branch. */
-  setSendDepth(idempotencyKey: string, depth: number): void {
+  setSendDepth(idempotencyKey: string, depth: Exclude<SendDepth, null>): void {
     this.depthSet.set(idempotencyKey, depth);
   }
 
@@ -383,6 +404,11 @@ export class UnconfiguredChain implements CryptoChainPort {
     throw new ChainNotConfiguredError('derive an acceptance address');
   }
 
+  async watchAddress(): Promise<string> {
+    // The same refusal as an acceptance address: a payer must never be shown an address no chain is watching.
+    throw new ChainNotConfiguredError('watch a receiving address');
+  }
+
   async inboundTransfers(): Promise<readonly ConfirmedTransfer[]> {
     // NOT empty, for the same reason as `inboundTransfer` below.
     throw new ChainNotConfiguredError('read inbound transfers');
@@ -407,7 +433,7 @@ export class UnconfiguredChain implements CryptoChainPort {
     throw new ChainNotConfiguredError('look up an outbound transfer');
   }
 
-  async sendDepth(): Promise<number | null> {
+  async sendDepth(): Promise<SendDepth> {
     throw new ChainNotConfiguredError('read the depth of an outbound transfer');
   }
 

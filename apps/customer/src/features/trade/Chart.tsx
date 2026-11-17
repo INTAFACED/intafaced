@@ -9,6 +9,7 @@ import {
   tradeDate,
   TradeFailure as Failure,
 } from './copy';
+import { chartValue } from '../../shared/chart-value';
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import type { OHLCV, Position } from '@intafaced/exchange-contract/schemas';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
@@ -221,11 +222,11 @@ function chartBars(rows: readonly OHLCV[], type: string): Bar[] {
     .map((row) => {
       const raw = {
         time: Math.floor(row[0] / 1000),
-        open: Number(row[1]),
-        high: Number(row[2]),
-        low: Number(row[3]),
-        close: Number(row[4]),
-        volume: Number(row[5]),
+        open: chartValue(row[1]),
+        high: chartValue(row[2]),
+        low: chartValue(row[3]),
+        close: chartValue(row[4]),
+        volume: chartValue(row[5]),
       };
       if (
         !Object.values(raw).every(Number.isFinite) ||
@@ -826,7 +827,7 @@ export function MarketChart({
           shownPrices.add(exactPrice);
           orderLines.current.push(
             series.createPriceLine({
-              price: Number(order.price),
+              price: chartValue(order.price),
               color: '#e4bf72',
               lineWidth: 1,
               lineStyle: 2,
@@ -846,7 +847,7 @@ export function MarketChart({
       for (const fill of fills.resource.data)
         fillLines.current.push(
           series.createPriceLine({
-            price: Number(fill.price),
+            price: chartValue(fill.price),
             color:
               css.getPropertyValue(fill.side === 'buy' ? '--chart-up' : '--chart-down').trim() ||
               css.getPropertyValue(fill.side === 'buy' ? '--color-positive' : '--color-negative').trim(),
@@ -876,12 +877,19 @@ export function MarketChart({
           (!showLiquidation && kind === 'liquidation') ||
           value === null ||
           parseAmount(value) <= 0n ||
-          !Number.isFinite(Number(value))
+          !Number.isFinite(chartValue(value))
         )
           continue;
         const resolvedColor = getComputedStyle(document.documentElement).getPropertyValue(color.slice(4, -1)).trim();
         positionLines.current.push(
-          series.createPriceLine({ price: Number(value), color: resolvedColor, title, lineWidth: 1, lineStyle: 2, axisLabelVisible: true }),
+          series.createPriceLine({
+            price: chartValue(value),
+            color: resolvedColor,
+            title,
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+          }),
         );
       }
     }
@@ -906,8 +914,8 @@ export function MarketChart({
     const low = rows.reduce((value, row) => (parseAmount(row[3]) < value ? parseAmount(row[3]) : value), parseAmount(rows[0]![3])),
       high = rows.reduce((value, row) => (parseAmount(row[2]) > value ? parseAmount(row[2]) : value), parseAmount(rows[0]![2]));
     if (low === high) return null;
-    const lowY = series.priceToCoordinate(Number(formatAmount(low))),
-      highY = series.priceToCoordinate(Number(formatAmount(high)));
+    const lowY = series.priceToCoordinate(chartValue(formatAmount(low))),
+      highY = series.priceToCoordinate(chartValue(formatAmount(high)));
     if (lowY === null || highY === null || lowY === highY) return null;
     // Prices stay scaled bigint. Only pixel geometry is rounded to a rational screen coordinate.
     const numerator = BigInt(Math.round((y - lowY) * 1000000)),
@@ -921,7 +929,7 @@ export function MarketChart({
   const draw = (drawing: Drawing, index: number) => {
     const positions = drawing.points.map(([time, price]) => [
       chartRef.current?.timeScale().timeToCoordinate(time),
-      seriesRef.current?.priceToCoordinate(Number(price)),
+      seriesRef.current?.priceToCoordinate(chartValue(price)),
     ]);
     const [a, b] = positions;
     if (!a || a[0] == null || a[1] == null) return null;
@@ -942,7 +950,7 @@ export function MarketChart({
   };
   const lowerPanes = studies.filter((study) => ['Volume', 'RSI', 'MACD'].includes(study)).length;
   const pricePane = chartRef.current?.paneSize(0);
-  const chartOrders = orders.filter((order) => order.symbol === market.symbol && order.price !== null);
+  const chartOrders = orders.filter((order): order is Order & { price: string } => order.symbol === market.symbol && order.price !== null);
   const eligible = (order: Order) =>
     order.type === 'limit' && order.status === 'open' && !order.recoveryRequired && parseAmount(order.filled) === 0n;
   const orderCurrent = (order: Order) => history.current() && currentOrders.current.includes(order);
@@ -960,7 +968,7 @@ export function MarketChart({
     }
     for (const order of chartOrders) {
       const index = orders.indexOf(order);
-      const y = dragging?.id === order.id ? dragging.y : seriesRef.current?.priceToCoordinate(Number(order.price));
+      const y = dragging?.id === order.id ? dragging.y : seriesRef.current?.priceToCoordinate(chartValue(order.price));
       if (y == null) continue;
       if (!phone) {
         if (eligible(order) && y >= 0) targets.push({ order, index, x: 8, y });

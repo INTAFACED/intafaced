@@ -1,5 +1,5 @@
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
 import { generateToken, hashToken } from './passwords.js';
@@ -125,7 +125,7 @@ type PinRow = ProofRow & { pin_hash: string | null; pin_attempts: number };
  * (an email change spends open proofs). The address is the account's but unverified: the proof did not prove it, so it
  * is not called used (`code_locked`, a dead link). Otherwise it did its work: `reused`.
  */
-async function spentReason(tx: Sql, proof: ProofRow): Promise<'mismatch' | 'code_locked' | 'reused'> {
+async function spentReason(tx: Queryable, proof: ProofRow): Promise<'mismatch' | 'code_locked' | 'reused'> {
   const owner = await tx<Array<{ email: string; email_verified_at: Date | string | null }>>`
     SELECT email::text AS email, email_verified_at FROM users WHERE id = ${proof.user_id}
   `;

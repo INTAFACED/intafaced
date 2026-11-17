@@ -90,7 +90,7 @@ function gfMultiply(x: number, y: number): number {
 }
 
 function divisorFor(degree: number): number[] {
-  const result = new Array<number>(degree).fill(0);
+  const result = Array.from({ length: degree }, () => 0);
   result[degree - 1] = 1;
   let root = 1;
   for (let i = 0; i < degree; i++) {
@@ -151,8 +151,8 @@ class Grid {
     readonly ecc: QrEcc,
   ) {
     this.size = version * 4 + 17;
-    this.modules = Array.from({ length: this.size }, () => new Array<boolean>(this.size).fill(false));
-    this.reserved = Array.from({ length: this.size }, () => new Array<boolean>(this.size).fill(false));
+    this.modules = Array.from({ length: this.size }, () => Array.from({ length: this.size }, () => false));
+    this.reserved = Array.from({ length: this.size }, () => Array.from({ length: this.size }, () => false));
   }
   private set(x: number, y: number, dark: boolean) {
     this.modules[y]![x] = dark;
@@ -342,7 +342,7 @@ export function encodeQr(text: string, ecc: QrEcc = 'M'): boolean[][] {
   push(0, Math.min(4, capacityBits - bits.length));
   push(0, (8 - (bits.length % 8)) % 8);
   for (let pad = 0xec; bits.length < capacityBits; pad ^= 0xec ^ 0x11) push(pad, 8);
-  const data: number[] = new Array<number>(bits.length / 8).fill(0);
+  const data: number[] = Array.from({ length: bits.length / 8 }, () => 0);
   bits.forEach((value, i) => {
     data[i >>> 3]! |= value << (7 - (i & 7));
   });

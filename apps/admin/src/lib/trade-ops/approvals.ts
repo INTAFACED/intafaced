@@ -9,7 +9,6 @@
  * Identity has no list or read-back for approvals, so the desk can only act on an approval BY ID, and keeps a
  * log of what this browser tab did (sessionStorage, this session only) so the operator can see their own actions.
  */
-import type { ActionApproval } from '@intafaced/contracts';
 import { isUuid, isVersion, type Validated } from './restrictions';
 
 export const RESTRICTION_ACTION_TYPE = 'account.trading_restriction';

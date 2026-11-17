@@ -22,7 +22,7 @@ export const PRODUCTS: readonly Product[] = ['general', 'spot', 'derivatives', '
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 /** The scope the edge asks a key for on a method. */
 export type MethodScope = 'trade:read' | 'trade:write';
-export type Scope = MethodScope | 'admin:read';
+export type Scope = MethodScope | 'admin:read' | 'copy:lead';
 /** Who may call a route, as its registration declares: anyone, a signed caller, or another service only. */
 export type Access = 'public' | 'private' | 'internal';
 
@@ -435,6 +435,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'derivatives',
     access: 'public',
     summary: 'Order types, time in force and flags per futures market',
+  },
+  {
+    name: 'fetchFuturesMarginModes',
+    method: 'GET',
+    path: '/api/v1/futures/margin-modes',
+    product: 'derivatives',
+    access: 'public',
+    summary: 'Futures margin modes, whether each is offered, and the typed refusal of each that is not',
   },
   {
     name: 'fetchFundingRateHistory',
@@ -889,6 +897,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The venue’s markets for your account: order types, time in force, margin modes, lot and tick, its fees or "not known"',
   },
   {
+    name: 'venueGatedList',
+    method: 'GET',
+    path: '/api/v1/venue/gated-list',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Each perpetual on the venue, open or blocked for your account, with every reason a new open would be refused',
+  },
+  {
     name: 'venueBestPrices',
     method: 'GET',
     path: '/api/v1/venue/best-prices',
@@ -896,6 +912,40 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     access: 'private',
     summary:
       'The venue’s best bid and ask on one market, from its own book, with its as-of time: where a market order’s worst price is set from',
+  },
+  {
+    name: 'venueBook',
+    method: 'GET',
+    path: '/api/v1/venue/book',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The venue’s own book on one market we list, bids and asks best first, each level’s price and size, with its as-of time',
+  },
+  {
+    name: 'venueTrades',
+    method: 'GET',
+    path: '/api/v1/venue/trades',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The venue’s newest public prints on one market we list, newest first: price, size, the side that crossed and when',
+  },
+  {
+    name: 'venueCandles',
+    method: 'GET',
+    path: '/api/v1/venue/candles',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Candles of the venue’s own prints on one market we list, on one interval, oldest first: an interval with no print is not sent',
+  },
+  {
+    name: 'venueFundingHistory',
+    method: 'GET',
+    path: '/api/v1/venue/funding-history',
+    product: 'accounts',
+    access: 'public',
+    summary:
+      'The funding the venue published at each settled interval on its listed perpetual on one asset, since a time: refused by name where none is published',
   },
   {
     name: 'venueBalances',
@@ -946,6 +996,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'One venue order by its client order id: how an answer that was not definite is read back',
   },
   {
+    name: 'venueOrderHistory',
+    method: 'GET',
+    path: '/api/v1/venue/orders/history',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your venue order history as the venue keeps it, filtered by side, state, market and time placed, a page at a time',
+  },
+  {
+    name: 'venueOrderRecord',
+    method: 'GET',
+    path: '/api/v1/venue/orders/record',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Our record of one venue order: when it was placed, each accepted amendment, and the builder fee it was signed with',
+  },
+  {
     name: 'venueFills',
     method: 'GET',
     path: '/api/v1/venue/fills',
@@ -960,6 +1026,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
+  },
+  {
+    name: 'venueWithdrawalTerms',
+    method: 'GET',
+    path: '/api/v1/venue/withdrawal-terms',
+    product: 'accounts',
+    access: 'private',
+    summary: "The venue's published terms for withdrawing an asset: its fee, the network fee and the arrival time, or not known",
   },
   {
     name: 'venueLeverage',
@@ -984,6 +1058,31 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: "Your positions the venue settled and orders it cancelled when a market's deployer halted it or it split",
+  },
+  {
+    name: 'venueScheduledCancel',
+    method: 'GET',
+    path: '/api/v1/venue/scheduled-cancel',
+    product: 'accounts',
+    access: 'private',
+    summary: "When the venue's own scheduled cancel cancels every open order of your venue account, and when it last did",
+  },
+  {
+    name: 'createVenueStatement',
+    method: 'POST',
+    path: '/api/v1/venue/statements',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Ask for a statement of your venue account's orders, trades and money movements over a finished range, from the venue's own records",
+  },
+  {
+    name: 'fetchVenueStatementFile',
+    method: 'GET',
+    path: '/api/v1/venue/statements/:id/file',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The file of one finished venue statement, with its SHA-256',
   },
   {
     name: 'venueBuilderFeeApproval',
@@ -1127,6 +1226,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: "Change the agent account's cap; above the owner's ceiling it is refused, naming the ceiling",
   },
   {
+    name: 'venueAgentAccountLimits',
+    method: 'POST',
+    path: '/api/v1/venue/agent-accounts/:id/limits',
+    product: 'accounts',
+    access: 'private',
+    summary: "Set the agent account's per-order size, leverage and daily-loss caps; one above the owner's ceiling is refused, naming it",
+  },
+  {
     name: 'venueAgentAccountClose',
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/close',
@@ -1150,6 +1257,24 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     access: 'private',
     summary:
       'Connect one of your agent API keys to this agent account, from your own sign-in after step-up, never from a key; a key already connected elsewhere is refused',
+  },
+  {
+    name: 'venueAgentRevoke',
+    method: 'POST',
+    path: '/api/v1/venue/agent-accounts/connections/:keyId/revoke',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Revoke your assistant, from your own sign-in: its key places nothing more, its resting orders are cancelled once, our copy of its venue agent key is dropped, and your wallet signs the venue's revoke; open positions stay",
+  },
+  {
+    name: 'venueAgentActivity',
+    method: 'GET',
+    path: '/api/v1/venue/agent-accounts/connections/:keyId/activity',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Your assistant connection's Activity, from your own sign-in: one row per call made with its key, refused ones included, newest first, each with its time, tool, outcome and order id; format=csv exports the same rows",
   },
   {
     name: 'venueAgentOrder',
@@ -1204,6 +1329,176 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       'Revoke the allowance: our copy of the agent key is dropped and the next order refused at once; the answer is the venue’s revoke for your wallet to sign',
   },
   {
+    name: 'venueProtections',
+    method: 'GET',
+    path: '/api/v1/venue/protections',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'A position’s protections on your own venue account: the venue’s trigger orders and the stops our engine runs, each with where it rests, its trigger and source, and its state',
+  },
+  {
+    name: 'venueProtectionCreate',
+    method: 'POST',
+    path: '/api/v1/venue/protections',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Protect a position: a take profit, stop loss, stop market or stop limit the venue takes answers its unsigned trigger order for your wallet; a trailing stop or an index stop is armed on our engine (201) under your agent permission',
+  },
+  {
+    name: 'venueProtectionCancel',
+    method: 'DELETE',
+    path: '/api/v1/venue/protections/:id',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Cancel a stop on our engine that has not fired; nothing is sent to the venue',
+  },
+  {
+    name: 'venueProtectionAgent',
+    method: 'GET',
+    path: '/api/v1/venue/protection-agent',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The agent key our engine signs your stops with, and whether your venue account lists it approved; it can trade, never withdraw',
+  },
+  {
+    name: 'venueProtectionAgentPrepare',
+    method: 'POST',
+    path: '/api/v1/venue/protection-agent/prepare',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The unsigned approval of that agent key, for your wallet to sign and send through /api/v1/venue/submit',
+  },
+  {
+    name: 'venueSpotOrders',
+    method: 'GET',
+    path: '/api/v1/venue/spot-orders',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Your stop-limit, stop-market, OCO, bracket and linked-close orders on your own venue account: each leg with where it rests, its trigger, what the venue locks for it now and its state',
+  },
+  {
+    name: 'venueSpotOrderCreate',
+    method: 'POST',
+    path: '/api/v1/venue/spot-orders',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Place a conditional spot order: a stop the venue holds answers its unsigned trigger order for your wallet; the rest is run by INTAFACED on our engine (201) under your agent permission, a bracket’s entry answered unsigned for your wallet',
+  },
+  {
+    name: 'venueSpotOrderReview',
+    method: 'POST',
+    path: '/api/v1/venue/spot-orders/review',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The fee of each leg of a conditional spot order, as maker or taker, from the venue’s published schedule and our builder fee',
+  },
+  {
+    name: 'venueSpotOrderModify',
+    method: 'PATCH',
+    path: '/api/v1/venue/spot-orders/:id',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Change a live stop’s trigger and limit, judged as a new one would be',
+  },
+  {
+    name: 'venueSpotOrderCancel',
+    method: 'DELETE',
+    path: '/api/v1/venue/spot-orders/:id',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Cancel a conditional spot order: what rests on the venue for it is cancelled there, releasing its lock',
+  },
+  {
+    name: 'venueSpotAgent',
+    method: 'GET',
+    path: '/api/v1/venue/spot-agent',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The agent key our engine signs your conditional spot orders with, and whether your venue account lists it approved; it can trade, never withdraw',
+  },
+  {
+    name: 'venueSpotAgentPrepare',
+    method: 'POST',
+    path: '/api/v1/venue/spot-agent/prepare',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The unsigned approval of the spot-order agent key, for your wallet to sign and send through /api/v1/venue/submit',
+  },
+  {
+    name: 'liveRuns',
+    method: 'GET',
+    path: '/api/v1/quant/live-runs',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your live strategy runs, newest first: strategy, version, state and why a run stopped',
+  },
+  {
+    name: 'liveRunStart',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Start a saved order-block strategy live on one of your own venue sub-accounts, from a signed-in session only (an API key answers 404 quant.key_no_such_endpoint: there is no deploy by key); a blank restart-attempt, state-on-restart or cap setting is refused with the field named, and the answer is the agent permission for your wallet to sign',
+  },
+  {
+    name: 'liveRun',
+    method: 'GET',
+    path: '/api/v1/quant/live-runs/:id',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'One live run: state, safeguards (restarts, state kept or dropped), its orders read back by client order id, your sub-account as the venue reports it with its as-of time, and the log',
+  },
+  {
+    name: 'liveRunSubmit',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/submit',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Send your wallet’s signature of the run’s agent permission to the venue; the run goes live once the venue lists it',
+  },
+  {
+    name: 'liveRunStop',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/stop',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Stop the run: its open venue orders are cancelled and the position is kept; the same seq again changes nothing',
+  },
+  {
+    name: 'liveRunLiquidate',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/liquidate',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Liquidate the run: stop it, then one reduce-only order per position under algo:liquidate:<run>:<seq>; the run ends flat; refused with the freeze reason while your account is frozen',
+  },
+  {
+    name: 'liveRunOrder',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/orders',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'A manual order for a running strategy under its next seq; the same seq again is the same order; refused without the live-control grant',
+  },
+  {
+    name: 'liveRunTestKill',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/test/kill-process',
+    product: 'accounts',
+    access: 'private',
+    summary: 'TEST venue only: stop the run’s process heartbeat, so the supervisor reconciles and restarts it within its attempt limit',
+  },
+  {
     name: 'ownAgentOrderPreview',
     method: 'POST',
     path: '/api/v1/venue/own-agents/:agentId/orders/preview',
@@ -1228,6 +1523,41 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'Your own agent’s orders, each read back from the venue by its client order id',
+  },
+  {
+    name: 'ownAgentRebalances',
+    method: 'GET',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The Portfolio planner’s rebalance proposals for your own agent’s sub-account, newest first: holdings as the venue reports them, each order, and whether you approved or rejected it',
+  },
+  {
+    name: 'ownAgentRebalancePropose',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Ask the Portfolio planner for a rebalance to your targets (proposalId and each asset’s percent): the market orders it proposes, and nothing is sent; a blank target is refused naming the asset',
+  },
+  {
+    name: 'ownAgentRebalanceApprove',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances/:id/approve',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Approve a proposal: refused whole when its orders need more than the allowance has left; otherwise each order is placed by the agent permission, once, and approving again reads the same orders back',
+  },
+  {
+    name: 'ownAgentRebalanceReject',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances/:id/reject',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Reject a proposal: nothing is sent, nothing changes, and it is never approved',
   },
   {
     name: 'venueOrders',
@@ -1345,6 +1675,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The listing state of one market as this account meets it',
   },
   {
+    name: 'requestApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The calling key asks for its own rotation; a different person on the account approves it',
+  },
+  {
+    name: 'approveApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation/approve',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Approve a rotation request. A key never approves its own: refused identity.rotation_self_approval',
+  },
+  {
     name: 'fetchConvertExport',
     method: 'GET',
     path: '/api/v1/convert/export',
@@ -1359,6 +1705,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'This account’s copy-trading history as a CSV file',
+  },
+  {
+    name: 'createLeadOrder',
+    method: 'POST',
+    path: '/api/v1/copy/lead/orders',
+    product: 'accounts',
+    access: 'private',
+    alsoNeeds: ['copy:lead'],
+    summary: 'Place an order as an approved copy-trading lead, on an instrument your lead listing names; then as Place an order',
   },
   {
     name: 'fetchRfqExport',
@@ -1407,7 +1762,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary:
-      'Withdraw a grid bot’s profit; needs a step-up approval made in the calling session (403 identity.step_up_required without one)',
+      'Refused for every key (403 trade.api_withdraw_not_allowed): no API key or bot can withdraw; you withdraw from the venue with your own wallet, and nothing moves',
   },
   {
     name: 'fetchAlgoOrders',
@@ -1533,7 +1888,7 @@ export const routeLine = (route: Pick<RestRoute, 'method' | 'path'>) => `${route
 
 /** The permission-to-endpoint table: one row per scope a key can hold, with every route a key with it may call. */
 export function permissionTable(): { scope: Scope; routes: RestRoute[] }[] {
-  return (['trade:read', 'trade:write'] as const).map((scope) => ({
+  return (['trade:read', 'trade:write', 'copy:lead'] as const).map((scope) => ({
     scope,
     routes: REST_REFERENCE.filter((route) => !neverOnAKey(route) && scopesOf(route).includes(scope)),
   }));

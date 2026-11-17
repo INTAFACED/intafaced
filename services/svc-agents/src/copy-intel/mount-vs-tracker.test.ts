@@ -16,7 +16,6 @@ import {
   copyIntelMountVsTrackerBoardCard,
   copyIntelMountVsTrackerExportHeader,
   copyIntelMountVsTrackerExportText,
-  copyIntelMountVsTrackerStatusLine,
   copyIntelMountVsTrackerStatusLineMatches,
   copyIntelTrackerBackendDoneBarMet,
   isDeclaredHonestGap,

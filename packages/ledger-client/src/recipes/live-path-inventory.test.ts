@@ -4,8 +4,8 @@
  * Done bar: every money path → named recipe or explicit §13.
  * Executed inventory tests (not a docs tip-bump): build the matrix, pin
  * live/socket partitions, prove socket recipes still conserve on MemoryLedger,
- * and scan services/ so a socket cannot silently gain a production caller
- * (or a live proof go missing) without this suite turning red.
+ * and scan services/ so a socket cannot silently gain a production caller,
+ * and a recipe nothing posts cannot pass as live, without this suite turning red.
  */
 
 import { createHash } from 'node:crypto';
@@ -17,7 +17,14 @@ import { houseFees, insuranceFund, marketMaker, orderHoldAccount, railBoundary, 
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
 import { recipes, type RecipeName } from './index.js';
-import { RECIPE_MATRIX, buildRecipeMatrixInventory, countByKind, liveRecipeKeys, socketRecipeKeys } from './live-path-inventory.js';
+import {
+  RECIPE_SOCKETS,
+  type RecipeSocket,
+  buildRecipeMatrixInventory,
+  countByKind,
+  liveRecipeKeys,
+  socketRecipeKeys,
+} from './live-path-inventory.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, '..', '..');
@@ -79,20 +86,13 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'buybackOrderHoldRelease', fingerprint: '10956b0267e4' },
   { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
   { name: 'bankTransferReversal', fingerprint: '56a8770216cd' },
-  { name: 'builderFeeReceive', fingerprint: 'da565b45397a' },
-  { name: 'ownFundsMove', fingerprint: 'e01e44fe1d12' },
-  { name: 'campaignBudgetFund', fingerprint: 'afb3802d5127' },
-  { name: 'rewardOwe', fingerprint: '1773366dea84' },
-  { name: 'rewardPayOut', fingerprint: '4b92f2d01fde' },
   { name: 'feeShareBudgetFund', fingerprint: '735444de9a10' },
   { name: 'feeShareOwe', fingerprint: 'dc85cf8681c9' },
   { name: 'feeSharePayOut', fingerprint: '8c5f9df47085' },
-  { name: 'chargeEarn', fingerprint: '5b38ec7a93b9' },
-  { name: 'chargeCollect', fingerprint: '1934e9fb0911' },
-  { name: 'partnerFeeEarn', fingerprint: 'efa43a3353af' },
   { name: 'partnerFeeSettle', fingerprint: 'fa297367e6cc' },
   { name: 'feeGiveBackOwe', fingerprint: '3c7e9fe3e86f' },
   { name: 'feeGiveBackPayOut', fingerprint: 'f7f6a98f3e44' },
+  { name: 'subAccountTransfer', fingerprint: 'aaa5700f0086' },
 ];
 
 /**
@@ -112,25 +112,11 @@ const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 const BUYBACK_PLACE = 'services/svc-trade/src/spot/trade-service/buyback.ts';
 const BUYBACK_ORDER = 'services/svc-trade/src/spot/buyback-order.ts';
 const BUYBACK_FILLS = 'services/svc-trade/src/spot/trade-service/fills.ts';
-/**
- * svc-trade's Collect caller is granted `builderFeeReceive` and posts one per claim the venue records, but no venue adapter
- * reads the claim record yet, so nothing feeds it and the row stays a socket until one does.
- */
-const BUILDER_FEE_COLLECT = 'services/svc-trade/src/builder-fee/builder-fee-collect.ts';
-
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
-  ['builderFeeReceive', [RECIPE_GATE_CATALOG, BUILDER_FEE_COLLECT]],
-  ['ownFundsMove', [RECIPE_GATE_CATALOG]],
-  ['campaignBudgetFund', [RECIPE_GATE_CATALOG]],
-  ['rewardOwe', [RECIPE_GATE_CATALOG]],
-  ['rewardPayOut', [RECIPE_GATE_CATALOG]],
   ['feeShareBudgetFund', [RECIPE_GATE_CATALOG]],
   ['feeShareOwe', [RECIPE_GATE_CATALOG]],
   ['feeSharePayOut', [RECIPE_GATE_CATALOG]],
-  ['chargeEarn', [RECIPE_GATE_CATALOG]],
-  ['chargeCollect', [RECIPE_GATE_CATALOG]],
-  ['partnerFeeEarn', [RECIPE_GATE_CATALOG]],
   ['partnerFeeSettle', [RECIPE_GATE_CATALOG]],
   ['feeGiveBackOwe', [RECIPE_GATE_CATALOG]],
   ['feeGiveBackPayOut', [RECIPE_GATE_CATALOG]],
@@ -142,6 +128,7 @@ const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new 
   ['buybackOrderHoldRelease', [RECIPE_GATE_CATALOG, BUYBACK_ORDER]],
   ['buybackTakerFill', [RECIPE_GATE_CATALOG, BUYBACK_FILLS]],
   ['bankTransferReversal', [RECIPE_GATE_CATALOG]],
+  ['subAccountTransfer', [RECIPE_GATE_CATALOG]],
 ]);
 
 describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
@@ -154,19 +141,19 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (103 = 80 live + 23 socket)', () => {
+  it('pins live vs §13 socket counts on tip (107 = 91 live + 16 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 80, socket: 23 });
-    expect(inventory.recipes).toHaveLength(103);
-    expect(liveRecipeKeys(inventory)).toHaveLength(80);
+    expect(counts).toEqual({ live: 91, socket: 16 });
+    expect(inventory.recipes).toHaveLength(107);
+    expect(liveRecipeKeys(inventory)).toHaveLength(91);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 
   it('every socket row is explicit §13 with a pinned reason fingerprint', () => {
     for (const { name, fingerprint } of PINNED_SOCKETS) {
-      const row = RECIPE_MATRIX[name];
-      expect(row.kind).toBe('socket');
-      if (row.kind !== 'socket') continue;
+      const row = (RECIPE_SOCKETS as Partial<Record<string, RecipeSocket>>)[name];
+      expect(row?.kind).toBe('socket');
+      if (!row) continue;
       expect(row.socket).toBe('§13');
       expect(row.reason.length).toBeGreaterThan(40);
       expect(row.reason).toMatch(/§13/);
@@ -174,22 +161,12 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     }
   });
 
-  it('every live row names a real proof file under services/', () => {
-    for (const name of inventory.live) {
-      const row = RECIPE_MATRIX[name];
-      expect(row.kind).toBe('live');
-      if (row.kind !== 'live') continue;
-      const abs = join(repoRoot, row.proof);
-      expect(existsSync(abs), `${name} proof missing: ${row.proof}`).toBe(true);
-      const body = readFileSync(abs, 'utf8');
-      expect(body, `${name} proof does not reference recipes.${name}`).toMatch(new RegExp(`\\brecipes\\.${name}\\b`));
-    }
-  });
-
   it('production scan: live recipes have callers; socket callers stay explicitly allowlisted', () => {
     const callers = scanProductionRecipeCallers();
+    // The recipe-gate catalog samples every recipe and never posts, so it proves nothing live.
     for (const name of inventory.live) {
-      expect(callers.has(name), `live recipe ${name} has no production caller`).toBe(true);
+      const posters = (callers.get(name) ?? []).filter((file) => file !== RECIPE_GATE_CATALOG);
+      expect(posters, `live recipe ${name} has no production caller: wire it, or give it a §13 row in RECIPE_SOCKETS`).not.toEqual([]);
     }
     for (const name of inventory.sockets) {
       expect([...(callers.get(name) ?? [])].sort(), `socket recipe ${name} has an unexpected production caller`).toEqual(

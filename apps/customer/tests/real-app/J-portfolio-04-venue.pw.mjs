@@ -3,8 +3,9 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
-import { signUp, verify } from './desk.mjs';
+import { confirm, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -166,17 +167,20 @@ test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-accoun
       builderFee: null,
     });
     expect(rested.definite && rested.accepted, JSON.stringify(rested)).toBe(true);
-    const ticket = page.getByTestId('venue-ticket');
-    await ticket.getByRole('button', { name: 'Buy', exact: true }).click();
-    await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
-    await ticket.getByRole('textbox', { name: 'Price' }).fill(buy.price);
-    await ticket.getByRole('textbox', { name: 'Amount (BTC)' }).fill(buy.amount);
-    await ticket.getByRole('button', { name: 'Review buy' }).click();
-    const sheet = page.getByTestId('venue-review');
-    await sheet.getByRole('button', { name: 'Confirm and sign' }).click();
+    // The desk's Limit buy form (the first of the buy and sell forms), reviewed once the venue's own preview answers.
+    await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+    await page.getByRole('textbox', { name: 'Price' }).first().fill(buy.price);
+    const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview');
+    await page.getByRole('textbox', { name: 'Amount' }).first().fill(buy.amount);
+    expect((await preview).status()).toBe(200);
+    await page.getByRole('button', { name: 'Buy BTC' }).click();
+    await confirm(page, 'buy');
     await continueInWallet(page);
-    await expect(sheet.getByTestId('venue-outcome').last()).toContainText('Filled on the venue.');
-    await sheet.getByRole('button', { name: 'Back' }).click();
+    await expect(page.getByTestId('venue-bottom').getByTestId('venue-outcome')).toContainText('Filled on the venue.');
+    // The outcome line keeps the last answer, so each buy also waits for its own fill on the venue.
+    await expect
+      .poll(async () => lotsByHand(await venueOf(owner, null, '/fills', { since: new Date(0).toISOString() })).length)
+      .toBe(i + 1);
   }
   const fills = await venueOf(owner, null, '/fills', { since: new Date(0).toISOString() });
   const lots = lotsByHand(fills);
@@ -202,16 +206,8 @@ test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-accoun
   // Open the sub-account on the desk, signed in the wallet on the main account.
   await page.goto(DESK);
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  // The desk shows Connect first and then restores the still-authorised wallet on its own, so the button can go between
-  // seeing it and pressing it (run 43178173404 waited out the test on it): press it only while no address is shown,
-  // and never wait on a button that has gone (as J-derivatives-28 does, #8049).
   const address = page.getByTestId('venue-wallet-address');
-  const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-  await expect(async () => {
-    if (await address.isVisible()) return;
-    await connect.click({ timeout: 2_000 });
-    await expect(address).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 30_000 });
+  await connectWhenAsked(page, address);
   await expect(address).toHaveText(wallet.address);
   const panel = page.getByTestId('venue-sub-accounts');
   await panel.getByLabel('Name for a new sub-account').fill(SUB_NAME);

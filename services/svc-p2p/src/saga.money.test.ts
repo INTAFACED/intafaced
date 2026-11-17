@@ -83,6 +83,8 @@ const releaseEscrow: MoneyDoorScenario = {
   name: 'svc-p2p escrow release (confirm, then settle)',
   secret: SECRET,
   verify: verifyServiceHeaders,
+  // Each replay's setup truncates and rebuilds the trade in Postgres; together they outran 5 s on a loaded CI runner (#7158).
+  timeoutMs: 30_000,
   async setup(ledger) {
     await database().truncateAll();
     const instruments = new InstrumentService(database().sql);

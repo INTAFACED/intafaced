@@ -32,7 +32,7 @@ export const TOKEN_USD = { address: '0x000000000000000000000000000000000000d011'
  * seeded TEST tokens, pools and router). Their wallet is connected to that node and their run's key is funded with
  * TEST ETH and TEST Token A and B when the run starts. Every other journey's wallet reaches no chain, as before.
  */
-export const ON_TEST_CHAIN = new Set(['J-dex-protocol-02', 'J-dex-protocol-03', 'J-dex-protocol-04', 'J-dex-protocol-10']);
+const ON_TEST_CHAIN = new Set(['J-dex-protocol-02', 'J-dex-protocol-03', 'J-dex-protocol-04', 'J-dex-protocol-10']);
 
 /** The stack's TEST chain: `{ chain: 'running', gate, gateUrl }` or `{ chain: 'absent' }` (no anvil on this stack). */
 export function testChain() {
@@ -99,6 +99,17 @@ export async function connectWallet(page, dex, { tokens = [], chainId = CHAIN_ID
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
   await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();
   return wallet;
+}
+
+/**
+ * The TEST wallet connected in the open room, until `connected` shows: Connect is pressed once when the room asks for it,
+ * and not at all when the room restored the wallet itself. `within` is the part of the page whose Connect is meant.
+ */
+export async function connectWhenAsked(page, connected, within = page) {
+  const connect = within.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  await expect(connect.or(connected).first()).toBeVisible({ timeout: 30_000 });
+  if (!(await connected.isVisible())) await connect.click();
+  await expect(connected).toBeVisible();
 }
 
 /** Opens one section of the wallet room (Overview, Activity, Approvals, Session keys, Accounts, Safety, ...) by its tab. */

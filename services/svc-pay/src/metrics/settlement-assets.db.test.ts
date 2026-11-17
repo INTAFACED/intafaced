@@ -123,7 +123,7 @@ describe('merchantMetrics.settlementAssets', { timeout: 30_000 }, () => {
       settlementAssets === undefined ? {} : { settlementAssets },
     );
     const founderAuthority = createFounderAuthority({ identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32) });
-    return createPayNamespaces({ founderAuthority, metrics }).createCaller(ctxOf(principal(userId))) as unknown as Caller;
+    return createPayNamespaces({ founderAuthority, metrics }).createCaller(ctxOf(principal(userId))) as Caller;
   }
   const failure = async (p: Promise<unknown>) => {
     try {

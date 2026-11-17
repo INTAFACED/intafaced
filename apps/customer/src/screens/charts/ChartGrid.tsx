@@ -132,7 +132,7 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
   const cells = useMemo(
     () => cellsFor(layout, first, grid.cells),
     [layout, first.symbol, first.interval, first.mode, first.group, grid.cells],
-  ); // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // A slot that joins a group (or is shown in one for the first time) counts the group's current command as applied, so
   // it never replays a command issued before it joined. Layout effects run before any studies bar's effect in a commit.

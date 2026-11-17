@@ -7,7 +7,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { beforeEach, afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { KybApplicationService } from './kyb-application.js';
 import { KybDocumentService } from './kyb-documents.js';
 import { KybEntityTypeService } from './kyb-entity-types.js';
@@ -315,6 +315,16 @@ describe('kyb documents', () => {
     });
     const counted = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
     expect(counted[0]?.n).toBe('0');
+  });
+
+  it('refuses to publish a size cap that cannot fit through the 1 MiB body limits as base64', async () => {
+    await expect(publishRules(700 * 1024 + 1)).rejects.toThrow(/kyb_upload_rules_max_bytes_fits_transport/);
+    await publishRules(700 * 1024);
+    // The largest file the cap allows still fits, with its request envelope, under the 1 MiB limits.
+    const body = JSON.stringify({
+      json: { applicationId: randomUUID(), key: 'trust_deed', contentType: PDF, bytesBase64: Buffer.alloc(700 * 1024).toString('base64') },
+    });
+    expect(Buffer.byteLength(body)).toBeLessThan(1024 * 1024);
   });
 
   it('keeps the table constraints: a reason only when rejected, one rules row, a 32-hex-pair digest', async () => {

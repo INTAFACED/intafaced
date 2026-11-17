@@ -179,7 +179,7 @@ describe('the sendable door', () => {
         return { state: 'ready', destinationId: '22222222-2222-4222-8222-222222222222', coolingOffEndsAt: null };
       },
     },
-  } as unknown as BankServices;
+  } as BankServices;
   const call = (service: string | null, input: unknown = ask) =>
     createBankRouter(bank)
       .createCaller({ ...edge({ headers: {}, id: 'req-1' }), service } as never)

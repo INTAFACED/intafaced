@@ -78,7 +78,7 @@ describeOnChain('FeeTokenRelay: a stable-only wallet swaps and pays the fee in t
     );
   const balance = async (token: Address, who: Address) =>
     (await pc.readContract({ address: token, abi: loadArtifact('TestToken').abi, functionName: 'balanceOf', args: [who] })) as bigint;
-  const feeChain = () => pc as unknown as FeeRelayChain;
+  const feeChain = () => pc as FeeRelayChain;
   /** The relayer stand-in: sends the call from the impersonated relayer, as local-test-chain.mjs's /relay does. */
   const post = async (_url: string, body: unknown) => {
     const call = body as { to: Address; data: Hex; gas: Hex; maxFeePerGas: Hex; maxPriorityFeePerGas: Hex };
@@ -244,7 +244,7 @@ describeOnChain('FeeTokenRelay: a stable-only wallet swaps and pays the fee in t
       eventName: 'FeeCharged' as never,
       fromBlock: receipt.blockNumber,
       toBlock: receipt.blockNumber,
-    })) as unknown as Array<{ args: { charge: bigint; markWad: bigint; gasWei: bigint } }>;
+    })) as Array<{ args: { charge: bigint; markWad: bigint; gasWei: bigint } }>;
     expect(charged).toHaveLength(1);
     expect(charged[0]!.args.charge.toString()).toBe(plan.quote.charge);
     expect(await balance(usd, person.address)).toBe(usdBefore - amountIn - BigInt(plan.quote.charge));

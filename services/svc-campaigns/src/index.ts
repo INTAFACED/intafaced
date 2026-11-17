@@ -2,21 +2,17 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createEdgeContext, s2sFromEnv, verifyServiceRequest } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
+import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
-import { CampaignService, parseTimeZone } from './campaigns.js';
-import { parseRuleLimit } from './rules.js';
-import { createLedgerClient } from './ledger-client.js';
-import { createMarketNames } from './markets.js';
-import { createParticipantClient } from './participants.js';
-import { PayoutSaga } from './payouts.js';
-import { TaskService } from './tasks.js';
-import { VoucherService } from './vouchers.js';
-import { DropService } from './drops.js';
 import { env } from './env.js';
+import { startPasses } from './passes.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
-import { parseTgeSchedule } from './tge.js';
+import type { SubscriptionGroup } from './subscriptions.js';
+import { ageDistributionRun, ageReward } from './test-age-door.js';
+import { PayFaults, TEST_PAY_FAULT_PATH, payFaultInputSchema } from './test-pay-fault.js';
+import { wireCampaigns } from './wiring.js';
 
 registerProcessHooks(
   startTelemetry({
@@ -29,57 +25,37 @@ registerProcessHooks(
 
 /**
  * svc-campaigns: campaigns and joining them, task campaigns and their rewards, seasons, limited drops and the TGE claim.
- * Holds no balance. Value moves only in the reward saga (`payouts.ts`: `rewardPay` and `sweepFeesToRewards`). A blank CAMPAIGNS_TGE_SCHEDULE_JSON boots and refuses every TGE claim `launch.schedule_unset`; a blank
- * CAMPAIGNS_PLATFORM_TIME_ZONE boots and refuses every activation and join `campaigns.timezone_unset`.
+ * This file is the process only: HTTP, the bus connection and shutdown. What the service is made of (its services,
+ * recurring passes, bus subscriptions, readiness and boot warnings) is `wiring.ts`; a new feature changes that and its
+ * own module, never this file (project-state#2730).
  */
-const tgeSchedule = parseTgeSchedule(env.CAMPAIGNS_TGE_SCHEDULE_JSON);
+// The TEST age door (packages/service-kit test-age.ts): off unless TEST_AGE_DOOR=on, which refuses to start outside a
+// TEST stack, so it is read before anything opens.
+const testAgeDoor = testAgeDoorOpen(process.env);
+// TEST pay faults (test-pay-fault.ts): set only through the door below, which opens only where the age door does.
+const payFaults = new PayFaults();
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
   onnotice: () => undefined,
 });
-const drops = new DropService({ sql, tgeSchedule: () => tgeSchedule });
-const timeZone = parseTimeZone(env.CAMPAIGNS_PLATFORM_TIME_ZONE);
 const s2s = s2sFromEnv(env, 'svc-campaigns');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
-const participantsWired = Boolean(env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET);
-const participants = participantsWired
-  ? createParticipantClient(env.IDENTITY_URL!, env.INTERNAL_SERVICE_SECRET!, s2sKey)
-  : { read: async () => null };
-const ruleLimits = {
-  depth: parseRuleLimit('CAMPAIGNS_RULE_DEPTH_LIMIT', env.CAMPAIGNS_RULE_DEPTH_LIMIT),
-  size: parseRuleLimit('CAMPAIGNS_RULE_SIZE_LIMIT', env.CAMPAIGNS_RULE_SIZE_LIMIT),
-};
-const campaigns = new CampaignService({ sql, timeZone: () => timeZone, participants, ruleLimits: () => ruleLimits });
-const ledger =
-  env.LEDGER_URL && env.INTERNAL_SERVICE_SECRET ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
-const reconcileAfterSeconds = env.CAMPAIGNS_RECONCILE_AFTER_SECONDS ?? null;
-const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds }) : null;
-const markets = env.TRADE_URL ? createMarketNames({ tradeUrl: env.TRADE_URL }) : null;
-const tasks = new TaskService({
-  sql,
-  participants,
-  saga,
-  markets,
-  timeZone: () => timeZone,
-  rollbackWindowSeconds: env.CAMPAIGNS_ROLLBACK_WINDOW_SECONDS ?? null,
+const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+const wiring = wireCampaigns({ sql, log: app.log, s2sKey, payFaults });
+
+const appRouter = createCampaignsRouter(wiring.services);
+// svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
+// or by the shared secret where keys are not wired.
+const edgeContext = createEdgeContext({
+  secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  ...(s2s.serviceVerifier && s2s.s2sMode ? { serviceVerifier: s2s.serviceVerifier, s2sMode: s2s.s2sMode } : {}),
 });
 
-const attemptLimits =
-  env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT && env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS && env.CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
-    ? {
-        perAccount: env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT,
-        perAddress: env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS,
-        windowSeconds: env.CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS,
-      }
-    : null;
-const vouchers = new VoucherService({ sql, participants, campaigns, saga, attemptLimits: () => attemptLimits });
-
-const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers);
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
-
 let bus: JetStreamEventBus | null = null;
-const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 app.get('/ready', async (_req, reply) => {
@@ -89,17 +65,48 @@ app.get('/ready', async (_req, reply) => {
       ok: true,
       service: env.SERVICE_NAME,
       database: 'ok',
-      tgeSchedule: tgeSchedule ? 'set' : 'launch.schedule_unset',
-      timeZone: timeZone ?? 'campaigns.timezone_unset',
-      ruleLimits: ruleLimits.depth && ruleLimits.size ? 'set' : 'campaigns.rule_limits_unset',
-      voucherAttempts: attemptLimits ? 'set' : 'campaigns.attempt_limit_unset',
-      ledger: saga ? 'set' : 'campaigns.reward_saga_unwired',
-      reconciler: saga && reconcileAfterSeconds ? 'set' : 'campaigns.reconcile_unset',
+      ...wiring.readiness(),
       bus: bus ? 'attached' : 'unreachable',
     };
   } catch {
     return reply.code(503).send({ ok: false, service: env.SERVICE_NAME, database: 'unavailable' });
   }
+});
+
+// Its own plugin scope: the raw body its signature check needs is kept for this one route, and every other route reads
+// JSON as before.
+await app.register(async (scope) => {
+  registerTestAgeDoor(scope, {
+    open: testAgeDoor,
+    internalSecret: env.INTERNAL_SERVICE_SECRET,
+    s2s: s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined,
+    subjects: { reward: ageReward(sql), distribution: ageDistributionRun(sql) },
+  });
+  // The TEST pay-fault door (J-campaigns-19 #1 #2): the next payment of one reward meets one fault on the TEST chain.
+  // Open only where the age door is, behind the same signed service call (svc-edge's own key refused).
+  scope.post(TEST_PAY_FAULT_PATH, async (req, reply) => {
+    const auth = verifyServiceRequest(req, {
+      verifier: s2s.serviceVerifier,
+      mode: s2s.s2sMode,
+      legacySecret: env.INTERNAL_SERVICE_SECRET,
+      bodyBindMode: 'require',
+    });
+    if (auth.service === null || auth.service === 'svc-edge') {
+      return reply
+        .code(401)
+        .send({ error: 'test_pay_fault.unauthenticated', message: 'the TEST pay-fault door answers a signed service call only' });
+    }
+    if (!testAgeDoor) {
+      return reply
+        .code(403)
+        .send({ error: 'test_pay_fault.door_closed', message: 'the TEST pay-fault door is closed: TEST_AGE_DOOR is not on' });
+    }
+    const parsed = payFaultInputSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'test_pay_fault.invalid', message: parsed.error.message });
+    payFaults.set(parsed.data.rewardKey, parsed.data.fault);
+    req.log.warn({ ...parsed.data, caller: auth.service }, 'TEST pay fault set');
+    return reply.code(200).send({ ...parsed.data, label: 'TEST' });
+  });
 });
 
 await app.register(fastifyTRPCPlugin, {
@@ -115,13 +122,32 @@ await app.register(fastifyTRPCPlugin, {
 });
 
 /**
- * Task progress reads settled spot fills. svc-campaigns owns no stream: svc-trade creates `trade`'s. A failed connect or
- * attach is logged, not fatal, and tried again: the durable consumer picks the events up from the stream once it attaches.
+ * The bus. A failed connect, or a failed attach of the first subscription group, closes the connection and is tried
+ * again: the durable consumers pick the events up from their streams once they attach. Every later group attaches on its
+ * own and, if its stream is missing, is tried again on its own while the rest keep running.
  */
 const BUS_RETRY_MS = 15_000;
-let busRetry: NodeJS.Timeout | null = null;
+const retries = new Set<NodeJS.Timeout>();
 let stopping = false;
+function retry(run: () => void): void {
+  if (stopping) return;
+  const timer = setTimeout(() => {
+    retries.delete(timer);
+    run();
+  }, BUS_RETRY_MS);
+  timer.unref();
+  retries.add(timer);
+}
+async function attachGroup(connected: JetStreamEventBus, group: SubscriptionGroup): Promise<void> {
+  try {
+    await group.attach(connected);
+  } catch (err) {
+    app.log.error({ err }, `svc-campaigns could not attach ${group.what}`);
+    if (bus === connected) retry(() => void attachGroup(connected, group));
+  }
+}
 async function attachBus(): Promise<void> {
+  const [first, ...rest] = wiring.subscriptions;
   let connected: JetStreamEventBus | null = null;
   try {
     connected = await JetStreamEventBus.connect({
@@ -129,138 +155,29 @@ async function attachBus(): Promise<void> {
       producer: env.SERVICE_NAME,
       streamPrefix: env.NATS_STREAM_PREFIX,
     });
-    await connected.subscribe(
-      'fillSettled',
-      async (fill) => {
-        await tasks.onFill(fill);
-      },
-      { durable: 'campaigns-task-fill-settled' },
-    );
-    // Earning rules on crypto deposits (CM-rewards-hub-05): one intent per deposit per rule, keyed by the deposit id.
-    await connected.subscribe(
-      'payDepositCreditPosted',
-      async (deposit) => {
-        if (!saga) app.log.warn({ depositId: deposit.depositId }, 'earning skipped: campaigns.reward_saga_unwired');
-        await tasks.onEarningEvent({
-          trigger: 'pay.deposit_credit.posted',
-          eventId: deposit.depositId,
-          userId: deposit.userId,
-          at: deposit.creditedAt,
-          values: { amount: deposit.amount },
-          assets: { amount: deposit.assetId },
-        });
-      },
-      { durable: 'campaigns-earn-deposit-credited' },
-    );
+    if (first) await first.attach(connected);
     bus = connected;
-    void attachWelcome(connected);
+    for (const group of rest) void attachGroup(connected, group);
   } catch (err) {
-    app.log.error({ err }, 'svc-campaigns could not attach to trade.fill.settled: task progress waits, trying again');
+    app.log.error({ err }, `svc-campaigns could not attach ${first?.what ?? 'to the bus'}`);
     await connected?.close().catch(() => undefined);
-    if (!stopping) {
-      busRetry = setTimeout(() => void attachBus(), BUS_RETRY_MS);
-      busRetry.unref();
-    }
-  }
-}
-/**
- * The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification, crypto
- * deposit and spot fill tick its tasks. Each event is kept once, by account and kind, so a redelivery is a no-op. These
- * read `identity`'s stream too, so they attach on their own: if that stream is missing they are tried again, and task
- * progress and earning rules above keep running.
- */
-let welcomeRetry: NodeJS.Timeout | null = null;
-async function attachWelcome(connected: JetStreamEventBus): Promise<void> {
-  try {
-    await connected.subscribe(
-      'userCreated',
-      async (user, envelope) => {
-        await tasks.onSignUp({ userId: user.userId, eventId: envelope.idempotencyKey, at: envelope.occurredAt });
-      },
-      { durable: 'campaigns-welcome-user-created' },
-    );
-    await connected.subscribe(
-      'kycApproved',
-      async (kyc, envelope) => {
-        await tasks.onWelcomeEvent({
-          userId: kyc.userId,
-          event: 'identity.verified',
-          eventId: envelope.idempotencyKey,
-          at: envelope.occurredAt,
-        });
-      },
-      { durable: 'campaigns-welcome-kyc-approved' },
-    );
-    await connected.subscribe(
-      'payDepositCreditPosted',
-      async (deposit) => {
-        await tasks.onWelcomeEvent({ userId: deposit.userId, event: 'pay.deposit', eventId: deposit.depositId, at: deposit.creditedAt });
-      },
-      { durable: 'campaigns-welcome-deposit-credited' },
-    );
-    await connected.subscribe(
-      'fillSettled',
-      async (fill) => {
-        await tasks.onWelcomeEvent({ userId: fill.userId, event: 'trade.fill', eventId: fill.fillId, at: fill.ts });
-      },
-      { durable: 'campaigns-welcome-fill-settled' },
-    );
-  } catch (err) {
-    app.log.error({ err }, 'svc-campaigns could not attach the welcome checklist events: it waits, trying again');
-    if (!stopping && bus === connected) {
-      welcomeRetry = setTimeout(() => void attachWelcome(connected), BUS_RETRY_MS);
-      welcomeRetry.unref();
-    }
+    retry(() => void attachBus());
   }
 }
 await attachBus();
 
-// The reconciler: releases held rewards whose hold ended, decides locked rewards and bonuses that are due, then posts
-// open rewards, outcomes and fundings again under their own keys. Blank owner value: none runs, and a held reward stays
-// held and a locked one locked.
-const reconciler =
-  saga && reconcileAfterSeconds
-    ? setInterval(() => {
-        tasks
-          .releaseHolds()
-          .catch((err: unknown) => app.log.error({ err }, 'reward hold release failed'))
-          .then(() => tasks.settleLocks())
-          .catch((err: unknown) => app.log.error({ err }, 'locked reward settle failed'))
-          .then(() => saga.reconcile())
-          .catch((err: unknown) => app.log.error({ err }, 'reward reconcile failed'));
-      }, reconcileAfterSeconds * 1000)
-    : null;
-reconciler?.unref();
-
-// Voucher expiry (J-campaigns-08): marks each claimed voucher whose use-by passed `expired`, once, and drops code
-// attempts older than the attempt window, which nothing counts any more. It moves no value, so
-// it runs whether or not the ledger is connected; a redemption after the use-by refuses whether or not it has run.
-const VOUCHER_EXPIRY_MS = 15_000;
-const voucherExpiry = setInterval(() => {
-  vouchers.expire().catch((err: unknown) => app.log.error({ err }, 'voucher expiry failed'));
-  vouchers.pruneAttempts().catch((err: unknown) => app.log.error({ err }, 'voucher attempt prune failed'));
-}, VOUCHER_EXPIRY_MS);
-voucherExpiry.unref();
+const passes = startPasses(wiring.passes, (err, name) => app.log.error({ err }, `${name} failed`));
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
-if (!participantsWired) {
-  app.log.warn('IDENTITY_URL or INTERNAL_SERVICE_SECRET is unset: campaigns with exclusions or a region list read unread');
-}
-if (!markets) app.log.warn('TRADE_URL is unset: a task step that names a market counts no fill');
-if (!saga)
-  app.log.warn(
-    'LEDGER_URL or INTERNAL_SERVICE_SECRET is unset: every claim refuses campaigns.reward_saga_unwired and no earning rule pays',
-  );
-app.log.info({ port: env.HTTP_PORT, participants: participantsWired, ledger: Boolean(saga) }, 'svc-campaigns ready');
+for (const warning of wiring.warnings) app.log.warn(warning);
+app.log.info({ port: env.HTTP_PORT, ...wiring.summary }, 'svc-campaigns ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       stopping = true;
-      if (reconciler) clearInterval(reconciler);
-      clearInterval(voucherExpiry);
-      if (busRetry) clearTimeout(busRetry);
-      if (welcomeRetry) clearTimeout(welcomeRetry);
+      passes.stop();
+      for (const timer of retries) clearTimeout(timer);
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 2 });

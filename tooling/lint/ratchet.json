@@ -1,0 +1,3 @@
+{
+  "failInAddedFiles": ["garden/no-hand-schema", "garden/no-screen-literal", "garden/no-hand-typed-patch"]
+}

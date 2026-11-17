@@ -56,6 +56,25 @@ describe('POST /internal/mail', () => {
     expect(asked).toEqual([body()]);
   });
 
+  it('a support chat continued by email is asked for by svc-support alone', async () => {
+    const asked: ServiceMailRequest[] = [];
+    const server = await app(async (input) => {
+      asked.push(input);
+      return { accepted: true, mailId: MAIL_ID };
+    });
+    const chat = body({
+      key: 'support-chat-email:33333333-3333-4333-8333-333333333333:2026-10-24',
+      purpose: 'support-chat-email',
+      token: '33333333-3333-4333-8333-333333333333',
+      detail: 'support chat',
+    });
+    expect((await server.inject(post(chat, 'svc-bank'))).json().code).toBe('identity.mail_caller_refused');
+    expect(asked).toHaveLength(0);
+    const ok = await server.inject(post(chat, 'svc-support'));
+    expect(ok.statusCode).toBe(200);
+    expect(asked).toEqual([chat]);
+  });
+
   it('refuses a malformed request before anything is queued', async () => {
     let calls = 0;
     const server = await app(async () => {

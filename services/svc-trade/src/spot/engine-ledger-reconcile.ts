@@ -18,7 +18,9 @@
  *    `HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS` old. A younger row may still
  *    have an `order.hold` post in flight; deleting it strands the hold
  *    when that post commits.
- * 6. **Market-id drift alarm** (handoff §4.5): compare `trade.markets` ids to
+ * 6. **A cancel's engine miss past the in-flight bound** (`engine_absent_since`, nothing heard since) moves the
+ *    order to `recovery_required` with its hold, without waiting for a second cancel (#7025). Status only.
+ * 7. **Market-id drift alarm** (handoff §4.5): compare `trade.markets` ids to
  *    engine `GET /markets`. Symmetric diff is log/alert only — never invents
  *    a listing, never deletes a market, never moves value.
  *
@@ -166,6 +168,12 @@ export interface EngineLedgerReconcileTickResult {
   /** Rows actually deleted this tick (re-checked pending). */
   readonly deleted: readonly string[];
   /**
+   * Orders moved to `recovery_required` (`RECONCILIATION_REQUIRED`) this tick, hold kept: a cancel found the engine
+   * without them (`engine_absent_since`) at least `HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS` ago and neither a fill nor the
+   * engine's cancel event has closed them since (#7025).
+   */
+  readonly markedRecoveryRequired: readonly string[];
+  /**
    * Always empty by design — reserved so tests can assert "no money writes".
    * Tick never posts to the ledger.
    */
@@ -285,11 +293,29 @@ export async function runEngineLedgerReconcileTick(deps: EngineLedgerReconcileTi
     }
   }
 
+  // A lost engine event shows up by itself (#7025): the cancel path marks such an order only when someone cancels again.
+  // Status only, the same row `markRecoveryRequired` writes: the hold stays and nothing is posted to the ledger.
+  // No open or pending claim means no order to mark, and the tick writes nothing.
+  const marked =
+    claims.length === 0
+      ? []
+      : await deps.sql<{ id: string }[]>`
+    UPDATE trade.orders
+       SET status = 'recovery_required',
+           recovery_reason = 'RECONCILIATION_REQUIRED',
+           reconciliation_key = 'trade.order.reconcile:' || id::text || ':RECONCILIATION_REQUIRED',
+           updated_at = now()
+     WHERE status IN ('pending', 'open')
+       AND engine_absent_since <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})
+    RETURNING id::text AS id
+  `;
+
   return {
     counterpartCount: counterpart.length,
     report,
     plan,
     deleted,
+    markedRecoveryRequired: marked.map((r) => r.id),
     ledgerPosts: [],
     marketIdDrift,
   };

@@ -1,5 +1,5 @@
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import postgres, { type Sql } from 'postgres';
+import postgres, { type Sql, type TransactionSql } from 'postgres';
 
 /**
  * Database connections.
@@ -68,6 +68,22 @@ export function createDb<TSchema extends Record<string, unknown>>(options: DbOpt
   };
 }
 
+/**
+ * A connection or a transaction: what a query helper takes when it must run either on its own or inside a caller's
+ * transaction. postgres.js types the two handles separately (only a connection can `begin`, only a transaction can
+ * `savepoint`), but both run the same queries, so a helper typed `Queryable` takes either without a cast.
+ */
+export type Queryable = Sql | TransactionSql;
+
+/**
+ * The connection behind a `Queryable`, to open a transaction on. A transaction handle has no `begin` (a nested unit is
+ * a `savepoint`), so one refuses here by name instead of failing later as "begin is not a function".
+ */
+export function requireConnection(db: Queryable): Sql {
+  if ('begin' in db) return db;
+  throw new Error('requireConnection: a transaction cannot begin another; use savepoint');
+}
+
 export type Isolation = 'serializable' | 'repeatable read' | 'read committed';
 
 export interface TransactionOptions {
@@ -94,14 +110,14 @@ export interface TransactionOptions {
  * The retry loop lives here so it is not re-invented per caller, and is
  * jittered so retries do not march in lockstep back into the same conflict.
  */
-export async function transaction<T>(sql: Sql, fn: (tx: Sql) => Promise<T>, options: TransactionOptions = {}): Promise<T> {
+export async function transaction<T>(sql: Sql, fn: (tx: TransactionSql) => Promise<T>, options: TransactionOptions = {}): Promise<T> {
   const isolation = options.isolation ?? 'serializable';
   const maxAttempts = options.maxAttempts ?? 5;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return (await sql.begin(`isolation level ${isolation}`, (tx) => fn(tx as unknown as Sql))) as T;
+      return (await sql.begin(`isolation level ${isolation}`, fn)) as T;
     } catch (err) {
       lastError = err;
       if (!isSerializationFailure(err) || attempt === maxAttempts) throw err;
@@ -114,7 +130,7 @@ export async function transaction<T>(sql: Sql, fn: (tx: Sql) => Promise<T>, opti
 }
 
 /** §4.2: "Enforced in one serializable transaction." */
-export async function serializable<T>(sql: Sql, fn: (tx: Sql) => Promise<T>, maxAttempts = 5): Promise<T> {
+export async function serializable<T>(sql: Sql, fn: (tx: TransactionSql) => Promise<T>, maxAttempts = 5): Promise<T> {
   return transaction(sql, fn, { isolation: 'serializable', maxAttempts });
 }
 
