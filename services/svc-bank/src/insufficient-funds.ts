@@ -85,3 +85,13 @@ export class SpendFiguresReader {
     return new BankInsufficientFundsError(`Insufficient ${assetId}.`, figures, err);
   }
 }
+
+/** Figures for a refused spend. An area of svc-bank (`area-chain.ts`). */
+export interface SpendFiguresServices {
+  /** RC-wallet-09: figures for a refused spend. Reads only. */
+  readonly spendFigures: SpendFiguresReader;
+}
+
+export function composeSpendFiguresArea(root: { readonly sql: Sql; readonly ledger: LedgerClient }): SpendFiguresServices {
+  return { spendFigures: new SpendFiguresReader(root.sql, root.ledger) };
+}

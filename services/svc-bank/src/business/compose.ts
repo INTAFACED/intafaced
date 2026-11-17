@@ -1,7 +1,4 @@
-import type { Sql } from 'postgres';
-import type { LedgerClient } from '@intafaced/ledger-client';
-import type { PartnerCustody, PostingFreeze } from '../partner/partner-bank.js';
-import type { PartnerRefusalCounts } from '../partner/partner-refusals.js';
+import type { BankRoot } from '../bank-root.js';
 import type { SpaceService } from '../spaces/space-service.js';
 import type { TransferService } from '../transfers/transfer-service.js';
 import { BusinessService } from './business-service.js';
@@ -10,12 +7,10 @@ import { BusinessBillsService } from './business-bills.js';
 import { BusinessPayoutsService } from './business-payouts.js';
 import { BusinessCardsService } from './business-cards.js';
 import { BusinessBooksService } from './business-books.js';
-import type { BusinessDirectoryPort, BusinessLookupLimiter } from './business-directory.js';
 
 /**
- * The business bank's services, made in one place of their own. A new business service (a journey of the business
- * bank) is a field here, an option here if it needs an owner value, and a line in `composeBusinessServices`:
- * `bank-service.ts` spreads all three and does not change for it (project-state #2656).
+ * The business bank's services. An area of svc-bank (`area-chain.ts`): a new business service (a journey of the business
+ * bank) is a field here, an option here if it needs an owner value, and a line in `composeBusinessArea`.
  */
 export interface BusinessServices {
   readonly business: BusinessService;
@@ -38,30 +33,20 @@ export interface BusinessServiceOptions {
   billReader?: string | undefined;
 }
 
-/** What the business bank shares with the rest of svc-bank, made once in `createBankServices`. */
-export interface BusinessComposeContext {
-  readonly sql: Sql;
-  readonly ledger: LedgerClient;
-  readonly spaces: SpaceService;
-  readonly transfers: TransferService;
-  readonly custody: PartnerCustody;
-  readonly postingFreeze: PostingFreeze;
-  readonly noteRefusal: PartnerRefusalCounts['note'];
-  readonly directory: BusinessDirectoryPort;
-  readonly directoryLookups: BusinessLookupLimiter;
-  /** The TEST partner bank is chosen (a dev or test stack only). */
-  readonly testPartner: boolean;
-}
-
-export function composeBusinessServices(ctx: BusinessComposeContext, options: BusinessServiceOptions): BusinessServices {
-  const { sql, postingFreeze, noteRefusal } = ctx;
-  const businessTeam = new BusinessTeamService(sql, ctx.custody, ctx.directory, {
+export function composeBusinessArea(
+  root: BankRoot,
+  made: { readonly spaces: SpaceService; readonly transfers: TransferService },
+  options: BusinessServiceOptions,
+): BusinessServices {
+  const { sql, postingFreeze } = root;
+  const noteRefusal = root.partnerRefusals.note;
+  const businessTeam = new BusinessTeamService(sql, root.custody, root.directory, {
     inviteMinutes: () => options.businessInviteMinutes,
     postingFreeze,
     noteRefusal,
   });
   return {
-    business: new BusinessService(sql, ctx.ledger, ctx.spaces, ctx.transfers, ctx.directory, ctx.directoryLookups),
+    business: new BusinessService(sql, root.ledger, made.spaces, made.transfers, root.directory, root.directoryLookups),
     businessTeam,
     businessBills: new BusinessBillsService(sql, businessTeam, {
       reader: () => options.billReader,
@@ -72,8 +57,9 @@ export function composeBusinessServices(ctx: BusinessComposeContext, options: Bu
     businessCards: new BusinessCardsService(sql, businessTeam, {
       postingFreeze,
       noteRefusal,
-      custody: ctx.custody,
-      testNetwork: ctx.testPartner,
+      custody: root.custody,
+      // The TEST partner bank is chosen (a dev or test stack only).
+      testNetwork: root.testPartner != null,
     }),
     businessBooks: new BusinessBooksService(sql, businessTeam),
   };
