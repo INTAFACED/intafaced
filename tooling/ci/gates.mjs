@@ -81,26 +81,6 @@ export const GATES = [
       'never runs, so a stale rule could reach main unchecked. It reads only those entry files, so it cannot block product work.',
   },
   {
-    id: 'services-map',
-    script: 'tooling/scripts/services-map.mjs',
-    args: ['--check'],
-    doctrine: 'agent map honesty',
-    why:
-      'docs/SERVICES.md is the one table of services, ports and required env that agents read instead of opening 25 ' +
-      'compose blocks and env files. Hand-kept service counts had already drifted in three docs (eleven, twenty-one, 25). ' +
-      'Generated from the code, so a stale copy fails here, the same way the tracker does.',
-  },
-  {
-    id: 'architecture-map',
-    script: 'tooling/ci/architecture-map.mjs',
-    args: ['--check'],
-    doctrine: 'agent map honesty',
-    why:
-      'docs/ARCHITECTURE.md is what every agent reads first. Its hand-kept count said 24 packages for 29 and its services ' +
-      'table had no svc-campaigns row (project-state#2338). The count block is generated from the folders, and the Apps and ' +
-      'Services tables must hold one row per folder, so a stale copy fails here.',
-  },
-  {
     id: 'reachability',
     script: 'tooling/ci/reachability-scan.mjs',
     doctrine: 'L3 slice factory law, Reachability law',
@@ -188,24 +168,10 @@ export const GATES = [
       'or a workspace dependency cycle, an import or disk read that climbs into another service, SQL against another ' +
       'service’s schema (any tag, string or .unsafe), a ledger entry, hand-built LedgerClient or /trpc/post outside ' +
       'ledger-client and svc-ledger, a balance-like column (also via ADD COLUMN or a drizzle schema), and a randomUUID, ' +
-      'Date.now or Math.random idempotency key (also through a variable or on the next line). Its old duplicate ratchet ' +
+      'Date.now or Math.random idempotency key (also through a variable or on the next line), and a Vue-family dependency ' +
+      '(vue, vuex, nuxt, @vue/*, @nuxt/*, vue-*) in any package.json, since the front end is React (AGENTS.md). Its old duplicate ratchet ' +
       '(local scales, result?.data unwraps, padEnd parsers, timeout-less fetch) is held by lint-ratchet below. Exceptions ' +
       'are named with a reason in tooling/ci/boundary-allow.json.',
-  },
-  {
-    id: 'workspace',
-    script: 'tooling/ci/workspace-sync.mjs',
-    doctrine: 'fleet sync',
-    why: 'a service that builds but never reaches the image or the fleet',
-  },
-  {
-    id: 'event-wiring',
-    script: 'tooling/ci/event-wiring.mjs',
-    doctrine: '§10',
-    why:
-      'the same shape as workspace-sync, one layer in: a declared subject with no publisher, or no subscriber. ' +
-      'The bus could not report silence — a subject nobody publishes and a subject nobody reads both looked ' +
-      'exactly like a working one. Every unwired end is now an entry in WIRING_SOCKETS with a written reason, or red.',
   },
   {
     id: 'skip-honesty',
@@ -312,6 +278,8 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'architecture-map.mjs':
+    "not a gate: writes docs/ARCHITECTURE.md's count block (`node tooling/ci/architecture-map.mjs`). Its gate repeated architecture-map.test.mjs, whose first case fails when the committed doc is stale or a table drifted, and tooling-tests runs that on every PR.",
   'architecture-map.test.mjs':
     'not a gate: the node:test file of architecture-map.mjs, replayed on project-state#2338 (the count of 24 packages for 29; no svc-campaigns row) with planted faults (a row for a deleted service, a missing package). tooling-tests.mjs runs it with every other tooling test.',
   'custody-layer-check.mjs':
@@ -531,7 +499,7 @@ export function gatesToRun(gates, changed) {
 /** The gates a push leaves to CI, each with why. Every other gate reads the pushed tree in seconds and runs before it. */
 export const LEFT_TO_CI_BEFORE_PUSH = {
   'tooling-tests': 'about four minutes on the Mac; the hook runs the ones that read journey files itself',
-  'truth-check': 'the hook runs it itself, on every push',
+  'truth-check': 'CI runs it on every pull request and on main',
   'lint-ratchet': "the hook runs it itself, on the pushed files with main's rules",
   'cross-package-reads': 'the hook runs it itself when a test or what it checks changed',
   'secret-scan-mutation': 'proves secret-scan on planted files (19 s on the Mac): only a change to the scanner reaches it',

@@ -107,14 +107,12 @@ export { NOTIFY_EVENT_CONSUMERS, SKIPPED_NOTIFY_SUBJECTS, notifyEventConsumerCou
  * So a pending consumer is now one of exactly two things:
  *
  *   `socket` non-null   Somebody wrote down that this subject has no publisher
- *                       yet, in `WIRING_SOCKETS`, with a reason. Known, reviewed
- *                       and enforced by `pnpm scan:events`. Logged at INFO with
+ *                       yet, in `WIRING_SOCKETS`, with a reason. Known and
+ *                       reviewed. Logged at INFO with
  *                       the recorded reason. Quiet, because it is accounted for.
  *
  *   `socket` null       Nothing in the repo admits this consumer cannot attach.
- *                       That is a defect. Logged at ERROR, counted on /ready, and
- *                       CI is already red on it — `scan:events` fails on an
- *                       undeclared orphan, so this state cannot reach `main`.
+ *                       That is a defect. Logged at ERROR and counted on /ready.
  *
  * Boot does not refuse either way, and that is deliberate: svc-notify's inbox is
  * healthy without any one consumer, and taking the whole inbox down over a single
@@ -320,9 +318,7 @@ async function attach<K extends EventName>(
         subject,
         durable,
         reason: err instanceof Error ? err.message : String(err),
-        // The catalog is the single place a missing publisher is recorded, so
-        // the boot log and `pnpm scan:events` cannot disagree about which
-        // subjects are known-dark. One list, two readers.
+        // The catalog is the single place a missing publisher is recorded.
         socket: wiringSocketReason(event, 'publisher'),
       },
     };

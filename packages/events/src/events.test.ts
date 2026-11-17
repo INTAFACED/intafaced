@@ -593,9 +593,7 @@ describe('declared wiring sockets', () => {
    *
    * A written reason proves somebody thought about it; the class is where they
    * say what the answer was. `satisfies readonly WiringSocket[]` already makes a
-   * missing class a compile error — this asserts the runtime value too, because
-   * `tooling/ci/event-wiring.mjs` parses this file as TEXT, and a rule that only
-   * one of those two readers enforces is a rule with a hole in it.
+   * missing class a compile error — this asserts the runtime value too.
    */
   it('classifies every socket A, B or C', () => {
     for (const socket of WIRING_SOCKETS) {
@@ -616,9 +614,7 @@ describe('declared wiring sockets', () => {
    * defect had been fixed by code that has never run. A test written to match a
    * wrong answer is worse than no test: it is a second voice agreeing.
    *
-   * Pinned by name and in order, matching `CLASS_B_AWAITING_A_DECISION` in
-   * `tooling/ci/event-wiring.mjs` — so quietly downgrading it to A to make the
-   * gate green fails here as well as there. Two readers, one rule.
+   * Pinned by name and in order, so quietly downgrading it to A fails here.
    */
   it('records exactly the Class B wiring defects that are pinned for a named decision', () => {
     const b = WIRING_SOCKETS.filter((s) => s.class === 'B').map((s) => `${s.event}::${s.missing}`);

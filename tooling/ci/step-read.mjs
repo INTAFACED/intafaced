@@ -212,14 +212,20 @@ export async function buildReads({
       const block = `\nBEGIN UNTRUSTED FILE at the head (${head.slice(0, 10)}) ${jf}\n${fence(headFiles.get(jf))}\nEND UNTRUSTED FILE`;
       const b = Buffer.byteLength(block) + 1;
       if (size + b > MAX_PROMPT_BYTES - 64_000) left.push(jf);
-      else (parts.push(block), (size += b));
+      else {
+        parts.push(block);
+        size += b;
+      }
     }
     // The harness the tests call into, so a helper's check is read with the test (as the test part reads it).
     for (const [h, t] of harness) {
       const block = `\nBEGIN UNTRUSTED FILE at the head (${head.slice(0, 10)}) ${h}\n${fence(t)}\nEND UNTRUSTED FILE`;
       const b = Buffer.byteLength(block) + 1;
       if (size + b > MAX_PROMPT_BYTES - 64_000) left.push(h);
-      else (parts.push(block), (size += b));
+      else {
+        parts.push(block);
+        size += b;
+      }
     }
     if (left.length) parts.push(`\nLeft out for size: ${left.join('; ')}`);
     parts.push('\nAnswer with the structured reads only.');

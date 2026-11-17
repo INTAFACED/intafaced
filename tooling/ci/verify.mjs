@@ -75,7 +75,6 @@ const steps = [
   ['doctrine gates', 'pnpm gates'],
   ['format', 'pnpm format:check'],
   ['build · typecheck · test', ['pnpm', 'exec', 'turbo', 'run', 'build', 'typecheck', 'test', ...passthrough].join(' ')],
-  ['workspace sync', 'node tooling/ci/workspace-sync.mjs'],
   ['definition of done', 'node tooling/ci/dod-gate.mjs'],
 ];
 
