@@ -120,7 +120,6 @@ export function createDevelopersMock(ctx) {
             dev.keys.map((k) => ({
               requireSignature: false,
               requireNonEmptyIpAllowlist: false,
-              ipAllowlist: [],
               ...k,
               ...dev.signing.get(k.id),
               ipAllowlist: dev.ips.get(k.id) ?? k.ipAllowlist ?? [],
