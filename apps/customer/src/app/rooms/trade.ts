@@ -6,9 +6,6 @@ import { areaCopy, areaRooms } from './room';
  */
 export const tradeCopy = areaCopy({
   en: {
-    Positions: 'Positions',
-    'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts':
-      'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts',
     'Risk control': 'Risk control',
     'Cancel every open order, close positions and see platform incidents':
       'Cancel every open order, close positions and see platform incidents',
@@ -62,9 +59,6 @@ export const tradeCopy = areaCopy({
     'Past trading orders': 'Past trading orders',
   },
   es: {
-    Positions: 'Posiciones',
-    'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts':
-      'Posiciones de futuros en cada mercado conectado, con totales, apalancamiento, cierre total y subcuentas',
     Markets: 'Mercados',
     'Prices for every market': 'Precios de cada mercado',
     'Buy and sell': 'Comprar y vender',
@@ -100,9 +94,6 @@ export const tradeCopy = areaCopy({
     'Past trading orders': 'Órdenes de operaciones anteriores',
   },
   fr: {
-    Positions: 'Positions',
-    'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts':
-      'Positions sur contrats à terme sur chaque plateforme connectée, avec totaux, effet de levier, clôture totale et sous-comptes',
     Markets: 'Marchés',
     'Prices for every market': 'Les prix de chaque marché',
     'Buy and sell': 'Acheter et vendre',
@@ -243,13 +234,6 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     path: '/trade/risk',
     title: 'Risk control',
     description: 'Cancel every open order, close positions and see platform incidents',
-    door: 'Trade',
-    area: 'trade',
-  },
-  {
-    path: '/trade/positions',
-    title: 'Positions',
-    description: 'Futures positions on every connected venue, with totals, leverage, close all and sub-accounts',
     door: 'Trade',
     area: 'trade',
   },

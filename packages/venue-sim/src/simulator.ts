@@ -32,7 +32,6 @@ import {
   type VenueFundingRow,
   type UserVenueFill,
   type UserVenueLeverage,
-  type UserVenueLeverageChange,
   type UserVenueListing,
   type UserVenueMarginAccountRule,
   type UserVenueMarginTier,
@@ -540,8 +539,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
       // An agent approved on a sub-account is live only in that account's state (`agentLive`), so it trades nothing else.
       agentPermissionReach: 'own_account_only',
-      // As the venue it stands for: one net position per contract (no hedge mode).
-      positionModes: ['one_way'],
       ...(options.ordersPerAction !== undefined ? { ordersPerAction: options.ordersPerAction } : {}),
       ...(options.amendsInPlace ? { amendsInPlace: true } : {}),
       ...(options.cancelsPerAction !== undefined ? { cancelsPerAction: options.cancelsPerAction } : {}),
@@ -1651,7 +1648,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         margin: p.margin,
         leverageBps: p.leverageBps,
         liquidationPrice: this.liquidationPrice(market, p),
-        maintenanceMargin: this.maintenanceOf(market, p),
       });
     }
     return this.asOf(list);
@@ -1812,31 +1808,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.market(symbol);
     const setting = this.account(account).leverage.get(symbol);
     return this.asOf(setting ? { symbol, ...setting } : null);
-  }
-
-  /** What `update_leverage` would do to the open position on `symbol`, by the same rule its submit applies (J-derivatives-05 #4). */
-  async leverageChange(
-    account: UserVenueAccount,
-    symbol: string,
-    leverageBps: number,
-    marginMode: VenueMarginMode,
-  ): Promise<AsOf<UserVenueLeverageChange>> {
-    this.up();
-    const market = this.checkLeverageOnItsFace(symbol, leverageBps, marginMode);
-    const p = this.account(account).positions.get(symbol);
-    const open = p && p.size !== ZERO ? p : null;
-    const marginNow = open ? open.margin : ZERO;
-    const marginAfter = open ? this.marginAt(open, leverageBps) : ZERO;
-    return this.asOf({
-      symbol,
-      leverageBps,
-      marginMode,
-      maxLeverageBps: market.maxLeverageBps,
-      positionSize: open ? open.size : ZERO,
-      marginNow,
-      marginAfter,
-      difference: sub(marginAfter, marginNow),
-    });
   }
 
   async agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
@@ -2390,24 +2361,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         const current = state.leverage.get(intent.symbol);
         if (position && position.size !== ZERO && current && current.marginMode !== intent.marginMode) {
           return refused('venue_rejected', 'the margin mode cannot change while a position is open');
-        }
-        // An open position takes its margin at the new leverage (J-derivatives-05 #4): the difference is posted from
-        // free or released to free, once, as `leverageChange` stated it before the wallet signed.
-        if (position && position.size !== ZERO) {
-          const market = this.market(intent.symbol);
-          const usdc = this.lockBalance(
-            state,
-            market.marginAccount?.name ?? null,
-            market.marginAccount?.collateralAsset ?? market.quoteAsset,
-          );
-          const after = this.marginAt(position, intent.leverageBps);
-          const difference = sub(after, position.margin);
-          if (compare(difference, usdc.free) > 0)
-            return refused('insufficient_balance', `free margin does not cover the ${formatAmount(difference)} more this leverage needs`);
-          usdc.free = sub(usdc.free, difference);
-          usdc.locked = add(usdc.locked, difference);
-          position.margin = after;
-          position.leverageBps = intent.leverageBps;
         }
         state.leverage.set(intent.symbol, { leverageBps: intent.leverageBps, marginMode: intent.marginMode });
         return accepted(null, null);
@@ -3101,18 +3054,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const feeFromBack = min(feeLeft, back);
     usdc.free = add(usdc.free, add(sub(lockForQty, feeFromLock), sub(back, feeFromBack)));
     return { realisedPnl: realised, uncharged: sub(feeLeft, feeFromBack) };
-  }
-
-  /** A position's margin at `leverageBps`: its entry notional over the leverage, as an opening fill posts it. */
-  private marginAt(p: PositionState, leverageBps: number): Amount {
-    return div(mul(mul(p.entryPrice, p.size, QUOTE_ROUND), BPS), parseAmount(String(leverageBps)), QUOTE_ROUND);
-  }
-
-  /** The margin the simulator requires to keep `p` open: its entry notional at the market's maintenance rate (TEST). */
-  private maintenanceOf(market: SimMarketConfig, p: PositionState): MaybeKnown<Amount> {
-    const notional = mul(p.entryPrice, p.size);
-    const rate = market.marginTiers?.length ? tierOf(market.marginTiers, notional).maintenanceRate : market.maintenanceMarginRate;
-    return rate === undefined ? { known: false } : { known: true, value: mul(notional, rate) };
   }
 
   private pnl(p: PositionState, price: Amount, qty: Amount): Amount {

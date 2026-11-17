@@ -718,29 +718,6 @@ export interface UserVenuePosition {
   readonly leverageBps: number;
   /** `known: false` where the venue publishes none — never read as "far away". */
   readonly liquidationPrice: MaybeKnown<Amount>;
-  /**
-   * The margin the venue requires to keep this position open (J-derivatives-05 #2: the margin ratio is this over the
-   * position's margin and its unrealised result). Absent or `known: false` where the venue publishes none.
-   */
-  readonly maintenanceMargin?: MaybeKnown<Amount>;
-}
-
-/**
- * What a leverage change on one market would do to the account's open position there, by the venue's own margin rule,
- * with nothing signed (J-derivatives-05 #4): the margin it holds now and after, and the difference, posted from free
- * (positive) or released to free (negative). With no position open, every margin figure is zero.
- */
-export interface UserVenueLeverageChange {
-  readonly symbol: string;
-  readonly leverageBps: number;
-  readonly marginMode: VenueMarginMode;
-  /** The venue's published cap on `symbol`, in basis points of 1x; `null` where it publishes none. */
-  readonly maxLeverageBps: number | null;
-  readonly positionSize: Amount;
-  readonly marginNow: Amount;
-  readonly marginAfter: Amount;
-  /** `marginAfter - marginNow`: positive is posted from free, negative released to free. */
-  readonly difference: Amount;
 }
 
 /**
@@ -1365,20 +1342,6 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * cancel time (`minLeadMs`). A venue that declares none offers no scheduled cancel, and the app says so.
    */
   readonly scheduledCancel?: { readonly minLeadMs: number };
-  /**
-   * The position modes this venue offers (J-derivatives-05 #3): `one_way` holds one net position per contract, `hedge` a
-   * long and a short side by side. A venue that declares none is read as one-way only (`positionModesOf`): a mode nobody
-   * declared is never offered.
-   */
-  readonly positionModes?: readonly VenuePositionMode[];
-}
-
-/** How a venue holds positions on one contract: one net position, or a long and a short side by side. */
-export type VenuePositionMode = 'one_way' | 'hedge';
-
-/** The position modes `venue` offers: what it declares, or one-way only when it declares none. */
-export function positionModesOf(venue: UserVenueDescriptor): readonly VenuePositionMode[] {
-  return venue.positionModes && venue.positionModes.length > 0 ? venue.positionModes : ['one_way'];
 }
 
 /** The venue's scheduled cancel as it records it for one account: when it cancels, and what it last did. */
@@ -1572,18 +1535,6 @@ export interface UserVenue {
    * that is not definite is read back by.
    */
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>>;
-
-  /**
-   * What `update_leverage` to `leverageBps` in `marginMode` would do to the open position on `symbol` (J-derivatives-05 #4),
-   * read before anything is signed. Refuses what `prepare` refuses on its face (above the cap, a mode not offered).
-   * Optional: a venue that reads none leaves it out, and the app says the venue states no margin difference.
-   */
-  leverageChange?(
-    account: UserVenueAccount,
-    symbol: string,
-    leverageBps: number,
-    marginMode: VenueMarginMode,
-  ): Promise<AsOf<UserVenueLeverageChange>>;
 }
 
 /**
