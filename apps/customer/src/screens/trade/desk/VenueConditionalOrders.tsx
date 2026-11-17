@@ -175,6 +175,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
             aria-pressed={kind === k}
             onClick={() => {
               setKind(k);
+              setFields({});
               redraft();
             }}
           >
