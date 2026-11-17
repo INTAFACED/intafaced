@@ -188,7 +188,8 @@ export const GATES = [
       'or a workspace dependency cycle, an import or disk read that climbs into another service, SQL against another ' +
       'service’s schema (any tag, string or .unsafe), a ledger entry, hand-built LedgerClient or /trpc/post outside ' +
       'ledger-client and svc-ledger, a balance-like column (also via ADD COLUMN or a drizzle schema), and a randomUUID, ' +
-      'Date.now or Math.random idempotency key (also through a variable or on the next line). Its old duplicate ratchet ' +
+      'Date.now or Math.random idempotency key (also through a variable or on the next line), and a Vue-family dependency ' +
+      '(vue, vuex, nuxt, @vue/*, @nuxt/*, vue-*) in any package.json, since the front end is React (AGENTS.md). Its old duplicate ratchet ' +
       '(local scales, result?.data unwraps, padEnd parsers, timeout-less fetch) is held by lint-ratchet below. Exceptions ' +
       'are named with a reason in tooling/ci/boundary-allow.json.',
   },
