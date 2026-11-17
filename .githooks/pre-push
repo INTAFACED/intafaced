@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require format:check, truth-check and the Doctrine gates before any push. The rest of CI runs on GitHub.
+# Refuse direct push to main + require format:check and the Doctrine gates before any push. The rest of CI runs on GitHub.
 # Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
 #
 # P1: format:check covers tooling/scripts/*.mjs (what red-trunked main via #471).
@@ -76,20 +76,9 @@ else
   echo "format:check — no prettier in this worktree; skipped (pnpm install --frozen-lockfile --prefer-offline); CI checks it" >&2
 fi
 
-# Local agent-rule drift check. Not a GitHub workflow. Stdin stays with the loop below.
+# Every step below runs node.
 if ! command -v node >/dev/null 2>&1; then
-  echo "truth-check: node is missing — refuse push." >&2
-  exit 1
-fi
-if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/truth-check.mjs) </dev/null; then
-  cat >&2 <<'MSG'
-
-  ✖ truth-check failed — push refused.
-
-    Fix the named lines (AGENTS.md is the truth); archive files arrive by
-    git mv; list new docs in docs/README.md.
-
-MSG
+  echo "pre-push: node is missing — refuse push." >&2
   exit 1
 fi
 
@@ -204,7 +193,7 @@ if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
   done < "$PUSHED"
 fi
 
-# What runs here takes seconds: formatting of the pushed files, the agent-rule check, the tooling tests that read
+# What runs here takes seconds: formatting of the pushed files, the tooling tests that read
 # journey files (when one is pushed), the lint ratchet on the pushed files, the cross-package read scan, the Doctrine
 # gates that read the pushed tree, the CI review's size count and the refusal of main. Only on GitHub: build, typecheck,
 # unit tests, the other tooling tests and the gates gates.mjs leaves to CI (on the Mac CI's checks took 13 to 91 minutes

@@ -531,7 +531,7 @@ export function gatesToRun(gates, changed) {
 /** The gates a push leaves to CI, each with why. Every other gate reads the pushed tree in seconds and runs before it. */
 export const LEFT_TO_CI_BEFORE_PUSH = {
   'tooling-tests': 'about four minutes on the Mac; the hook runs the ones that read journey files itself',
-  'truth-check': 'the hook runs it itself, on every push',
+  'truth-check': 'CI runs it on every pull request and on main',
   'lint-ratchet': "the hook runs it itself, on the pushed files with main's rules",
   'cross-package-reads': 'the hook runs it itself when a test or what it checks changed',
   'secret-scan-mutation': 'proves secret-scan on planted files (19 s on the Mac): only a change to the scanner reaches it',

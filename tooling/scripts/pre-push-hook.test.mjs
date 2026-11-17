@@ -30,7 +30,6 @@ function plant({ prettier = null, oxlint = false, ciChecks = 'process.exit(0);',
   copyFileSync(join(ROOT, '.githooks', 'pre-push'), join(work, '.githooks', 'pre-push'));
   chmodSync(join(work, '.githooks', 'pre-push'), 0o755);
   mkdirSync(join(work, 'tooling', 'scripts'), { recursive: true });
-  writeFileSync(join(work, 'tooling', 'scripts', 'truth-check.mjs'), 'process.exit(0);\n');
   // CI's checks (tooling/scripts/ci-checks.mjs), planted: the real one builds and tests the whole repo.
   writeFileSync(join(work, 'tooling', 'scripts', 'ci-checks.mjs'), `${ciChecks}\n`);
   writeFileSync(join(work, '.gitignore'), 'node_modules\n');
