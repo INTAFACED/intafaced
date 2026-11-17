@@ -99,11 +99,12 @@ export const touchesMoney = (files) =>
   (files ?? []).some((f) => MONEY_PATHS.some((p) => (p.endsWith('/**') ? f.startsWith(p.slice(0, -2)) : f === p)));
 
 /**
- * The money browser checks on this exact head (#8708): the newest pull_request run of MONEY_WORKFLOW_PATH there decides,
- * as CI's newest run does. A change that touches none of MONEY_PATHS owes no run and is not held. One that touches them
- * needs that run finished with its MONEY_JOB passed: still going waits, and none, red, cancelled or skipped fails closed
- * (a pull request's own copy of the workflow could drop its trigger). `files` null (unreadable) counts as touching.
- * Returns { ok, wait, lines }. Pure.
+ * The money browser checks on this exact head (#8708): when they ran there, the merge waits for their verdict. The newest
+ * pull_request run of MONEY_WORKFLOW_PATH on the head decides, as CI's newest run does: its MONEY_JOB passed is green;
+ * still going waits; red, cancelled, skipped or a finished run with no such job fails. With no run on the head nothing
+ * waits: a change that touches none of MONEY_PATHS (GitHub's paths filter started none), and a head pushed before the
+ * workflow ran on pull requests (open pull requests at this change's merge are not held for a run they never got;
+ * checker on #8713). `files` null (unreadable) is read as touching. Returns { ok, wait, lines }. Pure.
  */
 export function moneyVerdict({ runs, jobs, files, sha }) {
   if (files !== null && !touchesMoney(files))
@@ -112,14 +113,11 @@ export function moneyVerdict({ runs, jobs, files, sha }) {
     (runs ?? [])
       .filter((r) => r?.head_sha === sha && r?.event === 'pull_request' && r?.path === MONEY_WORKFLOW_PATH)
       .sort((a, b) => b.id - a.id)[0] ?? null;
-  if (!run)
-    return {
-      ok: false,
-      wait: false,
-      lines: ['the money browser checks: the change touches their paths and no run of them is on this head; push again or re-open'],
-    };
+  if (!run) return { ok: true, wait: false, lines: ['the money browser checks: no run of them on this head, so nothing waits'] };
   const id = `the money browser checks, run ${run.id} (attempt ${run.run_attempt ?? 1})`;
   const job = (jobs ?? []).filter((j) => j?.name === MONEY_JOB).sort((a, b) => (b.id ?? 0) - (a.id ?? 0))[0];
+  if (!job && run.status === 'completed')
+    return { ok: false, wait: false, lines: [`${id} finished with no ${MONEY_JOB} job; re-run it or push`] };
   if (!job || job.status !== 'completed')
     return { ok: false, wait: true, lines: [`${id} on this head has not finished; the seal re-runs when it does`] };
   if (job.conclusion === 'success') return { ok: true, wait: false, lines: [`${id}: passed`] };

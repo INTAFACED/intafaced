@@ -123,24 +123,36 @@ test('#8708: a change that touches no money path owes no run and is not held', (
   }
 });
 
-test('#8708: a change that touches a money path needs its newest run on the exact head passed; anything else holds it', () => {
+test('#8708: when they ran on the exact head, the newest run decides: passed is green, anything else holds the merge', () => {
   const files = ['apps/customer/src/screens/money/Deposit.tsx'];
   assert.equal(moneyVerdict({ runs: [mrun(5)], jobs: mjob('completed', 'success'), files, sha: MSHA }).ok, true);
-  // Planted: red, cancelled, skipped, still going, no run at all, a run on another head or of another event, a file list
-  // that can't be read: each holds the merge.
-  for (const [runs, jobs, why] of [
-    [[mrun(5)], mjob('completed', 'failure'), 'red'],
-    [[mrun(5)], mjob('completed', 'cancelled'), 'cancelled'],
-    [[mrun(5)], mjob('completed', 'skipped'), 'skipped'],
-    [[mrun(5)], mjob('in_progress', null), 'going'],
-    [[mrun(5)], [], 'no job yet'],
-    [[], [], 'no run'],
-    [[mrun(5, { head_sha: 'b'.repeat(40) })], mjob('completed', 'success'), 'another head'],
-    [[mrun(5, { event: 'push' })], mjob('completed', 'success'), 'a push run'],
-    [[mrun(5, { path: '.github/workflows/other.yml' })], mjob('completed', 'success'), 'another workflow'],
+  // Planted: red, cancelled, skipped or a finished run with no money job fails; still going waits. Each holds the merge.
+  for (const [runs, jobs, wait, why] of [
+    [[mrun(5)], mjob('completed', 'failure'), false, 'red'],
+    [[mrun(5)], mjob('completed', 'cancelled'), false, 'cancelled'],
+    [[mrun(5)], mjob('completed', 'skipped'), false, 'skipped'],
+    [[mrun(5)], mjob('in_progress', null), true, 'going'],
+    [[mrun(5, { status: 'in_progress' })], [], true, 'no job yet'],
+    [[mrun(5, { status: 'completed' })], [], false, 'finished with no money job'],
+    [[mrun(5), mrun(4)], mjob('completed', 'failure'), false, 'the newest is red, an older one green'],
+  ]) {
+    const v = moneyVerdict({ runs, jobs, files, sha: MSHA });
+    assert.deepEqual([v.ok, v.wait], [false, wait], why);
+  }
+  // With no run on this head nothing waits (#8708: the merge waits for their verdict when they ran): a head pushed before
+  // this change, or a run of another head, event or workflow, is no run here.
+  for (const runs of [
+    [],
+    [mrun(5, { head_sha: 'b'.repeat(40) })],
+    [mrun(5, { event: 'push' })],
+    [mrun(5, { path: '.github/workflows/other.yml' })],
   ])
-    assert.equal(moneyVerdict({ runs, jobs, files, sha: MSHA }).ok, false, why);
-  assert.equal(moneyVerdict({ runs: [], jobs: [], files: null, sha: MSHA }).ok, false, 'unreadable files count as touching');
+    assert.equal(moneyVerdict({ runs, jobs: mjob('completed', 'failure'), files, sha: MSHA }).ok, true);
+  assert.equal(
+    moneyVerdict({ runs: [mrun(5)], jobs: mjob('completed', 'failure'), files: null, sha: MSHA }).ok,
+    false,
+    'unreadable files count as touching',
+  );
   assert.equal(moneyVerdict({ runs: [mrun(5)], jobs: mjob('in_progress', null), files, sha: MSHA }).wait, true);
 });
 
