@@ -164,6 +164,17 @@ export interface VenueCopyDeps {
   readonly placedMirrors: (followId: string) => Promise<readonly VenueMirrorRow[]>;
   /** The owner's protection floor for a close: the most below the best bid a close may sell (blank refuses). */
   readonly slippageCapBps: number | null;
+  /**
+   * The follower's account admission for one copy (freeze, restriction, screening), as every TEST-book copy gets in
+   * `placeCopyMirror`: trade-service `admitAccountOperation(principal, 'copy.mirror', businessId, payload,
+   * 'copy.follow:<followId>')`. It throws when the account may not trade; it runs before the agent key signs.
+   */
+  readonly admitCopy: (
+    principal: Principal,
+    businessId: string,
+    payload: Record<string, string>,
+    parentBusinessId: string,
+  ) => Promise<unknown>;
 }
 
 export interface VenueMirrorRow {
@@ -303,13 +314,29 @@ export class VenueCopy {
     const b = input.followId ? await this.bound(input.followId) : null;
     if (!b || b.binding.followerId !== principal.userId) throw new CopyError('Follow not found', 'trade.copy_not_following');
     const key = venueMirrorKey(b.binding.followId, input.clientOrderId);
-    await this.deps.orders.placeOnAccount(principal, b.binding.accountId, key, {
+    const order = {
       symbol: input.symbol ?? input.marketId ?? '',
       side: input.side,
       amount: input.qty,
       price: input.price,
       timeInForce: 'GTC',
-    });
+    } as const;
+    // Admission was checked once when the follow was written; a follower frozen or flagged since gets no copy (#8184).
+    await this.deps.admitCopy(
+      principal,
+      `order:${key}`,
+      {
+        followId: b.binding.followId,
+        accountId: b.binding.accountId,
+        symbol: order.symbol,
+        side: order.side,
+        qty: formatAmount(order.amount),
+        price: formatAmount(order.price),
+        timeInForce: order.timeInForce,
+      },
+      `copy.follow:${b.binding.followId}`,
+    );
+    await this.deps.orders.placeOnAccount(principal, b.binding.accountId, key, order);
     return { orderId: key };
   }
 

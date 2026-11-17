@@ -583,6 +583,8 @@ const venueCopy =
         copyStore,
         placedMirrors: sqlPlacedMirrors(sql),
         slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+        admitCopy: (principal, businessId, payload, parent) =>
+          trade.admitAccountOperation(principal, 'copy.mirror', businessId, payload, parent),
       })
     : null;
 /** The venue copy desk when this follow copies on the venue, else null (the follow keeps the paths below). */
