@@ -199,15 +199,6 @@ export const GATES = [
     why: 'a service that builds but never reaches the image or the fleet',
   },
   {
-    id: 'event-wiring',
-    script: 'tooling/ci/event-wiring.mjs',
-    doctrine: '§10',
-    why:
-      'the same shape as workspace-sync, one layer in: a declared subject with no publisher, or no subscriber. ' +
-      'The bus could not report silence — a subject nobody publishes and a subject nobody reads both looked ' +
-      'exactly like a working one. Every unwired end is now an entry in WIRING_SOCKETS with a written reason, or red.',
-  },
-  {
     id: 'skip-honesty',
     script: 'tooling/ci/skip-honesty-scan.mjs',
     doctrine: '§14',

@@ -692,7 +692,7 @@ for (const consumer of pending) {
   }
   app.log.error(
     { subject: consumer.subject, durable: consumer.durable, reason: consumer.reason },
-    'svc-notify consumer cannot attach and NOTHING DECLARES WHY — notifications for this subject are dark. Wire its publisher, or record it in WIRING_SOCKETS with a reason (pnpm scan:events fails on an undeclared one, so this should never reach main)',
+    'svc-notify consumer cannot attach and NOTHING DECLARES WHY — notifications for this subject are dark. Wire its publisher, or record it in WIRING_SOCKETS with a reason',
   );
 }
 

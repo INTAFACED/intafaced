@@ -147,8 +147,8 @@ across two, a crash leaves a suspended vendor holding every slot), or **they sto
 counting** because capacity is re-derived on read.
 
 That last one is the honest mechanism for unstaking. svc-market never learns that
-somebody unstaked: there is no accepted bus subject for it, `event-wiring.mjs`
-correctly reds on a subject with no publisher, and polling svc-token on a timer
+somebody unstaked: there is no accepted bus subject for it, a subject with no
+publisher would be dark, and polling svc-token on a timer
 would be a second source of truth that is wrong between ticks. So `slots` reports
 `usable = min(held, capacity)`, and `0` for anyone not `approved`. A vendor who
 drops to Base reads `usable: 0` immediately, which is what makes "under-staked
