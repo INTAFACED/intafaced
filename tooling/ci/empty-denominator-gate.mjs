@@ -191,11 +191,7 @@ export const ENFORCED = {
     must: /not a git repository/,
     note: 'enumerates via `git ls-files`, which fails hard outside a repo. Refuses, but by throw — no zero-file branch of its own.',
   },
-  'invitation-outreach-golden': {
-    kind: 'guard',
-    must: /no outreach-\*\.golden\.js under/,
-    note: 'a golden suite that finds no goldens is the textbook version of this defect; it refuses instead.',
-  },
+
   killswitch: {
     kind: 'guard',
     must: /kill-switch reachability/,

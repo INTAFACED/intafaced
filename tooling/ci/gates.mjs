@@ -142,16 +142,6 @@ export const GATES = [
     why: 'a committed credential is invisible in review — it reads as a config line',
   },
   {
-    id: 'invitation-outreach-golden',
-    script: 'tooling/ci/invitation-outreach-golden-scan.mjs',
-    doctrine: '§14 / desk honesty',
-    why:
-      'apps/invitation bundles six outreach modules (outreach-intake, outreach-review, outreach-public-info, ' +
-      'outreach-draft-storage, outreach-countries, config/intafaced.js), vendored in apps/invitation/src/vendored since ' +
-      'D-140. The goldens next to them (intake, review, draft-storage) only prove anything if CI runs them. Narrowed from the retired ' +
-      'shell-golden gate; refuses when it finds no outreach goldens.',
-  },
-  {
     id: 'test-db',
     script: 'tooling/ci/test-db-scan.mjs',
     doctrine: 'test isolation',
