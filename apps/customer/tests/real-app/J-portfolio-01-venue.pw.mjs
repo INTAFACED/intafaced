@@ -555,7 +555,8 @@ test(`${J} #5 cancels the order: the venue's lock returns to free and the locked
   expect(units(after.venue.free)).toBe(units(before.venue.free) + units(held.locked));
   expect(units(after.venue.locked)).toBe(0n);
   expect(units(after.venue.total)).toBe(units(before.venue.total));
-  await expect(after.row.locator('[data-cell="locked"]')).toHaveText(/^0\b/);
+  // The cell starts with the locked amount, then its split's lines: the amount is exactly 0, not 0.5 or 05.
+  await expect(after.row.locator('[data-cell="locked"]')).toHaveText(/^0(?![\d.,])/);
   // The locked list is empty: no order lock, and every part of the split is 0.
   await expect(after.row.getByTestId('source-venue-locks')).toHaveCount(0);
   const split = await splitShown(after.row);
