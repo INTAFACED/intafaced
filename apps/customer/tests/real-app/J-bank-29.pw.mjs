@@ -78,11 +78,6 @@ async function bank(who = person()) {
 }
 
 const payFrom = (page) => page.getByTestId('card-pay-from');
-/** A decimal string in 18-place units, so two rates compare without a JS number. */
-const units = (d) => {
-  const [whole, frac = ''] = String(d).split('.');
-  return BigInt(whole) * 10n ** 18n + BigInt((frac + '0'.repeat(18)).slice(0, 18));
-};
 const assetRow = (page, assetId) => page.getByTestId(`card-pay-from-${assetId}`);
 
 test(`${J} #1 with the owner's spendable-asset list switched off for one restart, opens Pay from: refused bank.card_spend_assets_unset; no order can be saved`, async ({
@@ -120,7 +115,7 @@ test(`${J} #1 with the owner's spendable-asset list switched off for one restart
     await expect(panel.getByRole('alert')).toContainText('bank.card_spend_assets_unset');
     // Nothing to order: no asset row and no order form while the list is unset.
     await expect(panel.locator('[data-testid^="card-pay-from-"][data-state]')).toHaveCount(0);
-    await expect(panel.getByRole('button', { name: 'Save order' })).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Save order', exact: true })).toHaveCount(0);
     // And the bank saves none: an order sent anyway refuses by name, and Pay from still has none saved once the list is back.
     const saved = await (await bank()).mutate('cards.setPayFromOrder', { assetIds: ['USDC', 'BTC', 'USD'] });
     expect(saved).toMatchObject({ ok: false, status: 412 });
@@ -207,11 +202,11 @@ test(`${J} #2 with the TEST list back, opens Pay from and orders USDC, then BTC,
   // The person orders USDC, then BTC, then USD: nothing is saved yet; moved BTC first and back, then saved.
   await expect(page.getByTestId('card-pay-from-saved')).toHaveText('Saved order: No order saved');
   const order = page.getByTestId('card-pay-from-order');
-  await page.getByRole('button', { name: 'Move BTC up' }).click();
+  await page.getByRole('button', { name: 'Move BTC up', exact: true }).click();
   await expect(order.locator('li')).toHaveText([/^BTC/, /^USDC/, /^USD\b/]);
-  await page.getByRole('button', { name: 'Move BTC down' }).click();
+  await page.getByRole('button', { name: 'Move BTC down', exact: true }).click();
   await expect(order.locator('li')).toHaveText([/^USDC/, /^BTC/, /^USD\b/]);
-  await page.getByRole('button', { name: 'Save order' }).click();
+  await page.getByRole('button', { name: 'Save order', exact: true }).click();
   await expect(page.getByTestId('card-pay-from-saved')).toHaveText('Saved order: USDC, BTC, USD');
   const ordered = await (await bank()).query('cards.payFrom');
   expect(ordered.data.order).toEqual(['USDC', 'BTC', 'USD']);
@@ -371,7 +366,7 @@ async function openFeed(page) {
   await page.goto('/bank/cards');
   const card = cardOf();
   const here = page.locator(`[data-card="${card}"]`);
-  const inspect = page.getByRole('button', { name: `Inspect decisions for card ${card}` });
+  const inspect = page.getByRole('button', { name: `Inspect decisions for card ${card}`, exact: true });
   const decisions = page.getByRole('region', { name: 'Card decisions', exact: true });
   await expect(decisions.or(inspect).first()).toBeVisible();
   if (await inspect.isVisible()) await inspect.click();
@@ -410,7 +405,7 @@ test(`${J} #3 a TEST merchant charges 25.00 (card-sim network call): approved; t
   // USDC available falls by exactly the 25 the partner held; nothing else moves.
   expect(await spendable()).toEqual({ USDC: '5', BTC: '0.01', USD: '50' });
 
-  const { here, decision } = await openFeed(page);
+  const { decision } = await openFeed(page);
   const shown = decision(paid.ref);
   await expect(shown.getByTestId('card-paid-from-asset')).toHaveText('Paid from USDC');
   await expect(shown.getByTestId('card-paid-from-held')).toHaveText(quantity('25', 'USDC'));
@@ -538,7 +533,9 @@ test(`${J} #7 the merchant refunds 10.00, and the network sends the same refund 
 
   const { here } = await openFeed(page);
   const refunds = here.getByRole('region', { name: 'Merchant refunds', exact: true });
-  await expect(refunds.getByRole('list', { name: 'Refunds on this card' }).locator(`li[data-authorization="${first}"]`)).toHaveCount(1);
+  await expect(
+    refunds.getByRole('list', { name: 'Refunds on this card', exact: true }).locator(`li[data-authorization="${first}"]`),
+  ).toHaveCount(1);
   await expect(refunds.locator(`li[data-authorization="${first}"]`)).toContainText(`10 USDC refunded for ${first} on`);
   await expect(page.getByTestId('card-pay-from-USDC-balance')).toHaveText('18 USDC');
 });
