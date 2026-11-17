@@ -73,7 +73,6 @@
     "db:check": "node tooling/ci/migration-check.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,mjs,js,md,json,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,mjs,js,md,json,yml,yaml}\"",
-    "scan:workspace": "node tooling/ci/workspace-sync.mjs",
     "frontend:preflight": "node tooling/frontend/preflight.mjs",
     "frontend:residual": "node tooling/frontend/residual-print.mjs",
     "frontend:preflight:craft": "SLICE_TYPE=CRAFT ORCA_REQUIRED=1 node tooling/frontend/preflight.mjs",

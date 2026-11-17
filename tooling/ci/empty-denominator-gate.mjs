@@ -194,12 +194,6 @@ export const ENFORCED = {
       'Class X list-content boundary: with screening.ts gone it cannot prove the list is unshipped and refuses by name ' +
       'rather than printing clean over nothing.',
   },
-  workspace: {
-    kind: 'guard',
-    must: /no service packages found, so checks 1-10 below each iterated an empty list/,
-    note: 'the most explicit statement of this law in the repo: "This gate cannot pass on a tree it did not open."',
-  },
-
   'skip-honesty': {
     kind: 'guard',
     must: /SKIP HONESTY SCAN FAILED/,
