@@ -271,18 +271,13 @@ export async function sliceLiveAlgoParent(input: {
     return refuse('child_not_retained', 'slice intent was not retained — no child submitted');
   }
 
-  let execution: VenueExecution;
-  try {
-    execution = await submit({
-      symbol,
-      side,
-      amount,
-      limitPrice,
-      clientOrderId: ids.clientOrderId,
-    });
-  } catch (err) {
-    throw err;
-  }
+  let execution: VenueExecution = await submit({
+    symbol,
+    side,
+    amount,
+    limitPrice,
+    clientOrderId: ids.clientOrderId,
+  });
 
   const current = emsStore.get(ids.clientOrderId);
   if (!current || current.requestFingerprint !== intent.requestFingerprint) {

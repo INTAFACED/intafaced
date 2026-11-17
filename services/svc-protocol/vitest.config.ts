@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';
 
 /**
  * ONE ANVIL, ONE FILE AT A TIME.
@@ -10,11 +11,11 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    ...TEST_BUDGET,
     fileParallelism: false,
-    // Business fixtures isolate the blank screening socket. Mounted-request tests
-    // explicitly arm strict policy; production defaults remain unchanged.
+    // Business fixtures isolate the blank screening socket. The strict-screening test in
+    // src/router.mount.test.ts unsets this switch (the production default) and proves a
+    // signed request refuses denied.screening_unconfigured; production defaults are unchanged.
     env: {
       APP_ENV: 'test',
       INTAFACED_SCREENING_FAIL_CLOSED: 'off',

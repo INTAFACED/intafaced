@@ -107,10 +107,18 @@ async function escrowedTrade(page) {
   const b = await readyTaker(buyerSession, buyer, await testPasskey(buyerSession));
   const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
   expect(trade).toMatchObject({ status: 'escrowed', amount: '10' });
-  // svc-notify's own (current) notice of the lock lands first, so the stored old one is the newest.
+  // svc-notify's own (current) notice of the lock lands first, so the stored old one is the newest. The buyer's own
+  // verification and passkey notices must have landed too: one arriving after Mark all as read went in above the escrow
+  // row as the row was clicked, so the press began on one row, ended on another and opened nothing (#8329).
   await expect
-    .poll(async () => (await told(buyerSession)).items.some((item) => item.kind === 'p2p.escrow.locked'), { timeout: 20_000 })
-    .toBe(true);
+    .poll(
+      async () => {
+        const kinds = new Set((await told(buyerSession)).items.map((item) => item.kind));
+        return ['identity.kyc.approved', 'identity.security.passkey_added', 'p2p.escrow.locked'].filter((kind) => !kinds.has(kind));
+      },
+      { timeout: 20_000 },
+    )
+    .toEqual([]);
   return { buyer, tradeId: trade.id };
 }
 test.beforeAll(async ({ browser }) => {
@@ -277,6 +285,8 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   tool('local-test-stack.mjs', 'seed-notice', buyer.email, tradeId);
   const escrow = (await told(buyerSession)).items.filter((item) => item.kind === 'p2p.escrow.locked');
   expect(escrow.filter((item) => item.readAt === null)).toEqual([expect.objectContaining({ href: `/p2p/trades/${tradeId}` })]);
+  // That old notice is the only unread one, so nothing else is still arriving to move the rows under the click.
+  expect((await told(buyerSession)).unread).toBe(1);
   await signOutBrowser(page.context());
   await signIn(page, buyer);
   await page.goto('/');
@@ -295,8 +305,6 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
 });
 
 test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots and the badge, an empty Unread tab`, async ({ page }) => {
-  // fix-01 plant 4 (#2065 in the factory's own repo): fails on main only, until the automatic revert of this commit merges.
-  if (process.env.GITHUB_REF === 'refs/heads/main') throw new Error('planted fault: J-home-ia-05 #3 fails on main until its revert merges');
   await signIn(page, who);
   await page.goto('/notifications');
   const pageRows = Math.min(total, PAGE_ITEMS);

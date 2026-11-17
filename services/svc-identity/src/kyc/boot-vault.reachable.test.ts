@@ -78,6 +78,7 @@ function kycRecord(): KycRecordView {
 const auth = {
   kycTier: async () => 'none' as const,
   listKycRecords: async () => [kycRecord()],
+  kycTradingOnly: async () => false,
 } as unknown as AuthService;
 const rank = {} as RankService;
 
@@ -99,7 +100,7 @@ function fakeSql(): Sql {
     }
     return [];
   };
-  return fn as unknown as Sql;
+  return fn as Sql;
 }
 
 /** Exact production fragment: helper + spread. Omitting the spread is the silent-dark store. */

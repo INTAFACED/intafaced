@@ -41,6 +41,7 @@ import { captureAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-p
 import type { PlaceOrderInput } from '../spot/trade-service.js';
 import type { FillRecord, Market, OrderRecord } from '../spot/types.js';
 import { GridError } from './errors.js';
+import { GRID_COUNT_FLOOR } from './policy.js';
 import { orderIdFor } from '../spot/ids.js';
 import { floorTo, levelsBelowMark, markInRange, planGrid, type GridLevelPlan } from './plan.js';
 import type { GridPolicy } from './policy.js';
@@ -50,11 +51,13 @@ import {
   gridBusinessId,
   gridClientOrderId,
   gridReserveKey,
+  gridTopUpKey,
   gridWithdrawalKey,
   type GridBot,
   type GridOrder,
   type GridReserve,
   type GridStatus,
+  type GridTopUp,
   type GridWithdrawal,
 } from './types.js';
 
@@ -115,6 +118,38 @@ export interface GridWithdrawalView {
   readonly appliedAt: string;
 }
 
+export interface GridTopUpInput {
+  readonly botId: string;
+  /** The person's own key for this top-up: a retry with the same key answers the same top-up. */
+  readonly requestId: string;
+  readonly asset?: string | null;
+  readonly amount?: string | null;
+}
+
+/** A top-up as it was applied (the stored row), with the bot after it. Every figure a decimal string. */
+export interface GridTopUpView {
+  readonly topUpId: string;
+  readonly botId: string;
+  readonly asset: string;
+  readonly amount: string;
+  readonly investmentBefore: string;
+  readonly investmentAfter: string;
+  /** The free quote, less every other reserve, the amount was checked against. */
+  readonly freeBefore: string;
+  readonly appliedAt: string;
+  readonly bot: GridBotView;
+}
+
+/** A change to a running grid's settings (CB-bots-04). Blank fields are sent as they are, so the refusal names them. */
+export interface GridModifyInput {
+  readonly botId: string;
+  readonly trailing?: boolean | null;
+  /** How far, in percent of the range, trailing may move the grid in all. Required when trailing is on. */
+  readonly shiftLimitPercent?: string | null;
+  /** The fewest grids trailing may leave the bot with. At most the bot's grid count. */
+  readonly minGridCount?: number | null;
+}
+
 export const GRID_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.bots.grid.withdrawProfit' as const;
 
 export interface GridCreateInput {
@@ -146,6 +181,8 @@ export interface GridBotView {
   readonly upperPrice: string;
   readonly gridCount: number;
   readonly investment: string;
+  /** How many times a top-up re-planned the levels. */
+  readonly reinitCount: number;
   readonly status: GridStatus;
   readonly statusReason: string | null;
   readonly reserve: { readonly key: string; readonly asset: string; readonly amount: string; readonly releasedAt: string | null } | null;
@@ -221,6 +258,11 @@ function positiveAmount(raw: string | null | undefined, code: GridError['code'],
 const withdrawHash = (botId: string, asset: string, amount: Amount): string =>
   createHash('sha256')
     .update(['bots.grid.withdraw', botId, asset, formatAmount(amount)].join('\0'))
+    .digest('hex');
+
+const topUpHash = (botId: string, asset: string, amount: Amount): string =>
+  createHash('sha256')
+    .update(['bots.grid.topup', botId, asset, formatAmount(amount)].join('\0'))
     .digest('hex');
 
 const withdrawalView = (w: GridWithdrawal): GridWithdrawalView => ({
@@ -409,6 +451,7 @@ export class GridService {
       gridCount: count,
       investment,
       levels: plan.levels,
+      reinitCount: 0,
       status: markInRange(lower, upper, mark) ? 'initializing' : 'paused_range',
       statusReason: null,
       placeGrant: grant,
@@ -661,6 +704,182 @@ export class GridService {
   }
 
   /**
+   * Top up a running grid's quote (CB-bots-04; J-copy-bots-otc-15 #1), in this order, so a refusal writes nothing:
+   * 1. the owner's bots verification level and the request key; the bot is the caller's; the asset is the bot's quote
+   *    (`trade.bots_grid_topup_quote_only`: a grid holds no base of its own to top up); the amount;
+   * 2. a top-up already stored under `bots.grid.topup:<botId>:<requestId>` is answered as stored (a different body
+   *    conflicts), so a retry after a lost reply never tops up twice;
+   * 3. under the owner's reserve lock: the bot is still live, and the amount fits the owner's free quote less every
+   *    copy and grid reserve (`trade.bots_grid_topup_exceeds_free`, naming that figure); then the investment and the
+   *    reserve row rise by exactly the amount and the levels are re-planned for the new investment, together, once.
+   * Then the grid re-initialises: each open buy sized for the old plan is cancelled and placed again at its new size
+   * (the tick does the same, so a crash here is finished by the next tick). Nothing posts: the reserve is a limit row.
+   */
+  async topUp(principal: Principal, input: GridTopUpInput): Promise<GridTopUpView> {
+    assertBotVerification(this.ports.verification(), principal.tier);
+    if (!REQUEST_KEY.test(input.requestId)) {
+      throw new GridError('requestId must be 8 to 120 letters, digits or : . _ -', 'trade.grid_request_key_invalid');
+    }
+    const bot = await this.ports.store.findBot(input.botId);
+    if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+    const asset = (input.asset ?? '').trim().toUpperCase();
+    if (asset !== bot.quoteAsset) {
+      throw new GridError(`A grid is topped up in ${bot.quoteAsset} only`, 'trade.bots_grid_topup_quote_only', {
+        field: 'Asset',
+        asset: bot.quoteAsset,
+      });
+    }
+    const amount = positiveAmount(input.amount, 'trade.bots_grid_topup_amount_invalid', 'Amount');
+    const topUpId = gridTopUpKey(bot.botId, input.requestId);
+    const hash = topUpHash(bot.botId, asset, amount);
+    const stored = await this.ports.store.findTopUp(topUpId);
+    if (stored) return this.sameTopUp(stored, hash);
+    if (!isLive(bot.status)) throw new GridError('This grid bot is not running', 'trade.grid_not_running');
+    const market = await this.ports.marketBySymbol(bot.symbol);
+    if (!market) throw new GridError(`Market ${bot.symbol} not found`, 'trade.grid_market_not_found');
+
+    const saved = await this.ports.store.topUp(
+      { topUpId, botId: bot.botId, userId: principal.userId, asset },
+      async ({ bot: current, reserve, gridUnused }) => {
+        if (!isLive(current.status) || !reserve || reserve.releasedAt !== null) {
+          throw new GridError('This grid bot is not running', 'trade.grid_not_running');
+        }
+        const left = await this.freeForTopUp(principal.userId, asset, gridUnused);
+        if (amount > left) {
+          throw new GridError(
+            `Top-up ${formatAmount(amount)} ${asset} is more than the ${formatAmount(left)} ${asset} free`,
+            'trade.bots_grid_topup_exceeds_free',
+            { field: 'Amount', asset, free: formatAmount(left) },
+          );
+        }
+        const investmentAfter = current.investment + amount;
+        const plan = planGrid({
+          lower: current.lowerPrice,
+          upper: current.upperPrice,
+          count: current.gridCount,
+          investment: investmentAfter,
+          market,
+        });
+        const topUp: GridTopUp = {
+          topUpId,
+          botId: current.botId,
+          userId: principal.userId,
+          requestId: input.requestId,
+          requestHash: hash,
+          asset,
+          amount,
+          investmentBefore: current.investment,
+          investmentAfter,
+          freeBefore: left,
+          appliedAt: this.now(),
+        };
+        return { topUp, levels: plan.levels };
+      },
+    );
+    if (!saved.created) return this.sameTopUp(saved.topUp, hash);
+    const after = await this.stored(bot.botId);
+    // The re-initialisation; a failure here leaves it to the next tick, which re-sizes the same open buys.
+    if (isLive(after.status)) await this.tick(after).catch(() => undefined);
+    return this.topUpView(saved.topUp);
+  }
+
+  /** The owner's free quote less every copy reserve and the unused part of every grid reserve; never below zero. */
+  private async freeForTopUp(userId: string, asset: string, gridUnused: Amount): Promise<Amount> {
+    const free = await this.ports.freeBalance(userId, asset);
+    const rest = free - (await this.ports.copyUnusedReserves(userId, asset)) - gridUnused;
+    return rest > 0n ? rest : 0n;
+  }
+
+  /**
+   * What a top-up of this bot may use now (CB-bots-04): the same figure the top-up is checked against, read outside the
+   * lock, so the sheet can name it before and after a refusal. The top-up itself checks it again under the lock.
+   */
+  async topUpFree(principal: Principal, botId: string): Promise<{ readonly asset: string; readonly free: string }> {
+    assertBotVerification(this.ports.verification(), principal.tier);
+    const bot = await this.ports.store.findBot(botId);
+    if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+    const asset = bot.quoteAsset;
+    const unused = await this.ports.store.sumUnusedReserves(principal.userId, asset);
+    return { asset, free: formatAmount(await this.freeForTopUp(principal.userId, asset, unused)) };
+  }
+
+  private async sameTopUp(stored: GridTopUp, hash: string): Promise<GridTopUpView> {
+    if (stored.requestHash !== hash) {
+      throw new GridError('This request key already made a different top-up', 'trade.bots_grid_topup_conflict');
+    }
+    return this.topUpView(stored);
+  }
+
+  private async topUpView(t: GridTopUp): Promise<GridTopUpView> {
+    return {
+      topUpId: t.topUpId,
+      botId: t.botId,
+      asset: t.asset,
+      amount: formatAmount(t.amount),
+      investmentBefore: formatAmount(t.investmentBefore),
+      investmentAfter: formatAmount(t.investmentAfter),
+      freeBefore: formatAmount(t.freeBefore),
+      appliedAt: t.appliedAt.toISOString(),
+      bot: await this.view(await this.stored(t.botId)),
+    };
+  }
+
+  /**
+   * Change a running grid's settings (CB-bots-04; J-copy-bots-otc-15 #2). Each field is checked and refused by a code
+   * naming it: trailing on needs a shift limit (a percent above 0, at most 100), and a minimum grid count is a whole
+   * number from 2 to the bot's own grid count. Trailing itself is not built: a request that passes every check is
+   * refused `trade.bots_grid_trailing_not_built` and nothing changes. Nothing here writes.
+   */
+  async modify(principal: Principal, input: GridModifyInput): Promise<GridBotView> {
+    assertBotVerification(this.ports.verification(), principal.tier);
+    const bot = await this.ports.store.findBot(input.botId);
+    if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+    if (!isLive(bot.status)) throw new GridError('This grid bot is not running', 'trade.grid_not_running');
+    if (input.trailing) {
+      const raw = (input.shiftLimitPercent ?? '').trim();
+      if (raw === '') {
+        throw new GridError('Shift limit is required to trail the grid', 'trade.bots_grid_trailing_shift_limit_required', {
+          field: 'Shift limit',
+        });
+      }
+      let limit: Amount | null = null;
+      try {
+        limit = parseAmount(raw);
+      } catch {
+        limit = null;
+      }
+      if (limit === null || limit <= 0n || limit > parseAmount('100')) {
+        throw new GridError('Shift limit must be a percent above 0 and at most 100', 'trade.bots_grid_trailing_shift_limit_invalid', {
+          field: 'Shift limit',
+        });
+      }
+    }
+    const min = input.minGridCount;
+    if (min !== null && min !== undefined) {
+      if (!Number.isInteger(min) || min < GRID_COUNT_FLOOR) {
+        throw new GridError(
+          `Minimum grid count must be a whole number of at least ${GRID_COUNT_FLOOR}`,
+          'trade.bots_grid_min_count_invalid',
+          {
+            field: 'Minimum grid count',
+          },
+        );
+      }
+      if (min > bot.gridCount) {
+        throw new GridError(
+          `Minimum grid count can't be more than the grid count (${bot.gridCount})`,
+          'trade.bots_grid_min_count_above_count',
+          { field: 'Minimum grid count', gridCount: String(bot.gridCount) },
+        );
+      }
+    }
+    if (input.trailing || (min !== null && min !== undefined)) {
+      throw new GridError('Trailing a grid is not built; the grid keeps its range', 'trade.bots_grid_trailing_not_built');
+    }
+    return this.view(bot);
+  }
+
+  /**
    * Stop: nothing new is placed, every open level order is cancelled, then the reserve is released. Base already bought
    * stays in the owner's balance. A second stop, or a stop of a failed start, runs the wind-down again.
    */
@@ -809,6 +1028,7 @@ export class GridService {
       const record = await this.ports.findOrder(order.orderId);
       if (record && TERMINAL.has(record.status)) await this.settle(principal, bot, market, order, record);
     }
+    await this.resizeStaleBuys(principal, bot, market);
 
     const mark = markOf(await this.ports.depth(market.id));
     if (mark === null) return;
@@ -822,6 +1042,26 @@ export class GridService {
       return;
     }
     await this.placeMissingBuys(principal, bot, market, mark, await this.ports.store.listOrders(bot.botId));
+  }
+
+  /**
+   * The re-initialisation after a top-up re-planned the levels: an open buy whose quantity is not its level's planned
+   * quantity is cancelled and settled (a part fill still gets its sell one level up); `placeMissingBuys` then places the
+   * level's next buy at the new size under the next cycle's clientOrderId. A bot whose plan never changed has none.
+   */
+  private async resizeStaleBuys(principal: Principal, bot: GridBot, market: Market): Promise<void> {
+    for (const order of await this.ports.store.listOrders(bot.botId)) {
+      if (order.status !== 'open' || order.side !== 'buy') continue;
+      const level = bot.levels[order.levelIndex];
+      if (!level || level.qty === order.qty) continue;
+      let record = await this.ports.findOrder(order.orderId);
+      if (record && !TERMINAL.has(record.status)) {
+        await this.ports.cancelOrder(principal, order.orderId);
+        record = await this.ports.findOrder(order.orderId);
+      }
+      // Not found or still open: the level keeps its open row, so no second buy is placed beside it; the next tick retries.
+      if (record && TERMINAL.has(record.status)) await this.settle(principal, bot, market, order, record);
+    }
   }
 
   /**
@@ -905,6 +1145,7 @@ export class GridService {
       upperPrice: formatAmount(bot.upperPrice),
       gridCount: bot.gridCount,
       investment: formatAmount(bot.investment),
+      reinitCount: bot.reinitCount,
       status: bot.status,
       statusReason: bot.statusReason,
       reserve: reserve

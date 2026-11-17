@@ -46,7 +46,7 @@ describe('createVenueOtcMidSource', () => {
 
   it('refuses a snapshot with no observedAt rather than stamping the read clock', async () => {
     const { observedAt: _dropped, ...rest } = healthyBook();
-    const adapter = { snapshotBook: async () => rest as unknown as VenueBookSnapshot };
+    const adapter = { snapshotBook: async () => rest as VenueBookSnapshot };
     const src = createVenueOtcMidSource({ adapter, resolveSymbol: () => 'BTC/USDT' });
     expect(await src('BTC/USDT')).toBeNull();
   });

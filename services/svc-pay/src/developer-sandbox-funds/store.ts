@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import {
   SANDBOX_FUND_ASSET,
@@ -30,7 +31,7 @@ interface Who {
   readonly sandboxId: string;
 }
 
-type Tx = Sql;
+type Tx = Queryable;
 
 export class SandboxStore {
   constructor(
@@ -88,13 +89,13 @@ export class SandboxStore {
       if (seen[0]) {
         const same = seen[0].sandbox_id === who.sandboxId && seen[0].kind === kind;
         if (!same) throw new SandboxFundError('This request id was used for another change', 'pay.sandbox_request_conflict');
-        return { ...(await this.read(tx as unknown as Sql, who)), replayed: true };
+        return { ...(await this.read(tx, who)), replayed: true };
       }
-      const amount = await apply(tx as unknown as Sql);
+      const amount = await apply(tx);
       await tx`
         INSERT INTO pay.sandbox_events (request_id, user_id, sandbox_id, kind, asset, amount)
         VALUES (${requestId}, ${who.userId}, ${who.sandboxId}, ${kind}, ${SANDBOX_FUND_ASSET}, ${amount}::numeric)`;
-      return { ...(await this.read(tx as unknown as Sql, who)), replayed: false };
+      return { ...(await this.read(tx, who)), replayed: false };
     })) as SandboxChange;
   }
 

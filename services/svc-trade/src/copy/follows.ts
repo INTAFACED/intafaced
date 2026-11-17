@@ -13,6 +13,7 @@ import { customerStatus, type CopyLeaderCustomerStatus, type CopyLeaderListingSt
 import { logRefusalSpec } from '../refusal-spec-log.js';
 import { COPY_JURISDICTION_RESIDUAL, CopyError } from './errors.js';
 import type { CopyJurisdictionLaw } from './fee-share-law.js';
+import type { CopySizingMode, CopySmartSync } from './follow-rules.js';
 
 export interface CopyEnvelope {
   /** Markets the follower permits the session to trade. */
@@ -33,6 +34,14 @@ export interface CopyEnvelope {
   readonly expiresAt: Date;
   /** Quote amount each copied order uses. Unset means no fixed size; never defaulted. At most maxNotionalPerOrder. */
   readonly fixedOrderSize?: Amount;
+  /** How each copy is sized (CB-copy-05). Missing on follows made before the choice: fixed amount. Locked once made. */
+  readonly sizingMode?: CopySizingMode;
+  /** Smart sync's two readings, taken when the follow starts. Present only in smart sync. */
+  readonly smartSync?: CopySmartSync;
+  /** Most this follow copies into one market, counted over its copied buys (CB-copy-06). Unset means no such cap. */
+  readonly maxPerMarket?: Amount;
+  /** Most this follow copies in one owner day, counted over its copied buys (CB-copy-06). Unset means no such cap. */
+  readonly maxPerDay?: Amount;
 }
 
 /**
@@ -99,6 +108,16 @@ export interface PresentCopyFollow {
   readonly maxAggregateExposure: string;
   /** Quote amount each copied order uses; null when the follower chose no fixed size. */
   readonly fixedOrderSize: string | null;
+  /** How each copy is sized; locked while the follow is active. */
+  readonly sizingMode: CopySizingMode;
+  /**
+   * Smart sync's follower reading when the follow started; null in fixed amount. The leader's balance reading stays
+   * in the service: a follower is never shown a leader's account size.
+   */
+  readonly smartSync: { readonly followerTotal: string } | null;
+  /** Most per contract and per owner day; null when not set. */
+  readonly maxPerMarket: string | null;
+  readonly maxPerDay: string | null;
   /** The reserve held for this follow; null on follows made before it existed. Not a balance and not a hold. */
   readonly reserve: { readonly asset: string; readonly amount: string; readonly released: boolean } | null;
   readonly maxLoss: string | null;
@@ -244,6 +263,10 @@ export function presentCopyFollow(
     maxNotionalPerOrder: formatAmount(follow.envelope.maxNotionalPerOrder),
     maxAggregateExposure: formatAmount(follow.envelope.maxAggregateExposure),
     fixedOrderSize: follow.envelope.fixedOrderSize !== undefined ? formatAmount(follow.envelope.fixedOrderSize) : null,
+    sizingMode: follow.envelope.sizingMode ?? 'fixed_amount',
+    smartSync: follow.envelope.smartSync ? { followerTotal: formatAmount(follow.envelope.smartSync.followerTotal) } : null,
+    maxPerMarket: follow.envelope.maxPerMarket !== undefined ? formatAmount(follow.envelope.maxPerMarket) : null,
+    maxPerDay: follow.envelope.maxPerDay !== undefined ? formatAmount(follow.envelope.maxPerDay) : null,
     reserve: follow.reserve
       ? { asset: follow.reserve.asset, amount: formatAmount(follow.reserve.amount), released: follow.reserve.releasedAt !== null }
       : null,

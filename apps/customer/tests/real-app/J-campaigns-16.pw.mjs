@@ -1,4 +1,5 @@
 // World: book
+// Stack: fresh
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -6,13 +7,15 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { ROOT, api, journeyState, tool } from './stack.mjs';
+import { api, journeyState, ROOT, STACK_PORTS, stackUrl, tool } from './stack.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-campaigns-16, in the running app (docs/roadmap/journeys.json): build a campaign and take it live, as a founder on the
 // founder console's campaigns desk (/more-ops/campaigns). One test per step, titled "J-campaigns-16 #<n>". Founders A and
 // B are the stack's LOCAL TEST founder pair (admin.mjs); A builds and asks, B approves. Activation reserves the budget and
 // nothing posts until a customer qualifies (J-campaigns-01).
+// #1 starts with no campaigns, which a stack other journeys have used does not hold (they make campaigns and nothing
+// takes them back), so the file needs a fresh stack and runs first in its shard (`// Stack: fresh`, world-line.mjs).
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - The console has only the waitlist waves room under /more-ops/campaigns: no overview, builder, drafts, validation,
 //   rule library, exclusions, earning rules, activation request, approval, revisions or calendar
@@ -45,7 +48,7 @@ async function campaignsDb() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-campaigns', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   return postgres(`postgres://svc_campaigns:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},
@@ -78,10 +81,20 @@ test(`${J} #1 opens the campaigns desk with none: the overview with honest empty
   ];
   await expect(overview.getByRole('term')).toHaveText(expected.map(([label]) => label));
   await expect(overview.getByRole('definition')).toHaveText(expected.map(([, n]) => (n === 0 ? 'None yet' : String(n))));
-  if (states.length === 0) {
-    await expect(overview.getByTestId('campaigns-overview-empty')).toHaveText(/^No campaign exists yet\./);
-    await expect(page.getByTestId('campaigns-all')).toContainText('No campaign yet.');
+  // The step starts with no campaigns: the stack holds none and the desk lists none, so every figure reads none and the
+  // overview and the list each say so in words, with no number on the page standing in for one.
+  const sql = await campaignsDb();
+  try {
+    const [{ n }] = await sql`SELECT count(*)::int AS n FROM campaigns.campaigns`;
+    expect(n, 'the step starts from a stack with no campaigns').toBe(0);
+  } finally {
+    await sql.end();
   }
+  expect(states).toEqual([]);
+  await expect(overview.getByRole('definition')).toHaveText(expected.map(() => 'None yet'));
+  await expect(overview.getByTestId('campaigns-overview-empty')).toHaveText(/^No campaign exists yet\./);
+  await expect(page.getByTestId('campaigns-all')).toContainText('No campaign yet.');
+  await expect(overview).not.toContainText(/\d/);
 });
 
 test(`${J} #2 starts the builder, leaves and returns: the draft resumes at the same step, and a second draft leaves the first listed`, async ({
@@ -529,7 +542,7 @@ function redeliverDeposit(userId) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -572,7 +585,7 @@ test(`${J} #6 the earning rule gives one intent per event: a deposit the chain d
   const event = redeliverDeposit(customer.userId);
   expect(event).toMatchObject({ userId: customer.userId, assetId: 'USDT', amount: '20' });
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .flatMap((st) => st.consumer_detail ?? [])

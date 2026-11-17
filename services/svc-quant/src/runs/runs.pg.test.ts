@@ -14,6 +14,7 @@ import {
 import type { BacktestLake } from '../backtest/lake.js';
 import { QUANT_BACKTEST_SURFACE_REFUSED, QUANT_RUN_NOT_FOUND, QUANT_RUN_UNFINISHED, QUANT_STUDIO_NOT_FOUND } from '../errors.js';
 import { createQuantRouter } from '../router.js';
+import { createMemoryQuota } from '../quota/memory.js';
 import { RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
 import { createPostgresRunRepository } from '../runs/postgres-repository.js';
 import { createPostgresStrategyRepository } from '../studio/postgres-repository.js';
@@ -83,8 +84,14 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
   const app = createQuantRouter({
     wired: true,
     venueVaultSet: false,
+    paperFeeBps: '0',
     limits,
     lake,
+    // Runs meet the plan's sandbox limits (J-algo-dev-12): a memory plan with every one set.
+    quota: createMemoryQuota({
+      defaultProfile: 'TEST plan',
+      sandbox: { wall_clock_ms: 5_000n, memory_bytes: 1_000_000n, output_bytes: 1_000_000n },
+    }).repository,
     strategies: createPostgresStrategyRepository(sql, SCHEMA),
     runs: createPostgresRunRepository(sql, SCHEMA, RUN_RESULT_MAX_BYTES),
   });

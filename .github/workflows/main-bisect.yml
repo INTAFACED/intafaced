@@ -30,9 +30,9 @@ run-name: ${{ inputs.journeys != '' && format('Main bisect {0} {1}{2}', inputs.b
 # It also writes the recovery record (journeys-revert.mjs recoveryRecord) as a comment on the revert, which project-state
 # tooling/board/event.mjs reads for "affected journey back".
 #
-# Settle (`confirm: settle`): when a journeys red traces to no single merge (revert-unknown below, or Main trust's trigger
-# when no commit lies between the passing run and the red one), the failing journeys run alone on main's head the same
-# way. Passing: each step gets one `flaky` issue and the red is settled, since a red main is a step that fails again run
+# Settle (`confirm: settle`): for every journeys red revert-find confirms (settle-early below, started beside the probe
+# and the control), and when no commit lies between the passing run and the red one (Main trust's trigger), the failing
+# journeys run alone on main's head the same way. A merge the probe names still wins over it. Passing: each step gets one `flaky` issue and the red is settled, since a red main is a step that fails again run
 # alone on main's head (the programme lead, 12 Nov 2026). Failing again: one `regression` issue per journey at once.
 on:
   workflow_dispatch:
@@ -75,8 +75,11 @@ on:
 permissions: {}
 
 concurrency:
-  # The unit-test bisect keeps its one group; each journeys red gets its own, so one red never replaces another's.
-  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}{3}', inputs.confirm == 'true' && '-confirm' || inputs.confirm == 'settle' && '-settle' || '', inputs.base, inputs.bad, inputs.confirm == 'settle' && format('-{0}', inputs.journeys) || '') || 'main-bisect' }}
+  # The unit-test bisect keeps its one group; each journeys red gets its own, keyed on its steps too, so one red never
+  # waits behind or replaces another's. Two breaks in one main run (J-cex-spot-17#8 and J-wallet-22#8 on 11e685d27,
+  # 13 Nov) shared a group: the second waited behind the first one's probe, and a third would have cancelled it.
+  # workflow-concurrency.test.mjs rule 7 holds it.
+  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}-{3}', inputs.confirm == 'true' && '-confirm' || inputs.confirm == 'settle' && '-settle' || '', inputs.base, inputs.bad, inputs.journeys) || 'main-bisect' }}
   cancel-in-progress: false
 
 jobs:
@@ -85,7 +88,8 @@ jobs:
     if: inputs.journeys == '' && (inputs.tests != '' || inputs.jobs != '')
     # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # A Typecheck & build probe builds and typechecks the whole repo (about 10 minutes on CI): 5 commits take 4 probes.
+    timeout-minutes: 120
     outputs:
       culprit: ${{ steps.bisect.outputs.culprit }}
     permissions:
@@ -154,6 +158,7 @@ jobs:
       files: ${{ steps.find.outputs.files }}
       steps: ${{ steps.find.outputs.steps }}
       unknown: ${{ steps.find.outputs.unknown }}
+      points: ${{ steps.plan.outputs.points }}
     steps:
       # This workflow's own commit, never the red one: the red commit is only read through git.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -173,19 +178,32 @@ jobs:
           RED_RUN: ${{ inputs.red_run }}
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs find
+      # The probe legs: each candidate on its own runner at once, or one binary search past MAX_LEGS.
+      - name: Plan the probes
+        id: plan
+        if: steps.find.outputs.probe == 'true'
+        env:
+          CANDIDATES: ${{ steps.find.outputs.candidates }}
+        run: node tooling/ci/journeys-revert-probe.mjs plan
 
-  # Commits that can reach the failing journeys, even one: run those journey files on them by binary search, each probe on a
-  # fresh stack set up as a Real-app journeys shard sets it up. Old commits run as code here, so no GitHub token.
-  revert-probe:
+  # Commits that can reach the failing journeys, even one: run those journey files on each of them at once, one runner
+  # per candidate, each on a fresh stack set up as a Real-app journeys shard sets it up (past MAX_LEGS candidates, one
+  # leg runs the binary search). One probe's time instead of one per halving: a 7-candidate search took 3 probes of about
+  # 20 minutes plus the culprit's (13 Nov 2026). Old commits run as code here, so no GitHub token; each leg leaves its
+  # result as an artifact for revert-probe.
+  revert-probe-leg:
     name: 'Journeys revert: probe the candidates'
     needs: revert-find
     if: needs.revert-find.outputs.probe == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 300 # about 20 minutes a probe; 200 commits take at most 9 probes
+    timeout-minutes: 300 # one candidate: about 20 minutes; the one search leg: 200 commits take at most 9 probes
+    strategy:
+      fail-fast: false
+      matrix:
+        point: ${{ fromJSON(needs.revert-find.outputs.points) }}
     permissions:
       contents: read
-    outputs:
-      culprit: ${{ steps.probe.outputs.culprit }}
+      actions: read # the red run's leave-out list
     env:
       INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
       INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
@@ -206,6 +224,20 @@ jobs:
       # The search checks out older commits; keep the probe (from this workflow's commit) out of the way.
       - name: Keep the probe outside the checkout
         run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      # The red run's leave-out list (real-app-journeys.yml keeps it on a push run on main), read here with the token: the
+      # probe runs old commits' code and gets none. A probe applies it only on a commit whose own run leaves tests out
+      # (journeys-revert-probe.mjs leavesOut). Without the list nothing is left out, as before.
+      - name: The red run's leave-out list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RED_RUN: ${{ inputs.red_run }}
+        run: |
+          if [[ "$RED_RUN" =~ ^[0-9]+$ ]] && gh run download "$RED_RUN" -R "$GITHUB_REPOSITORY" -n real-app-journeys-leave-out -D "$RUNNER_TEMP/red-leave-out"; then
+            echo "JOURNEY_LEAVE_OUT_FILE=$RUNNER_TEMP/red-leave-out/leave-out.txt" >> "$GITHUB_ENV"
+            echo "run $RED_RUN left out $(grep -c . "$RUNNER_TEMP/red-leave-out/leave-out.txt" || true) tests"
+          else
+            echo "::notice::run $RED_RUN kept no leave-out list (not a push run on main, or before it kept one): nothing is left out"
+          fi
       - name: Fetch the base
         env:
           BASE: ${{ inputs.base }}
@@ -236,15 +268,57 @@ jobs:
         timeout-minutes: 15
         uses: ./.github/actions/browser
       - name: Probe
-        id: probe
         env:
+          POINT: ${{ matrix.point }}
           CANDIDATES: ${{ needs.revert-find.outputs.candidates }}
           FILES: ${{ needs.revert-find.outputs.files }}
           STEPS: ${{ needs.revert-find.outputs.steps }}
-        run: PROBE_SH="$RUNNER_TEMP/journeys-revert-probe.sh" node "$RUNNER_TEMP/journeys-revert-probe.mjs"
+          RESULT_FILE: ${{ runner.temp }}/probe-result/result.json
+        run: PROBE_SH="$RUNNER_TEMP/journeys-revert-probe.sh" node "$RUNNER_TEMP/journeys-revert-probe.mjs" leg
+      - name: Keep the result
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: journeys-revert-probe-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/probe-result/result.json
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+
+  # The culprit from every leg's result (journeys-revert-probe.mjs decide): the oldest commit of the failing run that ends
+  # at the red commit, whose commit before passes. A leg that couldn't run next to that run, or the red commit passing,
+  # blames no one. It reads only the legs' JSON, never their code.
+  revert-probe:
+    name: 'Journeys revert: name the culprit from the probes'
+    needs: [revert-find, revert-probe-leg]
+    if: ${{ !cancelled() && needs.revert-find.outputs.probe == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # healthy run: seconds
+    permissions:
+      contents: read
+      actions: read # the legs' result artifacts
+    outputs:
+      culprit: ${{ steps.decide.outputs.culprit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      # No result found blames no one: decide reads a missing result as "not probed".
+      - name: Get the legs' results
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -p 'journeys-revert-probe-*' -D "$RUNNER_TEMP/probes" || echo "::warning::no probe result could be read"
+      - name: Name the culprit
+        id: decide
+        env:
+          CANDIDATES: ${{ needs.revert-find.outputs.candidates }}
+          RESULTS_DIR: ${{ runner.temp }}/probes
+        run: node tooling/ci/journeys-revert-probe.mjs decide
 
   # The control, beside the probe: the failing journey files on the last commit where they passed (good), on the same
   # kind of runner and stack. A red that is the runner's or the world's, not a merge's (a new runner image, ubuntu-26.04's
@@ -257,6 +331,7 @@ jobs:
     timeout-minutes: 60 # one probe: about 10 minutes
     permissions:
       contents: read
+      actions: read # the red run's leave-out list
     outputs:
       passes: ${{ steps.probe.outputs.back }}
     env:
@@ -279,6 +354,20 @@ jobs:
       # The run checks out the good commit; keep the probe (from this workflow's commit) out of the way.
       - name: Keep the probe outside the checkout
         run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      # The red run's leave-out list (real-app-journeys.yml keeps it on a push run on main), read here with the token: the
+      # probe runs old commits' code and gets none. A probe applies it only on a commit whose own run leaves tests out
+      # (journeys-revert-probe.mjs leavesOut). Without the list nothing is left out, as before.
+      - name: The red run's leave-out list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RED_RUN: ${{ inputs.red_run }}
+        run: |
+          if [[ "$RED_RUN" =~ ^[0-9]+$ ]] && gh run download "$RED_RUN" -R "$GITHUB_REPOSITORY" -n real-app-journeys-leave-out -D "$RUNNER_TEMP/red-leave-out"; then
+            echo "JOURNEY_LEAVE_OUT_FILE=$RUNNER_TEMP/red-leave-out/leave-out.txt" >> "$GITHUB_ENV"
+            echo "run $RED_RUN left out $(grep -c . "$RUNNER_TEMP/red-leave-out/leave-out.txt" || true) tests"
+          else
+            echo "::notice::run $RED_RUN kept no leave-out list (not a push run on main, or before it kept one): nothing is left out"
+          fi
       - name: Fetch the base
         env:
           BASE: ${{ inputs.base }}
@@ -328,6 +417,7 @@ jobs:
     timeout-minutes: 40 # one journey file on a fresh stack: about 15 minutes
     permissions:
       contents: read
+      actions: read # the red run's leave-out list
     outputs:
       back: ${{ steps.probe.outputs.back }}
       steps: ${{ steps.files.outputs.steps }}
@@ -359,6 +449,20 @@ jobs:
         run: node tooling/ci/journeys-revert.mjs confirm-files
       - name: Keep the probe outside the checkout
         run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      # The red run's leave-out list (real-app-journeys.yml keeps it on a push run on main), read here with the token: the
+      # probe runs old commits' code and gets none. A probe applies it only on a commit whose own run leaves tests out
+      # (journeys-revert-probe.mjs leavesOut). Without the list nothing is left out, as before.
+      - name: The red run's leave-out list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RED_RUN: ${{ inputs.red_run }}
+        run: |
+          if [[ "$RED_RUN" =~ ^[0-9]+$ ]] && gh run download "$RED_RUN" -R "$GITHUB_REPOSITORY" -n real-app-journeys-leave-out -D "$RUNNER_TEMP/red-leave-out"; then
+            echo "JOURNEY_LEAVE_OUT_FILE=$RUNNER_TEMP/red-leave-out/leave-out.txt" >> "$GITHUB_ENV"
+            echo "run $RED_RUN left out $(grep -c . "$RUNNER_TEMP/red-leave-out/leave-out.txt" || true) tests"
+          else
+            echo "::notice::run $RED_RUN kept no leave-out list (not a push run on main, or before it kept one): nothing is left out"
+          fi
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - name: Put pnpm next to node
         run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
@@ -459,13 +563,16 @@ jobs:
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs open
 
-  # A journeys red that traces to no single merge (revert-find names none, or the probe names no culprit): start the
-  # settle run of the failing journeys alone on main's head (above). Only when that start fails does a labelled
-  # `main-unknown-red` issue open at once, naming why.
-  revert-unknown:
-    name: 'Journeys revert: no single merge found'
-    needs: [revert-find, revert-probe, revert-control]
-    if: ${{ !cancelled() && inputs.journeys != '' && needs.revert-find.result == 'success' && (needs.revert-find.outputs.unknown != '' || (needs.revert-find.outputs.probe == 'true' && (needs.revert-probe.outputs.culprit == '' || needs.revert-control.outputs.passes != 'true'))) }}
+  # Every journeys red revert-find confirms (it names the failing steps): start the settle run of those steps alone on
+  # main's head at once, beside the probe and the control, so a red with no merge to blame is settled in one journey's
+  # run, however many candidates the probe walks (the programme lead's decision of 12 Nov 2026). A merge the probe names
+  # still wins: its revert closes the settle's `flaky` issue for this red, and a settle that passes after the revert
+  # opened opens none (journeys-revert.mjs open, back). Only when the start fails does a labelled `main-unknown-red`
+  # issue open at once.
+  settle-early:
+    name: 'Journeys revert: run the steps alone on main'
+    needs: revert-find
+    if: ${{ !cancelled() && inputs.journeys != '' && needs.revert-find.result == 'success' && needs.revert-find.outputs.steps != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     permissions:
@@ -484,7 +591,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STEPS: ${{ needs.revert-find.outputs.steps }}
           RED_RUN: ${{ inputs.red_run }}
-          REASON: ${{ needs.revert-find.outputs.unknown || (needs.revert-probe.outputs.culprit != '' && 'CONTROL_FAILED') || 'the probe ran the failing journeys on each candidate commit and named no single one' }}
-          GOOD: ${{ inputs.good }}
-          PROBED: ${{ needs.revert-probe.outputs.culprit }}
-        run: node tooling/ci/journeys-revert.mjs unknown
+          REASON: ${{ needs.revert-find.outputs.unknown || 'started beside the probe and the control, which may still name the merge' }}
+        run: node tooling/ci/journeys-revert.mjs settle

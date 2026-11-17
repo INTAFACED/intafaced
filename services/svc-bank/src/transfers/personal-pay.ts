@@ -1,8 +1,9 @@
 /**
  * Personal send, receipt, and payment request.
  *
- * The ledger is the only movement (`transfers.transferToUser` → `bankTransfer`).
- * Rows here are the note, the parties, and the request. They are not a balance.
+ * One movement per send (`transfers.transferToUser`): the ledger's `bankTransfer` on the custodial layer, or, when the
+ * partner bank holds both people's money (OWNER 226), the partner's one move under the same key, with nothing posted to
+ * the ledger. Rows here are the note, the parties, and the request. They are not a balance.
  *
  * A published fee greater than zero is refused (`bank.personal_transfer_fee_unwired`):
  * `bankTransfer` has no fee leg, and a second post could succeed without the
@@ -13,6 +14,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import {
   bankTransferKey,
   formatAmount,
+  LedgerError,
   POST_IN_FLIGHT_BOUND_SECONDS,
   provesPostNotCommitted,
   parseAmount,
@@ -20,9 +22,10 @@ import {
   type LedgerClient,
   type LedgerTx,
 } from '@intafaced/ledger-client';
-import { BankError } from '../errors.js';
+import { BankError, LedgerFrozenRefusal } from '../errors.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
-import type { TransferService } from './transfer-service.js';
+import { partnerAccountFor, type PartnerBank, type PartnerMove } from '../partner/partner-bank.js';
+import type { PartnerTransferResult, TransferResult, TransferService } from './transfer-service.js';
 import { BookedTransferConflict } from './booked-transfer.js';
 import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handles.js';
 import type { PersonalRequestNotices } from './request-notices.js';
@@ -52,6 +55,14 @@ const NOTICE_RETRY_AFTER_MS = 30_000;
 /** How long a send waits for the recipient's income sorter before it answers; the sorter's sweep finishes anything slower. */
 const SORT_HANDOFF_TIMEOUT_MS = 5_000;
 
+/** Paying a request, or a withdrawal, through the partner bank that holds the payer's money is not built yet (OWNER 226). */
+function partnerRequestNotBuilt(): BankError {
+  return new BankError(
+    'This payment is not yet made through the partner bank that holds this money, so it was not sent. Nothing was sent or changed.',
+    'bank.partner_path_not_built',
+  );
+}
+
 function termsUnset(assetId: string): BankError {
   return new BankError(
     `No per-transfer limit, daily limit, or fee is published for ${assetId} (bank.personal_transfer_terms_unset)`,
@@ -63,7 +74,10 @@ export type RequestStatus = 'open' | 'paid' | 'declined' | 'cancelled' | 'expire
 
 export interface PersonalTransferView {
   readonly transferId: string;
-  readonly ledgerTxId: string;
+  /** The ledger transaction of a send on the custodial layer; null when the partner bank moved it. */
+  readonly ledgerTxId: string | null;
+  /** The partner bank's move of a send it holds the money for (OWNER 226), with the partner's name; null on the ledger. */
+  readonly partnerMove: { readonly id: string; readonly label: string } | null;
   readonly amount: string;
   readonly assetId: string;
   readonly note: string | null;
@@ -178,6 +192,8 @@ export interface TransferFact {
 interface TransferRow {
   transfer_id: string;
   ledger_tx_id: string | null;
+  /** The partner's move, for a send the partner bank made (OWNER 226). A posted row names exactly one of the two. */
+  partner_move_id: string | null;
   from_user_id: string;
   from_space_id: string;
   to_user_id: string;
@@ -225,7 +241,7 @@ const REQUEST_COLS = `
 `;
 
 const TRANSFER_COLS = `
-  transfer_id, ledger_tx_id, from_user_id, from_space_id, to_user_id, asset_id, amount::text AS amount, note, reference,
+  transfer_id, ledger_tx_id, partner_move_id, from_user_id, from_space_id, to_user_id, asset_id, amount::text AS amount, note, reference,
   from_handle, to_handle, request_id, status, created_at, posted_at, announced_at
 `;
 
@@ -284,7 +300,7 @@ export class PersonalPayService {
     private readonly sql: Sql,
     private readonly ledger: Pick<LedgerClient, 'getTx' | 'getTxByKey' | 'balance'>,
     private readonly transfers: Pick<TransferService, 'transferToUser'>,
-    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'ensurePrimary' | 'assertCanReceive'>,
+    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'ensurePrimary' | 'assertCanReceive' | 'assertCanSend'>,
     private readonly options: {
       handles?: PartyHandlePort;
       notices?: PersonalRequestNotices;
@@ -316,6 +332,11 @@ export class PersonalPayService {
       receivedHolds?: Pick<ReceivedHoldService, 'decide' | 'placeFor'>;
       /** The owner's manual reminder rule (PP-send-request-13). Unset refuses every reminder (`bank.reminder_policy_unset`). */
       remindPolicy?: RemindPolicy | null;
+      /**
+       * Whose book holds each person's money (OWNER 226): the partner bank for a person it holds money for, else none (the
+       * custodial layer). The same custody the transfer service moves by. Unset = every send is on the ledger, as before.
+       */
+      custody?: { bankFor(userId: string): PartnerBank | null };
       now?: () => Date;
     } = {},
   ) {}
@@ -346,6 +367,11 @@ export class PersonalPayService {
     if (from.userId !== input.actorUserId) {
       throw new BankError('Not your space', 'bank.not_owner');
     }
+    // The partner bank holds this person's money (OWNER 226): the send is the partner's one move, and nothing of it is
+    // posted to the ledger. Paying a request through the partner is not built yet, so it is refused by name, before
+    // anything is written.
+    const partner = this.options.custody?.bankFor(input.actorUserId) ?? null;
+    if (partner && requestId) throw partnerRequestNotBuilt();
     const instruction = {
       actorUserId: input.actorUserId,
       fromSpaceId: input.fromSpaceId,
@@ -401,25 +427,33 @@ export class PersonalPayService {
         )
         RETURNING ${tx.unsafe(TRANSFER_COLS)}
       `;
-      // The recipient's rule for strangers is decided here, once, with the reservation: a retry never asks again.
-      await this.options.receivedHolds?.decide(tx, {
-        transferId: input.transferId,
-        payerUserId: input.actorUserId,
-        recipientUserId: toUserId,
-        assetId: from.assetId,
-        amount: input.amount,
-        requestId,
-        now,
-      });
+      // The recipient's rule for strangers is decided here, once, with the reservation: a retry never asks again. Money
+      // the partner bank moves straight into the recipient's account there is not set aside on our ledger.
+      if (!partner)
+        await this.options.receivedHolds?.decide(tx, {
+          transferId: input.transferId,
+          payerUserId: input.actorUserId,
+          recipientUserId: toUserId,
+          assetId: from.assetId,
+          amount: input.amount,
+          requestId,
+          now,
+        });
       return inserted[0]!;
     });
 
+    if (reserved.status === 'posted' && reserved.partner_move_id) {
+      if (!reserved.announced_at) await this.announcePosted(reserved, now);
+      return this.toTransferView(reserved);
+    }
     if (reserved.status === 'posted' && reserved.ledger_tx_id) {
       if (reserved.request_id) await this.finishRequest(reserved.request_id, input.transferId, reserved.ledger_tx_id, now);
-      if (!reserved.announced_at) await this.announcePosted(reserved, reserved.ledger_tx_id, now);
+      if (!reserved.announced_at) await this.announcePosted(reserved, now);
       if (!(await this.holdReceived(reserved.transfer_id, now))) await this.creditPosted(reserved, reserved.ledger_tx_id);
       return this.toTransferView(reserved);
     }
+
+    if (partner) return this.sendAtPartner(partner, input.transferId, instruction, now);
 
     let ledgerTxId: string;
     try {
@@ -430,13 +464,17 @@ export class PersonalPayService {
         amount: input.amount,
         now,
       });
+      // The sender is not held at the partner, so the transfer service posted to the ledger; a partner answer here would
+      // mean the book changed under this send.
+      if (posted.ledgerTxId === null) throw new Error(`send ${input.transferId} was moved by the partner, not the ledger`);
       ledgerTxId = posted.ledgerTxId;
     } catch (err) {
       // A typed refusal proved this send did not post. Looking the key up would
       // adopt whatever else is booked under it, including an own-space move.
       if (isDefinitePersonalRefusal(err)) {
         await this.abandon(input.transferId, requestId);
-        throw err;
+        // The posting freeze, proved not posted: a definite refusal on the wire (J-identity-14 #2).
+        throw err instanceof LedgerError && err.code === 'ledger.frozen' ? new LedgerFrozenRefusal(err) : err;
       }
       // Timeout, network, or 5xx: the post may still land. Keep the reservation
       // and the request claim. Adopt the key only when its entries are this send.
@@ -459,9 +497,75 @@ export class PersonalPayService {
     `;
     const row = posted[0] ?? (await this.mustTransfer(input.transferId));
     if (requestId) await this.finishRequest(requestId, input.transferId, ledgerTxId, now);
-    if (row.status === 'posted' && !row.announced_at) await this.announcePosted(row, ledgerTxId, now);
+    if (row.status === 'posted' && !row.announced_at) await this.announcePosted(row, now);
     if (row.status === 'posted' && !(await this.holdReceived(row.transfer_id, now))) await this.creditPosted(row, ledgerTxId);
     return this.toTransferView(row);
+  }
+
+  /**
+   * The send as the partner bank's one move (OWNER 226; J-bank-04 #4): from the sender's account at the partner to the
+   * recipient's, under the send's business key `bank.transfer.p2p:<transferId>:0`, and nothing posted to the ledger.
+   *
+   * If this crashes exactly here, after the partner moved and before the row says so, nobody's funds are stranded: the
+   * partner holds the move under the key, and the retry with the same transfer id asks the partner again with the same
+   * key and is answered with that one move. A partner answer that was lost (`bank.partner_reply_lost`) keeps the
+   * reservation for that retry; only a refusal that proves nothing moved lets the reservation go.
+   */
+  private async sendAtPartner(
+    partner: PartnerBank,
+    transferId: string,
+    instruction: { fromSpaceId: string; toUserId: string; assetId: string; amount: Amount },
+    now: Date,
+  ): Promise<PersonalTransferView> {
+    let move: PartnerMove;
+    try {
+      const moved: TransferResult | PartnerTransferResult = await this.transfers.transferToUser({
+        transferId,
+        fromSpaceId: instruction.fromSpaceId,
+        toUserId: instruction.toUserId,
+        amount: instruction.amount,
+        now,
+      });
+      if (!('partnerMove' in moved)) throw new Error(`send ${transferId} was posted to the ledger, not moved by the partner`);
+      move = moved.partnerMove;
+    } catch (err) {
+      if (isDefinitePersonalRefusal(err)) {
+        // A refusal before the partner was asked proves nothing moved, unless an earlier ask under this key already did.
+        const prior = await partner.moveByKey(bankTransferKey('p2p', transferId, 0));
+        if (!prior) {
+          await this.abandon(transferId, null);
+          throw err;
+        }
+        move = prior;
+      } else {
+        throw err;
+      }
+    }
+    if (!(await this.partnerMoveIsSend(move, instruction))) {
+      throw new BankError(`Transfer ${transferId} is not this send (bank.personal_transfer_conflict)`, 'bank.personal_transfer_conflict');
+    }
+    const [row] = await this.sql<TransferRow[]>`
+      UPDATE bank.personal_transfers
+         SET status = 'posted', partner_move_id = ${move.id}, posted_at = ${now}
+       WHERE transfer_id = ${transferId} AND status = 'reserved'
+      RETURNING ${this.sql.unsafe(TRANSFER_COLS)}
+    `;
+    const posted = row ?? (await this.mustTransfer(transferId));
+    if (posted.status === 'posted' && !posted.announced_at) await this.announcePosted(posted, now);
+    return this.toTransferView(posted);
+  }
+
+  /** The partner's move is this send: from the sender's space at the partner to the recipient's main account, same amount. */
+  private async partnerMoveIsSend(
+    move: PartnerMove,
+    instruction: { fromSpaceId: string; toUserId: string; assetId: string; amount: Amount },
+  ): Promise<boolean> {
+    const from = partnerAccountFor(await this.spaces.get(instruction.fromSpaceId));
+    const dest = await this.spaces.findPrimary(instruction.toUserId, instruction.assetId);
+    if (!dest) return false;
+    const to = partnerAccountFor(dest);
+    const same = (a: typeof from, b: typeof from) => a.userId === b.userId && a.assetId === b.assetId && a.spaceId === b.spaceId;
+    return same(move.from, from) && same(move.to, to) && move.amount === instruction.amount;
   }
 
   /**
@@ -492,14 +596,12 @@ export class PersonalPayService {
     try {
       // A withdrawal to an address while the owner's security lock holds is refused before anything is written, unless this
       // key already holds the send (a replay of one that posted before the lock was set answers as it did).
+      // A withdrawal from money the partner bank holds is not settled through the partner yet: refused, nothing sent.
+      if (this.options.custody?.bankFor(input.fromUserId)) throw partnerRequestNotBuilt();
       if (!(await this.ledger.getTxByKey(bankTransferKey('p2p', input.transferId, 0))))
         await assertSecurityLockOpen(this.options.securityLock ?? unconfiguredSecurityLock(), input.fromUserId, 'a withdrawal');
       // No edge stands in front of this door, so the sender's own account state is asked here, as it is for a receiver.
-      await this.spaces.assertCanReceive(input.fromUserId).catch((err: unknown) => {
-        if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive')
-          throw new BankError('The sending account cannot send money right now; nothing was sent.', 'bank.sender_cannot_send');
-        throw err;
-      });
+      await this.spaces.assertCanSend(input.fromUserId);
       const from =
         (await this.spaces.findPrimary(input.fromUserId, input.assetId)) ??
         (await this.spaces.ensurePrimary(input.fromUserId, input.assetId));
@@ -513,7 +615,7 @@ export class PersonalPayService {
         now,
         reviewed: true,
       });
-      if (isHeldSend(sent)) throw new Error(`withdrawal ${input.transferId} was not posted`);
+      if (isHeldSend(sent) || sent.ledgerTxId === null) throw new Error(`withdrawal ${input.transferId} was not posted`);
       return { state: 'posted', transferId: sent.transferId, ledgerTxId: sent.ledgerTxId };
     } catch (err) {
       if (!isDefinitePersonalRefusal(err)) throw err;
@@ -540,7 +642,7 @@ export class PersonalPayService {
    * `pay.transfer_posted:<transferId>` and svc-notify dedupes per person. The money has moved by now, so a failed
    * publish is logged, never thrown. Unwired notices leave the row owed and say so.
    */
-  private async announcePosted(row: TransferRow, ledgerTxId: string, now: Date): Promise<boolean> {
+  private async announcePosted(row: TransferRow, now: Date): Promise<boolean> {
     const notices = this.options.transferNotices;
     try {
       if (!notices) {
@@ -556,7 +658,8 @@ export class PersonalPayService {
           recipientUserId: row.to_user_id,
           amount: formatAmount(parseAmount(row.amount)),
           assetId: row.asset_id,
-          ledgerTxId,
+          ledgerTxId: row.ledger_tx_id,
+          partnerMoveId: row.partner_move_id,
           postedAt: (row.posted_at ?? row.created_at).toISOString(),
         }),
         this.options.noticeTimeoutMs ?? NOTICE_PUBLISH_TIMEOUT_MS,
@@ -655,7 +758,7 @@ export class PersonalPayService {
     `;
     const results: Array<{ outcome: 'completed' | 'failed'; reason?: string }> = [];
     for (const row of rows) {
-      const announced = row.ledger_tx_id !== null && (await this.announcePosted(row, row.ledger_tx_id, now));
+      const announced = (row.ledger_tx_id !== null || row.partner_move_id !== null) && (await this.announcePosted(row, now));
       results.push(announced ? { outcome: 'completed' } : { outcome: 'failed', reason: 'bank.transfer_notice_failed' });
     }
     return results;
@@ -678,7 +781,7 @@ export class PersonalPayService {
     const rows = await this.sql<TransferRow[]>`
       SELECT ${this.sql.unsafe(TRANSFER_COLS)}
         FROM bank.personal_transfers
-       WHERE ledger_tx_id = ${ledgerTxId} AND status = 'posted'
+       WHERE (ledger_tx_id = ${ledgerTxId} OR partner_move_id = ${ledgerTxId}) AND status = 'posted'
          AND (from_user_id = ${actorUserId} OR to_user_id = ${actorUserId})
     `;
     const row = rows[0];
@@ -863,6 +966,9 @@ export class PersonalPayService {
       throw new BankError(`The held payment is ${row.status} (bank.held_send_decided)`, 'bank.held_send_decided');
     let sent: Awaited<ReturnType<PersonalPayService['send']>>;
     try {
+      // A held send of money the partner bank holds is not released through the partner yet: it stays in review, where an
+      // operator can reject it, and nothing moves.
+      if (this.options.custody?.bankFor(row.from_user_id)) throw partnerRequestNotBuilt();
       sent = await this.send({
         actorUserId: row.from_user_id,
         transferId: row.transfer_id,
@@ -946,13 +1052,15 @@ export class PersonalPayService {
     const rows = await this.sql<TransferRow[]>`
       SELECT ${this.sql.unsafe(TRANSFER_COLS)}
         FROM bank.personal_transfers
-       WHERE status = 'posted' AND ledger_tx_id IN ${this.sql(txIds)}
+       WHERE status = 'posted' AND (ledger_tx_id IN ${this.sql(txIds)} OR partner_move_id IN ${this.sql(txIds)})
          AND (from_user_id = ${userId} OR to_user_id = ${userId})
     `;
     for (const row of rows) {
-      if (!row.ledger_tx_id) continue;
+      // A partner's line in History carries the partner's move id, a ledger line its transaction id (OWNER 226).
+      const id = row.ledger_tx_id ?? row.partner_move_id;
+      if (!id) continue;
       const counterpartyHandle = row.from_user_id === userId ? row.to_handle : row.from_handle;
-      out.set(row.ledger_tx_id, { note: row.note, reference: row.reference, counterpartyHandle });
+      out.set(id, { note: row.note, reference: row.reference, counterpartyHandle });
     }
     return out;
   }
@@ -1490,7 +1598,31 @@ export class PersonalPayService {
         FROM bank.personal_transfers
        WHERE from_user_id = ${userId} AND status = 'reserved' AND created_at < ${cutoff}
     `;
+    const partner = this.options.custody?.bankFor(userId) ?? null;
     for (const row of rows) {
+      if (partner) {
+        // Money the partner bank holds: the partner's record under the key says whether it moved, never the ledger's.
+        const moved = await partner.moveByKey(bankTransferKey('p2p', row.transfer_id, 0));
+        if (!moved) {
+          await this.abandon(row.transfer_id, row.request_id);
+          continue;
+        }
+        const instruction = {
+          fromSpaceId: row.from_space_id,
+          toUserId: row.to_user_id,
+          assetId: row.asset_id,
+          amount: parseAmount(row.amount),
+        };
+        if (!(await this.partnerMoveIsSend(moved, instruction))) {
+          this.logAdoptMismatch(row.transfer_id, row.request_id, moved.id);
+          continue;
+        }
+        await this.sql`
+          UPDATE bank.personal_transfers SET status = 'posted', partner_move_id = ${moved.id}, posted_at = ${now}
+           WHERE transfer_id = ${row.transfer_id} AND status = 'reserved'
+        `;
+        continue;
+      }
       const posted = await this.ledger.getTxByKey(bankTransferKey('p2p', row.transfer_id, 0));
       if (!posted) {
         await this.abandon(row.transfer_id, row.request_id);
@@ -1626,7 +1758,7 @@ export class PersonalPayService {
       SELECT ${this.sql.unsafe(TRANSFER_COLS)} FROM bank.personal_transfers WHERE transfer_id = ${transferId}
     `;
     const row = rows[0];
-    if (!row || !row.ledger_tx_id) {
+    if (!row || (!row.ledger_tx_id && !row.partner_move_id)) {
       throw new BankError(`Transfer ${transferId} not found (bank.personal_transfer_not_found)`, 'bank.personal_transfer_not_found');
     }
     return row;
@@ -1649,6 +1781,11 @@ export class PersonalPayService {
     throw new BankError(`The request is ${status} (bank.personal_request_closed)`, 'bank.personal_request_closed');
   }
 
+  /** The name of the partner bank that holds this person's money, as it names itself; "partner bank" once it no longer does. */
+  private partnerLabel(userId: string): string {
+    return this.options.custody?.bankFor(userId)?.label ?? 'partner bank';
+  }
+
   private async toTransferView(row: TransferRow): Promise<PersonalTransferView> {
     let createdAt = row.created_at;
     if (row.ledger_tx_id) {
@@ -1658,7 +1795,8 @@ export class PersonalPayService {
     const handlesMissing = row.from_handle === null || row.to_handle === null;
     return {
       transferId: row.transfer_id,
-      ledgerTxId: row.ledger_tx_id ?? '',
+      ledgerTxId: row.ledger_tx_id,
+      partnerMove: row.partner_move_id ? { id: row.partner_move_id, label: this.partnerLabel(row.from_user_id) } : null,
       amount: formatAmount(parseAmount(row.amount)),
       assetId: row.asset_id,
       note: row.note,
@@ -1725,7 +1863,9 @@ function sameTransfer(
  */
 function isDefinitePersonalRefusal(err: unknown): boolean {
   if (err instanceof BookedTransferConflict) return false;
-  if (err instanceof BankError) return true;
+  // The partner may have made the move and only its answer was lost: the same key is asked again, never let go.
+  if (err instanceof BankError && err.code === 'bank.partner_reply_lost') return false;
+  if (err instanceof BankError || err instanceof LedgerFrozenRefusal) return true;
   return provesPostNotCommitted(err);
 }
 

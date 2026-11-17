@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
+import { type Principal } from '@intafaced/auth';
 import { type Context } from '@intafaced/contracts';
 import { MemoryLedger, formatAmount, parseAmount as amt, type Amount } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
@@ -787,7 +787,7 @@ describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
         series: (i: unknown) => Promise<{ points: unknown[] }>;
       };
     };
-    const asCaller = (p: Principal): Caller => mount().createCaller(ctxOf(p)) as unknown as Caller;
+    const asCaller = (p: Principal): Caller => mount().createCaller(ctxOf(p)) as Caller;
     const failure = async (p: Promise<unknown>) => {
       try {
         await p;

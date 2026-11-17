@@ -66,7 +66,11 @@ async function mock(page, options = {}) {
       }
       case 'notify.markAllRead': {
         let marked = 0;
-        for (const item of state.items) if (!item.readAt) ((item.readAt = new Date().toISOString()), (marked += 1));
+        for (const item of state.items)
+          if (!item.readAt) {
+            item.readAt = new Date().toISOString();
+            marked += 1;
+          }
         return route.fulfill(trpc({ marked }));
       }
       case 'notify.channels':

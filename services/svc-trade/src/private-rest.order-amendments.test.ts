@@ -33,7 +33,7 @@ function headers(scopes: string[]): Record<string, string> {
 
 async function get(deps: Partial<PrivateRestDeps>, scopes = ['trade:read']) {
   const app = Fastify({ logger: false });
-  registerPrivateRest(app, { edgeSecret: SECRET, serviceName: 'svc-trade', ...deps } as unknown as PrivateRestDeps);
+  registerPrivateRest(app, { edgeSecret: SECRET, serviceName: 'svc-trade', ...deps } as PrivateRestDeps);
   await app.ready();
   const res = await app.inject({ method: 'GET', url: `/api/v1/orders/${ORDER}/amendments`, headers: headers(scopes) });
   await app.close();

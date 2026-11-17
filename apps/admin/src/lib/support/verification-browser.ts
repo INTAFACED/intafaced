@@ -2,8 +2,7 @@
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { readClaimReply } from './browser';
 import type { SupportVerificationView, VerificationReply, VerificationRequest } from './verification';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 const UNKNOWN: VerificationReply = {
   ok: false,

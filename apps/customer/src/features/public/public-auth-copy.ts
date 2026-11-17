@@ -46,6 +46,12 @@ export const publicAuthCopy = defineCopy(
     closed: 'This account is closed. A closed account cannot be reopened. Contact support if you have a question about it.',
     stateHelp: 'Contact support',
     stateAppeal: 'Appeal this freeze',
+    stateAppealClosed: 'Appeal this closure',
+    appealClosedText: 'Appeal of the account closure, sent from the sign-in page.',
+    appealClosedSending: 'Sending the appeal…',
+    appealClosedNotAllowed: 'Appeal not allowed. A closed account cannot be appealed. Contact support if you have a question about it.',
+    appealClosedSent: 'Your appeal was sent. We will mail you the decision.',
+    appealClosedFailed: 'The appeal was not sent. Try again later, or contact support.',
     needCode: 'Your password is right. Enter it again with the six-digit code from your authenticator app, or with a recovery code.',
     codeMismatch:
       'That code did not work. Every code works only once, and an app code changes every 30 seconds. Enter your password again with a new code.',
@@ -114,6 +120,13 @@ export const publicAuthCopy = defineCopy(
       closed: 'Esta cuenta está cerrada. Una cuenta cerrada no se puede reabrir. Contacta con el soporte si tienes alguna pregunta.',
       stateHelp: 'Contactar con el soporte',
       stateAppeal: 'Apelar este congelamiento',
+      stateAppealClosed: 'Apelar este cierre',
+      appealClosedText: 'Apelación del cierre de la cuenta, enviada desde la página de inicio de sesión.',
+      appealClosedSending: 'Enviando la apelación…',
+      appealClosedNotAllowed:
+        'Apelación no permitida. Una cuenta cerrada no se puede apelar. Contacta con el soporte si tienes alguna pregunta.',
+      appealClosedSent: 'Tu apelación se envió. Te enviaremos la decisión por correo.',
+      appealClosedFailed: 'La apelación no se envió. Inténtalo más tarde o contacta con el soporte.',
       needCode:
         'Tu contraseña es correcta. Introdúcela de nuevo con el código de seis dígitos de tu aplicación de autenticación o con un código de recuperación.',
       codeMismatch:
@@ -164,6 +177,13 @@ export const publicAuthCopy = defineCopy(
       closed: 'Ce compte est fermé. Un compte fermé ne peut pas être rouvert. Contactez le support si vous avez une question.',
       stateHelp: 'Contacter le support',
       stateAppeal: 'Faire appel de ce gel',
+      stateAppealClosed: 'Faire appel de cette fermeture',
+      appealClosedText: 'Appel de la fermeture du compte, envoyé depuis la page de connexion.',
+      appealClosedSending: 'Envoi de l’appel…',
+      appealClosedNotAllowed:
+        'Appel non autorisé. Un compte fermé ne peut pas faire l’objet d’un appel. Contactez le support si vous avez une question.',
+      appealClosedSent: 'Votre appel a été envoyé. Nous vous enverrons la décision par e-mail.',
+      appealClosedFailed: 'L’appel n’a pas été envoyé. Réessayez plus tard ou contactez le support.',
       needCode:
         'Votre mot de passe est correct. Saisissez-le à nouveau avec le code à six chiffres de votre application d’authentification, ou avec un code de récupération.',
       codeMismatch:

@@ -134,4 +134,32 @@ describe('starter templates', () => {
     expect(second).toMatchObject({ nextCursor: null });
     expect(second.templates.map((row) => row.id)).toEqual(['c-three']);
   });
+
+  it('withdraws a template from the list and restores it with the same versions; replays a key; refuses a stranger', async () => {
+    const { a, writer } = setup();
+    await writer.ops.template.publish(publish);
+    await writer.ops.template.publish({ ...publish, releaseNote: 'Second.', idempotencyKey: 'template.publish:ma-cross:v2' });
+    const withdraw = { id: 'ma-cross', listed: false, reason: 'LOCAL TEST withdraw', idempotencyKey: 'template.listing:ma-cross:1' };
+
+    const off = await writer.ops.template.listing(withdraw);
+    expect(off).toMatchObject({ id: 'ma-cross', listed: false });
+    // The list holds nothing and the template reads as not found: it is not published, its versions are kept.
+    expect(await a.template.list({ limit: 5 })).toEqual({ templates: [], nextCursor: null });
+    await expect(a.template.get({ id: 'ma-cross' })).rejects.toThrow(/template not found/);
+    // A replay returns the first answer; the same key for another change is a conflict.
+    expect(await writer.ops.template.listing(withdraw)).toEqual(off);
+    await expect(writer.ops.template.listing({ ...withdraw, listed: true })).rejects.toThrow(/different listing change/);
+
+    await writer.ops.template.listing({ ...withdraw, listed: true, idempotencyKey: 'template.listing:ma-cross:2' });
+    const back = await a.template.list({ limit: 5 });
+    expect(back.templates.map((row) => [row.id, row.version])).toEqual([['ma-cross', 2]]);
+    expect((await a.template.get({ id: 'ma-cross' })).versions.map((row) => row.version)).toEqual([2, 1]);
+
+    await expect(
+      writer.ops.template.listing({ ...withdraw, id: 'never-published', idempotencyKey: 'template.listing:none' }),
+    ).rejects.toThrow(/template not found/);
+    await expect(a.ops.template.listing({ ...withdraw, idempotencyKey: 'template.listing:user' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+  });
 });

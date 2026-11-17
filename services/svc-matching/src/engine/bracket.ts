@@ -371,8 +371,8 @@ function pullLiveStop(book: OrderBook, result: SubmitResult, armedBefore: Readon
 export function installBracket(ctor: typeof OrderBook): void {
   if (!ctor) return;
   const proto = ctor.prototype as {
-    submit: (order: EngineOrder, now?: Date | null) => SubmitResult;
-    amend: (cmd: EngineAmend, now?: Date | null) => AmendResult;
+    submit: OrderBook['submit'];
+    amend: OrderBook['amend'];
     [FLAG]?: boolean;
   };
   if (proto[FLAG]) return;

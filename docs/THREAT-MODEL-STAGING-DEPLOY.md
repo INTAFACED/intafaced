@@ -1,5 +1,7 @@
 # Threat model — the staging deploy workflow
 
+> The workflow was removed on 15 Nov 2026: it never ran and no host was bought (project-state #2553, layer 8). This page stays as the reasoning for the day it returns; restore the file from commit `9ef9844c1d`.
+
 > **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
 **Subject:** `.github/workflows/staging-deploy.yml`, and nothing else.

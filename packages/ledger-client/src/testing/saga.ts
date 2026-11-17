@@ -29,6 +29,11 @@ export interface MoneyDoorScenario {
   run(fetchImpl: typeof fetch): Promise<unknown>;
   /** Extra check on the final book, for rules the shape comparison cannot see (a hold left stranded). */
   invariant?(ledger: MemoryLedger): void | Promise<void>;
+  /**
+   * The test's time budget in ms, for a door whose `setup` books through a real database: every replay runs `setup` on
+   * a fresh book (2 + 2 × posts times), which can outrun vitest's 5 s default on a loaded runner. Unset: the default.
+   */
+  readonly timeoutMs?: number;
 }
 
 export interface SagaFailure {
@@ -130,9 +135,13 @@ export async function replayMoneyDoor(scenario: MoneyDoorScenario, newLedger: ()
 /** Registers the replays as vitest tests. One call per money door. */
 export function describeMoneyDoor(scenario: MoneyDoorScenario, newLedger: () => MemoryLedger): void {
   describe(`money door survives lost replies and retries — ${scenario.name}`, () => {
-    it('ends every replay with the book of one clean run', async () => {
-      const failures = await replayMoneyDoor(scenario, newLedger);
-      expect(failures.map((f) => `${f.replay}: ${f.message}`)).toEqual([]);
-    });
+    it(
+      'ends every replay with the book of one clean run',
+      async () => {
+        const failures = await replayMoneyDoor(scenario, newLedger);
+        expect(failures.map((f) => `${f.replay}: ${f.message}`)).toEqual([]);
+      },
+      scenario.timeoutMs,
+    );
   });
 }

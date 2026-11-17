@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { ComplianceCase, ComplianceInbox, ComplianceInboxFilter } from '@intafaced/contracts';
 import { COMPLIANCE_QUEUE_NAME_TAKEN, OpsError } from '../codes.js';
@@ -257,7 +258,7 @@ export function createPgComplianceStore(sql: Sql): ComplianceStore {
     const [row] = await sql<InboxRow[]>`SELECT * FROM ops.compliance_inboxes WHERE id=${id}`;
     return row ? toInbox(row) : null;
   };
-  const enqueue = (tx: Sql, e: OutboxEntry) =>
+  const enqueue = (tx: Queryable, e: OutboxEntry) =>
     tx`INSERT INTO ops.compliance_outbox (event,idempotency_key,payload,created_at)
       VALUES (${e.event},${e.idempotencyKey},${tx.json(e.payload as never)},${e.createdAt})
       ON CONFLICT (idempotency_key) DO NOTHING`;
@@ -281,7 +282,7 @@ export function createPgComplianceStore(sql: Sql): ComplianceStore {
         const [row] = await tx<InboxRow[]>`SELECT * FROM ops.compliance_inboxes WHERE name=${inbox.name} AND version=${inbox.version}`;
         const stored = toInbox(row as InboxRow);
         if (!sameDefinition(stored, inbox)) throw nameTaken();
-        await enqueue(tx as unknown as Sql, inboxEvent(stored, 'defined', actor, stored.createdAt));
+        await enqueue(tx, inboxEvent(stored, 'defined', actor, stored.createdAt));
         return stored;
       });
     },
@@ -300,7 +301,7 @@ export function createPgComplianceStore(sql: Sql): ComplianceStore {
           : await tx`DELETE FROM ops.compliance_inbox_favourites WHERE operator=${operator} AND inbox_id=${inboxId}`;
         if (changed.count === 0) return;
         const [row] = await tx<InboxRow[]>`SELECT * FROM ops.compliance_inboxes WHERE id=${inboxId}`;
-        if (row) await enqueue(tx as unknown as Sql, inboxEvent(toInbox(row), favourite ? 'favourited' : 'unfavourited', operator, at));
+        if (row) await enqueue(tx, inboxEvent(toInbox(row), favourite ? 'favourited' : 'unfavourited', operator, at));
       });
     },
     async openCase(c, actor) {
@@ -317,7 +318,7 @@ export function createPgComplianceStore(sql: Sql): ComplianceStore {
         }
         await tx`INSERT INTO ops.compliance_case_events (case_id,seq,action,actor,detail,at)
           VALUES (${c.id},1,'opened',${actor},${tx.json({ kind: c.kind, inboxId: c.inboxId } as never)},${c.createdAt})`;
-        await enqueue(tx as unknown as Sql, caseEvent(c));
+        await enqueue(tx, caseEvent(c));
         return { case: c, created: true };
       });
     },

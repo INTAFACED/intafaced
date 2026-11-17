@@ -147,7 +147,7 @@ describe('svc-p2p payment instruments', () => {
       tier: 'basic',
       mfa: false,
       expiresAt: new Date(Date.now() + 60_000),
-    } as unknown as Principal;
+    } as Principal;
 
     const raw = encodePrincipal(principal);
     return api.createCaller(
@@ -1442,13 +1442,13 @@ describe('svc-p2p payment instruments', () => {
         'offers.bulk': { action: 'pause', offerIds: [crypto.randomUUID()], idempotencyKey: `bulk:${crypto.randomUUID()}` },
       };
 
-      const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
+      const paths = Object.keys((api as { _def: { procedures: Record<string, unknown> } })._def.procedures);
       const unmapped = paths.filter((p) => !(p in inputs));
       // A new procedure has to be considered here before it can ship. Adding it
       // to the map is the act of deciding it cannot leak an instrument.
       expect(unmapped, 'new router procedure — add it to the leak sweep').toEqual([]);
 
-      const stranger = callerFor(STRANGER) as unknown as Record<string, unknown>;
+      const stranger = callerFor(STRANGER) as Record<string, unknown>;
       const responses: unknown[] = [];
       const succeeded: string[] = [];
 
@@ -1739,7 +1739,7 @@ describe('svc-p2p payment instruments', () => {
         tier: 'basic',
         mfa: false,
         expiresAt: new Date(Date.now() + 60_000),
-      } as unknown as Principal);
+      } as Principal);
       const seller = counted.createCaller(
         edgeContext({
           headers: {

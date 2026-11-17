@@ -71,7 +71,7 @@ describe('userCopy — catalog keys, never invented English', () => {
       },
     };
     for (const key of [native, tricky, 1, null, undefined] as const) {
-      const rendered = userCopy(key as unknown as string);
+      const rendered = userCopy(key as string);
       expect(typeof rendered).toBe('string');
       expect(rendered).not.toMatch(/\[native code\]/);
       expect(rendered).not.toMatch(/\bfunction\b/);

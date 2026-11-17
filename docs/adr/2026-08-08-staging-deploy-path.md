@@ -24,7 +24,7 @@
 
 ## D26-P3-01 — workflow match
 
-**Implemented by:** [`.github/workflows/staging-deploy.yml`](../../.github/workflows/staging-deploy.yml). Threat model remains sibling **D26-P3-02** (`docs/THREAT-MODEL-STAGING-DEPLOY.md`) — this ADR does not rewrite it.
+**Implemented by:** `.github/workflows/staging-deploy.yml`, removed on 15 Nov 2026 because it never ran and no host was bought (project-state #2553, layer 8). Restore it, with its pins `packages/config/src/staging-deploy-body-bind-pin.test.ts` and the staging checks in `tooling/scripts/fleet-tip-image.mjs` and `packages/config/src/compose-app-env-required-pin.test.ts`, from commit `9ef9844c1d` the day a host exists. Threat model remains sibling **D26-P3-02** (`docs/THREAT-MODEL-STAGING-DEPLOY.md`) — this ADR does not rewrite it.
 
 | ADR rule                                                                                  | How the workflow matches                                                                                                                                                                                                                                             |
 | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -73,7 +73,7 @@
 
 ## Amendment, 23 Oct 2026: temporary Try-it runs (owner decision 48)
 
-The owner chose a free, temporary way for people to click through the app before any host is bought: the `Try it` workflow (`.github/workflows/try-it.yml`, `tooling/scripts/try-it.mjs`).
+The owner chose a free, temporary way for people to click through the app before any host is bought: the `Try it` workflow (`.github/workflows/try-it.yml`, `tooling/scripts/try-it.mjs`). Removed on 15 Nov 2026: its last run was 23 Oct (project-state #2553, layer 8); restore both, and the `docs/LOCAL-TEST-STACK.md` section, from commit `9ef9844c1d`.
 
 - **What it is.** A run started by hand on GitHub's runner. It boots the local test stack exactly as Real-app journeys does: the labelled dev/TEST profile with the screening stand-in, TEST money only, and no partner credentials. It puts a password gate in front of the Customer app and opens a temporary Cloudflare quick-tunnel link to it. The run ends after at most about 5 h 45 min, and its data goes with it.
 - **What the owner accepted.**

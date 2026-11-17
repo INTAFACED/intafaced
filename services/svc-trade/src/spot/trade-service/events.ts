@@ -5,7 +5,7 @@
  * function here, which passes itself as `svc`.
  */
 import type { EventBus } from '@intafaced/events';
-import { formatAmount, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../../tracing.js';
 import { ocoLegParent, settlementOrderId } from '../oco-legs.js';
 import { recoverMatchingAccountId } from '../../mm/fill-account.js';
@@ -167,38 +167,15 @@ export async function releaseOnCancelEvent(
     if (ocoLegParent(orderId) !== null) return;
     // The engine's own word on what it took off the book, for a later cancel of this order to read.
     await svc.sql`UPDATE trade.orders SET engine_left_qty = ${remainingQty}::numeric WHERE id = ${orderId} AND engine_left_qty IS NULL`;
-    await svc.refuseCancelAheadOfFill(orderId, parseAmount(remainingQty));
     // A person's own cancel ('requested') is not an engine reason: its inline path writes none, so neither does this.
     const engineReason = reason === 'requested' ? undefined : reason;
-    await svc.finalize(orderId, engineReason === 'expired' ? 'expired' : 'cancelled', engineReason);
+    // `finalize` refuses while fewer fills are written than the engine matched (`trade.cancel_ahead_of_fill`), so the
+    // bus redelivers this event after the fill settles. An IOC that partly fills produces a fill event and a cancel
+    // event at the same moment, on two consumers; the cancel handled first waits here. If the fill never settles
+    // inside the redelivery budget, the cancel is abandoned and the hold stays with the order: money stays where it
+    // can be found rather than going back while a fill is owed.
+    await svc.finalize(orderId, engineReason === 'expired' ? 'expired' : 'cancelled', engineReason, {
+      engineLeftQty: parseAmount(remainingQty),
+    });
   });
-}
-
-/**
- * The same race for an ordinary order. An IOC that partly fills produces a fill event and a cancel event
- * for its remainder at the same moment, on two consumers. If the cancel is handled first, `finalize`
- * finds no fill row, releases the whole hold, and the fill's `tradeFill` then fails on an empty hold:
- * the engine matched, the money never moved, and the counterparty's order stays open with its hold.
- * The engine says how much filled (`qty - remainingQty`); until `trade.fills` shows at least that, refuse,
- * so the hold stays and the bus redelivers the cancel after the fill settles.
- *
- * If the fill never settles inside the redelivery budget, the cancel is abandoned and the hold stays with
- * the order: money stays where it can be found rather than going back while a fill is owed. A submission
- * also finalizes its own IOC, market and self-trade remainders inline after its fills, so this consumer is
- * the recovery path, not the normal one. A house market-maker stub row (qty is its first fill, not the
- * engine size) and an amend that has not committed yet read as "nothing more filled"; both behave as before.
- */
-export async function refuseCancelAheadOfFill(svc: TradeServiceInternal, orderId: string, remainingQty: Amount): Promise<void> {
-  const order = await svc.findOrder(orderId);
-  // The same statuses `finalize` acts on; any other is terminal and a no-op there.
-  if (!order || (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required')) return;
-  const engineFilled = sub(order.qty, remainingQty);
-  if (engineFilled <= 0n) return;
-  const recorded = (await svc.fillEvidence(orderId)).qty;
-  if (recorded >= engineFilled) return;
-  throw new TradeError(
-    `order ${orderId}: the engine filled ${formatAmount(engineFilled)} but ${formatAmount(recorded)} is settled; the cancel waits for the fill`,
-    'trade.cancel_ahead_of_fill',
-    { engineFilled: formatAmount(engineFilled), settled: formatAmount(recorded) },
-  );
 }

@@ -118,7 +118,6 @@ console.log(`
 
   Next:
     gh repo edit ${repo} --add-collaborator <their-github-handle>
-    Update .github/CODEOWNERS with real handles
 
   Then send them CONTRIBUTING.md. The worktree rule (§2) is the one that matters.
 `);

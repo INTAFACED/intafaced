@@ -7,6 +7,7 @@
  * The points are stored as bar times and decimal prices; the canvas only ever sees them re-planned for the current view.
  */
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { chartValue } from '../../../shared/chart-value';
 import type { Candle } from '../../../data/types';
 import type { ChartHost, ChartSeries } from '../chart-host';
 import { drawingsCopy } from './copy';
@@ -358,7 +359,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     let price = priceFromNumber(raw, L.tickSize);
     if (price === null) return { refused: 'bad-tick' };
     if (L.magnet && L.sensitivity !== null && (box?.index ?? 0) === 0) {
-      const snapped = magnetSnap(barPrices(bar), localY, (p) => h.main.priceToCoordinate(Number(p)), L.sensitivity);
+      const snapped = magnetSnap(barPrices(bar), localY, (p) => h.main.priceToCoordinate(chartValue(p)), L.sensitivity);
       if (snapped !== null) price = snapped;
     }
     return { time: L.barTimes[index]!, price };

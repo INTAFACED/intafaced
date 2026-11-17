@@ -23,10 +23,7 @@ import type {
   SupportViewsView,
   TicketExtrasView,
 } from './types';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchQueue(query: QueueQuery = EMPTY_QUERY, signal?: AbortSignal): Promise<SupportQueueView | null> {
   // `view` names the part of the desk asked for here, so a saved view's id travels as `savedView`.

@@ -90,6 +90,7 @@ import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './l
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 import { leakedFreezePlan } from './journey-freeze-guard.mjs';
+import { STACK_PORTS } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 /** Written by `sandbox-funds set`, read by local-stack-services/pay.mjs. */
@@ -386,7 +387,24 @@ function sandboxFunds(ctx, on) {
 function psqlRead(secrets, role, sql) {
   const r = spawnSync(
     PSQL,
-    ['-X', '-At', '-F', '\t', '-v', 'ON_ERROR_STOP=1', '-h', HOST, '-p', '15460', '-U', role, '-d', DB_NAME, '-c', sql],
+    [
+      '-X',
+      '-At',
+      '-F',
+      '\t',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-h',
+      HOST,
+      '-p',
+      String(STACK_PORTS.postgres),
+      '-U',
+      role,
+      '-d',
+      DB_NAME,
+      '-c',
+      sql,
+    ],
     {
       encoding: 'utf8',
       env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
@@ -570,7 +588,7 @@ export async function makeContext({ home = os.homedir(), log = say, shareSession
     tokens,
     totp,
     url,
-    edge: new Edge(url('edge'), `http://${HOST}:${marker.ports.customer ?? 3210}`),
+    edge: new Edge(url('edge'), `http://${HOST}:${marker.ports.customer ?? STACK_PORTS.customer}`),
     guard: paths,
     /** Set: approverSessions and operatorSessions sign each pair in once for this context (see `shared`). */
     sessionCache: shareSessions ? {} : null,
@@ -824,7 +842,7 @@ export async function founderTotp(ctx, key, secret) {
 }
 
 /**
- * After the founder console refused founder `key`'s sign-in: counts as spent the step that sign-in sent (the last one
+ * After the founder console refused founder `key`'s sign-in (which then fails its test): counts as spent the step that sign-in sent (the last one
  * recorded in founder-totp-steps.json) or the latest step identity can hold by now, whichever is later
  * (`stepAfterRefusal`), and records it, so the next code is a step after any identity holds. Returns the steps, to log.
  */
@@ -836,27 +854,6 @@ export function founderStepRefused(ctx, key) {
   const next = stepAfterRefusal(refused, current);
   writePrivate(stepsFile, { ...all, [key]: next });
   return { refused, current, next };
-}
-
-/**
- * One console sign-in, tried once more after a refusal, as `operatorLogin` does for the gates' own sign-in.
- * `attempt()` signs in with a fresh step and answers 'in' or 'refused'; `onRefused()` records the refused step
- * (`founderStepRefused`) and returns { refused, current, next }. A second refusal fails, naming both steps. MFA is not
- * loosened: each attempt sends a real, unused step. (Failure it prevents: main run 42427369496, J-cex-spot-18 #4, the
- * console refused founder b's code and the sign-in, which had no retry, waited out 30 s on /login.)
- */
-export async function signInOnceMore({ attempt, onRefused, log = () => {} }) {
-  if ((await attempt()) === 'in') return { retried: false };
-  const first = await onRefused();
-  log(`the console refused TOTP step ${first.refused} at step ${first.current}; signing in once more after step ${first.next}`);
-  if ((await attempt()) === 'in') {
-    log(`signed in on the retry, after step ${first.next}`);
-    return { retried: true, refused: first.refused };
-  }
-  const second = await onRefused();
-  throw new Error(
-    `the console refused the sign-in twice: TOTP step ${first.refused} (at step ${first.current}), then step ${second.refused} (at step ${second.current})`,
-  );
 }
 
 async function signInPair(ctx, ops, saveSteps) {
@@ -878,9 +875,12 @@ async function signInOne(ctx, op, saveSteps) {
     op,
     /** Second-factor session token (what a signed-in operator holds). */
     token: loginToken,
-    /** Same session, plus the operator scope. Short-lived. */
+    /**
+     * Same session with the compliance scopes, `admin:compliance` plus `admin:read` and `admin:write`: KYC binding,
+     * transfer terms, fraud listings, P2P methods, account appeals and the trade desk's VIP application review. Short-lived.
+     */
     async complianceToken() {
-      return mintOperatorToken(ctx, op);
+      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
     },
     /**
      * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
@@ -898,10 +898,6 @@ async function signInOne(ctx, op, saveSteps) {
     /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
     async tradeOpsToken() {
       return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
-    },
-    /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
-    async complianceToken() {
-      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
     },
     /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
     async crmToken() {
@@ -1426,13 +1422,20 @@ function labelledTestPrecision(assetId) {
  * published row the address book offers no asset and refuses every save. Both networks are EVM chains, the only
  * address form the address book checks today. USDT's places are the labelled TEST value, not a count chosen here.
  */
+/** A TEST contract address and link for USDC on TEST Ethereum: no real contract, and a reserved example domain. */
+export const TEST_USDC_CONTRACT = '0x7e57000000000000000000000000000000000001';
+export const TEST_USDC_LINK = Object.freeze({ label: 'TEST explorer', url: 'https://example.com/test-explorer/usdc' });
 export const TEST_ASSET_ROWS = ['USDT', 'USDC'].map((id) => ({
   id,
   kind: 'crypto',
   // USDT places are the labelled TEST value. USDC keeps the row this file already published.
   precision: id === 'USDT' ? labelledTestPrecision('USDT') : 6,
   networks: [
-    { networkId: 'ethereum', label: 'TEST Ethereum' },
+    // USDC on TEST Ethereum carries a TEST contract and a TEST link (J-portfolio-10 #3: "contract and links where known");
+    // every other network knows neither, so the coin page shows none for it.
+    id === 'USDC'
+      ? { networkId: 'ethereum', label: 'TEST Ethereum', contract: TEST_USDC_CONTRACT, links: [TEST_USDC_LINK] }
+      : { networkId: 'ethereum', label: 'TEST Ethereum' },
     { networkId: 'base', label: 'TEST Base' },
   ],
   defaultNetworkId: 'ethereum',
@@ -1463,7 +1466,9 @@ export function assetRowMatches(row, want) {
     JSON.stringify([
       r.kind,
       r.precision,
-      Array.isArray(r.networks) ? r.networks.map((n) => [n.networkId, n.label]) : null,
+      Array.isArray(r.networks)
+        ? r.networks.map((n) => [n.networkId, n.label, n.contract ?? null, (n.links ?? []).map((l) => [l.label, l.url])])
+        : null,
       r.defaultNetworkId,
       [...(r.allowedActions ?? [])].sort(),
       r.state,
@@ -2174,14 +2179,24 @@ export async function setPairRisk(ctx, symbol, changes, sessions = null) {
   if (fields.every((f) => limits[f] === (current[f] ?? null)))
     return { symbol, marketId: market.id, version: current.version, changed: false, limits };
   const body = { market: market.id, limits, expectedVersion: current.version, reason: `${MARKERS.label}: TEST pair limits` };
-  const ids = await twoPerson(ctx, pair, riskSetProposal(body));
-  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
-  const res = await ctx.edge.mutate(
-    'trade',
-    'admin.risk.set',
-    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
-    await pair.a.tradeOpsToken(),
-  );
+  const write = async () => {
+    const ids = await twoPerson(ctx, pair, riskSetProposal(body));
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate(
+      'trade',
+      'admin.risk.set',
+      { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+      await pair.a.tradeOpsToken(),
+    );
+    return { ids, res };
+  };
+  let { ids, res } = await write();
+  // 503: identity did not answer svc-trade's consume in time, and svc-trade wrote nothing (#8686). One more try with a
+  // fresh approval; the first one is left unused or spent, never reused.
+  if (res.status === 503) {
+    ctx.log(`pair limits ${symbol}: identity did not answer the approval consume (${refusalText(res)}); one more try with a new approval`);
+    ({ ids, res } = await write());
+  }
   const row = data(res);
   if (!row?.version) throw new Error(`trade admin.risk.set for ${symbol} refused (${res.status}): ${refusalText(res)}`);
   ctx.log(
@@ -2548,7 +2563,7 @@ export function eligibilityRulesHash({ questions, passMark, minKycTier, expected
 
 /** svc-trade's own role on the stack's database: loopback, the marker's postgres port, the stack's secret. */
 function localDbUrl(ctx) {
-  return `postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? 15460}/${DB_NAME}`;
+  return `postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? STACK_PORTS.postgres}/${DB_NAME}`;
 }
 
 /** Insert the TEST perpetual once, through the repo's own seed tool (it refuses any database that is not local). */
@@ -2598,7 +2613,7 @@ export async function seedPayKybRequirements(ctx) {
   const { createRequire } = await import('node:module');
   const postgres = createRequire(path.join(REPO, 'services', 'svc-pay', 'package.json'))('postgres');
   const { insertKybTestRequirements, localTestDatabaseUrl } = await import('./seed-pay-kyb-test-requirements.mjs');
-  const url = `postgres://svc_pay:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? 15460}/${DB_NAME}`;
+  const url = `postgres://svc_pay:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? STACK_PORTS.postgres}/${DB_NAME}`;
   const databaseUrl = localTestDatabaseUrl(url);
   assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
   const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
@@ -3057,6 +3072,66 @@ export async function tradingRestrict(ctx, handle, action, reasonCode) {
 }
 
 /**
+ * LOCAL TEST: a staff close of one journey account (J-identity-14 #3), through identity's own four-eyes closure control
+ * as the founder console runs it (J-ops-console-04 #7): founder a reads the closure version, proposes the close over that
+ * version, reason code and reason, founder b approves, and founder a runs it once. `final` is the close staff make today:
+ * the account stays closed, and sign-in names it. `grace <days>` is a staff close with a grace date (J-identity-14 #1):
+ * the approval also binds the days, and until the date the account may sign in and withdraw but not trade.
+ * Only `@local-test.invalid` accounts.
+ */
+export async function accountClose(ctx, handle, kind, reasonCode, daysArg) {
+  const graceDays = kind === 'grace' ? Number(daysArg) : undefined;
+  if (
+    !/^[a-z0-9_]{3,32}$/i.test(handle ?? '') ||
+    !['final', 'grace'].includes(kind) ||
+    !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode ?? '') ||
+    (kind === 'grace' ? !/^[1-9][0-9]?$/.test(daysArg ?? '') : daysArg !== undefined)
+  )
+    throw new Error('usage: local-test-gates.mjs account-close <handle> final <reasonCode> | grace <reasonCode> <days>');
+  const { users } = listAccountsAndTiers(ctx.secrets);
+  const user = users.find((u) => u.handle === handle);
+  if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`account-close: ${handle} is not a journey account`);
+  const founders = await approverSessions(ctx);
+  const state = await ctx.edge.query('identity', 'accountControls.closureState', { userId: user.id }, founders.a.token);
+  const expectedVersion = data(state)?.version;
+  if (!expectedVersion) throw new Error(`account-close: closure state refused (${state.status}): ${refusalText(state)}`);
+  const reason = 'LOCAL TEST journey staff close';
+  const { approvalId } = await twoPerson(ctx, founders, {
+    actionType: 'identity.account_close',
+    targetService: 'svc-identity',
+    targetId: user.id,
+    expectedVersion,
+    payloadHash: identityPayloadHash(user.id, {
+      action: 'close',
+      reasonCode,
+      ...(graceDays !== undefined ? { graceDays: String(graceDays) } : {}),
+      reason,
+    }),
+    policyVersion: 'v1',
+  });
+  const res = await ctx.edge.mutate(
+    'identity',
+    'accountControls.closure',
+    {
+      requestId: crypto.randomUUID(),
+      userId: user.id,
+      action: 'close',
+      reasonCode,
+      reason,
+      ...(graceDays !== undefined ? { graceDays } : {}),
+      expectedVersion,
+      approvalId,
+    },
+    founders.a.token,
+  );
+  const after = data(res)?.after;
+  // A grace close leaves the account open until the date, with the date on file; a final close closes it now.
+  const ok =
+    res.status === 200 && (graceDays !== undefined ? after?.status !== 'closed' && !!after?.graceUntil : after?.status === 'closed');
+  return { handle, ok, why: ok ? 'closed' : `${res.status} ${refusalText(res)}` };
+}
+
+/**
  * LOCAL TEST: decide one journey account's open appeal (I-account-lifecycle-12, J-identity-14 #4). Identity refuses the
  * restriction's actor and its approver (`trading-restrict` runs as founder a with founder b's approval), so the stack's
  * test operator a decides, with a code from the TEST decision reason list. A lift also takes the trading restore's
@@ -3362,6 +3437,9 @@ async function main() {
     } else if (cmd === 'appeal-decide') {
       const r = await appealDecide(ctx, process.argv[3], process.argv[4], process.argv[5], process.argv[6]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} appeal ${r.decision}: ${r.why}`);
+    } else if (cmd === 'account-close') {
+      const r = await accountClose(ctx, process.argv[3], process.argv[4], process.argv[5], process.argv[6]);
+      say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} account close: ${r.why}`);
     } else if (cmd === 'trading-restrict') {
       const r = await tradingRestrict(ctx, process.argv[3], process.argv[4], process.argv[5]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} trading ${r.action}: ${r.why}`);
@@ -3501,7 +3579,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
         2,
       );
     }

@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import type { MailPurpose, PasswordResetMail } from './password-reset.js';
+import type { PasswordResetMail } from './password-reset.js';
 
 /**
  * The only mail transport this service implements. It writes a LOCAL-TEST line
@@ -104,6 +104,14 @@ function localMailBody(message: LocalMailMessage): string {
   if (purpose === 'staff-invite') {
     // The console's first-connection page, relative to the console as the customer links are to the app.
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} link=staff-welcome?token=${encodeURIComponent(message.code)}\n`;
+  }
+  if (purpose === 'support-chat-email') {
+    // A support chat continued by email (J-support-public-05 #7): the mail names the chat, and its link opens the app's
+    // support chat.
+    // `part` is what this mail adds to the thread: the chat itself, or an agent's reply by its number.
+    const chat = message.code.replace(/[^A-Za-z0-9-]/g, '');
+    const part = (message.detail ?? '').replace(/[^A-Za-z0-9]+/g, '_');
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} chat=${chat} part=${part} link=support/chat\n`;
   }
   if (purpose === 'withdraw-address-approval') {
     // The detail is a plain line; spaces become underscores so the line stays one field per word.

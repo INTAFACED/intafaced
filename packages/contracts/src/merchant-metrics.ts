@@ -109,7 +109,7 @@ export const merchantSettlementAssetsSchema = z
 export type MerchantSettlementAssets = z.infer<typeof merchantSettlementAssetsSchema>;
 
 /**
- * The acquiring partner's own terms for one business (CUSTODY-DELTA §1.3 "Unknown, never zero"; OWNER 226): what the
+ * The acquiring partner's own terms for one business (CUSTODY-DELTA §1.3 "Unknown, never zero"): what the
  * partner has told us, and nothing else. Each figure the partner has not given is `{ known: false }`, which the rooms
  * show as "not known", never zero; a feature the partner has said it does not offer is `offered: false`, shown as
  * "not offered by the partner". `partner: 'TEST'` is the labelled TEST acquirer (`card-sandbox`), the only one today.

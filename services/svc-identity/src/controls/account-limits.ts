@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
@@ -164,7 +165,7 @@ export class AccountLimitsDesk {
     return this.policy.ceilings.find((row) => row.rail === rail && row.assetId === assetId)?.ceiling ?? null;
   }
 
-  private async row(tx: Sql, userId: string, rail: AccountLimitRail, assetId: string): Promise<OverrideRow | undefined> {
+  private async row(tx: Queryable, userId: string, rail: AccountLimitRail, assetId: string): Promise<OverrideRow | undefined> {
     const [row] = await tx<OverrideRow[]>`SELECT user_id, rail, asset_id, version::text AS version, per_tx, rolling_24h, expires_at,
         set_by, approved_by, set_at, reason, cleared_by, cleared_at
       FROM account_limit_overrides WHERE user_id = ${userId} AND rail = ${rail} AND asset_id = ${assetId} FOR UPDATE`;
@@ -177,7 +178,7 @@ export class AccountLimitsDesk {
     request: { requestId: string; userId: string; action: 'set' | 'clear'; rail: AccountLimitRail; assetId: string; reason: string },
     input: unknown,
     body: (
-      tx: Sql,
+      tx: Queryable,
       kit: {
         actorId: string;
         target: UserRow;

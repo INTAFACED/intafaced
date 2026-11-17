@@ -186,6 +186,10 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.appoint', { userId: request.userId });
     case 'academy.residency.decide':
       return sha('academy.residency.decide', { id: request.id, decision: request.decision });
+    case 'academy.cert.revoke':
+      return sha('academy.cert.revoke', { publicId: request.publicId, reason: request.reason });
+    case 'academy.cert.exception':
+      return sha('academy.cert.exception', { userId: request.userId, certId: request.certId, reason: request.reason });
     case 'bank.card.status':
       return shaBank('bank.ops.setCardStatus', { cardId: request.cardId, status: request.status });
     case 'bank.card.funding':
@@ -353,6 +357,8 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
     case 'academy.ambassador.unfreeze':
     case 'academy.ambassador.appoint':
     case 'academy.residency.decide':
+    case 'academy.cert.revoke':
+    case 'academy.cert.exception':
       return {
         actionType: request.kind,
         targetService: 'svc-academy',

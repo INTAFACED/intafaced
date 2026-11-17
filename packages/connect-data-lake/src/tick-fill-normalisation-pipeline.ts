@@ -6,7 +6,7 @@
  */
 import { formatAmount } from '@intafaced/ledger-client';
 import { CaptureLog, type CaptureRecord, type FillObservation, type TickObservation, type VenueConnection } from './capture.js';
-import { absentReasonFromCaptureLakeHole, type CaptureLakeHoleReason, type CaptureLakeHoleRecord } from './capture-lake-consumer.js';
+import { absentReasonFromCaptureLakeHole, type CaptureLakeHoleRecord } from './capture-lake-consumer.js';
 
 export interface CaptureLakeTickWireRecord {
   readonly kind: 'tick';

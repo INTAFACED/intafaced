@@ -17,7 +17,7 @@ function fetcher(answer: (url: string, init: RequestInit) => Response | Promise<
   const fn = (async (url: string | URL | Request, init?: RequestInit) => {
     seen.push({ url: String(url), method: init?.method });
     return answer(String(url), init ?? {});
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   return { fn, seen };
 }
 

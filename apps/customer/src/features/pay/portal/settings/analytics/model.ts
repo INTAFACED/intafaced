@@ -71,11 +71,11 @@ export const periodsWithSales = (points: readonly Point[]) =>
 /** Bars for one asset, oldest first. Heights are pixels (a drawing value, never money); the exact amount stays in the table. */
 export function barsFor(points: readonly Point[], asset: string, height: number): Array<{ period: string; h: number; volume: string }> {
   const rows = points.filter((p) => p.assetCode === asset).sort((a, b) => a.period.localeCompare(b.period));
-  const max = Math.max(0, ...rows.map((r) => Number(r.volume)));
+  const max = rows.reduce((m, r) => (parseAmount(r.volume) > m ? parseAmount(r.volume) : m), 0n);
   return rows.map((r) => ({
     period: r.period,
     volume: r.volume,
-    h: max > 0 ? Math.max(1, Math.round((Number(r.volume) / max) * height)) : 0,
+    h: max > 0n ? Math.max(1, Math.round((Number((parseAmount(r.volume) * 1_000_000n) / max) / 1_000_000) * height)) : 0,
   }));
 }
 

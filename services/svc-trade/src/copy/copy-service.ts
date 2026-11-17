@@ -13,6 +13,7 @@
  * laws refuse at the door. Pause/stop/detach never call flatten.
  */
 
+import { listSettlements, reconcileSettlements, sqlSettlementOversight } from './settlement-oversight.js';
 import { NO_PAUSES, mirrorPausedReason, type PauseSnapshot } from './platform-pauses.js';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
@@ -59,6 +60,7 @@ import {
   presentCopyControlAck,
   requireCopyFollowId,
   requireNewCopyIntentAllowed,
+  copyFollowHoldsLeader,
 } from './copy-lifecycle.js';
 import {
   assertCopyRegionAllowed,
@@ -66,11 +68,31 @@ import {
   parseCopyEnvelope,
   presentCopyFollow,
   type CopyCursor,
+  type CopyEnvelope,
   type CopyFollow,
 } from './follows.js';
 import { TradeError } from '../spot/types.js';
 import { randomUUID } from 'node:crypto';
-import { assertMayFollow, assertReserveFits, copyFollowIdFor, copyQuoteAsset, freeSpotBalance, type CopyTier } from './follow-gate.js';
+import {
+  assertMayFollow,
+  assertReserveFits,
+  copyFollowIdFor,
+  copyQuoteAsset,
+  freeSpotBalance,
+  totalInAsset,
+  type CopyTier,
+} from './follow-gate.js';
+import {
+  assertCopyCaps,
+  assertCopyMinInvestment,
+  copyOwnerDay,
+  copySmartSyncFrom,
+  parseCopySizingMode,
+  parseOptionalCopyCap,
+  type CopyMinInvestment,
+  type CopyOwnerDay,
+  type CopySizingModeInput,
+} from './follow-rules.js';
 import {
   attributeCopyFeeShare,
   canonicalizeCopyFillId,
@@ -134,7 +156,22 @@ import type { LeaderEventsPage } from './leader-events.js';
 import type { UpsertLeaderListingInput } from './leader-listing.js';
 import { CopyCloseError } from './copy-close-errors.js';
 import { copyCloseAttemptKey, copyCloseKey, type CopyClosePort } from './copy-close.js';
-import { copiedPositionWire, sellableInMarket, sqlCopiedPositions, type ReadCopiedPositions } from './copied-positions.js';
+import {
+  copiedMarketPositions,
+  copiedPositionWire,
+  sellableInMarket,
+  sqlCopiedPositions,
+  type ReadCopiedPositions,
+} from './copied-positions.js';
+import {
+  LEAD_EARNINGS_PAGE_MAX,
+  presentLeadEarnings,
+  presentLeadLevel,
+  refuseLeadMaxRatio,
+  refuseLeadProfitShare,
+  sqlLeadFeeShares,
+  type ReadLeadFeeShares,
+} from './lead-desk.js';
 import { COPY_SKIP_LOG_LIMIT, asCopySkipReason, copySkipReasonFor, isCopySkipRefusal, recordCopySkip } from './skip-log.js';
 
 /** Settled follower fill fee — `fills.fee_amount`, never a notional×bps invent. */
@@ -163,7 +200,8 @@ export type LeaderFill = {
 };
 
 /** Production wires `trade.fills`. Absent or missing fill row → refuse-closed. */
-export type LookupLeaderFillPort = (fillId: string) => Promise<LeaderFill | null>;
+/** One leader fill by its id; `leaderId` is the follow's leader, whose own accounts the fill must be on. */
+export type LookupLeaderFillPort = (fillId: string, leaderId?: string) => Promise<LeaderFill | null>;
 
 /** One copied order on a follow, as its follower sees it. */
 export type CopyPosition = {
@@ -175,6 +213,24 @@ export type CopyPosition = {
   readonly price: string;
   readonly status: string;
   readonly placedAt: string;
+  /** On a follow that copies on the venue: who placed it and its fills with their fees, as the venue reports them. */
+  readonly venue?: CopyPositionOnVenue;
+};
+
+export type CopyPositionOnVenue = {
+  readonly venueName: string;
+  readonly test: boolean;
+  readonly asOf: string;
+  readonly placedBy: string;
+  readonly fills: ReadonlyArray<{
+    readonly fillId: string;
+    readonly amount: string;
+    readonly price: string;
+    readonly venueFee: string;
+    readonly builderFee: string;
+    readonly feeAsset: string;
+    readonly filledAt: string;
+  }>;
 };
 
 /**
@@ -185,6 +241,8 @@ export type ListLeaderFillsSincePort = (
   leaderId: string,
   after: CopyCursor,
   limit: number,
+  /** The follow the driver reads for: a follow that copies on the venue reads the leader's venue fills. */
+  followId?: string,
 ) => Promise<ReadonlyArray<{ readonly fillId: string; readonly marketId: string; readonly at: Date }>>;
 
 const LEADER_FILL_MISSING = 'Leader fill not found — refuse rather than invent observation from caller qty/notional';
@@ -205,6 +263,10 @@ export interface CopyServiceOptions {
   gridUnusedReserves?: (userId: string, asset: string) => Promise<Amount>;
   /** Owner's verification level for copying (TRADE_COPY_MIN_TIER). Omitted → every startFollow refuses. */
   minTier?: CopyTier | null;
+  /** Owner's minimum investment per follow (TRADE_COPY_MIN_INVESTMENT). Omitted → every startFollow refuses `trade.copy_min_not_set`. */
+  minInvestment?: CopyMinInvestment;
+  /** When the owner day starts (TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES). Omitted → a daily cap refuses `trade.copy_day_not_set`. */
+  ownerDay?: CopyOwnerDay;
   jurisdictionLaw?: CopyJurisdictionLaw;
   now?: () => Date;
   /** Defaults to in-memory. Production wires SqlCopyFollowStore. */
@@ -255,6 +317,8 @@ export interface CopyServiceOptions {
    * Absent → unrealised P&L is null with trade.mark_unavailable.
    */
   lookupMark?: (marketId: string) => Promise<AlgoQuotedMark | null>;
+  /** A lead's own settled fee-share rows (lead-desk.ts). Omitted → from `sql`, else the earnings panel refuses. */
+  leadFeeShares?: ReadLeadFeeShares;
   /** Operator-published leader directory. Omitted → in-memory, empty until an operator writes. */
   directory?: LeaderDirectory;
   /** Owner wording for each lead-page metric. Omitted → unpublished, every metric reads "not set". */
@@ -268,6 +332,17 @@ export interface CopyServiceOptions {
   copiedPositions?: ReadCopiedPositions;
   /** A follower's close of one copied position (CB-copy-10). Absent → copy.closePosition refuses. */
   copyClose?: CopyClosePort;
+  /**
+   * Copy trading on the venue (venue-copy.ts): binds a venue follow to the follower's own agent account and reads its
+   * copies from the venue. Absent → copy.startVenueFollow refuses `trade.copy_unavailable`.
+   */
+  venueFollows?: VenueFollowsPort;
+}
+
+/** What CopyService asks of the venue copy desk (venue-copy.ts `VenueCopy`). */
+export interface VenueFollowsPort {
+  bind(followerId: string, followId: string, accountId: string, quoteAsset: string, at: Date): Promise<void>;
+  copiedOrders(followId: string, followerId: string): Promise<CopyPosition[] | null>;
 }
 
 type FollowRef = { followId: string };
@@ -361,12 +436,16 @@ export class CopyService {
   private readonly directory: LeaderDirectory;
   private readonly metricDefinitions: CopyMetricDefinitions;
   private readonly minTier: CopyTier | null;
+  private readonly minInvestment: CopyMinInvestment;
+  private readonly ownerDay: CopyOwnerDay;
   private readonly readResultFigure: ((follow: CopyFollow) => Promise<{ figure: Amount | null; missing: string | null }>) | null;
   private readonly gridUnusedReserves: (userId: string, asset: string) => Promise<Amount>;
   private readonly copiedPositionsPort: ReadCopiedPositions | null;
+  private readonly leadFeeShares: ReadLeadFeeShares | null;
   private readonly copyClose: CopyClosePort | null;
   private readonly stepUp: StepUpCheck | null;
   private readonly notices: CopyNotices;
+  private readonly venueFollows: VenueFollowsPort | null;
 
   constructor(
     private readonly ledger: LedgerClient,
@@ -391,12 +470,16 @@ export class CopyService {
     this.readResultFigure = options.readResultFigure ?? null;
     this.gridUnusedReserves = options.gridUnusedReserves ?? (async () => 0n);
     this.copiedPositionsPort = options.copiedPositions ?? (options.sql ? sqlCopiedPositions(options.sql) : null);
+    this.leadFeeShares = options.leadFeeShares ?? (options.sql ? sqlLeadFeeShares(options.sql) : null);
     this.copyClose = options.copyClose ?? null;
     this.stepUp = options.stepUp ?? null;
     this.notices = options.notices ?? NO_COPY_NOTICES;
+    this.venueFollows = options.venueFollows ?? null;
     // Read like TRADE_COPY_PLACE_MIRROR above; env.ts declares it. Invalid JSON fails boot.
     this.metricDefinitions = options.metricDefinitions ?? UNPUBLISHED_COPY_METRIC_DEFINITIONS;
     this.minTier = options.minTier ?? null;
+    this.minInvestment = options.minInvestment ?? { published: false };
+    this.ownerDay = options.ownerDay ?? { published: false };
     this.directory =
       options.directory ??
       memoryLeaderDirectory({
@@ -416,6 +499,7 @@ export class CopyService {
       fee: this.feeShareLaw,
       jurisdiction: this.jurisdictionLaw,
       placeEnabled: this.placeMirrorEnabled && this.placeFollowerOrder !== null,
+      minInvestment: this.minInvestment,
     };
   }
 
@@ -516,7 +600,7 @@ export class CopyService {
 
         const price = copyLimitPriceFromPlan(prior.qty, prior.notional);
         const once = await store.runPlaceMirrorOnce(follow.followId, prior.fillId, async () => {
-          const leaderFill = this.lookupLeaderFill ? await this.lookupLeaderFill(prior.fillId) : null;
+          const leaderFill = this.lookupLeaderFill ? await this.lookupLeaderFill(prior.fillId, follow.leaderId) : null;
           assertCopySlippage({
             capBps: follow.envelope.maxSlippageBps,
             followerPrice: price,
@@ -666,6 +750,7 @@ export class CopyService {
     } catch {
       throw new CopyError('Copy envelope caps must be valid decimal amounts', 'trade.copy_envelope_invalid');
     }
+    assertCopyMinInvestment(this.minInvestment, amount, asset);
     const free = async () => freeSpotBalance(await this.ledger.balances('user', principal.userId), asset);
     const gridUnused = () => this.gridUnusedReserves(principal.userId, asset);
     // A quick refusal before admission; the same check runs again under the follower's reserve lock in the save, with
@@ -691,6 +776,146 @@ export class CopyService {
         });
       },
     });
+  }
+
+  /**
+   * Start copying on the venue (J-copy-bots-otc-03; the venue form of startFollow, OWNER 226). The same gates as
+   * startFollow (country list, the owner's copy tier, sub-account), then the follow is bound to one of the follower's own
+   * open agent accounts before it is saved: every copy is then a venue order on that account's sub-account, placed by
+   * the agent permission the follower's wallet signed, and nothing is held from a balance of ours. The fixed amount and
+   * the most in total stay the follow's caps, held before the agent key signs. The same clientRequestId returns the
+   * follow it already made.
+   */
+  async startVenueFollow(
+    principal: Principal,
+    input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string; readonly agentAccountId: string },
+  ) {
+    if (!this.venueFollows) throw new CopyError('Copy trading on the venue is not connected here', 'trade.copy_unavailable');
+    let region: string;
+    try {
+      region = assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
+    } catch (err) {
+      this.blankLawRefusal(err);
+    }
+    assertMayFollow(principal, this.minTier);
+    const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
+    const followId = copyFollowIdFor(principal.userId, leaderId, input.clientRequestId);
+    const already = await this.store.getFollow(followId);
+    if (already) {
+      if (already.followerId !== principal.userId) throw new CopyError('Follow not found', 'trade.copy_not_following');
+      return this.presentFollow(already);
+    }
+    const asset = copyQuoteAsset(input.permittedMarkets);
+    const venueFollows = this.venueFollows;
+    return this.follow(principal, input, {
+      followId,
+      leaderId,
+      region,
+      reserveAsset: null,
+      beforeSave: async () => {
+        await venueFollows.bind(principal.userId, followId, input.agentAccountId, asset, this.now());
+      },
+    });
+  }
+
+  /**
+   * The terms every follow is held to before anything is written: not yourself, not a leader already followed, no
+   * leverage, a valid envelope after the leader's limits, and a fixed amount within the most per order.
+   */
+  private async vetFollowTerms(principal: Principal, input: Parameters<CopyService['follow']>[1], leaderId: string) {
+    if (leaderId === principal.userId) {
+      throw new CopyError('Cannot follow yourself', 'trade.copy_self_follow');
+    }
+    assertLeverageUnsupported(input.maxLeverage);
+    const sizingMode = parseCopySizingMode(input.sizingMode);
+    const maxPerMarket = parseOptionalCopyCap(input.maxPerMarket, 'The most per contract');
+    const maxPerDay = parseOptionalCopyCap(input.maxPerDay, 'The most per day');
+    // A daily cap needs the owner day to count it in: refuse now rather than at the first copy.
+    if (maxPerDay !== undefined) copyOwnerDay(this.ownerDay, this.now());
+
+    for (const f of await this.store.listFollowsByFollower(principal.userId)) {
+      if (f.leaderId === leaderId && copyFollowHoldsLeader(f)) {
+        throw new CopyError('Already following this leader', 'trade.copy_already_following');
+      }
+    }
+
+    const parsed = parseCopyEnvelope({
+      permittedMarkets: input.permittedMarkets,
+      maxNotionalPerOrder: input.maxNotionalPerOrder,
+      maxAggregateExposure: input.maxAggregateExposure,
+      maxLoss: input.maxLoss,
+      fixedOrderSize: input.fixedOrderSize,
+      expiresAt: input.expiresAt,
+      now: this.now(),
+    });
+    if (sizingMode === 'smart_sync' && parsed.fixedOrderSize !== undefined) {
+      throw new CopyError('Smart sync sizes each copy itself: leave the fixed amount blank.', 'trade.copy_envelope_invalid');
+    }
+    const bound = envelopeWithBoundLimits(
+      parsed,
+      bindCopyFollowerLimits({
+        follower: {
+          ...followerLimitsFromEnvelope(parsed),
+          maxSlippageBps: input.maxSlippageBps,
+          maxConcurrent: input.maxConcurrent,
+          maxDrawdown: input.maxDrawdown,
+        },
+        leader: input.leaderSettings,
+      }),
+    );
+
+    const envelope: CopyEnvelope = {
+      ...bound,
+      sizingMode,
+      ...(sizingMode === 'smart_sync'
+        ? {
+            smartSync: copySmartSyncFrom(
+              bound.maxAggregateExposure,
+              totalInAsset(await this.ledger.balances('user', leaderId), copyQuoteAsset(bound.permittedMarkets)),
+            ),
+          }
+        : {}),
+      ...(maxPerMarket !== undefined ? { maxPerMarket } : {}),
+      ...(maxPerDay !== undefined ? { maxPerDay } : {}),
+    };
+
+    // A leader's recommendation can only lower the per-order cap; the fixed amount has to fit what is left.
+    if (envelope.fixedOrderSize !== undefined && envelope.fixedOrderSize > envelope.maxNotionalPerOrder) {
+      throw new CopyError(
+        `The fixed amount cannot be above the most per order, ${formatAmount(envelope.maxNotionalPerOrder)}`,
+        'trade.copy_fixed_size_above_cap',
+      );
+    }
+    return envelope;
+  }
+
+  /**
+   * Start copying on the venue, checked and not written (J-copy-bots-otc-01 #5 #7): every gate and term startVenueFollow
+   * holds, before the follower's wallet is asked to open an agent account for the follow. Writes nothing. The same
+   * clientRequestId that already made a follow answers that follow.
+   */
+  async checkVenueFollow(principal: Principal, input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string }) {
+    if (!this.venueFollows) throw new CopyError('Copy trading on the venue is not connected here', 'trade.copy_unavailable');
+    try {
+      assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
+    } catch (err) {
+      this.blankLawRefusal(err);
+    }
+    assertMayFollow(principal, this.minTier);
+    const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
+    const followId = copyFollowIdFor(principal.userId, leaderId, input.clientRequestId);
+    const already = await this.store.getFollow(followId);
+    if (already) {
+      if (already.followerId !== principal.userId) throw new CopyError('Follow not found', 'trade.copy_not_following');
+      return { followId, follow: await this.presentFollow(already) };
+    }
+    const envelope = await this.vetFollowTerms(principal, input, leaderId);
+    return {
+      followId,
+      follow: null,
+      quoteAsset: copyQuoteAsset(input.permittedMarkets),
+      maxAggregateExposure: formatAmount(envelope.maxAggregateExposure),
+    };
   }
 
   /**
@@ -720,6 +945,11 @@ export class CopyService {
       expiresAt: string;
       /** Quote amount each copied order uses. Blank means no fixed size. */
       fixedOrderSize?: string | null;
+      /** How each copy is sized. Omitted means fixed amount; multiplier refuses. Locked once the follow is made. */
+      sizingMode?: CopySizingModeInput | null;
+      /** Most copied into one market, and per owner day. Blank means not set. */
+      maxPerMarket?: string | null;
+      maxPerDay?: string | null;
       /** Leader recommendations — clamp only; never raise follower caps. */
       leaderSettings?: CopyLeaderLimitSettings;
     },
@@ -728,7 +958,8 @@ export class CopyService {
       readonly followId: string;
       readonly leaderId: string;
       readonly region: string;
-      readonly reserveAsset: string;
+      /** Null for a follow that copies on the venue: nothing is held from a balance of ours. */
+      readonly reserveAsset: string | null;
       readonly beforeSave: (store: CopyFollowStore, follow: CopyFollow) => Promise<void>;
     },
   ) {
@@ -744,46 +975,7 @@ export class CopyService {
       }
       leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
     }
-    if (leaderId === principal.userId) {
-      throw new CopyError('Cannot follow yourself', 'trade.copy_self_follow');
-    }
-    assertLeverageUnsupported(input.maxLeverage);
-
-    for (const f of await this.store.listFollowsByFollower(principal.userId)) {
-      if (f.leaderId === leaderId) {
-        throw new CopyError('Already following this leader', 'trade.copy_already_following');
-      }
-    }
-
-    const parsed = parseCopyEnvelope({
-      permittedMarkets: input.permittedMarkets,
-      maxNotionalPerOrder: input.maxNotionalPerOrder,
-      maxAggregateExposure: input.maxAggregateExposure,
-      maxLoss: input.maxLoss,
-      fixedOrderSize: input.fixedOrderSize,
-      expiresAt: input.expiresAt,
-      now: this.now(),
-    });
-    const envelope = envelopeWithBoundLimits(
-      parsed,
-      bindCopyFollowerLimits({
-        follower: {
-          ...followerLimitsFromEnvelope(parsed),
-          maxSlippageBps: input.maxSlippageBps,
-          maxConcurrent: input.maxConcurrent,
-          maxDrawdown: input.maxDrawdown,
-        },
-        leader: input.leaderSettings,
-      }),
-    );
-
-    // A leader's recommendation can only lower the per-order cap; the fixed amount has to fit what is left.
-    if (envelope.fixedOrderSize !== undefined && envelope.fixedOrderSize > envelope.maxNotionalPerOrder) {
-      throw new CopyError(
-        `The fixed amount cannot be above the most per order, ${formatAmount(envelope.maxNotionalPerOrder)}`,
-        'trade.copy_fixed_size_above_cap',
-      );
-    }
+    const envelope = await this.vetFollowTerms(principal, input, leaderId);
 
     const follow: CopyFollow = {
       followId: admitted?.followId ?? randomUUID(),
@@ -795,7 +987,7 @@ export class CopyService {
       feeShareKilled: false,
       relationshipState: 'ACTIVE',
       // The reserve is the most in total after the leader's limits, which can only lower what startFollow checked.
-      ...(admitted
+      ...(admitted?.reserveAsset
         ? { reserve: { asset: admitted.reserveAsset, amount: envelope.maxAggregateExposure, heldAt: this.now(), releasedAt: null } }
         : {}),
     };
@@ -870,7 +1062,7 @@ export class CopyService {
       });
       return;
     }
-    const fills = await this.listLeaderFillsSince!(follow.leaderId, follow.copyCursor, limit);
+    const fills = await this.listLeaderFillsSince!(follow.leaderId, follow.copyCursor, limit, follow.followId);
     for (const fill of fills) {
       if (follow.envelope.permittedMarkets.includes(fill.marketId) && !(await this.store.getPlacedMirror(follow.followId, fill.fillId))) {
         try {
@@ -955,11 +1147,46 @@ export class CopyService {
     };
   }
 
+  /** Finance's settlement oversight (CB-ops-02): the newest lead fee shares, each judged against the ledger and the venue. */
+  async opsSettlements() {
+    return listSettlements(this.settlementDeps(), this.now());
+  }
+
+  /** Reconcile one window (CB-ops-02). A blank window refuses. Read only. */
+  async opsReconcileSettlements(window: string | null | undefined) {
+    return reconcileSettlements(this.settlementDeps(), this.now(), window);
+  }
+
+  /** One follow's position accounting for finance (CB-copy-pro-share-01): its fee shares, judged, and its copied positions. */
+  async opsFollowAccounting(followId: string) {
+    const id = requireCopyFollowId(followId);
+    const follow = await this.store.getFollow(id);
+    if (!follow) throw new CopyError('Follow not found', 'trade.copy_not_following');
+    const [shares, positions] = await Promise.all([
+      listSettlements(this.settlementDeps(), this.now(), id),
+      this.readCopiedPositions(follow),
+    ]);
+    return {
+      followId: follow.followId,
+      leaderId: follow.leaderId,
+      followerId: follow.followerId,
+      createdAt: follow.createdAt.toISOString(),
+      feeShares: shares.rows,
+      positions: positions.map(copiedPositionWire),
+      asOf: shares.asOf,
+    };
+  }
+
+  private settlementDeps() {
+    if (!this.sql) throw new CopyError('Settlement oversight needs the copy tables', 'trade.copy_unavailable');
+    return sqlSettlementOversight(this.sql, this.ledger);
+  }
+
   /** The caller's copied positions on one follow, newest first (CB-copy-09/10). */
   async copiedPositions(principal: Principal, input: { followId: string }) {
     const follow = await this.requireOwnedFollow(this.store, principal, input.followId);
     const positions = await this.readCopiedPositions(follow);
-    return { positions: positions.map(copiedPositionWire) };
+    return { positions: positions.map(copiedPositionWire), markets: copiedMarketPositions(positions) };
   }
 
   /**
@@ -1038,6 +1265,8 @@ export class CopyService {
    */
   async followPositions(principal: Principal, input: { followId: string }): Promise<{ positions: CopyPosition[] }> {
     const follow = await this.requireOwnedFollow(this.store, principal, input.followId);
+    const onVenue = this.venueFollows ? await this.venueFollows.copiedOrders(follow.followId, follow.followerId) : null;
+    if (onVenue) return { positions: onVenue };
     if (!this.sql) throw new CopyError('Copied orders need the spot tables', 'trade.copy_unavailable');
     const rows = await this.sql<
       Array<{
@@ -1179,6 +1408,45 @@ export class CopyService {
       const next: CopyFollow = { ...rest, sessionKeyRevoked: true };
       await store.saveFollow(next);
       const currentExposure = await store.getExposure(follow.followId);
+      return this.presentFollow(next, currentExposure);
+    });
+  }
+
+  /**
+   * The follower changes their own limits on a follow (Edit limits, J-copy-bots-otc-02). The sizing mode is locked for
+   * the life of the follow: a change refuses `trade.copy_mode_locked` (stop and follow again to use another). A cap
+   * sent blank clears it; one left out stays as it is. A left follow can't change. Nothing posts: these are limits.
+   */
+  async amendFollow(
+    principal: Principal,
+    input: FollowRef & { sizingMode?: CopySizingModeInput | null; maxPerMarket?: string | null; maxPerDay?: string | null },
+  ) {
+    return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
+      const follow = await this.requireOwnedFollow(store, principal, input.followId);
+      if (followRelationshipState(follow) === 'DETACHED') {
+        throw new CopyError('This follow has ended, so its limits can’t change.', 'trade.copy_detached');
+      }
+      if (input.sizingMode !== undefined && input.sizingMode !== null) {
+        const asked = parseCopySizingMode(input.sizingMode);
+        if (asked !== (follow.envelope.sizingMode ?? 'fixed_amount')) {
+          throw new CopyError(
+            'The sizing mode can’t change while the follow is active. Stop this follow and start a new one to use another mode.',
+            'trade.copy_mode_locked',
+          );
+        }
+      }
+      const { maxPerMarket: _m, maxPerDay: _d, ...rest } = follow.envelope;
+      const maxPerMarket =
+        input.maxPerMarket === undefined ? follow.envelope.maxPerMarket : parseOptionalCopyCap(input.maxPerMarket, 'The most per contract');
+      const maxPerDay =
+        input.maxPerDay === undefined ? follow.envelope.maxPerDay : parseOptionalCopyCap(input.maxPerDay, 'The most per day');
+      if (maxPerDay !== undefined) copyOwnerDay(this.ownerDay, this.now());
+      const next: CopyFollow = {
+        ...follow,
+        envelope: { ...rest, ...(maxPerMarket !== undefined ? { maxPerMarket } : {}), ...(maxPerDay !== undefined ? { maxPerDay } : {}) },
+      };
+      const currentExposure = await store.getExposure(follow.followId);
+      await store.saveFollow(next, currentExposure);
       return this.presentFollow(next, currentExposure);
     });
   }
@@ -1434,6 +1702,22 @@ export class CopyService {
       ...(market?.lotSize !== undefined ? { lotSize: market.lotSize } : {}),
     });
     const planned = observation.side === 'sell' ? await this.capCopiedSell(follow, sized) : sized;
+    // The follower's per-contract and daily caps (CB-copy-06) limit new copies only: a buy. Read under this follow's
+    // exclusive run, so two copies of it can't both pass the same reading.
+    if (planned.side === 'buy' && (follow.envelope.maxPerMarket !== undefined || follow.envelope.maxPerDay !== undefined)) {
+      const day = follow.envelope.maxPerDay !== undefined ? copyOwnerDay(this.ownerDay, this.now()) : undefined;
+      assertCopyCaps({
+        notional: planned.notional,
+        marketId: planned.marketId,
+        asset: copyQuoteAsset(follow.envelope.permittedMarkets),
+        ...(follow.envelope.maxPerMarket !== undefined ? { maxPerMarket: follow.envelope.maxPerMarket } : {}),
+        marketUsed:
+          follow.envelope.maxPerMarket !== undefined ? await store.sumCopiedBuys(follow.followId, { marketId: planned.marketId }) : 0n,
+        ...(follow.envelope.maxPerDay !== undefined ? { maxPerDay: follow.envelope.maxPerDay } : {}),
+        dayUsed: day ? await store.sumCopiedBuys(follow.followId, { since: day.start }) : 0n,
+        ...(day ? { nextDay: day.next } : {}),
+      });
+    }
 
     let drawdown: { current: Amount; cap: Amount } | undefined;
     if (!closeOnly && gated.envelope.maxDrawdown !== undefined) {
@@ -1450,6 +1734,7 @@ export class CopyService {
     const claimed = await store.claimMirrorFill({
       followId: follow.followId,
       fillId: observation.fillId,
+      at: this.now(),
       maxAggregate: gated.envelope.maxAggregateExposure,
       plan: {
         fillId: planned.fillId,
@@ -1514,7 +1799,7 @@ export class CopyService {
     if (!this.lookupLeaderFill) {
       throw new CopyError(LEADER_FILL_MISSING, 'trade.copy_leader_fill_not_found');
     }
-    const fill = await this.lookupLeaderFill(fillId);
+    const fill = await this.lookupLeaderFill(fillId, follow.leaderId);
     if (!fill) {
       throw new CopyError(LEADER_FILL_MISSING, 'trade.copy_leader_fill_not_found');
     }
@@ -1833,6 +2118,36 @@ export class CopyService {
   async observeFollowerFill(notice: CopyMirrorFillNotice): Promise<void> {
     if (!this.sql) return;
     await observeCopyMirrorFill(this.sql, this.mirrorEvents, notice, this.now());
+  }
+
+  /**
+   * The caller's own lead earnings (J-copy-bots-otc-06 #3): their settled fee-share rows, newest first, with the sum per
+   * asset and the profit-share refusal sentence. No profit, loss or return figure.
+   */
+  async leadEarnings(principal: Principal, input: { limit: number }) {
+    requireScope(principal, 'trade:read');
+    if (!this.leadFeeShares) throw new CopyError('lead earnings are not mounted', 'trade.copy_unavailable');
+    const limit = input.limit;
+    if (!Number.isInteger(limit) || limit < 1 || limit > LEAD_EARNINGS_PAGE_MAX) {
+      throw new CopyError(`limit must be a whole number from 1 to ${LEAD_EARNINGS_PAGE_MAX}`, 'trade.copy_limit_missing');
+    }
+    return presentLeadEarnings(this.feeShareLaw, await this.leadFeeShares(principal.userId, limit));
+  }
+
+  /** The caller's own lead level (J-copy-bots-otc-06 #5): not set while the owner's thresholds are blank; no ratio. */
+  async leadLevel(principal: Principal) {
+    requireScope(principal, 'trade:read');
+    return presentLeadLevel(await this.directory.listingIdentity(principal.userId));
+  }
+
+  /** A profit pre-deduction or profit-share ratio (J-copy-bots-otc-06 #4): refused for every caller, nothing written. */
+  setProfitShare(): never {
+    return refuseLeadProfitShare();
+  }
+
+  /** A maximum ratio (J-copy-bots-otc-06 #5): refused for every caller, nothing written. */
+  setMaxRatio(): never {
+    return refuseLeadMaxRatio();
   }
 
   /** Forbidden surfaces — explicit refuse for honesty tests. */

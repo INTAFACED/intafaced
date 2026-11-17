@@ -36,7 +36,7 @@ const GONE = '22222222-2222-4222-8222-222222222222';
 let host: HTMLDivElement;
 let root: Root | null = null;
 
-const live = { id: BILLS, name: 'Bills TEST', assetId: 'USDT', kind: 'named' } as unknown as Space;
+const live = { id: BILLS, name: 'Bills TEST', assetId: 'USDT', kind: 'named' } as Space;
 
 beforeEach(() => {
   list = {

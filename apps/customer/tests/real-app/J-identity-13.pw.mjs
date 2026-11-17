@@ -4,7 +4,7 @@ import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { existsSync, readFileSync as readText } from 'node:fs';
 import { ORIGIN, ROOT, api, fund, mailedLines, restartWith, signOutBrowser, signUpInBrowser, stackFile } from './stack.mjs';
-import { asDesk } from './help-centre.mjs';
+import { asDesk, clearOfGuestWindowEdge } from './help-centre.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { nextCode } from './identity-factors.mjs';
 
@@ -227,6 +227,9 @@ test(`${J} #2 a phishing report signed in or out is a ticket in the phishing cat
   const guest = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
   const email = `${person('jq').handle}@local-test.invalid`;
   const run = randomBytes(3).toString('hex');
+  // The four sends below must fall in one window of the limit, or the fourth starts a fresh count (#8365).
+  test.setTimeout(240_000 + 125_000);
+  await clearOfGuestWindowEdge();
   async function guestSend(subject) {
     await guest.goto('/support/new?topic=phishing');
     const form = guest.getByTestId('support-guest-new');

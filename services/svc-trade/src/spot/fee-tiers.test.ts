@@ -5,7 +5,6 @@ import {
   lastSnapshotInstant,
   nextSnapshotInstant,
   nextThreshold,
-  parseTierProgram,
   tierForVolume,
   tierSnapshotKey,
   volumeWindow,

@@ -4,7 +4,7 @@ import type { Order } from '../trade-api';
 import { judgeCancelEverything, openIncidents, summariseOpenOrders } from './risk-model';
 
 // TEST orders only: a symbol, a status and the flags the model reads.
-const order = (id: string, symbol: string, status: string): Order => ({ id, symbol, status, recoveryRequired: false }) as unknown as Order;
+const order = (id: string, symbol: string, status: string): Order => ({ id, symbol, status, recoveryRequired: false }) as Order;
 const three = [order('o1', 'TEST-A/USDT', 'open'), order('o2', 'TEST-A/USDT', 'open'), order('o3', 'TEST-B/USDT', 'open')];
 
 describe('open orders summary', () => {

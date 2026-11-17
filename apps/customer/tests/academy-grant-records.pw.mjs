@@ -110,26 +110,11 @@ async function login(page, path = originalPath) {
 const receipt = (page) => page.getByRole('region', { name: 'Lesson completion receipt', exact: true });
 const pathPanel = (page) =>
   page.locator('.if-panel').filter({ has: page.getByRole('heading', { name: 'Your learning path', exact: true }) });
-async function review(page) {
-  await page.getByRole('button', { name: 'Review lesson completion', exact: true }).click();
-}
-async function send(page) {
-  await page.getByRole('dialog').getByRole('button', { name: 'Record completion', exact: true }).click();
-}
 async function marker(page) {
   return page.evaluate((key) => localStorage.getItem(key), markerKey);
 }
 async function shot(page, name) {
   await page.screenshot({ path: evidence + '/' + name + '.png', fullPage: true });
-}
-async function viewLocale(context, locale) {
-  const view = await context.newPage();
-  await login(view, '/view');
-  await view
-    .locator('select')
-    .filter({ has: view.locator('option[value="es"]') })
-    .selectOption(locale);
-  return view;
 }
 async function returnAcademy(page) {
   await page.locator('a[href="/more"]:visible').first().click();

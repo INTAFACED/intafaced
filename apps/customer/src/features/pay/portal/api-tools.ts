@@ -16,10 +16,12 @@ export function portalTools(api: ApiClient, userId: string | null) {
     return signedIn() ?? api.query('pay', procedure, input, schema, { signal });
   }
   /** A refused change comes back with its message already in plain words, because the shared review dialog prints `message` as it finds it. */
-  async function mutate<T>(procedure: string, input: unknown, schema: ZodType<T>): Promise<ApiResult<T>> {
+  async function mutate<T>(procedure: string, input: unknown, schema: ZodType<T>, opts?: { keepalive?: boolean }): Promise<ApiResult<T>> {
     const denied = signedIn();
     if (denied) return denied;
-    const result = await api.mutate('pay', procedure, input, schema);
+    const result = opts?.keepalive
+      ? await api.mutate('pay', procedure, input, schema, { keepalive: true })
+      : await api.mutate('pay', procedure, input, schema);
     return result.ok ? result : { ...result, message: refusalText(result) };
   }
   const list = <T extends z.ZodTypeAny>(procedure: string, item: T, input: Record<string, unknown>, signal?: AbortSignal) =>

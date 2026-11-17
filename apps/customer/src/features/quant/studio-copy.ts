@@ -12,6 +12,9 @@ const en = {
   changedSince: 'Changed since version {version}. Save to keep these rules as the next version.',
   notSaved: 'Unsaved. Saving keeps the rules in your library on this account.',
   incomplete: 'Fill in a name, the starting cash, every block or signal rule input, and the three risk limits to save.',
+  incompleteNamed:
+    'Fill in a name, the starting cash and the three risk limits, and these signal rule inputs, to save: {inputs}. Studio never picks a value for you.',
+  refusedMissing: 'Not saved. Still blank: {inputs}. Studio never picks a value for you, so nothing was sent.',
   newStrategy: 'Start a new strategy',
   libraryTitle: 'Your strategy library',
   libraryNone: 'No strategy is saved yet.',

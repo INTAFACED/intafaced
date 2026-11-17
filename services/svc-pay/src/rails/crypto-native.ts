@@ -1,5 +1,11 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { ChainNotConfiguredError, ChainSendRefusedError, type ConfirmedTransfer, type CryptoChainPort } from './chain-port.js';
+import {
+  ChainNotConfiguredError,
+  ChainSendRefusedError,
+  type ConfirmedTransfer,
+  type CryptoChainPort,
+  type SendDepth,
+} from './chain-port.js';
 import {
   railFailure,
   railHealthStaleReason,
@@ -239,7 +245,10 @@ export class CryptoNativeAdapter implements RailAdapter {
     let address: string;
     let transfers: readonly ConfirmedTransfer[];
     try {
-      address = await this.chain.acceptanceAddress(p.paymentId, p.assetId);
+      // Launch money model: the business's own address, watched, never ours. Custodial layer: an address we derive.
+      address = p.receiveAt
+        ? await this.chain.watchAddress(p.paymentId, p.assetId, p.receiveAt)
+        : await this.chain.acceptanceAddress(p.paymentId, p.assetId);
       transfers = await this.chain.inboundTransfers(address);
     } catch (err) {
       // A chain provider having a bad minute is not an exception in a payments
@@ -584,7 +593,7 @@ export class CryptoNativeAdapter implements RailAdapter {
   }
 
   /** The send's depth on the chain; the caller compares it with the owner's settle depth. The chain cannot say: `null`. */
-  async payoutDepth(s: SettlementInstruction): Promise<number | null> {
+  async payoutDepth(s: SettlementInstruction): Promise<SendDepth> {
     try {
       return await this.chain.sendDepth(this.payoutIdempotencyKey(s));
     } catch {

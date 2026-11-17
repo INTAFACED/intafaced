@@ -8,7 +8,7 @@ function fakeSql(rows: Array<{ value: unknown }>) {
   const sql = ((_strings: TemplateStringsArray, ...values: unknown[]) => {
     seen.push(values);
     return Promise.resolve(rows);
-  }) as unknown as Sql;
+  }) as Sql;
   return { sql, seen };
 }
 

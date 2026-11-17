@@ -90,7 +90,7 @@ describe('session logs publish only for a registered factory account', () => {
           return () => {};
         },
       },
-    } as unknown as ProtocolChain;
+    } as ProtocolChain;
     const bus = new MemoryEventBus('svc-protocol');
     const errors: unknown[] = [];
     const observer = new ChainObserver({

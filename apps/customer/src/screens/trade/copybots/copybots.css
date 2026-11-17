@@ -121,6 +121,16 @@
     color: var(--if-fg);
     font-size: var(--if-text-base);
   }
+  /* The app resets native inputs to appearance: none, which leaves a radio with no size: keep the browser's own (as
+     pay's stranger rule does). Without it the sizing choice in the wizard and on Edit limits can't be seen or pressed. */
+  .cb-check input[type='radio'] {
+    appearance: auto;
+    flex: none;
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin: 0;
+    accent-color: var(--if-lime);
+  }
   .cb-dialog {
     max-width: 560px;
     max-height: calc(100vh - 120px);
@@ -136,6 +146,26 @@
     margin: 0;
     padding: 0;
     border: 0;
+  }
+  .cb-choice {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0 var(--if-space-2-5);
+    align-items: center;
+    margin-block-end: var(--if-space-2);
+    font-size: var(--if-text-base);
+  }
+  /* The kit's base reset strips native controls (appearance: none), which leaves a radio with no size; the fee choices keep the browser's own. */
+  .cb-choice input[type='radio'] {
+    appearance: auto;
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin: 0;
+  }
+  .cb-choice .cb-hint {
+    grid-column: 2;
+    color: var(--if-fg-2);
+    font-size: var(--if-text-xs);
   }
   .cb-checklist {
     display: grid;
