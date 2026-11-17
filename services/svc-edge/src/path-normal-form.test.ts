@@ -188,10 +188,27 @@ describe('each layer holds on its own', () => {
       '/internal%20/x',
       '/internal./x',
       '/%zz',
+      '/test-partner/dd-refund',
+      '/test-ramp-partner/age',
+      '/test-card-partner/venue',
+      '/test/payin-sim/pay/o-1',
+      '/test_partner/x',
+      '/%74est-partner/x',
+      '/TEST-partner/x',
     ]) {
       expect(isS2sPath(path), path).toBe(true);
     }
-    for (const path of ['/', '/trpc/orders.create', '/internals', '/internal-controls/x', '/courses/internal', '/api/v1/internal']) {
+    for (const path of [
+      '/',
+      '/trpc/orders.create',
+      '/internals',
+      '/internal-controls/x',
+      '/courses/internal',
+      '/api/v1/internal',
+      '/testnet/faucet',
+      '/tests',
+      '/trpc/test-partner',
+    ]) {
       expect(isS2sPath(path), path).toBe(false);
     }
   });
