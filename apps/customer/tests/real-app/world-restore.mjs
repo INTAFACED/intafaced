@@ -26,7 +26,7 @@ import { MAKER_SETTLE_MS, makerEmails, makerRecordArgs, makerSettled } from './m
  */
 
 /** The parts a journey file declares, or every part when the line cannot be read (restore more, never less). */
-export function worldOf(file) {
+function worldOf(file) {
   try {
     return declaredWorld(fs.readFileSync(file, 'utf8')) ?? new Set(['book', 'market']);
   } catch {
@@ -35,7 +35,7 @@ export function worldOf(file) {
 }
 
 /** Whether the TEST market maker is running (`local-test-market.mjs status` exits 0 only then). */
-export function marketRunning() {
+function marketRunning() {
   try {
     tool('local-test-market.mjs', 'status');
     return true;
@@ -45,7 +45,7 @@ export function marketRunning() {
 }
 
 /** The options the running market maker was started with (its pid record), or null when it is not running. */
-export function marketArgs() {
+function marketArgs() {
   return marketRunning() ? makerRecordArgs() : null;
 }
 
@@ -77,7 +77,7 @@ const ACTIVE_ALGO = new Set(['active', 'paused']); // svc-trade's AlgoStatus tha
 const STOPPABLE_GRID = new Set(['initializing', 'running', 'paused_range']); // svc-trade grid-service.ts STOPPABLE
 
 /** Everything one account still has working on the shared books, taken down. Returns what was left, in words. */
-export async function clearAccountBooks(who) {
+async function clearAccountBooks(who) {
   const call = await sessionOf(who);
   if (!call) return [`${who.email}: could not sign in to take its orders down`];
   const left = [];
@@ -119,7 +119,7 @@ export const BOOK_RESERVE_MS = 20_000;
  * with when that file began (null if it was not running), and `accounts` the TEST accounts it signed up or acted as.
  * Returns what it printed.
  */
-export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
+async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
   const parts = worldOf(file);
   const said = [];
   if (parts.has('restart')) {
@@ -174,7 +174,7 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
 }
 
 /** Whether the journey file `file` reads the TEST market moving on its own (world-line.mjs `marketLive`); unreadable is still. */
-export function liveOf(file) {
+function liveOf(file) {
   try {
     return marketLive(fs.readFileSync(file, 'utf8'));
   } catch {
@@ -187,7 +187,7 @@ export function liveOf(file) {
  * running maker has started a cycle that way (at once when it already runs that way or is not running). Nothing here
  * fails a step: a market not made so is printed with "WORLD RESTORE" and the file runs on it as it is.
  */
-export function marketFor(file) {
+function marketFor(file) {
   const mode = liveOf(file) ? 'live' : 'still';
   try {
     tool('local-test-market.mjs', mode);
@@ -212,7 +212,7 @@ export const VENUE_STOP_MS = 10_000;
 export const freshVenueId = () => `test-venue-sim-${randomBytes(4).toString('hex')}`;
 
 /** Whether something listens on one of the stack's ports: a bare connect, so no file's reach records it (journey-reach.mjs). */
-export function listening(name) {
+function listening(name) {
   const { hostname, port } = new URL(stackUrl(name));
   return new Promise((resolve) => {
     const socket = net.connect({ host: hostname, port: Number(port) });

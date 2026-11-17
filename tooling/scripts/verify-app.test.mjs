@@ -390,12 +390,11 @@ test('evidence: each test with its verdict, first error line and screenshots; th
   );
 });
 
-test('anvil: the stack’s own rule first; else the checkout’s, Foundry’s, then the newest ~/.intafaced install', () => {
+test('anvil: the stack’s own rule first; else Foundry’s, then the newest ~/.intafaced install', () => {
   const have = new Set();
   const args = (env = {}) => ({
     env: { PATH: '/usr/bin', ...env },
     home: '/h',
-    checkout: '/c',
     exists: (p) => have.has(p),
     list: (d) => (d === '/h/.intafaced' ? ['slots', 'foundry-1.5.1', 'foundry-1.10.0', 'foundry-notes'] : []),
   });
@@ -406,8 +405,8 @@ test('anvil: the stack’s own rule first; else the checkout’s, Foundry’s, t
   assert.equal(installedAnvil(args()), '/h/.intafaced/foundry-1.10.0/anvil');
   have.add('/h/.foundry/bin/anvil');
   assert.equal(installedAnvil(args()), '/h/.foundry/bin/anvil');
-  have.add('/c/.tools/foundry/bin/anvil');
-  assert.equal(installedAnvil(args()), '/c/.tools/foundry/bin/anvil');
+  have.add('/c/.tools/foundry/bin/anvil'); // the folder only the removed one-time setup script made: never read now
+  assert.equal(installedAnvil(args()), '/h/.foundry/bin/anvil');
   assert.equal(installedAnvil(args({ LOCAL_STACK_ANVIL_BIN: '/x/anvil' })), null);
   have.add('/usr/bin/anvil');
   assert.equal(installedAnvil(args()), null);

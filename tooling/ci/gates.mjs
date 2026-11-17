@@ -398,6 +398,10 @@ export const NOT_GATES = {
     "a step of the Real-app journeys workflow on a pull request: gives a full run's shards main's one retry only when a shard holds none of the journeys the pull request touches, so a retry never passes the change's own journey. Not a scan of its own; `tooling/ci/journey-retries.test.mjs` holds its cases.",
   'journey-retries.test.mjs':
     'not a gate: the node:test file of journey-retries.mjs (an untouched shard retries once, a touched one never, product code or shared setup touches every journey, the drift test over the files a shard can run), run with the tooling tests.',
+  'journey-helpers-used.mjs':
+    'the reader behind journey-helpers-used.test.mjs: which journey helpers and exports no file takes. Not a gate of its own; the test runs it on the checkout in the tooling-tests gate, which fails on any finding.',
+  'journey-helpers-used.test.mjs':
+    'not a gate: the node:test file of journey-helpers-used.mjs (the checkout has no unused journey helper or export; planted faults: a helper named only in a list, an export only its file uses), run with the tooling tests.',
   'journey-touch.test.mjs':
     "not a gate: the node:test file of journey-touch.mjs and the seal's touched-journeys verdict (a shared-setup or product pull request with a partial run fails; a journey-file pull request whose run missed a touched file fails; their clean twins pass), plus the drift check that every CI file the journeys run reaches needs the full run. tooling-tests.mjs runs it with every other tooling test.",
   'journey-seal.test.mjs':

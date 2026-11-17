@@ -580,7 +580,6 @@ test('shared setup: the list, and what is not on it', () => {
     'tooling/scripts/local-test-compose-env.mjs',
     'tooling/scripts/local-stack-fixtures/a/b.json',
     'tooling/scripts/journey-world.mjs',
-    'tooling/scripts/local-infra-bootstrap.sh',
   ])
     assert.equal(isSharedSetup(f), true, f);
   for (const f of [
@@ -594,7 +593,7 @@ test('shared setup: the list, and what is not on it', () => {
     'tooling/scripts/local-founder-seed.mjs',
   ])
     assert.equal(isSharedSetup(f), false, f);
-  assert.equal(SHARED_SETUP.length, 6);
+  assert.equal(SHARED_SETUP.length, 5);
   assert.deepEqual(
     pullFilePaths([{ filename: 'a/new.mjs', previous_filename: 'tooling/scripts/local-test-world.mjs' }]),
     ['a/new.mjs', 'tooling/scripts/local-test-world.mjs'],
