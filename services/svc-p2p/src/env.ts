@@ -15,7 +15,7 @@ const ownerInt = z
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
 // Releasing escrow is one `p2p:write` check away, and that check reads a
 // principal it did not derive — so the header carrying it must be signed, or the
-// check is decorative (docs/decisions/mount-boundary.md).
+// check is decorative.
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
