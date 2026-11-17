@@ -404,6 +404,8 @@ test('anvil: the stack’s own rule first; else Foundry’s, then the newest ~/.
   assert.equal(installedAnvil(args()), '/h/.intafaced/foundry-1.10.0/anvil');
   have.add('/h/.foundry/bin/anvil');
   assert.equal(installedAnvil(args()), '/h/.foundry/bin/anvil');
+  have.add('/c/.tools/foundry/bin/anvil'); // the folder only the removed one-time setup script made: never read now
+  assert.equal(installedAnvil(args()), '/h/.foundry/bin/anvil');
   assert.equal(installedAnvil(args({ LOCAL_STACK_ANVIL_BIN: '/x/anvil' })), null);
   have.add('/usr/bin/anvil');
   assert.equal(installedAnvil(args()), null);
