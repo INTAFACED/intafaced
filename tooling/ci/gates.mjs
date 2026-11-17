@@ -72,6 +72,15 @@ export const GATES = [
       'those tests, and deleting it has to be a visible act. About 40 seconds, no network.',
   },
   {
+    id: 'truth-check',
+    script: 'tooling/scripts/truth-check.mjs',
+    doctrine: 'agent map honesty',
+    why:
+      'the agent entry files (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md) must not teach a retired rule (self-merge, forced ' +
+      'worktree removal, the Vue front end) and their links must resolve. It only ran in .githooks/pre-push, which a cloud push ' +
+      'never runs, so a stale rule could reach main unchecked. It reads only those entry files, so it cannot block product work.',
+  },
+  {
     id: 'services-map',
     script: 'tooling/scripts/services-map.mjs',
     args: ['--check'],
@@ -522,6 +531,7 @@ export function gatesToRun(gates, changed) {
 /** The gates a push leaves to CI, each with why. Every other gate reads the pushed tree in seconds and runs before it. */
 export const LEFT_TO_CI_BEFORE_PUSH = {
   'tooling-tests': 'about four minutes on the Mac; the hook runs the ones that read journey files itself',
+  'truth-check': 'CI runs it on every pull request and on main',
   'lint-ratchet': "the hook runs it itself, on the pushed files with main's rules",
   'cross-package-reads': 'the hook runs it itself when a test or what it checks changed',
   'secret-scan-mutation': 'proves secret-scan on planted files (19 s on the Mac): only a change to the scanner reaches it',
