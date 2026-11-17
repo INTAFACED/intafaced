@@ -26,36 +26,58 @@ export async function founderSignIn(page, key = 'a') {
   const { ctx, founder } = await founderEntry(key);
   // The console signs in as the stack's one TEST browser, so identity's new-device check does not stop a founder here.
   await page.context().addCookies([localTestAdminDeviceCookie(ADMIN)]);
-  // One sign-in with a real, unused step. A refusal fails the test: it is recorded first, so the next sign-in sends a
-  // step after any identity can hold, but it is never hidden by a second try (project-state#2764).
-  if ((await consoleSignIn(page, founder, () => founderTotp(ctx, key, founder.totpSecret))) === 'refused') {
+  // One sign-in with a real, unused step. A refusal fails the test, naming identity's answer: it is recorded first, so
+  // the next sign-in sends a step after any identity can hold, but it is never hidden by a second try (project-state#2764).
+  const { outcome, answers } = await consoleSignIn(page, founder, () => founderTotp(ctx, key, founder.totpSecret));
+  if (outcome === 'refused') {
     const { refused, current } = founderStepRefused(ctx, key);
-    throw new Error(`the founder console refused founder ${key}'s sign-in at TOTP step ${refused} (clock at step ${current})`);
+    throw new Error(
+      `the founder console refused founder ${key}'s sign-in at TOTP step ${refused} (clock at step ${current}); ` +
+        `its session answers: ${answers.join(', ') || 'none read'}`,
+    );
   }
   return { userId: founder.userId, handle: founder.handle };
 }
 
 /**
- * One sign-in on the console's login page: 'in' once it leaves /login, 'refused' when it shows its refusal. The page is
- * loaded fresh each time, so a refusal still shown from an earlier try is never read as this one's.
+ * One sign-in on the console's login page: `outcome` is 'in' once it leaves /login, 'refused' when it shows its refusal.
+ * `answers` is each answer of the console's session door during it, as `<status> <identity's code>` (never the body,
+ * which can hold a device approval's secret), so a refusal names why: the page's own words are the same for most codes.
  */
 async function consoleSignIn(page, founder, code) {
-  await page.goto(`${ADMIN}/login`);
-  await page.getByLabel('Email or handle').fill(founder.handle ?? founder.email);
-  await page.getByLabel('Password').fill(founder.password);
-  await page.getByLabel('Authenticator or recovery code').fill(await code());
-  await page.locator('button[type=submit]').click();
-  const signedIn = page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 }).then(() => 'in');
-  const refused = page
-    .getByRole('alert')
-    .filter({ hasText: 'Sign-in was refused' })
-    .waitFor({ state: 'visible', timeout: 30_000 })
-    .then(() => 'refused');
+  const answers = [];
+  const read = (res) => {
+    if (res.request().method() !== 'POST' || !new URL(res.url()).pathname.startsWith('/api/session')) return;
+    answers.push(
+      res
+        .json()
+        .then((body) => `${res.status()} ${body?.upstream ?? body?.code ?? (res.ok() ? 'signed in' : 'no code')}`)
+        .catch(() => `${res.status()} unreadable`),
+    );
+  };
+  page.on('response', read);
   try {
-    return await Promise.any([signedIn, refused]);
-  } catch (error) {
-    // Neither within 30 s: the sign-in's own timeout, as before.
-    throw error.errors?.[0] ?? error;
+    await page.goto(`${ADMIN}/login`);
+    await page.getByLabel('Email or handle').fill(founder.handle ?? founder.email);
+    await page.getByLabel('Password').fill(founder.password);
+    await page.getByLabel('Authenticator or recovery code').fill(await code());
+    await page.locator('button[type=submit]').click();
+    const signedIn = page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 }).then(() => 'in');
+    const refused = page
+      .getByRole('alert')
+      .filter({ hasText: 'Sign-in was refused' })
+      .waitFor({ state: 'visible', timeout: 30_000 })
+      .then(() => 'refused');
+    let outcome;
+    try {
+      outcome = await Promise.any([signedIn, refused]);
+    } catch (error) {
+      // Neither within 30 s: the sign-in's own timeout, as before.
+      throw error.errors?.[0] ?? error;
+    }
+    return { outcome, answers: await Promise.all(answers) };
+  } finally {
+    page.off('response', read);
   }
 }
 
