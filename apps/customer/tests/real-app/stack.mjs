@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -368,6 +368,15 @@ export async function nextMailedCode(email, seen = 0, waitMs = 20_000, purpose =
  * Sign up through /register as a real person would: details, then the mailed code. `who` needs handle, email and
  * password; the country and birth date are TEST answers. Lands signed in, off /register.
  */
+/**
+ * A fresh TEST person: a handle that starts with `prefix`, its LOCAL-TEST address, and a TEST password made for this run,
+ * kept only in the run file (mode 600). Nothing is signed up.
+ */
+export function testPerson(prefix) {
+  const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+  return { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
+}
+
 export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth = '1990-05-01', accountType = 'individual' } = {}) {
   actedAs(who);
   const seen = mailedCodes(who.email).length;

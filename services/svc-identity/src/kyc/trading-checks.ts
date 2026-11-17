@@ -211,7 +211,7 @@ export class TradingChecksDesk {
       if (!decision.allowed) {
         if (decision.code === 'denied.screening_unconfigured' || decision.code === 'denied.screening_fixture')
           throw new TradingCheckError('The trading checks are paused: no list is set.', 'kyc.screening_list_unset');
-        throw new TradingCheckError('Trading is not offered for this country right now.', 'kyc.region_blocked');
+        throw new TradingCheckError('This country is not served, so trading is not offered there.', 'kyc.region_blocked');
       }
       const [birth] = await tx<
         Array<{ ciphertext: Buffer; nonce: Buffer }>
