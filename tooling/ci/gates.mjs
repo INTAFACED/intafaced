@@ -288,6 +288,8 @@ export const GATES = [
  */
 export const NOT_GATES = {
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
+  'brief-cases.mjs':
+    "not a gate: scores the CI review's and the proof reader's briefs on the real cases beside them, by hand, on the signed-in reviewer CLI (project-state#2847: nothing runs on every push). Its tests are brief-cases.test.mjs.",
   'architecture-map.mjs':
     "not a gate: writes docs/ARCHITECTURE.md's count block (`node tooling/ci/architecture-map.mjs`). Its gate repeated architecture-map.test.mjs, whose first case fails when the committed doc is stale or a table drifted, and tooling-tests runs that on every PR.",
   'custody-layer-check.mjs':
