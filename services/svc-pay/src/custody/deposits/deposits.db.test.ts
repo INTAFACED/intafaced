@@ -196,6 +196,35 @@ describe('custody deposit addresses (real Postgres)', () => {
       expect(await db.sql`SELECT 1 FROM pay.custody_deposit_addresses`).toHaveLength(1);
     });
 
+    it('returns the row that won when a first call loses the insert race on the address index (#8526)', async () => {
+      await setting();
+      // Two first calls for one person both pass the read and insert at once. Postgres checks the (network, address) index
+      // before the key ON CONFLICT names, so the loser gets a unique violation there. This replays that order for real: the
+      // other call's row commits, then this call's insert meets a real violation of the address index.
+      const racing = new Proxy(db.sql, {
+        apply(target, thisArg, args: [TemplateStringsArray, ...never[]]) {
+          const [strings, ...values] = args;
+          if (!strings.join('?').includes('INSERT INTO pay.custody_deposit_addresses')) return Reflect.apply(target, thisArg, args);
+          const derived = values[4] as string;
+          return (async () => {
+            await db.sql`
+              INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address_index, address)
+              VALUES (${ALICE}, 'USDT', 'ethereum', 0, ${derived})`;
+            return db.sql`
+              INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address_index, address)
+              VALUES ('race-loser-probe', 'USDT', 'ethereum', 0, ${derived})`;
+          })();
+        },
+      });
+      const svc = new CustodyDepositService({ sql: racing, chain, registries: { listRoutableNetworks: async () => networks } });
+      expect(await svc.address({ userId: ALICE, assetId: 'USDT', networkId: 'ethereum' })).toEqual({
+        state: 'issued',
+        address: { address: 'addr_usdt_deposit-user:user-alice', memo: null, qrPayload: null },
+      });
+      const rows = await db.sql<Array<{ user_id: string }>>`SELECT user_id FROM pay.custody_deposit_addresses`;
+      expect(rows.map((r) => r.user_id)).toEqual([ALICE]);
+    });
+
     it('refuses a pair that is not published, and issues nothing', async () => {
       await setting();
       expect(await service().address({ userId: ALICE, assetId: 'USDT', networkId: 'tron' })).toEqual({
