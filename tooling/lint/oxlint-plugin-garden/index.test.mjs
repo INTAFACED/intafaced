@@ -96,7 +96,7 @@ test('the clean forms pass', { skip: !existsSync(OXLINT) && 'no node_modules' },
 });
 
 test(
-  'no-local-helper is on now that the shared isRecord and sleep exist in @intafaced/contracts',
+  'use-shared-helper refuses a local isRecord or sleep now that the shared isRecord and sleep exist in @intafaced/contracts',
   { skip: !existsSync(OXLINT) && 'no node_modules' },
   () => {
     const out = lint({
@@ -104,8 +104,8 @@ test(
         'export function isRecord(v: unknown): v is Record<string, unknown> {\n  return typeof v === "object" && v !== null;\n}\n',
       'nap.ts': 'const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));\nexport const nap = () => sleep(5);\n',
     });
-    assert.ok(has(out, 'helper.ts', 'garden(no-local-helper)'), out.join('\n'));
-    assert.ok(has(out, 'nap.ts', 'garden(no-local-helper)'), out.join('\n'));
+    assert.ok(has(out, 'helper.ts', 'garden(use-shared-helper)'), out.join('\n'));
+    assert.ok(has(out, 'nap.ts', 'garden(use-shared-helper)'), out.join('\n'));
   },
 );
 
@@ -514,29 +514,50 @@ test('no-random-request-key: a random key fires directly, in a template and thro
 // The regex duplicate ratchet's own self-test cases (tooling/ci/boundary-scan.mjs), on the rules that replaced it.
 import { duplicateHits } from './duplicate-rules.js';
 
-test('the four duplicate kinds count what the regex ratchet counted', () => {
+test('the duplicate kinds count what the regex ratchet counted, and a hand-written compose slice', () => {
   const n = (path, text) => Object.fromEntries(Object.entries(duplicateHits(path, text)).map(([k, v]) => [k, v.length]));
-  assert.deepEqual(n('services/svc-x/src/a.ts', 'const SCALE = 10n ** 18n; a * b / SCALE'), { 'no-local-scale': 1 });
+  assert.deepEqual(n('services/svc-x/src/a.ts', 'const SCALE = 10n ** 18n; a * b / SCALE'), { 'local-scale': 1 });
   assert.deepEqual(n('packages/ledger-client/src/money.ts', 'const SCALE = 10n ** 18n;'), {}, 'ledger-client owns the scale');
-  assert.deepEqual(n('services/svc-x/src/a.ts', 'const x = r.result?.data; const y = result.data;'), { 'no-hand-trpc-unwrap': 2 });
-  assert.deepEqual(n('services/svc-x/src/a.ts', "s.padEnd(18, '0')"), { 'no-hand-decimal-parse': 1 });
-  assert.deepEqual(n('services/svc-x/src/a.ts', 'await fetch(url);'), { 'no-fetch-without-timeout': 1 });
+  assert.deepEqual(n('services/svc-x/src/a.ts', 'const x = r.result?.data; const y = result.data;'), { 'hand-trpc-unwrap': 2 });
+  assert.deepEqual(n('services/svc-x/src/a.ts', "s.padEnd(18, '0')"), { 'hand-decimal-parse': 1 });
+  assert.deepEqual(n('services/svc-x/src/a.ts', 'await fetch(url);'), { 'fetch-without-timeout': 1 });
   assert.deepEqual(n('services/svc-x/src/a.ts', 'await fetch(url, { signal: AbortSignal.timeout(5000) });'), {});
   assert.deepEqual(n('apps/customer/src/a.ts', 'const SCALE = 10n ** 18n;'), {}, 'apps were never counted');
   assert.deepEqual(n('services/svc-x/src/a.test.ts', 'await fetch(url);'), {}, 'nor tests');
   assert.deepEqual(n('services/svc-x/src/a.ts', '// 10n ** 18n in a comment\nconst a = 1;'), {});
+  // The copied compose slices the shared reader replaced (project-state#2761), tests and apps included.
+  const slices = [
+    'const m = source.match(/^  svc-bank:\\n(?:.*\\n)*?(?=^  [a-z]|\\Z)/m);',
+    'const m = compose.match(/^  admin:\\n(?:.*\\n)*?(?=^  [a-z#]|\\Z)/m);',
+    'const m = s.match(/^ {2}svc-agents:\\n(?:.*\\n)*?(?=^ {2}[a-z]|\\Z)/m);',
+    "const m = s.match(new RegExp(`^  ${name}:\\\\n(?:.*\\\\n)*?(?=^  [a-z]|\\\\Z)`, 'm'));",
+    'const m = s.match(/^  svc-identity:[\\s\\S]*?(?=^  svc-)/m);',
+    'const m = s.match(/^  svc-x:\\n(?:.*\\n)*?(?=^  [a-z]|(?![\\s\\S]))/m);',
+  ];
+  for (const path of ['services/svc-x/src/a.test.ts', 'apps/admin/src/lib/a.ts', 'packages/p/src/a.ts']) {
+    for (const text of slices) assert.deepEqual(n(path, text), { 'compose-slice': 1 }, `${path}: ${text}`);
+  }
+  assert.deepEqual(n('services/svc-x/src/a.test.ts', "composeServiceBlock(compose, 'svc-bank');"), {});
 });
 
-test('the duplicate rules report through the linter, on the line', { skip: !existsSync(OXLINT) && 'no node_modules' }, () => {
+test('use-shared-helper reports every kind through the linter, on the line', { skip: !existsSync(OXLINT) && 'no node_modules' }, () => {
   const out = lint({
     'services/svc-x/src/a.ts': 'export const a = 1;\nexport const SCALE = 10n ** 18n;\nexport const g = () => fetch("x");\n',
+    'services/svc-x/src/b.test.ts': 'export const b = (s: string) =>\n  s.match(/^  svc-x:\\n(?:.*\\n)*?(?=^  [a-z]|\\Z)/m);\n',
   });
   assert.ok(
-    out.some((l) => l.startsWith('services/svc-x/src/a.ts:2:') && l.includes('garden(no-local-scale)')),
+    out.some(
+      (l) =>
+        l.startsWith('services/svc-x/src/b.test.ts:2:') && l.includes('garden(use-shared-helper)') && l.includes('composeServiceBlock'),
+    ),
     out.join('\n'),
   );
   assert.ok(
-    out.some((l) => l.startsWith('services/svc-x/src/a.ts:3:') && l.includes('garden(no-fetch-without-timeout)')),
+    out.some((l) => l.startsWith('services/svc-x/src/a.ts:2:') && l.includes('garden(use-shared-helper)') && l.includes('ledger-client')),
+    out.join('\n'),
+  );
+  assert.ok(
+    out.some((l) => l.startsWith('services/svc-x/src/a.ts:3:') && l.includes('garden(use-shared-helper)') && l.includes('AbortSignal')),
     out.join('\n'),
   );
 });

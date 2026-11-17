@@ -58,11 +58,14 @@ export function changedFiles(base, head) {
   return files.filter((f) => LINTABLE.test(f.head ?? f.base));
 }
 
-/** `garden(no-double-cast)` → `garden/no-double-cast`; a diagnostic with no code is an unused suppression. */
+/** `garden(no-double-cast)` → `garden/no-double-cast`; a diagnostic with no code is an unused suppression. A message that
+ * starts with `[kind]` is counted as `<rule>[kind]`, so one rule holding several kinds is still ratcheted kind by kind. */
 export const ruleOf = (d) => {
   if (!d.code) return /^Unused .*directive/u.test(d.message ?? '') ? 'unused-suppression' : 'unknown';
   const m = /^([\w-]+)\((.+)\)$/u.exec(d.code);
-  return m ? `${m[1]}/${m[2]}` : d.code;
+  const rule = m ? `${m[1]}/${m[2]}` : d.code;
+  const kind = /^\[([\w-]+)\] /u.exec(d.message ?? '');
+  return kind ? `${rule}[${kind[1]}]` : rule;
 };
 
 /** Writes main's config and plugin into dir/rules and returns the config text with the plugin path made absolute. */

@@ -5,7 +5,7 @@ import { copyRules } from './copy-rules.js';
 import { absentRules } from './absent-rule.js';
 import { moneyRules } from './money-rules.js';
 import { sharedMarketRules } from './shared-market-rule.js';
-import { duplicateRules } from './duplicate-rules.js';
+import { useSharedHelper } from './duplicate-rules.js';
 import { potetoRules } from './poteto-rules.js';
 import { handTypedPatchRules } from './hand-typed-patch-rule.js';
 import { eitherStateRules } from './either-state-rule.js';
@@ -16,27 +16,8 @@ import { retryActionRules } from './retry-action-rule.js';
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
 
-// 1. Local copies of helpers that should live in one shared place.
-const HELPER_NAMES = new Set(['isRecord', 'isObject', 'isPlainObject', 'asRecord', 'sleep', 'wait', 'delay', 'unreachable']);
+// 1. Local copies of helpers that should live in one shared place: garden/use-shared-helper (duplicate-rules.js).
 const isFn = (n) => n && (n.type === 'ArrowFunctionExpression' || n.type === 'FunctionExpression');
-const noLocalHelper = {
-  meta: { type: 'suggestion', docs: { description: 'Import the shared helper instead of defining a local isRecord/sleep/unreachable.' } },
-  create(context) {
-    const report = (node, name) =>
-      context.report({
-        node,
-        message: `local helper '${name}': import the shared one (isRecord from @intafaced/contracts/guards, sleep from @intafaced/contracts/sleep)`,
-      });
-    return {
-      FunctionDeclaration(node) {
-        if (node.id && HELPER_NAMES.has(node.id.name)) report(node.id, node.id.name);
-      },
-      VariableDeclarator(node) {
-        if (node.id?.type === 'Identifier' && HELPER_NAMES.has(node.id.name) && isFn(node.init)) report(node.id, node.id.name);
-      },
-    };
-  },
-};
 
 // 2. `x as unknown as T`: the double cast that switches the type checker off.
 const noDoubleCast = {
@@ -204,7 +185,7 @@ const noWaitForTimeout = {
 export default {
   meta: { name: 'garden' },
   rules: {
-    'no-local-helper': noLocalHelper,
+    'use-shared-helper': useSharedHelper,
     'no-double-cast': noDoubleCast,
     'require-suppression-reason': requireSuppressionReason,
     'no-real-clock-wait-in-tests': noRealClockWaitInTests,
@@ -213,7 +194,6 @@ export default {
     ...absentRules,
     ...moneyRules,
     ...sharedMarketRules,
-    ...duplicateRules,
     ...potetoRules,
     ...handTypedPatchRules,
     ...eitherStateRules,

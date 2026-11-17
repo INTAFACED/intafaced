@@ -29,8 +29,8 @@
  *             that spans lines or goes through a local variable, in service or ledger-client code.
  *
  * The duplicate kinds this scan once counted against a committed baseline (local 10n ** 18n scales, result?.data unwraps,
- * padEnd parsers, timeout-less fetch) are lint rules now (garden/no-local-scale, no-hand-trpc-unwrap, no-hand-decimal-parse,
- * no-fetch-without-timeout), held per rule by tooling/ci/lint-ratchet.mjs.
+ * padEnd parsers, timeout-less fetch) are kinds of the lint rule garden/use-shared-helper now, held kind by kind by
+ * tooling/ci/lint-ratchet.mjs.
  *
  * Known limits (a regex scan, not a parser): a SQL string built by concatenation, a second table after a comma in FROM,
  * a key made by destructuring, a default parameter, a reassigned variable or a function other than randomUUID, Date.now and

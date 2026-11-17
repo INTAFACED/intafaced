@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatAmount, parseAmount, ZERO } from '@intafaced/ledger-client';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 export const CREATE_PROMO_PATH = '/api/v1/promotions' as const;
 
@@ -192,9 +193,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..
 
 export function tradeComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const match = compose.match(/^  svc-trade:\n(?:.*\n)*?(?=^  [a-z#]|\Z)/m);
-  if (!match) throw new Error('svc-trade service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(compose, 'svc-trade');
 }
 
 export function promoOwnerEnvComposeWired(): boolean {

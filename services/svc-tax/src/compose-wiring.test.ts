@@ -2,15 +2,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 describe('svc-tax compose mount', () => {
   it('fleet block exists on 4020 with refuse-closed owner map', () => {
     const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-    const match = compose.match(/^  svc-tax:\n(?:.*\n)*?(?=^  [a-z#]|\Z)/m);
-    expect(match, 'svc-tax service block missing from docker-compose.apps.yml').toBeTruthy();
-    const block = match![0];
+    const block = composeServiceBlock(compose, 'svc-tax');
     expect(block).toContain("HTTP_PORT: '4020'");
     expect(block).toContain('LEDGER_URL: http://svc-ledger:4001');
     expect(block).toContain('BANK_URL: http://svc-bank:4009');

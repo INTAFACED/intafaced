@@ -13,6 +13,7 @@ import { memoryWithdrawDestinations } from './withdraw-destination.js';
 import { memorySecurityLock } from './security-lock.js';
 import { memoryFraudList } from './ramps/fraud-list.js';
 import { memorySanctions } from './ramps/sanctions-list.js';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 function unusedSql(): Sql {
   const trap = () => {
@@ -149,9 +150,7 @@ describe('assertOfframpDestCoolingElapsed — dest clock, never invent 24h', () 
 describe('compose BANK_OFFRAMP_COOLING_HOURS empty default (svc-bank only)', () => {
   const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const match = compose.match(/^  svc-bank:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-bank service block missing from docker-compose.apps.yml');
-  const block = match[0];
+  const block = composeServiceBlock(compose, 'svc-bank');
 
   it('svc-bank names the key with an empty default — never 24', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-bank/);
