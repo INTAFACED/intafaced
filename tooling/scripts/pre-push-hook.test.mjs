@@ -15,8 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-// The hook prints its pointer to GitHub's branch run only when CI is unset, so each push here runs as on a builder's
-// machine, even when this file runs inside CI.
+// CI is unset, so each push here runs as on a builder's machine, even when this file runs inside CI.
 const BUILDER = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CI'));
 
 function plant({ prettier = null, oxlint = false, ciChecks = 'process.exit(0);', base = {}, change = {} } = {}) {
@@ -115,13 +114,12 @@ test('a direct push to main is still refused', () => {
   }
 });
 
-test("CI's checks never run here: a red planted in them leaves the push alone, and the hook names GitHub's branch run", () => {
+test("CI's checks never run here: a red planted in them leaves the push alone", () => {
   const p = plant({ prettier: 'exit 0', ciChecks: "console.log('ran'); process.exit(1);" });
   try {
     const r = p.push();
     assert.equal(r.code, 0, r.out);
     assert.doesNotMatch(r.out, /\bran\b/);
-    assert.match(r.out, /gh workflow run ci\.yml -R INTAFACED\/intafaced --ref <branch>/);
   } finally {
     p.done();
   }
@@ -134,7 +132,7 @@ test('a push that only deletes a branch runs no checks', () => {
     git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/gone');
     const r = spawnSync('git', ['push', 'origin', ':refs/heads/gone'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
     assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
-    assert.doesNotMatch(`${r.stdout}${r.stderr}`, /\bran\b|gh workflow run/);
+    assert.doesNotMatch(`${r.stdout}${r.stderr}`, /\bran\b/);
   } finally {
     p.done();
   }
