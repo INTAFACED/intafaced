@@ -9,7 +9,7 @@
  * is an owner value with no default: blank refuses `academy.role_limit_unset`. No money moves: `refund.request` is a name
  * in a list, and no code here calls a ledger.
  */
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import {
   ACADEMY_BUILTIN_ROLE_PERMISSIONS,
   ACADEMY_BUILTIN_ROLES,
@@ -24,10 +24,8 @@ import {
   type AcademySaveCustomRoleInput,
   type AcademyTeamChange,
 } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { AcademyError } from '../errors.js';
-
-type Db = Sql | TransactionSql;
 
 /** The scope of an academy-wide role. A course's scope is its id. */
 export const ACADEMY_SCOPE = 'academy';
@@ -66,7 +64,7 @@ export class CourseTeam {
   ) {}
 
   /** A role's permissions now: a built-in role's fixed list, a custom role's list while it is on, otherwise none. */
-  private async rolePermissions(db: Db, role: string): Promise<{ name: string; permissions: AcademyPermission[]; active: boolean }> {
+  private async rolePermissions(db: Queryable, role: string): Promise<{ name: string; permissions: AcademyPermission[]; active: boolean }> {
     if (isBuiltin(role)) return { name: role, permissions: [...ACADEMY_BUILTIN_ROLE_PERMISSIONS[role]], active: true };
     const id = customId(role);
     const [row] = id ? await db<CustomRow[]>`SELECT id, name, permissions, active FROM academy.custom_roles WHERE id = ${id}` : [];
@@ -75,7 +73,7 @@ export class CourseTeam {
   }
 
   /** The roles an account holds on a course (and academy-wide), with what each permits now. */
-  private async held(db: Db, accountId: string, courseId: string | null) {
+  private async held(db: Queryable, accountId: string, courseId: string | null) {
     const rows = await db<{ scope: string; role: string; since: Date }[]>`
       SELECT scope, role, since FROM academy.team_roles
        WHERE account_id = ${accountId} AND scope IN (${scopeOf(courseId)}, ${ACADEMY_SCOPE})
@@ -90,7 +88,7 @@ export class CourseTeam {
   async permissionsOf(
     accountId: string,
     courseId: string | null,
-    db: Db = this.sql,
+    db: Queryable = this.sql,
   ): Promise<{ narrowed: boolean; permissions: AcademyPermission[] }> {
     const held = await this.held(db, accountId, courseId);
     if (held.length === 0) return { narrowed: false, permissions: [...ACADEMY_PERMISSIONS] };
@@ -100,7 +98,7 @@ export class CourseTeam {
   }
 
   /** Refuses `academy.permission_denied` unless the caller's roles on the course permit `permission`. */
-  async require(accountId: string, courseId: string | null, permission: AcademyPermission, db: Db = this.sql): Promise<void> {
+  async require(accountId: string, courseId: string | null, permission: AcademyPermission, db: Queryable = this.sql): Promise<void> {
     const { permissions } = await this.permissionsOf(accountId, courseId, db);
     if (!permissions.includes(permission))
       throw new AcademyError(
@@ -117,7 +115,7 @@ export class CourseTeam {
   }
 
   /** Refuses unless `giver` may give or take `role` on the course: the right to assign, and nothing above their own. */
-  private async assertMayGive(db: Db, giver: string, courseId: string | null, role: string): Promise<AcademyPermission[]> {
+  private async assertMayGive(db: Queryable, giver: string, courseId: string | null, role: string): Promise<AcademyPermission[]> {
     const target = await this.rolePermissions(db, role);
     const { permissions } = await this.permissionsOf(giver, courseId, db);
     const above = target.permissions.filter((p) => !permissions.includes(p));
@@ -132,13 +130,13 @@ export class CourseTeam {
     return target.permissions;
   }
 
-  private async assertCourse(db: Db, courseId: string | null): Promise<void> {
+  private async assertCourse(db: Queryable, courseId: string | null): Promise<void> {
     if (courseId === null) return;
     const [row] = await db`SELECT 1 FROM academy.courses WHERE id = ${courseId}`;
     if (!row) throw new AcademyError(`academy.course_not_found course=${courseId}`, 'academy.course_not_found');
   }
 
-  private async changeView(db: Db, row: ChangeRow): Promise<AcademyTeamChange> {
+  private async changeView(db: Queryable, row: ChangeRow): Promise<AcademyTeamChange> {
     const role = await this.rolePermissions(db, row.role).catch(() => ({ name: row.role }));
     return {
       id: row.id,
@@ -317,7 +315,7 @@ export class CourseTeam {
     });
   }
 
-  private async customView(db: Db, row: CustomRow): Promise<AcademyRole> {
+  private async customView(db: Queryable, row: CustomRow): Promise<AcademyRole> {
     const [count] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM academy.team_roles WHERE role = ${`custom:${row.id}`}`;
     return {
       ref: `custom:${row.id}`,

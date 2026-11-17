@@ -347,7 +347,7 @@ export class PlatformPauseDesk {
         SET status = 'applied', approver_id = ${approverId}, confirmed_by = ${principal.userId}, decided_at = ${now.toISOString()}
         WHERE id = ${row.id} RETURNING *`;
       await writeOperatorAudit(
-        tx as unknown as Sql,
+        tx,
         {
           id: idFor(`copy-bots-${row.op}-audit:${row.id}`),
           kind: `copy_bots.${row.op}`,

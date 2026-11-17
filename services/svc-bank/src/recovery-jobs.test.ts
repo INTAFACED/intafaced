@@ -20,6 +20,7 @@ import {
   startBankRecoveryJobs,
   type RecoveryJobResult,
 } from './recovery-jobs.js';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
@@ -286,7 +287,7 @@ describe('startBankRecoveryJobs', () => {
     expect(env).toContain('parseRecoveryBatchLimit');
     expect(env).not.toMatch(/BANK_RECOVERY_JOBS_BATCH_LIMIT[\s\S]{0,200}\.default\(100\)/);
     const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-    const block = compose.match(/^  svc-bank:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m)?.[0] ?? '';
+    const block = composeServiceBlock(compose, 'svc-bank');
     expect(block).toMatch(/BANK_RECOVERY_JOBS_INTERVAL_MS:\s*\$\{BANK_RECOVERY_JOBS_INTERVAL_MS-60000\}/);
     expect(block).toMatch(/BANK_RECOVERY_JOBS_BATCH_LIMIT:\s*\$\{BANK_RECOVERY_JOBS_BATCH_LIMIT-50\}/);
     expect(compose.match(/^\s+BANK_RECOVERY_JOBS_INTERVAL_MS:/gm) ?? []).toHaveLength(1);

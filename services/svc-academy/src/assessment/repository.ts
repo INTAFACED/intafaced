@@ -4,7 +4,7 @@
  */
 
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { AcademyError } from '../errors.js';
 import type { AcademyQuizAttempt, AcademyQuizReview, AcademySetQuizInput } from '@intafaced/contracts';
 import { assertAssessmentCatalog, AssessmentCatalogError, assessmentBySlug, type AssessmentDefinition } from './catalog.js';
@@ -58,7 +58,7 @@ export class AssessmentRepository {
   ) {}
 
   /** The quiz on an item: the code catalog first, then what staff published (AC-quizzes-03). Null: none is published. */
-  async definition(slug: string, sql: Sql = this.sql): Promise<AssessmentDefinition | null> {
+  async definition(slug: string, sql: Queryable = this.sql): Promise<AssessmentDefinition | null> {
     const coded = assessmentBySlug(slug, this.catalog);
     if (coded) return coded;
     const rows = await sql<QuizSql[]>`
@@ -380,7 +380,7 @@ export class AssessmentRepository {
    * When a timed attempt's result is hidden at `now`, the instant it shows; otherwise null. The later of the date stored
    * with the score at finish and the quiz's current date, so a staff re-publish or take-down never releases it early.
    */
-  private async attemptHiddenUntil(sql: Sql, userId: string, attemptId: string, now: Date): Promise<Date | null> {
+  private async attemptHiddenUntil(sql: Queryable, userId: string, attemptId: string, now: Date): Promise<Date | null> {
     const rows = await sql<Array<{ until: Date | null }>>`
       SELECT ${HIDDEN_UNTIL(sql, now)} AS until
         FROM academy.assessment_attempts a
@@ -390,7 +390,7 @@ export class AssessmentRepository {
     return rows[0]?.until ?? null;
   }
 
-  private async underQuizLock<T>(userId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
+  private async underQuizLock<T>(userId: string, fn: (tx: Queryable) => Promise<T>): Promise<T> {
     return transaction(this.sql, async (tx) => {
       // The same key `submit` takes, so a timed attempt and a direct submit never count the limit apart.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${userId}:assessment`}, 0))`;
@@ -402,7 +402,7 @@ export class AssessmentRepository {
    * The attempt limit and the cooldown, for `submit` and Start alike. Counts finished attempts (timed ones write their
    * score row when they finish), leaving out any staff voided (J-academy-14 #4), and returns that count.
    */
-  private async assertMayAttempt(tx: Sql, def: AssessmentDefinition, userId: string, now: Date): Promise<number> {
+  private async assertMayAttempt(tx: Queryable, def: AssessmentDefinition, userId: string, now: Date): Promise<number> {
     const rows = await tx<Array<{ n: number; last: Date | null }>>`
       SELECT COUNT(*)::int AS n, MAX(submitted_at) AS last FROM academy.assessment_attempts
        WHERE user_id = ${userId} AND slug = ${def.slug} AND voided_at IS NULL
@@ -419,7 +419,7 @@ export class AssessmentRepository {
   }
 
   /** The open attempt, unless its deadline has passed: then it is finished with the answers saved by the deadline. */
-  private async settleOpen(tx: Sql, userId: string, slug: string, now: Date): Promise<AttemptRowSql | null> {
+  private async settleOpen(tx: Queryable, userId: string, slug: string, now: Date): Promise<AttemptRowSql | null> {
     const rows = await tx<AttemptRowSql[]>`
       SELECT ${tx.unsafe(ATTEMPT_COLUMNS)} FROM academy.quiz_attempts
        WHERE user_id = ${userId} AND slug = ${slug} AND finished_at IS NULL
@@ -434,7 +434,7 @@ export class AssessmentRepository {
   }
 
   /** Score the saved answers against the attempt's own copy of the quiz, and write its score row once. */
-  private async finishRow(tx: Sql, row: AttemptRowSql, at: Date): Promise<AttemptRowSql> {
+  private async finishRow(tx: Queryable, row: AttemptRowSql, at: Date): Promise<AttemptRowSql> {
     const def = row.quiz;
     const answers = Object.entries(row.answers)
       .filter(([questionId, choiceId]) => def.questions.some((q) => q.id === questionId && q.choices.some((c) => c.id === choiceId)))
@@ -461,7 +461,7 @@ export class AssessmentRepository {
  * (`a.hidden_until`, copied from the quiz at finish) and the quiz's current date (`q`, which staff may move later).
  * Expects `academy.assessment_attempts a LEFT JOIN academy.quizzes q`.
  */
-const HIDDEN_UNTIL = (sql: Sql, now: Date) =>
+const HIDDEN_UNTIL = (sql: Queryable, now: Date) =>
   sql`CASE WHEN GREATEST(a.hidden_until, q.results_hidden_until) > ${now} THEN GREATEST(a.hidden_until, q.results_hidden_until) END`;
 
 type QuizSql = {

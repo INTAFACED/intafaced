@@ -82,6 +82,9 @@ import { ScheduledNoticeService, type ScheduledNoticeSink } from './rules/schedu
 import { unsetDirectDebitScheme, type DirectDebitScheme } from './direct-debits/scheme.js';
 import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
+import { composeSalaryServices, type SalaryServiceOptions, type SalaryServices } from './salary/compose.js';
+import { payInCredited } from './pay-yourself/test-pay-in.js';
+import { composePayYourselfServices, type PayYourselfServiceOptions, type PayYourselfServices } from './pay-yourself/compose.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
@@ -100,7 +103,7 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  * spreads it; `bank-service.compose.test.ts` holds the line.
  */
 
-export interface BankServices extends BusinessServices, DeveloperApiServices, CardProgrammeServices {
+export interface BankServices extends AreaServices {
   /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
   readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
@@ -196,7 +199,19 @@ export interface BankServices extends BusinessServices, DeveloperApiServices, Ca
   };
 }
 
-export interface BankServiceOptions extends BusinessServiceOptions, DeveloperApiServiceOptions, CardProgrammeServiceOptions {
+/** Each area's own options, composed in its own `compose.ts`. */
+/** Each area's services, made in its own `compose.ts` and spread by `createBankServices`. */
+interface AreaServices extends BusinessServices, DeveloperApiServices, CardProgrammeServices, SalaryServices, PayYourselfServices {}
+
+interface AreaServiceOptions
+  extends
+    BusinessServiceOptions,
+    DeveloperApiServiceOptions,
+    CardProgrammeServiceOptions,
+    SalaryServiceOptions,
+    PayYourselfServiceOptions {}
+
+export interface BankServiceOptions extends AreaServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
   /** `BANK_REQUEST_REMIND_POLICY_JSON`, parsed: the owner's reminder cap per window. Null refuses every reminder. */
@@ -461,7 +476,6 @@ export function createBankServices(
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
   const accountTerms = () => parseAccountTerms(options.accountTerms);
-  const currencies = new CurrencyService(sql, ledger, spaces, { currencies: options.accountCurrencies });
   const profiles = new ProfileService(sql);
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
@@ -490,8 +504,9 @@ export function createBankServices(
       ? testPartnerCardHolds({
           terms: () => (cardIssuer.partnerTerms ? cardIssuer.partnerTerms() : NOTHING_REPORTED),
           switches: (userId) => options.testPartner!.switches(userId),
-          // Its provisional dispute credits count in the same spendable figure (the issuer keeps them).
-          credited: (userId, assetId) => testCardCredited(cardIssuer, userId, assetId),
+          // Its provisional dispute credits count in the same spendable figure (the issuer keeps them),
+          // and the TEST partner's credited pay-ins (J-bank-31 #4: what the person paid themselves shows on the card).
+          credited: (userId, assetId) => testCardCredited(cardIssuer, userId, assetId) + payInCredited(options.payInRail, userId, assetId),
         })
       : null);
   const partnerHolds = unguardedHolds
@@ -536,6 +551,12 @@ export function createBankServices(
   // dev or test stack with the TEST stand-in chosen.
   // A person the TEST partner holds money for has their paid purchase credited by the partner itself, not the ledger.
   const partnerPurchases = testPartnerPurchases(options.testPartner);
+  // Removing a currency reads what the partner still holds in it: its card holds, its purchase holds and its open orders.
+  const currencies = new CurrencyService(sql, ledger, spaces, {
+    currencies: options.accountCurrencies,
+    cardHolds: partnerHolds,
+    purchases: partnerPurchases,
+  });
   const addMoney = new AddMoneyService(sql, ramps, { ledger, partner: options.onrampPartner ?? null, purchases: partnerPurchases });
   // The same owner values as the crypto address book: its cap, and the payout cooling-off window.
   const linkedAccounts = new LinkedAccountService(sql, {
@@ -611,6 +632,8 @@ export function createBankServices(
     statements,
     statementJobs,
     accountDetails,
+    ...composeSalaryServices({ sql, accountDetails, sorter }, options),
+    ...composePayYourselfServices({ sql, testPartner: options.testPartner ?? null }, options),
     accountTerms,
     accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
     dormancy: new DormancyService(sql, custody, parseDormancyRules(options.dormancyRules)),

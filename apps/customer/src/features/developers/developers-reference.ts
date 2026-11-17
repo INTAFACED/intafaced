@@ -1028,6 +1028,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
   },
   {
+    name: 'venueWithdrawalTerms',
+    method: 'GET',
+    path: '/api/v1/venue/withdrawal-terms',
+    product: 'accounts',
+    access: 'private',
+    summary: "The venue's published terms for withdrawing an asset: its fee, the network fee and the arrival time, or not known",
+  },
+  {
     name: 'venueLeverage',
     method: 'GET',
     path: '/api/v1/venue/leverage',

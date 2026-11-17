@@ -7,7 +7,7 @@
 import { postPayLedger } from '../ledger-receipt.js';
 import { FRESH } from '../seams/guards.js';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   formatAmount,
   LedgerError,
@@ -478,7 +478,7 @@ export async function refundInner(
  */
 export async function settledPotForPayment(
   svc: PayServiceInternal,
-  sql: Sql,
+  sql: Queryable,
   paymentId: string,
   merchantUserId: string,
 ): Promise<'proceeds' | 'user'> {

@@ -12,6 +12,7 @@ import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
 import { PAYOUT_PARTNER_SETTINGS } from './cash-out/payout-sim.js';
+import { PAYROLL_PARTNER_SETTINGS } from './salary/payroll-sim.js';
 import { ONRAMP_PARTNER_SETTINGS } from './ramps/payin-sim.js';
 import { DD_SCHEME_SETTINGS } from './direct-debits/scheme.js';
 
@@ -307,6 +308,35 @@ const schema = serviceEnvSchema
        * exactly `dev` or `test`, or not absolute, the service refuses to start.
        */
       BANK_PAYOUT_SIM_RECORDS_DIR: z.string().optional(),
+      /**
+       * WHO CARRIES SALARY PAID IN BY DIRECT DEPOSIT (J-bank-30). `none` (default) | `payroll-sim`.
+       *
+       * `none` refuses every salary door with `rail.bank`. `payroll-sim` is a TEST payroll network for the local stack and
+       * journey tests only (`salary/payroll-sim.ts`): its credits and reversals are signed job calls, and the money is the
+       * TEST partner bank's. The service refuses to start with it outside dev or test, or without `BANK_TEST_PARTNER=test`.
+       */
+      BANK_PAYROLL_PARTNER: z.enum(PAYROLL_PARTNER_SETTINGS).default('none'),
+      /**
+       * LOCAL TEST: the folder where the payroll stand-in keeps its own record of rail `payroll-sim`. Unset or blank,
+       * nothing is written. Set in a process whose raw `APP_ENV` is not exactly `dev` or `test`, or not absolute, the
+       * service refuses to start.
+       */
+      BANK_PAYROLL_SIM_RECORDS_DIR: z.string().optional(),
+      /**
+       * The owner's window, in whole days after a salary credit arrived, in which the employer may reverse it (J-bank-30).
+       * NO DEFAULT. Blank / unset / not a whole number of days from 1 to 3650 → every reversal refuses
+       * `bank.direct_deposit_reversal_window_unset`.
+       */
+      BANK_DIRECT_DEPOSIT_REVERSAL_DAYS: z.string().optional(),
+      /**
+       * LOCAL TEST: the TEST partner's USDC pay-in (J-bank-31, `pay-yourself/test-pay-in.ts`): the stack's loopback TEST
+       * chain RPC, its chain id and the TEST USD token the partner credits as USDC. All three set, with
+       * `BANK_TEST_PARTNER=test`, the TEST partner gives each person a TEST pay-in address a venue can withdraw to, and
+       * credits what arrives there once. Any blank: no pay-in, and every pay yourself write refuses `bank.pay_in_unset`.
+       */
+      BANK_TEST_PAY_IN_RPC_URL: z.string().optional(),
+      BANK_TEST_PAY_IN_CHAIN_ID: z.string().optional(),
+      BANK_TEST_PAY_IN_TOKEN: z.string().optional(),
       /**
        * WHO TAKES ADD-MONEY PAYMENTS ON A TEST STACK. `none` (default) | `payin-sim` (J-bank-02 #3, #5).
        *

@@ -42,6 +42,10 @@ import { firstAdministrator, registerAgentsUsagePayment } from './agents/usage-p
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
+import { payrollCreditBody, payrollPartnerFor, payrollReverseBody } from './salary/payroll-sim.js';
+import { createRealisedSource } from './pay-yourself/realised-source.js';
+import { testPayInRailFor } from './pay-yourself/test-pay-in.js';
+import { salaryView } from './salary/salary.router.js';
 import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
 import { rampMetricsView } from './ops/ramp-metrics.js';
@@ -106,7 +110,7 @@ import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
 import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
-import { ageBusinessInvite, ageSharedPotInvite } from './test-age-door.js';
+import { ageBusinessInvite, agePayYourselfRule, ageSharedPotInvite } from './test-age-door.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -186,6 +190,12 @@ const onrampPartner = onrampPartnerFor(
 
 /** The TEST partner bank and ramp: none unless chosen, and it refuses to boot outside dev/test. It holds no money. */
 const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+/** The TEST partner's USDC pay-in a venue can withdraw to (J-bank-31): none unless the TEST chain is given. */
+const payInRail = testPayInRailFor(testPartner, {
+  rpcUrl: env.BANK_TEST_PAY_IN_RPC_URL,
+  chainId: env.BANK_TEST_PAY_IN_CHAIN_ID,
+  token: env.BANK_TEST_PAY_IN_TOKEN,
+});
 
 /** What each kind of activity line means for tax: the owner's map once set; a TEST one only when chosen on dev/test. */
 const taxEffects = taxEffectsFor(env.BANK_TAX_EFFECTS, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
@@ -422,6 +432,17 @@ const bank = createBankServices(sql, ledger, history, {
   onboardingRequirements: env.BANK_ONBOARDING_REQUIREMENTS_JSON,
   infoRequestUpload: env.BANK_INFO_REQUEST_UPLOAD_JSON,
   reopenWindowDays: env.BANK_REOPEN_WINDOW_DAYS,
+  /** The payroll network for salary by direct deposit: unset unless the TEST stand-in was chosen (dev/test, TEST partner). */
+  payrollPartner: payrollPartnerFor(
+    env.BANK_PAYROLL_PARTNER,
+    testPartner,
+    { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+    env.BANK_PAYROLL_SIM_RECORDS_DIR?.trim() || undefined,
+  ),
+  directDepositReversalDays: env.BANK_DIRECT_DEPOSIT_REVERSAL_DAYS,
+  /** J-bank-31: the partner's pay-in, and svc-trade's read of the person's realised trading result. */
+  payInRail,
+  realisedSource: createRealisedSource({ tradeUrl: env.TRADE_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: ledgerS2s }),
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
@@ -525,7 +546,11 @@ registerTestAgeDoor(app, {
   open: testAgeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
-  subjects: { 'shared-pot-invite': ageSharedPotInvite(sql), 'business-invite': ageBusinessInvite(sql) },
+  subjects: {
+    'shared-pot-invite': ageSharedPotInvite(sql),
+    'business-invite': ageBusinessInvite(sql),
+    'pay-yourself-rule': agePayYourselfRule(sql),
+  },
   installRawBody: false,
 });
 registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
@@ -972,6 +997,41 @@ if (cardRecord) {
     else app.post(`${TEST_CARD_PARTNER_RECORD_BASE}${path}`, read);
   }
 }
+/**
+ * The payroll network's side of salary paid in by direct deposit (J-bank-30, BK-salary-03): a credit to account details
+ * the partner issued, and the employer's reversal of one. Signed job doors, never a customer or a staff session: with no
+ * network wired they refuse `rail.bank`, and on the stack only the TEST stand-in (`payroll-sim`) answers, called by a test
+ * as the network would. The same network id again moves nothing twice.
+ */
+jobDoor('/internal/jobs/payroll-sim/credit', payrollCreditBody, async (b) => salaryView(await bank.salary.credit(b)));
+jobDoor('/internal/jobs/payroll-sim/reverse', payrollReverseBody, async (b) =>
+  salaryView({ credit: await bank.salary.reverse(b.networkId), replayed: false }),
+);
+/** The TEST partner watches its TEST pay-in addresses on the TEST chain, one pass at a time (J-bank-31). */
+if (payInRail) {
+  let polling = false;
+  setInterval(() => {
+    if (polling) return;
+    polling = true;
+    payInRail
+      .poll()
+      .catch((err: unknown) =>
+        process.stderr.write(
+          `${JSON.stringify({ level: 'warn', msg: 'bank.test_pay_in.poll_failed', message: err instanceof Error ? err.message : String(err) })}\n`,
+        ),
+      )
+      .finally(() => {
+        polling = false;
+      });
+  }, 1_000).unref();
+}
+/**
+ * Pay yourself (J-bank-31): every weekly rule whose day has come prepares one move for the person's signature. A signed
+ * job door, never a customer's; it prepares, and sends nothing.
+ */
+jobDoor('/internal/jobs/pay-yourself/run-due', z.object({ limit: z.number().int().min(1).max(500) }).strict(), (b) =>
+  bank.payYourself.runDue(b),
+);
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 
 /**

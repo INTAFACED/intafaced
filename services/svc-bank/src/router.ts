@@ -16,6 +16,8 @@ import { createLimitsRouter } from './transfers/limit-requests.js';
 import { createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
+import { createSalaryRouter } from './salary/salary.router.js';
+import { createPayYourselfRouter } from './pay-yourself/pay-yourself.router.js';
 import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
 import { createAddMoneyRouter } from './ramps/add-money.router.js';
 import { createLinkedAccountsRouter } from './linked-accounts/linked-accounts.router.js';
@@ -381,6 +383,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     activity: createActivityRouter(bank),
     statements: createStatementsRouter(bank),
     accountDetails: createAccountDetailsRouter(bank, guard),
+    /** J-bank-30: salary paid in by direct deposit, at the partner bank. `rail.bank` while no payroll network is wired. */
+    salary: createSalaryRouter(bank, guard),
+    /** J-bank-31: pay yourself from your trading, one venue withdrawal to your own partner account. */
+    payYourself: createPayYourselfRouter(bank, guard),
     accounts: createAccountsRouter(bank, guard),
     currencies: createCurrenciesRouter(bank, guard),
     addMoney: createAddMoneyRouter(bank, guard),

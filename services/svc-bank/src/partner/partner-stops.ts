@@ -18,7 +18,7 @@
  * second person: an identity approval bound to the partner and the new kinds, consumed before the write.
  */
 import { scopedProcedure } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
@@ -239,7 +239,7 @@ export class PartnerStopService implements PartnerStopGate {
     }));
   }
 
-  private async history(sql: Sql, partnerId: string, revision: number): Promise<HistoryRow | null> {
+  private async history(sql: Queryable, partnerId: string, revision: number): Promise<HistoryRow | null> {
     const rows = await sql<HistoryRow[]>`
       SELECT partner_id, revision, stopped_kinds, reason, approved_by
         FROM bank.partner_stop_history WHERE change_key = ${partnerStopChangeKey(partnerId, revision)}
@@ -294,6 +294,7 @@ export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, g
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
+        ...(bank.openOrders ? { openOrders: (userId: string) => bank.openOrders!(userId) } : {}),
         // Reads stay open under a stop, as they do under the freeze (J-bank-23: the partner's statement and history rules).
         ...(bank.statement
           ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }

@@ -3,7 +3,7 @@ import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { routeChangeSchema, routeDeskSchema } from '@intafaced/contracts/agents-routes';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { ModelGateway } from './gateway.js';
 import type { ModelPrice, RouteDef, RouteEngine, RoutingTable } from './routing.js';
@@ -127,7 +127,7 @@ interface OverrideRow {
   price_from: Date;
 }
 
-export async function readRouteOverrides(sql: Sql): Promise<RouteOverride[]> {
+export async function readRouteOverrides(sql: Queryable): Promise<RouteOverride[]> {
   const rows = await sql<OverrideRow[]>`
     SELECT task, max_output_tokens, input_per_million::text AS input_per_million, output_per_million::text AS output_per_million,
            prior_input_per_million::text AS prior_input_per_million, prior_output_per_million::text AS prior_output_per_million,
@@ -298,7 +298,7 @@ export class RouteChangeStore {
   }
 
   /** The route as it stands now: the configured route with its stored change, if any. */
-  private async current(tx: Sql, task: string): Promise<RouteDef> {
+  private async current(tx: Queryable, task: string): Promise<RouteDef> {
     const base = this.baseRoute(task);
     const overrides = await readRouteOverrides(tx);
     return withOverrides({ routes: [base] }, overrides, this.now()).routes[0]!;
@@ -439,7 +439,7 @@ export class RouteChangeStore {
     return view;
   }
 
-  private async request(tx: Sql, changeId: string): Promise<RequestRow> {
+  private async request(tx: Queryable, changeId: string): Promise<RequestRow> {
     const [row] = await tx.unsafe<RequestRow[]>(`SELECT ${REQUEST_COLUMNS} FROM agents.route_change_requests WHERE id = $1 FOR UPDATE`, [
       changeId,
     ]);
@@ -459,7 +459,7 @@ function validate(input: RouteChangeInput): RouteChangeInput {
 }
 
 async function audit(
-  tx: Sql,
+  tx: Queryable,
   row: {
     key: string;
     changeId: string;

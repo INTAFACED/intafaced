@@ -35,6 +35,7 @@ import {
   runsBehind,
   serviceDir,
   sourceOwner,
+  subscribesVia,
 } from './journey-reach-map.mjs';
 import { checkoutHead, journeyTouch } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, reachInputs, sealPull } from './journey-seal.mjs';
@@ -1192,6 +1193,7 @@ test('the committed map holds only shapes a public map may hold', () => {
     'importers',
     'built',
     'computed',
+    'busLogged',
   ]);
   for (const k of Object.keys(map)) assert.ok(allowed.has(k), `unexpected key ${k}`);
   for (const r of map.runs) {
@@ -1382,4 +1384,97 @@ test('planted: a committed map too old to read makes a one-service change full; 
   });
   assert.equal(asked, Date.parse('2026-11-08T17:30:00Z'));
   assert.equal(sealed.ok, true, sealed.lines.join('\n'));
+});
+
+test('planted (#8657): a subscriber narrows only when every record the map is built from ran with a bus that logs each delivery', () => {
+  // svc-notify's handler ran while BOTH ran and served nothing: the delivery line makes it active there.
+  const logged = (recs) => recs.map((r) => ({ ...r, bus: true }));
+  const withNotify = () => records().map((r) => (r.file === BOTH ? { ...r, active: [...r.active, 'notify'] } : r));
+  const runs = (flag) => [3, 2, 1].map((id) => run(id, `2026-11-08T1${id + 2}:00:00Z`, flag(id) ? logged(withNotify()) : withNotify()));
+  const on = build(runs(() => true));
+  assert.equal(on.busLogged, true);
+  const sel = (map, paths, subscribes = () => false) => reachSelect({ map, paths, behind: 0, atHead: FILES, mode: 'reach', subscribes });
+  assert.deepEqual(sel(on, ['services/svc-notify/src/send.ts']).files, [BOTH, POPUP], 'its handler’s journeys, not the full suite');
+  assert.deepEqual(sel(on, ['packages/telemetry/src/x.ts']).files, [BOTH, POPUP], 'a package only the subscriber uses');
+  const added = sel(on, ['services/svc-notify/src/wire.ts'], () => true);
+  assert.equal(added.mode, 'full', 'a file that can add a subscription stays full');
+  assert.match(added.why, /subscribes to bus events, itself or through a file it imports/);
+  // One run recorded before the bus logged deliveries: the map can't say where a handler ran.
+  const mixed = build(runs((id) => id !== 1));
+  assert.equal(mixed.busLogged, undefined);
+  assert.match(sel(mixed, ['services/svc-notify/src/send.ts']).why, /svc-notify subscribes to bus events/);
+  assert.match(sel(mixed, ['packages/telemetry/src/x.ts']).why, /svc-notify depends on packages\/telemetry and subscribes/);
+  assert.equal(MAP.busLogged, undefined, 'records with no claim: as before');
+});
+
+test('subscribesVia (#8657): a file subscribes when it, or a file of its service it imports, calls the bus subscribe', async () => {
+  const files = {
+    'services/svc-notify/src/events.ts':
+      'export async function attach(bus, event, h) { return bus.subscribe(event, h, { durable: event }); }',
+    'services/svc-notify/src/wire.ts':
+      "import { attach } from './events.js';\nexport const go = (bus) => attach(bus, 'orderFilled', () => {});",
+    'services/svc-notify/src/deep.ts': "import { go } from './wire.js';\nexport { go };",
+    'services/svc-notify/src/send.ts':
+      "import { fmt } from './fmt';\nimport { x } from '../../svc-trade/src/events.js';\nexport const send = fmt;",
+    'services/svc-notify/src/fmt/index.ts': 'export const fmt = (s) => s;',
+    'services/svc-trade/src/events.ts': 'bus.subscribe(x)',
+  };
+  const read = async (p) => files[p] ?? null;
+  assert.equal(await subscribesVia('services/svc-notify/src/events.ts', read), true, 'its own call');
+  assert.equal(await subscribesVia('services/svc-notify/src/wire.ts', read), true, 'through attach, in another file');
+  assert.equal(await subscribesVia('services/svc-notify/src/deep.ts', read), true, 'followed through the service');
+  assert.equal(await subscribesVia('services/svc-notify/src/send.ts', read), false, 'another service is not followed');
+  assert.equal(await subscribesVia('services/svc-notify/src/gone.ts', read), false, 'a removed file adds nothing');
+  const broken = async (p) => {
+    if (p.endsWith('fmt.ts')) throw new Error('HTTP 502');
+    return files[p] ?? null;
+  };
+  assert.equal(await subscribesVia('services/svc-notify/src/send.ts', broken), true, 'a read that fails is full');
+  assert.equal(await subscribesVia('services/svc-notify/src/deep.ts', read, 2), true, 'too many files to read is full');
+  // The real tree: svc-notify's status page and index reach its subscriptions; a plain module does not.
+  const disk = (p) => {
+    try {
+      return readFileSync(join(ROOT_DIR, p), 'utf8');
+    } catch {
+      return null;
+    }
+  };
+  assert.equal(await subscribesVia('services/svc-notify/src/index.ts', disk), true);
+  assert.equal(await subscribesVia('services/svc-trade/src/index.ts', disk), true);
+});
+
+test('planted (#8657): the touch job and the seal both read a subscription added through an imported helper', async () => {
+  const { subscribesIn } = await import('./journey-touch.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'subs-'));
+  try {
+    mkdirSync(join(dir, 'services/svc-notify/src'), { recursive: true });
+    writeFileSync(join(dir, 'services/svc-notify/src/events.ts'), 'export const attach = (bus, e, h) => bus.subscribe(e, h, {});');
+    writeFileSync(join(dir, 'services/svc-notify/src/wire.ts'), "import { attach } from './events.js';\nattach(bus, 'orderFilled', h);");
+    writeFileSync(join(dir, 'services/svc-notify/src/send.ts'), 'export const send = 1;');
+    const subs = await subscribesIn(
+      ['services/svc-notify/src/wire.ts', 'services/svc-notify/src/send.ts', 'services/svc-notify/src/gone.ts'],
+      dir,
+    );
+    assert.deepEqual(
+      [subs('services/svc-notify/src/wire.ts'), subs('services/svc-notify/src/send.ts'), subs('services/svc-notify/src/gone.ts')],
+      [true, false, false],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const text = async (f) =>
+    ({
+      'services/svc-notify/src/events.ts': 'export const attach = (bus, e, h) => bus.subscribe(e, h, {});',
+      'services/svc-notify/src/wire.ts': "import { attach } from './events.js';",
+      'services/svc-notify/src/send.ts': 'export const send = 1;',
+    })[f] ?? null;
+  const io = { mainRuns: async () => [], journeyFiles: async () => FILES, reachMap: async () => MAP };
+  const r = await reachInputs({
+    io,
+    paths: ['services/svc-notify/src/wire.ts', 'services/svc-notify/src/send.ts'],
+    head: HEAD,
+    base: HEAD,
+    text,
+  });
+  assert.deepEqual([r.subscribes('services/svc-notify/src/wire.ts'), r.subscribes('services/svc-notify/src/send.ts')], [true, false]);
 });

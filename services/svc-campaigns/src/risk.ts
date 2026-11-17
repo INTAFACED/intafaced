@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   LedgerError,
   REWARD_ASSET,
@@ -466,7 +466,7 @@ export class RiskService implements RewardGate {
     return this.caseOf(input.accountId);
   }
 
-  private async openCase(tx: Sql, accountId: string): Promise<void> {
+  private async openCase(tx: Queryable, accountId: string): Promise<void> {
     await tx`INSERT INTO campaigns.risk_cases (account_id) VALUES (${accountId}) ON CONFLICT (account_id) DO NOTHING`;
   }
 }

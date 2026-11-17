@@ -6,12 +6,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
 
-/** Next service key, or the real end of the string. A literal Z must not end the block. */
 function indexerBlock(source: string): string {
-  return source.match(/^  svc-indexer:\n(?:.*\n)*?(?=^  [a-z]|(?![\s\S]))/m)?.[0] ?? '';
+  return composeServiceBlock(source, 'svc-indexer');
 }
 
 function expectNoInventedSecrets(block: string): void {
@@ -36,7 +36,7 @@ describe('socket.clob-contracts Anvil wire golden', () => {
     const blockText = [
       '  svc-indexer:',
       '    environment:',
-      'Z',
+      '      Z: kept',
       '      INDEXER_RPC_URL: ${INDEXER_RPC_URL:-}',
       '      INDEXER_VENUE_ADDRESS: ${INDEXER_VENUE_ADDRESS:-}',
       '      # indexer.venue_unset',
@@ -45,7 +45,7 @@ describe('socket.clob-contracts Anvil wire golden', () => {
     const source = `services:\n${blockText}`;
     const block = indexerBlock(source);
     expect(block).toBe(blockText);
-    const afterZ = block.slice(block.indexOf('\nZ\n') + '\nZ\n'.length);
+    const afterZ = block.slice(block.indexOf('\n      Z: kept\n') + '\n      Z: kept\n'.length);
     expect(afterZ).toContain('INDEXER_RPC_URL: ${INDEXER_RPC_URL:-}');
     expect(afterZ).toContain('INDEXER_VENUE_ADDRESS: ${INDEXER_VENUE_ADDRESS:-}');
     expect(afterZ).toContain('indexer.venue_unset');

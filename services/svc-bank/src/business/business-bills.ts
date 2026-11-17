@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import {
@@ -795,7 +795,7 @@ export class BusinessBillsService {
   }
 
   /** The bill comes back to the inbox with the partner's reason; its approvals start again in a new round. */
-  private async backToInbox(tx: Sql, billId: string, reason: string, text: string): Promise<void> {
+  private async backToInbox(tx: Queryable, billId: string, reason: string, text: string): Promise<void> {
     await tx`
       UPDATE bank.business_bills
          SET status = 'inbox', round = round + 1, approvals_needed = 0, rule_id = NULL, preapproved = false,
@@ -805,7 +805,7 @@ export class BusinessBillsService {
   }
 
   /** Flags the earliest other bill of this business that looks the same: same file, vendor and reference, or amount and due date. */
-  private async flagDuplicate(tx: Sql, billId: string): Promise<void> {
+  private async flagDuplicate(tx: Queryable, billId: string): Promise<void> {
     await tx`
       UPDATE bank.business_bills b
          SET duplicate_of = (
@@ -830,7 +830,7 @@ export class BusinessBillsService {
   }
 
   /** Per payment, per day and per month, on the database clock; a blank limit refuses. Payments still live count. */
-  private async assertWithinLimits(tx: Sql, accountId: string, amount: Amount): Promise<void> {
+  private async assertWithinLimits(tx: Queryable, accountId: string, amount: Amount): Promise<void> {
     const limit = (
       await tx<Array<{ per_payment: string | null; daily: string | null; monthly: string | null }>>`
         SELECT per_payment, daily, monthly FROM bank.business_bill_limits WHERE account_id = ${accountId}::uuid FOR UPDATE
@@ -901,7 +901,7 @@ export class BusinessBillsService {
     }
   }
 
-  private async billRowOrNull(sql: Sql, billId: string, lock = false): Promise<BillRow | null> {
+  private async billRowOrNull(sql: Queryable, billId: string, lock = false): Promise<BillRow | null> {
     const rows = await sql.unsafe<BillRow[]>(
       `SELECT ${BILL_COLUMNS} FROM bank.business_bills WHERE id = $1::uuid${lock ? ' FOR UPDATE' : ''}`,
       [billId],
@@ -909,7 +909,7 @@ export class BusinessBillsService {
     return rows[0] ?? null;
   }
 
-  private async billRow(sql: Sql, billId: string, lock = false): Promise<BillRow> {
+  private async billRow(sql: Queryable, billId: string, lock = false): Promise<BillRow> {
     const row = await this.billRowOrNull(sql, billId, lock);
     if (!row) throw new BankError('No bill of this business has that id.', 'bank.bill_not_found');
     return row;

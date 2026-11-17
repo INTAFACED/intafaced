@@ -31,6 +31,7 @@ import { DestinationFraudList, destinationFraudListProcedure, setDestinationFrau
 import { rampHealthProcedure } from '../ops/ramp-health.js';
 import { rampMetricsProcedure } from '../ops/ramp-metrics.js';
 import { directDebitMandatesProcedure } from '../ops/direct-debit-mandates.js';
+import { railsView, salaryRailsOutput } from '../salary/salary.router.js';
 import { onrampFeesNotKnownProcedure, onrampQuotesProcedure } from '../ops/onramp-quotes.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
@@ -1152,6 +1153,14 @@ export function createOpsRouter(c: BankRouterContext) {
       }),
       guard,
     ),
+    /**
+     * J-bank-30 #8: the payroll rail, per currency: the network's own credits minus reversals against what the app showed.
+     * `partner: null` when no payroll network is wired ("no data", never zero). Read only.
+     */
+    salaryRails: scopedProcedure('admin:read')
+      .input(z.object({}).strict().optional())
+      .output(salaryRailsOutput)
+      .query(() => guard(async () => railsView(await bank.salary.rails()))),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),
     /** J-cex-spot-17 #8: the buy asks the partner's ramp gave no fee for, read as "not known". Read only. */

@@ -13,7 +13,7 @@
  *     customer: { 'apps/customer/src/…': [journey index] }, consumers: { 'packages/x': [consumer dir] },
  *     dependents: { 'packages/x': [package dir] }, harness: [dir], subscribers: [service dir], money: [dir],
  *     importers?: { 'apps/customer/src/…': [path] } (only the customer files no run recorded), built?: [path],
- *     computed?: [path] }
+ *     computed?: [path], busLogged?: true (every record it is built from ran with a bus that logs each delivery) }
  * Built (buildMap) only from main's full runs that are whole: every journey file at the run's head in its report, and a
  * record for each. A journey whose record is incomplete (a reason code, or an afterAll record that never came) or that
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
@@ -32,8 +32,10 @@
  *
  * What a product path selects (reachSelect), else the full suite:
  *   - services/svc-x/…: the journeys whose stack log shows svc-x served or logged while they ran. Full when no journey
- *     reached it, when svc-x subscribes to bus events (a handler that logs nothing is recorded nowhere), or when the
- *     changed file itself subscribes;
+ *     reached it, when svc-x subscribes to bus events and the map isn't `busLogged` (a handler that logs nothing is
+ *     recorded nowhere; since the bus writes a line for each delivery, intafaced #8657, a handler's run is in the log),
+ *     or when the changed file subscribes, itself or through a file of its service it imports (subscribesVia: a new
+ *     subscription runs a handler in journeys no record ties to the service);
  *   - apps/customer/src/…: the journeys whose pages ran a function of that file or loaded a built script holding it.
  *     A file no journey reached (a new file, a style sheet, one the build doesn't map) runs only where a file loading it
  *     runs, so it takes the journeys of the files that load it at the head (`importers`, read at the map's newest run's
@@ -46,7 +48,8 @@
  *   - packages/x/…: the journeys whose pages ran its built code (the customer bundles `packages/x/dist`, read back to
  *     the package) and the journeys that reached a service depending on it. Full when the package is not in the map,
  *     when an app no record covers depends on it (apps/admin, apps/mobile, apps/invitation), when the journey harness
- *     imports it (tooling/scripts, the real-app helpers: every journey runs it), or when it reaches no journey;
+ *     imports it (tooling/scripts, the real-app helpers: every journey runs it), when a service that subscribes to bus
+ *     events depends on it and the map isn't `busLogged`, or when it reaches no journey;
  *   - any other product path (apps/admin, other apps, apps/customer outside src): full.
  * Every journey the map can't speak for runs too: the map's `full` journeys and a journey file at the head the map
  * doesn't know. A selection holding every journey is the full run. The whole map is off, and every product change
@@ -674,6 +677,55 @@ export function customerImporters(root = ROOT, at = null) {
   };
 }
 
+/**
+ * Whether a changed service file can add a bus subscription: it calls the bus's subscribe itself, or a file of its own
+ * service it imports does, followed through relative imports (svc-notify's `attach(bus, event, …)` takes its event from
+ * its caller, so a caller in another file adds a subscription with no subscribe text of its own). `read(path)` gives a
+ * file's text at the head, or null when there is none (sync or async). A read that throws, or more than `cap` files
+ * read, answers true: unknown is full. Imports that leave the service, or name no file at the head, are not followed.
+ */
+export async function subscribesVia(path, read, cap = 400) {
+  const svc = /^(services\/svc-[a-z0-9-]+)\//.exec(String(path))?.[1];
+  const texts = new Map();
+  const get = async (p) => {
+    if (!texts.has(p)) {
+      if (texts.size >= cap) throw new Error('too many files');
+      const t = await read(p);
+      texts.set(p, typeof t === 'string' ? t : null);
+    }
+    return texts.get(p);
+  };
+  const done = new Set();
+  const queue = [String(path)];
+  try {
+    while (queue.length) {
+      const p = queue.shift();
+      if (done.has(p)) continue;
+      done.add(p);
+      const t = await get(p);
+      if (t === null) continue;
+      if (SUBSCRIBES.test(t)) return true;
+      if (!svc) continue;
+      for (const m of t.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+        const to = posix.normalize(posix.join(posix.dirname(p), m[1]));
+        if (!to.startsWith(`${svc}/`)) continue;
+        const stem = to.replace(/\.[cm]?jsx?$/, '');
+        const tries = /\.[cm]?[jt]sx?$/.test(to)
+          ? [`${stem}.ts`, `${stem}.tsx`, `${stem}.mts`, to]
+          : [`${to}.ts`, `${to}.tsx`, `${to}/index.ts`, `${to}.js`];
+        for (const c of tries)
+          if ((await get(c)) !== null) {
+            queue.push(c);
+            break;
+          }
+      }
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
 /** The services that subscribe to bus events, from their own non-test sources. */
 export function subscribers(root = ROOT) {
   const files = execFileSync('git', ['ls-files', 'services'], { cwd: root, encoding: 'utf8' })
@@ -718,6 +770,8 @@ export function buildMap({
     if (whole.length === minRuns) break;
   }
   const base = { v: MAP_VERSION, runs: whole.map(({ id, head, created }) => ({ id, head, created })), skipped };
+  // A subscriber's handler is in its service's log only on a stack whose bus logs each delivery: every record says so.
+  const busLogged = whole.length > 0 && whole.every((r) => r.records.every((x) => x.bus === true));
   if (whole.length < Math.max(minRuns, 1))
     return {
       ...base,
@@ -783,6 +837,7 @@ export function buildMap({
     harness: [...harness].sort(),
     subscribers: [...subs].sort(),
     money: [...new Set([...(money ?? []), ...MONEY_SERVICES])].sort(),
+    ...(busLogged ? { busLogged: true } : {}),
     // Who loads each customer file no run recorded (customerImporters), for pathReach; recorded files need none.
     ...(importers
       ? {
@@ -988,7 +1043,7 @@ function loadersReach(map, path, head) {
 
 /**
  * The journeys a product path's recorded reach touches: { journeys: [index] } or { full: why }. `subscribesHere`:
- * whether the changed file itself, at the head, calls the bus's subscribe. `head`: loadersReach's.
+ * whether the changed file, at the head, can add a bus subscription (subscribesVia). `head`: loadersReach's.
  */
 export function pathReach(map, path, subscribesHere = false, head = null) {
   const p = String(path);
@@ -999,8 +1054,11 @@ export function pathReach(map, path, subscribesHere = false, head = null) {
   // money; main's full run with a revert is the backstop). The map still lists it (`money`), for the record. Since
   // OWNER 297 (until launch hardening) the seal holds money code to no rule of its own either.
   if (svc) {
-    if (subscribesHere) return { full: 'it subscribes to bus events, and a handler that logs nothing is recorded nowhere' };
-    if (map.subscribers?.includes(svc))
+    if (subscribesHere)
+      return {
+        full: 'it subscribes to bus events, itself or through a file it imports, and a new subscription runs where no record shows',
+      };
+    if (map.subscribers?.includes(svc) && map.busLogged !== true)
       return { full: `${svc} subscribes to bus events, and a handler that logs nothing is recorded nowhere` };
     const js = map.services?.[svc];
     return js?.length ? { journeys: js } : { full: `no journey was recorded reaching ${svc}` };
@@ -1019,7 +1077,7 @@ export function pathReach(map, path, subscribesHere = false, head = null) {
     if (cons.includes('apps/customer') && !map.packages?.[pkg])
       return { full: `the customer app depends on ${pkg}, and no record shows where its built code runs` };
     for (const d of cons) {
-      if (map.subscribers?.includes(d)) return { full: `${d} depends on ${pkg} and subscribes to bus events` };
+      if (map.subscribers?.includes(d) && map.busLogged !== true) return { full: `${d} depends on ${pkg} and subscribes to bus events` };
       for (const j of map.services?.[d] ?? []) out.add(j);
     }
     return out.size ? { journeys: [...out] } : { full: `no journey was recorded reaching ${pkg}` };

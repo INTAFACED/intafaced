@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { Button, Loading, Panel, Tabs } from '../../shared/ui';
+import { Button, Panel, Tabs } from '../../shared/ui';
 import { Details, Read, Select, presentActionFailure } from './common';
 import { useAcademyAction, type AcademyAction } from './academy-action';
 import { AcademyGrantRecords } from './AcademyGrantRecords';
@@ -51,12 +51,12 @@ export function AcademyRoom({
   useEffect(() => {
     if (redirect) navigate(redirect, true);
   }, [redirect]);
-  const { userId, restoring } = useSession();
+  const { userId } = useSession();
   if (redirect) return null;
   // A shared certificate link opens the same public check for everyone, signed in or not.
   if (route.kind === 'verify') return <CertificateVerifyPage code={route.code} />;
-  // A visitor with no account gets the signed-out Academy; while the boot refresh is still answering, nothing is guessed.
-  if (!userId) return restoring ? <Loading /> : <AcademyPublic route={route} />;
+  // A visitor with no account gets the signed-out Academy.
+  if (!userId) return <AcademyPublic route={route} />;
   return <Academy route={route} slug={route.kind === 'reader' ? route.slug : slug} initialPath={initialPath} />;
 }
 

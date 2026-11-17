@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
@@ -765,7 +765,7 @@ export class CardDisputeService {
     return this.close({ disputeId: found.id, outcome: 'withdrawn', actor: input.userId, reason: text(input.reason, 1, 500, 'A reason') });
   }
 
-  private async row(sql: Sql, id: string, lock = false): Promise<DisputeRow & { id: string }> {
+  private async row(sql: Queryable, id: string, lock = false): Promise<DisputeRow & { id: string }> {
     if (!/^[0-9a-f-]{36}$/i.test(id))
       throw new BankError('No such card dispute (bank.card_dispute_not_found)', 'bank.card_dispute_not_found');
     const [r] = await sql<DisputeRow[]>`
@@ -785,7 +785,7 @@ export class CardDisputeService {
     id: string,
     stepKey: string,
     kind: DisputeEventKind,
-    fn: (tx: Sql, row: DisputeRow, eventKey: string) => Promise<void>,
+    fn: (tx: Queryable, row: DisputeRow, eventKey: string) => Promise<void>,
   ): Promise<void> {
     const eventKey = `step:${key(stepKey)}`;
     await transaction(this.sql, async (tx) => {
@@ -802,12 +802,12 @@ export class CardDisputeService {
     });
   }
 
-  private async transition(tx: Sql, id: string, to: DisputeState): Promise<void> {
+  private async transition(tx: Queryable, id: string, to: DisputeState): Promise<void> {
     await tx`UPDATE bank.card_disputes SET state = ${to}, updated_at = now() WHERE id = ${id}`;
   }
 
   private async event(
-    tx: Sql,
+    tx: Queryable,
     id: string,
     eventKey: string,
     kind: DisputeEventKind,

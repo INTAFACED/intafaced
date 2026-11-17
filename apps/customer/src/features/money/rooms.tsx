@@ -103,6 +103,8 @@ import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
 import { StatementCentre } from './StatementCentre';
+import { SalaryRoom } from './Salary';
+import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 
@@ -1685,6 +1687,15 @@ function BankAccountPage() {
   );
 }
 
+/** `/bank/salary`: salary paid in by direct deposit, inside the Overview room (J-bank-30). */
+function SalaryPage({ open }: { open: (spec: ActionSpec) => void }) {
+  return (
+    <BankPage room="Overview" title={salaryCopy.t('title')} description={salaryCopy.t('description')}>
+      <SalaryRoom open={open} />
+    </BankPage>
+  );
+}
+
 /** `/bank/statements`: the statement and export centre, inside the Analytics room (J-portfolio-11, PF-statements-01). */
 function StatementsRoom() {
   const { t } = statementCentreCopy.useCopy();
@@ -1906,6 +1917,7 @@ const bankServices = [
   { href: '/bank/business', label: 'nav.business', note: 'overview.business.note' },
   { href: '/uc/record', label: 'index.money.activity', note: 'overview.activity.note' },
   { href: '/bank/account', label: 'nav.bank.account', note: 'overview.bank.account.note' },
+  { href: '/bank/salary', label: 'nav.salary', note: 'overview.salary.note' },
   { href: '/bank/safety/scam', label: 'nav.scam', note: 'overview.scam.note' },
   { href: '/bank/safety/lost-phone', label: 'nav.lostPhone', note: 'overview.lostPhone.note' },
   { href: '/bank/safety/complaint', label: 'nav.complaint', note: 'overview.complaint.note' },
@@ -2230,6 +2242,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <LimitsPage />;
     case '/bank/account':
       return <BankAccountPage />;
+    case '/bank/salary':
+      return <SalaryPage open={open} />;
     case '/bank/business':
       return <Business open={open} />;
     case '/uc/record':

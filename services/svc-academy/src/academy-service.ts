@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AcademyError } from './errors.js';
 import { isPaperOpsEnabled, paperOpsDisabledMessage, paperOpsStatus, type PaperOpsStatus } from './paper/ops-gate.js';
@@ -895,7 +895,7 @@ export class AcademyService {
   }
 
   /** Live attendees. A COUNT, never a maintained counter. */
-  async occupancy(sessionId: string, tx: Sql = this.sql): Promise<number> {
+  async occupancy(sessionId: string, tx: Queryable = this.sql): Promise<number> {
     const rows = await tx<Array<{ count: string }>>`
       SELECT COUNT(*)::text AS count FROM academy.session_attendees WHERE session_id = ${sessionId} AND left_at IS NULL
     `;
@@ -2956,7 +2956,7 @@ export class AcademyService {
     slug: string,
     now: Date,
     /** Runs in the same transaction, only when this call recorded the completion. */
-    alongside?: (tx: Sql) => Promise<void>,
+    alongside?: (tx: Queryable) => Promise<void>,
   ): Promise<ItemCompletionRecord> {
     return transaction(this.sql, async (tx) => {
       // Complete and Undo on one item take turns, so the history and the current row never disagree.
@@ -3034,7 +3034,7 @@ export class AcademyService {
     return undone;
   }
 
-  private async currentCompletion(sql: Sql, userId: string, slug: string): Promise<ItemCompletionRecord | null> {
+  private async currentCompletion(sql: Queryable, userId: string, slug: string): Promise<ItemCompletionRecord | null> {
     const rows = await sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
       SELECT user_id, item_slug, completed_at FROM academy.cert_item_completions
        WHERE user_id = ${userId} AND item_slug = ${slug}
@@ -3277,7 +3277,7 @@ export class AcademyService {
    * `academy.cert_not_found`. The router reads this before spending a two-person approval, so a repeat or a typo costs
    * nobody's approval.
    */
-  async certRevocation(publicId: string, tx: Sql = this.sql): Promise<AcademyCertRevocation | null> {
+  async certRevocation(publicId: string, tx: Queryable = this.sql): Promise<AcademyCertRevocation | null> {
     if (!isPublicId(publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
     const grants = await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${publicId}`;
     if (grants.length === 0) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
@@ -3361,7 +3361,7 @@ export class AcademyService {
    * nobody's approval: an unpublished certificate is `academy.cert_not_found`, a held one `academy.cert_already_granted`,
    * a revoked one `academy.cert_revoked`.
    */
-  async certException(userId: string, certId: string, tx: Sql = this.sql): Promise<AcademyCertException | null> {
+  async certException(userId: string, certId: string, tx: Queryable = this.sql): Promise<AcademyCertException | null> {
     if (!this.certDefinition(certId)) {
       this.refuseUnpublishedPath(certId);
       throw new AcademyError('Unknown certification', 'academy.cert_not_found');

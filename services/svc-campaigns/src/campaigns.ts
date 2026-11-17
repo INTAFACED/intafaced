@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   BONUS_APPLIES_TO,
   CAMPAIGN_TYPES,
@@ -1237,7 +1237,7 @@ export class CampaignService {
 
   /** Writes the open change of a live campaign at the next revision; an edit sent for approval goes back to draft. */
   private async change(
-    tx: Sql,
+    tx: Queryable,
     row: CampaignRow,
     d: Definition,
     input: { id: string; revision: number; actor: string },
@@ -1266,7 +1266,7 @@ export class CampaignService {
    * What a change must still meet when it is written and again when it goes live, since rewards draw and names are taken
    * in between: its budget is not below what the campaign's rewards already draw, and no other campaign has its name.
    */
-  private async checkChange(tx: Sql, row: CampaignRow, d: Definition): Promise<void> {
+  private async checkChange(tx: Queryable, row: CampaignRow, d: Definition): Promise<void> {
     const [drawn] = await tx<{ budget_drawn: string }[]>`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${row.id}`;
     if (d.budgetLimit && parseAmount18(d.budgetLimit) < parseAmount18(drawn?.budget_drawn ?? '0')) {
       throw new CampaignsError('campaigns.budget_below_drawn', `Rewards already draw ${decimalOf(drawn!.budget_drawn)} of this budget`);
@@ -1280,7 +1280,7 @@ export class CampaignService {
    * A move of an open change: `submit` asks for approval of it (the gate reads the change), `approve` by a second person
    * puts it live as the campaign's revision and keeps the revision it replaced in the history. Nothing else moves a change.
    */
-  private async moveChange(tx: Sql, row: CampaignRow, open: ChangeRow, action: CampaignAction, actor: string): Promise<Campaign> {
+  private async moveChange(tx: Queryable, row: CampaignRow, open: ChangeRow, action: CampaignAction, actor: string): Promise<Campaign> {
     const timeZone = this.timeZone();
     const now = this.now();
     const d = parseDefinition(open.definition, timeZone);
@@ -1476,7 +1476,7 @@ export class CampaignService {
   }
 
   /** A campaign's rule is a copy of one library revision, checked against the library and the limits when it is saved. */
-  private async checkCampaignRule(tx: Sql, d: Definition): Promise<void> {
+  private async checkCampaignRule(tx: Queryable, d: Definition): Promise<void> {
     const rule = d.participation?.rule;
     if (!rule) return;
     checkRule(rule.tree, this.ruleLimits());
@@ -1538,7 +1538,7 @@ export class CampaignService {
    * ended, or has no reward. A campaign approved before revisions were recorded gets its live revision's row here.
    */
   async voucherTerms(
-    tx: Sql,
+    tx: Queryable,
     campaignId: string,
   ): Promise<{ row: CampaignRow; face: { asset: string; amount: string }; feeSaver: { discountBps: number; orders: number } | null }> {
     const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${campaignId} FOR SHARE`;
@@ -1831,7 +1831,7 @@ export class CampaignService {
     return rows.map(toParticipation);
   }
 
-  private async lock(tx: Sql, id: string, revision: number): Promise<CampaignRow> {
+  private async lock(tx: Queryable, id: string, revision: number): Promise<CampaignRow> {
     const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${id} FOR UPDATE`;
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
     if (row.revision !== revision) {
@@ -1841,6 +1841,6 @@ export class CampaignService {
   }
 }
 
-async function audit(tx: Sql, actor: string, action: string, target: string, detail: Record<string, unknown>): Promise<void> {
+async function audit(tx: Queryable, actor: string, action: string, target: string, detail: Record<string, unknown>): Promise<void> {
   await tx`INSERT INTO campaigns.audit_log (actor, action, target, detail) VALUES (${actor}, ${action}, ${target}, ${tx.json(detail as postgres.JSONValue)})`;
 }

@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { MailPurpose, PasswordResetMail } from './password-reset.js';
 import { generateToken, hashToken } from './passwords.js';
 
@@ -55,7 +55,7 @@ export type SelfFreezeRow = { id: string; reason: 'compromise' | 'temporary' | '
  * The one freeze both doors run, inside the caller's transaction: the open freeze if there is one, else a new one with
  * every session and API key revoked. Locks the user row first so two freezes never race.
  */
-export async function applySelfFreeze(tx: Sql, userId: string, reason: SelfFreezeRow['reason']): Promise<SelfFreezeRow> {
+export async function applySelfFreeze(tx: Queryable, userId: string, reason: SelfFreezeRow['reason']): Promise<SelfFreezeRow> {
   await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
   const open = await tx<Array<{ id: string; reason: SelfFreezeRow['reason']; since: Date }>>`
     SELECT id, reason, since FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`;

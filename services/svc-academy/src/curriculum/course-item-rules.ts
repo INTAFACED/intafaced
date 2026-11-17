@@ -8,7 +8,8 @@
  * and nothing is written. Staff move one enrolled learner's due date on an assignment later than the brief's, with a
  * reason, and the console shows who granted it and why. Every change is an event row. No money moves.
  */
-import type { Sql, TransactionSql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
+import type { Sql } from 'postgres';
 import type {
   AcademyCourseItemRules,
   AcademyGrantCourseExtensionInput,
@@ -17,7 +18,6 @@ import type {
 import { AcademyError } from '../errors.js';
 import { findPrerequisiteCycle } from '../release/access.js';
 
-type Db = Sql | TransactionSql;
 const GATED = new Set(['assignment', 'quiz']);
 
 /** The due date a learner works to: their own when staff moved it later than the brief's, else the brief's. Pure. */
@@ -148,12 +148,12 @@ export class CourseItemRules {
     });
   }
 
-  private async lockCourse(tx: Db, courseId: string) {
+  private async lockCourse(tx: Queryable, courseId: string) {
     const [course] = await tx`SELECT id FROM academy.courses WHERE id = ${courseId} FOR UPDATE`;
     if (!course) throw new AcademyError('no course has that id', 'academy.course_not_found');
   }
 
-  private async viewIn(sql: Db, courseId: string): Promise<AcademyCourseItemRules> {
+  private async viewIn(sql: Queryable, courseId: string): Promise<AcademyCourseItemRules> {
     const [course] = await sql`SELECT id FROM academy.courses WHERE id = ${courseId}`;
     if (!course) throw new AcademyError('no course has that id', 'academy.course_not_found');
     const items = await sql<
