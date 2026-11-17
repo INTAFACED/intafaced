@@ -141,11 +141,6 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
-  'architecture-map': {
-    kind: 'guard',
-    must: /ARCHITECTURE MAP FAILED - docs\/ARCHITECTURE\.md, apps\/, services\/ or packages\/ is missing or empty/,
-    note: 'refuses by name when the doc or the folders it counts are absent, instead of counting nothing and calling it current.',
-  },
   'truth-check': {
     kind: 'guard',
     must: /AGENTS\.md lost a core rule: file missing/,

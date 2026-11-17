@@ -81,16 +81,6 @@ export const GATES = [
       'never runs, so a stale rule could reach main unchecked. It reads only those entry files, so it cannot block product work.',
   },
   {
-    id: 'architecture-map',
-    script: 'tooling/ci/architecture-map.mjs',
-    args: ['--check'],
-    doctrine: 'agent map honesty',
-    why:
-      'docs/ARCHITECTURE.md is what every agent reads first. Its hand-kept count said 24 packages for 29 and its services ' +
-      'table had no svc-campaigns row (project-state#2338). The count block is generated from the folders, and the Apps and ' +
-      'Services tables must hold one row per folder, so a stale copy fails here.',
-  },
-  {
     id: 'reachability',
     script: 'tooling/ci/reachability-scan.mjs',
     doctrine: 'L3 slice factory law, Reachability law',
@@ -294,6 +284,8 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'architecture-map.mjs':
+    "not a gate: writes docs/ARCHITECTURE.md's count block (`node tooling/ci/architecture-map.mjs`). Its gate repeated architecture-map.test.mjs, whose first case fails when the committed doc is stale or a table drifted, and tooling-tests runs that on every PR.",
   'architecture-map.test.mjs':
     'not a gate: the node:test file of architecture-map.mjs, replayed on project-state#2338 (the count of 24 packages for 29; no svc-campaigns row) with planted faults (a row for a deleted service, a missing package). tooling-tests.mjs runs it with every other tooling test.',
   'custody-layer-check.mjs':
