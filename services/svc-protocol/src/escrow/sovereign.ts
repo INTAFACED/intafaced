@@ -58,7 +58,7 @@ export interface EscrowSetting {
 }
 
 /** Plain words for the configured network. Base Sepolia is never called INTACHAIN. */
-export function networkLabel(chainId: number): string {
+function networkLabel(chainId: number): string {
   return chainId === 84532 ? 'Base Sepolia testnet, not INTACHAIN' : `TEST chain ${chainId}, not INTACHAIN`;
 }
 
@@ -71,7 +71,7 @@ function refuseMainnet(setting: EscrowSetting) {
 }
 
 /** The escrow on the configured chain; refuses on mainnet (`audit.external`) and when not deployed. */
-export function requireP2pEscrow(setting: EscrowSetting): Address {
+function requireP2pEscrow(setting: EscrowSetting): Address {
   refuseMainnet(setting);
   if (setting.escrow === null || isZeroAddress(setting.escrow))
     throw new EscrowRefusal(
