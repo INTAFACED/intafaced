@@ -1,6 +1,3 @@
 {
-  "printOnly": {
-    "unicorn/no-useless-spread": "it fires on `for (const o of [...map.values()])` where the loop deletes from the map, a copy taken on purpose (#8366, packages/venue-sim/src/simulator.ts)"
-  },
   "failInAddedFiles": ["garden/no-hand-schema", "garden/no-screen-literal", "garden/no-hand-typed-patch"]
 }
