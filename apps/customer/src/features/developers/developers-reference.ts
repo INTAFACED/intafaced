@@ -1044,6 +1044,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Your leverage and margin mode on one venue perpetual, or none set',
   },
   {
+    name: 'venueLeverageChange',
+    method: 'GET',
+    path: '/api/v1/venue/leverage-change',
+    product: 'accounts',
+    access: 'private',
+    summary: "What a leverage change would do to your open position's margin, by the venue's own rule, before anything is signed",
+  },
+  {
     name: 'venueMarketMargin',
     method: 'GET',
     path: '/api/v1/venue/market-margin',

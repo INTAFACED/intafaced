@@ -97,6 +97,7 @@ GET /api/v1/venue/fills private trade:read
 GET /api/v1/venue/funding-history public trade:read
 GET /api/v1/venue/gated-list private trade:read
 GET /api/v1/venue/leverage private trade:read
+GET /api/v1/venue/leverage-change private trade:read
 GET /api/v1/venue/market-margin private trade:read
 GET /api/v1/venue/markets private trade:read
 GET /api/v1/venue/markets/:symbol/venues private trade:read

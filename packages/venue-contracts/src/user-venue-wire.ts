@@ -71,6 +71,12 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueMarginTier (J-derivatives-02 #2): the notional a tier starts at and its maintenance rate
   'fromNotional',
   'maintenanceRate',
+  // UserVenuePosition.maintenanceMargin and UserVenueLeverageChange (J-derivatives-05 #2 #4)
+  'maintenanceMargin',
+  'positionSize',
+  'marginNow',
+  'marginAfter',
+  'difference',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -91,6 +97,7 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'builderFeeCapBps',
   'makerFeeBps',
   'takerFeeBps',
+  'maintenanceMargin',
   'value',
 ]);
 
