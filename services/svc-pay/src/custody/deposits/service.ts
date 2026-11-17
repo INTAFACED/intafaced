@@ -38,6 +38,14 @@ export function depositUserRef(userId: string, addressIndex: number): string {
 
 type StoredAddress = PayCustodyDepositAddress;
 
+const ADDRESS_UNIQUE_INDEX = 'custody_deposit_addresses_network_address_uq';
+
+/** A unique violation on the (network, address) index: some row on that network already holds the address. */
+function isAddressClash(error: unknown): boolean {
+  const pg = error as { code?: string; constraint_name?: string } | null;
+  return pg?.code === '23505' && pg.constraint_name === ADDRESS_UNIQUE_INDEX;
+}
+
 export interface CustodyDepositServiceDeps {
   readonly sql: Sql;
   readonly chain: Pick<CryptoChainPort, 'acceptanceAddress' | 'posture'>;
@@ -122,12 +130,22 @@ export class CustodyDepositService {
     } catch {
       return { state: 'refused', code: 'pay.deposit_source_unset' };
     }
-    await this.deps.sql`
-      INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address_index, address, expires_at)
-      VALUES (${input.userId}, ${input.assetId}, ${input.networkId}, ${index}, ${derived}, ${expiresAt})
-      ON CONFLICT (user_id, asset_id, network_id, address_index) DO NOTHING`;
-    // A unique violation on (network, address) is not caught here: it means two people derived one address, which must be
-    // seen and must issue nothing. A lost insert race returns the row that won, with its own expiry.
+    try {
+      await this.deps.sql`
+        INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address_index, address, expires_at)
+        VALUES (${input.userId}, ${input.assetId}, ${input.networkId}, ${index}, ${derived}, ${expiresAt})
+        ON CONFLICT (user_id, asset_id, network_id, address_index) DO NOTHING`;
+    } catch (error) {
+      // Two first calls for one person can both pass the read above and insert at once. Postgres then checks the
+      // (network, address) index before the key ON CONFLICT names, so the loser sees a unique violation instead of nothing.
+      // When the row that won is this person's own, with this address, that is the lost race: return it. Anyone else holding
+      // the address means two people derived one address, which must be seen and must issue nothing.
+      if (!isAddressClash(error)) throw error;
+      const won = await this.stored(input.userId, input.assetId, input.networkId, index);
+      if (!won || won.address.toLowerCase() !== derived.toLowerCase()) throw error;
+      return { state: 'issued', address: won };
+    }
+    // A lost insert race on the key returns the row that won, with its own expiry.
     const row = await this.stored(input.userId, input.assetId, input.networkId, index);
     if (!row) throw new Error('pay.deposit_address_not_stored');
     return { state: 'issued', address: row };
