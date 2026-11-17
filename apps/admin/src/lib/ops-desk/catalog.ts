@@ -2304,6 +2304,11 @@ const moreSections: readonly DeskSection[] = [
         why: 'Accounts with duplicate-account, device and anti-churn signals: held rewards, withholding, revoking and appeals decided by a second person.',
       },
       {
+        href: '/more-ops/campaigns/payouts',
+        label: 'Payout board',
+        why: 'Reward intents by state (owed, pending funding, sending, paid, failed) with their keys and ledger and chain references, and each airdrop’s plan and run.',
+      },
+      {
         href: '/more-ops/campaigns',
         label: 'Campaigns desk and builder',
         why: 'Every campaign in svc-campaigns, the builder, the two-founder approval and the calendar.',

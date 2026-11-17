@@ -751,6 +751,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return true;
   }
 
+  /**
+   * TEST only (J-campaigns-19 #5): a loss past the account's margin that the venue booked as a deficit, once per
+   * `lossRef`. The asset's free balance falls by `amount` and may go below zero, so the account's equity there is
+   * negative, as a venue reports one whose loss outran its collateral. Nothing else changes.
+   */
+  bookDeficit(account: UserVenueAccount, asset: string, amount: Amount, lossRef: string): boolean {
+    if (compare(amount, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'a deficit must be positive');
+    const state = this.account(account);
+    if (state.deposits.has(`deficit:${lossRef}`)) return false;
+    state.deposits.add(`deficit:${lossRef}`);
+    const balance = this.balance(state, asset);
+    balance.free = sub(balance.free, amount);
+    return true;
+  }
+
   /** The coins credited to this account from outside it, oldest first (J-portfolio-02 #6): each deposit it credited. */
   async arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
     this.up();

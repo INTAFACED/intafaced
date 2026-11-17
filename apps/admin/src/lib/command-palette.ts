@@ -55,6 +55,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/more-ops/campaigns/waves', label: 'Waitlist waves', keywords: ['waitlist', 'campaigns', 'invite'] },
   { href: '/more-ops/campaigns/watch', label: 'Campaign watch', keywords: ['campaign', 'codes', 'vouchers', 'export', 'alerts'] },
   { href: '/more-ops/campaigns/risk', label: 'Campaign risk review', keywords: ['campaign', 'abuse', 'fraud', 'appeal', 'withhold'] },
+  { href: '/more-ops/campaigns/payouts', label: 'Campaign payout board', keywords: ['campaign', 'payout', 'airdrop', 'reward', 'wallet'] },
   { href: '/protocol-ops/listing', label: 'Protocol: pool and market control', keywords: ['delist', 'hide'] },
   { href: '/trade-ops/markets', label: 'Trade: markets', keywords: ['symbol', 'listing'] },
   { href: '/trade-ops/orders', label: 'Trade: orders', keywords: ['order', 'bust'] },

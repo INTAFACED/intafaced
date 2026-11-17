@@ -88,7 +88,9 @@ describe('index.ts wiring', () => {
     expect(check).toBeLessThan(source.indexOf('postgres(env.DATABASE_URL'));
     expect(source.match(/registerTestAgeDoor\(/g)).toHaveLength(1);
     expect(source).toMatch(/await app\.register\(async \(scope\) => \{\n\s+registerTestAgeDoor\(scope, \{\n\s+open: testAgeDoor,/);
-    expect(source).toMatch(/subjects: \{ reward: ageReward\(sql\) \}/);
+    expect(source).toMatch(/subjects: \{ reward: ageReward\(sql\), distribution: ageDistributionRun\(sql\) \}/);
+    // The TEST pay-fault door opens only from the same read, behind a signed call.
+    expect(source).toMatch(/if \(!testAgeDoor\) \{\n\s+return reply\n\s+\.code\(403\)/);
     expect(source).not.toMatch(/retainRawBody\(app\)/);
   });
 });

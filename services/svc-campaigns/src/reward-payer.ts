@@ -45,6 +45,8 @@ export const NO_WALLET = 'campaigns.no_connected_wallet';
 export const PAYMENT_UNCONFIRMED = 'campaigns.reward_payment_unconfirmed';
 export const PAYMENT_REVERTED = 'campaigns.reward_payment_reverted';
 export const AMOUNT_UNPAYABLE = 'campaigns.reward_amount_unpayable';
+/** A send whose answer was lost: it may be on the chain, so it is looked for there and never sent again (J-campaigns-19 #2). */
+export const SEND_UNANSWERED = 'campaigns.reward_send_unanswered';
 export const FROZEN = 'ledger.frozen';
 
 /** How long a send with no answer is looked for on the chain before its reward says so (the TEST chain mines at once). */
@@ -54,7 +56,8 @@ export const LOST_PAYMENT_AFTER_MS = 60_000;
 export interface RewardChain {
   head(): Promise<bigint>;
   holds(from: string): Promise<bigint>;
-  send(from: string, to: string, units: bigint): Promise<string>;
+  /** `ref` names the reward the transfer pays (a TEST stack's pay faults are set per reward, `test-pay-fault.ts`). */
+  send(from: string, to: string, units: bigint, ref?: { rewardKey: string }): Promise<string>;
   /** `true` succeeded, `false` reverted, `null` not mined yet (or unread). */
   receipt(hash: string): Promise<boolean | null>;
   /** Every transfer of exactly `units` from `from` to `to` since `fromBlock`, oldest first. */
@@ -205,8 +208,12 @@ export class RewardPayer {
       sent += 1;
       let hash: string;
       try {
-        hash = (await this.chain.send(this.wallet.address, r.pay_to_wallet, units)).toLowerCase();
+        hash = (await this.chain.send(this.wallet.address, r.pay_to_wallet, units, { rewardKey: r.reward_key })).toLowerCase();
       } catch {
+        // The send's answer is lost: it may have reached the chain. It is never sent again; it is looked for on the chain
+        // by the payment's own facts (`settle`), and the log says the result is unknown until it is found.
+        await this.sql`
+          INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${r.reward_key}, 'unknown', ${SEND_UNANSWERED})`;
         continue;
       }
       await this.sql`

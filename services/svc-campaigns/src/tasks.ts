@@ -1,4 +1,6 @@
 import type postgres from 'postgres';
+import type { PayoutBoard } from '@intafaced/contracts/campaigns-payout-board';
+import { payoutBoard } from './payout-board.js';
 import { transaction } from '@intafaced/db';
 import { REWARD_ASSET, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
@@ -1251,6 +1253,11 @@ export class TaskService {
   }
 
   // ── Operators (campaigns:ops) ─────────────────────────────────────────────
+
+  /** The payout board (J-campaigns-19 #1 #2): every intent by where it stands, with its keys and its payment. Read only. */
+  payoutBoard(input: { campaignId?: string }): Promise<PayoutBoard> {
+    return payoutBoard(this.sql, input);
+  }
 
   /** Every reward record with its account and its attempts, newest first, for founder-ops and finance. */
   async payoutRecords(input: { campaignId?: string }): Promise<PayoutRecordList> {

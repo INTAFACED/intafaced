@@ -10,6 +10,7 @@ import {
   type DistributionRun,
   type DistributionsMine,
 } from '@intafaced/contracts/campaigns-catalogue';
+import type { DistributionPlan } from '@intafaced/contracts/campaigns-payout-board';
 import { CampaignsError } from './codes.js';
 import { effectiveState } from './campaigns.js';
 import type { PayoutSaga } from './payouts.js';
@@ -28,7 +29,7 @@ import type { EquitySource } from './venue-equity.js';
  * 2. Each account that joined by the snapshot is read from the venue once (`distribution_standings`, by campaign and
  *    account): `counted` with its equity, `excluded_negative` when the equity is below zero, or `unread` with the code
  *    when the venue did not answer. An unread account is read again on later passes until `READ_GRACE_MS` after the
- *    snapshot; then it is `held_out`: named, out of the total, owed nothing from this run, never counted as zero.
+ *    run began reading (never before the snapshot); then it is `held_out`: named, out of the total, owed nothing from this run, never counted as zero.
  * 3. Once no account is waiting, every share is written in one transaction with the campaign locked: the pool in the
  *    token's smallest payable unit, times each counted account's equity over the total equity counted, rounded down,
  *    and the units left by rounding given one each to the largest remainders (ties to the lower account id), so the
@@ -70,6 +71,7 @@ type RunRow = {
   state: 'reading' | 'owed';
   total_equity: string | null;
   shares_total: string | null;
+  started_at: Date;
 };
 
 type StandingRow = {
@@ -163,7 +165,7 @@ export class DistributionService {
   private async runRow(campaignId: string): Promise<RunRow | null> {
     const [run] = await this.sql<RunRow[]>`
       SELECT campaign_id, snapshot_at, asset, equity_asset, pool::text AS pool, state, total_equity::text AS total_equity,
-        shares_total::text AS shares_total
+        shares_total::text AS shares_total, started_at
       FROM campaigns.distribution_runs WHERE campaign_id = ${campaignId}`;
     return run ?? null;
   }
@@ -227,7 +229,8 @@ export class DistributionService {
         if (standing === undefined || standing === 'unread') await this.readAccount(run, account_id);
       }
       const waiting = (await this.standings(row.id)).filter((s) => s.standing === 'unread');
-      if (waiting.length > 0 && now.getTime() < run.snapshot_at.getTime() + this.readGraceMs) return this.summary(run);
+      // The wait runs from when the run began reading, which is never before the snapshot time.
+      if (waiting.length > 0 && now.getTime() < run.started_at.getTime() + this.readGraceMs) return this.summary(run);
       const keys = await this.owe(row, run);
       for (const key of keys) await this.attemptOwe(key);
       run = (await this.runRow(row.id))!;
@@ -305,6 +308,66 @@ export class DistributionService {
       excludedNegative: count('excluded_negative'),
       heldOut: count('held_out') + count('unread'),
       sharesTotal: run.shares_total === null ? null : formatAmount(parseAmount(run.shares_total)),
+    };
+  }
+
+  /**
+   * The operator's view of one airdrop's plan (J-campaigns-19 #5 #6): the run as it stands and every account at its
+   * snapshot (counted with its equity and share, excluded for a negative equity, or named and held out with the venue's
+   * code), each share's reward state and, once paid, its chain transaction. Before the run starts it is `not_started`
+   * with no accounts. Read only.
+   */
+  async plan(campaignId: string): Promise<DistributionPlan> {
+    const row = await this.row(campaignId);
+    const run = await this.runRow(row.id);
+    if (!run) {
+      return {
+        campaignId: row.id,
+        campaignName: row.name,
+        snapshotAt: null,
+        state: 'not_started',
+        asset: row.budget_asset,
+        pool: row.budget_limit === null ? null : formatAmount(parseAmount(row.budget_limit)),
+        totalEquity: null,
+        sharesTotal: null,
+        accounts: [],
+      };
+    }
+    const accounts = await this.sql<
+      (StandingRow & {
+        reward_state: DistributionPlan['accounts'][number]['rewardState'];
+        chain_tx: string | null;
+        to_wallet: string | null;
+      })[]
+    >`
+      SELECT s.account_id, s.standing, s.equity::text AS equity, s.as_of, s.reason, s.share::text AS share, s.reward_key,
+        i.state AS reward_state, pay.chain_tx, pay.to_wallet
+      FROM campaigns.distribution_standings s
+      LEFT JOIN campaigns.reward_intents i ON i.reward_key = s.reward_key
+      LEFT JOIN campaigns.reward_payments pay ON pay.reward_key = s.reward_key AND pay.state = 'booked'
+      WHERE s.campaign_id = ${row.id} ORDER BY s.account_id`;
+    return {
+      campaignId: row.id,
+      campaignName: row.name,
+      snapshotAt: run.snapshot_at.toISOString(),
+      state: run.state,
+      asset: run.asset,
+      pool: formatAmount(parseAmount(run.pool)),
+      totalEquity: run.total_equity === null ? null : formatAmount(parseAmount(run.total_equity)),
+      sharesTotal: run.shares_total === null ? null : formatAmount(parseAmount(run.shares_total)),
+      accounts: accounts.map((a) => ({
+        accountId: a.account_id,
+        // An account not answered yet is waiting while the run reads; once the run is owed it was held out.
+        standing: a.standing === 'unread' ? (run.state === 'owed' ? 'held_out' : 'waiting') : a.standing,
+        equity: a.equity === null ? null : formatAmount(parseAmount(a.equity)),
+        equityAsOf: a.as_of ? a.as_of.toISOString() : null,
+        reason: a.reason,
+        share: a.share === null ? null : formatAmount(parseAmount(a.share)),
+        rewardKey: a.reward_key,
+        rewardState: a.reward_state ?? null,
+        chainTx: a.chain_tx,
+        toWallet: a.to_wallet,
+      })),
     };
   }
 

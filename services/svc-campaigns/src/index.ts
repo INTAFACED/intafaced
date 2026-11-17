@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createEdgeContext, s2sFromEnv, verifyServiceRequest } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { parseAmount } from '@intafaced/ledger-client';
 import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
@@ -31,7 +31,8 @@ import { WatchService } from './watch.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
-import { ageReward } from './test-age-door.js';
+import { ageDistributionRun, ageReward } from './test-age-door.js';
+import { PayFaults, TEST_PAY_FAULT_PATH, payFaultInputSchema, withPayFaults } from './test-pay-fault.js';
 import { parseTgeSchedule } from './tge.js';
 
 registerProcessHooks(
@@ -52,6 +53,8 @@ const tgeSchedule = parseTgeSchedule(env.CAMPAIGNS_TGE_SCHEDULE_JSON);
 // The TEST age door (packages/service-kit test-age.ts): off unless TEST_AGE_DOOR=on, which refuses to start outside a
 // TEST stack, so it is read before anything opens.
 const testAgeDoor = testAgeDoorOpen(process.env);
+// TEST pay faults (test-pay-fault.ts): set only through the door below, which opens only where the age door does.
+const payFaults = new PayFaults();
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
@@ -270,7 +273,32 @@ await app.register(async (scope) => {
     open: testAgeDoor,
     internalSecret: env.INTERNAL_SERVICE_SECRET,
     s2s: s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined,
-    subjects: { reward: ageReward(sql) },
+    subjects: { reward: ageReward(sql), distribution: ageDistributionRun(sql) },
+  });
+  // The TEST pay-fault door (J-campaigns-19 #1 #2): the next payment of one reward meets one fault on the TEST chain.
+  // Open only where the age door is, behind the same signed service call (svc-edge's own key refused).
+  scope.post(TEST_PAY_FAULT_PATH, async (req, reply) => {
+    const auth = verifyServiceRequest(req, {
+      verifier: s2s.serviceVerifier,
+      mode: s2s.s2sMode,
+      legacySecret: env.INTERNAL_SERVICE_SECRET,
+      bodyBindMode: 'require',
+    });
+    if (auth.service === null || auth.service === 'svc-edge') {
+      return reply
+        .code(401)
+        .send({ error: 'test_pay_fault.unauthenticated', message: 'the TEST pay-fault door answers a signed service call only' });
+    }
+    if (!testAgeDoor) {
+      return reply
+        .code(403)
+        .send({ error: 'test_pay_fault.door_closed', message: 'the TEST pay-fault door is closed: TEST_AGE_DOOR is not on' });
+    }
+    const parsed = payFaultInputSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'test_pay_fault.invalid', message: parsed.error.message });
+    payFaults.set(parsed.data.rewardKey, parsed.data.fault);
+    req.log.warn({ ...parsed.data, caller: auth.service }, 'TEST pay fault set');
+    return reply.code(200).send({ ...parsed.data, label: 'TEST' });
   });
 });
 
@@ -488,11 +516,14 @@ const payer =
     ? new RewardPayer({
         sql,
         ledger,
-        chain: testRewardChain({
-          rpcUrl: env.CAMPAIGNS_TEST_CHAIN_RPC_URL,
-          token: env.CAMPAIGNS_TEST_CHAIN_TOKEN,
-          chainId: env.CAMPAIGNS_TEST_CHAIN_ID,
-        }),
+        chain: withPayFaults(
+          testRewardChain({
+            rpcUrl: env.CAMPAIGNS_TEST_CHAIN_RPC_URL,
+            token: env.CAMPAIGNS_TEST_CHAIN_TOKEN,
+            chainId: env.CAMPAIGNS_TEST_CHAIN_ID,
+          }),
+          payFaults,
+        ),
         wallet: { walletId: payWallet[1]!, address: payWallet[2]!, tokenDecimals: env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS },
         postingEnabled: ledgerPostingEnabled(env.LEDGER_URL),
       })
