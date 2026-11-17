@@ -413,6 +413,21 @@ const bankSections: readonly DeskSection[] = [
     ],
   },
   {
+    id: 'bank-rails',
+    title: 'Bank rails',
+    intro: 'Salary paid in by direct deposit: the payroll network’s own credits minus reversals against what the app showed, per currency.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/bank-ops/rails',
+        label: 'Bank rails desk',
+        why: 'The reconciliation by currency is on its own page.',
+      },
+    ],
+  },
+  {
     id: 'card-disputes',
     title: 'Card disputes',
     intro:

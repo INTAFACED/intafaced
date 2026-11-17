@@ -187,6 +187,12 @@ export interface TestPartnerSwitches {
    * default, is a stack with no bank rail: every payment answers `rail.bank` and nothing moves.
    */
   readonly bankRail: 'none' | 'test';
+  /**
+   * The name the TEST partner holds this person's account in (J-bank-30), as a banking partner knows its account holder:
+   * labelled TEST, set by the person on the TEST stack. null, the default, is a holder name the partner has not given: the
+   * salary form is refused and every direct deposit to the account is returned, as a name that cannot be matched.
+   */
+  readonly holderName: string | null;
 }
 
 export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
@@ -207,6 +213,7 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   legalHold: 'none',
   identityCase: 'accepted',
   bankRail: 'none',
+  holderName: null,
 });
 
 /** The partner's reserve as it reports it. An amount it has not told us is null, read as "not known", never 0. */
@@ -266,6 +273,13 @@ export interface TestPartner {
    * stands. Asked again it reports the same change, the same version, as a partner's replayed notice does.
    */
   settlePayment(userId: string, paymentId: string): PartnerPayment;
+  /**
+   * A payment from outside arrives in the person's main balance (J-bank-30: a salary credit by direct deposit): ONE pay-in
+   * under `key`, on the partner's record and answering `moveByKey`, so the same key again answers the same credit and
+   * another amount or account under it refuses `bank.partner_move_conflict`. Refuses `bank.partner_unavailable` when down
+   * and `bank.account_restricted` on a closing account, nothing credited.
+   */
+  receive(account: PartnerAccountRef, key: string, amount: Amount): PartnerMove;
 }
 
 /** The TEST partner's own reason code for a collection on a mandate the person blocked with it. */
@@ -819,6 +833,38 @@ export function testPartner(): TestPartner {
       }
       return Object.freeze({ accounts: Object.freeze(accounts), moves: Object.freeze([...(byPerson.get(userId) ?? [])]) });
     },
+    receive(account, key, amount) {
+      const prior = byKey.get(key);
+      if (prior) {
+        if (!sameAccount(prior.to, account) || prior.amount !== amount || prior.from.userId !== PARTNER_PAY_INS_OWNER) {
+          throw moveConflict(key);
+        }
+        return prior;
+      }
+      if (switches(account.userId).down) throw partnerDown();
+      if (restricted.has(account.userId)) {
+        throw new BankError(
+          'This bank account is closing or closed, so the partner bank takes no payment into it.',
+          'bank.account_restricted',
+        );
+      }
+      if (byKey.size >= MAX_MOVES) throw partnerDown();
+      if (amount <= 0n) throw new BankError('A payment in needs an amount above zero.', 'bank.partner_amount_invalid');
+      // One step, nothing awaited: the credit and its record are made together or not at all.
+      seq += 1;
+      const move: PartnerMove = Object.freeze({
+        id: `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`,
+        key,
+        from: Object.freeze(partnerPayInsAccount(account.assetId)),
+        to: Object.freeze({ ...account }),
+        amount,
+        movedAt: new Date(),
+        label: TEST_PARTNER_LABEL,
+      });
+      held.set(accountKey(account), (held.get(accountKey(account)) ?? 0n) + amount);
+      remember(move);
+      return move;
+    },
     fund(userId, funding) {
       const account: PartnerAccountRef = { userId, assetId: funding.assetId, spaceId: null };
       // Per person: one person's fund id never collides with, or tells anything about, another's.
@@ -1106,4 +1152,17 @@ export function testPartnerAccountDetails(partner: TestPartner): (userId: string
   };
   const issuer: AccountDetailsPartner = { detailsFor: answer, request: answer };
   return (userId) => (partner.switches(userId).accountDetails === 'issued' ? issuer : undefined);
+}
+
+/**
+ * Whose TEST account details an id names (J-bank-30: the payroll network credits details by their id), or null: an id
+ * the TEST partner did not issue, or details of a person it no longer issues them to (`accountDetails` switched back to
+ * `none`). The id is the one `testPartnerAccountDetails` gives.
+ */
+export function testPartnerDetailsOwner(partner: TestPartner, detailsId: string): { userId: string; currency: string } | null {
+  const found = /^test-partner:([^:]{1,64}):([A-Z]{3})$/.exec(detailsId);
+  const userId = found?.[1];
+  const currency = found?.[2];
+  if (!userId || !currency) return null;
+  return partner.switches(userId).accountDetails === 'issued' ? { userId, currency } : null;
 }

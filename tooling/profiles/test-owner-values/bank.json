@@ -64,7 +64,12 @@
     "BANK_ACCOUNT_DETAILS_CURRENCIES": {
       "service": "bank",
       "value": "EUR,GBP,USD",
-      "note": "TEST currencies listed for account details; each still answers rail.bank, as no banking partner is wired."
+      "note": "TEST currencies listed for account details; each answers rail.bank unless the person switched the TEST partner bank's details on (J-bank-01 #6, J-bank-30 #2)."
+    },
+    "BANK_DIRECT_DEPOSIT_REVERSAL_DAYS": {
+      "service": "bank",
+      "value": "5",
+      "note": "TEST days an employer may reverse a salary credit paid in by direct deposit (J-bank-30 #7); not an owner decision."
     },
     "BANK_ADDRESS_BOOK_CAP": {
       "service": "bank",

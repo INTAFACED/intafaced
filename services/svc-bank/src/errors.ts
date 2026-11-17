@@ -1352,7 +1352,25 @@ export type BankErrorCode =
   /** The account closed longer ago than the owner's reopen window. */
   | 'bank.reopen_window_passed'
   /** A data request id reused for another kind of request. */
-  | 'bank.data_request_conflict';
+  | 'bank.data_request_conflict'
+  /** The partner bank has not given the name the account is held in, so no salary form is made (J-bank-30). */
+  | 'bank.direct_deposit_holder_unknown'
+  /** A payroll credit named account details nobody holds, or in a currency they do not take. */
+  | 'bank.direct_deposit_details_unknown'
+  /** A payroll network id sent again with other details. */
+  | 'bank.direct_deposit_conflict'
+  /** A payroll credit named an account holder other than the one the partner holds the account in: returned. */
+  | 'bank.direct_deposit_name_mismatch'
+  /** A reversal named a network id the network never carried. */
+  | 'bank.direct_deposit_not_found'
+  /** A reversal of a credit that was returned or never finished. */
+  | 'bank.direct_deposit_not_received'
+  /** The owner has not published the reversal window (BANK_DIRECT_DEPOSIT_REVERSAL_DAYS). */
+  | 'bank.direct_deposit_reversal_window_unset'
+  /** A reversal after the owner's window. */
+  | 'bank.direct_deposit_reversal_window'
+  /** The account no longer holds what the employer asks back. */
+  | 'bank.direct_deposit_reversal_insufficient';
 
 export class BankError extends Error {
   constructor(
