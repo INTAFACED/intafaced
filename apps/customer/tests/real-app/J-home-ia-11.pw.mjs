@@ -626,6 +626,27 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
     // Red by name only for the outside blocker: compose refusing a blank value the tester profile has not set yet.
     if (config.status !== 0) expect(config.out).toMatch(/required variable [A-Z_]+ is missing a value/);
     expect(config.status, `BLOCKED compose_seed: a fresh compose up with the tester profile refuses to start:\n${config.out}`).toBe(0);
+    // Healthy services first: what the seed waits for (its `depends_on ... service_healthy`) comes up on its own and compose
+    // waits until each is healthy; then every service compose started reads running (healthy where it has a health check)
+    // or, for a one-shot job (migrate, nats-streams), exited 0.
+    const needs = [...seed.block.matchAll(/^ {6}([a-z0-9-]+):\n {8}condition: service_healthy$/gm)].map((m) => m[1]);
+    expect(needs.length, `the seed service waits for no healthy service:\n${seed.block}`).toBeGreaterThan(0);
+    const deps = compose(['up', '--build', '--detach', '--wait', ...needs], env, { timeout: 25 * 60_000 });
+    const depsWhy = deps.status === 0 ? '' : notHealthyLogs(env);
+    const depsTail = deps.out.trim().split('\n').slice(-40).join('\n');
+    expect(deps.status, `BLOCKED compose_seed: the services the seed needs did not turn healthy:\n${depsTail}${depsWhy}`).toBe(0);
+    const states = compose(['ps', '-a', '--format', '{{.Service}}|{{.State}}|{{.Health}}|{{.ExitCode}}'], env);
+    expect(states.status, states.out).toBe(0);
+    const services = states.out
+      .trim()
+      .split('\n')
+      .map((line) => line.split('|'));
+    expect(services.map(([svc]) => svc)).toEqual(expect.arrayContaining(needs));
+    for (const [svc, state, health, code] of services) {
+      const fine = state === 'running' ? health === '' || health === 'healthy' : state === 'exited' && code === '0';
+      expect(fine, `${svc}: ${state}${health ? `, ${health}` : ''}, exit ${code}`).toBe(true);
+    }
+    for (const svc of needs) expect(services.find(([name]) => name === svc)?.[2], `${svc} health`).toBe('healthy');
     const up = compose(['up', '--build', '--abort-on-container-exit', '--exit-code-from', 'seed', 'seed'], env, {
       timeout: 25 * 60_000,
     });
