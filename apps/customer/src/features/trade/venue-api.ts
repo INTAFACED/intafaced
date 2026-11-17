@@ -370,6 +370,50 @@ export const venueLeverageSchema = z.object({ symbol: z.string(), leverageBps: z
 export type VenueLeverage = z.infer<typeof venueLeverageSchema>;
 
 const assetAmount = z.object({ asset: z.string(), amount: signedDecimalSchema });
+/** The venue's maker and taker rates in bps (J-cex-spot-10); a maker rate below zero is the venue's rebate. */
+const feeRatesSchema = z.object({ makerFeeBps: maybeKnown(signedDecimalSchema), takerFeeBps: maybeKnown(signedDecimalSchema) });
+export type VenueFeeRates = z.infer<typeof feeRatesSchema>;
+const feeTiersSchema = z.object({
+  tiers: z.array(z.object({ name: z.string(), fromVolume: decimalSchema, spot: feeRatesSchema, perpetual: feeRatesSchema })).nullable(),
+  volumeAsset: z.string(),
+  volumeDays: z.number().int().positive(),
+});
+export type VenueFeeTiers = z.infer<typeof feeTiersSchema>;
+/** `GET /venue/fees` (J-cex-spot-10 #2): the venue's tiers, each listed market's rates and builder-fee cap, and ours. */
+export const venuePublicFeesSchema = asOf(
+  z.object({
+    venue: z.object({ id: z.string(), displayName: z.string() }),
+    schedule: feeTiersSchema,
+    markets: z.array(
+      z.object({
+        symbol: z.string(),
+        kind: z.enum(['spot', 'perpetual']),
+        makerFeeBps: maybeKnown(signedDecimalSchema),
+        takerFeeBps: maybeKnown(signedDecimalSchema),
+        builderFeeCapBps: maybeKnown(decimalSchema),
+        builderFeeBps: maybeKnown(decimalSchema),
+      }),
+    ),
+    test: z.boolean(),
+  }),
+);
+export type VenuePublicFees = z.infer<typeof venuePublicFeesSchema>;
+/** `GET /venue/fee-tier` (J-cex-spot-10 #6): the account's tier, counted volume and rates as the venue reports them. */
+export const venueFeeTierSchema = asOf(
+  z.object({
+    schedule: feeTiersSchema,
+    account: z
+      .object({
+        tierName: z.string().nullable(),
+        volume: maybeKnown(decimalSchema),
+        spot: feeRatesSchema,
+        perpetual: feeRatesSchema,
+        tierUpdatedAt: isoTime.nullable(),
+      })
+      .nullable(),
+  }),
+).and(z.object({ test: z.boolean() }));
+export type VenueFeeTier = z.infer<typeof venueFeeTierSchema>;
 export const venuePreviewSchema = z.object({
   symbol: z.string(),
   kind: z.enum(['spot', 'perpetual']),
@@ -377,6 +421,8 @@ export const venuePreviewSchema = z.object({
   role: z.enum(['maker', 'taker']),
   venueFee: maybeKnown(assetAmount),
   builderFee: maybeKnown(assetAmount),
+  // The venue's rates for this account on this market, from the preview itself (J-cex-spot-10 #1).
+  rates: feeRatesSchema.optional(),
   // What lowered our builder fee on this order (J-campaigns-09 #2): a fee-saver coupon or the rank, the larger of the two.
   feeDiscount: z
     .union([
@@ -634,6 +680,99 @@ export interface ProtectionRequest {
   attachTo?: string;
 }
 
+// ── Conditional spot orders (J-cex-spot-08; svc-trade src/venue/spot-conditionals.ts) ─────────────────────────────
+
+export const SPOT_CONDITIONAL_KINDS = ['stop_limit', 'stop_market', 'oco', 'bracket', 'oto'] as const;
+export type SpotConditionalKind = (typeof SPOT_CONDITIONAL_KINDS)[number];
+export const SPOT_LEG_ROLES = ['stop', 'take_profit', 'stop_loss', 'entry', 'close'] as const;
+export type SpotLegRole = (typeof SPOT_LEG_ROLES)[number];
+
+export const spotLegSchema = z.object({
+  role: z.enum(SPOT_LEG_ROLES),
+  side: z.enum(['buy', 'sell']),
+  type: z.enum(['limit', 'market']),
+  price: decimalSchema.nullable(),
+  triggerPrice: decimalSchema.nullable(),
+  quantity: decimalSchema,
+  restsOn: z.enum(['venue', 'engine']),
+  signedBy: z.enum(['wallet', 'agent']),
+  status: z.enum(['waiting', 'armed', 'triggered', 'open', 'partially_filled', 'filled', 'cancelled', 'failed']),
+  orderKey: z.string().nullable(),
+  venueClientOrderId: z.string().nullable(),
+  filled: decimalSchema.nullable(),
+  locked: decimalSchema.nullable(),
+  lockedAsset: z.string().nullable(),
+  linkedTo: z.enum(SPOT_LEG_ROLES).nullable(),
+});
+export type SpotLegView = z.infer<typeof spotLegSchema>;
+
+export const spotConditionalSchema = z.object({
+  id: z.string(),
+  clientOrderId: z.string(),
+  kind: z.enum(SPOT_CONDITIONAL_KINDS),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  quantity: decimalSchema,
+  status: z.enum(['entry', 'placing', 'open', 'armed', 'firing', 'cancelling', 'fired', 'filled', 'failed', 'cancelled']),
+  restsOn: z.literal('engine'),
+  label: z.string(),
+  agentPermission: z.object({ agentAddress: z.string() }),
+  triggerSource: z.literal('last'),
+  triggerPrice: decimalSchema.nullable(),
+  limitPrice: decimalSchema.nullable(),
+  takeProfitPrice: decimalSchema.nullable(),
+  entryPrice: decimalSchema.nullable(),
+  entryTif: z.enum(['GTC', 'IOC']).nullable(),
+  closePrice: decimalSchema.nullable(),
+  exitQuantity: decimalSchema.nullable(),
+  referencePrice: decimalSchema.nullable(),
+  failure: z.string().nullable(),
+  cancelReason: z.string().nullable(),
+  createdAt: z.string(),
+  legs: z.array(spotLegSchema),
+});
+export type SpotConditionalView = z.infer<typeof spotConditionalSchema>;
+
+export const spotConditionalCreatedSchema = z.union([
+  z.object({ restsOn: z.literal('venue'), actionKey: z.string(), prepared: preparedAnswerSchema.shape.prepared, reused: z.boolean() }),
+  z.object({
+    restsOn: z.literal('engine'),
+    conditional: spotConditionalSchema,
+    reused: z.boolean(),
+    entry: preparedAnswerSchema.nullable(),
+  }),
+]);
+export type SpotConditionalCreated = z.infer<typeof spotConditionalCreatedSchema>;
+
+export const spotFeeLegSchema = z.object({
+  role: z.enum(SPOT_LEG_ROLES),
+  side: z.enum(['buy', 'sell']),
+  liquidity: z.enum(['maker', 'taker']),
+  price: decimalSchema,
+  quantity: decimalSchema,
+  venueFeeBps: decimalSchema.nullable(),
+  builderFeeBps: decimalSchema.nullable(),
+  feeAsset: z.string(),
+  estimatedFee: decimalSchema.nullable(),
+});
+export type SpotFeeLeg = z.infer<typeof spotFeeLegSchema>;
+
+/** One conditional spot order: only the price fields its kind takes are sent. Amounts are decimal strings. */
+export interface SpotConditionalRequest {
+  owner: string;
+  symbol: string;
+  kind: SpotConditionalKind;
+  side: 'buy' | 'sell';
+  quantity: string;
+  triggerPrice?: string;
+  limitPrice?: string;
+  takeProfitPrice?: string;
+  entryPrice?: string;
+  entryTif?: 'GTC' | 'IOC';
+  closePrice?: string;
+  clientOrderId: string;
+}
+
 // ── Intents, as the door takes them: every Amount a decimal string ─────────────────────────────────────────────────
 
 export interface OrderIntent {
@@ -865,6 +1004,10 @@ export function venueApi(api: ApiClient) {
       read('/leverage', asOf(venueLeverageSchema.nullable()), { owner, symbol, venueId }, signal),
     builderFeeApproval: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/builder-fee-approval', asOf(decimalSchema), { owner, venueId }, signal),
+    /** The venue's published fees, its builder-fee caps and ours, signed in or not (J-cex-spot-10 #2). */
+    publicFees: (signal?: AbortSignal) => read('/fees', venuePublicFeesSchema, {}, signal),
+    /** The owner's own fee tier as the venue reports it (J-cex-spot-10 #6). */
+    feeTier: (owner: string, signal?: AbortSignal) => read('/fee-tier', venueFeeTierSchema, { owner }, signal),
     marketVenues: (symbol: string, owner: string, side: 'buy' | 'sell', signal?: AbortSignal) =>
       api.rest(`/venue/markets/${encodeURIComponent(symbol)}/venues`, marketVenuesSchema, { query: { owner, side }, signal }),
     routePreview: (owner: string, intent: OrderIntent) => write('/route-preview', routePreviewSchema, { owner, intent }),
@@ -900,6 +1043,16 @@ export function venueApi(api: ApiClient) {
     cancelProtection: (id: string) => api.rest(`/venue/protections/${encodeURIComponent(id)}`, protectionViewSchema, { method: 'DELETE' }),
     protectionAgent: (owner: string, signal?: AbortSignal) => read('/protection-agent', protectionAgentSchema, { owner }, signal),
     prepareProtectionAgent: (owner: string) => write('/protection-agent/prepare', preparedAnswerSchema, { owner }),
+    /** The person's conditional spot orders: stops, OCOs, brackets and linked closes (J-cex-spot-08). */
+    spotOrders: (owner: string, signal?: AbortSignal) =>
+      read('/spot-orders', z.object({ orders: z.array(spotConditionalSchema) }), { owner }, signal),
+    createSpotOrder: (input: SpotConditionalRequest) => write('/spot-orders', spotConditionalCreatedSchema, input),
+    reviewSpotOrder: (input: SpotConditionalRequest) => write('/spot-orders/review', z.object({ legs: z.array(spotFeeLegSchema) }), input),
+    modifySpotOrder: (id: string, body: { triggerPrice: string; limitPrice?: string }) =>
+      api.rest(`/venue/spot-orders/${encodeURIComponent(id)}`, spotConditionalSchema, { method: 'PATCH', body }),
+    cancelSpotOrder: (id: string) => api.rest(`/venue/spot-orders/${encodeURIComponent(id)}`, spotConditionalSchema, { method: 'DELETE' }),
+    spotAgent: (owner: string, signal?: AbortSignal) => read('/spot-agent', protectionAgentSchema, { owner }, signal),
+    prepareSpotAgent: (owner: string) => write('/spot-agent/prepare', preparedAnswerSchema, { owner }),
   };
 }
 export type VenueApi = ReturnType<typeof venueApi>;

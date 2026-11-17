@@ -1,5 +1,11 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { ChainNotConfiguredError, ChainSendRefusedError, type ConfirmedTransfer, type CryptoChainPort } from './chain-port.js';
+import {
+  ChainNotConfiguredError,
+  ChainSendRefusedError,
+  type ConfirmedTransfer,
+  type CryptoChainPort,
+  type SendDepth,
+} from './chain-port.js';
 import {
   railFailure,
   railHealthStaleReason,
@@ -587,7 +593,7 @@ export class CryptoNativeAdapter implements RailAdapter {
   }
 
   /** The send's depth on the chain; the caller compares it with the owner's settle depth. The chain cannot say: `null`. */
-  async payoutDepth(s: SettlementInstruction): Promise<number | null> {
+  async payoutDepth(s: SettlementInstruction): Promise<SendDepth> {
     try {
       return await this.chain.sendDepth(this.payoutIdempotencyKey(s));
     } catch {

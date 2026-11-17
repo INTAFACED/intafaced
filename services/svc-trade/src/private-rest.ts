@@ -105,6 +105,8 @@ import type { OwnAgentRebalance } from './venue/own-agent-rebalance.js';
 import { attachOwnAgentTradingRoutes } from './venue/own-agent-trading-rest.js';
 import { attachProtectionRoutes } from './venue/protections-rest.js';
 import type { VenueProtections } from './venue/protections.js';
+import { attachSpotConditionalRoutes } from './venue/spot-conditionals-rest.js';
+import type { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { attachLiveRunRoutes } from './quant/live-run/rest.js';
 import type { LiveRuns } from './quant/live-run/live-runs.js';
 import type { OwnAgentTrading } from './venue/own-agent-trading.js';
@@ -238,6 +240,8 @@ export interface PrivateRestDeps {
   ownAgentRebalance?: OwnAgentRebalance | null;
   /** A position's protections on the person's own venue account (J-derivatives-03); off with the door. */
   venueProtections?: VenueProtections | null;
+  /** Conditional spot orders on the person's own venue account (J-cex-spot-08); off with the door. */
+  venueSpotConditionals?: VenueSpotConditionals | null;
   /** Live strategy runs (J-algo-dev-07); null with the user-venue door off. */
   liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
@@ -1489,6 +1493,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     regionOf: (req) => contextFrom(req).region,
   });
   attachProtectionRoutes(app, deps.venueProtections ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    agentKeyConfined,
+    regionOf: (req) => contextFrom(req).region,
+  });
+  attachSpotConditionalRoutes(app, deps.venueSpotConditionals ?? null, {
     requirePrincipal,
     requireTradeJurisdiction,
     agentKeyConfined,

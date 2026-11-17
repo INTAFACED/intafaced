@@ -576,10 +576,27 @@ services:
     container_name: intafaced-svc-fix
     profiles: ['fix']
     restart: unless-stopped
-    command: ['java', '-cp', '/app/svc-fix.jar', 'io.intafaced.fix.FixAcceptorMain']
+    command:
+      [
+        'java',
+        '-javaagent:/app/opentelemetry-javaagent.jar',
+        '-cp',
+        '/app/svc-fix.jar',
+        'io.intafaced.fix.FixAcceptorMain',
+      ]
     environment:
       <<: *internal-secret
       SERVICE_NAME: svc-fix
+      # Tracing, through the OpenTelemetry Java agent in the image: the fleet's one OTEL_ENABLED switch, the same
+      # collector, traces only (the Node services export no metrics or logs either).
+      OTEL_JAVAAGENT_ENABLED: ${OTEL_ENABLED:-true}
+      OTEL_SERVICE_NAME: svc-fix
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      # The operator's off switch for FIX order entry (flag fix.gateway). Unset is on; off turns new orders away.
+      FIX_GATEWAY_ENABLED: ${FIX_GATEWAY_ENABLED:-}
       MATCHING_BASE_URL: http://svc-matching:4005
       FIX_COMPID_ACCOUNT_JSON: ${FIX_COMPID_ACCOUNT_JSON:-}
       FIX_BEGIN_STRING: ${FIX_BEGIN_STRING:-}

@@ -12,7 +12,7 @@
  *                                                     the test part's input alone from a local clone, for the proof runs
  *
  * Why it exists: proof v2's post-merge reach reads voided 545 proofs over one harness change that, judged once in its
- * own PR, altered nothing the tests observe (project-state research/system-design-2026-11-07/E1-RESULT.md). The test
+ * own PR, altered nothing the tests observe (project-state product/E1-RESULT.md). The test
  * part rules before merge instead, and the seal (review-marker.mjs, JUDGE_CHECK) waits for its Test verdict step on the
  * exact head whenever judgeReason names a changed file. A FAIL stands for its head and its code, like the review's.
  *

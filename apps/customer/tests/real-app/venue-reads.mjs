@@ -9,9 +9,8 @@ import { venueRecord } from './venue.mjs';
 /** The LOCAL TEST venue's own loopback address (local-test-stack.mjs PORTS['test-venue']). */
 export const TEST_VENUE = stackUrl('test-venue');
 
-/** The venue's markets for the venue journeys (local-test-venue.mjs: BTC-USDC cash spot, BTC-PERP isolated only). */
+/** The venue's cash spot market for the venue journeys (local-test-venue.mjs). */
 export const VENUE_SPOT = 'BTC-USDC';
-export const VENUE_PERP = 'BTC-PERP';
 
 /** Trade restarted with LOCAL_STACK_USER_VENUE set to `value`, or unset. */
 function restartTrade(value) {
@@ -99,11 +98,6 @@ export async function venueOrder(who, owner, clientOrderId) {
 /** The venue's fills for `owner` since `since`. */
 export async function venueFills(who, owner, since) {
   return (await venueRead(who, 'fills', owner, { since: since.toISOString() })).value;
-}
-
-/** The venue's positions for `owner`. */
-export async function venuePositions(who, owner) {
-  return (await venueRead(who, 'positions', owner)).value;
 }
 
 /** One of the LOCAL TEST venue's own routes (its reads and its TEST controls), straight on loopback. */

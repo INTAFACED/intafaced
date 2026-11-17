@@ -66,7 +66,7 @@ const messages = {
   'identity.us_person_blocked':
     'We cannot open accounts for US persons (US citizens, green-card holders and US residents, wherever they live). This is from your own answer. Nothing was created.',
   'identity.us_person_unanswered': 'Answer whether you are a US person. We never take a blank answer as no. Nothing was created.',
-  'identity.screening_unset': 'Sign-up is paused: the sanctions screening list is not set. Nothing was created.',
+  'identity.screening_unset': 'Sign-up is paused: the blocked-countries list is not set. Nothing was created.',
   'identity.signup_expired': 'This sign-up has run out. Start again with your details.',
   'identity.signup_code_invalid': 'That code is not right. Check the newest email and try again.',
   'identity.signup_code_used': 'That code was already used, so your account may already be open. Sign in.',

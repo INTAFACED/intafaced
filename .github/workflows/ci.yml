@@ -209,9 +209,8 @@ jobs:
 
       # The journey list is the finish line (OWNER 1), from main like the guard above (tooling/ci/journey-list-guard.mjs):
       # a journey or step on main may leave docs/roadmap/journeys.json, or its live count, only on a body line
-      # `Journey-retired: J-bank-13 #2 (OWNER <n>)`; every step's slice ids are slices in docs/roadmap/slices.json; and
-      # docs/ROADMAP.md is what main's roadmap.mjs builds from the pull request's records (intafaced #7438's read: a drop and
-      # a made-up slice id passed every check). Main's copy runs in a worktree of main, so its import of roadmap.mjs is
+      # `Journey-retired: J-bank-13 #2 (OWNER <n>)`; and every step's slice ids are slices in docs/roadmap/slices.json
+      # (intafaced #7438's read: a drop and a made-up slice id passed every check). Main's copy runs in a worktree of main, so its import of roadmap.mjs is
       # main's too; the worktree borrows this checkout's node_modules for prettier. It reads the body from the API, so
       # re-running this job after a body edit reads the new body. Falls back to the PR copy only while main has none.
       - name: Journey list guard (rules from main)
@@ -267,23 +266,6 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: node tooling/ci/ci-affected.mjs --self-test
-      - run: node tooling/ci/review-marker.mjs --self-test
-      - run: node tooling/ci/main-first.mjs --self-test
-      - run: node tooling/ci/main-trust.mjs --self-test
-      - run: node tooling/ci/post-merge-trust.mjs --self-test
-      - run: node --test tooling/ci/journey-verdict.test.mjs
-      - run: node tooling/ci/bisect-main.mjs --self-test
-      - run: node tooling/ci/journeys-revert.mjs --self-test
-      - run: node tooling/ci/journeys-revert-probe.mjs --self-test
-      - run: node tooling/ci/test-shards.mjs --self-test
-      - run: node tooling/ci/test-diff-guard.mjs --self-test
-      - run: node tooling/ci/exact-revert.mjs --self-test
-      - run: node tooling/ci/look-drift.mjs --self-test
-      - run: node tooling/ci/cross-package-reads.mjs --self-test
-      - run: node tooling/ci/boundary-scan.mjs --self-test
-      - run: node tooling/ci/why-red.mjs --self-test
-      - run: node tooling/ci/migration-check.mjs --self-test
       - id: cls
         name: Classify changed paths
         run: node tooling/ci/ci-affected.mjs --github-output

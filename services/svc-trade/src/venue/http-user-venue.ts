@@ -6,6 +6,7 @@ import {
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type VenueFeeStatus,
   type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
@@ -324,6 +325,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
     return this.read('/builder-fee-approval', { account, builder });
+  }
+
+  feeStatus(account: UserVenueAccount | null): Promise<AsOf<VenueFeeStatus>> {
+    return this.read('/fee-status', { account });
   }
 
   /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */

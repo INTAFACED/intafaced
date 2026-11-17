@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { asset, campaignDecimal, id, iso } from './campaigns-base.js';
 
-/** The question a tier on a points basis waits on (OWNER 87), named in plain words wherever it is shown. */
+/** The question a tier on a points basis waits on, named in plain words wherever it is shown. */
 export const POINTS_TIER_OWNER_QUESTION =
   'Should a loyalty tier be reached on points, and with which thresholds and point values? Until the owner decides, tiers are reached on spend only.';
 

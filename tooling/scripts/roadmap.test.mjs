@@ -25,7 +25,6 @@ import {
   passedSteps,
   progress,
   queue,
-  render,
   untangle,
 } from './roadmap.mjs';
 
@@ -299,16 +298,11 @@ test('a parked journey or step stays in the map, leaves the count and the slice 
   assert.match(page, /Passing in the real app on main: 1 of 1 journeys \(2 of 2 steps\)\./);
   assert.match(page, /Parked by the owner \(OWNER 183\) and not counted: 1 whole journey and 2 steps\./);
   assert.doesNotMatch(page, /Deferred/);
-  const map = render([], journeys);
-  assert.match(map, /### Parked/);
-  assert.match(map, /J-cex-spot-02 I retry safely \| whole journey \| after launch/);
-  assert.match(map, /J-cex-spot-01 I sign up and trade \| steps #2 \| after launch \(OWNER 183\)/);
   // Unparked: the same map without the marks is all live again.
   assert.deepEqual(
     liveJourneys(parseJourneys(JOURNEY, 'cex-spot')).map((j) => j.steps.length),
     [3, 1],
   );
-  assert.doesNotMatch(render([], parseJourneys(JOURNEY, 'cex-spot')), /### Parked/);
   // A live step that still names the slice keeps it in the order: a capability another journey needs is never parked.
   const keep = journeys.map((j) => (j.id === 'J-cex-spot-02' ? { ...j, parked: undefined } : j));
   assert.equal(journeyOrder(keep).get('SP-order-entry-01'), 2);
@@ -387,7 +381,6 @@ test('a journey whose every step is parked one by one counts as parked, and the 
   assert.match(page, /1 journeys, 2 steps\./);
   assert.match(page, /Deferred \(launch prep, or set aside by an owner decision\) and not counted: 0 journeys and 1 step\./);
   assert.match(page, /Parked by the owner \(OWNER 183\) and not counted: 1 whole journey and 1 step\./);
-  assert.match(render([], journeys), /J-cex-spot-02 I retry safely \| whole journey \| after launch \(OWNER 183\)/);
 });
 
 test('a skipped step, a step with no tests, or a failing duplicate title does not pass', () => {

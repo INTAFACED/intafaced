@@ -1,4 +1,4 @@
-import { abs, compare, div, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { abs, add, compare, div, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   type AsOf,
   type MaybeKnown,
@@ -14,6 +14,8 @@ import {
   type UserVenueWithdrawal,
   type VenueBook,
   type VenueBookLevel,
+  type VenueFeeStatus,
+  type VenueFeeTier,
   type VenueOrderStatus,
   type VenueTimeInForce,
 } from '@intafaced/venue-contracts';
@@ -392,6 +394,58 @@ export abstract class HyperliquidReads extends HyperliquidCore {
       );
     }
     return this.asOf(null);
+  }
+
+  /**
+   * `UserVenue.feeStatus` from `userFees` (J-cex-spot-10 #2 #6): the published tiers are `feeSchedule`'s base rates (from
+   * zero) and its `tiers.vip` rows by `ntlCutoff`, named by their place ("Tier 0" the base), as the venue names none; the
+   * account's volume is the sum of its `dailyUserVlm` days (`userCross` + `userAdd`) and its rates are `user*Rate`.
+   * Hyperliquid reports no tier name and no time it last placed the account, so both are not known (`null`). With no
+   * account, the schedule is read for the zero address, which every account shares.
+   */
+  async feeStatus(account: UserVenueAccount | null): Promise<AsOf<VenueFeeStatus>> {
+    const user = account ? this.user(account) : '0x0000000000000000000000000000000000000000';
+    const fees = obj(await this.info({ type: 'userFees', user }), 'userFees');
+    const rate = (o: { [key: string]: Json }, field: string): MaybeKnown<Amount> =>
+      typeof o[field] === 'string' ? { known: true, value: rateToBps(o[field]) } : { known: false };
+    const ratesOf = (o: { [key: string]: Json }, prefix: '' | 'spot') => ({
+      makerFeeBps: rate(o, prefix ? 'spotAdd' : 'add'),
+      takerFeeBps: rate(o, prefix ? 'spotCross' : 'cross'),
+    });
+    let tiers: VenueFeeTier[] | null = null;
+    if (fees.feeSchedule !== undefined) {
+      const schedule = obj(fees.feeSchedule, 'feeSchedule');
+      const vip = schedule.tiers === undefined ? [] : arr(obj(schedule.tiers, 'feeSchedule.tiers').vip ?? [], 'feeSchedule.tiers.vip');
+      tiers = [
+        { name: 'Tier 0', fromVolume: ZERO, spot: ratesOf(schedule, 'spot'), perpetual: ratesOf(schedule, '') },
+        ...vip.map((raw, i) => {
+          const t = obj(raw, 'vip tier');
+          return { name: `Tier ${i + 1}`, fromVolume: amt(t.ntlCutoff, 'ntlCutoff'), spot: ratesOf(t, 'spot'), perpetual: ratesOf(t, '') };
+        }),
+      ];
+    }
+    let volume: MaybeKnown<Amount> = { known: false };
+    if (Array.isArray(fees.dailyUserVlm)) {
+      let total = ZERO;
+      for (const raw of fees.dailyUserVlm) {
+        const day = obj(raw, 'dailyUserVlm day');
+        total = add(add(total, amt(day.userCross, 'userCross')), amt(day.userAdd, 'userAdd'));
+      }
+      volume = { known: true, value: total };
+    }
+    const own = (taker: string, maker: string) => ({ makerFeeBps: rate(fees, maker), takerFeeBps: rate(fees, taker) });
+    return this.asOf({
+      schedule: { tiers, volumeAsset: PERP_QUOTE, volumeDays: 14 },
+      account: account
+        ? {
+            tierName: null,
+            volume,
+            spot: own('userSpotCrossRate', 'userSpotAddRate'),
+            perpetual: own('userCrossRate', 'userAddRate'),
+            tierUpdatedAt: null,
+          }
+        : null,
+    });
   }
 
   async builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {

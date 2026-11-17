@@ -368,7 +368,6 @@ export const SHARED_SETUP = [
   { glob: 'tooling/scripts/local-stack-fixtures/**' },
   { glob: 'tooling/scripts/local-test-*.mjs' },
   { glob: 'tooling/scripts/journey-world.mjs' },
-  { glob: 'tooling/scripts/local-infra-bootstrap.sh' },
   { glob: 'apps/customer/tests/real-app/**', unless: /\.pw\.mjs$/, trigger: 'apps/**' },
 ];
 /** A GitHub `paths:` glob as a regular expression: `**` any characters, `*` any but `/`. */

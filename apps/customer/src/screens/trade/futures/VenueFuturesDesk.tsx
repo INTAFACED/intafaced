@@ -20,6 +20,7 @@ import {
   type VenueGatedContract,
   type VenueMarginMode,
   type VenueMarket,
+  type VenueOrder,
   type VenuePosition,
   type VenuePreview,
   type VenueSession,
@@ -41,6 +42,7 @@ import {
   VenueHeader,
   WalletBar,
   heldKeys,
+  heldTags,
   outcomeText,
   keepsDraft,
   ReadBack,
@@ -58,6 +60,9 @@ import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
 import { slippageLimit } from '../desk/venue-desk';
+import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
+import { VenueDeadMan } from '../desk/VenueDeadMan';
+import { spotVenueCopy } from '../desk/venue-copy';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
 import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
 import { venueProtectCopy } from './venue-protect-copy';
@@ -72,6 +77,8 @@ const RESTING_TYPES = ['stop', 'take_profit', 'trailing_stop'] as const;
 const MODES: readonly VenueMarginMode[] = ['isolated', 'cross'];
 /** How far from the mark a close's worst price sits when it is a limit order (no market type), in percent. */
 const CLOSE_SLIPPAGE_PERCENT = 5n;
+/** A label the person puts on an order: the orders room's own rule (up to 36 letters, digits and . _ : -, no spaces). */
+export const ORDER_LABEL = /^[A-Za-z0-9._:-]{1,36}$/;
 
 /** The futures desk in venue mode: every perpetual the venue lists, on the customer's own venue account. */
 export function VenueFuturesDesk({ mode, symbol }: { mode: Extract<VenueMode, { mode: 'on' }>; symbol: string | null }) {
@@ -724,6 +731,7 @@ function Ticket({
   const [takeProfit, setTakeProfit] = useState('');
   const [stopLoss, setStopLoss] = useState('');
   const [reduceOnly, setReduceOnly] = useState(false);
+  const [label, setLabel] = useState('');
   const [attached, setAttached] = useState<Attached | null>(null);
   const p = venueProtectCopy.useCopy().t;
   const r = venueRiskCopy.useCopy().t;
@@ -735,6 +743,14 @@ function Ticket({
   const counter = useRef(0);
   const sending = useRef(false);
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
+  const tags = useMemo(() => heldTags(owner), [owner]);
+  /** The order's key held for a Cancel after a reload, and its label kept beside it (the venue stores no label). */
+  const hold = (answer: ActionResult, intent: OrderIntent) => {
+    if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId) {
+      keysHeld.set(answer.clientOrderId, intent.clientOrderKey);
+      if (label.trim() !== '') tags.set(answer.clientOrderId, label.trim());
+    }
+  };
   const assets = [...new Set([market.quoteAsset, ...(account.balances.data?.value.map((b) => b.asset) ?? [])])];
   const offered = market.orderTypes.filter((x): x is 'limit' | 'market' => x === 'limit' || x === 'market');
 
@@ -751,6 +767,7 @@ function Ticket({
       );
     if (!taken && marginAsset !== market.quoteAsset)
       return setProblem(t('Margin mismatch', { symbol: market.symbol, settle: market.quoteAsset, asset: marginAsset }));
+    if (label.trim() !== '' && !ORDER_LABEL.test(label.trim())) return setProblem(t('Label bad'));
     if (!size.trim()) return setProblem(v('Enter amount'));
     if (!price.trim()) return setProblem(v('Enter price'));
     if (!onStep(size, market.lotSize)) return setProblem(v('Not a step', { field: v('Amount'), step: market.lotSize }));
@@ -792,8 +809,7 @@ function Ticket({
     sending.current = true;
     const answer = await run(review.intent);
     sending.current = false;
-    if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
-      keysHeld.set(answer.clientOrderId, review.intent.clientOrderKey);
+    hold(answer, review.intent);
     setResult(answer);
     setLast(answer);
     account.reload();
@@ -899,6 +915,10 @@ function Ticket({
         <span>{p('Reduce-only')}</span>
       </label>
       <label className="field">
+        <span>{t('Label optional')}</span>
+        <input aria-label={t('Label optional')} value={label} onChange={(e) => setLabel(e.target.value)} />
+      </label>
+      <label className="field">
         <span>{t('Margin asset')}</span>
         <select aria-label={t('Margin asset')} value={marginAsset} onChange={(e) => setMarginAsset(e.target.value)}>
           {assets.map((a) => (
@@ -928,8 +948,7 @@ function Ticket({
           resend={resend}
           confirmLabel={side === 'buy' ? t('Open long') : t('Open short')}
           onSent={(answer) => {
-            if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
-              keysHeld.set(answer.clientOrderId, routed.intent.clientOrderKey);
+            hold(answer, routed.intent);
             setLast(answer);
             account.reload();
           }}
@@ -1080,9 +1099,17 @@ function Blotter({
   run: RunAction;
 }) {
   const { t } = futuresVenueCopy.useCopy();
+  const s = spotVenueCopy.useCopy().t;
   const [tab, setTab] = useState<'positions' | 'orders' | 'history'>('positions');
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
+  const tags = useMemo(() => heldTags(owner), [owner]);
+  const tagOf = (clientOrderId: string) => tags.get(clientOrderId);
   const [cancelResult, setCancelResult] = useState<ActionResult | null>(null);
+  // J-derivatives-04 #3, #4: a resting order changed (amended in place, or a reviewed cancel-and-replace) and orders
+  // cancelled by id, by contract and by label, singly and in one signed batch.
+  const [editing, setEditing] = useState<VenueOrder | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const open = account.openOrders.data?.value ?? [];
   const positions = account.positions.data;
   return (
     <section className="dk-panel" data-testid="venue-blotter">
@@ -1110,15 +1137,64 @@ function Blotter({
             orders={account.openOrders.data}
             test={status.test}
             cancelled={[]}
+            tagOf={tagOf}
+            onEdit={setEditing}
+            select={{
+              selected,
+              header: s('Select'),
+              label: (id) => s('Select order', { id }),
+              onToggle: (id) =>
+                setSelected((now) => {
+                  const next = new Set(now);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                }),
+            }}
             onCancel={(o) => {
-              const key = o.venueClientOrderId ? keysHeld.get(o.venueClientOrderId) : undefined;
-              if (key)
-                void run({ kind: 'cancel_order', symbol: o.symbol, clientOrderKey: key }).then(
-                  (r) => (setCancelResult(r), account.reload()),
-                );
+              const id = o.venueClientOrderId;
+              if (!id) return;
+              const key = keysHeld.get(id);
+              const done = (r: ActionResult) => (setCancelResult(r), account.reload());
+              if (key) void run({ kind: 'cancel_order', symbol: o.symbol, clientOrderKey: key }).then(done);
+              // An order this page didn't place (a replacement, or one placed elsewhere) is cancelled by its venue id,
+              // under one key per order, so a second press is the same cancel.
+              else if ((status.cancelsPerAction ?? 0) >= 1)
+                void run(
+                  { kind: 'cancel_orders', orders: [{ symbol: o.symbol, venueClientOrderId: id }] },
+                  { actionKey: keys.cancelBatch(owner, `one-${id.slice(2)}`) },
+                ).then(done);
             }}
           />
           <OutcomeLine result={cancelResult} owner={owner} />
+          <VenueDeadMan status={status} owner={owner} run={run} />
+          <VenueCancelMany
+            orders={open}
+            market={market}
+            markets={[market]}
+            status={status}
+            owner={owner}
+            run={run}
+            spotOnly={false}
+            labelOf={tagOf}
+            selected={open.filter((o) => o.venueClientOrderId && selected.has(o.venueClientOrderId))}
+            onDone={() => {
+              setSelected(new Set());
+              account.reload();
+            }}
+          />
+          {editing ? (
+            <VenueEditOrder
+              key={editing.venueClientOrderId ?? ''}
+              order={editing}
+              market={editing.symbol === market.symbol ? market : null}
+              status={status}
+              owner={owner}
+              run={run}
+              onDone={account.reload}
+              onClose={() => setEditing(null)}
+            />
+          ) : null}
         </>
       ) : (
         <>

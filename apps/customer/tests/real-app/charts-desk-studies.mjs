@@ -8,7 +8,7 @@ const SYMBOL = 'BTC/USDT';
 
 /** The open TEST market no journey trades and the market maker never quotes (tooling/scripts/seed-spot-test-listing.mjs
  * `UNTRADED_TEST_SPOT`), so its public tape is empty whatever ran before it on the stack. */
-export const UNTRADED = 'IFC/BTC';
+const UNTRADED = 'IFC/BTC';
 
 /**
  * The open spot market whose public tape holds no trade, checked on the public routes (the markets list, its lifecycle,
@@ -180,8 +180,7 @@ export const F = {
 };
 
 /** A study line's shown value at the legend's bar, by the series name the legend writes. */
-export const shownValue = (page, id, name) =>
-  page.locator(`[data-study="${id}"]`).locator(`[data-series="${name}"] .st-value-text`).first();
+const shownValue = (page, id, name) => page.locator(`[data-study="${id}"]`).locator(`[data-series="${name}"] .st-value-text`).first();
 
 /**
  * Waits until every listed line of a study shows its worked value to the tick: the shown number is the worked value

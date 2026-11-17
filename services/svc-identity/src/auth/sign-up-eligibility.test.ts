@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { assertEligible, SignUpError, subdivisionCode, type SignUpStart } from './sign-up.js';
+import { assertEligible, countryListUnset, SignUpError, subdivisionCode, type SignUpStart } from './sign-up.js';
 
 // This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
 // the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
@@ -103,6 +103,14 @@ describe('sign-up residence and citizenship (Hyperliquid terms 1.6, OWNER 258)',
     expect(codeOf({ country: 'DE' })).toBe('identity.screening_unset');
     expect(codeOf({ country: 'CA' })).toBe('identity.screening_unset');
     expect(codeOf({ country: 'DE', nationality: 'US' })).toBe('identity.screening_unset');
+  });
+
+  it('sign-in reads the list as unset exactly when sign-up refuses identity.screening_unset (J-identity-22 #1)', () => {
+    expect(countryListUnset()).toBe(false);
+    expect(codeOf({ country: 'DE' })).toBe('allowed');
+    delete process.env.INTAFACED_SANCTIONS_REGIONS;
+    expect(countryListUnset()).toBe(true);
+    expect(codeOf({ country: 'DE' })).toBe('identity.screening_unset');
   });
 });
 

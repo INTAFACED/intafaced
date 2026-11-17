@@ -6,11 +6,8 @@
  * matrix), plus the Core and infrastructure work §25 does not list because it
  * predates the surfaces.
  *
- * This file is DATA. `pnpm tracker` renders it to docs/TRACKER.md and validates
- * it against what is actually in the repo — a feature cannot claim `done` if the
- * service it lives in does not exist. That validation is the whole point: a
- * tracker nobody trusts is worse than no tracker, and the way trackers become
- * untrustworthy is by drifting from the code.
+ * This file is DATA. Its renderer and the generated status board were removed;
+ * active work and owners are the open GitHub PRs and issues.
  *
  * ── How to use this as a developer ──────────────────────────────────────────
  * Pick anything with status `ready`. That means its dependencies are `done`, so

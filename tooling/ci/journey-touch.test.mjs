@@ -1318,8 +1318,8 @@ test('DOCS_READ holds every doc the journeys run, the stack or a service names b
       ...[...cmd.matchAll(/\bpnpm\s+(?:run\s+)?([\w:.-]+)/g)].flatMap((m) => scriptFiles(m[1], depth + 1)),
     ];
   };
-  // Its own inline cases (paths a rule is tested on, never read): the review marker's, and this rule's own.
-  const SELF_CASES = new Set(['tooling/ci/review-marker.mjs', 'tooling/ci/journey-touch.mjs']);
+  // Its own inline cases (paths a rule is tested on, never read): this rule's own.
+  const SELF_CASES = new Set(['tooling/ci/journey-touch.mjs']);
   const covered = (n) => DOCS_READ.some((d) => n === d || `${n}/` === d || n.startsWith(d));
   const seen = new Set();
   const missed = [];
