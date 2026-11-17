@@ -47,6 +47,7 @@ import {
   type ActionResult,
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
+import { rateShown } from '../../../features/trade/venue/fee-rates';
 import { bpsPercent, builderApproved, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
 import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
@@ -432,6 +433,7 @@ export function VenueSpotDesk({
   return (
     <div data-testid="if-desk" className="if-desk" data-market={market.symbol} data-venue="on">
       <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
+      <FeeCurrencyRow />
       <VenueMarketPanel
         market={market}
         test={status.test}
@@ -835,7 +837,11 @@ type Live =
       signature: string;
       state: 'refused';
       message: string;
+      code?: string;
     };
+
+/** J-cex-spot-10 #3: the venue door refuses before preparing anything while our builder fee is blank. */
+const BUILDER_FEE_BLANK = 'trade.venue.builder_fee_not_published';
 
 /** How long the ticket waits after the last keystroke before it asks the venue for its preview. */
 const PREVIEW_DEBOUNCE_MS = 250;
@@ -945,7 +951,11 @@ function VenueSideForm({
     const timer = setTimeout(() => {
       void venue.preview(owner, intent).then((answer) => {
         if (gone) return;
-        setLive(answer.ok ? { signature, state: 'ok', preview: answer.data } : { signature, state: 'refused', message: answer.message });
+        setLive(
+          answer.ok
+            ? { signature, state: 'ok', preview: answer.data }
+            : { signature, state: 'refused', message: answer.message, ...(answer.code ? { code: answer.code } : {}) },
+        );
       });
     }, PREVIEW_DEBOUNCE_MS);
     return () => {
@@ -980,7 +990,8 @@ function VenueSideForm({
       return setReview({ intent, preview: fresh });
     }
     const answer = await venue.preview(owner, intent);
-    if (!answer.ok) return setProblem(t('Not placeable', { detail: answer.message }));
+    if (!answer.ok)
+      return setProblem(answer.code === BUILDER_FEE_BLANK ? v('Builder fee owner blank') : t('Not placeable', { detail: answer.message }));
     if (balances && lockShortfall(answer.data.value, balances)) return;
     setMoved(false);
     setReviewProblem(null);
@@ -1236,8 +1247,8 @@ function VenueSideForm({
         ) : live?.state === 'checking' ? (
           <p className="dk-note">{t('Checking venue')}</p>
         ) : live?.state === 'refused' ? (
-          <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-refused">
-            {t('Not placeable', { detail: live.message })}
+          <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-refused" data-code={live.code ?? ''}>
+            {live.code === BUILDER_FEE_BLANK ? v('Builder fee owner blank') : t('Not placeable', { detail: live.message })}
           </p>
         ) : short ? (
           <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-short">
@@ -1518,6 +1529,41 @@ function VerifySideForm({ side, type, base, quote }: { side: VenueSide; type: Ve
 /** Places a typed figure keeps on the unverified desk, where the venue's own steps were not read. */
 const VERIFY_PLACES = 8;
 
+/** A venue rate from the preview: the percent, "Zero fee", or the venue's rebate; "not known" where it publishes none. */
+function rateText(
+  t: ReturnType<typeof spotVenueCopy.useCopy>['t'],
+  v: ReturnType<typeof venueCopy.useCopy>['t'],
+  rate: { known: true; value: string } | { known: false },
+): string {
+  if (!rate.known) return v('Not known');
+  const shown = rateShown(rate.value);
+  return shown.kind === 'zero'
+    ? t('Rate zero')
+    : shown.kind === 'rebate'
+      ? t('Rate rebate', { pct: shown.value })
+      : t('Rate pct', { pct: shown.value });
+}
+
+/**
+ * J-cex-spot-10 #9: the fee currency choice. At launch the venue charges its fee in the fill's own coin and INTAFACED holds
+ * none of the person's coins, so paying in IFC is shown, disabled, with its reason; pressing it sends nothing.
+ */
+export function FeeCurrencyRow() {
+  const { t } = spotVenueCopy.useCopy();
+  return (
+    <section className="dk-panel form-stack" aria-label={t('Fee currency')} data-testid="venue-fee-currency">
+      <h2 className="dk-tab-title">{t('Fee currency')}</h2>
+      <p data-line="fee-currency-venue">{t('Fee currency venue')}</p>
+      <button type="button" className="button" disabled aria-describedby="venue-fee-currency-ifc-reason" data-fee-currency="IFC">
+        {t('Fee currency IFC')}
+      </button>
+      <p id="venue-fee-currency-ifc-reason" className="muted">
+        {t('Fee currency IFC reason')}
+      </p>
+    </section>
+  );
+}
+
 /** The review's lines, all from the venue's preview (a builder fee with no approval says so). */
 export function VenueReviewRows({
   intent,
@@ -1587,6 +1633,16 @@ export function VenueReviewRows({
             </dd>
           </div>
         ) : null}
+        <div>
+          <dt>{t('Venue rates')}</dt>
+          <dd data-line="venue-rates">
+            {p.rates ? (
+              t('Venue rates line', { maker: rateText(t, v, p.rates.makerFeeBps), taker: rateText(t, v, p.rates.takerFeeBps) })
+            ) : (
+              <Known value={{ known: false }} />
+            )}
+          </dd>
+        </div>
         <div>
           <dt>{t('Fee role')}</dt>
           <dd data-line="role">{word(v, 'role', p.role)}</dd>

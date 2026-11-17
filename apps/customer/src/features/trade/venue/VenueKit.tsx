@@ -30,6 +30,7 @@ import {
 } from '../venue-api';
 import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
+import { feeShown } from './fee-rates';
 
 type T = ReturnType<typeof venueCopy.useCopy>['t'];
 
@@ -608,7 +609,7 @@ export function FillsTable({
               ) : null}
               <td data-cell="role">{word(t, 'role', f.role)}</td>
               <td className="numeric" data-cell="venue-fee">
-                {f.venueFee}
+                <VenueFeeCell amount={f.venueFee} />
               </td>
               <td className="numeric" data-cell="builder-fee">
                 {f.builderFee}
@@ -625,6 +626,23 @@ export function FillsTable({
       <AsOfLine asOf={fills?.asOf ?? null} />
     </div>
   );
+}
+
+/**
+ * The venue's fee on one fill as it charged it (J-cex-spot-10 #4): "Zero fee" where it charged none, and a fee below zero
+ * as the venue's rebate paid to the person, never a negative fee.
+ */
+function VenueFeeCell({ amount }: { amount: string }) {
+  const { t } = venueCopy.useCopy();
+  const shown = feeShown(amount);
+  if (shown.kind === 'zero') return <span data-fee="zero">{t('Fill zero fee')}</span>;
+  if (shown.kind === 'rebate')
+    return (
+      <span data-fee="rebate" data-rebate={shown.value}>
+        {t('Fill venue rebate', { amount: shown.value })}
+      </span>
+    );
+  return <>{amount}</>;
 }
 
 /** A fill's total: its price times its size, exact (both are the venue's decimals). */

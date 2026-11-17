@@ -907,8 +907,12 @@ export class UserVenueDoor {
    * codes do not apply to the buying side of spot trades", Hyperliquid's builder-codes page, read 9 Nov 2026;
    * project-state #1888).
    */
-  private async withBuilderFee(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<PlaceUserOrderIntent> {
-    const kind = await this.marketKind(venue, intent.symbol);
+  private async withBuilderFee(
+    venue: UserVenue,
+    intent: PlaceUserOrderIntent,
+    knownKind?: 'spot' | 'perpetual',
+  ): Promise<PlaceUserOrderIntent> {
+    const kind = knownKind ?? (await this.marketKind(venue, intent.symbol));
     if (kind === 'spot' && intent.side === 'buy') return { ...intent, builderFee: null };
     const venueId = venue.venue.id;
     const address = this.builderAddress();
@@ -940,21 +944,29 @@ export class UserVenueDoor {
    * carries one, or `null` when the owner value is blank (or the version in force can't be read). The venues strip and the
    * route preview read it; an order is still priced by `withBuilderFee` at prepare.
    */
-  async builderFeeFor(symbol: string, side: 'buy' | 'sell'): Promise<{ carries: false } | { carries: true; feeBps: Amount } | null> {
+  async builderFeeFor(
+    symbol: string,
+    side: 'buy' | 'sell',
+    kind?: 'spot' | 'perpetual',
+  ): Promise<{ carries: false } | { carries: true; feeBps: Amount } | null> {
     const venue = await this.venue();
     try {
-      const priced = await this.withBuilderFee(venue, {
-        kind: 'place_order',
-        symbol,
-        side,
-        type: 'limit',
-        amount: 1n,
-        price: 1n,
-        timeInForce: 'GTC',
-        reduceOnly: false,
-        clientOrderKey: 'order:builder-fee-read',
-        builderFee: null,
-      });
+      const priced = await this.withBuilderFee(
+        venue,
+        {
+          kind: 'place_order',
+          symbol,
+          side,
+          type: 'limit',
+          amount: 1n,
+          price: 1n,
+          timeInForce: 'GTC',
+          reduceOnly: false,
+          clientOrderKey: 'order:builder-fee-read',
+          builderFee: null,
+        },
+        kind,
+      );
       return priced.builderFee ? { carries: true, feeBps: priced.builderFee.feeBps } : { carries: false };
     } catch (err) {
       if (err instanceof VenueRefusalError && err.refusal.code === 'builder_fee_not_published') return null;
@@ -992,6 +1004,58 @@ export class UserVenueDoor {
       if (listing) value.push({ ...m, listing });
     }
     return { ...read, value };
+  }
+
+  /**
+   * J-cex-spot-10 #2: the public fee page's figures, all read now: the venue's published tiers, and for each market we
+   * list its own maker and taker rates, the venue's cap on a builder fee there, and our builder fee on it (`null`: the
+   * owner value is blank, shown "not set"; a spot market's fee is on a sell, a buy carries none). Read only: nothing is
+   * prepared or sent.
+   */
+  async publicFees() {
+    const venue = await this.venue();
+    if (!venue.feeStatus)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no fee tiers' });
+    const status = await venue.feeStatus(null);
+    const listed = await this.markets();
+    const markets = [];
+    for (const m of listed.value) {
+      // The kind comes from the list just read, so a market listed seconds ago is priced, not refused from an older list.
+      const ours = await this.builderFeeFor(m.symbol, 'sell', m.kind);
+      markets.push({
+        symbol: m.symbol,
+        kind: m.kind,
+        makerFeeBps: m.makerFeeBps,
+        takerFeeBps: m.takerFeeBps,
+        builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
+        builderFeeBps: ours && ours.carries ? { known: true, value: ours.feeBps } : { known: false },
+      });
+    }
+    const test = isTestVenue(venue.venue);
+    return {
+      venueId: status.venueId,
+      value: {
+        venue: { id: venue.venue.id, displayName: venue.venue.displayName },
+        schedule: status.value.schedule,
+        markets,
+        test,
+        ...(test ? { label: 'TEST' } : {}),
+      },
+      asOf: status.asOf,
+    };
+  }
+
+  /**
+   * J-cex-spot-10 #6: the account's own fee tier as the venue reports it (its tier, counted volume, rates and when it
+   * last placed the account), with the published tiers to read the next threshold from. A venue (or adapter) that
+   * reads none refuses `not_offered`.
+   */
+  async accountFees(account: UserVenueAccount) {
+    const venue = await this.venue();
+    if (!venue.feeStatus)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue reports no fee tier' });
+    const read = await venue.feeStatus(account);
+    return { ...read, test: isTestVenue(venue.venue) };
   }
 
   /**

@@ -276,6 +276,8 @@ export class HyperliquidTestnetUserVenue extends HyperliquidReads implements Use
       role,
       venueFee: line(taker, maker),
       builderFee: line(builderRate, builderRate),
+      // The account's own rates from `userFees`, as the venue charges them now (J-cex-spot-10 #1).
+      rates: { makerFeeBps: maker, takerFeeBps: taker },
       perpetual,
       // What would fill now needs a walk of the venue's book (l2Book) at this size; until it is read, not known.
       fill: { known: false },
