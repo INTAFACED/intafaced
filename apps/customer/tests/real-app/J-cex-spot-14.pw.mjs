@@ -1,5 +1,5 @@
 import { test, expect } from './journey.mjs';
-import { EDGE, api, bestPrices, fund, journeyState, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, api, bestPrices, fund, journeyState, toUnits } from './stack.mjs';
 import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn } from './desk.mjs';
 import { cancelMaintenance, draftNotice, publishNotice } from './notices.mjs';
 
@@ -462,10 +462,68 @@ test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordere
   expect(spreads.status).toBe(200);
   const candles = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=5`);
   expect(candles.status).toBe(200);
-  // The step's stream half is not checked yet: a socket snapshot, then updates in sequence order, and a reconnect that
-  // resumes from the last sequence (svc-ws has no resume today). Until a check reads them, the step stays red.
-  throw new Error(`${J} #8: the stream half (snapshot, ordered updates, resume from the last sequence) is not built or checked yet`);
+  // The stream: the public depth socket a desk opens (/ws/stream on the app's own origin). A snapshot first, then deltas
+  // in sequence order, each continuing the one before. Another screen keeps watching the book (`watcher`) while this one
+  // drops and reconnects naming the last sequence it holds: it is sent only the deltas it missed, the first continuing
+  // from that sequence, never a fresh snapshot.
+  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
+  const listing = markets.find((m) => m.symbol === 'BTC/USDT' && m.spot && !m.paper);
+  expect(listing?.id, 'BTC/USDT is listed').toBeTruthy();
+  const streamUrl = (since) =>
+    `${ORIGIN.replace(/^http/, 'ws')}/ws/stream?market=${encodeURIComponent(listing.id)}${since === undefined ? '' : `&since=${since}`}`;
+  const watcher = openStream(streamUrl());
+  const first = openStream(streamUrl());
+  try {
+    await expect.poll(() => first.frames.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
+    expect(first.frames[0].type, 'the stream opens with a snapshot').toBe('snapshot');
+    const held = continues(first.frames);
+    first.close();
+    await expect.poll(() => watcher.frames.at(-1)?.sequence ?? 0, { timeout: 30_000 }).toBeGreaterThan(held);
+    const again = openStream(streamUrl(held));
+    try {
+      await expect.poll(() => again.frames.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+      expect(again.frames[0], 'the reconnect resumes from the last sequence, not from a new snapshot').toMatchObject({
+        type: 'delta',
+        fromSequence: held,
+      });
+      await expect.poll(() => again.frames.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+      continues(again.frames, held);
+    } finally {
+      again.close();
+    }
+  } finally {
+    first.close();
+    watcher.close();
+  }
 });
+
+/** A public depth socket and every frame it has received, parsed. */
+function openStream(url) {
+  const socket = new WebSocket(url);
+  const frames = [];
+  socket.addEventListener('message', (event) => frames.push(JSON.parse(String(event.data))));
+  return { frames, close: () => socket.close() };
+}
+
+/**
+ * The frames, read as a client does: from a snapshot (or from `from`, the sequence the client already holds), every
+ * delta continues the sequence before it. Returns the last sequence held.
+ */
+function continues(frames, from = null) {
+  let cursor = from;
+  for (const frame of frames) {
+    if (frame.type === 'snapshot') {
+      cursor = frame.sequence;
+      continue;
+    }
+    if (frame.type !== 'delta') continue;
+    expect(cursor, 'a delta arrives only after a snapshot or a held sequence').not.toBeNull();
+    expect(frame.fromSequence, 'each update continues the one before').toBe(cursor);
+    expect(frame.sequence).toBeGreaterThan(cursor);
+    cursor = frame.sequence;
+  }
+  return cursor;
+}
 
 test(`${J} #9 /trade/analytics/:pair shows the aggressor differential and window stats with the window named; a blank window refuses`, async ({
   page,

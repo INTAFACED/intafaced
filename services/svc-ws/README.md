@@ -62,19 +62,20 @@ smallest blast radius in the fleet. A second public origin on a process that hol
 HTTP + JSON, plus one websocket. Amounts in and out are **decimal strings**, never JSON numbers. The only JSON
 numbers anywhere in this service's output are integer sequences.
 
-| Route                                              | Input    | Output                                                                                                                                                            |
-| -------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /stream?market=<id>` (upgrade)                | —        | `DepthSnapshot`, then `DepthDelta` frames                                                                                                                         |
-| `GET /stream?market=<id>&channel=trades` (upgrade) | —        | recent `TradePrint` frames, then live prints                                                                                                                      |
-| `GET /stream` (upgrade, **no `market`**)           | JSON ops | the **multiplexed door**: any mix of book, trades, ticker and candles on one socket — see "The multiplexed door" below                                            |
-| `GET /drop-copy/stream` (upgrade, JWT)             | —        | independent execution evidence (`drop_copy`) · empty session is `RECOVERY_REQUIRED`, never a complete tape · not `/private/stream`                                |
-| `GET /markets/:marketId/depth`                     | —        | `DepthSnapshot` · `404` `MarketNotFound` (unlisted) · `404` `NoBook` (listed, no resting depth) · `502` upstream down                                             |
-| `GET /markets/:marketId/trades`                    | —        | recent `TradePrint[]` · `404` `MarketNotFound` (unlisted) · `404` `NoTape` (listed, no prints — never `200 { trades: [] }`) · `502` listing down                  |
-| `GET /markets/:marketId/orders`                    | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoBlotter` (listed — never `200 { orders: [] }`)                                                   |
-| `GET /markets/:marketId/positions`                 | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoPositions` (listed — never `200 { positions: [] }`)                                              |
-| `GET /markets`                                     | —        | `{ markets: string[] }` — the listing, not the engine's books                                                                                                     |
-| `GET /health`                                      | —        | `{ ok, service, enabled, connections, capacity.{depth,trades,private}, tradesBus, privateBus, … }` — occupancy never 503s; ceilings are per-hub, not process-wide |
-| `GET /ready`                                       | —        | depth + trade counters + `tradesBus` / `privateBus` / `privateConnections` · `503` only when kill-switch off · bus down does **not** 503 (depth still works)      |
+| Route                                              | Input    | Output                                                                                                                                                                     |
+| -------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /stream?market=<id>` (upgrade)                | —        | `DepthSnapshot`, then `DepthDelta` frames                                                                                                                                  |
+| `GET /stream?market=<id>&since=<n>` (upgrade)      | —        | a reconnect that holds sequence `n`: only the `DepthDelta`s after it, when the hub can prove them all, else the `DepthSnapshot` · `400` a malformed `n` or another channel |
+| `GET /stream?market=<id>&channel=trades` (upgrade) | —        | recent `TradePrint` frames, then live prints                                                                                                                               |
+| `GET /stream` (upgrade, **no `market`**)           | JSON ops | the **multiplexed door**: any mix of book, trades, ticker and candles on one socket — see "The multiplexed door" below                                                     |
+| `GET /drop-copy/stream` (upgrade, JWT)             | —        | independent execution evidence (`drop_copy`) · empty session is `RECOVERY_REQUIRED`, never a complete tape · not `/private/stream`                                         |
+| `GET /markets/:marketId/depth`                     | —        | `DepthSnapshot` · `404` `MarketNotFound` (unlisted) · `404` `NoBook` (listed, no resting depth) · `502` upstream down                                                      |
+| `GET /markets/:marketId/trades`                    | —        | recent `TradePrint[]` · `404` `MarketNotFound` (unlisted) · `404` `NoTape` (listed, no prints — never `200 { trades: [] }`) · `502` listing down                           |
+| `GET /markets/:marketId/orders`                    | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoBlotter` (listed — never `200 { orders: [] }`)                                                            |
+| `GET /markets/:marketId/positions`                 | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoPositions` (listed — never `200 { positions: [] }`)                                                       |
+| `GET /markets`                                     | —        | `{ markets: string[] }` — the listing, not the engine's books                                                                                                              |
+| `GET /health`                                      | —        | `{ ok, service, enabled, connections, capacity.{depth,trades,private}, tradesBus, privateBus, … }` — occupancy never 503s; ceilings are per-hub, not process-wide          |
+| `GET /ready`                                       | —        | depth + trade counters + `tradesBus` / `privateBus` / `privateConnections` · `503` only when kill-switch off · bus down does **not** 503 (depth still works)               |
 
 ### The wire format is not ours
 
