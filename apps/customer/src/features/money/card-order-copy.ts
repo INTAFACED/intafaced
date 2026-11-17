@@ -132,7 +132,10 @@ const en = {
   payFromNotKnown: 'not known',
   payFromNotListed: 'not on the spendable list',
   payFromBalanceHead: 'Partner balance',
-  payFromRateHead: 'Rate in {asset}',
+  payFromRateHead: 'The card partner’s quoted rate in {asset}',
+  payFromEstimate: 'estimate',
+  payFromEstimateNote:
+    'A quoted rate is an estimate until the card partner holds a payment; the rate it holds at, and its time, show on the payment.',
   payFromRateHeadNone: 'Rate',
   payFromRateTimeHead: 'Rate time',
   payFromSavedHead: 'Saved order',

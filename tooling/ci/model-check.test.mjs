@@ -34,8 +34,9 @@ test("the repo's own tree: every model is found, none unwired", () => {
   const { models, errors } = findModels(ROOT);
   assert.deepEqual(errors, []);
   assert.deepEqual(models.map((m) => `${m.dir}:${m.name}`).sort(), [
-    'services/svc-bank/model:ReceivedHold',
+    'services/svc-bank/model:CashOutLock+ReceivedHold',
     'services/svc-campaigns/model:RewardPay',
+    'services/svc-pay/model:PayoutQuery',
     'services/svc-trade/model:OneHold',
   ]);
 });
@@ -44,11 +45,12 @@ test('a change to a modelled service runs every model', () => {
   for (const path of [
     'services/svc-bank/src/holds/received-holds.ts',
     'services/svc-campaigns/src/reward-payer.ts',
+    'services/svc-pay/src/rails/evm-chain.ts',
     'services/svc-trade/src/index.ts',
   ]) {
     const p = plan(ROOT, [path]);
     assert.equal(p.run, true, path);
-    assert.equal(p.models.length, 3, path);
+    assert.equal(p.models.length, 4, path);
   }
 });
 
@@ -130,7 +132,7 @@ test('the command line writes the matrix for the workflow', () => {
         .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
     );
     assert.equal(lines.run, 'true');
-    assert.equal(JSON.parse(lines.models).length, 3);
+    assert.equal(JSON.parse(lines.models).length, 4);
     const none = spawnSync('node', [SCRIPT, 'plan'], {
       cwd: ROOT,
       input: 'docs/ARCHITECTURE.md\n',

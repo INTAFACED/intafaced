@@ -20,6 +20,12 @@ const en = {
   refundCashback: 'Cashback on a refunded payment stays as it was: whether it is taken back is an open owner decision.',
   feedRecurring: 'Recurring payment',
   feedRefund: 'Refund',
+  paidFrom: 'Paid from {asset}',
+  paidFromRate: 'The card partner’s rate',
+  paidFromRateTime: 'The rate’s time, as the partner reports it',
+  paidFromSettled: 'Settled by the card partner',
+  paidFromReturned: 'Returned to {asset} by the card partner',
+  paidFromOrder: 'Your pay-from order: {order}',
 } as const;
 
 const es = {
@@ -41,6 +47,12 @@ const es = {
   refundCashback: 'El cashback de un pago reembolsado sigue igual: si se retira es una decisión abierta.',
   feedRecurring: 'Pago recurrente',
   feedRefund: 'Reembolso',
+  paidFrom: 'Pagado desde {asset}',
+  paidFromRate: 'El tipo del socio de la tarjeta',
+  paidFromRateTime: 'La hora del tipo, según el socio',
+  paidFromSettled: 'Liquidado por el socio de la tarjeta',
+  paidFromReturned: 'Devuelto a {asset} por el socio de la tarjeta',
+  paidFromOrder: 'Tu orden de pago: {order}',
 } as const;
 
 const fr = {
@@ -63,6 +75,12 @@ const fr = {
   refundCashback: 'Le cashback d’un paiement remboursé reste tel quel : sa reprise est une décision ouverte.',
   feedRecurring: 'Paiement récurrent',
   feedRefund: 'Remboursement',
+  paidFrom: 'Payé depuis {asset}',
+  paidFromRate: 'Le taux du partenaire de la carte',
+  paidFromRateTime: 'L’heure du taux, selon le partenaire',
+  paidFromSettled: 'Réglé par le partenaire de la carte',
+  paidFromReturned: 'Rendu en {asset} par le partenaire de la carte',
+  paidFromOrder: 'Votre ordre de paiement : {order}',
 } as const;
 
 export const cardFeedCopy = defineCopy('customer.bank.card-feed', en, { es, fr });

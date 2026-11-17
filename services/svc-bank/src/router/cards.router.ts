@@ -1056,6 +1056,19 @@ export function createCardsRouter(c: BankRouterContext) {
             refund: z.object({ amount: amountString, status: z.enum(['pending', 'settled', 'rejected']), at: z.string() }).nullable(),
             /** Whose book held it (OWNER 226): `ledger`, or `partner` (the card partner held it; our ledger posted nothing). */
             heldBy: z.enum(['ledger', 'partner']),
+            /**
+             * A payment taken by the person's pay-from order (J-bank-29 #3 to #7): the order the partner walked, and, once it
+             * held, the asset it held from (`amount` is then in that asset; the rate and its time are `conversion`, as the
+             * partner reported them), with what it captured and returned of the hold. Null on a payment in the card's own asset.
+             */
+            payFrom: z
+              .object({
+                order: z.array(z.string()),
+                assetId: z.string().nullable(),
+                captured: amountString.nullable(),
+                returned: amountString.nullable(),
+              })
+              .nullable(),
             decidedAt: z.string(),
             /**
              * WHAT THE MERCHANT CHARGED, and the rate it converted at (§18).
@@ -1101,6 +1114,14 @@ export function createCardsRouter(c: BankRouterContext) {
             status: a.status,
             refund: a.refund ? { amount: formatAmount(a.refund.amount), status: a.refund.status, at: a.refund.at.toISOString() } : null,
             heldBy: a.heldBy,
+            payFrom: a.payFromOrder
+              ? {
+                  order: a.payFromOrder,
+                  assetId: a.conversion?.quality === 'partner' ? a.conversion.fundingAssetId : null,
+                  captured: a.settled.captured === null ? null : formatAmount(a.settled.captured),
+                  returned: a.settled.returned === null ? null : formatAmount(a.settled.returned),
+                }
+              : null,
             decidedAt: a.decidedAt.toISOString(),
             conversion: a.conversion
               ? {

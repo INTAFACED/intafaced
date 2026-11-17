@@ -122,6 +122,11 @@ const containsSetTimeout = (node) => {
   walk(node);
   return found;
 };
+// What a fixed wait in a test becomes. A record's expiry or window passing: age that record with the TEST age door
+// (agePast, the test-age helper in apps/customer/tests/real-app; svc-trade and svc-campaigns mount it so far). Something that happens: await its locator, response or event.
+// A unit test's timer: vi.useFakeTimers(). Proving nothing happens for a while has no event: keep the wait and say why.
+const waitFix = (rule) =>
+  `an expiry or window: age the record with agePast (the test-age helper in apps/customer/tests/real-app; svc-trade and svc-campaigns have the door today, another service mounts packages/service-kit test-age.ts first); an outcome: await its locator, response or event; a unit test's timer: vi.useFakeTimers(); proving nothing happens: keep the wait with \`// oxlint-disable-next-line garden/${rule} -- why\``;
 const SLEEP_CALLS = new Set(['sleep', 'delay', 'wait', 'pause', 'waitMs']);
 const noRealClockWaitInTests = {
   meta: { type: 'problem', docs: { description: 'Tests wait on an event or a fake clock, never on the wall clock.' } },
@@ -135,7 +140,7 @@ const noRealClockWaitInTests = {
           isFn(node.arguments[0]) &&
           containsSetTimeout(node.arguments[0].body)
         ) {
-          context.report({ node, message: 'sleep in a test: new Promise(setTimeout); use vi.useFakeTimers() or await the event' });
+          context.report({ node, message: `sleep in a test: new Promise(setTimeout); ${waitFix('no-real-clock-wait-in-tests')}` });
         }
       },
       ImportDeclaration(node) {
@@ -144,7 +149,7 @@ const noRealClockWaitInTests = {
             if (s.type === 'ImportSpecifier' && s.imported?.name === 'setTimeout')
               context.report({
                 node: s,
-                message: 'sleep in a test: timers/promises setTimeout; use vi.useFakeTimers() or await the event',
+                message: `sleep in a test: timers/promises setTimeout; ${waitFix('no-real-clock-wait-in-tests')}`,
               });
         }
       },
@@ -159,7 +164,7 @@ const noRealClockWaitInTests = {
         ) {
           context.report({
             node,
-            message: `sleep in a test: await ${a.callee.name}(${a.arguments[0].value}); use vi.useFakeTimers() or await the event`,
+            message: `sleep in a test: await ${a.callee.name}(${a.arguments[0].value}); ${waitFix('no-real-clock-wait-in-tests')}`,
           });
         }
       },
@@ -167,7 +172,7 @@ const noRealClockWaitInTests = {
   },
 };
 
-// 5. Playwright: page.waitForTimeout(n) is a fixed wait; wait for a locator or a response instead.
+// 5. Playwright: page.waitForTimeout(n) is a fixed wait; waitFix names what it becomes.
 const noWaitForTimeout = {
   meta: { type: 'problem', docs: { description: 'No fixed waitForTimeout in browser tests.' } },
   create(context) {
@@ -175,7 +180,7 @@ const noWaitForTimeout = {
       CallExpression(node) {
         const c = node.callee;
         if (c?.type === 'MemberExpression' && !c.computed && c.property?.name === 'waitForTimeout') {
-          context.report({ node, message: 'fixed waitForTimeout: wait for a locator, response or event' });
+          context.report({ node, message: `fixed waitForTimeout: ${waitFix('no-wait-for-timeout')}` });
         }
       },
     };

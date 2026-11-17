@@ -100,13 +100,13 @@ function setup(schedule: string | undefined = undefined) {
     campaigns,
     tasks,
     api: (c: Context) =>
-      createCampaignsRouter(
-        drops as unknown as DropService,
-        campaigns as unknown as CampaignService,
-        tasks as unknown as TaskService,
-        {} as VoucherService,
-        {} as WatchService,
-      ).createCaller(c),
+      createCampaignsRouter({
+        drops: drops as unknown as DropService,
+        campaigns: campaigns as unknown as CampaignService,
+        tasks: tasks as unknown as TaskService,
+        vouchers: {} as VoucherService,
+        watch: {} as WatchService,
+      }).createCaller(c),
   };
 }
 

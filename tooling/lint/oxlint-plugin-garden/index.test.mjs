@@ -57,10 +57,20 @@ test('the six garden rules fire on their weeds and name the fix', { skip: !exist
   assert.ok(has(out, 'reasonless.ts', 'garden(require-suppression-reason)'), out.join('\n'));
   assert.ok(has(out, 'src/wait.test.ts', 'garden(no-real-clock-wait-in-tests)'), out.join('\n'));
   assert.ok(
-    out.some((l) => l.includes('no-real-clock-wait-in-tests') && l.includes('useFakeTimers')),
-    'the wait message names the fix',
+    out.some((l) => l.includes('no-real-clock-wait-in-tests') && l.includes('useFakeTimers') && l.includes('agePast')),
+    'the wait message names the fix: a fake clock in a unit test, the TEST age door in a journey',
   );
   assert.ok(has(out, 'page.pw.mjs', 'garden(no-wait-for-timeout)'), out.join('\n'));
+  assert.ok(
+    out.some(
+      (l) =>
+        l.includes('no-wait-for-timeout') &&
+        l.includes('agePast (the test-age helper in apps/customer/tests/real-app; svc-trade and svc-campaigns have the door today') &&
+        l.includes('locator, response or event') &&
+        l.includes('oxlint-disable-next-line garden/no-wait-for-timeout -- why'),
+    ),
+    'the waitForTimeout message names the TEST age door, the event, and how to keep a wait that proves nothing happens',
+  );
   assert.ok(has(out, 'any.ts', 'no-explicit-any'), out.join('\n'));
 });
 
@@ -71,6 +81,8 @@ test('the clean forms pass', { skip: !existsSync(OXLINT) && 'no node_modules' },
     'src/fake.test.ts': 'export function t(vi) {\n  vi.useFakeTimers();\n}\n',
     'imports.ts': "import { isRecord } from '@intafaced/contracts/guards';\nexport const ok = isRecord({});\n",
     'prod-wait.ts': 'export const later = () => new Promise((r) => setTimeout(r, 50));\n',
+    'kept.pw.mjs':
+      'export async function t(page) {\n  // oxlint-disable-next-line garden/no-wait-for-timeout -- proves no second toast arrives\n  await page.waitForTimeout(500);\n}\n',
   });
   const garden = out.filter((l) => l.includes('garden('));
   assert.deepEqual(garden, [], garden.join('\n'));

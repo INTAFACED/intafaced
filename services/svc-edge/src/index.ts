@@ -22,7 +22,7 @@ import {
   stampRateLimitRefuseHeaders,
   type RateLimitConfig,
 } from './hardening.js';
-import { KillSwitchState } from './kill-switch.js';
+import { KillSwitchState, resolvedPathname } from './kill-switch.js';
 import { adapterRead, FIX_STATUS_UPSTREAM_PATH, registerAdapterStatusRoute, SBE_STATUS_UPSTREAM_PATH } from './adapter-status-door.js';
 import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
@@ -43,7 +43,7 @@ import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, up
 import { statusBadgeHeaders } from './status-badge-proxy.js';
 import { idempotencyHeaders } from './idempotency-headers.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
-import { edgeS2sFromEnv, signProxyHeaders } from './s2s.js';
+import { edgeS2sFromEnv } from './s2s.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
 import { withEdgeSpan } from './tracing.js';
 import { userCopy } from './user-copy.js';
@@ -427,8 +427,14 @@ await app.register(async (api) => {
   });
 
   api.all('/api/*', async (req, reply) => {
+    // The same resolver the onRequest guards read, so the proxy forwards exactly the path they judged. Null (a path
+    // not in normal form, or one with no single answer) was already refused there; refused here too as a belt.
+    const pathname = resolvedPathname(req.url);
+    if (pathname === null) {
+      return reply.code(400).send({ error: userCopy('edge.unresolvable_path'), code: 'edge.unresolvable_path' });
+    }
     const url = new URL(req.url, `http://${env.HTTP_HOST}`);
-    const target = resolve(url.pathname);
+    const target = resolve(pathname);
 
     if (!target) {
       // An unlisted prefix is not forwarded anywhere. An edge that proxies what
@@ -620,14 +626,9 @@ await app.register(async (api) => {
 
     const body = upstreamBody(req.method, req.body);
     const upstreamUrl = `${resolved.base}${target.path}${url.search}`;
-    // With the edge's own key, the key signature covers this exact forward; otherwise the headers are untouched.
-    const upstreamHeaders = signProxyHeaders(edgeS2s, target.upstream.module, {
-      method: req.method,
-      url: upstreamUrl,
-      // The edge's request id replaces any the caller sent, so a service log line and the reply name the same call.
-      headers: { ...prepareUpstreamRequestHeaders(url.pathname, exchanged.headers), [REQUEST_ID_HEADER]: String(req.id) },
-      body,
-    });
+    // The forward carries no service signature: only the user principal the edge signed.
+    // The edge's request id replaces any the caller sent, so a service log line and the reply name the same call.
+    const upstreamHeaders = { ...prepareUpstreamRequestHeaders(url.pathname, exchanged.headers), [REQUEST_ID_HEADER]: String(req.id) };
 
     return withEdgeSpan(
       'edge.proxy',

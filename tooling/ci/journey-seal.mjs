@@ -1619,6 +1619,9 @@ export const SEAL_INPUTS = [
   { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
   { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review', judge: true },
   { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
+  // Runs only when the pull request touches its paths (#8708); with no run on the head nothing waits for it, and
+  // ci-jobs-seal.mjs moneyVerdict fails the seal when its paths were touched and no green run is there.
+  { workflow: 'customer-money-browser.yml', event: 'pull_request', what: 'the money browser checks' },
 ];
 
 /**
@@ -1911,7 +1914,10 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
 
 /** The seals a re-check re-runs: after CI finished (`finished` = 'CI'), only the default branch's (see recheck). */
 export const sealsToRecheck = (finished) =>
-  SEAL_WORKFLOWS.filter((w) => !['CI', REVIEWED].includes(finished) || w.workflow !== CI_WORKFLOW);
+  SEAL_WORKFLOWS.filter((w) => !['CI', REVIEWED, MONEY].includes(finished) || w.workflow !== CI_WORKFLOW);
+
+/** `finished` after the money browser checks' run on the head ended (#8708): like CI, every armed pull request there is re-sealed. */
+export const MONEY = 'Money browser checks';
 
 /** `finished` after the CI review's run on the head ended: like CI, every armed pull request on the head is re-sealed. */
 export const REVIEWED = 'CI review';
@@ -1934,7 +1940,7 @@ export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefine
  */
 export async function recheckTargets({ finished, pulls, sha, repo, oldTitle = '', oldBody = '', filesOf }) {
   const live = (pulls ?? []).filter(armed);
-  if (finished === 'CI' || finished === REVIEWED)
+  if (finished === 'CI' || finished === REVIEWED || finished === MONEY)
     return live.filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo);
   return recheckPulls({ pulls: live, sha, repo, oldTitle, oldBody, shared: await sharedPulls({ pulls: live, sha, repo, filesOf }) });
 }
