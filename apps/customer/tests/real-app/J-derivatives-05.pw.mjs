@@ -208,11 +208,12 @@ test(`${J} #1 opens /trade/positions: positions on every connected venue with pr
     rows = await shownRows(table);
     await rowsMatchVenues(rows, v, s.owner);
   }).toPass({ timeout: 30_000 });
-  // Product tags from each market's own listing: a perpetual and a stock perpetual.
-  const tagOf = (venue, symbol) => rows.find((r) => r.venueId === venue.id && r.symbol === symbol).product;
-  expect(tagOf(v.a, BTC)).toBe('Perpetual');
-  expect(tagOf(v.a, STOCK)).toBe('Stock perpetual');
-  expect(tagOf(v.b, BTC)).toBe('Perpetual');
+  // Product tags from each market's own listing (read apart from the positions, "Reading the venue's listing…" until
+  // then): a perpetual and a stock perpetual.
+  const tag = (venue, symbol) => table.locator(`tr[data-venue="${venue.id}"][data-symbol="${symbol}"] [data-cell="product"]`);
+  await expect(tag(v.a, BTC)).toHaveText('Perpetual');
+  await expect(tag(v.a, STOCK)).toHaveText('Stock perpetual');
+  await expect(tag(v.b, BTC)).toHaveText('Perpetual');
   expect(new Set(rows.map((r) => r.venue))).toEqual(new Set([v.a.name, v.b.name]));
   await expect(async () => {
     await totalsAddUp(table, await shownRows(table));

@@ -163,20 +163,27 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
     `positions:${owner}:${ids}`,
     VENUE_POLL_MS,
   );
-  const markets = usePolled<Record<string, VenueMarket[]>>(
+  const markets = usePolled<Record<string, VenueMarket[] | null>>(
     async (signal) => {
-      const out: Record<string, VenueMarket[]> = {};
+      const out: Record<string, VenueMarket[] | null> = {};
       for (const v of venues) {
         if (v.down !== null) continue;
         const m = await venue.markets(signal, v.id);
-        out[v.id] = m.ok ? m.data.value : [];
+        out[v.id] = m.ok ? m.data.value : null;
       }
       return { ok: true, data: out };
     },
     `positions-markets:${ids}`,
     30_000,
   );
-  const marketOf = (venueId: string, symbol: string) => markets.data?.[venueId]?.find((m) => m.symbol === symbol);
+  // null until the venue's listing is read: the product is then 'reading', never 'not published' (a listing read that
+  // failed is 'unread').
+  const marketOf = (venueId: string, symbol: string): Listed => {
+    const listing = markets.data?.[venueId];
+    if (listing === undefined) return null;
+    if (listing === null) return 'unread';
+    return listing.find((m) => m.symbol === symbol);
+  };
   const rows: Row[] = (reads.data ?? []).flatMap((r) => (r.positions?.value ?? []).map((position) => ({ venue: r.venue, position })));
   const fillsOf = (venueId: string) => reads.data?.find((r) => r.venue.id === venueId)?.fills ?? [];
   const reload = () => reads.reload();
@@ -213,13 +220,19 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
   );
 }
 
-function PositionCells({ row, market }: { row: Row; market: VenueMarket | undefined }) {
+/** A market as the room knows it: the venue's listing entry, undefined where the listing has none, `null` while the
+ * listing is being read, `'unread'` where reading it failed. */
+type Listed = VenueMarket | undefined | null | 'unread';
+/** The listing entry itself, for the figures that need one. */
+const entryOf = (m: Listed): VenueMarket | undefined => (m && m !== 'unread' ? m : undefined);
+
+function PositionCells({ row, market }: { row: Row; market: Listed }) {
   const { t } = positionsCopy.useCopy();
   const p = row.position;
   return (
     <>
       <td data-cell="venue">{row.venue.name}</td>
-      <td data-cell="product">{t(`product_${productOf(market)}`)}</td>
+      <td data-cell="product">{t(`product_${market === null ? 'reading' : market === 'unread' ? 'unread' : productOf(market)}`)}</td>
       <td data-cell="market">{p.symbol}</td>
       <td data-cell="side">{t(`side_${p.side}`)}</td>
       <td className="numeric" data-cell="size">
@@ -303,7 +316,7 @@ function AllPositions({
   owner: string;
   reads: VenueRead[] | null;
   rows: Row[];
-  marketOf: (venueId: string, symbol: string) => VenueMarket | undefined;
+  marketOf: (venueId: string, symbol: string) => Listed;
   fillsOf: (venueId: string) => VenueFill[];
   run: RunAction;
   onDone: () => void;
@@ -449,7 +462,7 @@ function Leverage({
   onClose,
 }: {
   row: Row;
-  market: VenueMarket | undefined;
+  market: Listed;
   owner: string;
   run: RunAction;
   onDone: () => void;
@@ -458,7 +471,7 @@ function Leverage({
   const { t } = positionsCopy.useCopy();
   const venue = useVenueApi();
   const p = row.position;
-  const cap = market?.maxLeverageBps ?? null;
+  const cap = entryOf(market)?.maxLeverageBps ?? null;
   const [times, setTimes] = useState(String(leverageTimes(p.leverageBps)));
   const [problem, setProblem] = useState<string | null>(null);
   const [review, setReview] = useState<VenueLeverageChange | null>(null);
@@ -565,7 +578,7 @@ function CloseAll({
   builder,
 }: {
   rows: Row[];
-  marketOf: (venueId: string, symbol: string) => VenueMarket | undefined;
+  marketOf: (venueId: string, symbol: string) => Listed;
   owner: string;
   run: RunAction;
   onDone: () => void;
@@ -613,7 +626,7 @@ function CloseAll({
           continue;
         }
         const p = row.position;
-        const tick = marketOf(row.venue.id, p.symbol)?.tickSize ?? '0';
+        const tick = entryOf(marketOf(row.venue.id, p.symbol))?.tickSize ?? '0';
         out[rowKey(row)] = await run(
           {
             kind: 'place_order',
@@ -724,7 +737,7 @@ function SubAccounts({
   owner: string;
   venue: Venue;
   mainRows: Row[];
-  marketOf: (symbol: string) => VenueMarket | undefined;
+  marketOf: (symbol: string) => Listed;
   run: RunAction;
   onDone: () => void;
 }) {
@@ -881,7 +894,7 @@ function SubAccountCard({
   venue: Venue;
   id: string;
   name: string;
-  marketOf: (symbol: string) => VenueMarket | undefined;
+  marketOf: (symbol: string) => Listed;
 }) {
   const { t } = positionsCopy.useCopy();
   const venue = useVenueApi();

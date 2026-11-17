@@ -31,6 +31,8 @@ export const positionsCopy = defineCopy('trade.positions', {
   product_perpetual: 'Perpetual',
   product_stock_perpetual: 'Stock perpetual',
   product_unknown: 'Not published',
+  product_reading: 'Reading the venue’s listing…',
+  product_unread: 'Listing unread',
   side_long: 'Long',
   side_short: 'Short',
   mode_isolated: 'isolated',
