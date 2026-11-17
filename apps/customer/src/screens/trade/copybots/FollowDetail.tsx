@@ -300,6 +300,14 @@ function CopiedOrders({ follow, api }: { follow: Follow; api: RoomApi }) {
 }
 
 /**
+ * Opening Edit limits takes the Edit limits button away while it holds focus. Left alone, focus falls to the page and
+ * the dialog pulls it back to itself a frame later, out of any field the person has already reached (issue 8684). So
+ * the form takes focus itself, in the same commit that shows it: a keyboard user starts here, and nothing moves later.
+ * Stable, so React calls it once, when the form appears.
+ */
+const takeFocus = (form: HTMLElement | null) => form?.focus({ preventScroll: true });
+
+/**
  * Edit limits on a follow (J-copy-bots-otc-02). The sizing mode is shown as chosen and stays locked: a change is sent and
  * the service refuses it by name, so the screen never claims a lock it doesn't hold. A cap left blank clears it.
  */
@@ -330,7 +338,7 @@ export function EditLimits({
       onDone,
     );
   return (
-    <section aria-label={t('Edit limits')} className="cb-form">
+    <section ref={takeFocus} tabIndex={-1} aria-label={t('Edit limits')} className="cb-form">
       {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
       <SizingChoices value={sizing} onChange={setSizing} name={`sizing-${follow.followId}`} />
       <Field label={t('Most per contract ({asset})', { asset })} hint={t('Optional. The most copied into one market.')}>
