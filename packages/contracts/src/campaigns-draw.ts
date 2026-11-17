@@ -18,7 +18,7 @@ export const drawCapSchema = z.object({ userType: z.enum(DRAW_USER_TYPES), cap: 
  * A `draw` campaign's terms. Chances are earned by activity: `chancesPerFill` for each fill the venue reports of an order
  * the entrant placed through INTAFACED after joining (our builder fee above zero), counted once per fill, up to the cap
  * for the entrant's user type. The prize table is paid from the campaign's budget, each prize to a different entrant.
- * Running, settling and paying a draw wait for the owner's decision on chance-based rewards (OWNER 87): until it is
+ * Running, settling and paying a draw wait for the owner's decision on chance-based rewards: until it is
  * recorded they refuse `owner.decision`, and nothing is paid.
  */
 export const campaignDrawSchema = z

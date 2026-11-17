@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * The business's own receiving wallet (J-merchant-04, launch money model, OWNER 226): `merchantReceivingWallet.*` on svc-pay.
+ * The business's own receiving wallet (J-merchant-04, launch money model): `merchantReceivingWallet.*` on svc-pay.
  *
  * At launch INTAFACED holds no customer money, so a payer's crypto at hosted checkout goes straight to the business's own
  * wallet. The business gives its wallet's extended public key (an `xpub`, the account key of an EVM wallet); svc-pay derives

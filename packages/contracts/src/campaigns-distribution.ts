@@ -12,7 +12,7 @@ export const DISTRIBUTION_REFUSAL_CODES = [
 
 // ── Airdrop distributions and dividends (CM-airdrop-campaigns-01, J-campaigns-13 #1 to #3) ─────────────────────────
 
-/** What a distribution pays out: an airdrop of INTAFACED's own pool is built; a dividend waits for the owner (OWNER 87). */
+/** What a distribution pays out: an airdrop of INTAFACED's own pool is built; a dividend waits for the owner. */
 export const DISTRIBUTION_KINDS = ['airdrop', 'dividend'] as const;
 export type DistributionKind = (typeof DISTRIBUTION_KINDS)[number];
 
