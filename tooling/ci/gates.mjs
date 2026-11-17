@@ -81,16 +81,14 @@ export const GATES = [
       'never runs, so a stale rule could reach main unchecked. It reads only those entry files, so it cannot block product work.',
   },
   {
-    id: 'reachability',
-    script: 'tooling/ci/reachability-scan.mjs',
-    doctrine: 'L3 slice factory law, Reachability law',
+    id: 'dead-code',
+    script: 'tooling/ci/dead-code.mjs',
+    doctrine: 'delete dead code an agent would copy (project-state#2848)',
     why:
-      'a module that imports nothing and is imported by nothing is not shipped work. Between #905 and #946 the ' +
-      'slice factory produced 151 such modules - each re-declaring a constant that already existed and testing ' +
-      'the copy against a literal - and every one passed this gate list, format, typecheck, tests and CI. The ' +
-      'stamp-mill gate led with docsOnly (#884) so it never looked. This is the gate that would have caught it ' +
-      'on the first wave instead of the two hundredth. Modules built but not yet wired are PARKED by name with a ' +
-      'reason, and that list may only shrink.',
+      'knip lists every file no entry reaches and every export no other file imports, in every workspace; a change that ' +
+      "adds one to tooling/ci/dead-code-baseline.json's list fails and is named. Replaced the reachability scan, which " +
+      'matched import basenames over services/ and packages/ only, and the journey-helpers check, which covered one ' +
+      'folder. Also holds the protected keep-list: a deleted keeper fails.',
   },
   {
     id: 'brand',
@@ -358,8 +356,6 @@ export const NOT_GATES = {
     "the touched-journeys map (R3 C4): `build` reads the `journey-reach` records of main's newest whole full Real-app journeys runs (gh run download) into tooling/ci/journey-reach-map.json, and refuses (a full map) with fewer than 3; journey-touch.mjs and the seal read it so product code runs only the journeys recorded reaching it, else the full suite (shared setup, scripts, admin-app paths, packages it can't map, event subscribers, a stale, missing or switched-off map; REACH_MAP_MODE = 'full' turns it off). A merge-seal input, not a gate of its own; `tooling/ci/journey-reach-map.test.mjs` holds its planted cases. Its `verify` (rebuild from main's runs up to the newest run the map names, compared byte for byte) runs in the Doctrine gates job of ci.yml when a pull request changes the map, with main's copy and the job's read-only token, NOT here: it needs NETWORK and a token. `.github/workflows/journey-reach-map.yml` builds the map in CI and keeps it as an artifact.",
   'journey-retries.mjs':
     "a step of the Real-app journeys workflow on a pull request: gives a full run's shards main's one retry only when a shard holds none of the journeys the pull request touches, so a retry never passes the change's own journey. Not a scan of its own; `tooling/ci/journey-retries.test.mjs` holds its cases.",
-  'journey-helpers-used.mjs':
-    'the reader behind journey-helpers-used.test.mjs: which journey helpers and exports no file takes. Not a gate of its own; the test runs it on the checkout in the tooling-tests gate, which fails on any finding.',
   'factory-switch.mjs':
     "merge-seal step and sweep: the factory switch, the one-line file FACTORY on the branch factory-switch, read through the contents API; only `run` passes, and anything else or an unreadable answer fails the seal closed (also read by journey-seal.mjs). `--sweep` runs from factory-sweep.yml on that branch and re-runs the open pull requests' seals on a flip. Needs a GitHub token, so a laptop verify cannot run it; `tooling/ci/factory-switch.test.mjs` checks the verdict, the read and the sweep.",
   'app-token.mjs':
