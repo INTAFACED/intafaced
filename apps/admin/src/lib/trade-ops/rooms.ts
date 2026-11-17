@@ -28,6 +28,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'The trading rulebook customers read: versions, history, and a new version with a second founder.',
   },
   {
+    id: 'feeds',
+    href: '/trade-ops/feeds',
+    label: 'Market feeds',
+    job: "Each market's candle stream: age, last tick, stale past the owner's boundary; candle gaps and the feed event journal.",
+  },
+  {
     id: 'charts-metrics',
     href: '/trade-ops/charts/metrics',
     label: 'Charts metrics',

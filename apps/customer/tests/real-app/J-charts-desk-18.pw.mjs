@@ -1,145 +1,167 @@
-// World: none
+// World: market
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { signUp } from './desk.mjs';
-import { api, bestPrices, signOutBrowser } from './stack.mjs';
+import { EDGE, tool } from './stack.mjs';
 
 // J-charts-desk-18 "I watch the health of market feeds, chart usage and the alert engine, and set the module's owner
 // values", in the founder console (apps/admin) against the running stack. One test per step, titled "J-charts-desk-18 #<n>".
-// The founder is founder A. Every count on the desk is checked against a change this test makes and reads back on its own:
-// a customer's own price alert, its own inbox and its own delivery list.
+// The founder is founder A. Every figure on the desk is checked against a source read on its own: the public trade tape
+// for the last tick, svc-trade's public owner values for the boundary.
+//
+// #1 and #2 need a real-time market whose stream really stops: the TEST market maker is run on BTC/USDT only, so
+// ETH/USDT gets no trade, its stream ages past the owner's delayed boundary (a TEST 30 s on the stack) and the feed
+// watcher journals a drop; the maker is then started on every market again, ETH/USDT trades, and a reconnect is journaled.
 const J = 'J-charts-desk-18';
-const RUN = Date.now().toString(36);
+const BTC = 'BTC/USDT';
+const ETH = 'ETH/USDT';
+const MINUTE = 60_000;
 
-/** A fresh customer and its API client. */
-async function customer(page, prefix) {
-  const who = await signUp(page, `${prefix}${RUN}`);
-  await signOutBrowser(page.context());
-  return { who, client: await api(who) };
+/** The TEST market maker's own status line; `status` exits non-zero when the maker is down, which is an answer here. */
+function maker(cmd) {
+  try {
+    return tool('local-test-market.mjs', cmd);
+  } catch (err) {
+    return String(err.stdout ?? '');
+  }
 }
 
-async function createAlert(client, targetPrice, direction = 'above') {
-  const res = await client.post('/api/notify/trpc/notify.createAlert', { marketId: 'BTC-USDT', direction, targetPrice });
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  return res.body.result.data;
+/** The owner's chart values svc-trade serves (`delayedBoundarySeconds` is the stale boundary). */
+async function ownerValues(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/charts/owner-values?symbol=${encodeURIComponent(symbol)}`);
+  expect(res.status).toBe(200);
+  return res.json();
 }
 
-const metric = (page, key) => page.getByRole('table', { name: 'Charts module metrics' }).locator(`tr[data-metric="${key}"]`);
-
-async function openAlertsOnMetrics(page) {
-  await page.goto(`${ADMIN}/trade-ops/charts/metrics`);
-  await expect(page.getByRole('heading', { name: 'Charts metrics' })).toBeVisible();
-  const row = metric(page, 'alerts');
-  await expect(row).toHaveAttribute('data-served', 'true');
-  return Number(await row.locator('[data-field=count]').getAttribute('data-open'));
+/** The newest trade on the public tape, epoch ms, or null when the market has none. */
+async function newestTrade(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(symbol)}?limit=1`);
+  expect(res.status).toBe(200);
+  const tape = await res.json();
+  return tape.length > 0 ? tape[0].timestamp : null;
 }
 
-test(`${J} #3 opens charts module metrics: chart opens, alerts, layouts and indicator use with real counts or named blockers`, async ({
-  page,
-  browser,
-}) => {
-  const { client } = await customer(page, 'cd18m');
-  const context = await browser.newContext();
-  const desk = await context.newPage();
-  await founderSignIn(desk, 'a');
-  const before = await openAlertsOnMetrics(desk);
-  // A real count: one more alert held open moves it by exactly one (an alert far above the price never fires).
-  await createAlert(client, '10000000');
-  await expect.poll(async () => openAlertsOnMetrics(desk), { timeout: 20_000 }).toBe(before + 1);
-  await expect(metric(desk, 'alerts').locator('[data-field=count]')).toHaveText(/^\d+ open, \d+ fired today$/);
-  // The counts no service keeps are named, never drawn as zero.
-  for (const [key, label, what] of [
-    ['chart_opens', 'Chart opens', 'records no chart open on the server'],
-    ['layouts', 'Saved layouts', "layouts are kept in the person's browser"],
-    ['indicator_use', 'Indicator use', 'no server records which ones are used'],
-  ]) {
-    const row = metric(desk, key);
-    await expect(row.getByRole('rowheader')).toHaveText(label);
-    await expect(row).toHaveAttribute('data-served', 'false');
-    await expect(row.locator('[data-field=count]')).toHaveText('Not served');
-    await expect(row.locator('[data-field=source]')).toContainText(what);
-    await expect(row.locator('[data-field=count]')).not.toHaveText(/\d/);
-  }
-  await context.close();
-});
+const feedRow = (page, symbol) => page.getByRole('table', { name: 'Candle streams' }).locator(`tr[data-symbol="${symbol}"]`);
 
-test(`${J} #4 opens alert engine and delivery health: evaluation lag, firings, deliveries and failures per channel`, async ({
-  page,
-  browser,
-}) => {
-  test.setTimeout(240_000);
-  const { client } = await customer(page, 'cd18a');
-  const context = await browser.newContext();
-  const desk = await context.newPage();
-  await founderSignIn(desk, 'a');
+async function openFeeds(page) {
+  await page.goto(`${ADMIN}/trade-ops/feeds`);
+  await expect(page.getByRole('heading', { name: 'Market feeds' })).toBeVisible();
+}
 
-  const firingsNow = async () => {
-    await desk.goto(`${ADMIN}/trade-ops/alerts`);
-    await expect(desk.getByRole('heading', { name: 'Alert engine' })).toBeVisible();
-    return Number(await desk.locator('[data-field=firings]').getAttribute('data-count'));
-  };
-  const before = await firingsNow();
+test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes`, () => {
+  test.describe.configure({ mode: 'serial' });
+  let makerWasRunning = false;
+  let lastTick = null;
+  let boundary = null;
 
-  // An alert that is already crossed: above a price below the market fires on the next evaluation pass.
-  const { bid } = await bestPrices();
-  const target = String(Math.max(1, Math.floor(Number(bid) / 2)));
-  await createAlert(client, target);
-  const inbox = async () => {
-    const res = await client.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
-    expect(res.status).toBe(200);
-    const data = res.body.result.data;
-    return (Array.isArray(data) ? data : (data.items ?? [])).filter((n) => String(n.kind).startsWith('alert.'));
-  };
-  // The sweep runs every minute: the fire reaches the person's own inbox within two passes.
-  await expect.poll(async () => (await inbox()).length, { timeout: 150_000, intervals: [5_000] }).toBeGreaterThan(0);
-  await expect.poll(firingsNow, { timeout: 30_000 }).toBeGreaterThanOrEqual(before + 1);
+  test.beforeAll(() => {
+    // Stopping cancels every resting maker order and starting funds it again: each may take up to the tool's 120 s.
+    test.setTimeout(300_000);
+    makerWasRunning = /^test market: (ok|STALE)/.test(maker('status'));
+    tool('local-test-market.mjs', 'stop');
+    tool('local-test-market.mjs', 'start', '--markets', BTC);
+  });
+  test.afterAll(() => {
+    test.setTimeout(300_000);
+    tool('local-test-market.mjs', 'stop');
+    // Put the maker back as the stack had it: on every market (as the run starts it), or off if it was off.
+    if (makerWasRunning) tool('local-test-market.mjs', 'start');
+  });
 
-  // Evaluation lag: a number of seconds since the last pass, within two passes of a sweep that runs every minute.
-  const lag = desk.locator('[data-field=lag]');
-  const lagSeconds = Number(await lag.getAttribute('data-seconds'));
-  expect(Number.isInteger(lagSeconds)).toBe(true);
-  expect(lagSeconds).toBeLessThanOrEqual(120);
-  await expect(lag).toContainText(`${lagSeconds} s since the last pass`);
-  await expect(desk.locator('[data-field=interval]')).toHaveText('60 s');
-  await expect(desk.locator('[data-field=last-pass]')).toContainText(/UTC, took \d+ ms/);
+  test(`${J} #1 opens the market feed desk: a stream 40 seconds old reads stale with its age and last tick time, and the drill-down lists its candle gaps`, async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    boundary = (await ownerValues(ETH)).delayedBoundarySeconds;
+    expect(Number.isInteger(boundary) && boundary > 0 && boundary < 40, `the delayed boundary is set below 40 s (${boundary})`).toBe(true);
+    lastTick = await newestTrade(ETH);
+    expect(lastTick, 'ETH/USDT has traded on the stack').not.toBeNull();
+    // Wait until the stream is at least 40 s old and a whole minute after its last tick has closed with no trade.
+    await expect
+      .poll(
+        async () =>
+          (await newestTrade(ETH)) === lastTick && Date.now() >= Math.max(lastTick + 40_000, (Math.floor(lastTick / MINUTE) + 2) * MINUTE),
+        {
+          timeout: 200_000,
+          intervals: [2_000],
+        },
+      )
+      .toBe(true);
 
-  // Deliveries and failures per channel: each channel's row adds up, and every channel the person's own alert was
-  // delivered on is on the desk with at least that many.
-  const table = desk.getByRole('table', { name: 'Alert deliveries by channel' });
-  await expect(table).toBeVisible();
-  const rows = await table.locator('tbody tr').evaluateAll((trs) =>
-    trs.map((tr) => {
-      const n = (f) => Number(tr.querySelector(`[data-field="${f}"]`).textContent);
-      return {
-        channel: tr.getAttribute('data-channel'),
-        total: n('total'),
-        pending: n('pending'),
-        accepted: n('accepted'),
-        refused: n('refused'),
-        failed: n('failed'),
-        abandoned: n('abandoned'),
-        failures: n('failures'),
-      };
-    }),
-  );
-  expect(rows.length).toBeGreaterThan(0);
-  for (const r of rows) {
-    expect(r.total, r.channel).toBe(r.pending + r.accepted + r.refused + r.failed + r.abandoned);
-    expect(r.failures, r.channel).toBe(r.failed + r.abandoned);
-  }
-  // The person's own alert notification and its deliveries, read as the person: each of its channels is on the desk,
-  // and that channel counts at least one delivery in the same status.
-  const [fired] = await inbox();
-  const own = await client.get(
-    `/api/notify/trpc/notify.deliveries?input=${encodeURIComponent(JSON.stringify({ notificationId: fired.id }))}`,
-  );
-  expect(own.status, JSON.stringify(own.body).slice(0, 300)).toBe(200);
-  const mine = own.body.result.data;
-  expect(mine.length, 'the fired alert was delivered on at least one channel').toBeGreaterThan(0);
-  for (const d of mine) {
-    const row = rows.find((r) => r.channel === d.channel);
-    expect(row, `channel ${d.channel} of the person's own alert delivery is on the desk`).toBeTruthy();
-    expect(row[d.status], `${d.channel} ${d.status}`).toBeGreaterThanOrEqual(1);
-  }
-  await context.close();
+    await founderSignIn(page, 'a');
+    await openFeeds(page);
+    const row = feedRow(page, ETH);
+    await expect(row).toHaveAttribute('data-state', 'stale');
+    await expect(row.locator('[data-field=state]')).toHaveText('stale');
+    const age = Number(await row.locator('[data-field=age]').getAttribute('data-seconds'));
+    expect(age).toBeGreaterThanOrEqual(40);
+    await expect(row.locator('[data-field=age]')).toHaveText(`${age} s`);
+    // The last tick is the tape's own newest trade, to the millisecond, shown to the second in UTC.
+    const shown = await row.locator('[data-field=last-tick]').getAttribute('data-at');
+    expect(Date.parse(shown)).toBe(lastTick);
+    await expect(row.locator('[data-field=last-tick]')).toHaveText(
+      `${new Date(lastTick).toISOString().slice(0, 19).replace('T', ' ')} UTC`,
+    );
+    await expect(page.getByTestId('feed-boundary')).toHaveAttribute('data-seconds', String(boundary));
+
+    await row.getByRole('link', { name: ETH }).click();
+    await expect(page.getByRole('heading', { name: `${ETH} feed` })).toBeVisible();
+    const gaps = page.getByRole('region', { name: 'Candle gaps' }).getByRole('table', { name: 'Candle gaps list' }).locator('tbody tr');
+    // The newest gap starts at the first minute after the last tick's own minute: no candle was traded since.
+    const firstEmpty = new Date((Math.floor(lastTick / MINUTE) + 1) * MINUTE).toISOString();
+    await expect(gaps.first()).toHaveAttribute('data-from', firstEmpty);
+    expect(Number(await gaps.first().locator('td').nth(2).textContent())).toBeGreaterThanOrEqual(1);
+  });
+
+  test(`${J} #2 opens the feed event journal for a market: each drop and reconnect with time, reason and actor (system), read-only`, async ({
+    page,
+  }) => {
+    test.setTimeout(400_000);
+    expect(lastTick, '#1 ran and read the last tick').not.toBeNull();
+    await founderSignIn(page, 'a');
+    const journalOf = async () => {
+      await page.goto(`${ADMIN}/trade-ops/feeds/${encodeURIComponent(ETH)}`);
+      return page.getByRole('region', { name: 'Feed event journal' });
+    };
+    // The drop: dated when the stream passed the boundary, from the system, with the reason.
+    const dropAt = new Date(lastTick + boundary * 1000).toISOString();
+    await expect
+      .poll(async () => (await journalOf()).locator(`tr[data-kind=drop][data-at="${dropAt}"]`).count(), { timeout: 30_000 })
+      .toBe(1);
+    let journal = await journalOf();
+    const drop = journal.locator(`tr[data-kind=drop][data-at="${dropAt}"]`);
+    await expect(drop.locator('[data-field=event]')).toHaveText('drop');
+    await expect(drop.locator('[data-field=actor]')).toHaveText('system');
+    await expect(drop.locator('[data-field=reason]')).toContainText(`past the owner's ${boundary} s boundary`);
+    await expect(drop.locator('[data-field=time]')).toHaveText(`${dropAt.slice(0, 19).replace('T', ' ')} UTC`);
+
+    // The stream resumes: the maker trades ETH/USDT again, and the watcher journals the reconnect at that trade's time.
+    tool('local-test-market.mjs', 'stop');
+    tool('local-test-market.mjs', 'start', '--markets', `${BTC},${ETH}`);
+    let resumed = null;
+    await expect
+      .poll(
+        async () => {
+          const t = await newestTrade(ETH);
+          resumed = t !== null && t > lastTick ? t : null;
+          return resumed !== null;
+        },
+        { timeout: 180_000, intervals: [3_000] },
+      )
+      .toBe(true);
+    await expect.poll(async () => (await journalOf()).locator('tr[data-kind=reconnect]').count(), { timeout: 60_000 }).toBeGreaterThan(0);
+    journal = await journalOf();
+    // Newest first: the reconnect sits above the drop, and is dated at a trade after the drop's last tick.
+    const reconnect = journal.locator('tr[data-kind=reconnect]').first();
+    const reconnectAt = Date.parse(await reconnect.getAttribute('data-at'));
+    expect(reconnectAt).toBeGreaterThan(lastTick);
+    expect(reconnectAt).toBeLessThanOrEqual(await newestTrade(ETH));
+    await expect(reconnect.locator('[data-field=actor]')).toHaveText('system');
+    await expect(reconnect.locator('[data-field=reason]')).toContainText('Candle ticks resumed after');
+    const kinds = await journal.locator('tbody tr').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-kind')));
+    expect(kinds.indexOf('reconnect')).toBeLessThan(kinds.indexOf('drop'));
+    // Read only: the journal offers nothing to press or type.
+    await expect(journal.getByRole('button')).toHaveCount(0);
+    await expect(journal.getByRole('textbox')).toHaveCount(0);
+    await expect(journal.locator('input, select, textarea')).toHaveCount(0);
+  });
 });
