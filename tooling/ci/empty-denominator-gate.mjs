@@ -213,6 +213,11 @@ export const ENFORCED = {
     must: /ENOENT[\s\S]*env\.ts/,
     note: 'reads packages/config/src/env.ts to learn which secrets exist. Refuses, by throw.',
   },
+  'service-tracing': {
+    kind: 'guard',
+    must: /service-tracing: found no service commands in the compose files; refusing to pass over nothing/,
+    note: "its denominator is the compose files' service commands. With none it refuses by name.",
+  },
   'secret-rotation-readiness': {
     kind: 'guard',
     must: /SECRET ROTATION READINESS FAILED/,
