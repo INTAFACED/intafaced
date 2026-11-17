@@ -2776,7 +2776,7 @@ export const WIRING_SOCKETS = [
      * invisible to the check built to see it, which is strictly worse than the
      * honest entry it replaced.
      *
-     * `docs/TRACKER.md` never stopped saying this event "has no consumer yet". The
+     * The generated status board (since removed) never stopped saying this event "has no consumer yet". The
      * docs and the runtime agreed the whole time; only the catalog and the gate
      * disagreed.
      *
