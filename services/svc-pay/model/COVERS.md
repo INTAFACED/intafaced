@@ -16,34 +16,35 @@ It needs Java 11 or later (`java` on the PATH, or `JAVA=/path/to/java`). It down
 
 | Run                        | What                                                            | Expected                                 |
 | -------------------------- | --------------------------------------------------------------- | ---------------------------------------- |
-| `code-lock-held`           | the code, the lock never lost, the payer dying and retrying     | no error (73 distinct states)            |
-| `code-lock-lost`           | the code, the lock's connection may drop, the promise           | **NeverPaidTwice violated**: the finding |
-| `code-lock-lost-kept`      | the code, the lock may drop, every other rule                   | no error (142 distinct states)           |
-| `fixed-lock-lost`          | the proposed fix, the lock may drop, every rule                 | no error (138 distinct states)           |
+| `code-lock-held`           | the code, the lock never lost, the payer dying and retrying     | no error                                 |
+| `code-lock-lost`           | the code, the lock's connection may drop, every rule            | no error                                 |
+| `open-lock-held`           | before #8604 (`not_sent` left the key open), the lock held      | no error                                 |
+| `open-lock-lost`           | before #8604, the lock may drop, the promise                    | **NeverPaidTwice violated**: the finding |
+| `open-lock-lost-kept`      | before #8604, the lock may drop, every other rule               | no error                                 |
 | `broken-no-signed-check`   | `lookupSend` ignores the journalled signed bytes                | NeverPaidTwice violated                  |
 | `broken-reverse-unkeyed`   | the reverse is not keyed                                        | ReversedOnce violated                    |
 | `broken-resign-on-pending` | a retry finding a pending claim signs again instead of stalling | SignedOnce violated                      |
 
-`code-lock-lost` passes the script while the code breaks the promise: it records the finding. When a fix lands it changes to `pass`.
+The `open-*` runs keep the finding: the code before the fix breaks the promise once the lock can drop.
 
-## The finding
+## The finding (fixed, #8604)
 
-`lookupSend` (`rails/evm-chain.ts`) answers `not_sent` whenever the key has no journalled hash and no journalled signed bytes. That is true before the send claims the key and while it is signing, and in both a send can still leave. With the payout's lock lost, the shortest order of events (`SHOW_TRACE=1`): the payer commits `dispatched` and enters the rail call; its lock's connection drops; the reconciler takes the free lock, hears `not_sent`, posts the reverse and marks the settlement failed; the payer then claims the key, signs and broadcasts. The money leaves on the chain and is also back in the merchant's proceeds.
+Before the fix, `lookupSend` (`rails/evm-chain.ts`) answered `not_sent` whenever the key has no journalled hash and no journalled signed bytes. That was true before the send claims the key and while it is signing, and in both a send can still leave. With the payout's lock lost, the shortest order of events (`SHOW_TRACE=1`): the payer commits `dispatched` and enters the rail call; its lock's connection drops; the reconciler takes the free lock, hears `not_sent`, posts the reverse and marks the settlement failed; the payer then claims the key, signs and broadcasts. The money leaves on the chain and is also back in the merchant's proceeds.
 
-The proposed fix (`Fixed`): `not_sent` closes the key. The status query takes the key's claim itself, with the same `INSERT ... ON CONFLICT DO NOTHING` the send uses. If it wins, nothing was or ever will be sent under that key, and the answer is `not_sent`. If it loses, a send holds the key, and the answer is `unknown` until it has a hash. A send that finds the key closed sends nothing. Answering `unknown` for a pending claim alone was tried first and does not hold: the query can come before the send claims the key.
+The fix (`Fixed = TRUE`, now the code): `not_sent` closes the key (`BroadcastStore.close`, `rails/broadcast-store.ts`). The status query takes the key's claim itself, with the same `INSERT ... ON CONFLICT DO NOTHING` the send uses. If it wins, nothing was or ever will be sent under that key, and the answer is `not_sent`. If it loses, a send holds the key, and the answer is `unknown` until it has a hash. A send that finds the key closed sends nothing (`claim` answers `closed`, `runDurableBroadcast` throws `BroadcastClosedError`). Answering `unknown` for a pending claim alone was tried first and does not hold: the query can come before the send claims the key.
 
 The same on the real chain port: `src/rails/evm-chain.send.test.ts`, the two tests under the `PayoutQuery.tla` comment.
 
 ## What it covers
 
-| Model step                      | Code                                                                                           |
-| ------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `PLock`, `PMark`                | `payoutSettlement`: `withPayoutLock`, the hold, the `dispatched` marker                        |
-| `PClaim`, `PSign`, `PPutSigned` | `runDurableBroadcast`: `store.claim`, `sign`, `putSigned` (`durable-broadcast.ts`)             |
-| `PBroadcast`, `PPut`            | `sendRawTransaction`, `store.put`                                                              |
-| `PCrash`, `PEnd`                | the payer dying (its lock goes with its connection) and a retry; the call returning            |
-| `RLock`, `RQuery`               | `reconcileDispatchedPayout`: `queryPayout` → `lookupSend`; on `not_sent` the reverse, `failed` |
-| `LoseLock`                      | the lock's connection dropping while the payer is inside the rail call                         |
+| Model step                      | Code                                                                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `PLock`, `PMark`                | `payoutSettlement`: `withPayoutLock`, the hold, the `dispatched` marker                                        |
+| `PClaim`, `PSign`, `PPutSigned` | `runDurableBroadcast`: `store.claim`, `sign`, `putSigned` (`durable-broadcast.ts`)                             |
+| `PBroadcast`, `PPut`            | `sendRawTransaction`, `store.put`                                                                              |
+| `PCrash`, `PEnd`                | the payer dying (its lock goes with its connection) and a retry; the call returning                            |
+| `RLock`, `RQuery`               | `reconcileDispatchedPayout`: `queryPayout` → `lookupSend` (`store.close`); on `not_sent` the reverse, `failed` |
+| `LoseLock`                      | the lock's connection dropping while the payer is inside the rail call                                         |
 
 Not covered: the rail accepting or refusing (`rail_accepted`, `rail_refused`), depth and settlement, other rails, and the user withdrawal path in `user-money-service.ts`, which takes the same lock and asks the same port.
 
@@ -53,4 +54,4 @@ The merchant payout's hold is on a customer account, so `LEDGER_CUSTODY_LAYER` (
 
 ## Last confirmed
 
-Against `origin/main` at `fb28fb1f2a`, 16 Nov 2026. Whoever changes a covered function reruns `check.sh` and updates this line.
+Against the fix on #8602, 17 Nov 2026 (the Model check job on that PR's head). Whoever changes a covered function reruns `check.sh` and updates this line.

@@ -51,14 +51,14 @@ run() {
   fi
 }
 
-# With the lock held, the code keeps every rule, the payer dying and retrying included.
-run code-lock-held FALSE FALSE "$ALL" pass
-# The finding: with the lock's connection dropped during the rail call, a reconciler hears not_sent while the payer is
-# signing, gives the money back, and the payer's send then leaves.
-run code-lock-lost      TRUE FALSE NeverPaidTwice NeverPaidTwice
-run code-lock-lost-kept TRUE FALSE "ReversedOnce SignedOnce" pass
-# The proposed fix (not_sent closes the key; a claimed key answers unknown) keeps every rule, the lock lost or not.
-run fixed-lock-lost TRUE TRUE "$ALL" pass
+# The code (not_sent closes the key, #8604) keeps every rule, the lock held or lost, the payer dying and retrying included.
+run code-lock-held FALSE TRUE "$ALL" pass
+run code-lock-lost TRUE TRUE "$ALL" pass
+# Before #8604 (not_sent left the key open) the rules held only with the lock held: with the lock's connection dropped during
+# the rail call, a reconciler heard not_sent while the payer was signing, gave the money back, and the payer's send then left.
+run open-lock-held      FALSE FALSE "$ALL" pass
+run open-lock-lost      TRUE FALSE NeverPaidTwice NeverPaidTwice
+run open-lock-lost-kept TRUE FALSE "ReversedOnce SignedOnce" pass
 
 # Broken on purpose, each failing on the rule it exists for, with the lock held.
 # 1. lookupSend ignores the journalled signed bytes: a payer that died after its broadcast, before journalling the hash,
