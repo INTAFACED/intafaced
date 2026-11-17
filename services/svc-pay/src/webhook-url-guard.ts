@@ -165,7 +165,7 @@ function parseV6(ip: string): number[] | null {
   if (halves.length === 2) {
     const missing = 8 - head.length - rest.length;
     if (missing < 1) return null;
-    groups = [...head, ...new Array<number>(missing).fill(0), ...rest];
+    groups = [...head, ...Array.from({ length: missing }, () => 0), ...rest];
   } else {
     groups = head;
   }
