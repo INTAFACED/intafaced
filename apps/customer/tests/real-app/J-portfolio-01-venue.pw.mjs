@@ -522,12 +522,20 @@ test(`${J} #5 cancels the order: the venue's lock returns to free and the locked
 
   await page.goto(DESK);
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  await connectWhenAsked(page, page.getByTestId('venue-wallet-address').filter({ hasText: new RegExp(owner, 'i') }));
-  await page
+  const address = page.getByTestId('venue-wallet-address').filter({ hasText: new RegExp(owner, 'i') });
+  await connectWhenAsked(page, address);
+  await expect(address).toBeVisible({ timeout: 30_000 });
+  // A press made while the desk is still restoring the wallet opens no sheet; the sheet comes before any signature, so
+  // pressing again while none is open sends nothing twice.
+  const cancel = page
     .getByTestId('venue-open-orders')
     .locator(`tr[data-client-order-id="${sold}"]`)
-    .getByRole('button', { name: 'Cancel', exact: true })
-    .click();
+    .getByRole('button', { name: 'Cancel', exact: true });
+  const sheet = page.getByRole('dialog', { name: 'Check before you sign' });
+  await expect(async () => {
+    if (!(await sheet.count())) await cancel.click();
+    await expect(sheet).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 60_000 });
   await continueInWallet(page);
   await expect(page.getByTestId('venue-bottom').getByTestId('venue-outcome')).toContainText(
     'Cancelled on the venue; its lock is released.',
