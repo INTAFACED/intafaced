@@ -208,12 +208,8 @@ fi
 # journey files (when one is pushed), the lint ratchet on the pushed files, the cross-package read scan, the Doctrine
 # gates that read the pushed tree, the CI review's size count and the refusal of main. Only on GitHub: build, typecheck,
 # unit tests, the other tooling tests and the gates gates.mjs leaves to CI (on the Mac CI's checks took 13 to 91 minutes
-# a push under three builders; GitHub runs them in 9 to 20): on the branch before the pull request
-# (`gh workflow run ci.yml --ref <branch>`, which prints the run's URL), then on the pull request.
+# a push under three builders; GitHub runs them in 9 to 20), on the pull request.
 # `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
-if [ -z "${CI:-}" ] && grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED"; then
-  echo "CI's checks run on GitHub: gh workflow run ci.yml -R INTAFACED/intafaced --ref <branch>, before the pull request" >&2
-fi
 rm -f "$PUSHED"
 
 exit 0

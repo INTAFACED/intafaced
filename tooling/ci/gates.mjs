@@ -465,7 +465,7 @@ export const NOT_GATES = {
     'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged) and --before-push (every gate but LEFT_TO_CI_BEFORE_PUSH, each a gate with its reason). tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
-    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
+    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test; CI does not run it.',
 
   'verify.mjs':
     'the verify runner itself — it CALLS this list. Listing it as a gate would make it invoke itself. It exists so the infrastructure verdict prints even when turbo halts early, which a `&&` chain cannot do.',
