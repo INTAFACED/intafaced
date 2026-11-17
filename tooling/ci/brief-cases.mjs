@@ -4,7 +4,7 @@
  * (ci-review/REVIEW.md, its cases ci-review/cases.json) and the proof reader's (test-judge/READ.md, its cases
  * test-judge/read-cases.json). Each case is asked the way the CI review job asks it: the same prompt builder, the
  * same model, effort, tools and system text, read from .github/workflows/ci-review.yml so they can't drift. The calls
- * run on the signed-in reviewer CLI (`claude`), never in CI.
+ * run on the signed-in reviewer CLI (the job's own binary name, on PATH), never in CI.
  *
  *   node tooling/ci/brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>]
  *        [--words <project-state clone>] [--out <dir>]
@@ -44,13 +44,14 @@ export function jobCall(yml) {
   const reads = [...yml.matchAll(/^\s*reads="(.*)"$/gm)].map((m) => m[1]);
   const caps = [...yml.matchAll(/--max-turns (\d+) --max-budget-usd (\d+)/g)].map((m) => [m[1], m[2]]);
   const review = /--model (\S+) --effort (\S+)/.exec(yml);
+  const cli = /node_modules\/\.bin\/([\w-]+)" -p/.exec(yml);
   const model = /READER_MODEL: (\S+)/.exec(yml);
   const effort = /READER_EFFORT: (\S+)/.exec(yml);
-  if (reads.length !== 2 || caps.length < 2 || !review || !model || !effort)
+  if (reads.length !== 2 || caps.length < 2 || !review || !model || !effort || !cli)
     throw new Error('ci-review.yml no longer has the calls brief-cases.mjs reads; update jobCall');
   return {
-    review: { reads: reads[0], model: review[1], effort: review[2], turns: caps[0][0], budget: caps[0][1] },
-    read: { reads: reads[1], model: model[1], effort: effort[1], turns: caps.at(-1)[0], budget: caps.at(-1)[1] },
+    review: { cli: cli[1], reads: reads[0], model: review[1], effort: review[2], turns: caps[0][0], budget: caps[0][1] },
+    read: { cli: cli[1], reads: reads[1], model: model[1], effort: effort[1], turns: caps.at(-1)[0], budget: caps.at(-1)[1] },
   };
 }
 
@@ -131,7 +132,7 @@ function ask(call, { repo, extraDir, prompt, schema, question, out }) {
   ];
   const empty = mkdtempSync(join(tmpdir(), 'brief-case-cwd-'));
   return new Promise((resolve) => {
-    const p = spawn('claude', args, { cwd: empty, stdio: ['pipe', 'pipe', 'pipe'] });
+    const p = spawn(call.cli, args, { cwd: empty, stdio: ['pipe', 'pipe', 'pipe'] });
     let text = '';
     let err = '';
     p.stdout.on('data', (d) => (text += d));

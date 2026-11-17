@@ -10,7 +10,8 @@ const workflow = readFileSync(new URL('../../.github/workflows/ci-review.yml', i
 test('the calls are read from the job, so the cases are asked as the job asks', () => {
   const c = jobCall(workflow);
   for (const j of ['review', 'read']) {
-    assert.match(c[j].model, /^claude-/);
+    assert.match(c[j].model, /^[a-z]+-[a-z]+-\d/);
+    assert.match(c[j].cli, /^[\w-]+$/);
     assert.match(c[j].effort, /^(low|medium|high|xhigh|max)$/);
     assert.match(c[j].reads, /\$GITHUB_WORKSPACE/);
     assert.match(c[j].turns, /^\d+$/);
