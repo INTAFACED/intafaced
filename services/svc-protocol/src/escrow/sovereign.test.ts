@@ -88,12 +88,24 @@ describe('sovereign P2P escrow builders (RC-p2p-01)', () => {
 });
 
 describe('protocol.escrow.deal read', () => {
-  const chainWith = (status: number, held: bigint, opened = true): EscrowChain =>
-    ({
-      getBlock: async () => ({ number: 10n, timestamp: 1_000n }),
-      readContract: async () => [SELLER, BUYER, TOKEN, held, ZERO, ZERO, 0, 300, status === 3 ? 1_300n : 0n, status, 0],
-      getLogs: async () => (opened ? [{ args: { amount: 25_000_000n } }] : []),
-    }) as EscrowChain;
+  // A partial fake per method: each answers only the fields readDeal reads.
+  const chainWith = (status: number, held: bigint, opened = true): EscrowChain => ({
+    getBlock: (async () => ({ number: 10n, timestamp: 1_000n })) as EscrowChain['getBlock'],
+    readContract: (async () => [
+      SELLER,
+      BUYER,
+      TOKEN,
+      held,
+      ZERO,
+      ZERO,
+      0,
+      300,
+      status === 3 ? 1_300n : 0n,
+      status,
+      0,
+    ]) as EscrowChain['readContract'],
+    getLogs: async () => (opened ? [{ args: { amount: 25_000_000n } }] : []),
+  });
 
   it('reads a locked deal with the amount it was opened for', async () => {
     const deal = await readDeal(chainWith(2, 25_000_000n), sepolia, '7');

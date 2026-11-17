@@ -47,7 +47,21 @@ const TIMEOUTS = { 0: 'refund_seller', 1: 'release_buyer' } as const;
 const MAX_UINT128 = (1n << 128n) - 1n;
 const ZERO = '0x0000000000000000000000000000000000000000' as const;
 
-export type EscrowChain = Pick<PublicClient, 'readContract' | 'getBlock' | 'getLogs'>;
+/**
+ * The chain reads a deal needs. A viem PublicClient is one; `getLogs` is narrowed to the one event read here, so a
+ * test fake answers it with the event's own fields.
+ */
+export interface EscrowChain {
+  getBlock: PublicClient['getBlock'];
+  readContract: PublicClient['readContract'];
+  getLogs(args: {
+    address: Address;
+    event: typeof DEAL_OPENED;
+    args: { dealId: bigint };
+    fromBlock: bigint;
+    toBlock: bigint;
+  }): Promise<ReadonlyArray<{ args: { amount?: bigint } }>>;
+}
 
 export interface EscrowSetting {
   chainId: number;
