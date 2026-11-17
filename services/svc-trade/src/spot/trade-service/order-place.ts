@@ -15,6 +15,7 @@ import { isPlacedForThem } from '../fee-tier-store.js';
 import { ifcFeeAtPlacement, sameFeeCurrency, type IfcPlacement } from '../fee-ifc.js';
 import {
   assertMarketOpen,
+  assertOutsideOpeningWindow,
   assertNotional,
   assertPrice,
   assertQty,
@@ -189,6 +190,8 @@ export async function placeOrderInner(
   // to rest a funded order until Monday). Read the clock ONCE so this request
   // cannot straddle a session boundary and get two answers.
   assertMarketOpen(market, svc.now());
+  // A new listing in its opening window takes limit orders only; a position close is a market order and is refused too.
+  assertOutsideOpeningWindow(market, orderType, svc.now());
 
   // The fee tier is read once, here, and carried in the admitted payload like the rank perks: the row keeps it and a
   // tier snapshot taken after this never re-prices the order. The house market maker and a sub-account have no tier of
