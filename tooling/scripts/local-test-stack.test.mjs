@@ -1036,7 +1036,10 @@ console.log('local-test-stack: customer folder override checks passed');
     assert.match(status().stdout, /market-maker\s+-\s+-\s+not started/);
     // Started once, process gone: DOWN, and `status` exits non-zero so a script or a glance notices.
     mkdirSync(join(state, 'run'), { recursive: true });
-    writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ market: { pid: 99998, startedAt: '2026-10-14T00:00:00.000Z' } }));
+    writeFileSync(
+      join(state, 'run', 'processes.json'),
+      JSON.stringify({ 'market-maker': { pid: 99998, startedAt: '2026-10-14T00:00:00.000Z' } }),
+    );
     const down = status();
     assert.match(down.stdout, /market-maker\s+-\s+99998\s+DOWN \(was running/);
     assert.equal(down.status, 1);
@@ -1055,7 +1058,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // market maker stops first, while Edge still runs to take its order cancels.
   assert.match(
     source,
-    /const order = \[\s*\/\/[^\n]*\n\s*'market',\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
+    /const order = \[\s*\/\/[^\n]*\n\s*MAKER_RECORD,\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
@@ -1754,7 +1757,10 @@ console.log('local-test-stack: customer folder override checks passed');
       [600, 1],
     ]);
   const shapedLikeSlot0 = { ...claim, owner: { pid: 700, startedAt: 1000 } };
-  writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ edge: { pid: 500 }, market: { pid: 800 } }));
+  writeFileSync(
+    join(state, 'run', 'processes.json'),
+    JSON.stringify({ edge: { pid: 500 }, market: { pid: 900 }, 'market-maker': { pid: 800 } }),
+  );
   assert.equal(
     ownerGone(shapedLikeSlot0, { alive: dead, identity: () => null, cwds: finished, parents: marketParents }),
     true,
@@ -1790,7 +1796,7 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   rmSync(join(state, 'run', 'market.json'));
   // And `stop` stops that maker through its own stop (first, asserted with the stop order): none is left quoting.
-  assert.match(source, /if \(name === 'market'\) \{\n[^\n]*\n\s+const r = marketTool\('stop'\);/, "the maker's own stop does it");
+  assert.match(source, /if \(name === MAKER_RECORD\) \{\n[^\n]*\n\s+const r = marketTool\('stop'\);/, "the maker's own stop does it");
   const { agentOwner } = await import('./local-test-stack.mjs');
   const chain = () =>
     new Map([

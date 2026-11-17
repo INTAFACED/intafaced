@@ -69,7 +69,7 @@ import {
   stackCustodyOff,
 } from './local-test-state.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
-import { slotEnv, stackRecords, stackUrl, writeStackRecord } from './local-test-facts.mjs';
+import { MAKER_RECORD, slotEnv, stackRecords, stackUrl, writeStackRecord } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -1754,12 +1754,12 @@ async function openFuturesQuoteIds(maker, m) {
 // ── Process control ─────────────────────────────────────────────────────────
 
 export const STALE_AFTER_MS = 2 * 60 * 1000;
-/** The maker's record in the stack's one process record (local-test-facts.mjs `stackRecords`, under `market`). */
+/** The maker's record in the stack's one process record (local-test-facts.mjs `stackRecords`, under `MAKER_RECORD`). */
 function readRecord(p) {
-  const rec = stackRecords(p.stateDir).market;
+  const rec = stackRecords(p.stateDir)[MAKER_RECORD];
   return Number.isInteger(rec?.pid) ? rec : null;
 }
-const forgetRecord = (p) => writeStackRecord(p.stateDir, 'market', null);
+const forgetRecord = (p) => writeStackRecord(p.stateDir, MAKER_RECORD, null);
 function runningPid(p) {
   const rec = readRecord(p);
   if (!rec) return null;
@@ -1904,7 +1904,7 @@ async function startBackground(p, args, { wait }) {
     child.unref();
     fs.closeSync(fd);
     const kernelStart = readKernelStart(child.pid) ?? undefined; // held to it exactly on Linux (#7488)
-    writeStackRecord(p.stateDir, 'market', { pid: child.pid, startedAt: nowIso(), kernelStart, args, argv });
+    writeStackRecord(p.stateDir, MAKER_RECORD, { pid: child.pid, startedAt: nowIso(), kernelStart, args, argv });
     console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
   } finally {
     release();

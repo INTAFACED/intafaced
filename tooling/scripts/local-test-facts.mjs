@@ -56,21 +56,23 @@ const readJsonOr = (file, fallback) => {
 };
 /**
  * The one record of every process a state folder's stack started, by name: each service `local-test-stack.mjs` starts
- * and the TEST market maker `local-test-market.mjs` starts (`market`). The owner test (`stackPids`), `stop` and the
+ * and the TEST market maker `local-test-market.mjs` starts (`MAKER_RECORD`). The owner test (`stackPids`), `stop` and the
  * market's own commands all read this, so a process the stack started can never read as someone else's. Failure it
  * prevents: the market kept its pid in a file of its own, so a finished build's stack read as owned for as long as its
  * market ran (slots 0 and 1 held 21 and 19 hours on 17 Nov), and `stop` left the market running.
  */
 export const stackRecordsFile = (state) => path.join(state, 'run', 'processes.json');
+/** The maker's name in `stackRecords`; never a service's (svc-market's record is `market`). */
+export const MAKER_RECORD = 'market-maker';
 // Before the market's record moved here it lived in run/market.json; a stack started then is still read whole.
 // Drop this fallback once no running stack predates it (after 2026-12-01).
 const legacyMarketFile = (state) => path.join(state, 'run', 'market.json');
 
 export function stackRecords(state) {
   const records = readJsonOr(stackRecordsFile(state), {}) ?? {};
-  if (!records.market) {
+  if (!records[MAKER_RECORD]) {
     const legacy = readJsonOr(legacyMarketFile(state), null);
-    if (Number.isInteger(legacy?.pid)) records.market = legacy;
+    if (Number.isInteger(legacy?.pid)) records[MAKER_RECORD] = legacy;
   }
   return records;
 }
@@ -84,7 +86,7 @@ export function writeStackRecord(state, name, rec) {
   if (rec) records[name] = rec;
   else delete records[name];
   writeStackRecords(state, records);
-  if (name === 'market') fs.rmSync(legacyMarketFile(state), { force: true });
+  if (name === MAKER_RECORD) fs.rmSync(legacyMarketFile(state), { force: true });
   return records;
 }
 

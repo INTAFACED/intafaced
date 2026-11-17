@@ -89,6 +89,7 @@ import {
   slotEnv,
   slotPorts,
   STACK_PORTS,
+  MAKER_RECORD,
   stackPids,
   stackRecords,
   stackRecordsFile,
@@ -529,6 +530,8 @@ function offOverridden() {
 }
 
 function startProc(name, argv, env, cwd, extra = {}) {
+  // The maker's record is its own script's (local-test-market.mjs); a service under its name would be read as the maker.
+  if (name === MAKER_RECORD) throw new Error(`refusing: ${name} names the TEST market maker's record, not a service`);
   const logPath = path.join(P.logs, `${name}.log`);
   const fd = fs.openSync(logPath, 'a', 0o600);
   const child = spawn(argv[0], argv.slice(1), { cwd, env, detached: true, stdio: ['ignore', fd, fd] });
@@ -2709,7 +2712,7 @@ async function cmdStop(names = []) {
   const procs = readProcs();
   const order = [
     // First, while Edge still runs: the maker cancels its resting TEST orders as it stops.
-    'market',
+    MAKER_RECORD,
     'team-tls',
     'admin',
     'apex',
@@ -2734,7 +2737,7 @@ async function cmdStop(names = []) {
     if (only && !only.includes(name)) continue;
     const rec = procs[name];
     if (!rec) continue;
-    if (name === 'market') {
+    if (name === MAKER_RECORD) {
       // The maker's own stop: it holds the maker to its record and waits while it cancels its orders.
       const r = marketTool('stop');
       say(`  market maker: ${r.text}`);

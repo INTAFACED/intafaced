@@ -68,7 +68,7 @@ try {
   fs.writeFileSync(
     path.join(state, 'run', 'processes.json'),
     JSON.stringify({
-      market: {
+      'market-maker': {
         pid: 999999999,
         args: ['--edge-url', 'http://127.0.0.1:1'],
       },
