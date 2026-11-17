@@ -72,12 +72,12 @@
  *                                                              how real-app-journeys.yml's touch step passes them)
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
-import { SUBSCRIBES, builtMap, headWanted, loadMap, newerMap, reachSelect, readHead, runsBehind } from './journey-reach-map.mjs';
+import { subscribesVia, builtMap, headWanted, loadMap, newerMap, reachSelect, readHead, runsBehind } from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -649,13 +649,20 @@ export function checkoutJourneyFiles(root = '.') {
   }
 }
 
-/** Whether a changed file, in a checkout of the head, calls the bus's subscribe (a removed file does not). */
-export const subscribesIn =
-  (root = '.') =>
-  (p) => {
+/**
+ * Which changed service files, in a checkout of the head, can add a bus subscription (journey-reach-map.mjs
+ * subscribesVia: they call the bus's subscribe, or a file of their service they import does; a removed file does not),
+ * as reachSelect's `subscribes`.
+ */
+export async function subscribesIn(paths, root = '.') {
+  const read = (p) => {
     const f = `${root}/${p}`;
-    return existsSync(f) && SUBSCRIBES.test(readFileSync(f, 'utf8'));
+    return existsSync(f) && statSync(f).isFile() ? readFileSync(f, 'utf8') : null;
   };
+  const subs = new Set();
+  for (const p of paths) if (p.startsWith('services/') && (await subscribesVia(p, read))) subs.add(p);
+  return (p) => subs.has(p);
+}
 
 /**
  * What headWanted names, read from a checkout of the head (journey-reach-map.mjs readHead, loadersReach's `head`), with
@@ -877,7 +884,7 @@ async function main() {
       map,
       behind: behindFromApi(map),
       journeyFiles: checkoutJourneyFiles(),
-      subscribes: subscribesIn(),
+      subscribes: await subscribesIn(paths),
       head: await checkoutHead(map, paths, { base: mergeBaseReader }),
     };
   }

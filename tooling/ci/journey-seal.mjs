@@ -80,7 +80,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
-import { SUBSCRIBES, builtMap, headWanted, loadMap, newerMap, readHead, runsBehind } from './journey-reach-map.mjs';
+import { subscribesVia, builtMap, headWanted, loadMap, newerMap, readHead, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
@@ -1371,7 +1371,8 @@ export async function reachInputs({ io, paths, head, base, text }) {
     } catch {
       t = undefined; // unreadable: counts as subscribing, so full
     }
-    subs.set(p, t === undefined ? true : t !== null && SUBSCRIBES.test(t));
+    // It, or a file of its service it imports, calls the bus's subscribe (subscribesVia); a file that can't be read is full.
+    subs.set(p, t === undefined ? true : t !== null && (await subscribesVia(p, (f) => (f === p ? t : text(f, head)))));
   }
   // What a customer file no run recorded is judged by (journey-reach-map.mjs loadersReach), read as the touch job reads
   // it from its checkout of the head (journey-touch.mjs checkoutHead); a read that fails leaves it unknown, which is full.
