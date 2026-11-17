@@ -236,20 +236,26 @@ test(`${J} #3 adds a currency once, and removing one the partner reports with a 
     decision: 'approved',
   });
   await refusedInUse();
+  // The partner lets the hold run out (it reads it as past its hold time from the next read on), and the step puts it
+  // back to its own hold time at its end.
   expect(await own.mutate('testPartner.set', { cardHold: 'expired' })).toMatchObject({ ok: true });
-  expect(await own.mutate('testPartner.set', { cardHold: 'live' })).toMatchObject({ ok: true });
-  // An open order: the TEST partner reports one open TEST order reserving USDC.
-  expect(await own.mutate('testPartner.set', { openOrder: 'USDC' })).toMatchObject({ ok: true, data: { openOrder: 'USDC' } });
   try {
-    await refusedInUse();
-  } finally {
-    expect(await own.mutate('testPartner.set', { openOrder: null })).toMatchObject({ ok: true, data: { openOrder: null } });
-  }
+    // An open order: the TEST partner reports one open TEST order reserving USDC.
+    expect(await own.mutate('testPartner.set', { openOrder: 'USDC' })).toMatchObject({ ok: true, data: { openOrder: 'USDC' } });
+    try {
+      await refusedInUse();
+    } finally {
+      expect(await own.mutate('testPartner.set', { openOrder: null })).toMatchObject({ ok: true, data: { openOrder: null } });
+    }
 
-  // An empty currency comes off.
-  await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC' }).click();
-  await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
-  await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
+    // An empty currency, with no hold and no order in it, comes off.
+    await page.reload();
+    await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC' }).click();
+    await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
+    await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
+  } finally {
+    expect(await own.mutate('testPartner.set', { cardHold: 'live' })).toMatchObject({ ok: true });
+  }
 
   // Where the partner has no currency accounts (the TEST partner switched to offer none): "not offered by the partner",
   // and no currency account is opened.
