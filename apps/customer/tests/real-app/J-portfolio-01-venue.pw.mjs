@@ -63,6 +63,8 @@ const PARTNER_USDT = '50';
 const BOUGHT = { amount: '0.002', price: '60100' };
 /** The open order the journey starts with: a TEST buy far under the market, so it rests. */
 const RESTING = { amount: '0.001', price: '30000' };
+/** Where the desk keeps the business keys of the orders it placed, per wallet (VenueKit `heldKeys`). */
+const deskKeysName = (owner) => `if.venue.keys.${owner.toLowerCase()}`;
 /** #3's TEST limit sell of BTC, far over the market, so it rests until #5 cancels it. */
 const SELL = { amount: '0.001', price: '90000' };
 const STAKE = '25';
@@ -446,7 +448,11 @@ test(`${J} #3 places a TEST limit order on the venue, then opens the balance bre
   const beforeSplit = await splitShown(before.row);
 
   const sold = await sellOnDesk(page, owner);
-  run.write({ sold: sold.venueClientOrderId });
+  // The desk keeps the business key of each order it placed for this browser tab (sessionStorage); #5 opens a new tab
+  // as the same browser, so it carries them, and Cancel there names this order as the desk's own.
+  const deskKeys = await page.evaluate((name) => sessionStorage.getItem(name), deskKeysName(owner));
+  expect(deskKeys, "the desk's own key for the sell").toContain(sold.venueClientOrderId);
+  run.write({ sold: sold.venueClientOrderId, deskKeys });
   expect(sold.lockedAsset).toBe('BTC');
   const hold = units(sold.locked);
   expect(hold).toBe(units(SELL.amount));
@@ -513,8 +519,15 @@ test(`${J} #4 reads stake and collateral separately: a TEST stake and a TEST fut
 
 test(`${J} #5 cancels the order: the venue's lock returns to free and the locked list is empty`, async ({ page }) => {
   test.setTimeout(240_000);
-  const { owner, sold } = state();
+  const { owner, sold, deskKeys } = state();
   expect(sold, "#3's order").toBeTruthy();
+  expect(deskKeys, "#3's desk keys").toBeTruthy();
+  await page.addInitScript(
+    ([name, keys]) => {
+      if (!sessionStorage.getItem(name)) sessionStorage.setItem(name, keys);
+    },
+    [deskKeysName(owner), deskKeys],
+  );
   await openAssets(page);
   const before = await venueRowAgrees(page, owner, 'BTC');
   const held = (await openOrders(owner)).find((o) => o.venueClientOrderId === sold);
@@ -525,17 +538,11 @@ test(`${J} #5 cancels the order: the venue's lock returns to free and the locked
   const address = page.getByTestId('venue-wallet-address').filter({ hasText: new RegExp(owner, 'i') });
   await connectWhenAsked(page, address);
   await expect(address).toBeVisible({ timeout: 30_000 });
-  // A press made while the desk is still restoring the wallet opens no sheet; the sheet comes before any signature, so
-  // pressing again while none is open sends nothing twice.
-  const cancel = page
+  await page
     .getByTestId('venue-open-orders')
     .locator(`tr[data-client-order-id="${sold}"]`)
-    .getByRole('button', { name: 'Cancel', exact: true });
-  const sheet = page.getByRole('dialog', { name: 'Check before you sign' });
-  await expect(async () => {
-    if (!(await sheet.count())) await cancel.click();
-    await expect(sheet).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 60_000 });
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
   await continueInWallet(page);
   await expect(page.getByTestId('venue-bottom').getByTestId('venue-outcome')).toContainText(
     'Cancelled on the venue; its lock is released.',
