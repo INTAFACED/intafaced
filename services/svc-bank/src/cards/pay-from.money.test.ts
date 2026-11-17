@@ -142,6 +142,19 @@ describe('Pay from (J-bank-29 #1 #2, PG-hard)', () => {
     for (const row of (await quoted(QUOTING, odd).payFrom(user)).assets) expect(row.rate).toBeNull();
   });
 
+  it('a partner whose quote throws reads each rate "not known" and Pay from still opens with its balances', async () => {
+    const base = testPartnerCardHolds({ terms: () => QUOTING, switches: () => testPartner().switches(user), clock: () => AT });
+    const down: PartnerCardHolds = {
+      ...base,
+      quote: async () => {
+        throw new Error('partner quote down');
+      },
+    };
+    const view = await quoted(QUOTING, down).payFrom(user);
+    for (const row of view.assets) expect(row).toMatchObject({ rate: null, rateAsOf: null });
+    expect(view.assets.find((a) => a.assetId === 'BTC')).toMatchObject({ state: 'offered', partnerBalance: '0.01' });
+  });
+
   it('a partner balance read that fails, or a figure that is not a plain decimal, reads "not known" without breaking Pay from', async () => {
     const odd = new CardService(sql, ledger, {
       issuer: { ...cardSim({ partner: PARTNER }), cardholderBalances: async () => ({ USDC: '-3', BTC: '1e2', USD: '50' }) },
