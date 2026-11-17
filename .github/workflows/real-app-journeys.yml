@@ -1,6 +1,6 @@
 # Journeys in the running app (apps/customer/tests/real-app): the local test stack built from main, the customer app
 # in Chromium, nothing mocked. Runs after merge (push to main), once a day on main's newest commit, on workflow_dispatch,
-# and on each push to a ready pull request from this repository (what it touches, below), and is not a required check. Main trust's post-merge job compares its
+# and on each push to a pull request from this repository, draft or ready (what it touches, below), and is not a required check. Main trust's post-merge job compares its
 # steps run to run (tooling/ci/post-merge-trust.mjs), so a journey that does not pass yet opens no issue, and the summary
 # shows the scoreboard from `roadmap.mjs --progress --results`.
 #
@@ -40,9 +40,13 @@ on:
   # Every ready pull request from this repository, on each push (U4 C3, piece 1; project-state
   # research/factory-2026-11-08 PLAN.md): the touch job runs what the pull request touches by tooling/ci/journey-touch.mjs
   # (full, its journey files, or nothing), so a builder never dispatches a run by hand to seal. The merge seal still
-  # decides what counts (journey-seal.mjs, the default branch's copy); this run only saves the dispatch. A draft or a
-  # fork's pull request runs nothing here (a draft is proven by a manual run), in a group of its own, so it never cancels
-  # a run of this repository's branches. The run tests the pull request's head commit, as a manual run
+  # decides what counts (journey-seal.mjs, the default branch's copy); this run only saves the dispatch. A fork's pull
+  # request runs nothing here, in a group of its own, so it never cancels a run of this repository's branches. A draft
+  # runs from its first push, as a ready pull request does (#8707): before, it ran nothing until `ready_for_review`, so
+  # the journeys its change touches started only after the draft round, one round after the other on a head that did not
+  # change (1 to 27 minutes on 5 of the 20 builds to 16 Nov 2026). `ready_for_review` on the same head then runs only what
+  # that run does not already run (the touch job's "One journeys run per head"), in a group of its own so it never
+  # cancels it. The run tests the pull request's head commit, as a manual run
   # on its branch does, never GitHub's merge commit, so the seal reads it on that head. It shares its branch's group with
   # a manual full run there, so either replaces the other. A pull request run keeps the ordinary limits (no fail-fast),
   # so the steps a builder builds run as in a targeted run.
@@ -98,6 +102,8 @@ on:
 # replaced reports through the newer run, which holds its commits too. (Failure the old cancel rule caused, and this keeps
 # prevented: with cancel-in-progress, every run from 22 Oct 23:35 to 23 Oct 01:06 UTC was cancelled before it reached the
 # journeys. Nothing here stops a run that started.)
+# A pull request's `ready_for_review` keeps a group of its own (#8707): on the head its push already runs, it must never
+# cancel that run; it runs only what that run does not already run.
 # Elsewhere (a manual run on a branch, 2026-11-07): one group per branch and journey selection, and a newer run cancels
 # the older one, so a branch's superseded head stops holding 36 shards' runners. The seal reads only a run on the pull
 # request's exact head (tooling/ci/journey-seal.mjs), so an older head's run decides nothing; a run with another
@@ -105,7 +111,7 @@ on:
 # git ref never holds one, so branch `x` with `J-a` and branch `x-J` with `a` never share a group. On 7 Nov at 11:01 UTC, 8 waiting branch runs were for
 # a head already superseded by a newer run on the same branch. tooling/ci/workflow-concurrency.test.mjs holds both rules.
 concurrency:
-  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && (github.event.pull_request.draft || github.event.pull_request.head.repo.full_name != github.repository)) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
+  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review') && format('real-app-journeys-ready-{0}', github.run_id) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -125,8 +131,8 @@ jobs:
   # changed files touch, by the default branch's tooling/ci/journey-touch.mjs and its seal's revert rule (the copy the
   # merge seal judges with, so the two agree): `full` the full suite, `files` its journey files, `none` nothing (the rest
   # of the run is skipped and its report is empty, so the seal reads it as saying nothing). A pull request whose files
-  # can't be read whole (an error, or GitHub's 3,000-file cap) runs the full suite, never fewer. A draft or a fork's pull
-  # request runs nothing. A run deferred for main (below) runs nothing now and is re-run later.
+  # can't be read whole (an error, or GitHub's 3,000-file cap) runs the full suite, never fewer. A fork's pull request
+  # runs nothing. A run deferred for main (below) runs nothing now and is re-run later.
   # On main its touch steps decide nothing (main always runs the full suite) and only the plan runs, so every run queues
   # for runners twice, this job and then the shards, not three times (a separate touch hop waited 7.3, 15.1 and 19.6
   # minutes on main runs 2559, 2655 and 2708 in the guide's CI audit of 9 Nov 2026; a separate planner hop waited a
@@ -139,9 +145,9 @@ jobs:
       contents: read
       pull-requests: read # a pull request's changed files
       actions: read # main's runs, for the touched-journeys map's age (journey-reach-map.mjs runsBehind), Main's journeys first and the last runs' reports
-    # The plan's steps run only for a run that runs journeys here (never a draft's or a fork's pull request).
+    # The plan's steps run only for a run that runs journeys here (never a fork's pull request).
     env:
-      PLANS: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft) }}
+      PLANS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     outputs:
       # A deferred run (main-first.mjs) runs nothing now: its report is empty, so the seal reads it as saying nothing.
       mode: ${{ steps.first.outputs.deferred == 'true' && 'none' || steps.touch.outputs.mode }}
@@ -182,7 +188,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}
           PR: ${{ github.event.pull_request.number }}
-          DRAFT: ${{ github.event.pull_request.draft }}
           SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
           CHANGED: ${{ github.event.pull_request.changed_files }}
           TITLE: ${{ github.event.pull_request.title }}
@@ -211,8 +216,8 @@ jobs:
             { echo "mode=run"; echo "target=$target"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ "$DRAFT" = true ] || [ "$SAME_REPO" != true ]; then
-            echo "::notice::a draft or a fork's pull request runs no journeys here; a manual run proves a draft"
+          if [ "$SAME_REPO" != true ]; then
+            echo "::notice::a fork's pull request runs no journeys here"
             { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -259,17 +264,23 @@ jobs:
           # journey files at the head run too, so the seal's named steps are proven without a manual run.
           named=$(SEAL="$seal" node -e 'import(process.env.SEAL).then((m) => { const left = new Set(m.exemptions(process.env.BODY).steps); const js = new Set(m.titleSteps(process.env.TITLE).filter((k) => !left.has(k)).map((k) => k.split("#")[0])); const dir = "apps/customer/tests/real-app"; const out = require("fs").readdirSync(dir).filter((f) => { const x = m.JOURNEY_TEST.exec(dir + "/" + f); return x && js.has(x[1]); }); console.log(out.sort().join(" ")); })') || full "the steps the title names couldn't be read"
           [ -n "$named" ] && echo "the title's steps are in: $named"
+          # Kept with the pick (#8707): a later run on this head reuses a full run only when the title then named no
+          # journey this one did not, since a full run's retries spare only the journeys it touches (the Retries step).
+          { echo "named=$named"; echo "named_read=1"; } >> "$GITHUB_OUTPUT"
           case "$mode" in
             none) if [ -n "$named" ]; then { echo "mode=run"; echo "target=$named"; } >> "$GITHUB_OUTPUT"; else { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"; fi ;;
             files) { echo "mode=run"; echo "target=$(jq -r --arg n "$named" '(.files + ($n | split(" ") | map(select(. != "")))) | unique | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
             # The full run: which journeys it touches decides which shards may retry (the Retries step).
-            *) { echo "mode=run"; echo "target="; echo "scope=full"; echo "named=$named"; } >> "$GITHUB_OUTPUT" ;;
+            *) { echo "mode=run"; echo "target="; echo "scope=full"; } >> "$GITHUB_OUTPUT" ;;
           esac
 
       # One journeys run per head (project-state#2065 row d32 part (b)): a pull request's targeted run leaves out the
       # journey files a targeted run by hand on its exact head already runs (the builder's run before it opened the pull
       # request; journey-touch.mjs reusableRuns, afterReuse, the default branch's copy). A full run is never narrowed, and
-      # a full run by hand stands in for nothing. The seal reads every run on the head by its report, so what is left out is
+      # a full run by hand stands in for nothing. This pull request's own earlier run on the same head (a draft's, before
+      # `ready_for_review`; #8707) counts too, by what it kept (the touch job's last step, "Keep what this run runs";
+      # pullRunsCover): its full suite covers any pick whose title names no journey it did not, its journey files
+      # leave those out, a red one's red stands, and a cancelled or unrecorded one counts for nothing. The seal reads every run on the head by its report, so what is left out is
       # judged from that run, and its red stands. Any other run, an unreadable list of runs, or a base copy with no
       # --reuse: the pick stands.
       - name: One journeys run per head
@@ -280,6 +291,9 @@ jobs:
           MODE: ${{ steps.pick.outputs.mode }}
           TARGET: ${{ steps.pick.outputs.target }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          NAMED: ${{ steps.pick.outputs.named }}
+          NAMED_READ: ${{ steps.pick.outputs.named_read }}
         run: |
           if [ "$EVENT" = pull_request ] && [ "$MODE" = run ] && out=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --reuse 2>/dev/null) && jq -e '.mode == "run" or .mode == "none"' <<<"$out" >/dev/null 2>&1; then
             why=$(jq -r '.why' <<<"$out")
@@ -339,7 +353,7 @@ jobs:
       # Playwright's split, so a broken planner never stops a run; journeys past a shard's limit then count as not run and
       # the time-limit issue names the shards. A targeted run (JOURNEYS_TARGET) never falls back: a name that is not a
       # journey file fails this job, and no shard runs. It plans only a run that runs journeys here: not a deferred run,
-      # and never a draft's or a fork's pull request (PLANS).
+      # and never a fork's pull request (PLANS).
       # Up to three, so a run that lost a shard or failed a journey early does not make those files look fast. Most runs
       # are queued runs a newer push replaced (cancelled), so the list reaches back 100 runs to find three that finished.
       - name: Last finished runs' reports
@@ -459,6 +473,34 @@ jobs:
       - name: The journeys input is ignored on main
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.journeys != ''
         run: echo "::warning::a run on main always runs the full suite; the journeys input applies only on another branch"
+      # What this pull request run runs, kept with the run for a later run on the same head (#8707; journey-touch.mjs
+      # PICK_ARTIFACT, pullRunsCover): a draft's run from its push, then `ready_for_review`, which runs only the rest. Kept
+      # only once the run is sure to run its shards: after every step above passed, never for a deferred run (its re-run
+      # keeps its own) or one that runs nothing. The file holds the head, the pull request's number, the target and the
+      # title's journey files (journey file names). Best effort: without it a later run reuses nothing.
+      - name: Keep what this run runs
+        id: keep
+        if: github.event_name == 'pull_request' && steps.touch.outputs.mode == 'run' && steps.first.outputs.deferred != 'true'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TARGET: ${{ steps.touch.outputs.target }}
+          NAMED: ${{ steps.pick.outputs.named }}
+          NAMED_READ: ${{ steps.pick.outputs.named_read }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pick"
+          jq -n --arg head "$HEAD_SHA" --argjson pr "$PR_NUMBER" --arg target "$TARGET" --arg named "$NAMED" --arg read "$NAMED_READ" \
+            '{head: $head, pr: $pr, mode: "run", target: $target, named: $named, named_read: ($read == "1")}' > "$RUNNER_TEMP/pick/pick.json"
+          cat "$RUNNER_TEMP/pick/pick.json"
+      - name: Keep what this run runs (upload)
+        if: steps.keep.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: real-app-journeys-pick
+          path: ${{ runner.temp }}/pick/pick.json
+          retention-days: 7
+          if-no-files-found: error
 
   # Lets deferred runs go (main-first.mjs --release): on main, once the planner has queued main's shards, so the
   # deferred runs' jobs queue behind them; after a hand-dispatched full run off main, so the ones the cap deferred run.
@@ -552,7 +594,7 @@ jobs:
   build:
     name: Build the stack once
     needs: [touch]
-    if: ${{ !cancelled() && needs.touch.result == 'success' && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
+    if: ${{ !cancelled() && needs.touch.result == 'success' && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20 # healthy run: about 3 minutes
     permissions:
@@ -620,7 +662,7 @@ jobs:
       actions: read # to read the build job's state and download its build
     # The shards run even when planning failed (the Plan step goes on, and they fall back to Playwright's split); a targeted
     # run without its plan fails the touch job, so its shards don't run.
-    if: ${{ !cancelled() && needs.touch.result == 'success' && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
+    if: ${{ !cancelled() && needs.touch.result == 'success' && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     # Setup (about 10 minutes, once 21 when the browser's system packages were slow) plus at most 60 minutes of journeys,
     # which Playwright stops itself (JOURNEY_GLOBAL_TIMEOUT_MS below), so the job's own limit is never what ends a shard
@@ -997,14 +1039,14 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
-      # A pull request that touches nothing a journeys run reads (or a draft): no shard ran, the report is empty, and
+      # A pull request that touches nothing a journeys run reads, or whose own earlier run on this head already runs it: no shard ran, the report is empty, and
       # the run is green. The seal reads an empty report as saying nothing about any step or journey file.
       - name: Nothing to run
         if: env.NOTHING == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/journeys"
           echo '{"suites":[],"errors":[],"stats":{"expected":0,"unexpected":0}}' > "$RUNNER_TEMP/journeys/report.json"
-          echo "Nothing to run: this pull request touches nothing a journeys run executes or reads (tooling/ci/journey-touch.mjs), or it is a draft." >> "$GITHUB_STEP_SUMMARY"
+          echo "Nothing to run: this pull request touches nothing a journeys run executes or reads (tooling/ci/journey-touch.mjs), or an earlier run on this head already runs it (see What this run runs)." >> "$GITHUB_STEP_SUMMARY"
       - name: Install
         if: env.NOTHING != 'true'
         run: pnpm install --frozen-lockfile
