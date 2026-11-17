@@ -370,7 +370,7 @@ export const venuePositionSchema = z.object({
 export type VenuePosition = z.infer<typeof venuePositionSchema>;
 
 /** What a leverage change would do to the open position's margin, by the venue's own rule (J-derivatives-05 #4). */
-export const venueLeverageChangeSchema = z.object({
+const venueLeverageChangeSchema = z.object({
   symbol: z.string(),
   leverageBps: z.number().int().positive(),
   marginMode,
