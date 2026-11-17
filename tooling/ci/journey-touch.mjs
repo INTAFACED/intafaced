@@ -557,27 +557,37 @@ export const PICK_FILE = 'pick.json';
  * A draft runs its journeys from its first push (#8707), so marking it ready on the same head runs again only what that
  * run does not already run. Before this a draft ran nothing and its ready run started only after the draft round: on the
  * 20 builds to 16 Nov 2026 that held the pull request's journeys back 1 to 27 minutes on 5 of them (#8705, #8702, #8695).
- * An earlier run counts when it is this pull request's own (event pull_request, this repository's, this workflow) on this
- * exact head, started before this run (`self`, its run id), still going or finished `success` (a red, cancelled or skipped
- * one counts for nothing, so its journeys run again), and kept what it runs for its current attempt (`picks`: Map(run id
- * → the PICK_ARTIFACT's JSON); a run with none, an older run before this rule or a deferred attempt, counts for nothing).
- * Its pick covers the full suite when its target is empty, else its journey files, each a journey file at the head. The
- * seal still reads every run on the head by its report (journey-seal.mjs): one still going holds it, and a red stands.
- * Returns { full: run id | null, files: Map(file → run id) }.
+ * An earlier run counts when it is this pull request's own (`pr`; event pull_request, this repository's, this workflow) on
+ * this exact head, started before this run (`self`, its run id), not cancelled or skipped, and kept what it runs for its
+ * current attempt (`picks`: Map(run id → the PICK_ARTIFACT's JSON); a run with none, an older run before this rule or a
+ * deferred attempt, counts for nothing). A finished red one counts as a red run by hand does: its red stands for this head
+ * and the seal reads it, so marking the pull request ready is not a second try. Its pick covers the full suite when its
+ * target is empty, but only when it read the title's journey files and they hold every one this run's title names
+ * (`named`: an array, or null when unread), since a full run's retries spare only the journeys it touches; else its
+ * journey files, each a journey file at the head. The seal still reads every run on the head by its report
+ * (journey-seal.mjs): one still going holds it, and a red stands. Returns { full: run id | null, files: Map(file → run id) }.
  */
-export function pullRunsCover(runs, { sha, repo, self, picks, journeyFiles, workflow = '.github/workflows/real-app-journeys.yml' }) {
+export function pullRunsCover(
+  runs,
+  { sha, repo, pr, self, picks, journeyFiles, named = null, workflow = '.github/workflows/real-app-journeys.yml' },
+) {
   let full = null;
   const files = new Map();
   for (const r of [...(runs ?? [])].sort((a, b) => Number(a?.id) - Number(b?.id))) {
     if (r?.event !== 'pull_request' || r?.head_sha !== sha || r?.path !== workflow) continue;
     if (r?.repository?.full_name !== repo || r?.head_repository?.full_name !== repo) continue;
     if (!(Number(r.id) < Number(self))) continue;
-    if (r.status === 'completed' && r.conclusion !== 'success') continue;
+    if (r.status === 'completed' && ['cancelled', 'skipped'].includes(r.conclusion)) continue;
     const p = picks?.get(r.id);
-    if (!p || p.head !== sha || p.mode !== 'run' || typeof p.target !== 'string') continue;
+    if (!p || p.head !== sha || p.pr !== Number(pr) || !Number(pr) || p.mode !== 'run' || typeof p.target !== 'string') continue;
     const names = p.target.split(/\s+/).filter(Boolean);
     if (!names.length) {
-      full ??= r.id;
+      const had = new Set(
+        String(p.named ?? '')
+          .split(/\s+/)
+          .filter(Boolean),
+      );
+      if (p.named_read === true && Array.isArray(named) && named.every((f) => had.has(f))) full ??= r.id;
       continue;
     }
     if (!journeyFiles || !names.every((f) => JOURNEY_FILE_NAME.test(f) && journeyFiles.has(f))) continue;
@@ -733,7 +743,15 @@ function reuseMain() {
     try {
       const prRuns = pullRunsOnHead(repo, sha);
       const self = Number(process.env.GITHUB_RUN_ID);
-      const cover = pullRunsCover(prRuns, { sha, repo, self, picks: readPicks(repo, sha, prRuns, self), journeyFiles });
+      const named =
+        process.env.NAMED_READ === '1'
+          ? String(process.env.NAMED ?? '')
+              .split(/\s+/)
+              .filter(Boolean)
+          : null;
+      const pr = Number(process.env.PR_NUMBER);
+      const picks = readPicks(repo, sha, prRuns, self);
+      const cover = pullRunsCover(prRuns, { sha, repo, pr, self, picks, journeyFiles, named });
       if (cover.full) {
         console.log(
           JSON.stringify({
@@ -774,7 +792,8 @@ function readPicks(repo, sha, runs, self) {
   const dir = mkdtempSync(join(tmpdir(), 'pick-'));
   try {
     for (const r of runs) {
-      if (r?.head_sha !== sha || !(Number(r.id) < self) || (r.status === 'completed' && r.conclusion !== 'success')) continue;
+      if (r?.head_sha !== sha || !(Number(r.id) < self) || (r.status === 'completed' && ['cancelled', 'skipped'].includes(r.conclusion)))
+        continue;
       try {
         const arts = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/artifacts?name=${PICK_ARTIFACT}&per_page=20`)).artifacts;
         const art = currentPickArtifact(r, arts);

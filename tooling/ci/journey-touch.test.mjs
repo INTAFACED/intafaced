@@ -1408,22 +1408,24 @@ test('planted: nothing is left out for a full run, or a run by hand that ran no 
 
 // #8707: a draft runs its journeys from its first push, and `ready_for_review` on the same head runs only the rest.
 const byPr = (id, over = {}) => run(id, { event: 'pull_request', display_title: 'svc-x: J-a-01 #1', ...over });
-const pick = (target, over = {}) => ({ head: HEAD, mode: 'run', target, ...over });
-const cover = (runs, picks, self = 100) =>
+const pick = (target, over = {}) => ({ head: HEAD, pr: 7, mode: 'run', target, named: '', named_read: true, ...over });
+const cover = (runs, picks, { self = 100, named = [] } = {}) =>
   pullRunsCover(runs, {
     sha: HEAD,
     repo: REPO,
+    pr: 7,
     self,
+    named,
     picks: new Map(Object.entries(picks).map(([k, v]) => [Number(k), v])),
     journeyFiles: AT_HEAD,
   });
 
 test("#8707: ready_for_review leaves out what this pull request's own earlier run on the same head runs", () => {
-  // The draft's run ran the full suite (still going, or finished green): the ready run runs nothing.
-  for (const over of [{ status: 'in_progress', conclusion: null }, {}]) {
-    const c = cover([byPr(1, over)], { 1: pick('') });
-    assert.equal(c.full, 1);
-  }
+  // The draft's run ran the full suite (still going, finished green, or finished red: its red stands): nothing runs again.
+  for (const over of [{ status: 'in_progress', conclusion: null }, {}, { conclusion: 'failure' }])
+    assert.equal(cover([byPr(1, over)], { 1: pick('') }).full, 1);
+  // Its title named J-a-01 then; now it names J-a-01 again, or nothing: still covered.
+  assert.equal(cover([byPr(1)], { 1: pick('', { named: 'J-a-01.pw.mjs' }) }, { named: ['J-a-01.pw.mjs'] }).full, 1);
   // It ran journey files: those are left out, the rest runs (with the runs by hand, as before).
   const c = cover([byPr(1)], { 1: pick('J-a-01.pw.mjs J-b-02.pw.mjs') });
   assert.equal(c.full, null);
@@ -1435,21 +1437,21 @@ test("#8707: ready_for_review leaves out what this pull request's own earlier ru
   assert.equal(afterReuse('J-a-01.pw.mjs', c.files).mode, 'none');
 });
 
-test('#8707 planted: an earlier run that is red, cancelled, not this head, not earlier, or kept no pick covers nothing; files never cover the full suite', () => {
-  const none = (runs, picks, self) => {
-    const c = cover(runs, picks, self);
+test('#8707 planted: an earlier run that is cancelled, of another pull request, not on this head, not earlier, or with no pick covers nothing', () => {
+  const none = (runs, picks, opts) => {
+    const c = cover(runs, picks, opts);
     assert.equal(c.full, null);
     assert.equal(c.files.size, 0);
   };
-  for (const conclusion of ['failure', 'cancelled', 'skipped', 'timed_out', 'startup_failure'])
-    none([byPr(1, { conclusion })], { 1: pick('') });
+  for (const conclusion of ['cancelled', 'skipped']) none([byPr(1, { conclusion })], { 1: pick('') });
   none([byPr(1, { head_sha: OLD })], { 1: pick('') });
   none([byPr(1)], { 1: pick('', { head: OLD }) });
+  none([byPr(1)], { 1: pick('', { pr: 8 }) }); // another pull request on the same commit
   none([byPr(1)], { 1: pick('', { mode: 'none' }) });
-  none([byPr(1)], { 1: { head: HEAD, mode: 'run' } });
+  none([byPr(1)], { 1: { head: HEAD, pr: 7, mode: 'run' } });
   none([byPr(1)], {});
-  none([byPr(100)], { 100: pick('') }, 100); // itself
-  none([byPr(101)], { 101: pick('') }, 100); // a later run
+  none([byPr(100)], { 100: pick('') }, { self: 100 }); // itself
+  none([byPr(101)], { 101: pick('') }, { self: 100 }); // a later run
   none([byPr(1, { repository: { full_name: 'x/y' } })], { 1: pick('') });
   none([byPr(1, { head_repository: { full_name: 'someone/fork' } })], { 1: pick('') });
   none([byPr(1, { path: '.github/workflows/other.yml' })], { 1: pick('') });
@@ -1458,6 +1460,12 @@ test('#8707 planted: an earlier run that is red, cancelled, not this head, not e
   // A name that is not a journey file at the head makes the pick count for nothing.
   none([byPr(1)], { 1: pick('J-a-01.pw.mjs J-zz-99.pw.mjs') });
   none([byPr(1)], { 1: pick('J-a-01.pw.mjs\nmode=none') });
+  // A full run whose title named fewer journeys, or that never read them, or a title this run can't read, covers nothing:
+  // its retries may have spared a journey this title now names (checker on #8710).
+  none([byPr(1)], { 1: pick('') }, { named: ['J-b-02.pw.mjs'] });
+  none([byPr(1)], { 1: pick('', { named: 'J-a-01.pw.mjs' }) }, { named: ['J-a-01.pw.mjs', 'J-b-02.pw.mjs'] });
+  none([byPr(1)], { 1: pick('', { named_read: false }) });
+  none([byPr(1)], { 1: pick('') }, { named: null });
   // Journey files never stand in for the full suite.
   const c = cover([byPr(1)], { 1: pick('J-a-01.pw.mjs') });
   assert.deepEqual(afterReuse('', c.files), { target: '', mode: 'run', why: '' });
@@ -1480,10 +1488,14 @@ test("#8707: real-app-journeys.yml runs a draft's journeys from its push, keeps 
     t,
     /- name: Keep what this run runs\n {8}id: keep\n {8}if: github\.event_name == 'pull_request' && steps\.touch\.outputs\.mode == 'run' && steps\.first\.outputs\.deferred != 'true'\n/,
   );
+  // The pick is best effort: a failed upload never turns the run red.
+  assert.match(t, /if: steps\.keep\.outcome == 'success'\n {8}continue-on-error: true\n/);
+  // The title's journey files are read for every pick, so a later run can tell whether a full run covers its title.
+  assert.match(t, /\{ echo "named=\$named"; echo "named_read=1"; \} >> "\$GITHUB_OUTPUT"\n {10}case "\$mode" in/);
   assert.match(
     t,
     new RegExp(
-      `if: steps\\.keep\\.outcome == 'success'\\n {8}uses: actions/upload-artifact@[0-9a-f]{40} # v[\\d.]+\\n {8}with:\\n {10}name: ${PICK_ARTIFACT}\\n`,
+      `if: steps\\.keep\\.outcome == 'success'\\n {8}continue-on-error: true\\n {8}uses: actions/upload-artifact@[0-9a-f]{40} # v[\\d.]+\\n {8}with:\\n {10}name: ${PICK_ARTIFACT}\\n`,
     ),
   );
   assert.match(
