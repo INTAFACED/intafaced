@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { connect } from 'nats';
 import { recordInfraProbe } from '@intafaced/db';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ACK_WAIT_NS, JetStreamEventBus, nakBackoffMs } from './jetstream-bus.js';
+import { ACK_WAIT_NS, BUS_DELIVERED, JetStreamEventBus, nakBackoffMs } from './jetstream-bus.js';
 
 /**
  * `JetStreamEventBus` against a real NATS server.
@@ -196,6 +196,55 @@ describe.skipIf(!available)('JetStreamEventBus — the at-least-once contract ev
     // Stopped, not spinning. A bus that retried forever would keep a broken
     // handler hot and hide the failure.
     expect(attempts).toBe(3);
+  });
+
+  it('writes one timed line per delivery, in the consuming process, holding no payload (#8657)', async () => {
+    // The journey recorder ties a service to the journey running when its log
+    // has a line with a `time`; a handler that logs nothing was recorded nowhere.
+    const b = await bus();
+    const payload = user();
+    const durable = `d-${randomUUID().slice(0, 8)}`;
+    const lines: string[] = [];
+    const realLog = console.log;
+    console.log = (...args: unknown[]) => {
+      lines.push(String(args[0]));
+    };
+    try {
+      // A new durable starts from the stream's first message (DeliverPolicy.All),
+      // so it also receives what earlier tests published: one line per call.
+      let calls = 0;
+      let handled = false;
+      await b.subscribe(
+        'userCreated',
+        async (p) => {
+          calls += 1;
+          if (p.userId === payload.userId) handled = true;
+        },
+        { durable },
+      );
+      const before = Date.now();
+      await b.publish('userCreated', payload);
+      expect(await until(() => handled)).toBe(true);
+      await new Promise((r) => setTimeout(r, 300));
+      const mine = lines
+        .map((line) => {
+          try {
+            return JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .filter((entry) => entry?.event === BUS_DELIVERED && entry?.durable === durable);
+      expect(mine).toHaveLength(calls);
+      for (const line of mine) {
+        expect(line).toMatchObject({ level: 30, subject: 'intafaced.identity.user.created', attempt: 1, msg: 'bus delivered' });
+        expect(Object.keys(line).sort()).toEqual(['attempt', 'durable', 'event', 'level', 'msg', 'subject', 'time']);
+      }
+      expect(mine.at(-1)!.time as number).toBeGreaterThanOrEqual(before);
+      expect(lines.join('\n')).not.toContain(payload.userId);
+    } finally {
+      console.log = realLog;
+    }
   });
 
   it('says so, once, when it gives up — the message is otherwise abandoned in silence', async () => {
