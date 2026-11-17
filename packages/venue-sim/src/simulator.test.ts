@@ -9,6 +9,7 @@ import {
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenueAccount,
+  type UserVenueBalance,
   type VenueIntent,
 } from '@intafaced/venue-contracts';
 import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
@@ -109,7 +110,7 @@ function order(
   };
 }
 
-function balanceOf(list: readonly { asset: string; free: Amount; locked: Amount; total: Amount }[], asset: string) {
+function balanceOf(list: readonly UserVenueBalance[], asset: string): UserVenueBalance {
   return list.find((b) => b.asset === asset) ?? { asset, free: ZERO, locked: ZERO, total: ZERO };
 }
 
