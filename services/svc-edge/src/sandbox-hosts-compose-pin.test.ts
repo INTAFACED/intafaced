@@ -8,13 +8,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { sandboxHostsValid } from './gateway-plane.js';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 function edgeServiceBlock(source: string): string {
-  const match = source.match(/^  svc-edge:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-edge service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-edge');
 }
 
 const SANDBOX_HOSTS = /^\s+EDGE_SANDBOX_HOSTS:\s*\$\{EDGE_SANDBOX_HOSTS:-\}\s*$/gm;

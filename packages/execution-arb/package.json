@@ -19,6 +19,7 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
+    "@intafaced/config": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/venue-adapter": "workspace:*",
     "@intafaced/venue-contracts": "workspace:*"

@@ -9,15 +9,14 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = resolve(import.meta.dirname, '../../../..');
 const COMPOSE = resolve(ROOT, 'docker-compose.apps.yml');
 const ENV_EXAMPLE = resolve(ROOT, '.env.example');
 
 function adminServiceBlock(source: string): string {
-  const match = source.match(/^  admin:\n(?:.*\n)*?(?=^  [a-z]|^[a-z]|\Z)/m);
-  if (!match) throw new Error('admin service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'admin');
 }
 
 function assignmentLines(block: string, key: string): string[] {
