@@ -51,7 +51,7 @@ function Brand({ footer }: { footer?: boolean }) {
 /** The public header follows the session: a signed-in visitor gets a way back into the app, a signed-out one gets Sign in. */
 export function PublicHeader({ path }: { path: string }) {
   const { t } = publicCopy.useCopy();
-  const { session, restoring, restoreFailed } = useSession();
+  const { session, restoreFailed } = useSession();
   const alternateAuth = path.startsWith('/login') ? '/register' : '/login';
   const authHref = publicAuthHref(publicAuthContext(path, location.search), alternateAuth);
   return (
@@ -67,9 +67,6 @@ export function PublicHeader({ path }: { path: string }) {
         <a href="/home" className="public-signin" data-session="signed-in">
           {t('Open your account')} <span aria-hidden="true">↗</span>
         </a>
-      ) : restoring ? (
-        // The boot refresh has not answered: say nothing rather than offering Sign in to someone who may already be signed in.
-        <span className="public-signin" aria-hidden="true" />
       ) : (
         <a href={authHref} className="public-signin" data-session="signed-out">
           {path.startsWith('/login') ? t('Create account') : t('Sign in')} <span aria-hidden="true">↗</span>
