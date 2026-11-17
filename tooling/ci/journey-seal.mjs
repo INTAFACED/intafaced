@@ -51,10 +51,12 @@
  * a journeys run executes or reads needs no run. (Failure it prevents: #7415 changed product code, merged on its own
  * steps and broke J-copy-bots-otc-01 #1 on main on 7 Nov 2026, so builders ran the full suite on nearly every branch by
  * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.) A pull request whose
- * title or branch names a journey with a file at its head is held, for its product code, to that journey and its changed
- * journey files (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1, project-state#2065, OWNER 296), the
- * same list its journeys run was given, and no longer to the map's always-run list (project-state#2332, 14 Nov 2026);
- * main's full run after the merge judges the rest and a red main is reverted (OWNER 249 (3)). A service's own stack file in such a pull request adds the journeys
+ * title or branch names a journey with a file at its head is held, for its product code, to that journey, its changed
+ * journey files and the journeys the map selects for its product paths, or the full run where the map can't narrow
+ * them (namedSealInputs, journey-touch.mjs namedInputs and its "named" rule: theo-01 part 1, project-state#2065, OWNER
+ * 296; the map since 17 Nov 2026), the same list its journeys run was given, and not to the map's always-run list
+ * (project-state#2332, 14 Nov 2026); main's full run after the merge judges the rest and a red main is reverted (OWNER
+ * 249 (3)). A service's own stack file in such a pull request adds the journeys
  * that use it, to the run and to this list (theo-01 part 2, OWNER 296). Every other full path still needs the full run.
  *
  * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
@@ -1343,8 +1345,11 @@ export async function namedSealInputs({ io, pull, head }) {
 export async function reachInputs({ io, paths, head, base, text }) {
   const kinds = paths.map((p) => [p, pathKind(p)]);
   const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
-  // Any other full path makes the whole change full, so nothing below would be used: read nothing.
-  if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product) || !io.mainRuns || !io.journeyFiles) return null;
+  // Any other full path makes the whole change full, so nothing below would be used: read nothing. A stack file is not
+  // one of those: a named pull request narrows it to the journeys using it, and its product paths still go to the map,
+  // as the touch job sends them (journey-touch.mjs main; #8139 changed one).
+  if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product && !k.stack) || !io.mainRuns || !io.journeyFiles)
+    return null;
   const map = await runMap(io, head);
   let behind = null;
   try {
@@ -1451,7 +1456,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
   const reverting = revertOf({ title: pull.title, body: pull.body, repo });
   // A pull request that names a journey is judged on it and its changed journey files, as its run
-  // was given them (namedSealInputs); else product code goes to the map or the full run.
+  // was given them (namedSealInputs), and its product code goes to the map or the full run like any other's.
   const stack = paths.filter((p) => pathKind(p).stack);
   const named =
     reverting || !(stack.length || paths.some((p) => pathKind(p).product))
@@ -1461,12 +1466,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     ? { mode: 'none', full: [], files: [] }
     : auto?.ok
       ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
-      : journeyTouch(
-          paths,
-          (f) => atHead.get(f) ?? true,
-          named ? null : await reachInputs({ io, paths, head, base: pull.base?.sha, text }),
-          named,
-        );
+      : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, base: pull.base?.sha, text }), named);
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
   const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));

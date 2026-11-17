@@ -104,7 +104,9 @@ import { registerClosureCheck } from './closure/closure-check.js';
 import { registerAgentsTeamMembership, teamMembershipFor } from './agents/team-membership.js';
 import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
+import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { ageBusinessInvite, ageSharedPotInvite } from './test-age-door.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -133,6 +135,9 @@ registerProcessHooks(
  * the consumer on the other side cannot attach at all.
  */
 
+// The TEST age door (packages/service-kit test-age.ts): off unless TEST_AGE_DOOR=on, which refuses to start outside a
+// TEST stack, so it is read before anything opens.
+const testAgeDoor = testAgeDoorOpen(process.env);
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
@@ -516,6 +521,13 @@ const edgeContext = createEdgeContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
+registerTestAgeDoor(app, {
+  open: testAgeDoor,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  subjects: { 'shared-pot-invite': ageSharedPotInvite(sql), 'business-invite': ageBusinessInvite(sql) },
+  installRawBody: false,
+});
 registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerAgentsTeamMembership(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, read: (u, b) => teamMembershipFor(sql, u, b) });
 // How a person pays for agent usage, and one payment of a sealed window, carried out by their partner (J-agents-01).

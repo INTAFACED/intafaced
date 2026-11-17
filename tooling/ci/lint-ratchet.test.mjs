@@ -145,7 +145,7 @@ test("main's ratchet.json fails a new fixed wait in a journey and in a unit test
     assert.match(failed.out, /garden\/no-real-clock-wait-in-tests rose from 0 to 1/u);
     assert.match(
       failed.out,
-      /agePast \(the test-age helper in apps\/customer\/tests\/real-app; svc-trade and svc-campaigns have the door today/u,
+      /agePast \(the test-age helper in apps\/customer\/tests\/real-app; svc-trade, svc-campaigns and svc-bank have the door today/u,
     );
   } finally {
     r.done();

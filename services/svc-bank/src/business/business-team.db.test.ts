@@ -21,6 +21,7 @@ import { createBankRouter } from '../router.js';
 import { testPartner, type TestPartner } from '../partner/test-partner.js';
 import { memoryBusinessDirectory, type DirectoryPerson } from './business-directory.js';
 import { businessPaymentKey, pickRule, fittedRole } from './business-team.js';
+import { ageBusinessInvite } from '../test-age-door.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -277,6 +278,34 @@ describe('business bank team and approval rules (J-bank-19)', () => {
         }),
       ),
     ).toBe('bank.business_role_forbidden');
+  });
+
+  it('the TEST age door: a link invite made a lifetime earlier is expired at the real time and refused by name; a decided one is not aged', async () => {
+    const { accountId, owner } = await business();
+    const link = await owner.businessTeam.invite({ accountId, inviteId: randomUUID(), email: null, role: 'checker', roleId: null });
+    expect((await owner.businessTeam.invites({ accountId })).find((i) => i.id === link.invite.id)?.status).toBe('open');
+    const [was] = await sql<
+      { created_at: Date; expires_at: Date }[]
+    >`SELECT created_at, expires_at FROM bank.business_invites WHERE id = ${link.invite.id}::uuid`;
+    const aged = await ageBusinessInvite(sql)(link.invite.id, 3_601_000);
+    // Both its times moved back by exactly what was asked: its lifetime is as it was, and it has ended.
+    expect(aged).toEqual({
+      createdAt: new Date(was!.created_at.getTime() - 3_601_000).toISOString(),
+      expiresAt: new Date(was!.expires_at.getTime() - 3_601_000).toISOString(),
+    });
+    expect((await owner.businessTeam.invites({ accountId })).find((i) => i.id === link.invite.id)?.status).toBe('expired');
+    expect(await refused(as(A1).businessTeam.acceptInvite({ token: link.token! }))).toBe('bank.business_invite_expired');
+
+    const taken = await owner.businessTeam.invite({ accountId, inviteId: randomUUID(), email: null, role: 'viewer', roleId: null });
+    await as(A1).businessTeam.acceptInvite({ token: taken.token! });
+    expect(await ageBusinessInvite(sql)(taken.invite.id, 60_000)).toBeNull();
+    // Replaced (the aged link, sent again) and revoked are decided too: neither is aged.
+    await owner.businessTeam.resendInvite({ accountId, inviteId: link.invite.id, newInviteId: randomUUID() });
+    expect(await ageBusinessInvite(sql)(link.invite.id, 60_000)).toBeNull();
+    const revoked = await owner.businessTeam.invite({ accountId, inviteId: randomUUID(), email: null, role: 'viewer', roleId: null });
+    await owner.businessTeam.revokeInvite({ accountId, inviteId: revoked.invite.id });
+    expect(await ageBusinessInvite(sql)(revoked.invite.id, 60_000)).toBeNull();
+    expect(await ageBusinessInvite(sql)('not-a-uuid', 60_000)).toBeNull();
   });
 
   it('#3 an email invite is for that email; an expired invite refuses and can be sent again; a revoked one refuses', async () => {

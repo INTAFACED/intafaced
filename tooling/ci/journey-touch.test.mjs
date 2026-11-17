@@ -29,7 +29,8 @@ import {
   pathKind,
   stackImporters,
 } from './journey-touch.mjs';
-import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
+import { JOURNEYS_WORKFLOW, JOURNEY_TEST, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
+import { reachSelect } from './journey-reach-map.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const REPO = 'INTAFACED/intafaced';
@@ -1594,4 +1595,127 @@ test('15 Nov: a run by hand that names one file of a journey runs every file of 
   // At this checkout: the real derivatives-01 pair.
   const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
   assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+});
+
+// The named rule's reach (17 Nov 2026): four real pull requests that each named one journey, ran only it and the
+// always-run files, merged green, and broke another journey on main (the revert in brackets). The fixture holds each
+// one's changed paths (git diff of its merge), title and branch, the journey files at its merge, which of its service
+// files subscribe to bus events, the journey files using its stack file (stackImporters), and the slice of the committed
+// touched-journeys map those paths read. Named-only (main before this change) leaves the broken journey out; asking the
+// map as well makes each one full, so the journey it broke runs on its own pull request.
+const REPLAY = JSON.parse(readFileSync(new URL('./fixtures/journey-touch-named-reach.json', import.meta.url), 'utf8'));
+
+const replayInputs = (c) => {
+  const journeyFiles = new Set(c.journeyFiles);
+  const ids = namedJourneyIds({ title: c.title, branch: c.branch });
+  const named = namedInputs({ ids, journeyFiles, ...(c.importers ? { importers: () => c.importers } : {}) });
+  const reach = {
+    map: REPLAY.map,
+    behind: 0,
+    journeyFiles,
+    subscribes: (p) => c.subscribes.includes(p),
+    head: null,
+    mode: 'reach',
+  };
+  return { named, reach };
+};
+const runsBroken = (t, broken) =>
+  t.mode === 'full' || t.files.some((f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1] === broken);
+
+test('replay, 4 real pull requests (#8113, #8153, #8542, #8139): a named pull request asks the map, so the journey it broke runs', () => {
+  assert.deepEqual(
+    REPLAY.cases.map((c) => [c.number, c.broken]),
+    [
+      [8113, 'J-campaigns-01'],
+      [8153, 'J-cex-spot-17'],
+      [8542, 'J-copy-bots-otc-03'],
+      [8139, 'J-identity-04'],
+    ],
+  );
+  for (const c of REPLAY.cases) {
+    const { named, reach } = replayInputs(c);
+    assert.ok(named, `#${c.number} names a journey with a file at its merge`);
+    // What it ran: its named journey (and, for a stack file, the journeys using it), never the one it broke.
+    const before = journeyTouch(c.paths, () => true, null, named);
+    assert.equal(before.mode, 'files', `#${c.number}: named-only narrows`);
+    assert.equal(runsBroken(before, c.broken), false, `#${c.number}: named-only leaves ${c.broken} out`);
+    // Now: the map speaks for its product paths, and it can't narrow them, so the change runs every journey.
+    const after = journeyTouch(c.paths, () => true, reach, named);
+    assert.equal(runsBroken(after, c.broken), true, `#${c.number}: ${c.broken} runs on its own pull request`);
+    assert.equal(after.mode, 'full', `#${c.number}: ${JSON.stringify(after.full?.[0])}`);
+    // Nothing it ran before stops running.
+    for (const f of before.files) assert.ok(after.mode === 'full' || after.files.includes(f), `#${c.number} still runs ${f}`);
+  }
+});
+
+test('a named pull request the map narrows runs its named journeys, its changed journey files and what the map selects, never the always-run list', () => {
+  const c = REPLAY.cases[0];
+  const { named, reach } = replayInputs(c);
+  // The one product path of #8113 the map narrows (57 recorded journey files), alone.
+  const paths = ['apps/customer/src/features/account/Promotions.tsx', 'apps/customer/tests/real-app/J-campaigns-06.pw.mjs'];
+  const t = journeyTouch(paths, () => true, reach, named);
+  assert.equal(t.mode, 'files');
+  const sel = reachSelect({ map: REPLAY.map, paths: [paths[0]], behind: 0, atHead: reach.journeyFiles, mode: 'reach', unrecorded: false });
+  assert.equal(sel.mode, 'files');
+  for (const f of [...sel.files, ...named.files]) assert.ok(t.files.includes(f), f);
+  // The map's always-run journeys (its `full` list) stay with main's full run (project-state#2332).
+  const id = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1];
+  const picked = new Set([...sel.files, ...named.files].map(id));
+  // (A file of a picked journey runs with it, withSiblings.)
+  const always = Object.keys(REPLAY.map.full).filter((f) => reach.journeyFiles.has(f) && !picked.has(id(f)));
+  assert.ok(always.length, 'the fixture has an always-run journey at the head');
+  for (const f of always) assert.equal(t.files.includes(f), false, f);
+  assert.match(
+    t.named,
+    /it names J-campaigns-06, so its 1 product path\(s\) run J-campaigns-06\.pw\.mjs and the \d+ journey file\(s\) the touched-journeys map says reach them/,
+  );
+  assert.ok(t.reach?.length, 'the map says why');
+  // Without the map (unreadable), the named rule stands as before: it never runs less.
+  assert.deepEqual(journeyTouch(paths, () => true, null, named).files, named.files);
+  // A map that can't speak (switched off) makes it full, never narrower.
+  assert.equal(journeyTouch(paths, () => true, { ...reach, mode: 'off' }, named).mode, 'full');
+});
+
+test('replay, the seal: each of the 4 named pull requests no longer seals on a run of its named journey alone', async () => {
+  for (const c of REPLAY.cases) {
+    const named = namedInputs({ ids: namedJourneyIds({ title: c.title, branch: c.branch }), journeyFiles: new Set(c.journeyFiles) });
+    const ran = [...new Set([...named.files, ...(c.importers ?? [])])];
+    const states = Object.fromEntries(
+      [...c.title.matchAll(/ #(\d+)/g)].map((m) => [`${namedJourneyIds({ title: c.title })[0]}#${m[1]}`, 'passed']),
+    );
+    const newest = REPLAY.map.runs[0];
+    const id = namedJourneyIds({ title: c.title })[0];
+    const steps = `const J = '${id}';\n${Object.keys(states)
+      .map((s) => `test(\`\${J} #${s.split('#')[1]} x\`, () => {});`)
+      .join('\n')}\n`;
+    const stackNames = c.paths.filter((p) => pathKind(p).stack).map((p) => `'../../../../${p}'`);
+    const out = await sealPull({
+      repo: REPO,
+      number: c.number,
+      sha: HEAD,
+      io: {
+        pull: async () => ({ state: 'open', head: { sha: HEAD, ref: c.branch }, base: { sha: OLD }, title: c.title, body: '' }),
+        runs: async () => [run(1)],
+        reportOf: async () => ({ states, ran }),
+        files: async () => c.paths,
+        // Its changed journey file holds the steps its title names; its service files that subscribe say so.
+        text: async (f, ref) => (ref === HEAD && RUN_FILE.test(f) ? steps : ref === HEAD && c.subscribes.includes(f) ? '.subscribe(' : ''),
+        // The journey files using its stack file name it, as its importers did at the merge (#8139).
+        journeyTexts: async () => new Map(c.journeyFiles.map((f) => [f, (c.importers ?? []).includes(f) ? stackNames.join('\n') : ''])),
+        verdictOf: async (r) => ({ ...clean, missing: c.journeyFiles.filter((f) => !r.ran.includes(f)) }),
+        reachMap: async () => REPLAY.map,
+        mainRuns: async () => [run(2, { id: newest.id, head_branch: 'main', event: 'push', created_at: newest.created })],
+        journeyFiles: async () => new Set(c.journeyFiles),
+        reachMode: 'reach',
+      },
+    });
+    assert.equal(out.ok, false, `#${c.number}: ${out.lines.join('\n')}`);
+    // Held for the full run the map asks for, not for anything else in the fake (the old named line ends "main's full
+    // run judges the rest"). #8139's stack file goes full with its product code, so its reason is the stack file's.
+    const why = /full run: it changes (what can reach any journey|the journey stack's shared setup)/;
+    assert.match(out.lines.join('\n'), why, `#${c.number}: ${out.lines.join('\n')}`);
+    assert.doesNotMatch(out.lines.join('\n'), /main's full run judges the rest/, `#${c.number}`);
+    // The same run on a head that touched nothing else would have sealed: the named rule's own lines are clean.
+    for (const s of Object.keys(states)) assert.match(out.lines.join('\n'), new RegExp(`${s}: passed`), `#${c.number}: ${s}`);
+  }
 });

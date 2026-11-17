@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, api as ledgerApi, journeyState, json, signOutBrowser, signUpInBrowser } from './stack.mjs';
 import { signIn, verify } from './desk.mjs';
+import { agePast } from './test-age.mjs';
 
 // J-bank-19, in the running app (docs/roadmap/journeys.json): I set up my business bank team and approval rules. Tests
 // titled "J-bank-19 #<n>" prove a step.
@@ -338,11 +339,14 @@ test(`${J} #3 invites a member by email or link: an invite to a new email; opene
     return link;
   };
 
-  // A link invite for the second approver, made first so it expires while the rest of the step runs.
+  // A link invite for the second approver, made first. The business already has invites from setting it up, so the
+  // step names this one by the id that was not listed before it.
+  const own = await bank(w.owner);
+  const listInvites = async () => ok(await own.query('businessTeam.invites', { accountId: w.accountId }));
+  const earlier = new Set((await listInvites()).map((i) => i.id));
   const toApprover = await send('', 'checker');
   await expect(toApprover).toContainText('Anyone signed in with it can join.');
   const expiringUrl = await toApprover.getByLabel('Invite link').inputValue();
-  const madeAt = Date.now();
   expect(expiringUrl).toMatch(/\/bank\/business\/join#[A-Za-z0-9_-]{16,}$/);
 
   // An invite to an email no account has yet: listed as open until its time, with its link to send.
@@ -360,8 +364,7 @@ test(`${J} #3 invites a member by email or link: an invite to a new email; opene
 
   // A third invite, revoked: its link refuses.
   const revokedUrl = await (await send('', 'viewer')).getByLabel('Invite link').inputValue();
-  const own = await bank(w.owner);
-  const listed = ok(await own.query('businessTeam.invites', { accountId: w.accountId }));
+  const listed = await listInvites();
   const revoked = listed.find((i) => i.kind === 'link' && i.role === 'viewer' && i.status === 'open');
   await invites.locator(`[data-invite="${revoked.id}"]`).getByRole('button', { name: 'Revoke' }).click();
   await expect(invites.locator(`[data-invite="${revoked.id}"]`)).toHaveAttribute('data-status', 'revoked');
@@ -381,8 +384,14 @@ test(`${J} #3 invites a member by email or link: an invite to a new email; opene
   await page.getByRole('button', { name: 'Join' }).click();
   await expect(page.getByTestId('team-joined')).toContainText(`You joined ${w.name}.`);
 
-  // The approver's link, opened after its two minutes: refused by name, and it shows as expired to the owner.
-  await page.waitForTimeout(Math.max(0, madeAt + INVITE_MS + 5_000 - Date.now()));
+  // The approver's link, opened after its two minutes: refused by name, and it shows as expired to the owner. The TEST
+  // age door makes that one invite two minutes older instead of waiting them out; no clock moves.
+  const links = (await listInvites()).filter((i) => !earlier.has(i.id) && i.kind === 'link' && i.role === 'checker');
+  expect(links).toHaveLength(1);
+  const [toChecker] = links;
+  expect(toChecker.status).toBe('open');
+  expect(Date.parse(toChecker.expiresAt) - Date.parse(toChecker.createdAt)).toBe(INVITE_MS);
+  await agePast('bank', 'business-invite', toChecker.id, toChecker.expiresAt);
   await signedInAt(page, w.a2, new URL(expiringUrl).pathname + new URL(expiringUrl).hash);
   await page.getByRole('button', { name: 'Join' }).click();
   await expect(page.getByTestId('team-refusal')).toHaveAttribute('data-code', 'bank.business_invite_expired');

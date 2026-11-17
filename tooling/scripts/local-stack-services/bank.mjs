@@ -239,6 +239,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
   env: () => ({
     ...c('svc-bank', PORTS.bank),
     DATABASE_URL: dbUrl('svc_bank', secrets),
+    // The TEST age door (packages/service-kit test-age.ts): a journey makes one TEST invite end now instead of waiting out
+    // its minutes (J-bank-07 #6, J-bank-19). svc-bank refuses to start with it outside APP_ENV dev/test or under
+    // NODE_ENV=production.
+    TEST_AGE_DOOR: 'on',
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
     TRADE_URL: urlOf('trade'),
