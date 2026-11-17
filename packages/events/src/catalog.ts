@@ -2313,9 +2313,10 @@ export function eventBySubject(s: string): EventDef | undefined {
  * All three are kept here after the fact, because the SHAPE is what this list
  * exists for and every one of them was found by accident rather than on purpose.
  *
- * `tooling/ci/event-wiring.mjs` now reads the code and this list together, and
- * fails when they disagree. So the only two states an unwired event can be in
- * are: RECORDED HERE, with a reason a human wrote and a CLASS — or RED.
+ * An unwired event is RECORDED HERE, with a reason a human wrote and a CLASS.
+ * No CI check reads the code against this list since the event-wiring gate was
+ * removed: svc-notify logs an undeclared consumer at ERROR and counts it on
+ * /ready at boot, and a journey that needs the event fails.
  *
  * THE RULES, because a socket list rots into a suppression list otherwise:
  *

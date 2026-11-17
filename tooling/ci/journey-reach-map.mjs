@@ -1032,9 +1032,19 @@ export function pathReach(map, path, subscribesHere = false, head = null) {
  * The journeys a set of product paths reaches: { mode: 'files', files, because } or { mode: 'full', why }. `atHead`:
  * the journey files at the head (a Set of names), or null when they can't be listed. `subscribes(path)`: pathReach's
  * `subscribesHere`; `head`: its `head`. Every journey the map can't speak for (its `full` journeys, and a journey file at the head it
- * doesn't know) is selected too; a selection holding every journey at the head is the full run.
+ * doesn't know) is selected too, unless `unrecorded` is false (a named pull request: main's full run holds those, as
+ * journey-touch.mjs says); a selection holding every journey at the head is the full run.
  */
-export function reachSelect({ map, paths, behind, atHead, subscribes = () => false, head = null, mode = REACH_MAP_MODE }) {
+export function reachSelect({
+  map,
+  paths,
+  behind,
+  atHead,
+  subscribes = () => false,
+  head = null,
+  mode = REACH_MAP_MODE,
+  unrecorded = true,
+}) {
   const problem = mapProblem(map, behind, mode);
   if (problem) return { mode: 'full', why: problem };
   if (!(atHead instanceof Set)) return { mode: 'full', why: "the journey files at the head couldn't be listed" };
@@ -1052,7 +1062,7 @@ export function reachSelect({ map, paths, behind, atHead, subscribes = () => fal
     because.push(`${p}: ${r.journeys.length} journey file(s) reach it`);
   }
   const known = new Set(map.journeys);
-  const always = [...Object.keys(map.full ?? {}), ...[...atHead].filter((f) => !known.has(f))];
+  const always = unrecorded ? [...Object.keys(map.full ?? {}), ...[...atHead].filter((f) => !known.has(f))] : [];
   for (const f of always) picked.add(f);
   const files = [...picked].filter((f) => atHead.has(f)).sort();
   if (files.length >= atHead.size) return { mode: 'full', why: 'the recorded reach of what it changes holds every journey' };

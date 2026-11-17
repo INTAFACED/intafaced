@@ -1,95 +1,14 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require format:check, truth-check and the Doctrine gates before any push. The rest of CI runs on GitHub.
+# Refuse direct push to main + require the Doctrine gates before any push. The rest of CI runs on GitHub.
 # Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
-#
-# P1: format:check covers tooling/scripts/*.mjs (what red-trunked main via #471).
-# Worktrees often lack node_modules — resolve prettier from git-common-dir parent.
+# Formatting is checked by .githooks/pre-commit on every commit and by CI's Format job on the pull request.
 
 TOP=$(git rev-parse --show-toplevel)
 
-# Resolve the MAIN checkout from --git-common-dir, whose parent is the main
-# working tree. Two spellings have to be handled, and getting this wrong is why
-# every push from a worktree used to print
-#   cd: .../plug-x-inta-worktrees/<wt>/C:/Users/User/PLUG X INTA: No such file
-#
-#   main checkout   → ".git"                       (relative to $TOP)
-#   linked worktree → "C:/Users/User/repo/.git"    (absolute, Git Bash on Windows)
-#
-# The old code tested only `/*` for "already absolute". A Windows absolute path
-# starts with a drive letter, not a slash, so it fell through to the relative
-# branch and concatenated an absolute path onto $TOP. Non-fatal — REPO_ROOT just
-# came out empty and prettier was found via $TOP — but it cried wolf on every
-# push. `git rev-parse --show-toplevel` always returns forward slashes; other
-# rev-parse outputs do not normalise, hence matching both forms below.
-# (`--path-format=absolute` would do this in one call but needs git >= 2.31.)
-COMMON_GIT=$(git rev-parse --git-common-dir)
-case "$COMMON_GIT" in
-  /*) ;;                                       # POSIX absolute
-  [A-Za-z]:*) ;;                               # Windows absolute, e.g. C:/repo/.git
-  *) COMMON_GIT="$TOP/$COMMON_GIT" ;;          # relative — hooks run from $TOP
-esac
-REPO_ROOT=$(CDPATH= cd -- "$COMMON_GIT/.." 2>/dev/null && pwd) || REPO_ROOT=""
-[ -n "$REPO_ROOT" ] || REPO_ROOT="$TOP"
-
-PRETTIER=""
-if [ -x "$TOP/node_modules/.bin/prettier" ]; then
-  PRETTIER="$TOP/node_modules/.bin/prettier"
-elif [ -x "$REPO_ROOT/node_modules/.bin/prettier" ]; then
-  PRETTIER="$REPO_ROOT/node_modules/.bin/prettier"
-fi
-
-if [ -n "$PRETTIER" ]; then
-  # Format only files this push introduces vs origin/main. Full-tree prettier
-  # on ~4k files hung agent pushes for minutes (L15 wave 4) and was routinely
-  # --no-verify'd — which is how #471 red-trunked. Scoped check is the same
-  # gate with a usable runtime. Only files in this push are checked.
-  RANGE_BASE=$(git merge-base HEAD origin/main 2>/dev/null || git rev-parse origin/main 2>/dev/null || true)
-  FILES=""
-  if [ -n "$RANGE_BASE" ]; then
-    FILES=$(git diff --name-only --diff-filter=ACMR "$RANGE_BASE"...HEAD 2>/dev/null | grep -E '\.(ts|tsx|mjs|js|md|json|yml|yaml)$' || true)
-  fi
-  WT_FILES=$(git diff --name-only --diff-filter=ACMR HEAD 2>/dev/null | grep -E '\.(ts|tsx|mjs|js|md|json|yml|yaml)$' || true)
-  STAGED=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null | grep -E '\.(ts|tsx|mjs|js|md|json|yml|yaml)$' || true)
-  ALL_FILES=$(printf '%s\n%s\n%s\n' "$FILES" "$WT_FILES" "$STAGED" | sort -u | grep -v '^$' || true)
-  if [ -z "$ALL_FILES" ]; then
-    echo "format:check — no matching files in push range; skip"
-  else
-    echo "Checking formatting on push range..."
-    if ! (CDPATH= cd -- "$TOP" && echo "$ALL_FILES" | tr '\n' '\0' | xargs -0 "$PRETTIER" --check); then
-      cat >&2 <<'MSG'
-
-  ✖ format:check failed — refuse push.
-
-    Fix: prettier --write on the named files (or pnpm format from a full install).
-    This is the gate that failed when #471 merged before CI (swarm.mjs).
-    Only files in this push are checked (not the whole tree).
-
-MSG
-      exit 1
-    fi
-  fi
-else
-  # No prettier here or in the main checkout (a fresh worktree before its install): skip, never refuse. CI's format
-  # check still runs on the push. Was a fallback to `pnpm format:check`, which fails without node_modules and so refused
-  # the first push in 12 of 20 sampled builder threads (project-state garden stake-02; the lead on #2065, 13 Nov).
-  echo "format:check — no prettier in this worktree; skipped (pnpm install --frozen-lockfile --prefer-offline); CI checks it" >&2
-fi
-
-# Local agent-rule drift check. Not a GitHub workflow. Stdin stays with the loop below.
+# Every step below runs node.
 if ! command -v node >/dev/null 2>&1; then
-  echo "truth-check: node is missing — refuse push." >&2
-  exit 1
-fi
-if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/truth-check.mjs) </dev/null; then
-  cat >&2 <<'MSG'
-
-  ✖ truth-check failed — push refused.
-
-    Fix the named lines (AGENTS.md is the truth); archive files arrive by
-    git mv; list new docs in docs/README.md.
-
-MSG
+  echo "pre-push: node is missing — refuse push." >&2
   exit 1
 fi
 
@@ -204,16 +123,12 @@ if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
   done < "$PUSHED"
 fi
 
-# What runs here takes seconds: formatting of the pushed files, the agent-rule check, the tooling tests that read
+# What runs here takes seconds: the tooling tests that read
 # journey files (when one is pushed), the lint ratchet on the pushed files, the cross-package read scan, the Doctrine
 # gates that read the pushed tree, the CI review's size count and the refusal of main. Only on GitHub: build, typecheck,
 # unit tests, the other tooling tests and the gates gates.mjs leaves to CI (on the Mac CI's checks took 13 to 91 minutes
-# a push under three builders; GitHub runs them in 9 to 20): on the branch before the pull request
-# (`gh workflow run ci.yml --ref <branch>`, which prints the run's URL), then on the pull request.
+# a push under three builders; GitHub runs them in 9 to 20), on the pull request.
 # `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
-if [ -z "${CI:-}" ] && grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED"; then
-  echo "CI's checks run on GitHub: gh workflow run ci.yml -R INTAFACED/intafaced --ref <branch>, before the pull request" >&2
-fi
 rm -f "$PUSHED"
 
 exit 0

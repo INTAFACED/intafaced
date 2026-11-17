@@ -3182,6 +3182,9 @@ describe('svc-bank money PG-hard', () => {
           'a POLICY: the monthly target the person chose for one spend category; spend is folded from the partner record or the ledger',
         'recovery_sweeps.amount':
           'the PLAN of one recovery sweep round for one account, written before it posts; the ledger holds the balance',
+        // Salary by direct deposit (J-bank-30): the partner bank holds the money; the ledger posts nothing.
+        'salary_credits.amount': 'a RECORD of one payroll network credit as the network sent it; the money is the partner move it names',
+        'salary_split_legs.amount': 'an INSTRUCTION: one split leg sent to the partner bank under its key, fixed when the credit arrived',
       };
 
       const guard = moneyColumnGuard(columns, MONEY_COLUMNS);

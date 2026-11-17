@@ -3,7 +3,7 @@
  * ARCHITECTURE MAP. Keeps docs/ARCHITECTURE.md's counts and tables true to the folders.
  *
  *   node tooling/ci/architecture-map.mjs          rewrite the generated count block of docs/ARCHITECTURE.md
- *   node tooling/ci/architecture-map.mjs --check  fail if that block is stale or a table drifted (run by `node tooling/ci/gates.mjs`)
+ *   node tooling/ci/architecture-map.mjs --check  fail if that block is stale or a table drifted (CI's check is architecture-map.test.mjs, run by tooling-tests)
  *
  * The count block (between the `architecture-map` markers) is generated from `ls apps`,
  * `ls services` and `ls packages`. The Apps and Services tables stay hand-written words, but

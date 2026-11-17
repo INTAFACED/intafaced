@@ -11,8 +11,8 @@
  * There is no baseline file: main's own code is the baseline, so the count tightens by itself and a function moved from
  * one touched file to another does not fail (its finding leaves one file and arrives in the other).
  *
- * Every rule enforces, except one in ratchet.json `printOnly`, which names why it would fail honest code; its rise only
- * prints. Rules in `failInAddedFiles` replaced tests that judged the files a change ADDS: any finding in an added file
+ * Every rule enforces: a copy or a pattern kept on purpose carries a suppression with its reason on that line. Rules in
+ * ratchet.json `failInAddedFiles` replaced tests that judged the files a change ADDS: any finding in an added file
  * fails, even when a removal elsewhere pays for it, as the test did.
  *
  * Usage:
@@ -120,23 +120,21 @@ export function lintSide(files, config, dir, oxlint, found = {}) {
 
 const sum = (byFile) => Object.values(byFile ?? {}).reduce((a, b) => a + b, 0);
 
-/** The verdict: one row per rule seen on either side, and the rules that rose while enforcing. */
+/** The verdict: one row per rule seen on either side, and the rules that rose. */
 export function compare(base, head, starts, added = new Set()) {
   const rows = [];
   for (const rule of [...new Set([...Object.keys(base), ...Object.keys(head)])].sort()) {
     const was = sum(base[rule]);
     const now = sum(head[rule]);
-    const printOnly = starts.printOnly?.[rule];
-    const enforcing = printOnly === undefined;
     const rose = now > was;
     const inFiles = (keep) =>
       Object.keys(head[rule] ?? {})
         .filter((f) => (head[rule][f] ?? 0) > 0 && keep(f))
         .sort();
     const newFiles = (starts.failInAddedFiles ?? []).includes(rule) ? inFiles((f) => added.has(f)) : [];
-    const fails = (rose && enforcing) || newFiles.length > 0;
+    const fails = rose || newFiles.length > 0;
     const files = rose || newFiles.length ? inFiles((f) => newFiles.includes(f) || (head[rule][f] ?? 0) > (base[rule]?.[f] ?? 0)) : [];
-    rows.push({ rule, was, now, enforcing, printOnly, fails, newFiles, files });
+    rows.push({ rule, was, now, fails, newFiles, files });
   }
   return { rows, failing: rows.filter((r) => r.fails) };
 }
@@ -152,9 +150,7 @@ export function table({ rows }, nFiles) {
     const status = r.newFiles?.length
       ? `**FAILS: in file(s) this change adds**: ${r.newFiles.join(', ')}`
       : r.now > r.was
-        ? r.enforcing
-          ? `**FAILS: +${r.now - r.was}** in ${r.files.join(', ')}`
-          : `rose +${r.now - r.was}; prints only (tooling/lint/ratchet.json)`
+        ? `**FAILS: +${r.now - r.was}** in ${r.files.join(', ')}`
         : r.now < r.was
           ? `fell ${r.now - r.was}`
           : 'held';

@@ -413,6 +413,21 @@ const bankSections: readonly DeskSection[] = [
     ],
   },
   {
+    id: 'bank-rails',
+    title: 'Bank rails',
+    intro: 'Salary paid in by direct deposit: the payroll network’s own credits minus reversals against what the app showed, per currency.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/bank-ops/rails',
+        label: 'Bank rails desk',
+        why: 'The reconciliation by currency is on its own page.',
+      },
+    ],
+  },
+  {
     id: 'card-disputes',
     title: 'Card disputes',
     intro:
@@ -2302,6 +2317,11 @@ const moreSections: readonly DeskSection[] = [
         href: '/more-ops/campaigns/risk',
         label: 'Risk review',
         why: 'Accounts with duplicate-account, device and anti-churn signals: held rewards, withholding, revoking and appeals decided by a second person.',
+      },
+      {
+        href: '/more-ops/campaigns/payouts',
+        label: 'Payout board',
+        why: 'Reward intents by state (owed, pending funding, sending, paid, failed) with their keys and ledger and chain references, and each airdrop’s plan and run.',
       },
       {
         href: '/more-ops/campaigns',

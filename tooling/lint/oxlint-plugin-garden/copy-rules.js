@@ -385,10 +385,68 @@ const ownGapWording = {
   },
 };
 
+// ---------------------------------------------------------------------------------------------------------------------
+// garden/no-unsealed-claim: copy never calls anything audited, insured or guaranteed unless that line or the one above it
+// carries OWNER-SEAL(§8.9) (was the marketing-language Doctrine gate, tooling/ci/marketing-language-scan.mjs). Its scope
+// is the gate's: every non-test source file of packages/i18n/src, whose generated locale index holds the JSON catalogues'
+// text. (The customer copy catalogues were left out: two honest lines there, "No rate or purchase outcome is guaranteed."
+// and the label `auditedFlag: 'Audited'`, would need cases the gate never had.) The words and the seal are the law
+// module's, packages/config/src/marketing-language.ts; the plugin's test holds the two lists equal.
+export const CLAIM_WORDS = ['audited', 'insured', 'guaranteed'];
+const OWNER_SEAL = /OWNER-SEAL\s*\(\s*§?\s*8\.9\s*\)/iu;
+
+/** Whether a file is in the rule's scope: a non-test .ts/.js/.mjs file under packages/i18n/src. */
+export function claimScope(filename) {
+  const file = String(filename).split('\\').join('/');
+  if (!/\.(?:[cm]?[jt]sx?)$/u.test(file) || /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(file)) return false;
+  return file.startsWith('packages/i18n/src/') || file.includes('/packages/i18n/src/');
+}
+
+/** An honest use: the word negated ("not audited", "unaudited") or a field set to anything but true. */
+function honestClaimUse(line) {
+  const l = String(line).toLowerCase();
+  if (/\baudited\s*:\s*false\b/u.test(l)) return true;
+  if (/\b(?:un|non)[- ]?(?:audited|insured|guaranteed)\b/u.test(l)) return true;
+  if (
+    /\b(?:not|never|no)\s+(?:a\s+|be\s+|been\s+|an?\s+)?(?:fully\s+|externally\s+|independently\s+)?(?:audited|insured|guaranteed)\b/u.test(
+      l,
+    )
+  )
+    return true;
+  return /^\s*audited\s*:/u.test(line) && !/\baudited\s*:\s*true\b/iu.test(line);
+}
+
+/** The claim words on one line that need the seal (none when this line or the one above is sealed, or the use is honest). */
+export function unsealedClaims(line, previousLine = '') {
+  if (OWNER_SEAL.test(line) || OWNER_SEAL.test(previousLine) || honestClaimUse(line)) return [];
+  return CLAIM_WORDS.filter((w) => new RegExp(`\\b${w}\\b`, 'iu').test(line));
+}
+
+const noUnsealedClaim = {
+  meta: { type: 'problem', docs: { description: 'Copy calls nothing audited, insured or guaranteed without the owner seal.' } },
+  create(context) {
+    if (!claimScope(context.filename ?? context.getFilename())) return {};
+    return {
+      Program() {
+        const lines = context.sourceCode.text.split('\n');
+        lines.forEach((line, i) => {
+          const words = unsealedClaims(line, i > 0 ? lines[i - 1] : '');
+          if (words.length)
+            context.report({
+              loc: { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: line.length } },
+              message: `copy says “${words.join('”, “')}”: an audit, insurance or guarantee needs the owner's seal, OWNER-SEAL(§8.9) on this line or the one above; otherwise say what is true without it`,
+            });
+        });
+      },
+    };
+  },
+};
+
 export const copyRules = {
   'no-promise-copy': noPromiseCopy,
   'pay-portal-copy': payPortalCopy,
   'no-hand-schema': noHandSchema,
   'no-screen-literal': noScreenLiteral,
   'own-gap-wording': ownGapWording,
+  'no-unsealed-claim': noUnsealedClaim,
 };

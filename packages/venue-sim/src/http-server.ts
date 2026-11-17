@@ -46,6 +46,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /scheduled-cancel {account}                      the account's scheduled cancel (J-cex-spot-07): its time and last firing
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
+ *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
  *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
@@ -757,6 +758,11 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const amount = body.amount;
       if (typeof amount !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
       return { credited: sim.deposit(account(body), str(body, 'asset'), amount as Amount, str(body, 'depositRef')), label: 'TEST' };
+    }
+    case '/test/deficit': {
+      const amount = body.amount;
+      if (typeof amount !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
+      return { booked: sim.bookDeficit(account(body), str(body, 'asset'), amount as Amount, str(body, 'lossRef')), label: 'TEST' };
     }
     case '/test/switches': {
       if (typeof body.venueDown === 'boolean') sim.switches.venueDown = body.venueDown;

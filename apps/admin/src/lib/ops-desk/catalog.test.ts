@@ -38,16 +38,18 @@ const ROUTER: Record<ReadSpec['module'], string | null> = {
 };
 const personalPayRouter = () =>
   readFileSync(fileURLToPath(new URL('../../../../../services/svc-bank/src/personal-pay/router.ts', import.meta.url)), 'utf8');
-// svc-bank's router.ts composes one router file per area from src/router/; those files are read with it.
+// svc-bank's router.ts composes one router file per area from src/router/, and svc-quant's one `<area>Routes` factory
+// per area from src/routes/ (`health: healthRoutes(core)`); those files are read with it.
 const source = (service: string) => {
   const src = fileURLToPath(new URL(`../../../../../services/${service}/src`, import.meta.url));
-  const areas = existsSync(join(src, 'router'))
-    ? readdirSync(join(src, 'router'))
-        .filter((name) => name.endsWith('.router.ts'))
-        .sort()
-        .map((name) => readFileSync(join(src, 'router', name), 'utf8'))
-    : [];
-  return [...areas, readFileSync(join(src, 'router.ts'), 'utf8')].join('\n');
+  const filesOf = (dir: string, suffix: string) =>
+    existsSync(join(src, dir))
+      ? readdirSync(join(src, dir))
+          .filter((name) => name.endsWith(suffix) && !name.includes('.test.'))
+          .sort()
+          .map((name) => readFileSync(join(src, dir, name), 'utf8'))
+      : [];
+  return [...filesOf('router', '.router.ts'), ...filesOf('routes', '.ts'), readFileSync(join(src, 'router.ts'), 'utf8')].join('\n');
 };
 
 // The transfer record is read on request, so it sits in no section; it is held to the same rules as every other read.
@@ -427,19 +429,25 @@ describe('every read names a QUERY that exists in the owning router (drift guard
       from = start + ops!.index;
     } else if (parts.length === 2) {
       const group = new RegExp(
-        `(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\(|export function create${parts[0]![0]!.toUpperCase()}${parts[0]!.slice(1)}Router\\()`,
+        `(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\(|export function create${parts[0]![0]!.toUpperCase()}${parts[0]!.slice(1)}Router\\(|export function ${parts[0]}Routes\\()`,
       ).exec(text);
       expect(group, `${service} has a ${parts[0]} group`).not.toBeNull();
       from = group!.index;
     }
     const name = parts[parts.length - 1]!;
+    // A top-level procedure built by its area's factory (svc-quant `health: healthRoutes(core)`) is read from that factory.
+    const area = parts.length === 1 ? new RegExp(`\\b${name}: (\\w+Routes)\\(`).exec(text)?.[1] : undefined;
+    if (area) from = text.indexOf(`export function ${area}(`);
     // `operator` is svc-mining-pool's local alias for its admin:read procedure builder.
-    const proc = new RegExp(`\\b${name}: (\\w*Procedure|operator)\\b`).exec(text.slice(from));
+    const proc = area
+      ? new RegExp(`export function ${area}\\(`).exec(text.slice(from))
+      : new RegExp(`\\b${name}: (\\w*Procedure|operator)\\b`).exec(text.slice(from));
     expect(proc, `${service} has ${read.procedure}`).not.toBeNull();
     // From the procedure up to the next procedure definition, the call kind must be a query.
     const rest = text.slice(from + proc!.index + 1);
     const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure|operator|customer)\b/);
     let body = next === -1 ? rest : rest.slice(0, next);
+    if (area) body = rest.slice(0, rest.search(/\nexport function /) >>> 0);
     // A procedure built in its own file (`poolTotals: poolTotalsProcedure(...)`) is judged by that factory's body.
     if (!body.includes('.query(') && !body.includes('.mutation(')) {
       const factory = new RegExp(`\\b${name}: (\\w+Procedure)\\(`).exec(text.slice(from))?.[1];

@@ -22,6 +22,7 @@
     "@intafaced/events": "workspace:*",
     "@intafaced/i18n": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
+    "@intafaced/service-kit": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@intafaced/venue-contracts": "workspace:*",
     "@noble/curves": "2.4.0",

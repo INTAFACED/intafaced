@@ -26,12 +26,14 @@ import {
   NO_WALLET,
   PAYMENT_UNCONFIRMED,
   RewardPayer,
+  SEND_UNANSWERED,
   WALLET_SHORT,
   rewardsPaidToWallet,
   unitsOf,
   type RewardChain,
 } from './reward-payer.js';
 import { TaskService } from './tasks.js';
+import { payoutBoard } from './payout-board.js';
 import type { VenueDeposit, VenueDepositRead, VenueDepositSource } from './venue-deposits.js';
 
 /**
@@ -635,6 +637,73 @@ if (!db) {
       expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid', payout: { chainTx: world.transfers[0]!.hash } });
       await payer.pass();
       expect(world.transfers).toHaveLength(1);
+      await reconciles('20');
+    });
+
+    it('the payout board shows each intent where it stands, with its keys, its ledger transactions and its chain transaction (J-campaigns-19 #1 #2)', async () => {
+      await seed('20', '20');
+      const r3 = { reward: { asset: 'USDC', amount: '3' } };
+      // Paid, after a send whose answer was lost once the chain took it.
+      world.mode.throwAfterTaking = true;
+      const paid = await claimed(r3);
+      await payer.pass();
+      // Sending: the node never took it; it is looked for on the chain and never sent again.
+      const send = world.chain.send;
+      world.chain.send = async () => {
+        throw new Error('TEST chain: the node never took it');
+      };
+      const sending = await claimed(r3);
+      await payer.pass();
+      world.chain.send = send;
+      // Failed: the chain reverted it.
+      world.mode.revertNext = true;
+      const failed = await claimed(r3);
+      await payer.pass();
+      // Owed: no connected wallet to pay it to.
+      connected = null;
+      const owed = await claimed(r3);
+      await payer.pass();
+      connected = [MY_WALLET];
+      // Pending funding: the rewards engine holds 20 and 12 is set aside already, so 15 more can't be.
+      const pending = await claimed({ reward: { asset: 'USDC', amount: '15' } });
+      const board = await payoutBoard(db.sql, {});
+      const at = (key: string) => board.rows.find((r) => r.rewardKey === key)!;
+      expect(board.counts).toEqual({ owed: 1, pending_funding: 1, sending: 1, paid: 1, failed: 1, other: 0 });
+      expect(at(paid.rewardKey)).toMatchObject({
+        board: 'paid',
+        state: 'paid',
+        owedTxId: expect.any(String),
+        paidTxId: expect.any(String),
+        payment: { state: 'booked', toWallet: MY_WALLET, chainTx: world.transfers[0]!.hash },
+      });
+      // Logged unknown once when the answer was lost, then paid once; one transfer on the chain.
+      expect(at(paid.rewardKey).attempts.map((a) => [a.outcome, a.reason])).toEqual([
+        ['qualified', null],
+        ['owed', null],
+        ['unknown', SEND_UNANSWERED],
+        ['paid', null],
+      ]);
+      expect(world.transfers.filter((t) => t.to === MY_WALLET && t.hash === at(paid.rewardKey).payment!.chainTx)).toHaveLength(1);
+      expect(at(paid.rewardKey).paidTxId).toBe((await book.getTxByKey(`campaigns:reward-paid:${world.transfers[0]!.hash}`))!.id);
+      expect(at(sending.rewardKey)).toMatchObject({ board: 'sending', state: 'owed', payment: { state: 'sending', chainTx: null } });
+      expect(at(failed.rewardKey)).toMatchObject({
+        board: 'failed',
+        state: 'owed',
+        reason: 'campaigns.reward_payment_reverted',
+        payment: { state: 'failed', chainTx: expect.stringMatching(/^0x/) },
+      });
+      expect(at(owed.rewardKey)).toMatchObject({ board: 'owed', state: 'owed', reason: NO_WALLET, payment: null, paidTxId: null });
+      expect(at(pending.rewardKey)).toMatchObject({
+        board: 'pending_funding',
+        state: 'pending_funding',
+        reason: 'ledger.insufficient_funds',
+        owedTxId: null,
+        payment: null,
+      });
+      // One campaign's board counts only that campaign.
+      const one = await payoutBoard(db.sql, { campaignId: owed.campaignId });
+      expect(one.rows.map((r) => r.rewardKey)).toEqual([owed.rewardKey]);
+      expect(one.counts).toEqual({ owed: 1, pending_funding: 0, sending: 0, paid: 0, failed: 0, other: 0 });
       await reconciles('20');
     });
 

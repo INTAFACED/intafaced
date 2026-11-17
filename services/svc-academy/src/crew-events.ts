@@ -18,7 +18,7 @@
  * will look like. What it is not is a consumer. Mounting it means giving
  * svc-academy a bus first — a real decision about this service's boot
  * dependencies, and exactly the "scope question" ADR D-S-13 reserves for the
- * owner. See `CLASS_B_AWAITING_A_DECISION` in tooling/ci/event-wiring.mjs.
+ * owner. It is recorded as Class B in `WIRING_SOCKETS` (packages/events/src/catalog.ts).
  */
 
 import { MemorySeenStore, idempotent, type EventBus, type SeenStore, type Subscription } from '@intafaced/events';

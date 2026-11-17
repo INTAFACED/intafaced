@@ -31,7 +31,10 @@ function fakePage({ before, after, frames = ['main'], late = false, newGone = nu
         w.reject(err);
         continue;
       }
-      if (taken) (waiters.splice(waiters.indexOf(w), 1), w.resolve(r));
+      if (taken) {
+        waiters.splice(waiters.indexOf(w), 1);
+        w.resolve(r);
+      }
     }
   };
   const response = (name, startTime, body, gone = false) => ({

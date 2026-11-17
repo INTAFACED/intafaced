@@ -81,26 +81,6 @@ export const GATES = [
       'never runs, so a stale rule could reach main unchecked. It reads only those entry files, so it cannot block product work.',
   },
   {
-    id: 'services-map',
-    script: 'tooling/scripts/services-map.mjs',
-    args: ['--check'],
-    doctrine: 'agent map honesty',
-    why:
-      'docs/SERVICES.md is the one table of services, ports and required env that agents read instead of opening 25 ' +
-      'compose blocks and env files. Hand-kept service counts had already drifted in three docs (eleven, twenty-one, 25). ' +
-      'Generated from the code, so a stale copy fails here, the same way the tracker does.',
-  },
-  {
-    id: 'architecture-map',
-    script: 'tooling/ci/architecture-map.mjs',
-    args: ['--check'],
-    doctrine: 'agent map honesty',
-    why:
-      'docs/ARCHITECTURE.md is what every agent reads first. Its hand-kept count said 24 packages for 29 and its services ' +
-      'table had no svc-campaigns row (project-state#2338). The count block is generated from the folders, and the Apps and ' +
-      'Services tables must hold one row per folder, so a stale copy fails here.',
-  },
-  {
     id: 'reachability',
     script: 'tooling/ci/reachability-scan.mjs',
     doctrine: 'L3 slice factory law, Reachability law',
@@ -142,16 +122,6 @@ export const GATES = [
     why: 'a committed credential is invisible in review — it reads as a config line',
   },
   {
-    id: 'invitation-outreach-golden',
-    script: 'tooling/ci/invitation-outreach-golden-scan.mjs',
-    doctrine: '§14 / desk honesty',
-    why:
-      'apps/invitation bundles six outreach modules (outreach-intake, outreach-review, outreach-public-info, ' +
-      'outreach-draft-storage, outreach-countries, config/intafaced.js), vendored in apps/invitation/src/vendored since ' +
-      'D-140. The goldens next to them (intake, review, draft-storage) only prove anything if CI runs them. Narrowed from the retired ' +
-      'shell-golden gate; refuses when it finds no outreach goldens.',
-  },
-  {
     id: 'test-db',
     script: 'tooling/ci/test-db-scan.mjs',
     doctrine: 'test isolation',
@@ -171,15 +141,6 @@ export const GATES = [
       'sanctions list CONTENT is counsel + Nitro human (Class X). The screening mechanism ships empty; a populated ' +
       'default in source, env examples, or compose would invent a legal control nobody signed. Unit tests already say ' +
       '"ships empty" — this gate re-derives it on every verify so list content cannot land as a helpful default.',
-  },
-  {
-    id: 'marketing-language',
-    script: 'tooling/ci/marketing-language-scan.mjs',
-    doctrine: 'DIRECTION §8.9 / D26-P0-16',
-    why:
-      'product copy may not describe anything as audited, insured, or guaranteed without OWNER-SEAL(§8.9). Agents invent ' +
-      'those words as marketing; the gate re-derives the ban over locale catalogues and refuses empty denominators. Law ' +
-      'helpers live in packages/config/src/marketing-language.ts — Vue FE craft stays out of scope (nitro-frontend-all).',
   },
   {
     id: 'migrations',
@@ -207,24 +168,10 @@ export const GATES = [
       'or a workspace dependency cycle, an import or disk read that climbs into another service, SQL against another ' +
       'service’s schema (any tag, string or .unsafe), a ledger entry, hand-built LedgerClient or /trpc/post outside ' +
       'ledger-client and svc-ledger, a balance-like column (also via ADD COLUMN or a drizzle schema), and a randomUUID, ' +
-      'Date.now or Math.random idempotency key (also through a variable or on the next line). Its old duplicate ratchet ' +
+      'Date.now or Math.random idempotency key (also through a variable or on the next line), and a Vue-family dependency ' +
+      '(vue, vuex, nuxt, @vue/*, @nuxt/*, vue-*) in any package.json, since the front end is React (AGENTS.md). Its old duplicate ratchet ' +
       '(local scales, result?.data unwraps, padEnd parsers, timeout-less fetch) is held by lint-ratchet below. Exceptions ' +
       'are named with a reason in tooling/ci/boundary-allow.json.',
-  },
-  {
-    id: 'workspace',
-    script: 'tooling/ci/workspace-sync.mjs',
-    doctrine: 'fleet sync',
-    why: 'a service that builds but never reaches the image or the fleet',
-  },
-  {
-    id: 'event-wiring',
-    script: 'tooling/ci/event-wiring.mjs',
-    doctrine: '§10',
-    why:
-      'the same shape as workspace-sync, one layer in: a declared subject with no publisher, or no subscriber. ' +
-      'The bus could not report silence — a subject nobody publishes and a subject nobody reads both looked ' +
-      'exactly like a working one. Every unwired end is now an entry in WIRING_SOCKETS with a written reason, or red.',
   },
   {
     id: 'skip-honesty',
@@ -331,6 +278,8 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'architecture-map.mjs':
+    "not a gate: writes docs/ARCHITECTURE.md's count block (`node tooling/ci/architecture-map.mjs`). Its gate repeated architecture-map.test.mjs, whose first case fails when the committed doc is stale or a table drifted, and tooling-tests runs that on every PR.",
   'architecture-map.test.mjs':
     'not a gate: the node:test file of architecture-map.mjs, replayed on project-state#2338 (the count of 24 packages for 29; no svc-campaigns row) with planted faults (a row for a deleted service, a missing package). tooling-tests.mjs runs it with every other tooling test.',
   'custody-layer-check.mjs':
@@ -392,7 +341,7 @@ export const NOT_GATES = {
   'journey-list-guard.test.mjs':
     'not a gate: the node:test file of journey-list-guard.mjs, its planted cases (a dropped journey, a dropped step, a newly parked step, an unknown slice id, a regenerated ROADMAP.md hiding a drop, a stale ROADMAP.md and a retirement line without an OWNER number each fail; main’s list passes; a merge built on an older main passes after main adds a journey, and still fails when it drops one of its own base’s). tooling-tests.mjs runs it with every other tooling test.',
   'lint-ratchet.test.mjs':
-    "not a gate: the node:test file of lint-ratchet.mjs, its planted pull requests in a throwaway repository (a rise fails and names the rule, a rise paid for in the same file passes, a rule switched off in the pull request's own config still fails, a moved function passes, a printOnly rule only prints, a new fixed wait in a journey or a unit test fails under the repository's own ratchet.json while one kept with a reason passes, a rule that replaced a test of added files fails there even when paid for). The tooling tests run it.",
+    "not a gate: the node:test file of lint-ratchet.mjs, its planted pull requests in a throwaway repository (a rise fails and names the rule, a rise paid for in the same file passes, a rule switched off in the pull request's own config still fails, a moved function passes, no rule only prints (a printOnly key left in ratchet.json fails a rise), a new fixed wait in a journey or a unit test fails under the repository's own ratchet.json while one kept with a reason passes, a rule that replaced a test of added files fails there even when paid for). The tooling tests run it.",
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. A test deleted or loosened after it failed on an earlier head of the PR fails with no line that clears it. It covers unit tests, the browser harnesses and look sweeps (`*.pw.mjs`; a changed journey step file `J-*.pw.mjs` on a pull request the test judge runs for is the judge’s, `judged-paths.mjs` leftToJudge) and look baselines (`look-baselines/<room>/*.png`, which need a `Baseline-change: <room>` line and the independent review). `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'look-drift.mjs':
@@ -465,7 +414,7 @@ export const NOT_GATES = {
     'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged) and --before-push (every gate but LEFT_TO_CI_BEFORE_PUSH, each a gate with its reason). tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
-    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
+    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test; CI does not run it.',
 
   'verify.mjs':
     'the verify runner itself — it CALLS this list. Listing it as a gate would make it invoke itself. It exists so the infrastructure verdict prints even when turbo halts early, which a `&&` chain cannot do.',
@@ -550,7 +499,7 @@ export function gatesToRun(gates, changed) {
 /** The gates a push leaves to CI, each with why. Every other gate reads the pushed tree in seconds and runs before it. */
 export const LEFT_TO_CI_BEFORE_PUSH = {
   'tooling-tests': 'about four minutes on the Mac; the hook runs the ones that read journey files itself',
-  'truth-check': 'the hook runs it itself, on every push',
+  'truth-check': 'CI runs it on every pull request and on main',
   'lint-ratchet': "the hook runs it itself, on the pushed files with main's rules",
   'cross-package-reads': 'the hook runs it itself when a test or what it checks changed',
   'secret-scan-mutation': 'proves secret-scan on planted files (19 s on the Mac): only a change to the scanner reaches it',

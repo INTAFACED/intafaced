@@ -18,6 +18,7 @@ import { PayoutSaga } from './payouts.js';
 import { RiskService } from './risk.js';
 import { RewardPayer, rewardsPaidToWallet } from './reward-payer.js';
 import { ledgerPostingEnabled, testRewardChain } from './test-chain.js';
+import { withPayFaults, type PayFaults } from './test-pay-fault.js';
 import { TaskService } from './tasks.js';
 import { createVenueDepositSource } from './venue-deposits.js';
 import { VoucherService } from './vouchers.js';
@@ -55,8 +56,10 @@ export function wireCampaigns(deps: {
   sql: Sql;
   log: FastifyBaseLogger;
   s2sKey: Parameters<typeof createParticipantClient>[2];
+  /** TEST pay faults (test-pay-fault.ts), set only through the TEST door, which opens only where the age door does. */
+  payFaults: PayFaults;
 }): CampaignWiring {
-  const { sql, log, s2sKey } = deps;
+  const { sql, log, s2sKey, payFaults } = deps;
   const warn = (msg: string, detail: Record<string, unknown>) => log.warn({ ...detail }, msg);
 
   const tgeSchedule = parseTgeSchedule(env.CAMPAIGNS_TGE_SCHEDULE_JSON);
@@ -195,11 +198,14 @@ export function wireCampaigns(deps: {
       ? new RewardPayer({
           sql,
           ledger,
-          chain: testRewardChain({
-            rpcUrl: env.CAMPAIGNS_TEST_CHAIN_RPC_URL,
-            token: env.CAMPAIGNS_TEST_CHAIN_TOKEN,
-            chainId: env.CAMPAIGNS_TEST_CHAIN_ID,
-          }),
+          chain: withPayFaults(
+            testRewardChain({
+              rpcUrl: env.CAMPAIGNS_TEST_CHAIN_RPC_URL,
+              token: env.CAMPAIGNS_TEST_CHAIN_TOKEN,
+              chainId: env.CAMPAIGNS_TEST_CHAIN_ID,
+            }),
+            payFaults,
+          ),
           wallet: { walletId: payWallet[1]!, address: payWallet[2]!, tokenDecimals: env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS },
           postingEnabled: ledgerPostingEnabled(env.LEDGER_URL),
         })

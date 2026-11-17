@@ -31,3 +31,19 @@ export function ageReward(sql: Sql): TestAgeSubject {
     return { state: row.state, holdUntil: iso(row.hold_until), lockedAt: iso(row.locked_at), lockUntil: iso(row.lock_until) };
   };
 }
+
+/**
+ * An airdrop run still reading its accounts (J-campaigns-19 #5), begun `ms` earlier: the wait for an account the venue
+ * did not answer for ends as if the time had gone by, and the next pass holds that account out. Its snapshot time is
+ * never moved, so who joined by the snapshot stays the same. A run already owed is decided and is not aged.
+ */
+export function ageDistributionRun(sql: Sql): TestAgeSubject {
+  return async (id, ms) => {
+    const rows = await sql<{ state: string; started_at: Date }[]>`
+      UPDATE campaigns.distribution_runs SET started_at = started_at - make_interval(secs => ${ms / 1000})
+      WHERE campaign_id = ${id} AND state = 'reading'
+      RETURNING state, started_at`;
+    const row = rows[0];
+    return row ? { state: row.state, startedAt: iso(row.started_at) } : null;
+  };
+}

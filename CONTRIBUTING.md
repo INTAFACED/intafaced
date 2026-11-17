@@ -6,7 +6,7 @@ People and AI agents share one repo. This file is how that stays clean. The rule
 
 ## 1 · How a change lands
 
-The rules are in [`AGENTS.md`](AGENTS.md): read it first. In short: a short-lived branch in your own worktree, a pull request with its proof, the required checks green on its exact head, then a squash merge. No direct pushes to `main`: `.githooks/pre-push` blocks them and requires `format:check` (`pnpm install` turns the hook on); never use `--no-verify`. Never bypass a required check, and never weaken a gate to get green.
+The rules are in [`AGENTS.md`](AGENTS.md): read it first. In short: a short-lived branch in your own worktree, a pull request with its proof, the required checks green on its exact head, then a squash merge. No direct pushes to `main`: `.githooks/pre-push` blocks them, and `.githooks/pre-commit` checks formatting (`pnpm install` turns the hooks on); never use `--no-verify`. Never bypass a required check, and never weaken a gate to get green.
 
 Branch names: `feat/<scope>-<what>`, `fix/<scope>-<what>`, `chore/<what>`, `docs/<what>`. PR titles: `<type>(<scope>): <what changed>`; a gate-file change needs a `ci:` or `gate:` title. Fill in the template. Don't turn on required approvals or code-owner reviews, and don't open PRs whose only job is status.
 

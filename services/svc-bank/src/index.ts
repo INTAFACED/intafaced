@@ -42,6 +42,8 @@ import { firstAdministrator, registerAgentsUsagePayment } from './agents/usage-p
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
+import { payrollCreditBody, payrollPartnerFor, payrollReverseBody } from './salary/payroll-sim.js';
+import { salaryView } from './salary/salary.router.js';
 import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
 import { rampMetricsView } from './ops/ramp-metrics.js';
@@ -104,7 +106,9 @@ import { registerClosureCheck } from './closure/closure-check.js';
 import { registerAgentsTeamMembership, teamMembershipFor } from './agents/team-membership.js';
 import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
+import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { ageBusinessInvite, ageSharedPotInvite } from './test-age-door.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -133,6 +137,9 @@ registerProcessHooks(
  * the consumer on the other side cannot attach at all.
  */
 
+// The TEST age door (packages/service-kit test-age.ts): off unless TEST_AGE_DOOR=on, which refuses to start outside a
+// TEST stack, so it is read before anything opens.
+const testAgeDoor = testAgeDoorOpen(process.env);
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
@@ -417,6 +424,14 @@ const bank = createBankServices(sql, ledger, history, {
   onboardingRequirements: env.BANK_ONBOARDING_REQUIREMENTS_JSON,
   infoRequestUpload: env.BANK_INFO_REQUEST_UPLOAD_JSON,
   reopenWindowDays: env.BANK_REOPEN_WINDOW_DAYS,
+  /** The payroll network for salary by direct deposit: unset unless the TEST stand-in was chosen (dev/test, TEST partner). */
+  payrollPartner: payrollPartnerFor(
+    env.BANK_PAYROLL_PARTNER,
+    testPartner,
+    { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+    env.BANK_PAYROLL_SIM_RECORDS_DIR?.trim() || undefined,
+  ),
+  directDepositReversalDays: env.BANK_DIRECT_DEPOSIT_REVERSAL_DAYS,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
@@ -516,6 +531,13 @@ const edgeContext = createEdgeContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
+registerTestAgeDoor(app, {
+  open: testAgeDoor,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  subjects: { 'shared-pot-invite': ageSharedPotInvite(sql), 'business-invite': ageBusinessInvite(sql) },
+  installRawBody: false,
+});
 registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerAgentsTeamMembership(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, read: (u, b) => teamMembershipFor(sql, u, b) });
 // How a person pays for agent usage, and one payment of a sealed window, carried out by their partner (J-agents-01).
@@ -960,6 +982,16 @@ if (cardRecord) {
     else app.post(`${TEST_CARD_PARTNER_RECORD_BASE}${path}`, read);
   }
 }
+/**
+ * The payroll network's side of salary paid in by direct deposit (J-bank-30, BK-salary-03): a credit to account details
+ * the partner issued, and the employer's reversal of one. Signed job doors, never a customer or a staff session: with no
+ * network wired they refuse `rail.bank`, and on the stack only the TEST stand-in (`payroll-sim`) answers, called by a test
+ * as the network would. The same network id again moves nothing twice.
+ */
+jobDoor('/internal/jobs/payroll-sim/credit', payrollCreditBody, async (b) => salaryView(await bank.salary.credit(b)));
+jobDoor('/internal/jobs/payroll-sim/reverse', payrollReverseBody, async (b) =>
+  salaryView({ credit: await bank.salary.reverse(b.networkId), replayed: false }),
+);
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 
 /**

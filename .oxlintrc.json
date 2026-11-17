@@ -18,6 +18,7 @@
     "garden/no-hand-schema": "error",
     "garden/no-screen-literal": "error",
     "garden/own-gap-wording": "error",
+    "garden/no-unsealed-claim": "error",
     "garden/no-number-money": "error",
     "garden/no-random-request-key": "error",
     "garden/no-shared-market-on-book": "error",

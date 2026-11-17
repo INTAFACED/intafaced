@@ -796,8 +796,7 @@ export class VendorService {
    * vendor's slots were released by `vet` in the same transaction as the
    * suspension — but an under-staked one's were not, because svc-market never
    * learns that somebody unstaked. There is no bus subject for it, and inventing
-   * one with no publisher is what `tooling/ci/event-wiring.mjs` correctly reds
-   * on; polling svc-token on a timer would be a second source of truth that is
+   * one with no publisher would leave it dark; polling svc-token on a timer would be a second source of truth that is
    * wrong between ticks.
    *
    * So entitlement is re-derived HERE, on every read, against the tier svc-token

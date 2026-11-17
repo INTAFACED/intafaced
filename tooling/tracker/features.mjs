@@ -1633,7 +1633,7 @@ export const FEATURES = [
       'serialise every claim behind svc-token latency. That suite is DB-backed and skips without Postgres. ' +
       'RELEASE: vet() releases every open slot in the SAME transaction as any transition out of `approved` (suspended AND ' +
       'rejected) — split across two transactions, a crash leaves a suspended vendor holding every slot. NO unstake subscriber ' +
-      'and none wanted: no accepted bus subject exists, event-wiring reds on an orphan, and polling would be a second source of ' +
+      'and none wanted: no accepted bus subject exists, an orphan subject would be dark, and polling would be a second source of ' +
       'truth. Instead `slots` reports usable = min(held, capacity) and 0 for anyone not approved, so an unstaked vendor reads ' +
       'usable:0 instantly — that is how DoD clause 5 holds with no event. NO suspension POLICY was added: releasing on a ' +
       'transition an operator recorded is not deciding it. ' +

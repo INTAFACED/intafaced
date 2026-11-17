@@ -19,6 +19,7 @@ import { DIVIDEND_OWNER_QUESTION, type CampaignDefinitionInput } from '@intaface
 import { CampaignService } from './campaigns.js';
 import { DistributionService, READ_GRACE_MS, distributionKeyOf, splitPool } from './distributions.js';
 import { PayoutSaga, ledgerRewardId } from './payouts.js';
+import { ageDistributionRun } from './test-age-door.js';
 import type { EquitySource } from './venue-equity.js';
 
 /**
@@ -347,6 +348,31 @@ describe.skipIf(!available)('airdrop distributions (J-campaigns-13)', () => {
       share: null,
       rewardKey: null,
     });
+    await reconciles(c.id);
+  });
+
+  it('the operator plan names each account: counted with its share, a negative excluded, an unread one waiting then held out once the run is aged (J-campaigns-19 #5)', async () => {
+    const c = await live();
+    expect(await distributions.plan(c.id)).toMatchObject({ state: 'not_started', snapshotAt: null, accounts: [], pool: '0.05' });
+    equities.set(ANN, '30').set(BEN, 'unread').set(CAT, '10').set(DAN, '-4');
+    await joinedThenSnapshot(c.id, [ANN, BEN, CAT, DAN]);
+    await distributions.run(c.id);
+    const reading = await distributions.plan(c.id);
+    expect(reading.state).toBe('reading');
+    expect(reading.accounts.find((a) => a.accountId === BEN)).toMatchObject({ standing: 'waiting', reason: 'trade.venue.venue_down' });
+    // Within the wait it stays waiting; the run, aged past the wait through the TEST age door, holds it out on the next run.
+    expect(await distributions.run(c.id)).toMatchObject({ state: 'reading' });
+    expect(await ageDistributionRun(db!.sql)(c.id, READ_GRACE_MS + 1_000)).toMatchObject({ state: 'reading' });
+    expect(await distributions.run(c.id)).toMatchObject({ state: 'owed', heldOut: 1, excludedNegative: 1, sharesTotal: '0.05' });
+    const built = await distributions.plan(c.id);
+    expect(built).toMatchObject({ state: 'owed', pool: '0.05', sharesTotal: '0.05', totalEquity: '40' });
+    const by = (id: string) => built.accounts.find((a) => a.accountId === id)!;
+    expect(by(ANN)).toMatchObject({ standing: 'counted', equity: '30', share: '0.0375', rewardState: 'owed', chainTx: null });
+    expect(by(CAT)).toMatchObject({ standing: 'counted', equity: '10', share: '0.0125' });
+    expect(by(DAN)).toMatchObject({ standing: 'excluded_negative', equity: '-4', share: null, rewardKey: null });
+    expect(by(BEN)).toMatchObject({ standing: 'held_out', equity: null, reason: 'trade.venue.venue_down', share: null, rewardKey: null });
+    // An owed run is decided: the age door no longer moves it.
+    expect(await ageDistributionRun(db!.sql)(c.id, 1_000)).toBeNull();
     await reconciles(c.id);
   });
 

@@ -30,6 +30,12 @@ const switches = z
     legalHold: z.enum(['none', 'held']),
     identityCase: z.enum(['accepted', 'not_accepted']),
     bankRail: z.enum(['none', 'test']),
+    /** The TEST account holder name (J-bank-30): it must say TEST, so it never reads as a real person's account. */
+    holderName: z
+      .string()
+      .trim()
+      .regex(/^TEST \P{Cc}{1,120}$/u)
+      .nullable(),
   })
   .strict();
 

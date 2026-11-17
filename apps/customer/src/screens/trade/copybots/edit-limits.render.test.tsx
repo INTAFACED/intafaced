@@ -81,4 +81,11 @@ describe('Edit limits', () => {
     await act(async () => save.click());
     expect(sent).toEqual([{ followId: 'f-1', sizingMode: 'fixed_amount', maxPerMarket: '', maxPerDay: '40' }]);
   });
+
+  it('takes focus as it opens, so focus never falls to the page for the dialog to pull back later (issue 8684)', async () => {
+    await act(async () =>
+      root.render(<EditLimits follow={follow} api={api} guard={guard} desk={null} onDone={() => undefined} onCancel={() => undefined} />),
+    );
+    expect(document.activeElement).toBe(host.querySelector('section[aria-label="Edit limits"]'));
+  });
 });

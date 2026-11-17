@@ -65,7 +65,9 @@ test('the six garden rules fire on their weeds and name the fix', { skip: !exist
     out.some(
       (l) =>
         l.includes('no-wait-for-timeout') &&
-        l.includes('agePast (the test-age helper in apps/customer/tests/real-app; svc-trade and svc-campaigns have the door today') &&
+        l.includes(
+          'agePast (the test-age helper in apps/customer/tests/real-app; svc-trade, svc-campaigns and svc-bank have the door today',
+        ) &&
         l.includes('locator, response or event') &&
         l.includes('oxlint-disable-next-line garden/no-wait-for-timeout -- why'),
     ),
@@ -105,7 +107,16 @@ test(
 // ---------------------------------------------------------------------------------------------------------------------
 // The rules that replaced source-reading unit tests, and the two money rules. Each case below is the deleted test's own
 // planted case, so the rule is shown to catch what the test caught.
-import { cataloguePromises, handSchemaProblem, portalWords, promiseScope, screenLiterals } from './copy-rules.js';
+import {
+  CLAIM_WORDS,
+  cataloguePromises,
+  claimScope,
+  handSchemaProblem,
+  portalWords,
+  promiseScope,
+  screenLiterals,
+  unsealedClaims,
+} from './copy-rules.js';
 
 const skip = { skip: !existsSync(OXLINT) && 'no node_modules' };
 
@@ -138,6 +149,49 @@ test('no-promise-copy: the copy catalogues outside the Trade and merchant lanes,
   assert.equal(promiseScope('apps/customer/src/app/feature-registry.ts'), 'catalogue');
   assert.equal(promiseScope('apps/customer/src/features/pay/merchant-rooms/copy.ts'), null);
   assert.equal(promiseScope('apps/admin/src/app/(console)/trade-ops/page.tsx'), 'trade');
+});
+
+test(
+  'no-unsealed-claim: a planted "audited", "insured" or "guaranteed" in packages/i18n is refused; sealed, negated and test lines pass',
+  skip,
+  () => {
+    const out = lint({
+      'packages/i18n/src/locale-files.generated.ts': "export const m = { 'earn.title': 'Guaranteed yield on your balance' };\n",
+      'packages/i18n/src/catalog.ts': "export const a = { body: 'Your deposits are insured.' };\n",
+      'packages/i18n/src/sealed.ts': "// OWNER-SEAL(§8.9) signed text\nexport const a = { body: 'Audited by the named firm.' };\n",
+      'packages/i18n/src/honest.ts': "export const a = { body: 'The contracts are not audited.', audited: false };\n",
+      'apps/customer/src/features/cards/cards-copy.ts': "export const a = 'Insured';\n",
+      'packages/i18n/src/x.test.ts': "export const a = 'guaranteed';\n",
+    });
+    const rule = 'garden(no-unsealed-claim)';
+    assert.ok(has(out, 'packages/i18n/src/locale-files.generated.ts', rule), out.join('\n'));
+    assert.ok(has(out, 'packages/i18n/src/catalog.ts', rule), out.join('\n'));
+    assert.ok(
+      out.some((l) => l.includes('no-unsealed-claim') && l.includes('OWNER-SEAL(§8.9)')),
+      'the message names the seal',
+    );
+    assert.ok(!has(out, 'packages/i18n/src/sealed.ts', rule), 'sealed on the line above');
+    assert.ok(!has(out, 'packages/i18n/src/honest.ts', rule), 'a negation and audited: false');
+    assert.ok(!has(out, 'apps/customer/src/features/cards/cards-copy.ts', rule), "outside the gate's scope");
+    assert.ok(!has(out, 'packages/i18n/src/x.test.ts', rule), 'a test file');
+  },
+);
+
+test('no-unsealed-claim: the words and cases the deleted marketing-language gate held', () => {
+  assert.deepEqual(unsealedClaims('Fully audited and insured deposits'), ['audited', 'insured']);
+  assert.deepEqual(unsealedClaims('guaranteed yield', '// OWNER-SEAL(§8.9)'), []);
+  assert.deepEqual(unsealedClaims('Guaranteed yield OWNER-SEAL(§8.9)'), []);
+  for (const honest of ['unaudited code', 'non-insured', 'never been externally audited', 'audited: false', "  audited: 'Audit status',"])
+    assert.deepEqual(unsealedClaims(honest), [], honest);
+  assert.deepEqual(unsealedClaims('audited: true'), ['audited']);
+  assert.equal(claimScope('packages/i18n/src/catalogs.ts'), true);
+  assert.equal(claimScope('/home/runner/work/intafaced/packages/i18n/src/locale-files.generated.ts'), true);
+  assert.equal(claimScope('packages/i18n/src/i18n.test.ts'), false);
+  assert.equal(claimScope('packages/i18n/scripts/build-locale-index.mjs'), false);
+  // The law module (packages/config/src/marketing-language.ts) names the same words and seal.
+  const law = readFileSync(join(ROOT, 'packages', 'config', 'src', 'marketing-language.ts'), 'utf8');
+  assert.match(law, new RegExp(`MARKETING_BAN_WORDS = \\[${CLAIM_WORDS.map((w) => `'${w}'`).join(', ')}\\]`));
+  assert.ok(law.includes("OWNER_SEAL_MARKER = 'OWNER-SEAL(§8.9)'"));
 });
 
 test('no-promise-copy: every promise the deleted copy-promises test planted is caught', () => {
