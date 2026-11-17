@@ -902,12 +902,7 @@ export async function massCancelOrders(svc: TradeServiceInternal, principal: Pri
       throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
     }
 
-    let result: Awaited<ReturnType<MatchingClient['massCancel']>>;
-    try {
-      result = await svc.matching.massCancel(market.id, { accountId });
-    } catch (err) {
-      throw err;
-    }
+    const result: Awaited<ReturnType<MatchingClient['massCancel']>> = await svc.matching.massCancel(market.id, { accountId });
 
     if (!result.accepted) {
       throw new TradeError(result.rejected?.message ?? 'mass-cancel refused', 'trade.order_not_open');
