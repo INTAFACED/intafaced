@@ -93,6 +93,8 @@ GET /api/v1/venue/book private trade:read
 GET /api/v1/venue/builder-fee-approval private trade:read
 GET /api/v1/venue/candles private trade:read
 GET /api/v1/venue/deposits private trade:read
+GET /api/v1/venue/fee-tier private trade:read
+GET /api/v1/venue/fees public trade:read
 GET /api/v1/venue/fills private trade:read
 GET /api/v1/venue/funding-history public trade:read
 GET /api/v1/venue/gated-list private trade:read
