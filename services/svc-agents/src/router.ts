@@ -80,6 +80,7 @@ import { spendRouter } from './spend/routes.js';
 import { OWN_RUN_TASK, ownRouter } from './own/routes.js';
 import type { OwnTemplate } from './own/catalog.js';
 import type { PolicyBaseline } from './own/guardrails.js';
+import type { OwnSelfFreezeRead } from './own/self-freeze.js';
 import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
 import { opsLogRouter, type OpsLogSettings } from './oplog/routes.js';
@@ -332,6 +333,11 @@ export interface AgentsRouterDeps {
   readonly ownBackground?: BackgroundSettings;
   /** The owner's cadence values for own agents' schedules (AG-sessions-02). Absent is blank: a new schedule refuses. */
   readonly ownCadence?: Cadence;
+  /**
+   * Identity's read of the owner's own freeze (J-wallet-13), asked before every agent action and every change that gives
+   * an agent more. Absent, those refuse agents.identity.owner_freeze_unread: an unread freeze counts as frozen.
+   */
+  readonly selfFreeze?: OwnSelfFreezeRead | null;
   /** Background runs of a person's sessions (AG-sessions-04, J-agents-06). Absent is blank: a new one refuses. */
   readonly sessionRuns?: SessionRunSettings;
   /**
@@ -1730,6 +1736,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
         chain: deps.navigatorTrading?.chain ?? null,
         linkedWallets: deps.ownLinkedWallets ?? null,
         session: (sessionId) => runtime.session(sessionId),
+        selfFreeze: deps.selfFreeze ?? null,
       }),
       policy: publicProcedure
         .output(
@@ -4177,6 +4184,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       background: deps.ownBackground ?? null,
       linkedWallets: deps.ownLinkedWallets ?? null,
       cadence: deps.ownCadence ?? null,
+      selfFreeze: deps.selfFreeze ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),

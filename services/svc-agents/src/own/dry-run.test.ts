@@ -19,6 +19,7 @@ import { UserSpendStore } from '../spend/store.js';
 import type { OwnAgentTestRun } from '@intafaced/contracts/agents-own';
 import type { PolicyBaseline } from './guardrails.js';
 import { OWN_RUN_TASK } from './routes.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 
 /**
  * Dry runs and test runs of a person's own agent (AG-spend-04, AG-testing-01; J-agents-04 #3, #4): a dry run reports
@@ -126,6 +127,9 @@ if (!available) {
       funds: { available: async () => 100n * 10n ** 18n },
     });
     const router = createAgentsRouter({
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+
       runtime,
       gateway,
       meter,

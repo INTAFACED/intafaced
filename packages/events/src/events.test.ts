@@ -937,6 +937,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     securityFactorChanged: { userId: uid(), change: 'totp_replaced', changedAt: ts(), noticeKey: 'factor-changed:u:1' },
     deathNoticeCreated: { userId: uid(), noticeId: uid(), at: ts() },
     deathNoticeConfirmed: { userId: uid(), noticeId: uid(), at: ts() },
+    selfFreezeApplied: { userId: uid(), freezeId: uid(), since: ts() },
     staffCreated: {
       staffId: 'staff-1',
       actorId: 'staff-0',

@@ -148,6 +148,12 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     body: "New orders can't be placed, and this one wasn't. You can still cancel orders and move money. Contact support to find out why.",
     action: { label: 'See your account status', href: '/uc/account' },
   },
+  // The person's own freeze: what was refused, why, where their funds are and where the lift is (J-wallet-13 #2).
+  frozenByYou: {
+    title: 'You froze this account',
+    body: 'INTAFACED takes no action for you while your account is frozen, so this was not done. Your funds stay in your own wallet and venue account, which only your wallet controls.',
+    action: { label: 'Reactivate in Security', href: '/uc/safe' },
+  },
   platformPaused: {
     title: 'Money movement is paused for everyone',
     body: 'Money movement is paused across the platform right now. Your account is not on hold. Nothing was done.',

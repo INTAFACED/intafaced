@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { MemoryFreezeRead } from '../quant/live-run/ports.js';
 import http from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -120,7 +121,14 @@ describe('the agent account on the TEST venue', () => {
       slippageCapBps: null,
       now: () => new Date(),
     });
-    accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values, now: () => new Date() });
+    accounts = new AgentAccounts({
+      door,
+      store: new InMemoryAgentAccountStore(),
+      stepUp: su.check,
+      values,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
   }
   let topUps = 0;
   beforeEach(() => {
@@ -182,7 +190,14 @@ describe('the agent account on the TEST venue', () => {
       slippageCapBps: null,
       now: () => new Date(),
     });
-    accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values: VALUES, now: () => new Date() });
+    accounts = new AgentAccounts({
+      door,
+      store: new InMemoryAgentAccountStore(),
+      stepUp: su.check,
+      values: VALUES,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
     expect((await accounts.terms()).agentPermission).toEqual({ venue: sim.venue.displayName, reach: 'owner_accounts' });
     expect((await create200()).agentPermission.reach).toBe('owner_accounts');
   });
@@ -198,7 +213,14 @@ describe('the agent account on the TEST venue', () => {
       slippageCapBps: null,
       now: () => new Date(),
     });
-    accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values: VALUES, now: () => new Date() });
+    accounts = new AgentAccounts({
+      door,
+      store: new InMemoryAgentAccountStore(),
+      stepUp: su.check,
+      values: VALUES,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
     const terms = await accounts.terms();
     expect(terms.agentPermission).toBeNull();
     expect(terms.ceiling).not.toBeNull();

@@ -61,6 +61,7 @@ export type RefusalKind =
   | 'ordersPaused'
   | 'accountOnHold'
   | 'tradingOnHold'
+  | 'frozenByYou'
   | 'platformPaused'
   | 'spaceLocked'
   | 'notFound'
@@ -155,6 +156,13 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.email_proof_required': 'emailProof',
   'trade.identity_unavailable': 'tryAgain',
   'trade.account_restricted': 'tradingOnHold',
+  // The owner's own freeze (J-wallet-13 #2): INTAFACED takes no action for them while it holds, whichever service refused.
+  'identity.account_frozen_self': 'frozenByYou',
+  'trade.account_frozen_self': 'frozenByYou',
+  'agents.identity.owner_frozen_self': 'frozenByYou',
+  // The freeze could not be read, so the door refused and nothing changed: it clears by itself.
+  'trade.freeze_unavailable': 'tryAgain',
+  'agents.identity.owner_freeze_unread': 'tryAgain',
   // The ledger's posting freeze stops money for everyone; this account is not restricted (ENGINE FRZ-1). `ledger.freeze`
   // and `ledger.freeze_attributed` come only from freeze writes by operators, never from a customer's post.
   'ledger.frozen': 'platformPaused',

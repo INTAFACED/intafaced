@@ -17,6 +17,7 @@ import { AGENT_DISABLED, ownAgentSwitch } from '../fleet/control.js';
 import { checkScheduleRequest, checkTriggerRequest, OwnAutomationStore, type Cadence } from './automation.js';
 import { OwnAgentRefusal } from './catalog.js';
 import { OwnAgentStore } from './store.js';
+import { assertNotSelfFrozen, type OwnSelfFreezeRead } from './self-freeze.js';
 
 /** A refusal reaches the person as its code, which the Agents room words; anything else is a fault. */
 async function guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -26,9 +27,11 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
     if (!(err instanceof OwnAgentRefusal)) throw err;
     const code = err.code.endsWith('.not_found')
       ? 'NOT_FOUND'
-      : err.code === 'agents.schedule_cadence_unset'
-        ? 'PRECONDITION_FAILED'
-        : 'BAD_REQUEST';
+      : err.code.startsWith('agents.identity.owner_')
+        ? 'FORBIDDEN'
+        : err.code === 'agents.schedule_cadence_unset'
+          ? 'PRECONDITION_FAILED'
+          : 'BAD_REQUEST';
     throw new TRPCError({ code, message: err.code, cause: err });
   }
 }
@@ -40,7 +43,10 @@ const idInput = z.object({ id: z.string().min(1).max(64) });
  * for their own agent; another's agent reads as not found. Creating one moves no value: each run it makes is metered
  * like any run of the agent, against the person's caps for it.
  */
-export function ownAutomationRouter(sql: Sql | undefined, deps: { feeAssetId: string | null; cadence: Cadence }) {
+export function ownAutomationRouter(
+  sql: Sql | undefined,
+  deps: { feeAssetId: string | null; cadence: Cadence; selfFreeze?: OwnSelfFreezeRead | null },
+) {
   const stores = () => {
     if (!sql || !deps.feeAssetId) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'agents.capability_unavailable' });
     return { agents: new OwnAgentStore(sql), automation: new OwnAutomationStore(sql, deps.feeAssetId) };
@@ -49,6 +55,8 @@ export function ownAutomationRouter(sql: Sql | undefined, deps: { feeAssetId: st
   const assertOn = async (agentId: string) => {
     if ((await ownAgentSwitch(sql!, agentId)) !== 'active') throw new TRPCError({ code: 'FORBIDDEN', message: AGENT_DISABLED });
   };
+  /** A new schedule or trigger waits for the lift of the owner's own freeze (J-wallet-13); unreadable refuses too. */
+  const assertNotFrozen = (userId: string) => assertNotSelfFrozen(userId, deps.selfFreeze);
 
   return {
     schedules: router({
@@ -81,6 +89,7 @@ export function ownAutomationRouter(sql: Sql | undefined, deps: { feeAssetId: st
             const { agents, automation } = stores();
             const agent = await agents.get(ctx.principal.userId, input.id);
             await assertOn(agent.id);
+            await assertNotFrozen(ctx.principal.userId);
             const request = checkScheduleRequest(input, deps.cadence);
             return automation.createSchedule(ctx.principal.userId, agent, input.createKey, request);
           }),
@@ -122,6 +131,7 @@ export function ownAutomationRouter(sql: Sql | undefined, deps: { feeAssetId: st
             const { agents, automation } = stores();
             const agent = await agents.get(ctx.principal.userId, input.id);
             await assertOn(agent.id);
+            await assertNotFrozen(ctx.principal.userId);
             return automation.createTrigger(ctx.principal.userId, agent, input.createKey, checkTriggerRequest(input));
           }),
         ),

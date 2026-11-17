@@ -50,6 +50,7 @@ import { createIdentityLinkedWallets, paymentMethodFunds } from './own/payment-m
 import { teamFunds } from './team/funds.js';
 import { createChainBalance } from './chain-balance.js';
 import { retentionPeriods } from './own/memory.js';
+import { createIdentitySelfFreezeRead, subscribeSelfFreezeApplied } from './own/self-freeze.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -175,6 +176,9 @@ const meter = new UsageMeter(sql, ledger, {
 const spend = new UserSpendStore(sql);
 // Identity's list of a person's linked wallets, for an own agent's payment method; unset IDENTITY_URL reads unread.
 const linkedWallets = env.IDENTITY_URL ? createIdentityLinkedWallets(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
+// Identity's read of the owner's own freeze (J-wallet-13), asked before every agent action; unset IDENTITY_URL reads
+// unread, and an unread freeze refuses as frozen.
+const selfFreeze = env.IDENTITY_URL ? createIdentitySelfFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
 // The payment token's chain reader: all four owner values, or none (a wallet method then refuses payment_token_unset).
 const paymentChain =
   env.AGENTS_PAYMENT_RPC_URL &&
@@ -312,6 +316,7 @@ const appRouter = createAgentsRouter({
   fleet: { registryLimit: env.AGENTS_REGISTRY_LIST_LIMIT ?? null },
   ownBackground: { steps: env.AGENTS_BACKGROUND_TEST_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
   ownCadence,
+  selfFreeze,
   sessionRuns: { maxSteps: env.AGENTS_SESSION_RUN_MAX_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
   // Parsed at boot: a malformed scale stops the service here; a blank one refuses research answers by name.
   research: {
@@ -463,6 +468,7 @@ const autoRuns: AutoRunDeps = {
   task: OWN_RUN_TASK,
   guardrailOf: ownGuardrail,
   log: (msg, detail) => app.log.warn(detail, msg),
+  selfFreeze,
 };
 let scheduleTimer: NodeJS.Timeout | null = null;
 if (env.AGENTS_SCHEDULE_TICK_MS) {
@@ -479,6 +485,9 @@ if (env.AGENTS_SCHEDULE_TICK_MS) {
   }, env.AGENTS_SCHEDULE_TICK_MS);
   scheduleTimer.unref();
 }
+// The owner's own freeze (J-wallet-13 #1): every agent permission kept for them is revoked and their scheduled agent
+// runs stop, once per freeze (the freeze's id is the record's key in Postgres, so a redelivery changes nothing).
+await subscribeSelfFreezeApplied(bus, sql);
 await bus.subscribe(
   'fillSettled',
   async (fill, envelope) => {

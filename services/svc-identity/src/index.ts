@@ -131,6 +131,7 @@ import { withFreezeLink } from './auth/freeze-link.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
+import { relaySelfFreezeEvents } from './auth/self-freeze-events.js';
 import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.js';
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
@@ -1450,6 +1451,17 @@ setInterval(() => {
       deathNoticeRelayRunning = false;
     });
 }, 3_000).unref();
+// The owner's own freeze (J-wallet-13 #1): announced from its own row once it commits, at least once; one run at a time.
+let selfFreezeRelayRunning = false;
+setInterval(() => {
+  if (selfFreezeRelayRunning) return;
+  selfFreezeRelayRunning = true;
+  void relaySelfFreezeEvents({ sql, bus, now: () => new Date() })
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.self_freeze_relay_failed'))
+    .finally(() => {
+      selfFreezeRelayRunning = false;
+    });
+}, 1_000).unref();
 // KYC case history (I-kyc-compliance-01): kycSubmitted and kycRejected from their own rows, at least once; one run at a time.
 let kycCaseRelayRunning = false;
 setInterval(() => {

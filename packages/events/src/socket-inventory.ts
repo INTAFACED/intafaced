@@ -81,6 +81,7 @@ export const EVENT_BUS_MATRIX = {
   securityFactorChanged: { kind: 'live' },
   deathNoticeCreated: { kind: 'socket', socketClass: 'A' },
   deathNoticeConfirmed: { kind: 'socket', socketClass: 'A' },
+  selfFreezeApplied: { kind: 'live' },
   staffCreated: { kind: 'socket', socketClass: 'A' },
   staffUpdated: { kind: 'socket', socketClass: 'A' },
   staffDeleted: { kind: 'socket', socketClass: 'A' },
