@@ -202,7 +202,7 @@ describe('custody deposit addresses (real Postgres)', () => {
       // before the key ON CONFLICT names, so the loser gets a unique violation there. This replays that order for real: the
       // other call's row commits, then this call's insert meets a real violation of the address index.
       const racing = new Proxy(db.sql, {
-        apply(target, thisArg, args: [TemplateStringsArray, ...never[]]) {
+        apply(target, thisArg, args: [TemplateStringsArray, ...unknown[]]) {
           const [strings, ...values] = args;
           if (!strings.join('?').includes('INSERT INTO pay.custody_deposit_addresses')) return Reflect.apply(target, thisArg, args);
           const derived = values[4] as string;
