@@ -441,5 +441,21 @@ test(`${J} #8 a founder opens the bank rails desk: for the TEST currency, partne
   const line = page.locator(`[data-testid="salary-rail"][data-currency="${CURRENCY}"]`);
   await expect(line).toHaveAttribute('data-matches', 'true');
   await expect(line.getByTestId('salary-rail-verdict')).toHaveText('matches');
+  // The desk's own figures: the network's credits and reversals, and the app's, side by side and equal. The desk sums every
+  // TEST salary on this stack, so this person's 2000.00 + 500.00 credited and 500.00 reversed are inside each total.
+  const figures = async (cell) => {
+    const text = await line.getByTestId(cell).innerText();
+    const found = /^(\d+(?:\.\d+)?) credited, (\d+(?:\.\d+)?) reversed$/.exec(text.trim());
+    expect(found, `${cell}: ${text}`).not.toBeNull();
+    return { credits: toUnits(found[1]), reversals: toUnits(found[2]) };
+  };
+  const network = await figures('salary-rail-network');
+  const app = await figures('salary-rail-app');
+  expect(network).toEqual(app);
+  const mine = rows.filter((r) => r.creditMoveId !== null);
+  const myCredits = mine.reduce((sum, r) => sum + toUnits(r.amount), 0n);
+  const myReversals = mine.filter((r) => r.reversalMoveId !== null).reduce((sum, r) => sum + toUnits(r.amount), 0n);
+  expect([myCredits, myReversals]).toEqual([toUnits('2500'), toUnits('500')]);
+  expect(network.credits >= myCredits && network.reversals >= myReversals, JSON.stringify(String(network.credits))).toBe(true);
   await context.close();
 });
