@@ -983,14 +983,35 @@ export class UserMoneyService {
           //
           // W-withdraw-06: on a chain the acceptance is not the end. The send settles only once the chain holds it at the
           // owner's minimum depth. Below it, or when the chain cannot say, the hold stays, the depth read is saved (the page
-          // reads `broadcast` at zero and `confirming` above it) and the next pass asks again. Nothing is reversed here: a send
-          // the rail accepted may be on the chain, so its hold is never released from this state (ENGINE W-3).
+          // reads `broadcast` at zero and `confirming` above it) and the next pass asks again. A send the rail accepted may be
+          // on the chain, so its hold is released only on the chain's own proof that it moved nothing: a reverted receipt at
+          // the owner's settle depth, which reverses it like a refusal (ENGINE W-3).
           // Only with the advance worker on: without it nothing would ask again, so the send settles in the request as before.
           if (this.confirmLater && confirmsAtDepth && claimed.networkId !== null) {
             // The owner's settle depth; blank here (unset since the create) never settles: the hold waits for it.
             const required = this.sendOut?.settleDepth ?? null;
-            const depth = await adapter.payoutDepth!(instruction);
-            if (depth === null || required === null || depth < required) {
+            const read = await adapter.payoutDepth!(instruction);
+            if (read !== null && typeof read === 'object') {
+              // Reverted: below the settle depth a reorg could still drop the revert, so the hold stays and the next pass asks.
+              if (required !== null && read.depth >= required) {
+                const code = 'rail.reverted';
+                // The attempt stays `accepted` with its tx hash: the send did leave, and the chain undid it. Nothing is stamped
+                // before the reverse, so a crash before the row turns `failed` leaves it `held`, and the next pass reads the
+                // same revert and posts the same reverse (keyed by the attempt), which the ledger takes once.
+                await connection`
+              UPDATE pay.withdrawal_rail_attempts SET confirmations = ${read.depth}
+               WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt} AND outcome = 'accepted'
+            `;
+                await this.finalizeRailRefusal({ ...claimed, failureCode: code }, code, connection);
+                await this.noteUserWithdrawal(connection, claimed, 'refused', code, `withdraw:${claimed.id}:${attempt}`);
+                throw new PayError('The chain reverted the send; the hold went back', 'pay.rail_failed', {
+                  failureCode: code,
+                  withdrawalId: claimed.id,
+                });
+              }
+            }
+            const depth = typeof read === 'number' ? read : read === null ? null : read.depth;
+            if (typeof read !== 'number' || required === null || read < required) {
               if (depth !== null) {
                 await connection`
               UPDATE pay.withdrawal_rail_attempts SET confirmations = ${depth}

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { isExplicitDevOrTest } from '@intafaced/config';
-import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './chain-port.js';
+import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort, SendDepth } from './chain-port.js';
 import { railRecorder, type RailRecorder } from './test-rail-records.js';
 
 /**
@@ -62,7 +62,7 @@ export class RecordingChain implements CryptoChainPort {
   }
 
   /** The chain's own depth. A send only the records remember has none this chain can read: `null`, so it stays held. */
-  sendDepth(idempotencyKey: string): Promise<number | null> {
+  sendDepth(idempotencyKey: string): Promise<SendDepth> {
     return this.inner.sendDepth(idempotencyKey);
   }
 

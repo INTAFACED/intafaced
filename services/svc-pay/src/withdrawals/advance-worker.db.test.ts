@@ -265,6 +265,56 @@ describe('a send out of the platform confirms later (W-withdraw-06, real Postgre
     await invariant(made);
   });
 
+  it('a send the chain reverted stays held below the settle depth, then goes back whole and once at it', async () => {
+    const service = money();
+    const made = await send(service, 'w-1');
+    chain.setSendDepth(key(made), 0);
+    await service.advanceWithdrawal(made.id);
+    // Mined and reverted, not yet deep: a reorg could still drop the revert, so nothing is given back.
+    chain.setSendDepth(key(made), { reverted: true, depth: 5 });
+    expect(await service.advanceWithdrawal(made.id)).toMatchObject({ status: 'held' });
+    expect(await held(made)).toBe(amt('26.5'));
+    expect(await available()).toBe(amt('273.5'));
+    await invariant(made);
+
+    chain.setSendDepth(key(made), { reverted: true, depth: 6 });
+    expect(await codeOf(service.advanceWithdrawal(made.id))).toBe('pay.rail_failed');
+    expect(await service.getWithdrawal(made.id)).toMatchObject({ status: 'failed', failureCode: 'rail.reverted' });
+    expect(await journal(made)).toEqual({ outcome: 'accepted', confirmations: 6 });
+    expect(await held(made)).toBe(0n);
+    expect(await available()).toBe(amt('300'));
+    expect(await railOut()).toBe(0n);
+    expect(await feePot()).toBe(0n);
+    // Never settled, never sent again, and a later pass gives nothing back twice.
+    expect(chain.outboundTransfers()).toHaveLength(1);
+    expect(await listHeldSends(sql, 20)).toEqual([]);
+    await invariant(made);
+  });
+
+  it('a crash after a proven revert and before its reverse is finished by the next pass, once', async () => {
+    const service = money();
+    const made = await send(service, 'w-1');
+    chain.setSendDepth(key(made), { reverted: true, depth: 6 });
+    flaky.fail({
+      reason: recipes.withdrawReverse({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('25'),
+        rail: RAIL,
+        withdrawalId: `${made.id}:0`,
+        fee: FEE,
+      }).reason,
+      when: 'after',
+    });
+    expect(await codeOf(service.advanceWithdrawal(made.id))).not.toBe('resolved');
+    expect(await codeOf(service.advanceWithdrawal(made.id))).toBe('pay.rail_failed');
+    expect(await service.getWithdrawal(made.id)).toMatchObject({ status: 'failed', failureCode: 'rail.reverted' });
+    expect(await held(made)).toBe(0n);
+    expect(await available()).toBe(amt('300'));
+    expect(chain.outboundTransfers()).toHaveLength(1);
+    await invariant(made);
+  });
+
   it('a crash after the chain is deep enough and before the settle is finished by the next pass, once', async () => {
     const service = money();
     const made = await send(service, 'w-1');
