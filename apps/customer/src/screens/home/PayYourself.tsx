@@ -226,7 +226,7 @@ export default function PayYourself({
                 <>
                   <strong data-part-amount>{displayAmount(part.amount)} USD</strong>{' '}
                   <span className="muted" data-part-source>
-                    {part.id === 'partner' ? t('sourcePartner') : part.id === 'venue' ? t('sourceVenue') : t('sourceWallet')}, {t('asOf')}
+                    {part.id === 'partner' ? t('sourcePartner') : part.id === 'venue' ? t('sourceVenue') : t('sourceWallet')}, {t('asOf')}{' '}
                     <At iso={part.asOf} />
                   </span>
                 </>
@@ -260,8 +260,7 @@ export default function PayYourself({
           <p>
             <strong data-locked-amount>{displayAmount(lockedInTrades(venueRows))} USD</strong>{' '}
             <span className="muted">
-              {t('sourceVenue')}, {t('asOf')}
-              <At iso={venue.data.asOf} />
+              {t('sourceVenue')}, {t('asOf')} <At iso={venue.data.asOf} />
             </span>
           </p>
         ) : (
@@ -284,8 +283,7 @@ export default function PayYourself({
           <>
             <p data-testid="realised-profit">
               {t('realised', { amount: displayAmount(s.realised.amount) })} ({lastSent ? t('realisedSince') : t('realisedEver')}),{' '}
-              {t('asOf')}
-              <At iso={s.realised.asOf} />
+              {t('asOf')} <At iso={s.realised.asOf} />
             </p>
             {shownAmount === '' && !ask ? <p className="muted">{t('realisedNone')}</p> : null}
             {!ask ? (
