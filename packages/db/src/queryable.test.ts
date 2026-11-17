@@ -33,7 +33,7 @@ const live = await postgresAvailable(URL);
 describe('requireConnection', () => {
   it('returns a connection, which can begin', async () => {
     // postgres.js connects on the first query, so an unreachable address is a real handle that never dials.
-    const sql = postgres('postgres://u:p@127.0.0.1:1/db', { max: 1 });
+    const sql = postgres('postgres://u:p@127.0.0.1:1/never_test', { max: 1 });
     try {
       expect(requireConnection(sql)).toBe(sql);
     } finally {
