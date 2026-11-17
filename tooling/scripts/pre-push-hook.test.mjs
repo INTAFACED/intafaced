@@ -1,5 +1,5 @@
-// The pre-push hook on planted repos: a worktree with no node_modules (here or in the main checkout) pushes with one
-// line instead of being refused; formatting still refuses when prettier is there; a direct push to main is still refused;
+// The pre-push hook on planted repos: a worktree with no node_modules (here or in the main checkout) pushes; formatting
+// is left to .githooks/pre-commit and CI's Format job, so an unformatted push goes through; a direct push to main is still refused;
 // CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR. A push
 // that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it. The lint
 // ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files and refuses a rise; CI's other Doctrine gates
@@ -70,33 +70,22 @@ function plant({ prettier = null, oxlint = false, ciChecks = 'process.exit(0);',
   return { push, work, done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-test('no node_modules here or in the main checkout: one line, the push goes through', () => {
+test('no node_modules here or in the main checkout: the push goes through', () => {
   const p = plant();
   try {
     const r = p.push();
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /no prettier in this worktree; skipped/);
   } finally {
     p.done();
   }
 });
 
-test('formatting still refuses when prettier is there', () => {
-  const p = plant({ prettier: 'echo "[warn] src/a.ts"; exit 1' });
-  try {
-    const r = p.push();
-    assert.notEqual(r.code, 0, r.out);
-    assert.match(r.out, /format:check failed/);
-  } finally {
-    p.done();
-  }
-});
-
-test('a formatted push with prettier there goes through', () => {
-  const p = plant({ prettier: 'exit 0' });
+test('formatting is not checked here: a prettier that would refuse is never run', () => {
+  const p = plant({ prettier: 'echo "prettier ran"; exit 1' });
   try {
     const r = p.push();
     assert.equal(r.code, 0, r.out);
+    assert.doesNotMatch(r.out, /prettier ran/);
   } finally {
     p.done();
   }
