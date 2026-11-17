@@ -351,6 +351,8 @@ test(`${J} #3 grants provisional credit: recorded as the partner's credit: the c
   const { who, cases } = world();
   const before = await partnerAvailable(who);
   expect(before).toMatch(/^\d+(\.\d+)?$/);
+  // PLANTED FAULT for #8707: this throwaway pull request is closed unmerged.
+  expect(before).toBe('planted-fault-8707');
   const cardholder = (await disputeRead(cases.a)).userId;
   const ledgerBefore = await ledgerBalances(cardholder);
   // The app's figure is the partner's own: what its book says the cardholder can spend, before any credit.
