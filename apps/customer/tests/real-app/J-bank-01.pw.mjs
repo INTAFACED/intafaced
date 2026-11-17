@@ -210,7 +210,7 @@ test(`${J} #3 adds a currency once, and removing one the partner reports with a 
   expect((await (await bank(who)).mutate('currencies.add', { assetId: 'USDC' })).ok).toBe(true);
   expect((await spaces(who)).filter((s) => s.kind === 'primary' && s.assetId === 'USDC')).toHaveLength(1);
 
-  await page.getByTestId('currency-USDT').getByRole('button', { name: 'Remove USDT' }).click();
+  await page.getByTestId('currency-USDT').getByRole('button', { name: 'Remove USDT', exact: true }).click();
   const refused = page.getByTestId('currency-in-use');
   await expect(refused).toContainText('USDT is still in use');
   await expect(refused).toContainText('bank.currency_in_use');
@@ -224,7 +224,7 @@ test(`${J} #3 adds a currency once, and removing one the partner reports with a 
   const refusedInUse = async () => {
     expect(await own.mutate('currencies.remove', { assetId: 'USDC' })).toMatchObject({ ok: false, code: 'bank.currency_in_use' });
     await page.reload();
-    await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC' }).click();
+    await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC', exact: true }).click();
     await expect(page.getByTestId('currency-in-use')).toContainText('bank.currency_in_use');
     await expect(page.getByTestId('currency-USDC')).toBeVisible();
   };
@@ -250,7 +250,7 @@ test(`${J} #3 adds a currency once, and removing one the partner reports with a 
 
     // An empty currency, with no hold and no order in it, comes off.
     await page.reload();
-    await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC' }).click();
+    await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC', exact: true }).click();
     await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
     await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
   } finally {
