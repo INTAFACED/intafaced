@@ -1221,6 +1221,15 @@
     overflow-x: auto;
     padding: 0 var(--if-space-4) var(--if-space-4);
   }
+  /* The conditional orders' pending list scrolls inside its own box, so a long legs line never widens the page. */
+  .dk-spot-pending-scroll {
+    max-inline-size: 100%;
+    overflow-x: auto;
+  }
+  .dk-spot-pending-scroll td[data-cell='legs'] {
+    min-inline-size: 16rem;
+    white-space: normal;
+  }
   .dk-bt-skeleton {
     display: flex;
     flex-direction: column;

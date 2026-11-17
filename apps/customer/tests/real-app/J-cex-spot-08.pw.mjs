@@ -405,6 +405,13 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
     const cloid = cloidOf(venueId, fireKey(s, market));
     expect(fired.legs[0]).toMatchObject({ venueClientOrderId: cloid, status: 'filled' });
     expect(await venueOrder(s, cloid)).toMatchObject({ side: 'sell', type: 'market', status: 'filled' });
+    // The list says what became of it on the venue, and stays inside the page: nothing of the desk scrolls off sideways.
+    await expect(cell(page, market, 'status')).toHaveText('Sent · filled', { timeout: 15_000 });
+    await expect(cell(page, market, 'reference')).toHaveText('');
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+      'the pending list widens the page',
+    ).toBe(true);
     // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proving nothing more happens over a few passes of our engine (one a second)
     await new Promise((r) => setTimeout(r, 3_000));
     const fills = await fillsOf(s, cloid);

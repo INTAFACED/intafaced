@@ -361,22 +361,24 @@ function PendingList({
           <p className="muted">{t('Pending empty')}</p>
         ) : null
       ) : (
-        <table className="dk-table">
-          <thead>
-            <tr>
-              {(['kind', 'side', 'size', 'trigger', 'reference', 'status', 'where', 'legs', 'actions'] as const).map((c) => (
-                <th key={c} scope="col">
-                  {t(`col_${c}`)}
-                </th>
+        <div className="dk-spot-pending-scroll">
+          <table className="dk-table">
+            <thead>
+              <tr>
+                {(['kind', 'side', 'size', 'trigger', 'reference', 'status', 'where', 'legs', 'actions'] as const).map((c) => (
+                  <th key={c} scope="col">
+                    {t(`col_${c}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o) => (
+                <PendingRow key={o.id} order={o} onChanged={onChanged} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((o) => (
-              <PendingRow key={o.id} order={o} onChanged={onChanged} />
-            ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );
@@ -441,6 +443,8 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
       </td>
       <td data-cell="status">
         {t(`status_${o.status}`)}
+        {/* A sent order says what became of it on the venue: filled, partly filled, open or cancelled. */}
+        {o.status === 'fired' && o.legs[0] ? <span> · {t(`leg_${o.legs[0].status}`)}</span> : null}
         {o.failure ? <span className="failure"> · {t('Failure', { failure: o.failure })}</span> : null}
         {o.status === 'cancelled' && isReason(o.cancelReason) ? <span> · {t(`Cancel reason ${o.cancelReason}`)}</span> : null}
       </td>
