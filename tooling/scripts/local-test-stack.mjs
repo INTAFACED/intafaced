@@ -1593,6 +1593,8 @@ function testChain() {
     claimEscrow: record.claimEscrow ?? null,
     // The TEST trading venue (SovereignVenue) a wallet deposits into and withdraws from (J-dex-protocol-05 #9).
     venue: record.venue ?? null,
+    // The P2P escrow (SovereignEscrow) a contract-escrow P2P order opens its deal in (J-p2p-21).
+    p2pEscrow: record.p2pEscrow ?? null,
     liquidityRouter: record.liquidityRouter ?? null,
     // The smart account factory and implementation (J-dex-protocol-08's session keys).
     accountFactory: record.accountFactory ?? null,
