@@ -86,7 +86,6 @@ jobs:
   bisect:
     name: Bisect main
     if: inputs.journeys == '' && (inputs.tests != '' || inputs.jobs != '')
-    # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
     runs-on: ubuntu-24.04
     # A Typecheck & build probe builds and typechecks the whole repo (about 10 minutes on CI): 5 commits take 4 probes.
     timeout-minutes: 120
@@ -146,7 +145,7 @@ jobs:
   revert-find:
     name: 'Journeys revert: find the culprit'
     if: inputs.journeys != '' && inputs.confirm == ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: under a minute
     permissions:
       contents: read
@@ -249,11 +248,9 @@ jobs:
       - name: Put pnpm next to node
         run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
       - name: Get a nats-server binary
-        run: |
-          docker create --name nats-src nats:2.10.24-alpine
-          docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
-          docker rm nats-src
-          chmod +x "$LOCAL_STACK_NATS_BIN"
+        uses: ./.github/actions/nats-server
+        with:
+          path: ${{ env.LOCAL_STACK_NATS_BIN }}
       - name: Get an anvil launcher
         run: |
           docker pull ghcr.io/foundry-rs/foundry:v1.5.1
@@ -294,7 +291,7 @@ jobs:
     name: 'Journeys revert: name the culprit from the probes'
     needs: [revert-find, revert-probe-leg]
     if: ${{ !cancelled() && needs.revert-find.outputs.probe == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: seconds
     permissions:
       contents: read
@@ -379,11 +376,9 @@ jobs:
       - name: Put pnpm next to node
         run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
       - name: Get a nats-server binary
-        run: |
-          docker create --name nats-src nats:2.10.24-alpine
-          docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
-          docker rm nats-src
-          chmod +x "$LOCAL_STACK_NATS_BIN"
+        uses: ./.github/actions/nats-server
+        with:
+          path: ${{ env.LOCAL_STACK_NATS_BIN }}
       - name: Get an anvil launcher
         run: |
           docker pull ghcr.io/foundry-rs/foundry:v1.5.1
@@ -467,11 +462,9 @@ jobs:
       - name: Put pnpm next to node
         run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
       - name: Get a nats-server binary
-        run: |
-          docker create --name nats-src nats:2.10.24-alpine
-          docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
-          docker rm nats-src
-          chmod +x "$LOCAL_STACK_NATS_BIN"
+        uses: ./.github/actions/nats-server
+        with:
+          path: ${{ env.LOCAL_STACK_NATS_BIN }}
       - name: Get an anvil launcher
         run: |
           docker pull ghcr.io/foundry-rs/foundry:v1.5.1
@@ -501,7 +494,7 @@ jobs:
     name: 'Journeys revert: note whether the break is back'
     needs: confirm-run
     if: ${{ !cancelled() && (inputs.confirm == 'true' || inputs.confirm == 'settle') && needs.confirm-run.result != 'skipped' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5 # healthy run: seconds
     permissions:
       contents: read
@@ -532,7 +525,7 @@ jobs:
     # A journeys culprit is blamed only when the control passed: the last passing commit still passes, so the red is a merge's.
     needs: [revert-find, revert-probe, revert-control, bisect]
     if: ${{ !cancelled() && ((needs.revert-probe.outputs.culprit != '' && needs.revert-control.outputs.passes == 'true') || (needs.bisect.outputs.culprit != '' && inputs.red_run != '')) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: under a minute
     # An App token: a pull request opened with GITHUB_TOKEN starts no workflow, so its seal would never run. The App's
     # key is INTAFACED_APP_KEY in the `ci-review` environment, which allows main alone (the `factory` environment holds
@@ -573,7 +566,7 @@ jobs:
     name: 'Journeys revert: run the steps alone on main'
     needs: revert-find
     if: ${{ !cancelled() && inputs.journeys != '' && needs.revert-find.result == 'success' && needs.revert-find.outputs.steps != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5 # healthy run: seconds
     permissions:
       contents: read

@@ -75,27 +75,50 @@ concurrency:
 jobs:
   gitleaks:
     name: Gitleaks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The pinned release, checked by SHA-256 and kept in the Actions cache, so only a cache miss reaches the network
+      # (a bad download turned this check red, #7662). Keyed on this file, which holds VER and SHA256.
+      - name: Restore the pinned gitleaks
+        id: gitleaks-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gitleaks-cache
+          key: gitleaks-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/pr-checks.yml') }}
       - name: Install gitleaks
+        if: steps.gitleaks-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           VER=8.24.3
+          SHA256=9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c # the release's checksums.txt
+          dir="$RUNNER_TEMP/gitleaks-cache"
+          rm -rf "$dir" && mkdir -p "$dir"
           # Download to a file first, failing on an HTTP error and retrying a dropped connection, so a failed download
           # is a clear curl error and not a tar error on a cut-off stream (3 of 12 PR runs on 9 Nov 07:00-07:50 UTC).
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o gitleaks.tar.gz \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$dir/gitleaks.tar.gz" \
             "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
-          tar -xzf gitleaks.tar.gz gitleaks
+          echo "${SHA256}  $dir/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$dir/gitleaks.tar.gz" -C "$dir" gitleaks
+          rm "$dir/gitleaks.tar.gz"
+      - name: Keep gitleaks for the next run
+        if: steps.gitleaks-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/gitleaks-cache
+          key: ${{ steps.gitleaks-cache.outputs.cache-primary-key }}
+      - name: Put gitleaks in place
+        run: |
+          install -m 0755 "$RUNNER_TEMP/gitleaks-cache/gitleaks" ./gitleaks
           ./gitleaks version
       - name: Gitleaks (working tree)
         run: ./gitleaks detect --source . --no-git --config .gitleaks.toml --redact
 
   audit:
     name: Dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
