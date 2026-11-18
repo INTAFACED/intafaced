@@ -16,7 +16,8 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 // model: the venue holds the trading money, the stack's TEST partner bank holds the spending money
 // (`testPartner.set({ custody: 'off' })`), the app shows each as its source reports it, and the ledger posts nothing.
 //
-// TEST setup in #1, the journey's start: one verified TEST person with a TEST browser wallet holding TEST ETH for gas on
+// TEST setup in the journey's start (the "starts:" test; #1's own test comes with the card that draws on the partner
+// account): one verified TEST person with a TEST browser wallet holding TEST ETH for gas on
 // the stack's TEST chain and an empty account on the TEST venue, TEST 1000 USDC in their TEST partner account and a TEST
 // card in USDC. Every figure is read from its own source and compared: the venue's record (`/balances`, `/fills`), the
 // partner's own book on loopback (`/test-partner`), the card partner's figure and the TEST chain. #4 rests the TEST
@@ -98,7 +99,7 @@ async function tradingEqualsVenue(page, owner) {
   return record;
 }
 
-test(`${J} #1 opens /trade/account: two named groups with their as-of times, trading from the venue (empty) and spending from the partner (1000.00 USDC), and the liquidation line`, async ({
+test(`${J} starts: a verified TEST person with a TEST wallet holding TEST ETH for gas and an empty account on the TEST venue, TEST 1000 USDC in their TEST partner account and a TEST card in USDC`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -119,34 +120,6 @@ test(`${J} #1 opens /trade/account: two named groups with their as-of times, tra
   const held = await bankGet('cards.partnerHeld', { cardId: card.id, limit: 1 });
   expect(held.heldBy).toBe('partner');
   run.write({ cardId: card.id, panTail: card.panTail, ledger: await ledgerOf(), userId: (await door()).userId });
-
-  await openAccount(page);
-  await expect(page.getByTestId('liquidation-line')).toHaveText(
-    'Liquidation only ever uses your trading account. Your spending balances are never used.',
-  );
-  // Trading: the venue's account, named by its own name, empty as the venue reports it, with the venue's time.
-  const venue = await venueInfo();
-  expect((await venueRecord(owner, '/balances')).value.filter((b) => toUnits(b.total) > 0n)).toEqual([]);
-  await expect(trading(page).getByRole('heading', { name: /^Trading/ })).toBeVisible();
-  await expect(trading(page).getByTestId('trading-source')).toContainText(`From ${venue.displayName}`);
-  await expect(trading(page).getByTestId('trading-source').locator('[data-as-of]')).toHaveAttribute('data-as-of', /^\d{4}-\d\d-\d\dT/);
-  await expect(trading(page).getByTestId('trading-empty')).toHaveText('This venue account is empty.');
-  // Spending: the partner account, 1000.00 USDC as the partner reports it, with the partner's time; the card, from it.
-  await expect(spending(page).getByRole('heading', { name: 'Spending', exact: true })).toBeVisible();
-  await expect(spending(page).getByTestId('spending-source')).toContainText(`From ${PARTNER_BANK}`);
-  await expect(spending(page).getByTestId('spending-source').locator('[data-as-of]')).toHaveAttribute('data-as-of', /^\d{4}-\d\d-\d\dT/);
-  await expect(mainRow(page).locator('[data-cell="balance"]')).toHaveText('1,000.00 USDC', { timeout: 20_000 });
-  expect(sameDecimal(await partnerMain(run.read().userId), PARTNER_USDC)).toBe(true);
-  const figures = (await bankGet('cards.partnerHeld', { cardId: card.id, limit: 1 })).figures;
-  await expect(spending(page).locator(`li[data-card="${card.id}"]`)).toHaveText(
-    `Card ending ${card.panTail}: ${Number(figures.available).toLocaleString('en-US', { minimumFractionDigits: 2 })} USDC available, from ${PARTNER_BANK}`,
-  );
-  expect(
-    sameDecimal(figures.available, PARTNER_USDC),
-    'the card spends the partner account’s 1000.00 USDC, as the partner reports it',
-  ).toBe(true);
-  // Never one INTAFACED balance: nothing adds the two groups up, and the ledger holds nothing for either.
-  await expect(page.getByText(/total balance/i)).toHaveCount(0);
 });
 
 test(`${J} #2 moves TEST 600 USDC from spending into trading, with step-up: the partner's transfer to the wallet, then the wallet's deposit, each with its fee or "not known"; the same move again sends nothing; the ledger posts nothing`, async ({
@@ -268,7 +241,7 @@ test(`${J} #3 tries to move more than the partner reports free: refused naming t
   );
   await expect(refusal.locator('code')).toHaveText('bank.own_move_above_free');
   // Nothing sent: no partner move, no move kept, no deposit asked of the wallet; both groups as their sources still say.
-  expect(wallet.requests.filter((r) => r.method === 'eth_sendTransaction')).toHaveLength(0);
+  expect(wallet.sends, 'the wallet sends nothing').toHaveLength(0);
   expect((await partnerMoves(userId)).length).toBe(movesBefore);
   expect(await bankGet('ownMoves.list', { limit: 10 })).toEqual(listedBefore);
   expect(sameDecimal(await partnerMain(userId), free)).toBe(true);
