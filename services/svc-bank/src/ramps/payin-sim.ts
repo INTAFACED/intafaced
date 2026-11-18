@@ -70,9 +70,11 @@ export interface OnrampPartner {
   returnUrl(requestId: string): string;
   /**
    * The stand-in's delivery of a purchase to the buyer's own wallet (J-dex-protocol-05 #4): the TEST partner sends it on
-   * the stack's TEST chain and answers the transfer's hash. Absent when no delivery address is set.
+   * the stack's TEST chain and answers the transfer's hash. Absent when no delivery address is set. With a `key` (a move
+   * from the person's own partner account to their wallet, J-derivatives-25 #2) it sends once per key: the same key again
+   * answers the first transfer's hash and sends nothing more.
    */
-  readonly deliver?: (input: { to: string; assetId: string; amount: string }) => Promise<string>;
+  readonly deliver?: (input: { to: string; assetId: string; amount: string; key?: string }) => Promise<string>;
   /** The partner's own book of its orders, which it reports to the finance desk (J-bank-28 #3). */
   readonly book?: RampPartnerBook;
 }
@@ -120,7 +122,7 @@ export function payinSimDelivery(deliverUrl: URL, fetchImpl: typeof fetch = fetc
       method: 'POST',
       redirect: 'error',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ to: input.to, asset: input.assetId, amount: input.amount }),
+      body: JSON.stringify({ to: input.to, asset: input.assetId, amount: input.amount, ...(input.key ? { key: input.key } : {}) }),
       signal: AbortSignal.timeout(90_000),
     });
     const body = (await res.json().catch(() => null)) as { hash?: unknown; error?: unknown } | null;

@@ -17,6 +17,7 @@ import { LINKED_ACCOUNTS_BANK_ERRORS } from './linked-accounts/bank-errors.js';
 import { LOANS_BANK_ERRORS } from './loans/bank-errors.js';
 import { ONBOARDING_BANK_ERRORS } from './onboarding/bank-errors.js';
 import { OPS_BANK_ERRORS } from './ops/bank-errors.js';
+import { OWN_MOVES_BANK_ERRORS } from './own-moves/bank-errors.js';
 import { PARTNER_BANK_ERRORS } from './partner/bank-errors.js';
 import { PAY_YOURSELF_BANK_ERRORS } from './pay-yourself/bank-errors.js';
 import { PORTFOLIO_BANK_ERRORS } from './portfolio/bank-errors.js';
@@ -66,6 +67,7 @@ export const BANK_ERROR_STATUS = {
   ...LOANS_BANK_ERRORS,
   ...ONBOARDING_BANK_ERRORS,
   ...OPS_BANK_ERRORS,
+  ...OWN_MOVES_BANK_ERRORS,
   ...PARTNER_BANK_ERRORS,
   ...PAY_YOURSELF_BANK_ERRORS,
   ...PORTFOLIO_BANK_ERRORS,

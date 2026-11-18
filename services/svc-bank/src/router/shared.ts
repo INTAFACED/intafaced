@@ -284,6 +284,11 @@ export type BankRouterOptions = {
    * #3). Always required, whatever the money-out rule says: omitted, it fails closed (`bank.step_up_unavailable`).
    */
   statementStepUp?: StepUpGate;
+  /**
+   * A move from the person's partner account to their own wallet, on to their trading account (J-derivatives-25 #2).
+   * Always required, whatever the money-out rule says: omitted, it fails closed (`bank.step_up_unavailable`).
+   */
+  ownMoveStepUp?: StepUpGate;
   /** The person's own step-up extras (BK-safe-01), read per send to another person. Omitted: no extras are checked (router tests). */
   extraControls?: ExtraControlsPort;
   /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */

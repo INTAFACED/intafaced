@@ -529,6 +529,8 @@ export const appRouter = createBankRouter(bank, {
   stepUp: createStepUpGate({ mode: env.BANK_STEP_UP_MONEY_OUT, approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
   // A business statement reaching back past the partner's strong customer authentication age always needs one (J-bank-23 #3).
   statementStepUp: createStepUpGate({ mode: 'required', approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
+  // Money leaving the partner account for a wallet, on to the person's trading account, always needs one (J-derivatives-25 #2).
+  ownMoveStepUp: createStepUpGate({ mode: 'required', approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
 });
 export type AppRouter = typeof appRouter;
 

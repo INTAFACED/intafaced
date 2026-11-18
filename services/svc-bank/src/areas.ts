@@ -21,6 +21,7 @@ import { composeLinkedAccountsArea } from './linked-accounts/compose.js';
 import { composeLoansArea } from './loans/compose.js';
 import { composeOnboardingArea } from './onboarding/compose.js';
 import { composeOpsArea } from './ops/compose.js';
+import { composeOwnMovesArea } from './own-moves/compose.js';
 import { composePartnerArea } from './partner/compose.js';
 import { composePayYourselfArea } from './pay-yourself/compose.js';
 import { composePersonalPayArea } from './personal-pay/compose.js';
@@ -78,6 +79,7 @@ export const BANK_AREAS = AreaChain.over<BankRoot>()
   .add(composeDeveloperApiArea)
   .add(composeSalaryArea)
   .add(composePayYourselfArea)
+  .add(composeOwnMovesArea)
   .add(composeCalendarArea)
   .add(composeRulesArea)
   .add(composeSpendFiguresArea);
