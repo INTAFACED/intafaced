@@ -246,14 +246,16 @@ export class EvmLiveChain implements CryptoChainPort {
     // Signed bytes are journalled before the broadcast RPC. No hash yet means
     // the send may already have left. That is not proof it did not.
     if (await this.broadcasts.hasSigned(idempotencyKey)) return { state: 'unknown' };
-    // A caller reverses the hold on `not_sent` (PayoutQuery.tla, NeverPaidTwice), so the answer closes the key: won,
-    // no send ever leaves under it; lost, a send holds it (claimed, maybe still signing) and may yet leave.
-    if ((await this.broadcasts.close(idempotencyKey)) === 'held') {
+    // A caller reverses the hold on `not_sent` (PayoutQuery.tla, NeverPaidTwice), so the answer closes the key: closed,
+    // no send ever leaves under it (one still signing fails at putSigned); held, a send journalled signed bytes and may
+    // have left.
+    const closed = await this.broadcasts.close(idempotencyKey);
+    if (closed === 'held') {
       const landed = await this.broadcasts.get(idempotencyKey);
       if (landed) return { state: 'sent', txHash: landed, amount: null, assetId: null };
       return { state: 'unknown' };
     }
-    return { state: 'not_sent' };
+    return { state: 'not_sent', closed };
   }
 
   /**

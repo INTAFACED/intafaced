@@ -67,8 +67,12 @@ function space(id, assetId, kind, name, balance) {
     name,
     goalTarget: null,
     lockedUntil: null,
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
     balance,
     ledgerAccount: { ownerType: 'user', ownerId: 'u1', assetId, kind: 'available' },
+    heldAt: null,
   };
 }
 

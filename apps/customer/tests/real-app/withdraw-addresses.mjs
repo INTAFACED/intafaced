@@ -2,7 +2,7 @@ import path from 'node:path';
 import { expect } from './journey.mjs';
 import { ROOT, mailedLines, restartWithSetting } from './stack.mjs';
 import { nextCode } from './identity-factors.mjs';
-import { responseAfterNavigation } from './navigation.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // The withdrawal address book's shared steps, for J-wallet-04.pw.mjs and J-wallet-04-approval.pw.mjs: the TEST addresses,
 // the add form's fields, the bank's own book read on a reload, the mailed approval links, a svc-bank TEST setting, and
@@ -83,18 +83,28 @@ export async function bankRowOnReload(page, label) {
 
 /** Reloads the page and returns the bank's own rows from the address-book read that load makes. */
 export async function bankBookOnReload(page) {
+  return (await bankBookReadOnReload(page)).rows;
+}
+
+/** Reloads the page and returns the address-book read that load makes (`answer`) with the bank's own rows from it. */
+export async function bankBookReadOnReload(page) {
   // Only the read the reloaded page makes counts. A rename makes the old page read the book again just before the
   // reload, and when that read was the one matched the reload dropped its body ("No resource with given identifier
-  // found", #7457). So the match starts once the reload has committed and the body is read as soon as it arrives
-  // (navigation.mjs), and the read must have started after the reload's own document request did (both times from the
-  // browser's clock).
-  const { res, doc } = await responseAfterNavigation(
+  // found", #7457). answerAfterNavigation (navigation.mjs) reads only the reloaded page's own answer, and the read must
+  // have started after the reload's own document request did (both times from the browser's clock).
+  let doc = null;
+  const res = await answerAfterNavigation(
     page,
-    (res) => res.request().method() === 'GET' && /\/api\/bank\/trpc\/ramps\.destinations\.list/.test(res.url()),
+    (r) => r.request().method() === 'GET' && /\/api\/bank\/trpc\/ramps\.destinations\.list/.test(r.url()),
+    async () => {
+      doc = await page.reload();
+    },
   );
   expect(doc, 'the reload loaded a new document').toBeTruthy();
-  expect(res.startedAt, "the address-book read is the reloaded page's own").toBeGreaterThanOrEqual(doc.request().timing().startTime);
-  expect(res.status).toBe(200);
+  expect(res.request().timing().startTime, "the address-book read is the reloaded page's own").toBeGreaterThanOrEqual(
+    doc.request().timing().startTime,
+  );
+  expect(res.status()).toBe(200);
   const rows = [];
   const walk = (value) => {
     if (Array.isArray(value)) value.forEach(walk);
@@ -103,8 +113,8 @@ export async function bankBookOnReload(page) {
       else Object.values(value).forEach(walk);
     }
   };
-  walk(res.body);
-  return rows;
+  walk(await res.json());
+  return { rows, answer: res };
 }
 
 /** The approval links mailed to this person so far, oldest first, from the stack's LOCAL-TEST outbox. */

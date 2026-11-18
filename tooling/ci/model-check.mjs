@@ -87,11 +87,38 @@ export function hits(changed, models, named) {
   return out;
 }
 
+/**
+ * Each path a model's COVERS.md names that no tracked file is (or is a folder of): the model would go on passing while
+ * covering nothing there, so the plan fails naming it (project-state#2962). Pure.
+ */
+export function gonePaths(root, models, files) {
+  const errors = [];
+  for (const m of models) {
+    for (const cover of [
+      'COVERS.md',
+      ...files.filter((f) => f.startsWith(`${m.dir}/`) && f.endsWith('-COVERS.md')).map((f) => f.slice(m.dir.length + 1)),
+    ]) {
+      let text = '';
+      try {
+        text = readFileSync(join(root, m.dir, cover), 'utf8');
+      } catch {
+        continue;
+      }
+      for (const p of new Set((text.match(NAMED_PATH) ?? []).map((x) => x.replace(/[.]+$/, '')))) {
+        if (!files.some((f) => f === p || f.startsWith(`${p}/`)))
+          errors.push(`${m.dir}/${cover} names ${p}, which is gone: the model no longer covers it; fix ${cover} or the model`);
+      }
+    }
+  }
+  return errors;
+}
+
 /** The plan: { run, models, reasons, errors }. `all` runs every model whatever changed. */
 export function plan(root, changed, { all = false, files } = {}) {
   const list = files ?? trackedFiles(root);
   const tracked = new Set(list);
-  const { models, errors } = findModels(root, list);
+  const { models, errors: found } = findModels(root, list);
+  const errors = [...found, ...gonePaths(root, models, list)];
   const named = new Map(models.map((m) => [m.dir, namedPaths(root, m, tracked)]));
   const reasons = all ? ['every model was asked for'] : hits(changed, models, named);
   return { run: errors.length === 0 && reasons.length > 0 && models.length > 0, models, reasons, errors };

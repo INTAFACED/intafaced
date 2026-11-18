@@ -306,6 +306,7 @@ test.beforeAll(async ({ browser }) => {
 
 test(`${J} #1 opens /money: every holding in the wallet, the venue account and the partner account with amount, price, value, share and source; the total with its breakdown by source and quick actions`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const { account: who, owner, ledgerStart } = state();
@@ -410,6 +411,7 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
     ['Activity', /^\/money\/activity$/],
   ])
     await expect(actions.locator('a').filter({ hasText: new RegExp(`^${name}$`) })).toHaveAttribute('href', href);
+  await stepPicture();
   await actions
     .locator('a')
     .filter({ hasText: /^Fund your venue account$/ })

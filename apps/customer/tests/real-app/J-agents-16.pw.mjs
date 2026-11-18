@@ -1,7 +1,7 @@
 // World: none
 import { test, expect } from './journey.mjs';
 import { ADMIN } from './admin.mjs';
-import { UNBUILT, agentsRun, openFounderDesk, openNavigatorSession, tableIn } from './agents.mjs';
+import { UNBUILT, agentsRun, openNavigatorSession, tableIn } from './agents.mjs';
 import { api } from './stack.mjs';
 
 // J-agents-16, in the founder console (docs/roadmap/journeys.json): get alerted when agents fail, refuse or cost too
@@ -21,21 +21,9 @@ const newRule = (page) => main(page).getByRole('form', { name: 'New alert rule' 
 const rules = (page) => tableIn(main(page), 'Alert rules');
 const alerts = (page) => tableIn(main(page), 'Alerts');
 const evaluation = (page) => tableIn(main(page), 'Last evaluation');
-/**
- * The founder console, signed in once per worker in its own browser context (its cookies never meet the customer's), as
- * J-algo-dev-10 does. Each sign-in must send a TOTP step no earlier sign-in spent, so a fresh sign-in per step waited up
- * to a whole 30 s step for the next one, inside the step's own 30 s: main run 43726862351, J-agents-16 #4 spent 29 s
- * between the password and the code and timed out on the desk's heading. The start signs in, so no step pays that wait.
- */
-let consoleSession = null;
-async function openAlerts(browser) {
-  if (!consoleSession) {
-    const page = await (await browser.newContext()).newPage();
-    await openFounderDesk(page, ALERTS, 'Agent alerts');
-    consoleSession = { page };
-    return page;
-  }
-  const { page } = consoleSession;
+/** Founder A's alert desk, on the console session the `founders` fixture keeps for this file (journey.mjs). */
+async function openAlerts(founders) {
+  const { page } = await founders.console('a');
   await page.goto(`${ADMIN}${ALERTS}`);
   await expect(page.getByRole('heading', { name: 'Agent alerts', level: 1 })).toBeVisible(UNBUILT);
   return page;
@@ -60,10 +48,10 @@ async function saveRule(page, { name, threshold, agentId = '' }) {
   await form.getByRole('button', { name: 'Save rule' }).click();
 }
 
-test(`${J} starts: a TEST customer whose agent request was refused just now, and the founder console`, async ({ page, browser }) => {
+test(`${J} starts: a TEST customer whose agent request was refused just now, and the founder console`, async ({ page, founders }) => {
   test.setTimeout(180_000);
   // The founder's one sign-in is here, in the start's own time: it may wait out a TOTP window another sign-in spent.
-  await openAlerts(browser);
+  await openAlerts(founders);
   await agents.start(page, 'ag16', '10');
   const sessionId = await openNavigatorSession(page, agents);
   const door = await api(agents.account());
@@ -85,10 +73,10 @@ test(`${J} starts: a TEST customer whose agent request was refused just now, and
 });
 
 test(`${J} #1 creates a refusal-rate rule with the threshold blank: refused by name and not stored; a threshold of 0 is stored as deliberate`, async ({
-  browser,
+  founders,
 }) => {
   const { rule } = names();
-  const page = await openAlerts(browser);
+  const page = await openAlerts(founders);
   await saveRule(page, { name: rule, threshold: '' });
   await expect(newRule(page).getByRole('alert')).toContainText('Threshold is required');
   await expect(newRule(page).getByRole('alert')).toContainText('(agents.alert_threshold_required)');
@@ -108,11 +96,11 @@ test(`${J} #1 creates a refusal-rate rule with the threshold blank: refused by n
 });
 
 test(`${J} #2 lets the evaluator run twice over a breached window: one alert row for that window; an empty window fires nothing and shows no zero rate`, async ({
-  browser,
+  founders,
 }) => {
   const { rule, quiet } = names();
   const { quietAgent } = agents.run.read();
-  const page = await openAlerts(browser);
+  const page = await openAlerts(founders);
   // A second rule over one agent id with no actions at all: its windows have no rows.
   await saveRule(page, { name: quiet, threshold: '0', agentId: quietAgent });
   await expect(newRule(page).getByRole('status')).toHaveText(`Rule stored: ${quiet}.`);
@@ -147,10 +135,10 @@ test(`${J} #2 lets the evaluator run twice over a breached window: one alert row
   await expect(rowOf(alerts(page), quiet)).toHaveCount(0);
 });
 
-test(`${J} #3 takes notifications down: the alert row is still kept and shows delivery pending`, async ({ browser }) => {
+test(`${J} #3 takes notifications down: the alert row is still kept and shows delivery pending`, async ({ founders }) => {
   const { whileDown } = agents.run.read();
   if (!whileDown) throw new Error(`${J} start named no rule for #3`);
-  const page = await openAlerts(browser);
+  const page = await openAlerts(founders);
   const switchboard = main(page).getByRole('region', { name: 'Alert notifications' });
   await expect(switchboard.getByTestId('notifications-state')).toHaveText('Notifications are on.');
   await switchboard.getByRole('button', { name: 'Take notifications down' }).click();
@@ -183,9 +171,9 @@ test(`${J} #3 takes notifications down: the alert row is still kept and shows de
 });
 
 test(`${J} #4 opens the managed policy baseline and sets an environment override: the baseline is shown; a loosening override is refused`, async ({
-  browser,
+  founders,
 }) => {
-  const page = await openAlerts(browser);
+  const page = await openAlerts(founders);
   const baseline = main(page).getByRole('region', { name: 'Managed policy baseline' });
   const ownData = baseline.locator('[data-class="own_data"]');
   await expect(ownData.getByRole('term')).toHaveText('Own-data tools');
@@ -209,8 +197,8 @@ test(`${J} #4 opens the managed policy baseline and sets an environment override
   await expect(ownData.getByTestId('override-choice')).toHaveText('Override: Act when asked');
 });
 
-test(`${J} #5 checks a user rule that tries to loosen the baseline: the baseline wins and the rule is refused`, async ({ browser }) => {
-  const page = await openAlerts(browser);
+test(`${J} #5 checks a user rule that tries to loosen the baseline: the baseline wins and the rule is refused`, async ({ founders }) => {
+  const page = await openAlerts(founders);
   const check = main(page).getByRole('form', { name: 'Check a rule' });
   await check.getByRole('combobox', { name: 'Tool class' }).selectOption({ label: 'Own-data tools' });
   await check.getByRole('combobox', { name: 'Rule' }).selectOption({ label: 'Act without asking' });

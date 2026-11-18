@@ -2,8 +2,10 @@
 # pull request that touches a modelled service, a file a model's COVERS.md names, or this check. Each model's check.sh
 # must pass the code as it is and show each deliberately broken version failing on its rule.
 #
-# Every pull request gets the `Model check` verdict, a pass when nothing modelled changed, so it can be made required
-# without a path filter. Not required yet.
+# Every pull request gets the `Model check` verdict, a pass when nothing modelled changed, and the CI merge seal waits for
+# it and requires it (ci-jobs-seal.mjs modelVerdict; project-state#2962). A check.sh that could not check (exit 3: the
+# tools did not download, TLC could not parse or ran out of memory; no rule broke) ends the verdict job in its
+# `Judge down` step, with no Verdict: the seal reads that as judge down and waits, never as a red on the change.
 #
 # Cost: the plan is one short job; each model is its own job, no build and no services. Java is the runner's own
 # (JAVA_HOME_21_X64), the TLA+ tools are fetched pinned by URL and SHA-256.
@@ -30,7 +32,7 @@ concurrency:
 jobs:
   plan:
     name: Which models
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.plan.outputs.run }}
@@ -74,7 +76,7 @@ jobs:
     name: ${{ matrix.model.name }} model
     needs: plan
     if: needs.plan.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -85,6 +87,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Model-check ${{ matrix.model.dir }}
+        id: check
         env:
           CHECK: ${{ matrix.model.check }}
           NAME: ${{ matrix.model.name }}
@@ -92,23 +95,60 @@ jobs:
           set -euo pipefail
           log="$RUNNER_TEMP/model.log"
           start=$(date +%s)
-          JAVA="$JAVA_HOME_21_X64/bin/java" "$CHECK" 2>&1 | tee "$log"
+          code=0
+          JAVA="$JAVA_HOME_21_X64/bin/java" "$CHECK" 2>&1 | tee "$log" || code=$?
           took=$(( $(date +%s) - start ))
+          { echo "### $NAME model: ${took}s, exit $code"; echo '```'; cat "$log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -eq 3 ]; then
+            echo "::warning title=judge down: Model check::$CHECK could not check (exit 3, no rule broke): the log above says why. No verdict; re-run once the cause is gone"
+            echo "down=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$code" -eq 0 ] || { echo "::error title=Model check::$CHECK exit $code: a rule broke or its check failed; the trace is above"; exit "$code"; }
           real=$(grep -cE '^ok +[^:]+: no error' "$log" || true)
           broken=$(grep -cE '^ok +[^:]+: .* violated as it should be' "$log" || true)
-          { echo "### $NAME model: ${took}s"; echo '```'; cat "$log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "model check took ${took}s: $real real run(s) with no error, $broken broken version(s) failing as they should"
           [ "$real" -ge 1 ] || { echo "::error::$CHECK ran no real version of the model that passes"; exit 1; }
           [ "$broken" -ge 1 ] || { echo "::error::$CHECK showed no deliberately broken version failing: nothing proves the model can fail"; exit 1; }
+      # The marker the verdict job reads: this model could not be checked.
+      - name: Could not check
+        if: steps.check.outputs.down == 'true'
+        run: echo "could not check this model; no verdict"
 
   verdict:
     name: Model check
     needs: [plan, model]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
+    permissions:
+      actions: read # this run's model jobs, for their Could not check step
     steps:
+      # A model that could not be checked, with none broken, is no verdict: judge down (journey-seal.mjs isModelDown).
+      - name: Read the models
+        id: read
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN: ${{ needs.plan.outputs.run }}
+          MODELS: ${{ needs.model.result }}
+        run: |
+          set -euo pipefail
+          down=0
+          if [ "$RUN" = true ] && [ "$MODELS" = success ]; then
+            down=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" --paginate \
+              --jq '.jobs[] | select(any(.steps[]?; .name == "Could not check" and .conclusion == "success")) | .name' | wc -l | tr -d ' ')
+          fi
+          echo "down=$down" >> "$GITHUB_OUTPUT"
+      - name: Judge down
+        if: steps.read.outputs.down != '0'
+        env:
+          DOWN: ${{ steps.read.outputs.down }}
+        run: |
+          echo "::warning title=judge down: Model check::$DOWN model(s) could not be checked and none broke a rule; no verdict. Re-run this run once the cause in their log is gone"
       - name: Verdict
+        if: steps.read.outputs.down == '0'
         env:
           PLAN: ${{ needs.plan.result }}
           RUN: ${{ needs.plan.outputs.run }}
@@ -118,3 +158,30 @@ jobs:
           if [ "$RUN" != true ]; then echo "no modelled service touched: nothing to check"; exit 0; fi
           [ "$MODELS" = success ] || { echo "::error::a model check did not pass ($MODELS)"; exit 1; }
           echo "every model passed, and each showed its broken versions failing"
+
+  # A pull request in this repository ends here: it starts merge-seal.yml's seal, or re-runs its verdict, once every input
+  # on the head has finished (journey-seal.mjs --recheck, START_JOB), as the other inputs' last job does. The default
+  # branch's script, never the pull request's code. Fails closed: if it fails, the seal waits.
+  seal-start:
+    name: Start the seal
+    needs: [plan, model, verdict]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
+    permissions:
+      contents: read
+      actions: write # start or re-run merge-seal.yml's seal on this head through the Actions API
+      pull-requests: read # the pull requests on the head, their titles and changed files
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Start the seal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          FINISHED: Model check
+        run: node tooling/ci/journey-seal.mjs --recheck

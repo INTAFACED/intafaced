@@ -50,7 +50,7 @@ jobs:
        github.event.workflow_run.head_branch == 'main' &&
        github.event.workflow_run.head_repository.full_name == github.repository &&
        contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30 # healthy run: a few minutes, most of it downloading the newest whole runs' reports twice (build, then verify)
     permissions:
       contents: read

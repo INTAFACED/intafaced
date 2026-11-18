@@ -28,10 +28,18 @@
     "garden/no-either-state-match": "error",
     "garden/no-made-up-principal": "error",
     "garden/exact-locator": "error",
+    "garden/no-stale-read": "error",
     "garden/no-action-in-retry": "error",
     "garden/no-sign-in-retry": "error",
+    "garden/no-sign-in-in-step": "error",
+    "garden/step-picture-before-leaving": "error",
     "garden/no-history-comment": "error",
     "garden/no-copied-journey-function": "error",
+    "garden/no-class-selector": "error",
+    "garden/switch-needs-default": "error",
+    "garden/no-journey-sql-read": "error",
+    "garden/no-hand-row": "error",
+    "garden/no-raw-stored-search": "error",
     "typescript/no-explicit-any": "error",
     "react-hooks/exhaustive-deps": "error",
     "react/refs": "off",
@@ -44,5 +52,17 @@
     "react/preserve-manual-memoization": "off",
     "react/static-components": "off",
     "react/incompatible-library": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["services/*/src/**", "packages/*/src/**"],
+      "excludeFiles": ["**/*.test.*", "**/*.spec.*", "**/test/**", "**/tests/**", "**/testing/**", "**/__tests__/**", "**/fixtures/**"],
+      "rules": {
+        "no-console": "error",
+        "max-params": ["error", { "max": 3 }],
+        "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
+        "typescript/no-non-null-assertion": "error"
+      }
+    }
+  ]
 }

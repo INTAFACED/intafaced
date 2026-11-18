@@ -126,13 +126,23 @@ export const GATES = [
     why: 'a suite pointed at the shared database is how someone else’s main goes red',
   },
   {
+    id: 'conflict-keys',
+    script: 'tooling/ci/conflict-keys.mjs',
+    doctrine: 'a lost insert race returns the row that won (project-state#3052)',
+    why:
+      'an INSERT … ON CONFLICT (<columns>) absorbs a clash only on the key those columns name; when its table has another ' +
+      'unique key, two inserts at once make the loser raise 23505 (svc-academy #8378, svc-pay #8526). Reads every ' +
+      "service's unique keys from its migrations and fails a new insert that leaves one unabsorbed; the inserts on main " +
+      'when it landed are listed with their verdicts in tooling/ci/conflict-keys-baseline.json, which only shrinks. Under a second, no network.',
+  },
+  {
     id: 'published-routes',
     script: 'tooling/ci/published-routes.mjs',
     doctrine: 'the developer portal publishes every route svc-trade serves',
     why:
-      'services/svc-trade/src/published-routes.txt must be the /api/v1 routes svc-trade registers, with their access and ' +
-      "scopes; the customer app's developers-reference test holds REST_REFERENCE to it. As a unit test it was first seen " +
-      'red after the push (#8518, #8571; project-state#3005); as a gate it runs before the push, in under a second.',
+      "the customer app's served-routes.generated.ts must be the /api/v1 routes svc-trade registers, with their access " +
+      'and scopes, as `node tooling/ci/published-routes.mjs --write` generates it; it fails only when that file is stale. ' +
+      'It replaced a list kept by hand in two more files, which cost a correct route change its push seven times.',
   },
   {
     id: 'killswitch',
@@ -331,6 +341,8 @@ export const NOT_GATES = {
     'runs from main-trust.yml after Order-path CX-8, Customer Money browser checks, Real-app journeys or PR checks (the Dependency audit) finish on main: re-runs a whole-run check that broke after a green once, then opens one issue naming the commits since the last green; for journeys, opens one issue per journey whose step passed, then failed on two runs in a row, and prints newly passing and newly broken steps. It only writes issues. Needs a GitHub token and a finished run, so a laptop verify has no input. post-merge-trust.test.mjs checks the decision table and the report comparison.',
   'journey-baseline-guard.mjs':
     'PR-only guard: needs the PR’s docs/runbooks/journey-baseline.json against origin/main and the reports of the journeys runs on main from the base’s named run (to the newest when a step is added as unbuilt), so a laptop verify has no input. CI runs main’s copy from the `gates` job, so a PR cannot loosen the rules it is judged by. It refuses a step that passed on main added as unbuilt, a step taken off without a pass on main, and a rewrite from a run that is not a finished run on main (docs/runbooks/regression-issue-state.md). Its tests are tooling/scripts/journey-baseline-guard.test.mjs, which the tooling tests run.',
+  'brief-score-guard.mjs':
+    'PR-only guard: needs the PR diff against origin/main and, when it changes REVIEW.md or READ.md, the PR body, so a laptop verify has no input. CI runs main’s copy from the `gates` job, so a PR cannot loosen the rule it is judged by. It refuses a change to either brief without brief-cases.mjs’s old and new `Brief-score:` lines in the body (project-state#2972). Its tests are brief-score-guard.test.mjs.',
   'journey-list-guard.mjs':
     'PR-only guard: needs the PR’s docs/roadmap/journeys.json against that of the main its checkout was built on (its merge base with origin/main, so main moving on after GitHub made the merge is not read as a drop) and, when something is dropped, the PR body, so a laptop verify has no input. CI runs main’s copy from the `gates` job, so a PR cannot loosen the rules it is judged by. It refuses a journey or step on main dropped from journeys.json or its live count without a `Journey-retired: J-bank-13 #2 (OWNER <n>)` body line, and a step slice id not in docs/roadmap/slices.json (OWNER 1; intafaced #7438). Its tests are journey-list-guard.test.mjs.',
   'test-diff-guard.mjs':
@@ -483,6 +495,12 @@ export function changedSinceMain(cwd = ROOT, base = 'origin/main') {
   }
 }
 
+/** The workflow command that annotates a red gate: titled by the gate's id, its doctrine as the message. */
+export function gateAnnotation(gate) {
+  const esc = (s) => String(s).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+  return `::error title=${esc(gate.id).replaceAll(':', '%3A').replaceAll(',', '%2C')}::Doctrine gate ${esc(gate.id)} failed: ${esc(gate.doctrine)}`;
+}
+
 // ── Run ────────────────────────────────────────────────────────────────────
 /**
  * Guarded so this file can be IMPORTED as data without the import running 32
@@ -598,6 +616,9 @@ async function main() {
 
   if (failed.length > 0) {
     console.error(`\n✖ ${failed.length} of ${gates.length} DOCTRINE GATE(S) FAILED\n`);
+    // One error annotation per red gate, titled by its id, so a red Doctrine gates run says which gate from its
+    // annotations alone; without it the run carried none of its own and every red read as "a gate".
+    if (process.env.GITHUB_ACTIONS) for (const { gate } of failed) console.log(gateAnnotation(gate));
     for (const { gate, output } of failed) {
       console.error(`── ${gate.id} — ${gate.doctrine} ──`);
       console.error(`   why this gate exists: ${gate.why}`);

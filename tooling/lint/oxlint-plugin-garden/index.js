@@ -13,8 +13,13 @@ import { madeUpPrincipalRules } from './made-up-principal-rule.js';
 import { exactLocatorRules } from './exact-locator-rule.js';
 import { retryActionRules } from './retry-action-rule.js';
 import { signInRetryRules } from './sign-in-retry-rule.js';
+import { signInInStepRules } from './sign-in-in-step-rule.js';
 import { historyCommentRules } from './history-comment-rule.js';
 import { journeyCopyRules } from './journey-copy-rule.js';
+import { repeatRules } from './repeat-rules.js';
+import { staleReadRules } from './stale-read-rule.js';
+import { stepPictureRules } from './step-picture-rule.js';
+import { storedSearchRules } from './stored-search-rule.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
@@ -204,7 +209,12 @@ export default {
     ...exactLocatorRules,
     ...retryActionRules,
     ...signInRetryRules,
+    ...signInInStepRules,
     ...historyCommentRules,
     ...journeyCopyRules,
+    ...repeatRules,
+    ...staleReadRules,
+    ...stepPictureRules,
+    ...storedSearchRules,
   },
 };

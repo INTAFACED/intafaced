@@ -18,7 +18,7 @@
  *   GH_TOKEN=... REPO=owner/name HEAD_SHA=<sha> (PR_NUMBER=<n> | MERGE_GROUP_HEAD_SHA=<sha>) node tooling/ci/ci-jobs-seal.mjs
  */
 import { SHARD_COUNT, classify, sealNeeded, shardMatrix } from './ci-affected.mjs';
-import { START_JOB, pullFiles } from './journey-seal.mjs';
+import { MODEL_JOB, START_JOB, isModelDown, pullFiles } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
 
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
@@ -124,6 +124,44 @@ export function moneyVerdict({ runs, jobs, files, sha }) {
   return { ok: false, wait: false, lines: [`${id}: ${job.conclusion}; fix the money screen or its check and push`] };
 }
 
+/** The Model check's workflow (project-state#2962): it runs on every pull request, and the seal requires its verdict. */
+export const MODEL_WORKFLOW_PATH = '.github/workflows/model-check.yml';
+
+/**
+ * The Model check on this exact head (project-state#2962): its newest pull_request run's MODEL_JOB decides. Passed is
+ * green (it passes at once when the change touches nothing a model covers); still going waits; a run that could not
+ * check (isModelDown: a download, parse or memory failure, no rule broken) is judge down, no verdict, and waits; red,
+ * cancelled or skipped fails, and so does no run at all, since the workflow runs on every pull request. Returns
+ * { ok, wait, down, lines }. Pure.
+ */
+export function modelVerdict({ runs, jobs, sha }) {
+  const run =
+    (runs ?? [])
+      .filter((r) => r?.head_sha === sha && r?.event === 'pull_request' && r?.path === MODEL_WORKFLOW_PATH)
+      .sort((a, b) => b.id - a.id)[0] ?? null;
+  if (!run)
+    return {
+      ok: false,
+      wait: false,
+      lines: ['the Model check: no run of it on this head, and it runs on every pull request; push or re-run it'],
+    };
+  const id = `the Model check, run ${run.id} (attempt ${run.run_attempt ?? 1})`;
+  const job = (jobs ?? []).filter((j) => j?.name === MODEL_JOB).sort((a, b) => (b.id ?? 0) - (a.id ?? 0))[0];
+  if (!job && run.status === 'completed')
+    return { ok: false, wait: false, lines: [`${id} finished with no ${MODEL_JOB} job; re-run it or push`] };
+  if (!job || job.status !== 'completed')
+    return { ok: false, wait: true, lines: [`${id} on this head has not finished; the seal re-runs when it does`] };
+  if (isModelDown(job))
+    return {
+      ok: false,
+      wait: true,
+      down: true,
+      lines: [`judge down: ${id} could not check a model (no rule broke; its log says why); re-run it once the cause is gone`],
+    };
+  if (job.conclusion === 'success') return { ok: true, wait: false, lines: [`${id}: passed`] };
+  return { ok: false, wait: false, lines: [`${id}: ${job.conclusion}; a model's rule broke or its check failed: the trace is in its log`] };
+}
+
 async function api(path, token) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
@@ -178,9 +216,21 @@ async function main() {
     if (!Array.isArray(mjobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
     money = moneyVerdict({ runs: mruns, jobs: mjobs, files, sha });
   } else if (!queue) money = moneyVerdict({ runs: [], jobs: [], files, sha });
-  for (const v of [ci, money]) for (const l of v.lines) console.log(`${v.ok ? '✓' : '✖'} ${l}`);
-  if (ci.ok && money.ok) return;
-  for (const v of [ci, money]) if (!v.ok) for (const l of v.lines) console.error(`::error title=CI merge seal::${l}`);
+  // The Model check (project-state#2962), on a pull request only: it runs on every one.
+  let model = { ok: true, lines: [] };
+  if (!queue) {
+    const xruns = (await get(`/repos/${REPO}/actions/workflows/model-check.yml/runs?head_sha=${sha}&event=pull_request&per_page=100`))
+      ?.workflow_runs;
+    if (!Array.isArray(xruns)) throw new Error(`model-check.yml runs on ${sha}: not a list`);
+    const newest = xruns.filter((r) => r?.head_sha === sha).sort((a, b) => b.id - a.id)[0];
+    const xjobs = newest ? (await get(`/repos/${REPO}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs : [];
+    if (!Array.isArray(xjobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
+    model = modelVerdict({ runs: xruns, jobs: xjobs, sha });
+  }
+  for (const v of [ci, money, model]) for (const l of v.lines) console.log(`${v.ok ? '✓' : '✖'} ${l}`);
+  if (ci.ok && money.ok && model.ok) return;
+  for (const v of [ci, money, model])
+    if (!v.ok) for (const l of v.lines) console.error(`::error title=${v.down ? 'judge down: Model check' : 'CI merge seal'}::${l}`);
   process.exit(1);
 }
 

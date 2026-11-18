@@ -257,6 +257,14 @@ export const chromium = new Proxy(playwrightChromium, {
   },
 });
 
+/** Closes the founders' console contexts a journey file kept, and forgets its approver sessions. */
+async function closeFounders(kept) {
+  const consoles = [...kept.consoles.values()];
+  kept.consoles.clear();
+  kept.ops.clear();
+  for (const held of consoles) await held.then(({ page }) => page.context().close()).catch(() => {});
+}
+
 /** The step picture's attachment name, as tooling/ci/step-pictures.mjs STEP_PICTURE reads it (a shard imports no judge file). */
 const STEP_PICTURE = 'step-picture';
 
@@ -279,6 +287,56 @@ const extended = base.extend({
   context: async ({ context }, use) => {
     watchSignIns(context);
     await use(context);
+  },
+  // The founders' sessions, signed in once per journey file in this worker and kept for the file's steps
+  // (garden/no-sign-in-in-step refuses a sign-in inside a step). Each founder sign-in sends an authenticator step no earlier
+  // sign-in spent, so a sign-in per step could wait out a whole 30 s window inside the step's own time limit.
+  //   founders.console(key)  founder `key` ('a' or 'b') signed in to the console, in a browser context of its own (its
+  //                          cookies never meet the customer's): { page, founder: { userId, handle } }
+  //   founders.ops()         the two founders' approver sessions on one gates context: { gates, ctx, sessions }
+  // A sign-in that fails is not kept, so the next step signs in afresh and a refusal fails the step that met it.
+  founderSessions: [
+    async ({ browser }, use) => {
+      const kept = { browser, file: null, consoles: new Map(), ops: new Map() };
+      await use(kept);
+      await closeFounders(kept);
+    },
+    { scope: 'worker' },
+  ],
+  founders: async ({ founderSessions: kept }, use, testInfo) => {
+    if (kept.file !== testInfo.file) {
+      await closeFounders(kept);
+      kept.file = testInfo.file;
+    }
+    // One sign-in per key: a sign-in that failed is forgotten, so the next step signs in afresh.
+    const once = (map, key, make) => {
+      if (!map.has(key)) {
+        const held = make();
+        held.catch(() => map.delete(key));
+        map.set(key, held);
+      }
+      return map.get(key);
+    };
+    await use({
+      console: (key = 'a') =>
+        once(kept.consoles, key, async () => {
+          const context = await kept.browser.newContext();
+          try {
+            const page = await context.newPage();
+            const { founderSignIn } = await import('./admin.mjs');
+            return { page, founder: await founderSignIn(page, key) };
+          } catch (error) {
+            await context.close().catch(() => {});
+            throw error;
+          }
+        }),
+      ops: () =>
+        once(kept.ops, 'pair', async () => {
+          const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+          const ctx = await gates.makeContext({ log: () => {}, shareSessions: true });
+          return { gates, ctx, sessions: await gates.approverSessions(ctx) };
+        }),
+    });
   },
   // No journey file leaves the shared world changed for the file after it: its resting orders, algos and bots come down,
   // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).
@@ -311,27 +369,36 @@ const extended = base.extend({
     },
     { auto: true },
   ],
-  // The proof reader's picture of this step (tooling/ci/step-pictures.mjs): the whole page of this
-  // test's own page, as it ended. `screenshot: 'on'` alone left the reader the 900-pixel window, so a step whose rows sit
-  // lower on the page read NOT SHOWN, and one picture per page of every context still open in the worker, so a page an
-  // earlier file never closed could be the one the reader was shown. A test with no page of its own (an API-only step,
-  // or one on its own browser.newContext() pages) attaches none and keeps the end pictures. Never fails the test.
+  // The proof reader's picture of this step (tooling/ci/step-pictures.mjs): the whole page of this test's own page, taken
+  // when the test calls `await stepPicture()` (or `stepPicture(otherPage)`) at the moment the step's state is on screen,
+  // else as the test ended. A test that checks the step's state and then leaves it (clicks the link the step names, closes
+  // the menu, goes on to another room) calls it before it leaves, or the end picture shows the page it went on to and the
+  // reader answers NOT SHOWN (garden/step-picture-before-leaving). The first picture taken is the step's: a later call
+  // takes none, and one that could not be taken leaves the end picture to try. A full page, since `screenshot: 'on'` alone
+  // left the reader the 900-pixel window. A test with no page of its own and no call (an API-only step, or one on its own
+  // browser.newContext() pages) attaches none and keeps the end pictures. A picture never fails a test.
   // It takes `context`, so it ends before the test's own context closes; its own time, apart from the test's.
   stepPicture: [
     async ({ context }, use, testInfo) => {
-      await use();
-      try {
-        const page = context
+      let taken = false;
+      const take = async (page) => {
+        if (taken || !page || page.isClosed()) return;
+        try {
+          const file = testInfo.outputPath('step-picture.png');
+          await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
+          await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });
+          taken = true;
+        } catch {
+          /* a picture never fails a test; one that could not be taken leaves the end picture to try */
+        }
+      };
+      const ownPage = () =>
+        context
           .pages()
           .filter((p) => !p.isClosed())
           .at(-1);
-        if (!page) return;
-        const file = testInfo.outputPath('step-picture.png');
-        await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
-        await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });
-      } catch {
-        /* a picture never fails a test; the end pictures stay */
-      }
+      await use((page = ownPage()) => take(page));
+      await take(ownPage());
     },
     { auto: true, timeout: 30_000 },
   ],

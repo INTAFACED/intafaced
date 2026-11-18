@@ -1,3 +1,10 @@
 {
-  "failInAddedFiles": ["garden/no-hand-schema", "garden/no-screen-literal", "garden/no-hand-typed-patch"]
+  "failInAddedFiles": ["garden/no-hand-schema", "garden/no-screen-literal", "garden/no-hand-typed-patch", "garden/no-sign-in-in-step"],
+  "fixes": {
+    "eslint/no-console": "log through the service's structured logger (Fastify's app.log or req.log, an object first, then the message), not console.",
+    "eslint/max-params": "take one object of named fields instead of more than three positional parameters (the limit of 3 is ours).",
+    "typescript/consistent-type-assertions": "don't cast: parse the value at its boundary with its schema, annotate the type (`const x: T = v`), or check it with `satisfies T`.",
+    "typescript/no-non-null-assertion": "don't assert with `!`: check for the missing value and refuse or fall back (`if (x === undefined) throw \u2026`, `?.`, `??`).",
+    "suppression": "fix the finding instead of silencing it: a correctness rule is fixed, not silenced; a new suppression counts as a finding of its rule."
+  }
 }

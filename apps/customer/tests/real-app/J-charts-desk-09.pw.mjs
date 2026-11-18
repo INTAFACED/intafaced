@@ -132,19 +132,14 @@ test(`${J} #1 creates an alert crossing up through a TEST price with a 30-day ex
   });
   // Stored: the service's own list, read after a reload, holds it active with its condition, exact price, message and
   // an expiry 30 days after it was made.
-  // Only the read the reloaded page makes counts: the old page can read the list just before the reload, and the reload
-  // then drops that read's body (#7919). So the match starts once the reload has committed, and the body is read as it arrives.
-  let reloaded = false;
-  const committed = (frame) => {
-    if (frame === page.mainFrame()) reloaded = true;
-  };
-  page.on('framenavigated', committed);
-  const [listed] = await Promise.all([
-    page
-      .waitForResponse((res) => reloaded && /notify\.alerts\b/.test(res.url()) && res.request().method() === 'GET' && res.ok())
-      .then((res) => res.json()),
-    page.reload(),
-  ]).finally(() => page.off('framenavigated', committed));
+  // Only the read the reloaded page makes counts: the old page can read the list just before the reload (#7919).
+  const listed = await (
+    await answerAfterNavigation(
+      page,
+      (res) => /notify\.alerts\b/.test(res.url()) && res.request().method() === 'GET' && res.ok(),
+      () => page.reload(),
+    )
+  ).json();
   const stored = alertNamed(listed, 'TEST breakout');
   expect(stored, 'the service lists the alert').toBeTruthy();
   expect(stored).toMatchObject({ status: 'active', condition: 'crossing_up', message: 'TEST: BTC/USDT broke out' });

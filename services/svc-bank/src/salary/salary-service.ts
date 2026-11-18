@@ -2,7 +2,13 @@ import type { Sql, TransactionSql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { AccountDetailsService, CurrencyDetails } from '../account-details/account-details.js';
-import { partnerPayoutsAccount, type PartnerAccountRef, type PartnerMove } from '../partner/partner-bank.js';
+import {
+  partnerPayoutsAccount,
+  type PartnerAccountRef,
+  type PartnerBank,
+  type PartnerCustody,
+  type PartnerMove,
+} from '../partner/partner-bank.js';
 import { testPartnerDetailsOwner } from '../partner/test-partner.js';
 import { legShare, type IncomeSorterService } from '../sorter/income-sorter.js';
 import { PAYROLL_SIM_RAIL, type PayrollCredit, type PayrollPartner } from './payroll-sim.js';
@@ -199,6 +205,11 @@ const DEFINITE_PARTNER_REFUSALS = new Set([
 
 export interface SalaryServiceOptions {
   readonly payroll: PayrollPartner | null;
+  /**
+   * The partner's custody behind the posting freeze and the operator's partner stop (`BankRoot.custody`). Every split,
+   * unsplit and reversal move goes through it; the payroll partner holds no raw bank (floor 4).
+   */
+  readonly custody: PartnerCustody;
   readonly accountDetails: AccountDetailsService;
   readonly sorter: Pick<IncomeSorterService, 'list' | 'minimumCredit'>;
   /** The owner's reversal window in days (`BANK_DIRECT_DEPOSIT_REVERSAL_DAYS`). Blank refuses every reversal. */
@@ -219,6 +230,18 @@ export class SalaryService {
   private payroll(): PayrollPartner {
     if (!this.options.payroll) throw railBank();
     return this.options.payroll;
+  }
+
+  /** The person's partner bank, guarded: a frozen ledger or a stopped partner refuses the move before it is asked. */
+  private partnerBank(userId: string): PartnerBank {
+    const bank = this.options.custody.bankFor(userId);
+    if (!bank) {
+      throw new BankError(
+        'This person’s bank money is not held at the partner bank, so nothing can move there. Nothing moved.',
+        'bank.partner_unset',
+      );
+    }
+    return bank;
   }
 
   /** BK-salary-01: the account details salary is paid to, per owner-listed currency, and the name the account is held in. */
@@ -304,8 +327,8 @@ export class SalaryService {
   }
 
   /** A move the partner says it made, read back once by its key: the same reference, the same amount, or refused. */
-  private async readBack(key: string, made: PartnerMove): Promise<PartnerMove> {
-    const back = await this.payroll().partner.bank.moveByKey(key);
+  private async readBack(userId: string, key: string, made: PartnerMove): Promise<PartnerMove> {
+    const back = await this.partnerBank(userId).moveByKey(key);
     if (!back || back.id !== made.id || back.amount !== made.amount) {
       throw new BankError(
         'The partner bank did not read back the move it reported, so the outcome is not known. The network may retry with the same id.',
@@ -367,7 +390,7 @@ export class SalaryService {
       }
       const main: PartnerAccountRef = { userId: owner.userId, assetId: input.currency, spaceId: null };
       const made = payroll.partner.receive(main, creditKey(input.networkId), amount);
-      const back = await this.readBack(creditKey(input.networkId), made);
+      const back = await this.readBack(owner.userId, creditKey(input.networkId), made);
       // The network's own record: it carried this credit. Same key, same facts: a retry writes nothing new.
       await payroll.records?.record({ key: creditKey(input.networkId), direction: 'in', assetId: input.currency, amount });
       await this.sql.begin(async (tx) => {
@@ -420,18 +443,18 @@ export class SalaryService {
 
   /** Sends each pending leg to the partner once under its key, and records the partner's answer, read back once. */
   private async sendSplit(credit: SalaryCredit): Promise<void> {
-    const partner = this.payroll().partner;
+    const bank = this.partnerBank(credit.userId);
     for (const leg of credit.legs) {
       if (leg.status !== 'pending') continue;
       const key = splitKey(credit.networkId, leg.position);
       try {
-        const made = await partner.bank.move({
+        const made = await bank.move({
           key,
           from: { userId: credit.userId, assetId: credit.assetId, spaceId: null },
           to: { userId: credit.userId, assetId: credit.assetId, spaceId: leg.spaceId },
           amount: leg.amount,
         });
-        const back = await this.readBack(key, made);
+        const back = await this.readBack(credit.userId, key, made);
         await this.sql`
           UPDATE bank.salary_split_legs SET status = 'settled', move_id = ${back.id}
            WHERE network_id = ${credit.networkId} AND position = ${leg.position} AND status = 'pending'
@@ -476,6 +499,7 @@ export class SalaryService {
       );
     }
     await this.sendSplit(credit);
+    const bank = this.partnerBank(credit.userId);
     const settled = (await this.read(networkId))!;
     const main: PartnerAccountRef = { userId: credit.userId, assetId: credit.assetId, spaceId: null };
     for (const leg of settled.legs) {
@@ -483,7 +507,7 @@ export class SalaryService {
       const key = unsplitKey(networkId, leg.position);
       let made: PartnerMove;
       try {
-        made = await payroll.partner.bank.move({
+        made = await bank.move({
           key,
           from: { userId: credit.userId, assetId: credit.assetId, spaceId: leg.spaceId },
           to: main,
@@ -494,7 +518,7 @@ export class SalaryService {
         if (err instanceof BankError && err.code === 'bank.partner_insufficient_funds') continue;
         throw err;
       }
-      const back = await this.readBack(key, made);
+      const back = await this.readBack(credit.userId, key, made);
       await this.sql`
         UPDATE bank.salary_split_legs SET status = 'unsplit', unsplit_move_id = ${back.id}
          WHERE network_id = ${networkId} AND position = ${leg.position} AND status = 'settled'
@@ -502,7 +526,7 @@ export class SalaryService {
     }
     let made: PartnerMove;
     try {
-      made = await payroll.partner.bank.move({
+      made = await bank.move({
         key: reverseKey(networkId),
         from: main,
         to: partnerPayoutsAccount(credit.assetId),
@@ -517,7 +541,7 @@ export class SalaryService {
       }
       throw err;
     }
-    const back = await this.readBack(reverseKey(networkId), made);
+    const back = await this.readBack(credit.userId, reverseKey(networkId), made);
     await payroll.records?.record({ key: reverseKey(networkId), direction: 'out', assetId: credit.assetId, amount: credit.amount });
     await this.sql`
       UPDATE bank.salary_credits SET state = 'reversed', reversal_move_id = ${back.id}, reversed_at = ${this.now()}

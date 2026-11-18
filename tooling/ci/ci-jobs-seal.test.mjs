@@ -6,9 +6,11 @@ import {
   MONEY_JOB,
   MONEY_PATHS,
   MONEY_WORKFLOW_PATH,
+  MODEL_WORKFLOW_PATH,
   ciRunFor,
   jobResults,
   judgeCiJobs,
+  modelVerdict,
   moneyVerdict,
   touchesMoney,
 } from './ci-jobs-seal.mjs';
@@ -165,4 +167,48 @@ test("#8708: MONEY_PATHS are the money workflow's pull_request and push paths, b
   assert.match(text, /\n  push:\n    branches: \[main\]\n    paths:\n/);
   assert.equal(touchesMoney([MONEY_WORKFLOW_PATH]), true, 'a change to the workflow itself owes a run');
   assert.equal(touchesMoney(['packages/contracts/src/index.ts']), true);
+});
+
+// ---- project-state#2962: the seal waits for the Model check and requires its verdict; could not check is judge down ----
+
+const xrun = (id, over = {}) => ({
+  id,
+  head_sha: SHA,
+  event: 'pull_request',
+  path: MODEL_WORKFLOW_PATH,
+  status: 'completed',
+  run_attempt: 1,
+  ...over,
+});
+const xstep = (name, conclusion) => ({ name, status: 'completed', conclusion });
+const xjob = (conclusion, steps, status = 'completed') => [{ id: 1, name: 'Model check', status, conclusion, steps }];
+const VERDICT = (c) => [xstep('Read the models', 'success'), xstep('Judge down', 'skipped'), xstep('Verdict', c)];
+const DOWN = [xstep('Read the models', 'success'), xstep('Judge down', 'success'), xstep('Verdict', 'skipped')];
+
+test('project-state#2962: the Model check passed on the exact head is green; a broken rule, a cancel or no run fails', () => {
+  assert.equal(modelVerdict({ runs: [xrun(5)], jobs: xjob('success', VERDICT('success')), sha: SHA }).ok, true);
+  for (const [runs, jobs, wait, why] of [
+    [[xrun(5)], xjob('failure', VERDICT('failure')), false, 'a rule broke'],
+    [[xrun(5)], xjob('cancelled', []), false, 'cancelled'],
+    [[xrun(5)], xjob('skipped', []), false, 'skipped'],
+    [[xrun(5)], [], false, 'finished with no Model check job'],
+    [[xrun(5, { status: 'in_progress' })], xjob(null, [], 'in_progress'), true, 'going'],
+    [[xrun(5), xrun(4)], xjob('failure', VERDICT('failure')), false, 'the newest is red, an older one green'],
+    // It runs on every pull request, so no run on the head is no verdict, never a pass.
+    [[], [], false, 'no run'],
+    [[xrun(5, { head_sha: 'b'.repeat(40) })], xjob('success', VERDICT('success')), false, 'another head'],
+    [[xrun(5, { event: 'workflow_dispatch' })], xjob('success', VERDICT('success')), false, 'a dispatch is not the pull request run'],
+  ]) {
+    const v = modelVerdict({ runs, jobs, sha: SHA });
+    assert.deepEqual([v.ok, v.wait, Boolean(v.down)], [false, wait, false], why);
+  }
+});
+
+test('project-state#2962: a run that could not check is judge down, no verdict: never a pass and never a red on the change', () => {
+  const v = modelVerdict({ runs: [xrun(5)], jobs: xjob('success', DOWN), sha: SHA });
+  assert.deepEqual([v.ok, v.wait, v.down], [false, true, true]);
+  assert.match(v.lines[0], /^judge down: .*could not check/);
+  // Planted: a job that ran its Verdict too is a verdict, whatever the Judge down step did.
+  const both = [xstep('Judge down', 'success'), xstep('Verdict', 'failure')];
+  assert.equal(modelVerdict({ runs: [xrun(5)], jobs: xjob('failure', both), sha: SHA }).down, undefined);
 });
