@@ -278,9 +278,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // venue/venue-listing.ts): the two BTC markets, J-derivatives-03's TEST perpetual ETH-PERP (its trigger orders),
           // J-derivatives-21's TEST gold perpetual XAU-PERP and J-derivatives-27's TEST stock perpetuals XSTK-PERP and
           // XSTD-PERP, J-derivatives-02's TEST perpetual XRSK-PERP (its margin tiers, collateral and open-interest cap), and
-          // J-derivatives-07's TEST perpetual XLIQ-PERP (the one the TEST venue liquidates on).
+          // J-derivatives-07's TEST perpetual XLIQ-PERP (the one the TEST venue liquidates on), and J-derivatives-08's TEST
+          // perpetual XFND-PERP (the one whose funding the TEST venue builds and settles).
           // ETH-USDC is left unlisted, for two operators to review.
-          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP',
+          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP',
           TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
           TRADE_USER_VENUE_BUILDER_FEE_BPS:
             process.env.LOCAL_STACK_USER_VENUE_BUILDER_FEE === 'off' ? '' : testValue('TRADE_USER_VENUE_BUILDER_FEE_BPS'),

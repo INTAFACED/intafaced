@@ -1141,6 +1141,23 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: "Your positions the venue settled and orders it cancelled when a market's deployer halted it or it split",
   },
   {
+    name: 'venueFundingPayments',
+    method: 'GET',
+    path: '/api/v1/venue/funding-payments',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The funding the venue charged or paid on each of your positions, one payment per position per period, as the venue booked it',
+  },
+  {
+    name: 'venuePriceHistory',
+    method: 'GET',
+    path: '/api/v1/venue/price-history',
+    product: 'accounts',
+    access: 'public',
+    summary:
+      "The venue's mark or index price series on a listed perpetual, since a time: an index the venue does not publish answers null with its reason",
+  },
+  {
     name: 'venueScheduledCancel',
     method: 'GET',
     path: '/api/v1/venue/scheduled-cancel',

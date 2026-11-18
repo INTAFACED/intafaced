@@ -21,6 +21,8 @@ import {
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
   type UserVenueFill,
+  type UserVenueFundingPayment,
+  type VenuePriceSample,
   type UserVenueLeverage,
   type UserVenueLeverageChange,
   type UserVenueIsolatedMargin,
@@ -259,6 +261,15 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/funding-history', { symbol, since });
   }
 
+  /** The perpetual's mark or index as the venue published it since `since`, or not known with its reason (J-derivatives-08 #6). */
+  priceHistory(
+    symbol: string,
+    kind: 'mark' | 'index',
+    since: Date,
+  ): Promise<AsOf<{ known: true; value: readonly VenuePriceSample[] } | { known: false; reason: string }>> {
+    return this.read('/price-history', { symbol, kind, since });
+  }
+
   trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
     return this.read('/trades', { symbol, limit });
   }
@@ -422,6 +433,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   /** The account's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
   settlements(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>> {
     return this.read('/settlements', { account, since });
+  }
+
+  /** The funding the venue charged or paid on the account's positions since `since` (J-derivatives-08 #3 #4 #5). */
+  fundingPayments(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFundingPayment[]>> {
+    return this.read('/funding-payments', { account, since });
   }
 
   // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──

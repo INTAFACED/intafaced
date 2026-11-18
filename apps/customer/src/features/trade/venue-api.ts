@@ -143,7 +143,24 @@ export const venueMarketSchema = z.object({
   // The contract strip's figures, each the venue's own or "not published" (J-derivatives-01 #4).
   contractSize: maybeKnown(decimalSchema),
   mark: maybeKnown(decimalSchema),
-  funding: maybeKnown(z.object({ rate: signedDecimalSchema, intervalSeconds: z.number().int().positive(), nextFundingAt: isoTime })),
+  funding: maybeKnown(
+    z.object({
+      rate: signedDecimalSchema,
+      intervalSeconds: z.number().int().positive(),
+      nextFundingAt: isoTime,
+      // What the venue built the rate from, as it publishes them (J-derivatives-08 #1); absent from an older door: not published.
+      inputs: maybeKnown(
+        z.object({
+          premium: signedDecimalSchema,
+          interestRate: signedDecimalSchema,
+          rateCap: decimalSchema,
+          markPrice: decimalSchema,
+          indexPrice: decimalSchema,
+          rule: maybeKnown(z.string()),
+        }),
+      ).optional(),
+    }),
+  ),
   // The prices the venue judges its trigger orders on, and its published index (J-derivatives-03). Absent: none.
   triggerSources: z.array(z.enum(['mark', 'last'])).optional(),
   index: maybeKnown(decimalSchema).optional(),
@@ -204,6 +221,23 @@ export const venueStatementJobSchema = z.object({
   finishedAt: isoTime.nullable(),
 });
 export type VenueStatementJob = z.infer<typeof venueStatementJobSchema>;
+
+/**
+ * One funding payment on one of the owner's positions, as the venue booked it when it closed a period (J-derivatives-08
+ * #3 #4 #5): positive `amount` received, negative paid, in `asset`.
+ */
+const venueFundingPaymentSchema = z.object({
+  paymentId: z.string(),
+  symbol: z.string(),
+  side: z.enum(['long', 'short']),
+  size: decimalSchema,
+  markPrice: decimalSchema,
+  rate: signedDecimalSchema,
+  amount: signedDecimalSchema,
+  asset: z.string(),
+  periodAt: isoTime,
+});
+export type VenueFundingPayment = z.infer<typeof venueFundingPaymentSchema>;
 
 /** One of the owner's settlements in a deployer's halt or a split, as the venue records it (J-derivatives-27 #9 #10). */
 export const venueSettlementSchema = z.object({
@@ -1161,6 +1195,9 @@ export function venueApi(api: ApiClient) {
     /** The owner's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
     settlements: (owner: string, since: string, signal?: AbortSignal) =>
       read('/settlements', asOf(z.array(venueSettlementSchema)), { owner, since }, signal),
+    /** The funding the venue charged or paid on the owner's positions since `since` (J-derivatives-08 #3 #4 #5). */
+    fundingPayments: (owner: string, since: string, signal?: AbortSignal) =>
+      read('/funding-payments', asOf(z.array(venueFundingPaymentSchema)), { owner, since }, signal),
     /** The venue's scheduled cancel on the owner's account: when it cancels, and when it last did (J-cex-spot-07). */
     scheduledCancel: (owner: string, signal?: AbortSignal) =>
       read('/scheduled-cancel', asOf(venueScheduledCancelSchema), { owner }, signal),

@@ -29,6 +29,8 @@ import {
   type UserVenueDescriptor,
   type UserVenueFeed,
   type UserVenueFunding,
+  type UserVenueFundingPayment,
+  type VenuePriceSample,
   type VenueFundingRow,
   type UserVenueFill,
   type UserVenueLeverage,
@@ -191,10 +193,20 @@ export interface SimMarketConfig {
   readonly contractSize?: Amount;
   /**
    * Perpetuals: the funding the venue publishes, a signed scaled fraction of notional per `intervalSeconds`, the next
-   * settlement at the next whole interval on the venue's clock. Unset: not published. TEST: the simulator publishes
-   * the rate and settles no funding, so no TEST position is ever charged or paid it.
+   * settlement at the next whole interval on the venue's clock. Unset: not published. TEST: on a market without `settles`
+   * the simulator publishes the rate and settles no funding, so no TEST position there is ever charged or paid it.
+   *
+   * With `settles` (J-derivatives-08), the venue builds the rate itself and settles it: the rate is the premium (how far
+   * the mark sits from the index, `(mark − index) / index`, to eight places toward zero) plus `interestRate`, held within
+   * `rateCap` either way, and `rate` is unused. It publishes those inputs with the rate, and closes a period on the TEST
+   * control `settleFunding`, booking one payment per open position: size × mark × rate, to six places toward zero, paid
+   * by longs and received by shorts on a positive rate (the other way on a negative one), on the position's margin.
    */
-  readonly funding?: { readonly rate: Amount; readonly intervalSeconds: number };
+  readonly funding?: {
+    readonly rate: Amount;
+    readonly intervalSeconds: number;
+    readonly settles?: { readonly interestRate: Amount; readonly rateCap: Amount; readonly rule?: string };
+  };
   /** The market's own state at start; absent is `trading`. */
   readonly status?: UserVenueMarketStatus | null;
   /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
@@ -396,6 +408,8 @@ interface AccountState {
   }[];
   /** Its auto-deleveragings, oldest first, with the venue's notice (J-derivatives-07 #6). */
   readonly deleverages: UserVenueDeleverage[];
+  /** The funding the venue booked on its positions, oldest first, one per position per period closed (J-derivatives-08). */
+  readonly fundingPayments: UserVenueFundingPayment[];
 }
 
 interface OrderState {
@@ -433,6 +447,14 @@ interface SubmittedRecord {
 /** How far back the TEST funding history reaches, and its most rows per read (J-charts-desk-04 #6). TEST. */
 const FUNDING_HISTORY_MS = 24 * 3_600_000;
 const FUNDING_HISTORY_ROWS = 500;
+/** The most mark and index samples the TEST venue keeps per perpetual (J-derivatives-08 #6). TEST. */
+const PRICE_SAMPLES_KEPT = 500;
+
+/** `value` cut toward zero to `18 − drop` decimal places. */
+function truncate(value: Amount, drop: number): Amount {
+  const q = 10n ** BigInt(drop);
+  return value - (value % q);
+}
 /** The public prints the simulator keeps per market, newest last; the tape and the candles read from these. */
 const PRINTS_KEPT = 5_000;
 /** The most prints or candles one read answers. */
@@ -577,6 +599,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly alerts: VenueLiquidationAlert[] = [];
   private liquidationCounter = 0;
   private adlCounter = 0;
+  /**
+   * Funding on a market that settles it (J-derivatives-08): whether the venue publishes it now, the next period it closes
+   * (ms on its clock; set at the first read), and each period it closed with a rate, oldest first.
+   */
+  private readonly fundingState = new Map<string, { published: boolean; nextAt: number | null; settled: VenueFundingRow[] }>();
+  private fundingCounter = 0;
+  /** Each perpetual's mark and index as the venue published them, oldest first, at most `PRICE_SAMPLES_KEPT` (J-derivatives-08 #6). */
+  private readonly priceSamples = new Map<string, { mark: VenuePriceSample[]; index: VenuePriceSample[] }>();
+  /** Perpetuals whose index the venue does not publish now (`setIndexPublished`). */
+  private readonly indexUnpublished = new Set<string>();
 
   constructor(options: SimOptions) {
     const id = options.id ?? 'test-venue-sim';
@@ -622,6 +654,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       this.triggers.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
       if (market.kind === 'perpetual' && market.markPrice !== undefined) this.indexes.set(market.symbol, market.markPrice);
+      this.samplePrices(market.symbol);
       this.marketState.set(market.symbol, {
         status: market.status === undefined ? 'trading' : market.status,
         maxOrderQty: market.maxOrderQty ?? null,
@@ -647,6 +680,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.triggers.set(market.symbol, []);
     if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
     if (market.kind === 'perpetual' && market.markPrice !== undefined) this.indexes.set(market.symbol, market.markPrice);
+    this.samplePrices(market.symbol);
     this.marketState.set(market.symbol, {
       status: market.status === undefined ? 'trading' : market.status,
       maxOrderQty: market.maxOrderQty ?? null,
@@ -733,6 +767,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       // The split's new mark, rounded down to the market's tick; the market reopens on it at once.
       const split = div(mark, ratio!, 'floor');
       this.marks.set(symbol, split - (split % market.tickSize));
+      this.samplePrices(symbol);
       this.marketState.get(symbol)!.status = 'trading';
       this.marketEvents.set(symbol, { ...event, reopenedAt: this.clock() });
     }
@@ -903,6 +938,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (this.offHours.has(symbol))
       refuse(this.venue.id, 'market_off_hours', `${symbol}'s home market is closed: the mark holds at the last open-hours price`);
     this.marks.set(symbol, price);
+    this.samplePrices(symbol);
     // A trigger order judged on the mark fires as soon as the mark crosses it.
     this.runTriggers();
     // Then the venue liquidates, on a market it liquidates on, what the new mark reaches (J-derivatives-07).
@@ -915,6 +951,94 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: it has no index`);
     if (compare(price, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'an index price must be above zero');
     this.indexes.set(symbol, price);
+    this.samplePrices(symbol);
+  }
+
+  /** TEST control: whether the venue publishes the perpetual's index now (J-derivatives-08 #6). Unpublished, no sample is kept. */
+  setIndexPublished(symbol: string, published: boolean): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: it has no index`);
+    if (published) this.indexUnpublished.delete(symbol);
+    else this.indexUnpublished.add(symbol);
+    this.samplePrices(symbol);
+  }
+
+  /**
+   * TEST control: whether the venue publishes funding on a perpetual that settles it now (J-derivatives-08 #2). While it
+   * publishes none, the market reads `funding: known: false` and a period it closes books nothing.
+   */
+  setFundingPublished(symbol: string, published: boolean): void {
+    this.fundingStateOf(this.settlingMarket(symbol)).published = published;
+  }
+
+  /**
+   * TEST control: the venue closes the perpetual's current funding period now (J-derivatives-08 #3 #4), early on its own
+   * clock, and the next period starts. With a published rate it books one payment per open position, as the field note
+   * on `SimMarketConfig.funding` says, and keeps the period in its funding history; with none it books nothing.
+   */
+  settleFunding(symbol: string): { periodAt: Date; rate: Amount | null; payments: number } {
+    const market = this.settlingMarket(symbol);
+    const funding = market.funding!;
+    const state = this.fundingStateOf(market);
+    const periodAt = new Date(this.nextFundingAt(market));
+    state.nextAt = periodAt.getTime() + funding.intervalSeconds * 1000;
+    if (!state.published) return { periodAt, rate: null, payments: 0 };
+    const { rate, inputs } = this.builtRate(market);
+    const mark = inputs.markPrice;
+    let payments = 0;
+    for (const account of this.accounts.values()) {
+      const p = account.positions.get(symbol);
+      if (!p || p.size === ZERO) continue;
+      const owed = truncate(mul(mul(p.size, mark), rate), 12);
+      // A positive rate: longs pay shorts. A negative one: shorts pay longs.
+      const amount = p.side === 'long' ? sub(ZERO, owed) : owed;
+      p.margin = add(p.margin, amount);
+      const balance = this.lockBalance(
+        account,
+        market.marginAccount?.name ?? null,
+        market.marginAccount?.collateralAsset ?? market.quoteAsset,
+      );
+      balance.locked = add(balance.locked, amount);
+      account.fundingPayments.push({
+        paymentId: `fund-${++this.fundingCounter}`,
+        symbol,
+        side: p.side,
+        size: p.size,
+        markPrice: mark,
+        rate,
+        amount,
+        asset: market.marginAccount?.collateralAsset ?? market.quoteAsset,
+        periodAt,
+      });
+      payments += 1;
+    }
+    state.settled.push({ fundingAt: periodAt, rate, premium: inputs.premium });
+    return { periodAt, rate, payments };
+  }
+
+  /** The funding the venue booked on the account's positions since `since`, oldest first (J-derivatives-08 #3 #4 #5). */
+  async fundingPayments(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFundingPayment[]>> {
+    this.up();
+    const state = this.account(account);
+    return this.asOf(state.fundingPayments.filter((f) => f.periodAt.getTime() >= since.getTime()));
+  }
+
+  /**
+   * The perpetual's mark or index as the venue published it since `since`, oldest first (J-derivatives-08 #6); an index
+   * the venue does not publish now answers `known: false` with its reason.
+   */
+  async priceHistory(
+    symbol: string,
+    kind: 'mark' | 'index',
+    since: Date,
+  ): Promise<AsOf<{ known: true; value: readonly VenuePriceSample[] } | { known: false; reason: string }>> {
+    this.up();
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: it has no ${kind} price`);
+    if (kind === 'index' && this.indexUnpublished.has(symbol))
+      return this.asOf({ known: false, reason: `${this.venue.displayName} publishes no index for ${symbol}` });
+    const samples = this.priceSamples.get(symbol)?.[kind] ?? [];
+    return this.asOf({ known: true, value: samples.filter((x) => x.sampledAt.getTime() >= since.getTime()) });
   }
 
   /** TEST: the next `count` submits on this account are applied and then answered `definite: false` (a lost answer). */
@@ -1079,9 +1203,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         : { known: false },
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
-      funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
+      funding: this.publishedFunding(m),
       triggerSources: m.kind === 'perpetual' ? (m.triggerSources ?? []) : [],
-      index: published(m.kind === 'perpetual' ? this.indexes.get(m.symbol) : undefined),
+      index: published(m.kind === 'perpetual' && !this.indexUnpublished.has(m.symbol) ? this.indexes.get(m.symbol) : undefined),
       // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
       selfTrade: { known: true, value: 'cancel_resting' },
       marginTiers: published(m.kind === 'perpetual' ? m.marginTiers : undefined),
@@ -1112,6 +1236,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.up();
     const market = this.market(symbol);
     if (market.kind !== 'perpetual' || !market.funding) refuse(this.venue.id, 'not_offered', `${symbol} publishes no funding`);
+    // A market that settles its funding (J-derivatives-08 #6): the periods it closed with a rate, as it recorded them.
+    if (market.funding.settles)
+      return this.asOf(
+        this.fundingStateOf(market)
+          .settled.filter((r) => r.fundingAt.getTime() >= since.getTime())
+          .slice(-FUNDING_HISTORY_ROWS),
+      );
     const step = market.funding.intervalSeconds * 1000;
     const now = this.clock().getTime();
     const from = Math.max(since.getTime(), now - FUNDING_HISTORY_MS);
@@ -2176,11 +2307,102 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return agent !== undefined && (agent.validUntil === null || agent.validUntil.getTime() > this.clock().getTime());
   }
 
-  /** The published rate, and the next settlement: the next whole interval after now on the venue's clock. */
-  private fundingOf(funding: NonNullable<SimMarketConfig['funding']>): UserVenueFunding {
-    const step = funding.intervalSeconds * 1000;
-    const next = (Math.floor(this.clock().getTime() / step) + 1) * step;
-    return { rate: funding.rate, intervalSeconds: funding.intervalSeconds, nextFundingAt: new Date(next) };
+  /**
+   * The funding the market publishes now: on a market that settles it, the rate it builds and its inputs, with the next
+   * period it closes; otherwise the configured rate, and the next whole interval after now on the venue's clock.
+   */
+  private publishedFunding(market: SimMarketConfig): MaybeKnown<UserVenueFunding> {
+    const funding = market.funding;
+    if (!funding) return { known: false };
+    if (!funding.settles) {
+      const step = funding.intervalSeconds * 1000;
+      const next = (Math.floor(this.clock().getTime() / step) + 1) * step;
+      return { known: true, value: { rate: funding.rate, intervalSeconds: funding.intervalSeconds, nextFundingAt: new Date(next) } };
+    }
+    if (!this.fundingStateOf(market).published) return { known: false };
+    const { rate, inputs } = this.builtRate(market);
+    return {
+      known: true,
+      value: {
+        rate,
+        intervalSeconds: funding.intervalSeconds,
+        nextFundingAt: new Date(this.nextFundingAt(market)),
+        // The premium is taken from the index: while the venue publishes no index, it publishes no inputs either.
+        inputs: this.indexUnpublished.has(market.symbol) ? { known: false } : { known: true, value: inputs },
+      },
+    };
+  }
+
+  /** The rate a settling market builds now from its mark and index (`SimMarketConfig.funding`), and its inputs. */
+  private builtRate(market: SimMarketConfig) {
+    const settles = market.funding!.settles!;
+    const markPrice = this.marks.get(market.symbol);
+    const indexPrice = this.indexes.get(market.symbol);
+    if (markPrice === undefined || indexPrice === undefined)
+      throw new Error(`TEST simulator: ${market.symbol} has no mark or index to build funding from`);
+    const premium = truncate(div(sub(markPrice, indexPrice), indexPrice), 10);
+    const rate = max(sub(ZERO, settles.rateCap), min(settles.rateCap, add(premium, settles.interestRate)));
+    return {
+      rate,
+      inputs: {
+        premium,
+        interestRate: settles.interestRate,
+        rateCap: settles.rateCap,
+        markPrice,
+        indexPrice,
+        rule: published(settles.rule),
+      },
+    };
+  }
+
+  private settlingMarket(symbol: string): SimMarketConfig {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual' || !market.funding?.settles)
+      refuse(this.venue.id, 'not_offered', `${symbol} settles no funding on ${this.venue.displayName}`);
+    return market;
+  }
+
+  private fundingStateOf(market: SimMarketConfig) {
+    let state = this.fundingState.get(market.symbol);
+    if (!state) {
+      state = { published: true, nextAt: null, settled: [] };
+      this.fundingState.set(market.symbol, state);
+    }
+    return state;
+  }
+
+  /**
+   * The next period a settling market closes: one interval after the last it closed, or the next whole interval after now
+   * when that time has passed. TEST: the simulator closes a period only on `settleFunding`, so a period whose time passes
+   * unclosed books nothing and is not in its history.
+   */
+  private nextFundingAt(market: SimMarketConfig): number {
+    const state = this.fundingStateOf(market);
+    const now = this.clock().getTime();
+    if (state.nextAt === null || state.nextAt <= now) {
+      const step = market.funding!.intervalSeconds * 1000;
+      state.nextAt = (Math.floor(now / step) + 1) * step;
+    }
+    return state.nextAt;
+  }
+
+  /** Keeps the perpetual's mark and index now as published samples, each only when it changed. */
+  private samplePrices(symbol: string): void {
+    const market = this.marketsBySymbol.get(symbol);
+    if (!market || market.kind !== 'perpetual') return;
+    let kept = this.priceSamples.get(symbol);
+    if (!kept) {
+      kept = { mark: [], index: [] };
+      this.priceSamples.set(symbol, kept);
+    }
+    const at = this.clock();
+    const keep = (list: VenuePriceSample[], price: Amount | undefined) => {
+      if (price === undefined || list.at(-1)?.price === price) return;
+      list.push({ sampledAt: at, price });
+      if (list.length > PRICE_SAMPLES_KEPT) list.shift();
+    };
+    keep(kept.mark, this.marks.get(symbol));
+    if (!this.indexUnpublished.has(symbol)) keep(kept.index, this.indexes.get(symbol));
   }
 
   private feedOf(market: SimMarketConfig): UserVenueFeed {
@@ -2283,6 +2505,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         feeTier: null,
         liquidations: [],
         deleverages: [],
+        fundingPayments: [],
       };
       this.accounts.set(key, state);
     }
@@ -3095,7 +3318,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (prints.length > PRINTS_KEPT) prints.splice(0, prints.length - PRINTS_KEPT);
     this.prints.set(market.symbol, prints);
     // An oracle market's mark is the oracle price: a fill does not move it.
-    if (market.kind === 'perpetual' && !market.oracle) this.marks.set(market.symbol, price);
+    if (market.kind === 'perpetual' && !market.oracle) {
+      this.marks.set(market.symbol, price);
+      this.samplePrices(market.symbol);
+    }
     if (market.kind === 'perpetual') {
       this.lastTrades.set(market.symbol, price);
       // A position closed to nothing takes its reduce-only orders with it: a pair's other leg never fires on nothing.

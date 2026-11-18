@@ -423,6 +423,44 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
         "into the venue's TEST insurance fund.",
     },
   },
+  {
+    // J-derivatives-08: a TEST perpetual of its own whose TEST venue builds its funding rate from its mark and index and
+    // settles it, so closing a period (/test/settle-funding) and moving its index reach no other journey. Only
+    // J-derivatives-08 trades it. Priced by its TEST oracle, so a fill never moves its mark.
+    symbol: 'XFND-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XFND',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    // TEST: hourly funding, an interest component of 0.00125% an hour, held within 4% an hour either way.
+    funding: {
+      rate: ZERO,
+      intervalSeconds: 3600,
+      settles: {
+        interestRate: parseAmount('0.0000125'),
+        rateCap: parseAmount('0.04'),
+        rule:
+          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
+          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
+      },
+    },
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
@@ -434,6 +472,7 @@ const LADDER_SYMBOLS: ReadonlySet<string> = new Set([
   'XSTK-PERP',
   'XSTD-PERP',
   'XLIQ-PERP',
+  'XFND-PERP',
 ]);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
@@ -453,6 +492,7 @@ const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'XSTK-PERP': { mid: parseAmount('200'), step: parseAmount('0.1') },
   'XSTD-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
   'XLIQ-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XFND-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
 };
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
@@ -780,6 +820,13 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
       return sim.candles(str(body, 'symbol'), interval as VenueCandleInterval, readLimit(body));
     }
+    case '/funding-payments':
+      return sim.fundingPayments(account(body), sinceOf(body));
+    case '/price-history': {
+      const kind = body.kind;
+      if (kind !== 'mark' && kind !== 'index') throw new VenueWireError('kind is mark or index');
+      return sim.priceHistory(str(body, 'symbol'), kind, sinceOf(body));
+    }
     case '/funding-history': {
       const since = body.since;
       if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
@@ -950,6 +997,20 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const price = body.price;
       if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
       sim.setIndex(str(body, 'symbol'), price as Amount);
+      return { ok: true, label: 'TEST' };
+    }
+    // J-derivatives-08: the TEST venue closes a perpetual's funding period now, publishes or withholds its funding, and
+    // publishes or withholds its index.
+    case '/test/settle-funding':
+      return { ...sim.settleFunding(str(body, 'symbol')), label: 'TEST' };
+    case '/test/funding-published': {
+      if (typeof body.published !== 'boolean') throw new VenueWireError('published is true or false');
+      sim.setFundingPublished(str(body, 'symbol'), body.published);
+      return { ok: true, label: 'TEST' };
+    }
+    case '/test/index-published': {
+      if (typeof body.published !== 'boolean') throw new VenueWireError('published is true or false');
+      sim.setIndexPublished(str(body, 'symbol'), body.published);
       return { ok: true, label: 'TEST' };
     }
     case '/test/ladder-mid': {
