@@ -372,6 +372,52 @@ export const leadLevelSchema = z.object({
 });
 export type LeadLevel = z.infer<typeof leadLevelSchema>;
 
+/** The caller's lead account once approved (CB-copy-18): null until then. */
+export const myLeadSchema = z
+  .object({
+    leaderRef: z.string(),
+    applicationId: z.string(),
+    displayName: z.string(),
+    state: z.string(),
+    instruments: z.array(z.string()),
+  })
+  .nullable();
+export type MyLead = z.infer<typeof myLeadSchema>;
+
+/** The new-trader missions (CB-copy-12): each with what counts, as the service read it. */
+export const leadMissionsSchema = z.object({
+  missions: z.array(z.object({ id: z.enum(['apply', 'fund', 'listed']), done: z.boolean(), detail: z.string() })),
+  done: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+export type LeadMissions = z.infer<typeof leadMissionsSchema>;
+
+const leadTradeSchema = z.object({
+  orderId: z.string(),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  price: decimalSchema.nullable(),
+  amount: decimalSchema,
+  filled: decimalSchema,
+  status: z.string(),
+  at: z.string(),
+});
+export type LeadTrade = z.infer<typeof leadTradeSchema>;
+
+/** The lead's own lead trades (CB-copy-15): the counts are the service's, never the page's rows. */
+export const leadTradesSchema = z.object({
+  ongoing: z.array(leadTradeSchema),
+  history: z.array(leadTradeSchema),
+  counts: z.object({ ongoing: z.number().int().nonnegative(), history: z.number().int().nonnegative() }),
+});
+export type LeadTrades = z.infer<typeof leadTradesSchema>;
+
+/** One copier of the lead: the follow's short id, its state and start. No follower's name, balance or profit. */
+export const leadCopiersSchema = z.array(
+  z.object({ followRef: z.string(), status: z.enum(['Active', 'Paused', 'Stopping', 'Close only', 'Stopped']), since: z.string() }),
+);
+export type LeadCopier = z.infer<typeof leadCopiersSchema>[number];
+
 const closePositionSchema = z.object({ positionId: z.string(), orderId: z.string(), qty: decimalSchema, duplicate: z.boolean() });
 
 /** A leader fill this follow did not copy (CB-copy-11). The reason is an id; the screen says it in words. */
@@ -495,6 +541,10 @@ export function createRoomApi(api: ApiClient) {
     leadEarnings: (signal?: AbortSignal) =>
       api.query('trade', 'copy.leadEarnings', { limit: LEAD_EARNINGS_PAGE }, leadEarningsSchema, { signal }),
     leadLevel: (signal?: AbortSignal) => api.query('trade', 'copy.leadLevel', undefined, leadLevelSchema, { signal }),
+    myLead: (signal?: AbortSignal) => api.query('trade', 'copy.myLead', undefined, myLeadSchema, { signal }),
+    leadMissions: (signal?: AbortSignal) => api.query('trade', 'copy.leadMissions', undefined, leadMissionsSchema, { signal }),
+    leadTrades: (signal?: AbortSignal) => api.query('trade', 'copy.leadTrades', undefined, leadTradesSchema, { signal }),
+    leadCopiers: (signal?: AbortSignal) => api.query('trade', 'copy.leadCopiers', undefined, leadCopiersSchema, { signal }),
     /** Always refused `trade.copy_pnl_fee_forbidden`: a profit share is never offered. */
     setProfitShare: (percent: string) => api.mutate('trade', 'copy.setProfitShare', { percent }, z.unknown()),
     /** Always refused `trade.copy_pnl_fee_forbidden`: the platform sets no maximum ratio. */

@@ -81,6 +81,21 @@
       "value": "1000",
       "note": "TEST least venue balance of 1000 USDC to apply to lead, so J-copy-bots-otc-04 #1 and J-copy-bots-otc-10 applicants with TEST USDC on the TEST venue may apply. Not an owner decision."
     },
+    "TRADE_COPY_LEAD_MISSION_MIN_USDC": {
+      "service": "trade",
+      "value": "4000",
+      "note": "TEST new-trader mission minimum of 4000 USDC on the applicant's own venue account, above the 3000 the J-copy-bots-otc-04 applicant starts with, so #3 completes the mission with a TEST top-up. Not an owner decision."
+    },
+    "TRADE_COPY_LEAD_DAILY_BUY_CAP": {
+      "service": "trade",
+      "value": "500",
+      "note": "TEST lead daily buy cap of 500 USDT, so J-copy-bots-otc-04 #7 reaches it with one lead buy. Not an owner decision."
+    },
+    "TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS": {
+      "service": "trade",
+      "value": "{\"TLED/USDT\":\"5000\"}",
+      "note": "TEST lead holding limit of 5000 USDT on TLED/USDT (the TEST lead book J-copy-bots-otc-04 alone trades) and none on any other pair, so its #7 sees ETH/USDT refused. Not an owner decision."
+    },
     "TRADE_COPY_MIN_INVESTMENT": {
       "service": "trade",
       "value": "10",

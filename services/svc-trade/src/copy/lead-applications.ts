@@ -28,6 +28,8 @@ import {
 } from '../admin/common.js';
 import { compare, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { CopyError } from './errors.js';
+import type { CopyOwnerDay } from './follow-rules.js';
+import { LeadTrading, type LeadLimits } from './lead-trading.js';
 import type { LeaderDirectory } from './leader-directory.js';
 
 export const COPY_LEAD_APPROVE_ACTION = 'trade.copy_lead_approve' as const;
@@ -116,6 +118,39 @@ export interface LeadDeskDeps {
   readonly following: (userId: string) => Promise<LeadFollowing | null>;
   /** The person's own venue account's USDC, as the venue reports it. Throws when the venue does not answer. */
   readonly venueUsdc: (userId: string) => Promise<LeadVenueRead>;
+  /**
+   * The owner's new-trader mission minimum: the USDC the applicant's own venue account must hold to complete the
+   * funding mission (TRADE_COPY_LEAD_MISSION_MIN_USDC, CB-copy-12). Null or omitted: "Not set by the platform", and the
+   * mission never counts as done.
+   */
+  readonly missionMinUsdc?: Amount | null;
+  /** The owner's lead limits (CB-copy-16); omitted: every limit unset. */
+  readonly limits?: LeadLimits;
+  /** When the owner day starts, for the lead daily buy cap; omitted: unset. */
+  readonly ownerDay?: CopyOwnerDay;
+}
+
+/** The lead account an approved lead reads (CB-copy-18): its listing ref, state and leading instrument list. */
+export interface MyLeadAccount {
+  readonly leaderRef: string;
+  readonly applicationId: string;
+  readonly displayName: string;
+  readonly state: string;
+  readonly instruments: readonly string[];
+}
+
+/** One new-trader mission and how far it has come (CB-copy-12). */
+export interface LeadMission {
+  readonly id: 'apply' | 'fund' | 'listed';
+  readonly done: boolean;
+  /** What counts: the owner's minimum and the venue's figure, or "Not set by the platform"; never invented. */
+  readonly detail: string;
+}
+
+export interface LeadMissionsView {
+  readonly missions: readonly LeadMission[];
+  readonly done: number;
+  readonly total: number;
 }
 
 /**
@@ -261,10 +296,91 @@ const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 export class LeadDesk {
   private readonly waitSeconds: number | null;
+  private tradingDesk: LeadTrading | undefined;
 
   constructor(private readonly deps: LeadDeskDeps) {
     const wait = deps.reapplyWaitSeconds ?? null;
     this.waitSeconds = wait === null ? null : checkedReapplyWait(wait);
+  }
+
+  /** The lead's own trading on the web: lead orders, their views and copiers (lead-trading.ts). */
+  get trading(): LeadTrading {
+    this.tradingDesk ??= new LeadTrading({
+      sql: this.deps.sql,
+      now: this.deps.now,
+      listing: (userId) => this.deps.directory.leadListing(userId),
+      minVenueUsdc: this.deps.minVenueUsdc ?? null,
+      venueUsdc: this.deps.venueUsdc,
+      limits: this.deps.limits ?? { dailyBuyCap: null, pairHolding: null },
+      ownerDay: this.deps.ownerDay ?? { published: false },
+    });
+    return this.tradingDesk;
+  }
+
+  /** The caller's lead account once approved, or null: never a listing the caller does not own. */
+  async myLead(principal: Principal): Promise<MyLeadAccount | null> {
+    const [row] = await this.deps.sql<ApplicationRow[]>`
+      SELECT * FROM trade.copy_lead_applications
+       WHERE user_id = ${principal.userId} AND status = 'approved' AND leader_ref IS NOT NULL
+       ORDER BY decided_at DESC NULLS LAST, id DESC LIMIT 1`;
+    if (!row?.leader_ref) return null;
+    const listing = await this.deps.directory.leadListing(principal.userId);
+    return {
+      leaderRef: row.leader_ref,
+      applicationId: row.id,
+      displayName: row.display_name,
+      state: listing?.state ?? 'unlisted',
+      instruments: listing ? [...listing.assets] : [],
+    };
+  }
+
+  /**
+   * The new-trader missions (CB-copy-12): apply, hold the owner's mission minimum on your own venue account as the venue
+   * reports it, and be approved. A blank minimum reads "Not set by the platform" and that mission is never done.
+   */
+  async missions(principal: Principal): Promise<LeadMissionsView> {
+    const application = await this.mine(principal);
+    const min = this.deps.missionMinUsdc ?? null;
+    let fund: LeadMission;
+    if (min === null) {
+      fund = { id: 'fund', done: false, detail: 'Not set by the platform' };
+    } else {
+      let read: LeadVenueRead | null;
+      try {
+        read = await this.deps.venueUsdc(principal.userId);
+      } catch {
+        read = null;
+      }
+      fund =
+        read?.state === 'read'
+          ? {
+              id: 'fund',
+              done: compare(read.usdc, min) >= 0,
+              detail: `${formatAmount(read.usdc)} of ${formatAmount(min)} USDC on your venue account${read.test ? ' (TEST)' : ''}`,
+            }
+          : {
+              id: 'fund',
+              done: false,
+              detail:
+                read === null
+                  ? 'Your venue account could not be read'
+                  : `No venue account of your own yet; ${formatAmount(min)} USDC needed`,
+            };
+    }
+    const missions: LeadMission[] = [
+      {
+        id: 'apply',
+        done: application !== null,
+        detail: application ? `Application ${application.state.replace('_', ' ')}` : 'Not applied yet',
+      },
+      fund,
+      {
+        id: 'listed',
+        done: application?.state === 'approved',
+        detail: application?.state === 'approved' ? 'Approved by the founders' : 'Waiting for the founders',
+      },
+    ];
+    return { missions, done: missions.filter((m) => m.done).length, total: missions.length };
   }
 
   /** The applicant's newest application, or null. */

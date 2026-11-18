@@ -193,6 +193,11 @@ export const draftSchema = z
      * price for the base it received. Never with `exit`.
      */
     close: positive.optional(),
+    /**
+     * A listed lead's lead switch (J-copy-bots-otc-04 #5): true makes the order a lead trade that followers copy, false
+     * marks it as the lead's own order that is never copied. Absent on everyone else's orders.
+     */
+    lead: z.boolean().optional(),
   })
   .superRefine((draft, ctx) => {
     if (draft.exit) {

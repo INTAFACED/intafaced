@@ -4,6 +4,7 @@
  * back by that id, never by sending again. Sending to a live venue is shown and switched off while no venue submit port is set.
  */
 import { useMemo, useState } from 'react';
+import { useLeadMode } from '../../../features/trade/lead-mode';
 import { Button, Field, Input, KeyValue, SegmentedControl, fmtAmount, fmtPrice } from '../rooms/ui';
 import { WriteNotice } from '../rooms/RoomNotices';
 import { useRoomApi } from '../rooms/read';
@@ -39,6 +40,7 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
   const holdAsset = side === 'buy' ? market?.quote : market?.base;
   const clientOrderId = icebergClientId(nonce);
   const canReview = market !== null && review.problems.length === 0 && writer.signedIn;
+  const leadMode = useLeadMode();
 
   async function send() {
     if (!market || review.problems.length > 0) return;
@@ -55,6 +57,8 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
           price: price.trim(),
           displayQty: display.trim(),
           clientOrderId,
+          // A listed lead's iceberg is marked not a lead trade, so followers never copy it (J-copy-bots-otc-04 #6).
+          ...(leadMode.isLead ? { lead: false as const } : {}),
         }),
     });
     setConfirming(false);
@@ -113,6 +117,15 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
             onChange={setSymbol}
           />
         </Field>
+        {leadMode.isLead ? (
+          <label className="flex items-center gap-2 text-sm text-fg">
+            <input type="checkbox" role="switch" checked={false} disabled aria-describedby="iceberg-not-lead" onChange={() => undefined} />
+            {t('Lead trade')}
+            <span id="iceberg-not-lead" className="text-muted">
+              {t('Iceberg orders are never lead trades, so followers don’t copy them.')}
+            </span>
+          </label>
+        ) : null}
         <SegmentedControl
           aria-label={t('Side')}
           size={32}

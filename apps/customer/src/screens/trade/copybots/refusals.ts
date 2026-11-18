@@ -1,6 +1,7 @@
 // Customer words for every refusal the Copy and Bots rooms can meet. A screen shows these, never the service's own
 // sentence (those carry internal desk-law wording). Codes not listed here fall to the shared table in data/refusals.ts.
 // The raw code is only offered as a small "Ref" line for support.
+import { LEAD_ORDER_REFUSALS } from '../../../features/trade/lead-mode';
 import type { ApiResult } from '../../../shared/api';
 import { refusalCopy } from '../../../data';
 import type { RefusalCopy } from '../../../data';
@@ -8,6 +9,8 @@ import type { RefusalCopy } from '../../../data';
 type Words = { title: string; body: string };
 
 const COPY: Readonly<Record<string, Words>> = {
+  // A listed lead's lead trades (J-copy-bots-otc-04 #5 to #7): the same words the order ticket shows.
+  ...LEAD_ORDER_REFUSALS,
   'trade.copy_jurisdiction_blank': {
     title: 'Copy trading isn’t open for your country',
     body: 'The list of countries where it can be offered hasn’t been approved. Nothing was followed and no money moved.',

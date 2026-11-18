@@ -14,6 +14,13 @@ function testValue(name) {
  * named from its production host under the reserved .test domain, so J-developer-01 #3 can see the redundant endpoint
  * with its hosts set; the profile leaves regional out, so by default those rows read "host not set".
  */
+/** The least venue balance to lead on a restart: `blank` leaves it blank, a decimal sets it, unset is the TEST value. */
+export function leadBalance(raw, testDefault) {
+  if (raw === 'blank') return '';
+  if (raw && /^\d+(\.\d+)?$/.test(raw)) return raw;
+  return testDefault;
+}
+
 function developerHosts() {
   const hosts = JSON.parse(testValue('TRADE_DEVELOPER_HOSTS'));
   if (process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'regional') {
@@ -174,9 +181,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
     TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: testValue('TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS'),
     // `LOCAL_STACK_TRADE_COPY_LEAD_BALANCE=blank` on a restart leaves the least venue balance to lead blank, so
-    // J-copy-bots-otc-04 #1 sees every application refused naming the threshold.
-    TRADE_COPY_LEAD_MIN_VENUE_USDC:
-      process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE === 'blank' ? '' : testValue('TRADE_COPY_LEAD_MIN_VENUE_USDC'),
+    // J-copy-bots-otc-04 #1 sees every application refused naming the threshold; a decimal there sets it instead, so
+    // J-copy-bots-otc-04 #7 sees a lead under the equity minimum refused. Unset: the TEST value.
+    TRADE_COPY_LEAD_MIN_VENUE_USDC: leadBalance(
+      process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE,
+      testValue('TRADE_COPY_LEAD_MIN_VENUE_USDC'),
+    ),
+    TRADE_COPY_LEAD_MISSION_MIN_USDC: testValue('TRADE_COPY_LEAD_MISSION_MIN_USDC'),
+    TRADE_COPY_LEAD_DAILY_BUY_CAP: testValue('TRADE_COPY_LEAD_DAILY_BUY_CAP'),
+    TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS: testValue('TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS'),
     // `LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT=off` on a restart leaves the minimum blank, so J-copy-bots-otc-02 #2 sees
     // every follow refused with `trade.copy_min_not_set`.
     TRADE_COPY_MIN_INVESTMENT: process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT === 'off' ? '' : testValue('TRADE_COPY_MIN_INVESTMENT'),

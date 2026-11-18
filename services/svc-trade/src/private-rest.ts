@@ -6,6 +6,8 @@ import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachConvertRestRoutes, type ConvertRestPort } from './convert/convert-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
 import { refuseLeadOrder, type LeadOrderGate } from './copy/lead-api.js';
+import { CopyError } from './copy/errors.js';
+import type { LeadTrading } from './copy/lead-trading.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
@@ -220,6 +222,8 @@ export interface PrivateRestDeps {
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   /** The lead API's own check before the ordinary order path (`copy/lead-api.ts`). Absent: the lead API answers 503. */
   leadOrderGate?: LeadOrderGate;
+  /** A listed lead's web orders with the lead switch (copy/lead-trading.ts); absent: the switch refuses `trade.copy_unavailable`. */
+  leadTrading?: Pick<LeadTrading, 'decide' | 'record'>;
   /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
@@ -1368,6 +1372,16 @@ function presentReplaceOutcome(outcome: ReplaceOrderOutcome, originalSymbol: str
  * Returns null when the error is not one we recognise, so the caller rethrows
  * and it surfaces as a real 500 rather than a relabelled retry instruction.
  */
+/**
+ * The lead switch a listed lead's order carries (`lead: true` or `false`, J-copy-bots-otc-04): undefined when the body
+ * has none, so every other order is untouched. Anything but a boolean reads as no switch.
+ */
+export function readLeadSwitch(body: unknown): boolean | undefined {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const lead = (body as Record<string, unknown>).lead;
+  return typeof lead === 'boolean' ? lead : undefined;
+}
+
 function sendDomainError(reply: FastifyReply, err: unknown): FastifyReply | null {
   if (err instanceof OpenOrdersLimitUnsetError) {
     return sendCcxt(reply, badRequest(err.message, err.code));
@@ -3113,6 +3127,34 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
+    }
+
+    // A listed lead's order sent with the lead switch (J-copy-bots-otc-04 #5 to #7): decided and recorded under its own
+    // order id before it is placed, so a refusal places nothing and a not-lead order is never copied (copy/lead-trading.ts).
+    const leadSwitch = readLeadSwitch(rawBody);
+    if (leadSwitch !== undefined) {
+      try {
+        if (!deps.leadTrading) throw new CopyError('lead trading is not mounted', 'trade.copy_unavailable');
+        if (!input.marketId || !input.clientOrderId)
+          throw new CopyError('a lead trade needs its market and client order id', 'trade.copy_unavailable');
+        const ask = {
+          orderId: orderIdFor(principal.userId, input.marketId, input.clientOrderId),
+          symbol: parsed.data.symbol,
+          side: parsed.data.side,
+          price: parsed.data.price ? parseAmount(parsed.data.price) : null,
+          amount: parseAmount(parsed.data.amount),
+          iceberg: displayQty !== null,
+          lead: leadSwitch,
+        };
+        const decision = await deps.leadTrading.decide(principal, ask);
+        if (decision) await deps.leadTrading.record(principal, ask, decision);
+      } catch (err) {
+        // A lead refusal names its own code, as the order's other refusals do: nothing is held or placed.
+        if (err instanceof CopyError) return sendCcxt(reply, badRequest(err.message, err.code));
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
     }
 
     try {

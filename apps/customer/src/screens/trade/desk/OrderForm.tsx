@@ -6,6 +6,7 @@ import { TradingHoldReason } from '../../../features/account/TradingHoldReason';
 import { usePreferences } from '../../../shared/preferences';
 import { fitsPlaces } from '../../../features/account/trading-settings';
 import { draftSchema, isStopType, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
+import { useLeadMode } from '../../../features/trade/lead-mode';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
 import { useDeskApi, useFeeToken, useMyFees, useOpenOrders, useRefreshPrivate } from './data';
@@ -177,7 +178,24 @@ interface SideProps {
   expireAt: string | null;
   /** The person's own label for the order, trimmed; null when none. */
   tag: string | null;
+  /** A listed lead's Lead trade switch (J-copy-bots-otc-04 #5); undefined for everyone who is not a lead. */
+  lead: boolean | undefined;
   onPlaced: () => void;
+}
+
+/**
+ * A listed lead's Lead trade switch (J-copy-bots-otc-04 #5): on, the order is a lead trade that followers copy once it
+ * fills; off, it is the lead's own order and is never copied.
+ */
+function LeadSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  const { t } = deskCopy.useCopy();
+  return (
+    <label className="dk-tif">
+      <input type="checkbox" role="switch" checked={on} onChange={(event) => onChange(event.target.checked)} />
+      <span className="dk-tif-label">{t('Lead trade')}</span>
+      <span className="dk-note-small">{on ? t('Lead trade on') : t('Lead trade off')}</span>
+    </label>
+  );
 }
 
 function SideForm({
@@ -196,6 +214,7 @@ function SideForm({
   tif,
   expireAt,
   tag,
+  lead,
   onPlaced,
 }: SideProps) {
   const { t } = deskCopy.useCopy();
@@ -343,7 +362,7 @@ function SideForm({
   const draft: Draft | null = useMemo(() => {
     if (!tradable || !checked.ok || (tif === 'GTD' && expireAt === null)) return null;
     // The tag does not price the order: it joins only the reviewed and sent draft, so typing it never re-checks.
-    return draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: 'desk-preview' });
+    return draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: 'desk-preview', lead });
   }, [
     tradable,
     checked.ok,
@@ -478,6 +497,7 @@ function SideForm({
       feeCurrency,
       checked,
       clientOrderId: '',
+      lead,
     });
     const fresh = { ...body, clientOrderId: reviewIdFor(userId ?? '', body) };
     const parsed = draftSchema.safeParse(fresh);
@@ -1326,6 +1346,10 @@ export const OrderPanel = memo(function OrderPanel({
   // The person's own label, kept for the next orders until they clear it; blank sends none.
   const [tagText, setTagText] = useState('');
   const tag = tagText.trim() === '' ? null : tagText.trim();
+  // A listed lead's Lead trade switch (J-copy-bots-otc-04 #5): on when the lead account's link opened the desk.
+  const leadMode = useLeadMode();
+  const [leadOn, setLeadOn] = useState(() => new URLSearchParams(window.location.search).get('lead') === '1');
+  const lead = leadMode.isLead ? leadOn : undefined;
   const pending = usePendingOrder(userId);
   const [settled, setSettled] = useState<string | null>(null);
   const [stillChecking, setStillChecking] = useState(false);
@@ -1451,6 +1475,7 @@ export const OrderPanel = memo(function OrderPanel({
     tif,
     expireAt,
     tag,
+    lead,
   } as const;
   return (
     <Tabs
@@ -1498,6 +1523,7 @@ export const OrderPanel = memo(function OrderPanel({
         <div className="dk-order-opts">
           <SelfTradeSelect />
           <TagField value={tagText} onChange={setTagText} />
+          {leadMode.isLead ? <LeadSwitch on={leadOn} onChange={setLeadOn} /> : null}
         </div>
       ) : null}
       <TicketRules market={market} />

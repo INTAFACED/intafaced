@@ -587,6 +587,14 @@ const script = resolve(here, 'local-test-stack.mjs');
       set,
       'the blank switch must change nothing else in trade',
     );
+    // A decimal sets the least venue balance (the lead equity minimum too), so J-copy-bots-otc-04 #7 can refuse a lead.
+    process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = '1000000';
+    const raised = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(raised.TRADE_COPY_LEAD_MIN_VENUE_USDC, '1000000', 'a decimal switch must set the least venue balance to lead');
+    assert.deepEqual({ ...raised, TRADE_COPY_LEAD_MIN_VENUE_USDC: set.TRADE_COPY_LEAD_MIN_VENUE_USDC }, set, 'and change nothing else');
+    process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = 'lots';
+    const junk = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(junk.TRADE_COPY_LEAD_MIN_VENUE_USDC, set.TRADE_COPY_LEAD_MIN_VENUE_USDC, 'anything else keeps the TEST value');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE;
     else process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = before;
