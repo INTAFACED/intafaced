@@ -65,7 +65,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
       : { SUPPORT_OFFICIAL_CHANNELS: loadProfile().values.SUPPORT_OFFICIAL_CHANNELS.value }),
     // LOCAL TEST only, labelled in the same file: a complaint's final-response limit in calendar days (J-bank-18 #5).
     // Production stays blank: complaints are still acknowledged and every deadline reads "not set" until the owner sets it.
-    SUPPORT_COMPLAINT_RESPONSE_DAYS: '14',
+    // `LOCAL_STACK_SUPPORT_COMPLAINT_RESPONSE_DAYS=off` on a restart leaves it blank, so that state shows in the running app.
+    ...(process.env.LOCAL_STACK_SUPPORT_COMPLAINT_RESPONSE_DAYS === 'off'
+      ? {}
+      : { SUPPORT_COMPLAINT_RESPONSE_DAYS: loadProfile().values.SUPPORT_COMPLAINT_RESPONSE_DAYS.value }),
     // LOCAL TEST only, labelled in the same file: a TEST money-mule policy (J-bank-18 #3). Production stays blank and the
     // policy page says the owner has not published it. `LOCAL_STACK_SUPPORT_MULE_POLICY=off` on a restart leaves it blank.
     ...(process.env.LOCAL_STACK_SUPPORT_MULE_POLICY === 'off'

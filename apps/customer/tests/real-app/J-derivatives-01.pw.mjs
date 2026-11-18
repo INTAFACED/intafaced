@@ -227,7 +227,26 @@ test(`${J} #7 looks at the order types: market and limit offered, the rest liste
   await page.getByRole('button', { name: 'Order types not offered' }).click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
-  expect(await menu.getByRole('menuitem').count()).toBeGreaterThan(0);
+  // The resting types the service refuses for this contract, each listed, not selectable, with the service's refusal in words.
+  const catalogue = await page.request.get('/api/v1/futures/order-types?limit=50');
+  expect(catalogue.status()).toBe(200);
+  const entries = (await catalogue.json()).markets.find((m) => m.market === SYMBOL)?.orderTypes ?? [];
+  expect(
+    entries
+      .filter((e) => e.state === 'available')
+      .map((e) => e.id)
+      .sort(),
+  ).toEqual(['limit', 'market']);
+  const refusedTypes = entries.filter((e) => e.state === 'refused');
+  expect(refusedTypes.length, 'the service refuses resting types for this contract').toBeGreaterThan(0);
+  const items = menu.getByRole('menuitem');
+  await expect(items).toHaveCount(refusedTypes.length);
+  for (let i = 0; i < refusedTypes.length; i += 1) {
+    await expect(items.nth(i)).toBeDisabled();
+    await expect(items.nth(i)).toContainText(
+      'The futures book takes market and limit orders. Stop, take-profit and the other types are not offered.',
+    );
+  }
   await stepPicture();
   await page.keyboard.press('Escape');
   expect(sent).toEqual([]);

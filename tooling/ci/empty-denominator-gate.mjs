@@ -182,6 +182,11 @@ export const ENFORCED = {
     note: 'enumerates via `git ls-files`, which fails hard outside a repo. Refuses, but by throw — no zero-file branch of its own.',
   },
 
+  'conflict-keys': {
+    kind: 'guard',
+    must: /CONFLICT KEYS FAILED: cannot find services\//,
+    note: 'with no services/ it has no migrations or inserts to read and refuses by name, rather than passing over nothing.',
+  },
   'published-routes': {
     kind: 'guard',
     must: /PUBLISHED ROUTES FAILED — services\/svc-trade\/src\/route-declarations\.test-harness\.ts is missing/,

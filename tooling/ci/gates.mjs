@@ -126,13 +126,23 @@ export const GATES = [
     why: 'a suite pointed at the shared database is how someone else’s main goes red',
   },
   {
+    id: 'conflict-keys',
+    script: 'tooling/ci/conflict-keys.mjs',
+    doctrine: 'a lost insert race returns the row that won (project-state#3052)',
+    why:
+      'an INSERT … ON CONFLICT (<columns>) absorbs a clash only on the key those columns name; when its table has another ' +
+      'unique key, two inserts at once make the loser raise 23505 (svc-academy #8378, svc-pay #8526). Reads every ' +
+      "service's unique keys from its migrations and fails a new insert that leaves one unabsorbed; the inserts on main " +
+      'when it landed are listed with their verdicts in tooling/ci/conflict-keys-baseline.json, which only shrinks. Under a second, no network.',
+  },
+  {
     id: 'published-routes',
     script: 'tooling/ci/published-routes.mjs',
     doctrine: 'the developer portal publishes every route svc-trade serves',
     why:
-      'services/svc-trade/src/published-routes.txt must be the /api/v1 routes svc-trade registers, with their access and ' +
-      "scopes; the customer app's developers-reference test holds REST_REFERENCE to it. As a unit test it was first seen " +
-      'red after the push (#8518, #8571; project-state#3005); as a gate it runs before the push, in under a second.',
+      "the customer app's served-routes.generated.ts must be the /api/v1 routes svc-trade registers, with their access " +
+      'and scopes, as `node tooling/ci/published-routes.mjs --write` generates it; it fails only when that file is stale. ' +
+      'It replaced a list kept by hand in two more files, which cost a correct route change its push seven times.',
   },
   {
     id: 'killswitch',
