@@ -24,6 +24,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
+import { downloadShards, pause } from './shard-download.mjs';
 
 export const WORKFLOW = 'real-app-journeys.yml';
 /** The name of the whole-page picture of a test's own page (journey.mjs `stepPicture`). */
@@ -148,29 +149,45 @@ export function attach(readDir, picDir) {
 
 const api = (path) => JSON.parse(execFileSync('gh', ['api', path], { encoding: 'utf8', maxBuffer: 64 << 20 }));
 
-/**
- * One run attempt's shard artifacts, unpacked under `<picDir>/<run>-<attempt>/<artifact>/`, every link the zip held
- * deleted. Done once: a `.done` file is written only after every shard unpacked, so a fetch that failed part way is made
- * again whole.
- */
-export function fetchRun(repo, run, picDir) {
-  const into = join(picDir, `${run.id}-${run.run_attempt ?? 1}`);
-  if (existsSync(join(into, '.done'))) return 0;
-  rmSync(into, { recursive: true, force: true });
-  const arts = api(`repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`).artifacts ?? [];
-  let n = 0;
-  for (const a of arts.filter((x) => SHARD.test(x.name) && !x.expired)) {
-    const dir = join(into, a.name);
-    mkdirSync(dir, { recursive: true });
-    const zip = join(dir, 'a.zip');
-    execFileSync('sh', [
+/** One shard's zip, downloaded and unpacked into `dir`, every link it held deleted. */
+const unpack = (repo, artifact, dir) =>
+  execFileSync(
+    'sh',
+    [
       '-c',
       'gh api "$1" > "$2" && unzip -qo "$2" -d "$3" && rm -f "$2" && find "$3" -type l -delete',
       'sh',
-      `repos/${repo}/actions/artifacts/${a.id}/zip`,
-      zip,
+      `repos/${repo}/actions/artifacts/${artifact.id}/zip`,
+      join(dir, 'a.zip'),
       dir,
-    ]);
+    ],
+    { stdio: ['ignore', 'ignore', 'pipe'] },
+  );
+
+const shards = (repo, run) => api(`repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`).artifacts ?? [];
+
+/**
+ * One run attempt's shard artifacts, unpacked under `<picDir>/<run>-<attempt>/<artifact>/`. Done once: a `.done` file is
+ * written only after every shard unpacked, so a fetch that failed part way is made again whole. Each shard goes through
+ * shard-download.mjs `downloadShards`, the journeys run's own rule: a 5xx or dropped connection is tried again after a
+ * pause, a refusal never; a full run is about 60 zips, and one transient 503 used to end a local read (project-state
+ * #3162). A rate limit is not waited out here: the CI wait polls again, and a local read says why.
+ */
+export function fetchRun(repo, run, picDir, { list = shards, get = unpack, wait = pause, log = console.error } = {}) {
+  const into = join(picDir, `${run.id}-${run.run_attempt ?? 1}`);
+  if (existsSync(join(into, '.done'))) return 0;
+  rmSync(into, { recursive: true, force: true });
+  let n = 0;
+  for (const a of list(repo, run).filter((x) => SHARD.test(x.name) && !x.expired)) {
+    const dir = join(into, a.name);
+    const download = () => {
+      // A fresh folder each try: a half-unpacked zip never mixes with the next.
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+      get(repo, a, dir);
+    };
+    const got = downloadShards({ download, wait, now: Date.now, log: (l) => log(`${a.name}: ${l}`) }, { maxWaits: 0 });
+    if (!got.ok) throw new Error(`${a.name}: ${got.why}`);
     n++;
   }
   mkdirSync(into, { recursive: true });
