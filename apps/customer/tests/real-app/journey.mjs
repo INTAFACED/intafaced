@@ -309,7 +309,7 @@ const extended = base.extend({
     },
     { auto: true },
   ],
-  // The proof reader's picture of this step (tooling/ci/step-pictures.mjs, project-state #2952): the whole page of this
+  // The proof reader's picture of this step (tooling/ci/step-pictures.mjs): the whole page of this
   // test's own page, as it ended. `screenshot: 'on'` alone left the reader the 900-pixel window, so a step whose rows sit
   // lower on the page read NOT SHOWN, and one picture per page of every context still open in the worker, so a page an
   // earlier file never closed could be the one the reader was shown. A test with no page of its own (an API-only step,
