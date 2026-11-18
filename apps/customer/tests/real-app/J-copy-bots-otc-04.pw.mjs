@@ -474,6 +474,7 @@ test(`${J} #6 places an iceberg order: not a lead trade; the toggle is forced of
     .poll(
       async () => {
         const detail = await openFollow(page, state('leadRef'));
+        await detail.getByRole('tab', { name: 'Skipped', exact: true }).click();
         return (await detail.getByRole('table', { name: 'Skipped copies', exact: true }).textContent()) ?? '';
       },
       { timeout: 60_000, message: 'the iceberg fill was never logged as a skipped copy' },
