@@ -406,7 +406,7 @@ function AllPositions({
       ) : null}
       {liquidation ? (
         <LiquidationPanel
-          key={`${liquidation.venue.id}:${liquidation.symbol}`}
+          key={`liquidation:${liquidation.venue.id}:${liquidation.symbol}`}
           owner={owner}
           venue={liquidation.venue}
           symbol={liquidation.symbol}
