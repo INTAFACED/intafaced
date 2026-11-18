@@ -195,6 +195,7 @@ test(`${J} #2 toggles a breakpoint and folds a block: the local state changes an
 
 test(`${J} #3 presses Compile: a typed Preview refusal in words and no sample build shown as a real result; the sandbox link opens /quant`, async ({
   page,
+  stepPicture,
 }) => {
   await signIn(page, who());
   await page.goto('/quant/editor');
@@ -206,6 +207,7 @@ test(`${J} #3 presses Compile: a typed Preview refusal in words and no sample bu
   await expect(compile).toContainText('Sample');
   await expect(compile).toContainText('TEST');
   await expect(page.getByTestId('compile-result')).toHaveCount(0);
+  await stepPicture();
   await page.getByRole('link', { name: 'Open the working sandbox' }).click();
   await expect(page).toHaveURL(/\/quant$/);
   await expect(page.getByRole('heading', { name: 'Algo dev', level: 1 })).toBeVisible();
@@ -266,6 +268,7 @@ test(`${J} #4 opens the tester, moves the speed slider and presses Pause: the lo
 
 test(`${J} #5 presses Start in the tester: the words say the tick engine is a preview in this build; the real backtest link opens`, async ({
   page,
+  stepPicture,
 }) => {
   await signIn(page, who());
   await page.goto('/quant/tester');
@@ -275,6 +278,7 @@ test(`${J} #5 presses Start in the tester: the words say the tick engine is a pr
     action: 'start',
     words: ['tick engine', 'preview in this build'],
   });
+  await stepPicture();
   await page.getByRole('link', { name: 'Run a real backtest' }).click();
   await expect(page).toHaveURL(/\/quant\/backtest$/);
 });

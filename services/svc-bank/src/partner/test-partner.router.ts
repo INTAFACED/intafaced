@@ -7,7 +7,7 @@ import { amountString, partnerFiguresOutput } from '../router/shared.js';
 import type { BankServices } from '../bank-service.js';
 import { NO_PARTNER_BANK_CODE, partnerPayoutsAccount } from './partner-bank.js';
 import { businessPartnerAccount } from '../business/business-team.js';
-import { TEST_PARTNER_MERCHANT, partnerReserve, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_MERCHANT, partnerReserve, type TestPartnerDoors } from './test-partner.js';
 import { testPartnerSwitches, type TestPartnerSwitches } from './test-partner-switches.js';
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
@@ -22,14 +22,14 @@ const view = testPartnerSwitches.extend({
   ]),
 });
 
-function on(partner: TestPartner | null): TestPartner {
+function on(partner: TestPartnerDoors | null): TestPartnerDoors {
   if (!partner) {
     throw new BankError('The TEST partner switches exist only on a stack that runs the TEST partner bank.', 'bank.test_partner_off');
   }
   return partner;
 }
 
-function out(partner: TestPartner, userId: string, now: TestPartnerSwitches) {
+function out(partner: TestPartnerDoors, userId: string, now: TestPartnerSwitches) {
   return { label: partner.label, ...now, notOffered: [...now.notOffered], partnerReserve: partnerReserve(partner, userId)! };
 }
 
@@ -123,9 +123,14 @@ export function createTestPartnerRouter(
       .output(z.object({ label: z.string(), opening: z.string(), closing: z.string(), lines: z.number().int().nonnegative() }))
       .query(({ ctx, input }) =>
         guard(async () => {
-          const partner = on(bank.testPartner);
+          on(bank.testPartner);
           const { assetId } = await bank.businessTeam.assertOwner(input.accountId, ctx.principal.userId);
-          const st = await partner.bank.statement!(businessPartnerAccount(input.accountId, assetId), {
+          // Read through the guarded partner, like every door here: reads stay open under the freeze and a stop.
+          const held = bank.partnerCustody.bankFor(ctx.principal.userId);
+          if (!held?.statement) {
+            throw new BankError('This business’s money is not held at the TEST partner bank.', NO_PARTNER_BANK_CODE);
+          }
+          const st = await held.statement(businessPartnerAccount(input.accountId, assetId), {
             from: new Date(input.from),
             to: new Date(input.to),
           });

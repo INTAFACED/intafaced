@@ -1,7 +1,7 @@
 import type { BankPartnerReserves, OpsCapitalReserve } from '@intafaced/contracts';
 import { BankError } from '../errors.js';
 import { partnerFiguresAsOf, type CardPartnerTerms } from '../cards/partner-terms.js';
-import { programmeReserve, type TestPartner } from './test-partner.js';
+import { programmeReserve, type TestPartnerDoors } from './test-partner.js';
 
 /**
  * ANY RESERVE A PARTNER HOLDS OF OURS, as each partner adapter reports it (J-ops-console-24 #1), for svc-ops' capital
@@ -12,7 +12,7 @@ import { programmeReserve, type TestPartner } from './test-partner.js';
  * it holds nothing of ours because there is no partner. Nothing here reads or writes the ledger.
  */
 export function partnerReservesRead(input: {
-  readonly testPartner: TestPartner | null;
+  readonly testPartner: TestPartnerDoors | null;
   /** The card partner's terms, or null when the deployment has no card issuer. */
   readonly cardTerms: CardPartnerTerms | null;
   readonly now: Date;

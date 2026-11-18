@@ -32,6 +32,7 @@ import {
   withPayoutLock,
 } from '../payout-admission.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
+import { moveSettlement } from './settlement-status.js';
 import type {
   PayServiceInternal,
   SettlementDetailRow,
@@ -410,7 +411,11 @@ export async function payoutSettlement(
         await postPayLedger(svc.ledger, plan.reverse);
         await payoutTransaction(connection, async (tx) => {
           await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'reversed','{}') ON CONFLICT DO NOTHING`;
-          await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission!.attempt + 1},failed_at=now(),failure_code=${(safeFailure(refused?.failureCode ?? 'rail.failed') ?? { code: 'pay.failed' }).code},updated_at=now() WHERE id=${settlement.id}`;
+          await moveSettlement(tx, settlement.id, {
+            to: 'failed',
+            payoutAttempts: admission!.attempt + 1,
+            failureCode: (safeFailure(refused?.failureCode ?? 'rail.failed') ?? { code: 'pay.failed' }).code,
+          });
         });
         // After the refusal is durable. Accounting must not unwind the
         // reverse or replace pay.rail_failed: the book already shows the payout failed.
@@ -429,7 +434,7 @@ export async function payoutSettlement(
       await postPayLedger(svc.ledger, plan.settle);
       await payoutTransaction(connection, async (tx) => {
         await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission!.id},'settled','{}') ON CONFLICT DO NOTHING`;
-        await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission!.rail_id},payout_ref=${accepted!.railRef},sent_at=COALESCE(sent_at, now()),failed_at=NULL,failure_code=NULL,updated_at=now() WHERE id=${settlement.id}`;
+        await moveSettlement(tx, settlement.id, { to: 'paid_out', payoutMethod: admission!.rail_id, payoutRef: accepted!.railRef });
       });
       if (freshRail === 'accepted') {
         await svc.accountRailOutcome({
@@ -534,7 +539,11 @@ export async function reconcileDispatchedPayout(svc: PayServiceInternal, settlem
           await payoutTransaction(connection, async (tx) => {
             await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'rail_refused',${tx.json({ failureReason, failureCode })}) ON CONFLICT DO NOTHING`;
             await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'reversed','{}') ON CONFLICT DO NOTHING`;
-            await tx`UPDATE pay.settlements SET status='failed',payout_attempts=${admission.attempt + 1},failed_at=now(),failure_code=${(safeFailure(failureCode) ?? { code: 'pay.failed' }).code},updated_at=now() WHERE id=${settlement.id}`;
+            await moveSettlement(tx, settlement.id, {
+              to: 'failed',
+              payoutAttempts: admission.attempt + 1,
+              failureCode: (safeFailure(failureCode) ?? { code: 'pay.failed' }).code,
+            });
           });
           await svc.accountRailOutcome({
             kind: 'failure',
@@ -564,7 +573,7 @@ export async function reconcileDispatchedPayout(svc: PayServiceInternal, settlem
       await postPayLedger(svc.ledger, plan.settle);
       await payoutTransaction(connection, async (tx) => {
         await tx`INSERT INTO pay.payout_outcomes(admission_id,kind,payload) VALUES(${admission.id},'settled','{}') ON CONFLICT DO NOTHING`;
-        await tx`UPDATE pay.settlements SET status='paid_out',payout_method=${admission.rail_id},payout_ref=${railRef!},sent_at=COALESCE(sent_at, now()),failed_at=NULL,failure_code=NULL,updated_at=now() WHERE id=${settlement.id}`;
+        await moveSettlement(tx, settlement.id, { to: 'paid_out', payoutMethod: admission.rail_id, payoutRef: railRef! });
       });
       await svc.accountRailOutcome({
         kind: 'success',

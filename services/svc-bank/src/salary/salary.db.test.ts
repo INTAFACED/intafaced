@@ -19,6 +19,7 @@ import { createBankServices, memoryRecipientState, type BankServices } from '../
 import { createBankRouter } from '../router.js';
 import { memoryPartyHandles } from '../transfers/party-handles.js';
 import { testPartner, testPartnerAccountDetails, type TestPartner } from '../partner/test-partner.js';
+import { TEST_PARTNER_ID } from '../partner/partner-stops.js';
 import { PayrollSimRefusedError, payrollPartnerFor } from './payroll-sim.js';
 import { creditKey, reverseKey, splitKey } from './salary-service.js';
 
@@ -45,6 +46,8 @@ describe('salary by direct deposit (J-bank-30)', () => {
   let bank: BankServices;
   let recordsDir: string;
   let now: Date;
+  /** svc-ledger's posting freeze as the service reads it, wired the way `index.ts` wires one: open unless a test sets it. */
+  let posting = true;
 
   function make(over: { currencies?: string; payroll?: boolean; reversalDays?: string; minCredit?: string } = {}) {
     const payroll = over.payroll === false ? null : payrollPartnerFor('payroll-sim', partner, DEV, recordsDir);
@@ -55,6 +58,10 @@ describe('salary by direct deposit (J-bank-30)', () => {
       handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
       incomeSorterMinCredit: 'minCredit' in over ? over.minCredit : '1',
       testPartner: partner,
+      postingFreeze: {
+        postingEnabled: async () => posting,
+        read: async () => ({ postingEnabled: posting, cause: posting ? null : 'person' }),
+      },
       payrollPartner: payroll,
       directDepositReversalDays: 'reversalDays' in over ? over.reversalDays : '5',
       // The service reads its clock through this option; the test moves `now` for the window.
@@ -79,6 +86,8 @@ describe('salary by direct deposit (J-bank-30)', () => {
                bank.income_sorter_legs, bank.income_sorters, bank.spaces
       RESTART IDENTITY CASCADE
     `;
+    await sql`TRUNCATE bank.partner_stops, bank.partner_stop_history, bank.partner_refusal_counts`;
+    posting = true;
     ledger = new MemoryLedger();
     partner = testPartner();
     recordsDir = mkdtempSync(join(tmpdir(), 'jb30-payroll-'));
@@ -200,6 +209,34 @@ describe('salary by direct deposit (J-bank-30)', () => {
     // Asked again, the same reversal: nothing more moves.
     expect((await bank.salary.reverse('net-4')).reversalMoveId).toBe(reversed.reversalMoveId);
     expect(partner.record(ADA).moves.filter((m) => m.key === reverseKey('net-4'))).toHaveLength(1);
+  });
+
+  it('a split or reversal move asks the posting freeze and the operator stop, and moves nothing while either refuses', async () => {
+    const space = await savings();
+    await split10(space.id);
+    // Frozen: the network's pay-in lands (the partner's own act), but our split instruction is refused and stays pending.
+    posting = false;
+    expect(await codeOf(send('net-guard', '2000'))).toBe('bank.posting_frozen');
+    expect(await held(null)).toBe('2000');
+    expect(await held(space.id)).toBe('0');
+    expect(await partner.bank.moveByKey(splitKey('net-guard', 0))).toBeNull();
+    // Lifted: the network's retry sends the split once under the same key.
+    posting = true;
+    expect((await send('net-guard', '2000')).credit.legs).toMatchObject([{ status: 'settled' }]);
+    expect(await held(space.id)).toBe('200');
+
+    // An operator's stop on partner moves refuses the reversal before the partner is asked, with the freeze open.
+    await bank.partnerStops.set({
+      partnerId: TEST_PARTNER_ID,
+      stoppedKinds: ['bank_move'],
+      expectedRevision: 0,
+      reason: 'TEST wrong instructions seen',
+      consume: async () => 'approver-2',
+    });
+    expect(await codeOf(bank.salary.reverse('net-guard'))).toBe('bank.partner_stopped');
+    expect(await held(null)).toBe('1800');
+    expect(await held(space.id)).toBe('200');
+    expect(partner.record(ADA).moves.filter((m) => m.key.startsWith('salary:') && m.key !== creditKey('net-guard'))).toHaveLength(1);
   });
 
   it('#7 refuses a reversal the account cannot pay, outside the window, unpublished, or of a returned credit', async () => {

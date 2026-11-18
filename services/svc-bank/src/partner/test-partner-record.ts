@@ -2,7 +2,7 @@ import { formatAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { PartnerAccountRef, PartnerMove } from './partner-bank.js';
 import type { PartnerDirectDebitRefund } from './partner-direct-debits.js';
-import { type TestPartner } from './test-partner.js';
+import { type TestPartnerDoors } from './test-partner.js';
 import { TEST_PARTNER_LABEL } from './test-partner-book.js';
 
 /**
@@ -48,7 +48,7 @@ const refundLine = (r: PartnerDirectDebitRefund) => ({
 });
 
 /** The stand-in's own direct debit book (J-bank-28 #4): its mandates, its refusals and its refunds. */
-function directDebitLines(partner: TestPartner) {
+function directDebitLines(partner: TestPartnerDoors) {
   const report = partner.directDebitReport();
   return {
     mandates: report.mandates.map((m) => ({
@@ -63,7 +63,7 @@ function directDebitLines(partner: TestPartner) {
 }
 
 /** One request's answer: `[status, body]`. `path` is below the base (`/venue`, `/balances`, `/moves`). */
-export function answerTestPartnerRecord(partner: TestPartner, method: string, path: string, body: unknown): [number, unknown] {
+export function answerTestPartnerRecord(partner: TestPartnerDoors, method: string, path: string, body: unknown): [number, unknown] {
   if (path === '/venue') {
     if (method !== 'GET') return [405, { error: 'GET only' }];
     return [200, { label: 'TEST', venue: { id: TEST_PARTNER_RECORD_ID, displayName: TEST_PARTNER_LABEL } }];

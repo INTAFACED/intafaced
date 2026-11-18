@@ -46,6 +46,6 @@ export function tradeDeclarations(files: readonly { file: string; text: string }
   return declared;
 }
 
-/** One line of the published route list (published-routes.txt, beside this file). */
+/** One line of the published route list (apps/customer/src/features/developers/served-routes.generated.ts). */
 export const declarationKey = (route: { method: string; path: string; access: string; scopes: readonly string[] }) =>
   `${route.method} ${route.path} ${route.access} ${route.scopes.join('+')}`;
