@@ -47,7 +47,6 @@ env:
 jobs:
   assembled:
     name: CX-8 assembled smoke
-    # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
@@ -75,10 +74,16 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Get a nats-server binary
+        uses: ./.github/actions/nats-server
+        with:
+          path: ${{ runner.temp }}/nats-server
+
       - name: Start NATS JetStream
         run: |
-          docker run -d --name cx8-nats -p 4222:4222 -p 8222:8222 \
-            nats:2.10-alpine --jetstream --http_port=8222 --store_dir=/data
+          mkdir -p "$RUNNER_TEMP/nats-js"
+          nohup "$RUNNER_TEMP/nats-server" -p 4222 --jetstream --http_port=8222 --store_dir "$RUNNER_TEMP/nats-js" \
+            > "$RUNNER_TEMP/nats.log" 2>&1 &
           for i in $(seq 1 30); do
             wget -q -O- http://127.0.0.1:8222/healthz && break
             sleep 1
