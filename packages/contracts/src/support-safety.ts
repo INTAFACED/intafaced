@@ -11,6 +11,7 @@
  * deadline reads `not_set`: no limit is ever made up.
  */
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { bankTransferIdSchema } from './bank-transfer-id.js';
 
 /** What a complaint is about. */
@@ -97,10 +98,7 @@ export const supportScamReportInputSchema = z
       .trim()
       .regex(/^\d{1,18}(\.\d{1,18})?$/, 'an amount is a decimal number')
       .refine((v) => /[1-9]/.test(v), 'an amount is greater than zero'),
-    assetId: z
-      .string()
-      .trim()
-      .regex(/^[A-Z0-9]{2,16}$/),
+    assetId: assetIdSchema.trim().regex(/^[A-Z0-9]{2,16}$/),
     /** svc-bank's id of the transfer the money went out on, from the person's transfer record; only after sending. */
     transferId: bankTransferIdSchema.optional(),
     contactedBy: supportScamContactSchema,

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Button } from '@intafaced/ui';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { SupportScamContact, SupportScamReportInput, SupportScamWhen } from '@intafaced/contracts/support-safety';
 import { useSession } from '../../session/session';
 import { safetyCopy, type SafetyCopyKey } from '../safety-copy';
@@ -59,7 +60,7 @@ export function ScamReportRoom() {
     const ok = await send({
       when,
       amount: amount.trim(),
-      assetId: asset,
+      assetId: asAssetId(asset),
       ...(sentMoney ? { transferId: transferId.trim() } : {}),
       contactedBy,
       ...(details.trim() ? { details: details.trim() } : {}),
