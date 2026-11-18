@@ -1,7 +1,6 @@
 /** Spaces and pots: shared pots, the income sorter, and a space's goal and lock. */
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
-import { spaceSchema } from './client';
 
 /** Shared pots (BK-acct-09, J-bank-07 #6): who shares which pot, invites with their lifetime, from the bank. */
 const sharedPotRoleSchema = z.enum(['contributor', 'viewer']);
@@ -125,7 +124,6 @@ export const spacesReads = {
   'sorter.runs': z.array(sorterRunSchema),
   'sharedPots.list': sharedPotsSchema,
   'sharedPots.activity': z.array(sharedPotActivitySchema),
-  'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
 } as const;
 

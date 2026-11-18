@@ -8,6 +8,7 @@ import {
   bankOwnSpacesInputSchema,
   bankOwnSpacesSchema,
 } from '@intafaced/contracts';
+import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { accountForSpace, lockEnd, type SpaceRecord } from '../spaces/space-service.js';
 import { assertSelf } from '../assert-self.js';
@@ -36,17 +37,8 @@ export function createSpacesRouter(c: BankRouterContext) {
   const { bank } = c;
   return router({
     list: scopedProcedure('bank:read', { module: 'bank' })
-      .input(
-        z.object({
-          assetId: z.string().min(1).max(16).optional(),
-          /**
-           * Page size. Optional so omit reaches `bank.spaces_list_limit_unset`
-           * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
-           */
-          limit: z.number().int().min(1).max(200).optional(),
-        }),
-      )
-      .output(z.array(spaceOutput))
+      .input(BANK_SPACES_LIST.input)
+      .output(BANK_SPACES_LIST.output)
       .query(async ({ ctx, input }) =>
         guard(async () => {
           const userId = ctx.principal.userId;
