@@ -152,6 +152,7 @@ import {
   staticBandInForce,
   type BandInForce,
 } from './futures/dynamic-price-band.js';
+import { sqlVenueAdlAcks } from './venue/venue-adl-acks.js';
 import { ADL_DISCLOSURE_VERSION, presentAdlDisclosureWire, sqlAdlDisclosureStore } from './futures/adl-disclosure.js';
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { derivativesAccessGate } from './futures/derivatives-access.js';
@@ -1840,6 +1841,7 @@ registerPrivateRest(app, {
   venueSellQuotes,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
+  venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
