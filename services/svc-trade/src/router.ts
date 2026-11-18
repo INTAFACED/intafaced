@@ -65,6 +65,7 @@ import { isPremarket } from './futures/premarket.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
 import { convertHistoryProcedures } from './convert/convert-history-router.js';
+import { staffAccessMineInputSchema, staffAccessMineOutputSchema } from '@intafaced/contracts/staff-access';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
@@ -1007,6 +1008,25 @@ export function createTradeRouter(
       agentDeskAdminRouter(agentDesk),
       quantLiveAdminRouter(quantHalts),
     ),
+    /**
+     * `staffAccess.mine`: the signed-in person's own access list (J-cex-spot-18 #5, row d115): every operator read or act
+     * that names their account, with the operator and the time, newest first.
+     */
+    staffAccess: router({
+      mine: scopedProcedure('trade:read')
+        .input(staffAccessMineInputSchema)
+        .output(staffAccessMineOutputSchema)
+        .query(async ({ ctx, input }) => {
+          if (!admin) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'trade_ops_admin_unconfigured' });
+          try {
+            return await admin.staffAccessOf(ctx.principal, input);
+          } catch (err) {
+            if (err instanceof TradeOpsError)
+              throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [trade_ops.${err.code}]`, cause: err });
+            throw toTrpcError(err);
+          }
+        }),
+    }),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
     /** `venue.ownActivity`: a person's own venue spot trading, svc-tax only (J-cex-spot-01 #11). Read-only. */

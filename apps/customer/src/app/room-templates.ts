@@ -328,6 +328,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/uc/account': { template: 'settings' },
   '/uc/safe': { template: 'settings' },
   '/uc/safe/compromised': { template: 'settings' },
+  '/uc/safe/staff-access': { template: 'settings' },
   '/uc/safe/api-keys': { template: 'settings' },
   '/uc/safe/api-keys/new': { template: 'flow' },
   '/uc/safe/api-keys/:keyId': { template: 'settings' },

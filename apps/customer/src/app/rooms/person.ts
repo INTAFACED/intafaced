@@ -14,6 +14,9 @@ export const personCopy = areaCopy({
     'Passkeys, sign-in checks and your devices': 'Passkeys, sign-in checks and your devices',
     'Create an API key': 'Create an API key',
     'Keys for your own programs to read and trade': 'Keys for your own programs to read and trade',
+    'Staff access': 'Staff access',
+    'Who on our staff looked at or acted on your trading account, and when':
+      'Who on our staff looked at or acted on your trading account, and when',
     'A new key with only the permissions it needs': 'A new key with only the permissions it needs',
     'API key': 'API key',
     'My account is compromised': 'My account is compromised',
@@ -137,6 +140,13 @@ export const personRooms = areaRooms('person', personCopy, [
     description: 'End every sign-in and key, freeze the account and work through a checklist',
     area: 'person',
     hidden: true,
+    screen: 'account',
+  },
+  {
+    path: '/uc/safe/staff-access',
+    title: 'Staff access',
+    description: 'Who on our staff looked at or acted on your trading account, and when',
+    area: 'person',
     screen: 'account',
   },
   {
