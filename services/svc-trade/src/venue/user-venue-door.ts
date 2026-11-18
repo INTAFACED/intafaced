@@ -1,8 +1,14 @@
 import { venueGatedList, type VenueGatedBlocker, type VenueGatedContract } from './venue-gated-list.js';
+import {
+  VENUE_ELIGIBILITY_LEVEL_UNSET,
+  venueEligibilityBlocker,
+  venueEligibleInstruments,
+  type VenueEligibilityLevel,
+} from './venue-eligibility.js';
 import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
-import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, type Principal } from '@intafaced/auth';
+import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, tradeTier, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
   annualisedFundingRate,
@@ -232,6 +238,10 @@ export type UserVenueDoorCode =
   | 'trade.venue_session_superseded'
   | 'trade.venue_own_key_misused'
   | 'trade.venue_sub_account_not_own'
+  // J-derivatives-12 #4 #5: the eligibility level for the venue's perpetuals (venue-eligibility.ts), and the builder-fee read.
+  | 'trade.venue_eligibility_level_unset'
+  | 'trade.venue_eligibility_level_insufficient'
+  | 'trade.venue_builder_fees_unmounted'
   // Convert's venue sell quotes (venue-sell-quotes.ts, J-cex-spot-17 #8).
   | 'trade.venue_sell_quote_unwired'
   | 'trade.venue_sell_quote_market_unknown'
@@ -427,6 +437,12 @@ export interface UserVenueDoorDeps {
    * `trade.cancel_all_after_unset`. Timeout 0 (remove it) is always allowed. Never a default.
    */
   readonly scheduledCancelTimeouts?: readonly number[] | null;
+  /**
+   * The owner's eligibility level for the venue's perpetuals (TRADE_USER_VENUE_ELIGIBILITY_LEVEL, J-derivatives-12 #5):
+   * `{ level: null }` when blank, so no account is eligible and a new perpetual position refuses. The service always
+   * wires it (venue/wire.ts); absent only in a unit test that does not exercise it, where no position is checked.
+   */
+  readonly eligibility?: { readonly level: VenueEligibilityLevel | null };
 }
 
 /**
@@ -1002,7 +1018,10 @@ export class UserVenueDoor {
    * J-derivatives-01 #2: every perpetual we show here, open or blocked for this account with every reason. `account` is
    * the region and level gate's reason, or null. A read: nothing is prepared or sent.
    */
-  async gatedList(account: VenueGatedBlocker | null): Promise<{ venueId: string; value: VenueGatedContract[]; asOf: Date }> {
+  async gatedList(
+    account: VenueGatedBlocker | null,
+    tier: string | null = null,
+  ): Promise<{ venueId: string; value: VenueGatedContract[]; asOf: Date }> {
     const venue = await this.venue();
     const read = await this.markets();
     const perps = read.value.filter((m) => m.kind === 'perpetual');
@@ -1011,10 +1030,37 @@ export class UserVenueDoor {
     const value = venueGatedList({
       markets: perps,
       account,
+      eligibility: this.deps.eligibility ? venueEligibilityBlocker(this.deps.eligibility.level, tier) : null,
       builderFeePublished: (symbol) => published.get(symbol) === true,
       venueName: venue.venue.displayName,
     });
     return { venueId: venue.venue.id, value, asOf: this.deps.now() };
+  }
+
+  /**
+   * J-derivatives-12 #5: the perpetuals this account is eligible for here, each with its settle asset, or none with the
+   * reason (the owner's level blank, or the account below it). `tier` is the caller's trading level. A read.
+   */
+  async eligibleInstruments(tier: string | null) {
+    const venue = await this.venue();
+    const listed = await this.markets();
+    const value = venueEligibleInstruments(listed.value, this.deps.eligibility?.level ?? null, tier);
+    return { venueId: venue.venue.id, value, asOf: listed.asOf };
+  }
+
+  /**
+   * A new perpetual position (an order that is not reduce-only, on a perpetual) refuses when the account is not eligible
+   * for the venue's perpetuals (J-derivatives-12 #5): the owner's level blank (422) or the account below it (403). Checked
+   * at preview and prepare, before anything is stored.
+   */
+  private async assertEligible(principal: Principal, venue: UserVenue, intent: VenueIntent): Promise<void> {
+    if (!this.deps.eligibility) return;
+    const level = this.deps.eligibility.level;
+    await eachOrder(intent, async (order) => {
+      if (order.reduceOnly || (await this.marketKind(venue, order.symbol)) !== 'perpetual') return;
+      const blocker = venueEligibilityBlocker(level, tradeTier(principal));
+      if (blocker) throw new UserVenueDoorError(blocker.message, blocker.code, blocker.code === VENUE_ELIGIBILITY_LEVEL_UNSET ? 422 : 403);
+    });
   }
 
   /** The venue's markets we show (an approved listing), each with our listing beside the venue's own state. */
@@ -1193,6 +1239,7 @@ export class UserVenueDoor {
     // The same order as prepare: the venue's own market list first (a symbol it does not list is its `unknown_market`),
     // then our builder fee, then our listing, routing state, dates and largest order.
     const withFee = await this.withBuilderFee(venue, intent);
+    await this.assertEligible(principal, venue, withFee);
     await this.admitPlace(venue.venue.id, withFee);
     // The winning discount as it stands: a coupon is named, never taken, by a preview.
     const { intent: priced, discount } = await this.withFeeDiscount(principal, withFee, intent.clientOrderKey, 'quote');
@@ -1449,6 +1496,7 @@ export class UserVenueDoor {
     const signer: VenueSigner = { role: req.signer.role, address: req.signer.address.toLowerCase() };
     let finalIntent: VenueIntent = intent;
     finalIntent = await eachOrder(finalIntent, (order) => this.withBuilderFee(venue, order));
+    await this.assertEligible(principal, venue, finalIntent);
     if (intent.kind === 'approve_builder_fee') {
       const builder = this.builderAddress();
       if (!builder) {

@@ -69,6 +69,7 @@ import { venueProtectCopy } from './venue-protect-copy';
 import { VenueCollateral, VenueTiers } from './VenueRisk';
 import { venueRiskCopy } from './venue-risk-copy';
 import { VenueFunding } from './VenueFunding';
+import { VenueAccount as VenueAccountPanel } from './VenueAccount';
 import { intervalText } from './venue-funding-logic';
 import { roomLeft, takenAssets } from './venue-risk-logic';
 import { canonical, protectionClientId } from './venue-protect-logic';
@@ -222,6 +223,7 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
       ) : null}
       {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
       {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+      {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
     </>
   );
 }

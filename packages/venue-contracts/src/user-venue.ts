@@ -1461,10 +1461,27 @@ export interface VenueAccountFees {
   readonly tierUpdatedAt: Date | null;
 }
 
+/**
+ * A fee the venue publishes beside its trading fees (J-derivatives-12 #2): its settlement fee and any other it charges,
+ * each in bps of the value it is charged on, with the venue's own words for when.
+ */
+export interface VenueOtherFee {
+  readonly kind: 'settlement' | 'liquidation' | 'other';
+  /** The venue's own name for the fee. */
+  readonly name: string;
+  /** The market it is charged on, or `null` for every market. */
+  readonly symbol: string | null;
+  readonly feeBps: Amount;
+  /** The venue's own words for what it is charged on. */
+  readonly rule: string;
+}
+
 /** `UserVenue.feeStatus`: the schedule, and the account's own fees when an account was named. */
 export interface VenueFeeStatus {
   readonly schedule: VenueFeeTiers;
   readonly account: VenueAccountFees | null;
+  /** The venue's settlement and other fees (J-derivatives-12 #2); absent or `null`: the venue publishes none. */
+  readonly otherFees?: readonly VenueOtherFee[] | null;
 }
 
 /**
