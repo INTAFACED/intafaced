@@ -2,11 +2,15 @@
 // Run: node --test tooling/scripts/verify-app.test.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  KEEP_DAYS,
   STEP_TITLE,
+  appFacts,
+  pruneRuns,
   doctorChecks,
   harnessNotes,
   shellWord,
@@ -417,4 +421,98 @@ test('run.json: a drive, whole or of steps, records nothing; only `pnpm local:st
   assert.equal('recordRun' in local, false, 'journey-local.mjs must not export recordRun: only `journey` records a run');
   const src = fs.readFileSync(fileURLToPath(new URL('./verify-app.mjs', import.meta.url)), 'utf8');
   assert.doesNotMatch(src, /\brecordRun\b|\.record\??\.?\(|\.jr\b[^\n]*run\.json[^\n]*write/, 'verify-app.mjs writes no run record');
+});
+
+test('feature file: a room’s states, the keys its screen and the shell bind, who it acts as, each step’s own needs, the TEST stand-ins (project-state #3041)', () => {
+  const src = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-map-'));
+  const put = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(src, rel)), { recursive: true });
+    fs.writeFileSync(path.join(src, rel), text);
+  };
+  put('app/rooms/room.ts', 'export type Room = { path: string };\n');
+  put(
+    'app/rooms/more.ts',
+    "export const rooms = [\n  { path: '/academy/:id', title: 'A', area: 'more', screen: 'academy' },\n  { path: '/learn', alias: '/academy/:id' },\n  { path: '/old', area: 'more' },\n];\n",
+  );
+  put('app/Shell.tsx', "import { Search } from './Search';\n");
+  put('app/Search.tsx', "export const Search = () => onKey((event) => event.key === '/');\n");
+  put('screens/academy/index.tsx', "import { Panel } from './Panel';\nconst later = import('../other');\n");
+  put(
+    'screens/academy/Panel.tsx',
+    "export const Panel = (e) => {\n  if (e.key === 'Escape') close();\n  if (row.key === 'volume') sort();\n};\n",
+  );
+  put('screens/other.tsx', "if (event.key === 'Enter') never();\n");
+  const doc = path.join(src, 'LOCAL-TEST-STACK.md');
+  fs.writeFileSync(
+    doc,
+    '## Every Customer door is reachable\n\n| Door | Not connected | Why |\n| --- | --- | --- |\n| Academy | Live classes, video | No LiveKit. |\n| P2P | Offer caps | Unset. |\n\n## Next\n',
+  );
+  const app = appFacts(src, doc);
+  const file = `// World: none
+import { test, expect } from './journey.mjs';
+import { testPerson } from './stack.mjs';
+import { staffSignIn } from './staff.mjs';
+const J = 'J-r-01';
+const who = testPerson('class');
+await staffSignIn(page, browser, 'support');
+test(\`\${J} #1 opens a class and its join button is disabled\`, async ({ page }) => {
+  await page.goto(\`/academy/\${id}\`);
+  await expect(page.getByRole('link')).toBeFocused();
+});
+test(\`\${J} #2 reads the candles\`, async ({ page }) => {
+  await page.goto('/old');
+  await page.goto('/nowhere');
+});
+`;
+  const found = journeyIndex(['J-r-01.pw.mjs'], () => file).get('J-r-01');
+  const j = { id: 'J-r-01', title: 'A class', persona: 'retail', tier: 'core', module: 'academy', order: 1, steps: [{ n: 1 }, { n: 2 }] };
+  const md = featureMarkdown(j, found, app);
+  assert.match(
+    md,
+    /- States its tests name: focus \(`J-r-01\.pw\.mjs:10`\), disabled \(`J-r-01\.pw\.mjs:8`\)\. Not named, so no drive shows them: hover, loading, empty, error or refusal, selected, open or expanded\./,
+  );
+  assert.match(
+    md,
+    /Open `\/academy\/…` in the app \(the journey's tests open it\)\. Keys its screen binds: Escape \(`screens\/academy\/Panel\.tsx:2`\)\.\n/,
+  );
+  assert.doesNotMatch(md, /volume|other\.tsx/, 'a sort key and a lazy import are no key a person presses');
+  assert.match(md, /Open `\/old` [^\n]*Its room \(`\/old`\) has no screen/);
+  assert.match(md, /Open `\/nowhere` [^\n]*No room row in `apps\/customer\/src\/app\/rooms\/` names it/);
+  assert.match(md, /- On every page with the app's top bar: \/ \(`app\/Search\.tsx:1`\)\./);
+  assert.match(md, /It acts as a TEST person it signs up itself, staff \(staffSignIn, staffFreeze\)\./);
+  assert.match(md, /Step #2\.\*\*[^\n]* It needs past trades \(`pnpm local:stack verify launch J-r-01`\)\./);
+  assert.match(md, /TEST stand-in: on this stack the Academy door's outside part \(Live classes, video\) is not connected/);
+  assert.doesNotMatch(md, /P2P door/);
+  assert.equal(appFacts(src, doc).rooms.length, 3);
+  fs.rmSync(src, { recursive: true });
+});
+
+test('stop prunes: a run folder older than the CI window goes; a young one, one a running process writes, and any other folder stay (project-state #3041)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-runs-'));
+  const now = Date.UTC(2026, 10, 19, 12);
+  const day = 24 * 3600 * 1000;
+  const make = (name, ageDays, pid) => {
+    fs.mkdirSync(path.join(dir, name));
+    fs.writeFileSync(path.join(dir, name, 'summary.md'), 'x');
+    if (pid) fs.writeFileSync(path.join(dir, name, 'pid'), `${pid}\n`);
+    const t = new Date(now - ageDays * day);
+    fs.utimesSync(path.join(dir, name), t, t);
+  };
+  const old = '20261020T100000Z-J-x-01-s1';
+  make(old, 30);
+  make('20261103T100000Z-J-x-01', 16, 999999999); // a pid no process has
+  make('20261110T100000Z-J-x-01-s2', 9); // younger than 14 days
+  make('20261020T100000Z-look-home', 30, process.pid); // a run this very process writes
+  make('20261020T110000Z-touched', 1); // started long ago, written to yesterday
+  make('notes', 60); // not a run folder
+  assert.equal(KEEP_DAYS, 14);
+  assert.equal(pruneRuns(dir, now), 2);
+  assert.deepEqual(fs.readdirSync(dir).sort(), [
+    '20261020T100000Z-look-home',
+    '20261020T110000Z-touched',
+    '20261110T100000Z-J-x-01-s2',
+    'notes',
+  ]);
+  assert.equal(pruneRuns(path.join(dir, 'absent'), now), 0);
+  fs.rmSync(dir, { recursive: true });
 });
