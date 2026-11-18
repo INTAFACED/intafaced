@@ -56,9 +56,11 @@ Within the floor, these win over any agent's or reviewer's preference.
 
 ## Where things are
 
+Where each kind of thing lives across the factory, this repo included, is one map: INTAFACED/project-state `AGENTS.md`, "Where things live" (the product spec is there too, under `product/`). This list names only what is inside this repo.
+
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the generated `docs/SERVICES.md`: apps, services, packages, ports, env, the money flow and how to run.
 - [`docs/agents/build-slice.md`](docs/agents/build-slice.md): how to build a journey and prove it. [`CONTRIBUTING.md`](CONTRIBUTING.md): setup, worktrees, commits and the CI check names.
 - [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations. [`docs/refs/`](docs/refs/): measured front-end references.
 - [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape. [`apps/customer/README.md`](apps/customer/README.md): where customer screens and rooms go.
 - Each service's `README.md`: read it before you edit that service. Find code with `rg`.
-- Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `triage-labels.md`, `domain.md`. Active work and owners: open GitHub PRs and issues. The original product spec, `INTAFACED_DEFINITIVE_BUILD.md`, is private: INTAFACED/project-state `product/INTAFACED_DEFINITIVE_BUILD.md`.
+- Issues and domain notes: `docs/agents/issue-tracker.md`, `domain.md`. Active work and owners: open GitHub PRs and issues.
