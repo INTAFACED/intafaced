@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
@@ -189,12 +189,18 @@ interface SideProps {
  */
 function LeadSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
   const { t } = deskCopy.useCopy();
+  const noteId = useId();
+  // The switch is named "Lead trade"; what it does is its description, outside the label.
   return (
-    <label className="dk-tif">
-      <input type="checkbox" role="switch" checked={on} onChange={(event) => onChange(event.target.checked)} />
-      <span className="dk-tif-label">{t('Lead trade')}</span>
-      <span className="dk-note-small">{on ? t('Lead trade on') : t('Lead trade off')}</span>
-    </label>
+    <div className="dk-tif">
+      <label>
+        <input type="checkbox" role="switch" checked={on} aria-describedby={noteId} onChange={(event) => onChange(event.target.checked)} />
+        <span className="dk-tif-label">{t('Lead trade')}</span>
+      </label>
+      <span id={noteId} className="dk-note-small">
+        {on ? t('Lead trade on') : t('Lead trade off')}
+      </span>
+    </div>
   );
 }
 

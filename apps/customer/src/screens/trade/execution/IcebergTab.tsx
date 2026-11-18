@@ -118,13 +118,22 @@ export function IcebergTab({ markets }: { markets: readonly ExecMarket[] }) {
           />
         </Field>
         {leadMode.isLead ? (
-          <label className="flex items-center gap-2 text-sm text-fg">
-            <input type="checkbox" role="switch" checked={false} disabled aria-describedby="iceberg-not-lead" onChange={() => undefined} />
-            {t('Lead trade')}
+          <div className="flex items-center gap-2 text-sm text-fg">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={false}
+                disabled
+                aria-describedby="iceberg-not-lead"
+                onChange={() => undefined}
+              />
+              {t('Lead trade')}
+            </label>
             <span id="iceberg-not-lead" className="text-muted">
               {t('Iceberg orders are never lead trades, so followers don’t copy them.')}
             </span>
-          </label>
+          </div>
         ) : null}
         <SegmentedControl
           aria-label={t('Side')}
