@@ -7,7 +7,6 @@ import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
 import { REACH_ATTACHMENT, makeLogReader, makeRecorder } from '../../../../tooling/scripts/journey-reach.mjs';
-import { STEP_PICTURE } from '../../../../tooling/ci/step-pictures.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
@@ -257,6 +256,9 @@ export const chromium = new Proxy(playwrightChromium, {
     return typeof v === 'function' ? v.bind(target) : v;
   },
 });
+
+/** The step picture's attachment name, as tooling/ci/step-pictures.mjs STEP_PICTURE reads it (a shard imports no judge file). */
+const STEP_PICTURE = 'step-picture';
 
 const extended = base.extend({
   // Every context a journey opens, through the `page` fixture or its own browser.newContext(), reports its sign-ins.

@@ -465,4 +465,7 @@ test('#2952 planted: the step picture is chosen over the window pictures of othe
   const pics = picturesIn(root);
   assert.match(pics.get('J-x-01#1').file, /t0\/step-picture\.png$/, 'the step picture, not the last window picture');
   assert.match(pics.get('J-x-01#2').file, /t1\/test-finished-1\.png$/, 'the control: no step picture, the last stays');
+  // The fixture that attaches it names it the same.
+  const fixture = readFileSync(new URL('../../apps/customer/tests/real-app/journey.mjs', import.meta.url), 'utf8');
+  assert.match(fixture, new RegExp(`const STEP_PICTURE = '${STEP_PICTURE}';`));
 });
