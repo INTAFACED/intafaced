@@ -126,6 +126,8 @@ describe('EvmLiveChain lookupSend while a send is on its way', () => {
       (err: unknown) => err,
     );
     expect(during.state).toBe('not_sent');
+    expect(sent).toBeInstanceOf(Error);
+    expect(String(sent)).toMatch(/answered not_sent and is closed/);
     expect(sent).toBeInstanceOf(BroadcastClosedError);
     expect(broadcasts).toBe(0);
   });
