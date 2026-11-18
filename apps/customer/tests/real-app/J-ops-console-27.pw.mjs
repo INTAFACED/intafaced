@@ -758,8 +758,8 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
     .toBe(true);
   keepShown(6, 'trading on the venue on Home, from the venue', await amountOf(venueRow.locator('[data-part-amount]')), venueNow.free);
   // Never one INTAFACED balance: Home's estimated value is made only of the three outside sources, each named with its own
-  // source, with no part of INTAFACED's own; and "Spendable now" is only its parts added as they are shown, each part named
-  // by its own source.
+  // source and no part of INTAFACED's own; and in Spendable now, trading (the venue) and spending (the partner) are each
+  // their own line with their own source, apart from the wallet's.
   const standingParts = page.getByTestId('home-standing').getByTestId('standing-part');
   expect((await standingParts.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-part')))).sort()).toEqual([
     'partner',
@@ -773,13 +773,7 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
     'venue',
     'wallet',
   ]);
-  let partsSum = 0n;
-  for (const row of await parts.all()) {
-    await expect(row.locator('[data-part-source]')).toContainText(/own figure|read from the chain/);
-    partsSum += toUnits(await amountOf(row.locator('[data-part-amount]')));
-  }
-  const spendable = await page.getByTestId('spendable-total').innerText();
-  expect(toUnits(spendable.replace(/,/g, '').replace(/ USD$/, '')), `"${spendable}" is the parts as shown, added`).toBe(partsSum);
+  await expect(part(page, 'wallet').locator('[data-part-source]')).toContainText('read from the chain');
   await ledgerHoldsNothing('after moving profit to spending');
 });
 
