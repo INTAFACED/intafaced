@@ -620,9 +620,7 @@ const deadPid = async () => {
 const sup = mkdtempSync(join(tmpdir(), 'local-test-market-supervise-'));
 const supState = join(sup, '.intafaced', 'local-test-stack');
 const supRun = join(supState, 'run');
-const recordsFile = join(supRun, 'processes.json');
-// The maker's record, in the stack's one process record (local-test-facts.mjs stackRecords), or undefined.
-const makerRecord = () => (existsSync(recordsFile) ? JSON.parse(readFileSync(recordsFile, 'utf8'))['market-maker'] : undefined);
+const pidFile = join(supRun, 'market.json');
 const logFile = join(supState, 'logs', 'market.log');
 const deadEdge = await freePort();
 const fakes = [];
@@ -633,29 +631,19 @@ try {
   const setPid = (pid, extra = {}) => {
     const fake = fakes.find((child) => child.pid === pid);
     const startedAt = fake ? new Date(readProcessIdentity(pid).startedAt).toISOString() : '2026-10-14T00:00:00.000Z';
-    writeFileSync(recordsFile, JSON.stringify({ 'market-maker': { pid, startedAt, ...(fake ? { argv: fake.spawnargs } : {}), ...extra } }));
+    writeFileSync(pidFile, JSON.stringify({ pid, startedAt, ...(fake ? { argv: fake.spawnargs } : {}), ...extra }));
   };
 
   // 9a. A stray word never starts a copy (`pnpm local:market status` once meant `start status`).
   let r = run(sup, ['start', 'status']);
   assert.equal(r.status, 2, r.stdout + r.stderr);
   assert.match(r.stderr, /unexpected argument "status"/);
-  assert.equal(makerRecord(), undefined, 'a stray argument must not start the market');
+  assert.equal(existsSync(pidFile), false, 'a stray argument must not start the market');
 
   // 9b. status: never started -> off; died on its own -> DOWN (exit 1); alive and writing -> ok; alive but silent -> STALE (exit 1).
   r = run(sup, ['status']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /not started/);
-  // svc-market's own record is `market` in the same file: never the maker's. Failure it prevents: the first cut of the
-  // one record keyed the maker `market`, so on CI the maker read svc-market as itself ("already running") and its stop
-  // signalled svc-market (#8811, every journey shard red).
-  writeFileSync(recordsFile, JSON.stringify({ market: { pid: process.pid, startedAt: new Date().toISOString() } }));
-  r = run(sup, ['status']);
-  assert.match(r.stdout, /not started/, "svc-market's record is not the maker's");
-  r = run(sup, ['stop']);
-  assert.match(r.stdout, /test market is not running/);
-  assert.equal(JSON.parse(readFileSync(recordsFile, 'utf8')).market.pid, process.pid, "the maker's stop leaves svc-market's record");
-  rmSync(recordsFile);
   setPid(await deadPid());
   r = run(sup, ['status']);
   assert.equal(r.status, 1);
@@ -684,7 +672,7 @@ try {
     r = run(sup, [cmd]);
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /already running/, cmd);
-    assert.equal(makerRecord().pid, fake.pid, `${cmd} must not replace the running copy`);
+    assert.equal(JSON.parse(readFileSync(pidFile, 'utf8')).pid, fake.pid, `${cmd} must not replace the running copy`);
   }
   writeFileSync(join(supRun, 'market.lock'), String(process.pid)); // held by a live process that is not the script
   setPid(await deadPid());
@@ -711,15 +699,15 @@ try {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /test market stopped/);
   await waitFor(() => fake.exitCode !== null || fake.signalCode !== null, 'the stopped market to exit');
-  assert.equal(makerRecord(), undefined);
+  assert.equal(existsSync(pidFile), false);
   r = run(sup, ['ensure']);
   assert.match(r.stdout, /not started; leaving it off/);
-  assert.equal(makerRecord(), undefined, 'ensure must not start a market that was never started or was stopped');
+  assert.equal(existsSync(pidFile), false, 'ensure must not start a market that was never started or was stopped');
   // stop after it died on its own also forgets it.
   setPid(await deadPid());
   r = run(sup, ['stop']);
   assert.match(r.stdout, /already down; forgot it/);
-  assert.equal(makerRecord(), undefined);
+  assert.equal(existsSync(pidFile), false);
 
   // 9e. ensure restarts a market that was running and died, with the same options, and the new copy names why it ended.
   const dead = await deadPid();
@@ -728,7 +716,7 @@ try {
   r = run(sup, ['ensure']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /was running \(pid \d+\) and is not now; starting it again/);
-  const rec = makerRecord();
+  const rec = JSON.parse(readFileSync(pidFile, 'utf8'));
   assert.notEqual(rec.pid, dead);
   assert.deepEqual(rec.args, args);
   await waitFor(
@@ -1044,11 +1032,7 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
       assert.match(r.stdout, /custody off|LEDGER_CUSTODY_LAYER off/, cmd);
       assert.match(r.stdout, cmd === 'history' ? /no TEST chart history written/ : /TEST market maker not started/, cmd);
     }
-    assert.equal(
-      JSON.parse(readFileSync(join(offState, 'run', 'processes.json'), 'utf8'))['market-maker'],
-      undefined,
-      'no maker was started',
-    );
+    assert.equal(existsSync(join(offState, 'run', 'market.json')), false, 'no maker was started');
     assert.equal(existsSync(join(offState, 'market-accounts.json')), false, 'no maker account was made or funded');
     assert.equal(existsSync(join(offState, 'logs', 'market.log')), false, 'nothing ran to log');
   } finally {

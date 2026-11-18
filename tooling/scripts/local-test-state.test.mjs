@@ -66,12 +66,10 @@ try {
     }),
   );
   fs.writeFileSync(
-    path.join(state, 'run', 'processes.json'),
+    path.join(state, 'run', 'market.json'),
     JSON.stringify({
-      'market-maker': {
-        pid: 999999999,
-        args: ['--edge-url', 'http://127.0.0.1:1'],
-      },
+      pid: 999999999,
+      args: ['--edge-url', 'http://127.0.0.1:1'],
     }),
   );
   result = run('local-test-market.mjs', 'ensure');
