@@ -643,3 +643,23 @@ export async function postgresAvailable(url?: string): Promise<boolean> {
     await sql.end({ timeout: 1 }).catch(() => undefined);
   }
 }
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const HEX_RUN = /(?<![0-9a-f])[0-9a-f]{32,}(?![0-9a-f])/gi;
+const CLOCK_TIME = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+
+/**
+ * Values as one text to search for something that must never be there: `expect(storedText(rows)).not.toContain('4321')`.
+ * Random ids (uuids), hex hashes (a run of 32 or more hex digits) and clock times are masked first, since any of them can
+ * hold any short run of digits by chance and fail the search with nothing leaked. A value stored in the clear, alone or
+ * inside other text, is never masked, so the search stays as strict. garden/no-raw-stored-search sends absence searches
+ * here.
+ */
+export function storedText(...values: unknown[]): string {
+  return values
+    .map((value) => (typeof value === 'string' ? value : JSON.stringify(value)))
+    .join('\n')
+    .replace(UUID, '<uuid>')
+    .replace(HEX_RUN, '<hash>')
+    .replace(CLOCK_TIME, '<time>');
+}

@@ -3,12 +3,12 @@ import type { PartnerCustody, PostingFreeze } from './partner-bank.js';
 import type { PartnerPurchaseCustody } from './partner-purchases.js';
 import type { PartnerRefusalCounts } from './partner-refusals.js';
 import type { PartnerStopService } from './partner-stops.js';
-import { testPartnerPurchases, type TestPartner } from './test-partner.js';
+import { testPartnerPurchases, type TestPartnerDoors } from './test-partner.js';
 
 /** The partner bank as the rest of svc-bank and the desk read it. An area of svc-bank (`area-chain.ts`). */
 export interface PartnerServices {
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
-  readonly testPartner: TestPartner | null;
+  readonly testPartner: TestPartnerDoors | null;
   /** Who holds each person's bank money: the partner, or (null) the custodial layer. */
   readonly partnerCustody: PartnerCustody;
   /** Who credits a partner-held person's purchase and reports what it holds back of it (J-wallet-01 #3). */

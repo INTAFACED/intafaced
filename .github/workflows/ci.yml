@@ -74,7 +74,7 @@ env:
 jobs:
   gates:
     name: Doctrine gates
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: about 2 min (the tooling tests are about 40 s of it)
     permissions:
       contents: read
@@ -234,6 +234,27 @@ jobs:
           if git rev-parse --verify -q 'HEAD^2' >/dev/null; then base='HEAD^1'; fi
           node "$guard" --base-ref "$base"
 
+      # A change to a judge's brief (REVIEW.md, READ.md) shows its score before and after (tooling/ci/brief-score-guard.mjs,
+      # project-state#2972): the body holds brief-cases.mjs's old and new Brief-score lines. From main like the guards
+      # above; it reads the body from the API, so re-running this job after a body edit reads the new body. Falls back
+      # to the PR copy only while main has none.
+      - name: Brief score guard (rules from main)
+        if: github.event_name == 'pull_request' && !cancelled()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          guard=tooling/ci/brief-score-guard.mjs
+          if git cat-file -e "origin/main:$guard" 2>/dev/null; then
+            git worktree add --detach "$RUNNER_TEMP/brief-base" origin/main
+            ln -s "$GITHUB_WORKSPACE/node_modules" "$RUNNER_TEMP/brief-base/node_modules"
+            guard="$RUNNER_TEMP/brief-base/$guard"
+          fi
+          base=origin/main
+          if git rev-parse --verify -q 'HEAD^2' >/dev/null; then base='HEAD^1'; fi
+          node "$guard" --base-ref "$base"
+
       # The redesign's drift lint, from main like the guard above: changed lines in apps/customer and packages/ui/src/lit take
       # their look from role tokens (no raw colours, pixel sizes or left/right sides). It ratchets: lines already on
       # main are not judged. Owner decision 2026-10-26 (redesign plan v2, lane B0). It runs when the guard above fails
@@ -250,7 +271,7 @@ jobs:
 
   changes:
     name: Affected tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: under 1 min; a slow registry install passed 5 min on three PRs on 2026-10-22
     outputs:
       full: ${{ steps.cls.outputs.full }}
@@ -272,7 +293,7 @@ jobs:
 
   format:
     name: Format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: 1-2 min
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -287,7 +308,7 @@ jobs:
 
   build:
     name: Typecheck & build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20 # healthy run: 4-11 min
     needs: [changes]
     steps:
@@ -413,7 +434,6 @@ jobs:
       fail-fast: false # a red shard must not hide what the others found
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
-    # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
     runs-on: ubuntu-24.04
     timeout-minutes: 45 # healthy run: 11-20 min
 
@@ -585,7 +605,7 @@ jobs:
     # the head, so a job of this name here would pass the required check in its place (journey-seal.mjs CI_JOBS_NAME,
     # sealNow). `CI merge seal` on a merge queue's commit, which merge-seal.yml never reaches.
     name: ${{ github.event_name == 'merge_group' && 'CI merge seal' || 'CI jobs' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25
     if: always()
@@ -697,7 +717,7 @@ jobs:
     name: Start the seal
     needs: [changes, gates, format, build, test-full, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
     permissions:
       contents: read

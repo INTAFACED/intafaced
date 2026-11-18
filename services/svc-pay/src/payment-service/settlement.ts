@@ -21,6 +21,7 @@ import { fireAffiliatePayout } from '../affiliate-payout.js';
 import type { MerchantRecord, PayServiceInternal, SettlementRecord, SettlementRow, SettlementStatus } from '../payment-service.js';
 import { fundsHeldOf, heldClearingOf } from './funds.js';
 import { PayError, appendEvent, lockPayment, publishedDefaultFeeBps, toSettlement, totalsFor, windowBounds } from './internal.js';
+import { moveSettlement } from './settlement-status.js';
 
 // ── Settlement (§6.1) ──────────────────────────────────────────────────────
 
@@ -261,11 +262,7 @@ export async function postPendingSettlement(
         }
       }
 
-      await tx`
-        UPDATE pay.settlements
-           SET status = 'posted', payout_method = 'ledger', settled_at = COALESCE(settled_at, now()), updated_at = now()
-         WHERE id = ${row.id}
-      `;
+      await moveSettlement(tx, row.id, { to: 'posted' });
 
       for (const { payment_id } of included) {
         await appendEvent(tx, payment_id, 'settled', {
@@ -605,14 +602,7 @@ export async function releasePendingSettlement(
         });
       }
 
-      await tx`
-        UPDATE pay.settlements
-           SET status = 'failed',
-               failed_at = now(),
-               failure_code = 'pay.settlement_released',
-               updated_at = now()
-         WHERE id = ${row.id}
-      `;
+      await moveSettlement(tx, row.id, { to: 'failed', failureCode: 'pay.settlement_released' });
 
       return toSettlement({ ...row, status: 'failed' });
     },

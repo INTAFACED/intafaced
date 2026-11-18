@@ -265,6 +265,11 @@
       "service": "trade",
       "value": "50",
       "note": "LOCAL TEST ONLY, not an owner decision: the largest page of GET /api/v1/venue/orders on the TEST venue (J-developer-05 #6). Blank, every list refuses trade.venue_orders_page_max_unset; LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX=off leaves it blank."
+    },
+    "TRADE_USER_VENUE_ELIGIBILITY_LEVEL": {
+      "service": "trade",
+      "value": "basic",
+      "note": "LOCAL TEST ONLY, not an owner decision: basic, the level the venue door already asks of a new order, as the verification level an account needs for the TEST venue's perpetuals (J-derivatives-12 #5). Blank, the eligible list is empty with trade.venue_eligibility_level_unset and every new perpetual position refuses; LOCAL_STACK_USER_VENUE_ELIGIBILITY=off leaves it blank."
     }
   }
 }

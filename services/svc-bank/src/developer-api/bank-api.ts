@@ -14,7 +14,7 @@ import {
   type PartnerPaymentMethod,
   type PartnerPaymentRecipient,
 } from '../partner/partner-bank.js';
-import type { TestPartner } from '../partner/test-partner.js';
+import type { TestPartnerDoors } from '../partner/test-partner.js';
 import { lockEnd, type SpaceRecord, type SpaceService } from '../spaces/space-service.js';
 import type { SharedPotService } from '../spaces/shared-pots.js';
 import { pinnedPost, type WebhookTransport } from './webhook-pinned-post.js';
@@ -128,7 +128,7 @@ export interface ApiDelivery {
 
 export interface BankApiOptions {
   /** The TEST partner, for its settle door only (`testPartner.settlePayment`). */
-  readonly testPartner?: TestPartner | null;
+  readonly testPartner?: TestPartnerDoors | null;
   /** dev/test only: a webhook endpoint on loopback, over http, is allowed (the URL guard's hatch). */
   readonly allowLocalHttp?: boolean;
   readonly transport?: WebhookTransport;

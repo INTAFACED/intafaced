@@ -12,7 +12,7 @@ import { readOperatorEnv } from '@/lib/operator-env';
  *
  * Server-loads the live control-plane snapshot so the first paint matches the edge. Flag overrides remain session
  * staging; module kills are two-founder requests the edge enforces, shown from what it returns. See the board and
- * `docs/OPS-KILL-SWITCH-RUNBOOK.md`.
+ * `docs/runbooks/OPS-KILL-SWITCH-RUNBOOK.md`.
  */
 export default async function KillSwitchesPage() {
   requireModulePage('killswitches');

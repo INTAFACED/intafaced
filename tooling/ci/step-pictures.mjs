@@ -5,8 +5,9 @@
  * code. J-charts-desk-14 (#8569) merged with eight FAITHFUL reads while its chart had zero height; the picture of its own
  * step showed the empty chart to a reader who was not told about it.
  *
- * Each test that has a page of its own attaches the whole of that page as it ended, named STEP_PICTURE (the
- * `stepPicture` fixture in apps/customer/tests/real-app/journey.mjs); that picture is the step's. Playwright also saves the
+ * Each test that has a page of its own attaches the whole of that page, named STEP_PICTURE, where it calls `stepPicture()`
+ * at the step's state, else as it ended (the `stepPicture` fixture in apps/customer/tests/real-app/journey.mjs; a test that
+ * leaves the step's screen last calls it before: garden/step-picture-before-leaving); that picture is the step's. Playwright also saves the
  * window of every page still open in the worker (`screenshot: 'on'` in the journeys config): a test with no step picture
  * keeps the last of those. project-state #2952: of the NOT SHOWN pictures sampled, most had the step's rows below the
  * window's edge, and some were a page an earlier file left open. real-app-journeys.yml uploads the pictures and the shard's

@@ -16,7 +16,7 @@
  */
 import { createHash } from 'node:crypto';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import type { TestPartner } from '../partner/test-partner.js';
+import type { TestPartnerDoors } from '../partner/test-partner.js';
 
 /**
  * TEST: confirmations the TEST partner waits for before it credits a pay-in. Not a partner's terms. The stack's TEST chain
@@ -116,7 +116,7 @@ export function unitsToAmount(units: bigint, decimals: number): Amount {
 }
 
 export function testPayInRail(options: {
-  partner: TestPartner;
+  partner: TestPartnerDoors;
   rpcUrl: string;
   chainId: number;
   token: string;
@@ -264,7 +264,7 @@ export function payInCredited(rail: PayInRail | null | undefined, userId: string
  * partner itself refuses to boot outside dev and test, and the rail refuses an RPC off loopback.
  */
 export function testPayInRailFor(
-  partner: TestPartner | null,
+  partner: TestPartnerDoors | null,
   settings: { rpcUrl?: string | undefined; chainId?: string | undefined; token?: string | undefined },
 ): PayInRail | null {
   const rpcUrl = settings.rpcUrl?.trim() ?? '';

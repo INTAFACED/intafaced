@@ -1,4 +1,5 @@
 import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
+import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -447,10 +448,12 @@ export function createPersonalPayApi(
   async function spaces(signal?: AbortSignal) {
     const denied = signedIn();
     if (denied) return denied;
-    const result = await api.query('bank', 'spaces.list', { limit: 200 }, z.array(s.spaceSchema), { signal });
+    const result = await api.call(BANK_SPACES_LIST, { limit: 200 }, { signal });
+    if (!result.ok) return result;
+    // A space the partner bank holds has no ledger account, so Pay cannot draw on it: it is not offered as a source.
+    const payable = result.data.flatMap((space) => (space.ledgerAccount ? [{ ...space, ledgerAccount: space.ledgerAccount }] : []));
     if (
-      result.ok &&
-      result.data.some(
+      payable.some(
         (space) =>
           space.ledgerAccount.assetId !== space.assetId ||
           (space.kind === 'primary'
@@ -459,7 +462,7 @@ export function createPersonalPayApi(
       )
     )
       return payRefusal('theSourceAccountProjectionDoesNotMatch', { code: 'pay.source_projection_invalid', reason: 'invalid_response' });
-    return result;
+    return { ok: true as const, data: payable };
   }
   return {
     spaces,

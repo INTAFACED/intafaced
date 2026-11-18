@@ -173,6 +173,17 @@ than that share of the best bid (blank: `trade.spread_limit_unset`; wider: `trad
 default; `GET /api/v1/venue/best-prices` answers both as known or unknown, so the desk closes market orders while either is
 blank (J-cex-spot-03 #2).
 
+**The trader's account reads (J-derivatives-12).** `GET /api/v1/venue/eligible-instruments` lists every perpetual we
+show on the venue, each with its settle asset, when the account meets the owner's eligibility level
+`TRADE_USER_VENUE_ELIGIBILITY_LEVEL` (`basic`, `full` or `institutional`; `src/venue/venue-eligibility.ts`, read through
+`tradeTier`); otherwise it is empty with the reason. Blank, the list names `trade.venue_eligibility_level_unset`, the gated
+list carries it on every perpetual, and a new perpetual position refuses with it at preview and prepare (422); below the
+level is `trade.venue_eligibility_level_insufficient` (403). A reduce-only order is never checked.
+`GET /api/v1/venue/builder-fees?owner=&since=` answers our builder fee on each fill of the caller's own orders on that
+account as the poster recorded it (`trade.venue_builder_fees`, read by the caller's user id), with its status and the
+ledger transaction it posted (`ledgerTxId`, null until posted). The venue's settlement and other fees ride on the fee
+status (`VenueFeeStatus.otherFees`, absent where the venue publishes none) and reach the desk through `fee-tier`.
+
 **Convert sell quotes on the venue (J-cex-spot-17 #8).** `POST /api/v1/venue/convert/sell-quote`
 `{ owner, symbol, amount, quoteKey }` (trade:write, as the preview) prices a spot sell by the venue's own preview of a
 market IOC sell of that size on the customer's venue account (`src/venue/venue-sell-quotes.ts`): what fills now, its

@@ -69,7 +69,7 @@ describe('the in-memory chain TEST pace (J-wallet-05 #8)', () => {
     await expect(chain.send({ to: TO, assetId: 'USDT', amount: amt('13'), idempotencyKey: 'k-13' })).rejects.toBeInstanceOf(
       ChainSendRefusedError,
     );
-    expect(await chain.lookupSend('k-13')).toEqual({ state: 'not_sent' });
+    expect(await chain.lookupSend('k-13')).toMatchObject({ state: 'not_sent' });
     expect(chain.totalSent('USDT')).toBe('0');
     await expect(chain.send({ to: TO, assetId: 'USDT', amount: amt('13.01'), idempotencyKey: 'k-1301' })).resolves.toMatchObject({
       txHash: expect.any(String),

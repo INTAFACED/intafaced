@@ -41,17 +41,16 @@ MSG
   if [ -f "$TOP/tooling/ci/journey-seal.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/ci/journey-seal.mjs --before-push) </dev/null; then exit 1; fi
 fi
 
-# CI's lint ratchet (a Doctrine gate), the same command on the files this push touches against origin/main, with main's
-# rules: under 2 seconds. A push that raised a rule was otherwise first seen as a red Doctrine gates job minutes after it
-# (J-campaigns-03 and J-agents-01 on 14 Nov, each a push spent on garden/no-promise-copy in a copy file).
+# CI's lint ratchet (a Doctrine gate), CI's own command: it fetches main and judges the files this push touches with
+# main's rules as they are now, never a stale origin/main. A push that raised a rule was otherwise first seen as a red
+# Doctrine gates job minutes after it (J-campaigns-03 and J-agents-01 on 14 Nov; J-cex-spot-10 and J-identity-22 on 17 Nov,
+# whose branches were cut before main gained garden/no-copied-journey-function).
 if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ] && [ ! -x "$TOP/node_modules/.bin/oxlint" ]; then
   echo "  ✖ lint-ratchet needs this worktree's oxlint — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
   exit 1
 fi
 if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ]; then
-  # --rules-ref: this hook runs on the Mac against origin/main; without it, under GITHUB_ACTIONS (its own tests in CI)
-  # the gate fetches the repository's main, which shares no history with a test's planted repository.
-  if ! (CDPATH= cd -- "$TOP" && node tooling/ci/lint-ratchet.mjs --rules-ref origin/main) </dev/null; then
+  if ! (CDPATH= cd -- "$TOP" && node tooling/ci/lint-ratchet.mjs) </dev/null; then
     cat >&2 <<'MSG'
 
   ✖ lint-ratchet failed — push refused.

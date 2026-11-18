@@ -33,8 +33,29 @@ export type ClaimResult =
   | { readonly kind: 'resume'; readonly signedRaw: string }
   | { readonly kind: 'closed' };
 
-/** `closed`: nothing was or will ever be sent under the key. `held`: a send holds the key, or its hash has landed. */
-export type CloseResult = 'closed' | 'held';
+const MINT: unique symbol = Symbol('KeyClosed');
+/**
+ * Proof that `BroadcastStore.close` took the key: nothing was or ever will be sent under it. Only this module can make
+ * one (its constructor needs a token nothing else holds), and a chain port's `not_sent` answer (`ChainSendLookup`)
+ * carries it, so a port cannot answer `not_sent` without closing the key first: a `not_sent` that left the key open
+ * would let a send still leave after its money was given back.
+ */
+export class KeyClosed {
+  readonly #minted = true;
+  constructor(
+    token: typeof MINT,
+    readonly closedKey: string,
+  ) {
+    if (token !== MINT || !this.#minted) throw new Error('KeyClosed is made only by BroadcastStore.close');
+  }
+}
+const keyClosed = (idempotencyKey: string): KeyClosed => new KeyClosed(MINT, idempotencyKey);
+
+/**
+ * `KeyClosed`: nothing was or will ever be sent under the key. `held`: a send has journalled signed bytes under the key,
+ * or its hash has landed, so it may have left.
+ */
+export type CloseResult = KeyClosed | 'held';
 
 const isHash = (v: string | null | undefined): v is string => Boolean(v) && v !== BROADCAST_PENDING && v !== BROADCAST_CLOSED;
 
@@ -61,8 +82,11 @@ export interface BroadcastStore {
   /** True once signed raw is journalled (resume-able). Required before RPC. */
   hasSigned(idempotencyKey: string): Promise<boolean>;
   /**
-   * Take the key's claim for a `not_sent` answer, with the same atomic insert `claim` uses. Won (or closed before):
-   * `closed`, and every later `claim` answers `closed`, so nothing is sent. Lost to a send: `held`.
+   * Close the key for a `not_sent` answer. A fresh key is taken with the same atomic insert `claim` uses; a key a send
+   * has claimed but not yet journalled signed bytes for is taken from it, so a sender that died or whose signer threw
+   * there leaves no claim nothing could ever answer. Either way every later `claim` answers `closed` and `putSigned`
+   * refuses, so nothing is sent: a send still signing fails at `putSigned`, before any broadcast. Signed bytes or a hash
+   * already journalled: `held`.
    */
   close(idempotencyKey: string): Promise<CloseResult>;
 }
@@ -81,11 +105,12 @@ export class MemoryBroadcastStore implements BroadcastStore {
   async close(idempotencyKey: string): Promise<CloseResult> {
     // Check + set with no await between — atomic on the JS event loop, like `claim`.
     const existing = this.map.get(idempotencyKey);
-    if (!existing) {
+    if (!existing || (existing === BROADCAST_PENDING && !this.signed.has(idempotencyKey))) {
       this.map.set(idempotencyKey, BROADCAST_CLOSED);
-      return 'closed';
+      this.#release(idempotencyKey);
+      return keyClosed(idempotencyKey);
     }
-    return existing === BROADCAST_CLOSED ? 'closed' : 'held';
+    return existing === BROADCAST_CLOSED ? keyClosed(idempotencyKey) : 'held';
   }
 
   async claim(idempotencyKey: string): Promise<ClaimResult> {
@@ -100,6 +125,7 @@ export class MemoryBroadcastStore implements BroadcastStore {
       if (raw) return { kind: 'resume', signedRaw: raw };
       await this.#waitUntilSettled(idempotencyKey);
       const settled = this.map.get(idempotencyKey);
+      if (settled === BROADCAST_CLOSED) return { kind: 'closed' };
       if (settled && settled !== BROADCAST_PENDING) {
         return { kind: 'done', txHash: settled };
       }
@@ -113,6 +139,11 @@ export class MemoryBroadcastStore implements BroadcastStore {
 
   async hasSigned(idempotencyKey: string): Promise<boolean> {
     return this.signed.has(idempotencyKey);
+  }
+
+  /** True once `close` took the key. */
+  isClosed(idempotencyKey: string): boolean {
+    return this.map.get(idempotencyKey) === BROADCAST_CLOSED;
   }
 
   async putSigned(idempotencyKey: string, signedRaw: string): Promise<void> {
@@ -221,11 +252,22 @@ export class PostgresBroadcastStore implements BroadcastStore {
       ON CONFLICT (idempotency_key) DO NOTHING
       RETURNING idempotency_key
     `) as ReadonlyArray<{ idempotency_key: string }>;
-    if (inserted.length > 0) return 'closed';
+    if (inserted.length > 0) return keyClosed(idempotencyKey);
+    // A claim with no signed bytes yet: nothing can have left, and its sender's `putSigned` (which needs the pending
+    // sentinel) now refuses, so taking it is safe whether that sender is gone or only slow.
+    const taken = await this.sql`
+      UPDATE pay.crypto_broadcasts
+      SET tx_hash = ${BROADCAST_CLOSED}, updated_at = now()
+      WHERE idempotency_key = ${idempotencyKey}
+        AND tx_hash = ${BROADCAST_PENDING}
+        AND signed_raw IS NULL
+      RETURNING idempotency_key
+    `;
+    if (taken.length > 0) return keyClosed(idempotencyKey);
     const rows = (await this.sql`
       SELECT tx_hash FROM pay.crypto_broadcasts WHERE idempotency_key = ${idempotencyKey}
     `) as ReadonlyArray<{ tx_hash: string }>;
-    return rows[0]?.tx_hash === BROADCAST_CLOSED ? 'closed' : 'held';
+    return rows[0]?.tx_hash === BROADCAST_CLOSED ? keyClosed(idempotencyKey) : 'held';
   }
 
   async claim(idempotencyKey: string): Promise<ClaimResult> {

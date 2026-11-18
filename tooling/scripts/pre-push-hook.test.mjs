@@ -16,8 +16,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-// CI is unset, so each push here runs as on a builder's machine, even when this file runs inside CI.
-const BUILDER = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CI'));
+// CI and GITHUB_ACTIONS are unset, so each push here runs as on a builder's machine, even when this file runs inside CI
+// (under GITHUB_ACTIONS the lint ratchet would fetch the real repository's main, which a planted repository shares nothing with).
+const BUILDER = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CI' && k !== 'GITHUB_ACTIONS'));
 
 function plant({ prettier = null, oxlint = false, ciChecks = 'process.exit(0);', base = {}, change = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'pre-push-'));
@@ -182,12 +183,11 @@ test('the tooling tests that read every journey file carry the marker, and each 
     .split('\n')
     .filter(Boolean)
     .sort();
-  // journey-navigation.test.mjs is the rule two journey builds broke on 14 Nov, each found only by a red Doctrine gates job;
-  // journey-world.test.mjs ("every real journey file declares at least what it changes") the one J-algo-dev-02 broke on
+  // journey-navigation.test.mjs, the rule two journey builds broke on 14 Nov, is now the lint garden/no-stale-read, which
+  // the lint ratchet runs before a push; journey-world.test.mjs ("every real journey file declares at least what it changes") the one J-algo-dev-02 broke on
   // 7d8e66a1 the same day.
   assert.deepEqual(marked, [
     'tooling/scripts/journey-freeze-guard.test.mjs',
-    'tooling/scripts/journey-navigation.test.mjs',
     'tooling/scripts/journey-world.test.mjs',
     'tooling/scripts/local-test-market-history.test.mjs',
     'tooling/scripts/real-app-navigation.test.mjs',
@@ -229,6 +229,39 @@ test('a push that raises a lint rule in the files it touches is refused, named, 
     assert.match(r.out, /lint-ratchet failed — push refused/);
     // The whole push, hook included, measured at about 2 s on the Mac; 20 s is what the ratchet may add.
     assert.ok(Date.now() - started < 20_000, `the push took ${Date.now() - started} ms`);
+  } finally {
+    p.done();
+  }
+});
+
+// J-derivatives-04's head ea7d4f6c (17 Nov): its branch was cut before main gained garden/no-history-comment's
+// [private-record], and CI's ratchet, judging by main as it was, refused two comments citing project-state; the push-time
+// run had judged by the worktree's stale origin/main. Replayed: the rule reaches the remote's main after the branch is
+// cut and origin/main is never fetched; the hook fetches main itself and refuses the push, with the line, as CI did.
+test('a rule main gained after the branch was cut refuses the push though origin/main is stale (J-derivatives-04 ea7d4f6c, replayed)', () => {
+  const off = JSON.parse(RATCHET['.oxlintrc.json']);
+  off.rules['garden/no-history-comment'] = 'off';
+  const file = 'apps/customer/tests/real-app/J-x.pw.mjs';
+  const p = plant({
+    prettier: 'exit 0',
+    oxlint: true,
+    base: { ...RATCHET, '.oxlintrc.json': JSON.stringify(off, null, 2) },
+    change: { [file]: '// The rule comes from project-state row d12.\nexport const x = 1;\n' },
+  });
+  try {
+    const stale = git(p.work, 'rev-parse', 'origin/main').trim();
+    // Main gains the rule on the remote; this worktree's origin/main stays where the branch was cut.
+    git(p.work, 'checkout', '-q', 'main');
+    writeFileSync(join(p.work, '.oxlintrc.json'), RATCHET['.oxlintrc.json']);
+    git(p.work, 'commit', '-q', '-am', 'main gains a rule');
+    git(p.work, 'push', '-q', '--no-verify', 'origin', 'main');
+    git(p.work, 'update-ref', 'refs/remotes/origin/main', stale);
+    git(p.work, 'checkout', '-q', 'feat');
+    const r = p.push();
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /garden\/no-history-comment\[private-record\] rose from 0 to 1/);
+    assert.match(r.out, /apps\/customer\/tests\/real-app\/J-x\.pw\.mjs:1 {2}\[private-record\]/);
+    assert.match(r.out, /lint-ratchet failed — push refused/);
   } finally {
     p.done();
   }

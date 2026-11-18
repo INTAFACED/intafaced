@@ -871,6 +871,9 @@ test('STACK_HELPERS holds every helper that code outside the journey files names
     .filter((f) => !f.startsWith(`${dir}/`) && !f.startsWith('docs/') && !/\.md$/.test(f) && !/\.(test|spec)\./.test(f))
     // This classifier names helpers only as its own data.
     .filter((f) => !['tooling/ci/journey-reach-map.json', 'tooling/ci/journey-touch.mjs'].includes(f))
+    // A lint rule names a helper only in its message (garden/no-stale-read names navigation.mjs as the fix); the lint
+    // never runs it, so a change to the helper can't break the rule or the stack.
+    .filter((f) => !f.startsWith('tooling/lint/'))
     .filter((f) => !f.startsWith('tooling/ci/') || JOURNEY_CI.includes(f))
     .filter((f) => !/\.(png|jpe?g|webp|gif|ico|woff2?|ttf|pdf|zip|gz|wasm|sha1)$/i.test(f) && statSync(join(ROOT, f)).size < 4e6);
   const texts = outside.map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]);
@@ -1648,32 +1651,92 @@ test('replay, 4 real pull requests (#8113, #8153, #8542, #8139): a named pull re
   }
 });
 
-test('a named pull request the map narrows runs its named journeys, its changed journey files and what the map selects, never the always-run list', () => {
+test('a named pull request the map narrows runs its named journeys, its changed journey files, what the map selects and its always-run list', () => {
   const c = REPLAY.cases[0];
   const { named, reach } = replayInputs(c);
   // The one product path of #8113 the map narrows (57 recorded journey files), alone.
   const paths = ['apps/customer/src/features/account/Promotions.tsx', 'apps/customer/tests/real-app/J-campaigns-06.pw.mjs'];
   const t = journeyTouch(paths, () => true, reach, named);
   assert.equal(t.mode, 'files');
-  const sel = reachSelect({ map: REPLAY.map, paths: [paths[0]], behind: 0, atHead: reach.journeyFiles, mode: 'reach', unrecorded: false });
+  const sel = reachSelect({ map: REPLAY.map, paths: [paths[0]], behind: 0, atHead: reach.journeyFiles, mode: 'reach' });
   assert.equal(sel.mode, 'files');
   for (const f of [...sel.files, ...named.files]) assert.ok(t.files.includes(f), f);
-  // The map's always-run journeys (its `full` list) stay with main's full run (project-state#2332).
-  const id = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1];
-  const picked = new Set([...sel.files, ...named.files].map(id));
-  // (A file of a picked journey runs with it, withSiblings.)
-  const always = Object.keys(REPLAY.map.full).filter((f) => reach.journeyFiles.has(f) && !picked.has(id(f)));
+  // The map's always-run journeys (its `full` list): no record says they miss what changed, so they run (#8851).
+  const always = Object.keys(REPLAY.map.full).filter((f) => reach.journeyFiles.has(f));
   assert.ok(always.length, 'the fixture has an always-run journey at the head');
-  for (const f of always) assert.equal(t.files.includes(f), false, f);
+  for (const f of always) assert.ok(t.files.includes(f), f);
   assert.match(
     t.named,
     /it names J-campaigns-06, so its 1 product path\(s\) run J-campaigns-06\.pw\.mjs and the \d+ journey file\(s\) the touched-journeys map says reach them/,
   );
-  assert.ok(t.reach?.length, 'the map says why');
+  assert.ok(
+    t.reach?.some((l) => /journey file\(s\) the map can't speak for run with every change/.test(l)),
+    JSON.stringify(t.reach),
+  );
   // Without the map (unreadable), the named rule stands as before: it never runs less.
   assert.deepEqual(journeyTouch(paths, () => true, null, named).files, named.files);
   // A map that can't speak (switched off) makes it full, never narrower.
   assert.equal(journeyTouch(paths, () => true, { ...reach, mode: 'off' }, named).mode, 'full');
+});
+
+// intafaced #8851: five named pull requests whose own journeys run left out the journey they broke on main, each
+// replayed with the touched-journeys map of its own hour (the newest one main's map workflow built before its last pull
+// request run, or the committed one when newer: builtMap, newerMap), its changed product and journey paths, the journey
+// files and the head texts loadersReach reads at its head, and only the map's entries the pick reads. #8802 also changed
+// `sources.mjs`, then a journey helper and since shared setup (full), so it is `left` out to replay the product cause.
+// #8802 (J-wallet-01, red on main 18 Nov) and #8495 (J-agents-12) broke a journey on the map's `full` list, which a named
+// run left out until this change; #8542, #8153 and #8113 go full by the 17 Nov route.
+const ALWAYS = JSON.parse(readFileSync(new URL('./fixtures/journey-touch-always-run.json', import.meta.url), 'utf8'));
+
+const hourInputs = (c) => {
+  const journeyFiles = new Set(c.journeyFiles);
+  const named = namedInputs({ ids: namedJourneyIds({ title: c.title, branch: c.branch }), journeyFiles });
+  const head = c.head && {
+    texts: new Map(c.head.texts),
+    dirs: new Map(c.head.dirs.map(([d, s]) => [d, new Set(s)])),
+    based: new Set(c.head.based),
+  };
+  return { named, reach: { map: c.map, behind: 0, journeyFiles, subscribes: (p) => c.subscribes.includes(p), head, mode: 'reach' } };
+};
+
+test('replay, 5 named pull requests with the map of their hour (#8802, #8495, #8542, #8153, #8113): the journey each broke runs', () => {
+  assert.deepEqual(
+    ALWAYS.cases.map((c) => [c.number, c.broken]),
+    [
+      [8802, 'J-wallet-01'],
+      [8495, 'J-agents-12'],
+      [8542, 'J-copy-bots-otc-03'],
+      [8153, 'J-cex-spot-17'],
+      [8113, 'J-campaigns-01'],
+    ],
+  );
+  for (const c of ALWAYS.cases) {
+    const { named, reach } = hourInputs(c);
+    assert.ok(named, `#${c.number} names a journey with a file at its head`);
+    const t = journeyTouch(c.paths, () => true, reach, named);
+    assert.equal(
+      runsBroken(t, c.broken),
+      true,
+      `#${c.number}: ${c.broken} runs on its own pull request (${t.mode}, ${t.files.length} files)`,
+    );
+  }
+  // #8802 as it ran: 327 journey files, J-wallet-02 to -07 and not J-wallet-01, which sat on the map's `full` list (its
+  // afterAll record never came in run 44186476434). Now that list runs with it, and the pick holds every journey: full.
+  const c = ALWAYS.cases[0];
+  assert.match(c.map.full['J-wallet-01.pw.mjs'], /afterAll record never came/);
+  const { named, reach } = hourInputs(c);
+  const sel = reachSelect({
+    map: c.map,
+    paths: c.paths.filter((p) => !RUN_FILE.test(p)),
+    behind: 0,
+    atHead: reach.journeyFiles,
+    head: reach.head,
+    mode: 'reach',
+  });
+  assert.equal(sel.mode, 'full', JSON.stringify(sel.because ?? sel.why));
+  assert.equal(journeyTouch(c.paths, () => true, reach, named).mode, 'full');
+  // #8495: J-agents-12 is on its hour's `full` list too, so it runs even where every changed path narrows.
+  assert.ok(ALWAYS.cases[1].map.full['J-agents-12.pw.mjs']);
 });
 
 test('replay, the seal: each of the 4 named pull requests no longer seals on a run of its named journey alone', async () => {
