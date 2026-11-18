@@ -448,6 +448,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     let t = Date.UTC(2026, 10, 9, 12);
     const { d } = door({ builder: null, now: () => new Date(t) });
     const venue = await d.venue();
+    const listed = venue.markets.bind(venue);
     const markets = vi.spyOn(venue, 'markets');
     // A sell: once its market is found, the blank builder fee refuses it, before the venue is asked.
     const unlisted = (n: number) => d.preview(principal, owner, order(n, { symbol: 'NEW-USDC', side: 'sell' }));
@@ -461,7 +462,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     // After 5 seconds a miss reads the list again, so a market the venue lists now is found.
     t += 1;
     markets.mockImplementationOnce(async (account) => {
-      const list = await HttpUserVenue.prototype.markets.call(venue, account);
+      const list = await listed(account);
       return { ...list, value: [...list.value, { ...list.value.find((m) => m.symbol === 'BTC-USDC')!, symbol: 'NEW-USDC' }] };
     });
     await expect(unlisted(43)).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
