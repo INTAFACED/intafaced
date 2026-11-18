@@ -358,8 +358,8 @@ test(`${J} #5 places a post-only lead order: with the leading instrument list bl
   // The founders set the list (their listing edit, as the console's does); a follower then copies the lead.
   await setLeadInstruments(applicant, state('displayName'), [BOOK, 'ETH/USDT']);
   const follower = await fundedTrader(page, 'jcf4', '500');
-  await followOnScreen(page, follower, leadRef, { perOrder: '200', total: '400', fixed: '50', markets: [BOOK] });
-  run.write({ follower });
+  const followId = await followOnScreen(page, follower, leadRef, { perOrder: '200', total: '400', fixed: '50', markets: [BOOK] });
+  run.write({ follower, followId });
 
   // The lead's buy is the best bid on the TEST lead book: one tick over anything an earlier run of this file left
   // resting, and under every ask, so it rests and only the TEST taker below fills it.
@@ -468,18 +468,24 @@ test(`${J} #6 places an iceberg order: not a lead trade; the toggle is forced of
       { timeout: 60_000, message: 'the iceberg never filled' },
     )
     .not.toBe('0');
-  await signOutBrowser(page.context());
-  await signIn(page, state('follower'));
+  // svc-trade logs the follower's skip of that fill with its reason; then the follow's Skipped tab shows it in words.
+  const skipLog = `/api/trade/trpc/copy.skipLog?input=${encodeURIComponent(JSON.stringify({ followId: state('followId') }))}`;
   await expect
     .poll(
       async () => {
-        const detail = await openFollow(page, state('leadRef'));
-        await detail.getByRole('tab', { name: 'Skipped', exact: true }).click();
-        return (await detail.getByRole('table', { name: 'Skipped copies', exact: true }).textContent()) ?? '';
+        const res = await (await api(state('follower'))).get(skipLog);
+        return (res.body?.result?.data?.items ?? []).map((s) => s.reason);
       },
       { timeout: 60_000, message: 'the iceberg fill was never logged as a skipped copy' },
     )
-    .toContain('The leader marked that order as not a lead trade, so it is not copied');
+    .toContain('not_lead_order');
+  await signOutBrowser(page.context());
+  await signIn(page, state('follower'));
+  const detail = await openFollow(page, state('leadRef'));
+  await detail.getByRole('tab', { name: 'Skipped', exact: true }).click();
+  await expect(detail.getByRole('table', { name: 'Skipped copies', exact: true })).toContainText(
+    'The leader marked that order as not a lead trade, so it is not copied',
+  );
 });
 
 test(`${J} #7 reaches the lead's equity minimum or daily buy cap, or a pair with no holding limit: the lead order is refused by code`, async ({
