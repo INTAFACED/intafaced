@@ -39,6 +39,7 @@
     "garden/switch-needs-default": "error",
     "garden/no-journey-sql-read": "error",
     "garden/no-hand-row": "error",
+    "garden/no-raw-stored-search": "error",
     "typescript/no-explicit-any": "error",
     "react-hooks/exhaustive-deps": "error",
     "react/refs": "off",
