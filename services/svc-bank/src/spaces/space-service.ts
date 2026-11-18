@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import {
   formatAmount,
   parseAmount,
@@ -8,9 +8,19 @@ import {
   type Amount,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { BankError } from '../errors.js';
 import { assertSpacesListLimit } from '../owner-list-limit.js';
+import { heldFigureWire, type ReportedFigureWire } from '@intafaced/venue-contracts';
+import {
+  custodialOnly,
+  partnerAccountFor,
+  partnerBalanceNotKnown,
+  partnerFigure,
+  reportedAmount,
+  type PartnerBalance,
+  type PartnerCustody,
+} from '../partner/partner-bank.js';
 import {
   RecipientStateUnavailableError,
   unconfiguredRecipientState,
@@ -35,6 +45,8 @@ export interface SpaceServiceOptions {
   readonly spaceLimit?: () => string | undefined;
   /** The owner's early-unlock wait in hours (`BANK_SPACE_UNLOCK_WAIT_HOURS`), read on each ask. */
   readonly unlockWaitHours?: () => string | undefined;
+  /** Whose bank money the partner holds (OWNER 226). Unset: nobody's, every balance is the ledger's as before. */
+  readonly custody?: PartnerCustody;
 }
 
 /** One message for frozen, closed and unknown. Never says which. */
@@ -155,8 +167,13 @@ function heldAvailable<B extends { account: { kind: string; assetId: string }; a
 }
 
 export interface SpaceView extends SpaceRecord {
-  /** Decimal string, straight from the ledger. Never persisted anywhere. */
+  /** Decimal string, straight from the ledger, or from the partner bank when it holds this money. Never persisted. */
   balance: string;
+  /**
+   * Set when the partner holds this money: whose figure it is, the partner's own time for it, and the displayed figure
+   * (b2 change 6: known or stale; an unknown figure refuses the read). Null: the ledger's.
+   */
+  heldAt: { readonly label: string; readonly asOf: string; readonly figure: ReportedFigureWire } | null;
 }
 
 export class SpaceService {
@@ -195,6 +212,19 @@ export class SpaceService {
   }
 
   /**
+   * Refuse a debit from a user identity says cannot send. The edge holds this for a person's own requests; a path with no
+   * edge in front of it (a withdrawal svc-pay asks for, a standing order on bank's own timer) asks here. Frozen, closed
+   * and unknown give `bank.sender_cannot_send`; an outage or a missing identity keeps its retryable/operator code.
+   */
+  async assertCanSend(userId: string): Promise<void> {
+    await this.assertCanReceive(userId).catch((err: unknown) => {
+      if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive')
+        throw new BankError('The sending account cannot send money right now; nothing was sent.', 'bank.sender_cannot_send');
+      throw err;
+    });
+  }
+
+  /**
    * The user's main balance in an asset, given a name.
    *
    * Created on demand rather than at registration: a user who has never held
@@ -203,7 +233,7 @@ export class SpaceService {
    * `spaces_one_primary_idx` makes the race safe — two concurrent calls produce
    * one row.
    */
-  async ensurePrimary(userId: string, assetId: string, name = 'Main', db: Sql = this.sql): Promise<SpaceRecord> {
+  async ensurePrimary(userId: string, assetId: string, name = 'Main', db: Queryable = this.sql): Promise<SpaceRecord> {
     const rows = await db<SpaceRow[]>`
       INSERT INTO bank.spaces (user_id, asset_id, kind, name)
       VALUES (${userId}, ${assetId}, 'primary', ${name})
@@ -241,7 +271,7 @@ export class SpaceService {
   }
 
   /** Lookup only. Does not invent a dest user or a primary space. */
-  async findPrimary(userId: string, assetId: string, db: Sql = this.sql): Promise<SpaceRecord | null> {
+  async findPrimary(userId: string, assetId: string, db: Queryable = this.sql): Promise<SpaceRecord | null> {
     const id = userId.trim();
     if (!id) return null;
     const rows = await db<SpaceRow[]>`
@@ -254,7 +284,7 @@ export class SpaceService {
   }
 
   /** Show a removed currency on the account again. A label: nothing moves. */
-  async restoreCurrency(userId: string, assetId: string, db: Sql = this.sql): Promise<void> {
+  async restoreCurrency(userId: string, assetId: string, db: Queryable = this.sql): Promise<void> {
     await db`
       UPDATE bank.spaces SET removed_at = NULL, updated_at = now()
        WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'primary' AND removed_at IS NOT NULL
@@ -293,7 +323,7 @@ export class SpaceService {
    * One customer's space labels, changed one call at a time: creates, restores and currency removals for a customer
    * take the same advisory lock. Read committed, so each statement after the lock sees what the call before it committed.
    */
-  async underSpaceLock<T>(userId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
+  async underSpaceLock<T>(userId: string, fn: (tx: Queryable) => Promise<T>): Promise<T> {
     return transaction(
       this.sql,
       async (tx) => {
@@ -322,7 +352,7 @@ export class SpaceService {
     await this.unarchive(spaceId);
   }
 
-  private async assertRoomForSpace(tx: Sql, userId: string, max: number): Promise<void> {
+  private async assertRoomForSpace(tx: Queryable, userId: string, max: number): Promise<void> {
     const count = await tx<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM bank.spaces WHERE user_id = ${userId} AND kind = 'named' AND archived_at IS NULL
     `;
@@ -342,7 +372,7 @@ export class SpaceService {
       goalTarget?: Amount | null;
       lockedUntil?: Date | null;
     },
-    db: Sql = this.sql,
+    db: Queryable = this.sql,
   ): Promise<SpaceRecord> {
     let rows: SpaceRow[];
     try {
@@ -388,7 +418,7 @@ export class SpaceService {
    * the same pool while holding the first (GitHub issue #4621). A read takes no
    * lock either way: the spaces row is read committed on whichever connection.
    */
-  async find(spaceId: string, db: Sql = this.sql): Promise<SpaceRecord | null> {
+  async find(spaceId: string, db: Queryable = this.sql): Promise<SpaceRecord | null> {
     const rows = await db<SpaceRow[]>`
       SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
         FROM bank.spaces WHERE id = ${spaceId}
@@ -397,7 +427,7 @@ export class SpaceService {
     return row ? toRecord(row) : null;
   }
 
-  async get(spaceId: string, db: Sql = this.sql): Promise<SpaceRecord> {
+  async get(spaceId: string, db: Queryable = this.sql): Promise<SpaceRecord> {
     const space = await this.find(spaceId, db);
     if (!space) throw new BankError(`Space ${spaceId} not found`, 'bank.space_not_found');
     return space;
@@ -479,7 +509,36 @@ export class SpaceService {
    * will not catch it, but the code review must.
    */
   async balanceOf(space: Pick<SpaceRecord, 'id' | 'userId' | 'assetId' | 'kind'>): Promise<Amount> {
+    const partner = this.custody.bankFor(space.userId);
+    // Partner-held (OWNER 226): the partner's figure, refused by name when it has not reported one, never 0.
+    if (partner) return reportedAmount(await partner.balance(partnerAccountFor(space)));
     return (await this.ledger.balance(accountForSpace(space))).amount;
+  }
+
+  /** Whose bank money is where: the partner for a person it holds money for, otherwise the ledger. */
+  get custody(): PartnerCustody {
+    return this.options.custody ?? custodialOnly;
+  }
+
+  /**
+   * The currencies a person holds in their main balance, above zero: the ledger's available balances, or the partner's
+   * main balances when it holds their money.
+   */
+  private async heldMain(userId: string, assetId?: string): Promise<Array<{ assetId: string; amount: Amount }>> {
+    const partner = this.custody.bankFor(userId);
+    if (partner) {
+      // A main balance the partner has not reported refuses by name (`bank.partner_balance_not_known`), never dropped
+      // from the person's view and never read as 0.
+      return (await partner.balances(userId))
+        .filter((b) => b.account.spaceId === null)
+        .filter((b) => assetId === undefined || b.account.assetId === assetId)
+        .map((b) => ({ assetId: b.account.assetId, amount: reportedAmount(b) }))
+        .filter((b) => b.amount > 0n);
+    }
+    return heldAvailable(await this.ledger.balances('user', userId), assetId).map((b) => ({
+      assetId: b.account.assetId,
+      amount: b.amount,
+    }));
   }
 
   /**
@@ -496,8 +555,25 @@ export class SpaceService {
     await this.ensureHeldPrimaries(userId, assetId);
     const spaces = await this.list(userId, assetId, limit);
     const views: SpaceView[] = [];
+    const partner = this.custody.bankFor(userId);
+    // One partner read for every account it holds for the person; an account it has not listed is asked for by itself.
+    const reports = new Map<string, PartnerBalance>();
+    if (partner) for (const b of await partner.balances(userId)) reports.set(`${b.account.assetId}|${b.account.spaceId ?? ''}`, b);
     for (const space of spaces) {
-      views.push({ ...space, balance: formatAmount(await this.balanceOf(space)) });
+      if (partner) {
+        const account = partnerAccountFor(space);
+        const reported = reports.get(`${account.assetId}|${account.spaceId ?? ''}`) ?? (await partner.balance(account));
+        const figure = partnerFigure(reported, partner.staleAfterMs, new Date());
+        // Unknown is never shown as a figure, and never as 0: the read refuses, naming the partner.
+        if (figure.state === 'unknown') throw partnerBalanceNotKnown(reported.label);
+        views.push({
+          ...space,
+          balance: figure.amount,
+          heldAt: { label: reported.label, asOf: figure.asOf.toISOString(), figure: heldFigureWire(figure) },
+        });
+      } else {
+        views.push({ ...space, balance: formatAmount(await this.balanceOf(space)), heldAt: null });
+      }
     }
     return views;
   }
@@ -515,16 +591,16 @@ export class SpaceService {
    */
   async ensureHeldPrimaries(userId: string, assetId?: string): Promise<void> {
     try {
-      const held = heldAvailable(await this.ledger.balances('user', userId), assetId);
+      const held = await this.heldMain(userId, assetId);
       if (held.length === 0) return;
       const rows = await this.sql<Array<{ asset_id: string; removed: boolean }>>`
         SELECT asset_id, removed_at IS NOT NULL AS removed FROM bank.spaces WHERE user_id = ${userId} AND kind = 'primary'
       `;
       const known = new Map(rows.map((r) => [r.asset_id, r.removed]));
       for (const b of held) {
-        const removed = known.get(b.account.assetId);
-        if (removed === undefined) await this.ensurePrimary(userId, b.account.assetId);
-        else if (removed) await this.restoreCurrency(userId, b.account.assetId);
+        const removed = known.get(b.assetId);
+        if (removed === undefined) await this.ensurePrimary(userId, b.assetId);
+        else if (removed) await this.restoreCurrency(userId, b.assetId);
       }
     } catch (err) {
       console.error(
@@ -547,15 +623,13 @@ export class SpaceService {
    * only from `spaces` would hide their own money from them.
    */
   async unnamedAssets(userId: string): Promise<Array<{ assetId: string; balance: string }>> {
-    const balances = await this.ledger.balances('user', userId);
+    const held = await this.heldMain(userId);
     const named = new Set((await this.namedSpaces(userId)).map((s) => s.assetId));
-    return heldAvailable(balances)
-      .filter((b) => !named.has(b.account.assetId))
-      .map((b) => ({ assetId: b.account.assetId, balance: formatAmount(b.amount) }));
+    return held.filter((b) => !named.has(b.assetId)).map((b) => ({ assetId: b.assetId, balance: formatAmount(b.amount) }));
   }
 
   /** Resolve a space for a money path, refusing the states that must not move value. */
-  async resolveForDebit(spaceId: string, now: Date, db: Sql = this.sql): Promise<SpaceRecord> {
+  async resolveForDebit(spaceId: string, now: Date, db: Queryable = this.sql): Promise<SpaceRecord> {
     const space = await this.get(spaceId, db);
     if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
     const until = lockEnd(space, now);
@@ -586,7 +660,7 @@ export class SpaceService {
   async resolveForCredit(
     spaceId: string,
     opts: { actingUserId?: string; alreadyBooked?: () => Promise<boolean> } = {},
-    db: Sql = this.sql,
+    db: Queryable = this.sql,
   ): Promise<SpaceRecord> {
     const space = await this.get(spaceId, db);
     if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
@@ -685,7 +759,7 @@ export class SpaceService {
    * Read one named, live pot of this owner under a row lock for a change of its goal, lock or bills pot role. Refuses the
    * primary space (the account itself has no goal or lock), an archived pot and another owner's pot, the last as not found.
    */
-  async ownPotForUpdate(tx: Sql, spaceId: string, userId: string): Promise<SpaceRecord> {
+  async ownPotForUpdate(tx: Queryable, spaceId: string, userId: string): Promise<SpaceRecord> {
     const rows = await tx<SpaceRow[]>`
       SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
         FROM bank.spaces
@@ -703,7 +777,7 @@ export class SpaceService {
   }
 
   /** One pot change in a read-committed transaction: the row lock in `ownPotForUpdate` orders racing changes. */
-  underRowLock<T>(fn: (tx: Sql) => Promise<T>): Promise<T> {
+  underRowLock<T>(fn: (tx: TransactionSql) => Promise<T>): Promise<T> {
     return transaction(this.sql, fn, { isolation: 'read committed' });
   }
 

@@ -14,21 +14,93 @@ export function localPgOsUser(env = process.env, uid = process.getuid?.()) {
   return uid === 0 ? env.LOCAL_STACK_PG_USER || 'postgres' : null;
 }
 
+// The state folder rule lives in local-test-facts.mjs, so the journeys read it without this script.
+import { localStackState } from './local-test-facts.mjs';
+
+export { localStackState };
+
+/** The services the journey helpers require running (assertActiveLocalStack); a first `start --only` must name them. */
+export const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
+
 /**
- * One state root for the stack and every helper. Never silently fall back after a typo. As root, set it outside root's
- * home (for example /var/lib/intafaced/local-test-stack): the database's OS user (localPgOsUser) cannot enter /root.
+ * The custody switch (OWNER 226, OWNER 288) the stack's running svc-ledger was started with: `on` or `off`. The stack
+ * records `LEDGER_CUSTODY_LAYER` on each process it starts with one (run/processes.json, local-test-stack.mjs
+ * startProc), so the TEST tools follow the ledger that is running, not the environment they happen to be called in.
+ * A ledger record without one was started before the switch was recorded, when every TEST stack ran it on.
+ * With it off INTAFACED's ledger holds no customer money: the TEST rig never posts to a person's account then
+ * (docs/LOCAL-TEST-STACK.md, "Custody off"). Throws when the stack has no ledger record.
  */
-export function localStackState(home = os.homedir(), env = process.env) {
-  if (env.LOCAL_STACK_STATE === undefined) return path.join(home, '.intafaced', 'local-test-stack');
-  const state = env.LOCAL_STACK_STATE;
-  if (!state.trim() || !path.isAbsolute(state)) throw new Error('LOCAL_STACK_STATE must be an absolute folder path');
-  return path.resolve(state);
+export function stackCustodyLayer(stateDir = localStackState()) {
+  let records;
+  try {
+    records = JSON.parse(fs.readFileSync(path.join(stateDir, 'run', 'processes.json'), 'utf8'));
+  } catch {
+    throw new Error(`refusing: no process records in ${stateDir}; start the stack first (pnpm local:stack)`);
+  }
+  if (!records?.ledger) throw new Error('refusing: the stack has no svc-ledger record; start the stack first (pnpm local:stack)');
+  return custodyLayerOf(records);
 }
 
-const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
+/**
+ * Whether the stack's running svc-ledger runs custody off. False when the stack has no process records yet: each tool's
+ * own checks then refuse, naming what is missing, as before. A recorded value that is neither on nor off still throws.
+ */
+export function stackCustodyOff(stateDir = localStackState()) {
+  if (!fs.existsSync(path.join(stateDir, 'run', 'processes.json'))) return false;
+  let records;
+  try {
+    records = JSON.parse(fs.readFileSync(path.join(stateDir, 'run', 'processes.json'), 'utf8'));
+  } catch {
+    return false;
+  }
+  return custodyLayerOf(records) === 'off';
+}
 
-/** ps exposes seconds; launch records are written immediately after spawn, in milliseconds. */
-export function processStartMatches(startedAt, actual) {
+/** stackCustodyLayer's reading of the process records alone (pure): svc-ledger's recorded switch, `on` when unrecorded. */
+export function custodyLayerOf(records) {
+  const value = records?.ledger?.custodyLayer ?? 'on';
+  if (value !== 'on' && value !== 'off') throw new Error(`refusing: svc-ledger's recorded custody switch is "${value}", not on or off`);
+  return value;
+}
+
+/** The typed refusal the TEST tools give for a person's money on a custody-off stack (`local:fund`, the seed, the world). */
+export const CUSTODY_OFF_CODE = 'local_test.custody_layer_off';
+export function custodyOffRefusal(what) {
+  return (
+    `${CUSTODY_OFF_CODE}: ${what} refused. This stack runs LEDGER_CUSTODY_LAYER off, as the launch build will, so ` +
+    "INTAFACED's ledger holds no customer money (OWNER 226, OWNER 288). A TEST person's money " +
+    'is where launch keeps it: at the TEST partner (testPartner.fund) or on their own TEST venue account. ' +
+    'Nothing was posted. Start the stack with LOCAL_STACK_CUSTODY_LAYER=on for the journeys marked Later: custody.'
+  );
+}
+
+/**
+ * The kernel's own birth mark for a process on Linux: field 22 of /proc/<pid>/stat, clock ticks since boot. It never
+ * moves while the process lives. The 2-second allowance below compares ps's lstart (on Linux derived from a boot time
+ * rounded to whole seconds, and moved by clock corrections) with a time written after spawn (late on a loaded runner);
+ * on CI one or both put a live service outside it and the stack refused its own service's port (#7488: trade in main
+ * run 42400147448; market in main run 42440617559). The mark comes from neither clock, so either cause is closed.
+ * Elsewhere (macOS) it is null and the start time is checked as before. Read only; never the process environment.
+ */
+export function readKernelStart(pid, { platform = process.platform, read = fs.readFileSync } = {}) {
+  if (platform !== 'linux' || !Number.isSafeInteger(pid) || pid <= 0) return null;
+  try {
+    const stat = String(read(`/proc/${pid}/stat`, 'utf8'));
+    // The command name (field 2) sits in parentheses and may hold spaces or ')'; the fields after the last ')' start at 3.
+    const ticks = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[22 - 3];
+    return /^\d+$/.test(ticks ?? '') ? ticks : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ps exposes seconds; launch records are written immediately after spawn, in milliseconds. A record that carries the
+ * kernel's birth mark (readKernelStart, taken at spawn) is held to that mark exactly wherever the kernel reports one,
+ * which is stricter than the 2-second allowance and immune to clock drift.
+ */
+export function processStartMatches(startedAt, actual, kernelStart) {
+  if (typeof kernelStart === 'string' && kernelStart && typeof actual?.kernelStart === 'string') return actual.kernelStart === kernelStart;
   const recorded = typeof startedAt === 'number' ? startedAt : Date.parse(startedAt);
   return Number.isFinite(recorded) && Number.isFinite(actual?.startedAt) && Math.abs(actual.startedAt - recorded) <= 2000;
 }
@@ -42,7 +114,7 @@ export function processRecordMatches(record, actual) {
     record.argv.length > 0 &&
     record.argv.every((arg) => typeof arg === 'string') &&
     actual?.command === record.argv.join(' ') &&
-    processStartMatches(record.startedAt, actual),
+    processStartMatches(record.startedAt, actual, record.kernelStart),
   );
 }
 
@@ -55,7 +127,7 @@ export function readProcessIdentity(pid) {
   });
   if (ps.status !== 0) return null;
   const match = ps.stdout?.trim().match(/^(\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/);
-  return match ? { startedAt: Date.parse(match[1]), command: match[2] } : null;
+  return match ? { startedAt: Date.parse(match[1]), command: match[2], kernelStart: readKernelStart(pid) } : null;
 }
 
 /** Match the whole -D value, so a sibling directory with the same prefix cannot pass. */
@@ -100,6 +172,7 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
       pid: record.pid,
       port: marker.ports[name],
       startedAt: Date.parse(record.startedAt),
+      kernelStart: record.kernelStart,
       matches: (actual) => actual.command === record.argv.join(' '),
     });
   }
@@ -107,7 +180,7 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
     const actual = processes.get(check.pid);
     if (!Number.isSafeInteger(check.pid) || check.pid <= 0 || !actual || !check.matches(actual)) refuse(`${check.name} process differs`);
     // ps reports seconds, while the stack records milliseconds immediately after spawning.
-    if (!processStartMatches(check.startedAt, actual)) refuse(`${check.name} process was replaced`);
+    if (!processStartMatches(check.startedAt, actual, check.kernelStart)) refuse(`${check.name} process was replaced`);
     if (!listeners.get(check.pid)?.has(`127.0.0.1:${check.port}`)) refuse(`${check.name} does not own its loopback port`);
   }
   return { stateDir, marker };
@@ -132,7 +205,12 @@ export function assertActiveLocalStack({ stateDir = localStackState(), services 
   const processes = new Map();
   for (const line of (ps.stdout ?? '').split('\n')) {
     const match = line.match(/^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/);
-    if (match) processes.set(Number(match[1]), { startedAt: Date.parse(match[2]), command: match[3] });
+    if (match)
+      processes.set(Number(match[1]), {
+        startedAt: Date.parse(match[2]),
+        command: match[3],
+        kernelStart: readKernelStart(Number(match[1])),
+      });
   }
   const sockets = spawnSync(
     fs.existsSync('/usr/sbin/lsof') ? '/usr/sbin/lsof' : 'lsof',

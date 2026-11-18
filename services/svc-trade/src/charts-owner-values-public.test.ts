@@ -16,6 +16,7 @@ const BLANK: ChartValues = {
   delayedBoundarySeconds: null,
   renderBudgetMs: null,
   orderProtectionBps: null,
+  queueFillWindowSeconds: null,
 };
 
 function deps(overrides: Partial<PublicRestDeps> = {}): PublicRestDeps {
@@ -68,6 +69,7 @@ describe('GET /api/v1/charts/owner-values', () => {
           delayedBoundarySeconds: 30,
           renderBudgetMs: 500,
           orderProtectionBps: 500,
+          queueFillWindowSeconds: 300,
         }),
       }),
     );
@@ -80,6 +82,7 @@ describe('GET /api/v1/charts/owner-values', () => {
       delayedBoundarySeconds: 30,
       renderBudgetMs: 500,
       orderProtectionBps: 500,
+      queueFillWindowSeconds: 300,
       dataClass: null,
     });
     expect(body).not.toHaveProperty('data');

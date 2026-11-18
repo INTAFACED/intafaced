@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { createDb } from '@intafaced/db';
 import { createEdgeContext } from '@intafaced/contracts';
-import { checkAccess, edgeTrustFromEnv } from '@intafaced/config';
+import { checkAccess, edgeTrustFromEnv, urlForLog } from '@intafaced/config';
 import { env } from './env.js';
 import { NullChainSource } from './chain/memory-source.js';
 import { EvmChainSource } from './chain/evm/source.js';
@@ -200,8 +200,7 @@ export const appRouter = createIndexerRouter({
 export type AppRouter = typeof appRouter;
 
 // Built before the listener opens: a service that cannot authenticate the edge
-// must fail to start, not start and serve every request as anonymous
-// (docs/decisions/mount-boundary.md).
+// must fail to start, not start and serve every request as anonymous.
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
 await registerIndexerPublicHttp(app, {
@@ -282,7 +281,8 @@ app.log.info(
     port: env.HTTP_PORT,
     chainId: env.INDEXER_CHAIN_ID,
     chainSource,
-    rpcUrl: env.INDEXER_RPC_URL || null,
+    // Scheme and host only: an RPC URL often carries an API key in its path or query.
+    rpcUrl: urlForLog(env.INDEXER_RPC_URL),
     venue: evmSource ? env.INDEXER_VENUE_ADDRESS : null,
     startHeight: env.INDEXER_START_HEIGHT,
     finalityDepth: env.INDEXER_FINALITY_DEPTH,

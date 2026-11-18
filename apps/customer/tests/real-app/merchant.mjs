@@ -3,8 +3,9 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { expect, test } from './journey.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 import { FAIL_FAST } from '../../../../tooling/scripts/journey-fail-fast.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, forgetSession, nextCode } from './identity-factors.mjs';
 
@@ -30,9 +31,14 @@ export async function businessReadyPerson(page, prefix, destination = '/pay/merc
  * "sign-in context changed", which a person typing never meets but a script filling in 200 ms does.
  */
 export async function signInWithCode(page, who, destination) {
-  const restored = page.waitForResponse((r) => r.url().includes('auth.refresh'), { timeout: 10_000 }).catch(() => null);
-  await page.goto(`/login?redirect=${encodeURIComponent(destination)}`);
-  await restored;
+  await answerAfterNavigation(
+    page,
+    (r) => r.url().includes('auth.refresh'),
+    () => page.goto(`/login?redirect=${encodeURIComponent(destination)}`),
+    {
+      timeout: 10_000,
+    },
+  ).catch(() => null);
   await expect(page.getByRole('button', { name: /^sign in$/i })).toBeEnabled();
   if (who.secret) {
     const { code, step } = await nextCode(who.totp, who.secret, who.step);
@@ -49,7 +55,7 @@ export async function signInWithCode(page, who, destination) {
 }
 
 /** How long the founders may take to put a business on its TEST tier (merchantTier). */
-export const MERCHANT_TIER_BUDGET_MS = 300_000;
+const MERCHANT_TIER_BUDGET_MS = 300_000;
 
 /**
  * Runs a founders' TEST script (`tooling/scripts/<script>`) and returns the JSON on its last stdout line. Asynchronous, so
@@ -70,14 +76,14 @@ export async function foundersScript(script, args) {
 }
 
 /** Puts a business on its TEST tier through the two founders (`local-test-merchant-pricing.mjs`); returns what they read back. */
-export const merchantTier = (merchantId, kind = 'open') => foundersScript('local-test-merchant-pricing.mjs', [merchantId, '--tier', kind]);
+const merchantTier = (merchantId, kind = 'open') => foundersScript('local-test-merchant-pricing.mjs', [merchantId, '--tier', kind]);
 
 /** Step 1 of setup, as the owner fills it: a TEST business with the stack's TEST starter fee. Stays on onboarding and
  * returns the new merchant's id. The stack enforces merchant controls (PAY_MERCHANT_CONTROLS=required), so the founders
  * then put the business on its TEST tier, with TEST intake caps and a TEST fee, before any journey takes a payment. */
 export async function openBusiness(page, who, legalName = 'TEST Merchant Ltd') {
-  const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
   await page.goto('/pay/onboarding/business');
+  const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
   await page.getByLabel('Legal business name *').fill(legalName);
   await page.getByLabel('Country code *').fill('DE');
   await page.getByLabel('Type of business *').fill('online shop');
@@ -127,7 +133,7 @@ async function chooseTakenCategory(page) {
  * svc-pay's two-person door (`local-test-world.mjs approve-kyb`). The owner signs in again after, for the new grant. */
 export async function verifiedBusiness(page, who, merchantId) {
   await sentForReview(page, who);
-  approveKyb(merchantId);
+  await approveKyb(merchantId);
 }
 
 /** The owner chooses a category and sends the verification reference from /pay/onboarding/verification; it reads In review. */
@@ -140,20 +146,45 @@ export async function sentForReview(page, who) {
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
 }
 
-/** The stack's TEST founder pair approves the business's verification (svc-pay's KYB decision door). */
-export function approveKyb(merchantId) {
-  const decided = JSON.parse(tool('local-test-world.mjs', 'approve-kyb', merchantId).trim().split('\n').pop());
+/**
+ * The stack's TEST founder pair approves the business's verification (svc-pay's KYB decision door). Asynchronous, as
+ * `foundersScript` is: the founders' sign-ins can wait out TOTP steps (about a minute), and a worker blocked that long
+ * never sees Edge close its idle kept-alive sockets, so its next call through Edge is written to a closed one and fails
+ * before any answer ("other side closed", #7461). With the worker free, the socket is dropped and a fresh one opened.
+ */
+export async function approveKyb(merchantId) {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-world.mjs'), 'approve-kyb', merchantId],
+    {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 120_000,
+    },
+  );
+  const decided = JSON.parse(stdout.trim().split('\n').pop());
   expect(decided.kybStatus).toBe('approved');
   return decided;
 }
 
-/** Every pay call the page makes that the service refuses, as "status procedure". */
+/**
+ * Every pay call the page makes that the service refuses, as "status procedure". Each refusal's own words (the service's
+ * message and code, and its request id) go on the test as a `refused-pay-call` annotation, so a refusal that happens once
+ * in a while names its cause in the report (#7962: a lone 401 on merchant.starterFee).
+ */
 export function refusedPayCalls(page) {
   const refused = [];
-  page.on('response', (res) => {
+  const info = test.info();
+  page.on('response', async (res) => {
     const url = new URL(res.url());
-    if (url.pathname.startsWith('/api/pay/') && res.status() >= 400)
-      refused.push(`${res.status()} ${url.pathname.replace('/api/pay/trpc/', '')}`);
+    if (!url.pathname.startsWith('/api/pay/') || res.status() < 400) return;
+    const call = `${res.status()} ${url.pathname.replace('/api/pay/trpc/', '')}`;
+    refused.push(call);
+    const body = await res.json().catch(() => null);
+    const error = (Array.isArray(body) ? body[0] : body)?.error;
+    const words = [error?.message, error?.data?.code, error?.data?.intafacedCode, res.headers()['x-request-id']];
+    const description = `${call}: ${words.map((word) => word ?? '-').join(' | ')}`;
+    info.annotations.push({ type: 'refused-pay-call', description });
   });
   return refused;
 }

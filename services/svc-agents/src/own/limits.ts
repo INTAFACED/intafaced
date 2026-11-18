@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, MoneyError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { OwnAgentRefusal } from './catalog.js';
@@ -51,7 +52,7 @@ function parseLimit(value: string | null | undefined): Amount {
 
 const min = (a: Amount, b: Amount): Amount => (a < b ? a : b);
 
-async function readRow(sql: Sql, ownerId: string, agentId: string): Promise<Row | null> {
+async function readRow(sql: Queryable, ownerId: string, agentId: string): Promise<Row | null> {
   if (!UUID_RE.test(agentId)) return null;
   const rows = await sql<Row[]>`
     SELECT a.per_session_cap::text AS agent_cap,
@@ -68,7 +69,7 @@ async function readRow(sql: Sql, ownerId: string, agentId: string): Promise<Row 
  * or the person's caps for it. Per session is the lower of the two; per call never exceeds per session. Read on the
  * caller's transaction, so a hold checks the caps as they stand under its lock.
  */
-export async function readOwnCaps(sql: Sql, ownerId: string, agentId: string): Promise<OwnCaps | null> {
+export async function readOwnCaps(sql: Queryable, ownerId: string, agentId: string): Promise<OwnCaps | null> {
   const row = await readRow(sql, ownerId, agentId);
   if (!row || row.agent_cap === null || row.per_call === null || row.per_session === null || row.per_period === null || !row.period) {
     return null;
@@ -126,7 +127,7 @@ export class OwnLimitsStore {
                per_period = EXCLUDED.per_period,
                updated_at = now()
       `;
-      const row = await readRow(tx as unknown as Sql, ownerId, agentId);
+      const row = await readRow(tx, ownerId, agentId);
       return view(row!);
     });
   }

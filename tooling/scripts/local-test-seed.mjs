@@ -34,7 +34,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
-import { localStackState } from './local-test-state.mjs';
+import { custodyLayerOf, custodyOffRefusal, localStackState } from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -308,7 +308,10 @@ export function guardSeed(env, stateDir, io = defaultIo) {
   if (ledger.hostname !== '127.0.0.1' || ledger.port !== String(marker.ports.ledger)) {
     throw new GuardError('refusing: ledger URL is not 127.0.0.1 on the marker ledger port');
   }
-  return { stateDir, marker, bankUrl, p2pUrl, ledgerUrl, internal: secrets.internal };
+  // The custody switch the running svc-ledger was started with (its process record, local-test-state.mjs).
+  const recordsPath = path.join(stateDir, 'run', 'processes.json');
+  const custodyLayer = custodyLayerOf(io.existsSync(recordsPath) ? readJson(io, recordsPath, 'run/processes.json') : {});
+  return { stateDir, marker, bankUrl, p2pUrl, ledgerUrl, internal: secrets.internal, custodyLayer };
 }
 
 // ── Ledger wire (same shape as local-test-stack cmdFund) ───────────────────
@@ -481,14 +484,23 @@ export async function applyP2p(deps) {
   return { methodId: schema.methodId ?? P2P_METHOD_ID, label: schema.label ?? P2P_LABEL };
 }
 
-export async function applyAll(deps) {
-  const earn = await applyEarn(deps);
-  const loans = await applyLoans(deps);
+/**
+ * Custody off (OWNER 226, OWNER 288): earn pools and loans hold a person's money in our ledger, and their reserves are
+ * funded through a deposit to the TEST funder's account (a person's account), which the ledger refuses. So `apply` on a
+ * custody-off stack leaves them out, saying so, and loads only what is INTAFACED's own or holds no money: the house
+ * Convert inventory and the TEST P2P method.
+ */
+export const CUSTODY_OFF_SEED = 'not loaded: custody off (they hold customer money in our ledger; Later: custody journeys only)';
+
+export async function applyAll(deps, { custodyLayer = 'on' } = {}) {
+  const off = custodyLayer === 'off';
+  const earn = off ? null : await applyEarn(deps);
+  const loans = off ? null : await applyLoans(deps);
   const house = await applyHouse(deps);
   const p2p = await applyP2p(deps);
   const lines = [
-    `earn pools: created ${earn.created}, skipped ${earn.skipped}`,
-    `loan products: created ${loans.created}, skipped ${loans.skipped}`,
+    off ? `earn pools: ${CUSTODY_OFF_SEED}` : `earn pools: created ${earn.created}, skipped ${earn.skipped}`,
+    off ? `loan products: ${CUSTODY_OFF_SEED}` : `loan products: created ${loans.created}, skipped ${loans.skipped}`,
     `house inventory: ${house.posted} assets posted on rail local-test`,
     `p2p method: ${p2p.methodId}`,
     FUNDS_LABEL,
@@ -1071,7 +1083,7 @@ export function parseArgs(argv) {
 async function dispatch(command, deps, hooks, operands = [], options = {}) {
   const out = hooks.out ?? ((line) => process.stdout.write(`${line}\n`));
   if (command === 'apply') {
-    const report = await applyAll(deps);
+    const report = await applyAll(deps, { custodyLayer: options.custodyLayer });
     for (const line of report.lines) out(line);
     return 0;
   }
@@ -1122,6 +1134,9 @@ async function dispatch(command, deps, hooks, operands = [], options = {}) {
  * `hooks.load` replaces `openLocal` in tests. `hooks.io` is the guard spy.
  * A refused guard returns 2 and does not call `load`.
  */
+/** Commands that only fund a reserve through the TEST funder's account: refused, typed, on a custody-off stack. */
+const CUSTODY_ON_ONLY_COMMANDS = new Set(['fund-earn-pool', 'fund-loan-reserve']);
+
 export async function main(argv, env = process.env, hooks = {}) {
   const log = hooks.log ?? ((line) => process.stderr.write(`${line}\n`));
   const io = hooks.io ?? defaultIo;
@@ -1131,7 +1146,12 @@ export async function main(argv, env = process.env, hooks = {}) {
     const load = hooks.load ?? openLocal;
     const deps = hooks.deps ?? (await load(plan));
     try {
-      return await dispatch(parsed.command, deps, hooks, parsed.operands, { noticeMinutes: parsed.noticeMinutes });
+      if (plan.custodyLayer === 'off' && CUSTODY_ON_ONLY_COMMANDS.has(parsed.command))
+        throw new GuardError(custodyOffRefusal(`${parsed.command} (a TEST reserve funded through the TEST funder's account)`));
+      return await dispatch(parsed.command, deps, hooks, parsed.operands, {
+        noticeMinutes: parsed.noticeMinutes,
+        custodyLayer: plan.custodyLayer,
+      });
     } finally {
       if (!hooks.deps && deps?.close) await deps.close();
     }

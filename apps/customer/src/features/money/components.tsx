@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
-import { useApi, useSession } from '../session/session';
+import { useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
@@ -234,6 +234,15 @@ export function scheduleWindowIssue(input: Record<string, unknown>): string | nu
 const outputNames: Record<string, string> = {
   get ledgerTxId() {
     return copyText('components.ledger.transaction');
+  },
+  get partnerMoveId() {
+    return copyText('components.partner.move');
+  },
+  get heldBy() {
+    return copyText('components.held.by');
+  },
+  get ledgerPosting() {
+    return copyText('components.ledger.posting');
   },
   get drawLedgerTxId() {
     return copyText('components.draw.transaction');

@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { flowSubjectHash, type PasswordResetMail } from './password-reset.js';
 
@@ -152,7 +152,7 @@ async function activeAccount(sql: Sql, identifier: string): Promise<Account | un
  * time is the service clock's, because the resend interval and the per-name cap are counted from it.
  */
 async function queueMail(
-  tx: Sql,
+  tx: Queryable,
   deps: LoginCodeDeps,
   flow: { id: string; identifier: string; account: Account | undefined; code: string; expiresAt: Date },
 ): Promise<void> {
@@ -172,7 +172,12 @@ async function queueMail(
  * oldest of them was sent. Counting by account too means asking by handle and by email does not double the guesses an
  * account can be tried with. The same statement runs for an unknown name (its account is null).
  */
-async function recentSends(tx: Sql, subjectHash: string, userId: string | null, since: Date): Promise<{ n: number; oldest: Date | null }> {
+async function recentSends(
+  tx: Queryable,
+  subjectHash: string,
+  userId: string | null,
+  since: Date,
+): Promise<{ n: number; oldest: Date | null }> {
   // Both locks are taken for every name, so the cap cannot be raced from two names of one account.
   await tx`SELECT pg_advisory_xact_lock(hashtext(${subjectHash}))`;
   await tx`SELECT pg_advisory_xact_lock(hashtext(${`login-code:${userId ?? subjectHash}`}))`;
@@ -245,7 +250,7 @@ type OpenFlow = {
   consumed_at: Date | null;
 };
 
-async function lockFlow(tx: Sql, flowId: string): Promise<OpenFlow | undefined> {
+async function lockFlow(tx: Queryable, flowId: string): Promise<OpenFlow | undefined> {
   if (!/^[0-9a-f-]{36}$/i.test(flowId)) return undefined;
   const rows = await tx<OpenFlow[]>`
     SELECT id, created_at, subject_hash, user_id, code_hash, status, attempts, expires_at, consumed_at

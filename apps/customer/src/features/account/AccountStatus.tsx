@@ -16,6 +16,7 @@ import { AccountAppeals } from './AccountAppeals';
 export function AccountStatus() {
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
+  const { timeZone } = usePreferences();
   const { resource, reload } = useResource(
     (signal) =>
       userId
@@ -37,10 +38,16 @@ export function AccountStatus() {
       );
     const status = resource.data;
     if (!status) return null;
+    // A staff close with a grace date (J-identity-14 #1): closed, but open to withdraw until the date.
+    const graceUntil = status.state === 'closed' ? (status.restrictions.find((r) => r.kind === 'closed')?.graceUntil ?? null) : null;
     return (
       <div className="stack">
-        <p data-testid="account-status__state" data-state={status.state}>
-          <Copy k={status.state === 'active' && status.restrictions.length > 0 ? 'activeWithRecords' : status.state} />
+        <p data-testid="account-status__state" data-state={status.state} data-grace-until={graceUntil ?? undefined}>
+          {graceUntil ? (
+            <Copy k="closing" params={{ time: stamp(graceUntil, timeZone) }} />
+          ) : (
+            <Copy k={status.state === 'active' && status.restrictions.length > 0 ? 'activeWithRecords' : status.state} />
+          )}
         </p>
         <div className="account-status__lists">
           <div>

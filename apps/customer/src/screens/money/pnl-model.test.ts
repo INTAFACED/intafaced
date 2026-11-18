@@ -471,3 +471,119 @@ describe('the five views (J-portfolio-05 #1)', () => {
     expect(pnlFigures(short, rows, now).day).toEqual({ kind: 'unknown', reason: 'cost_unknown' });
   });
 });
+
+// J-cex-spot-01 #11: lots and sales in the person's own venue account, beside the ledger's. TEST data, hand-computed.
+describe('venue account lots', () => {
+  const VENUE = 'venue:test-venue:0x00000000000000000000000000000000000000a1';
+  const lot = (over: Partial<LotBookLot>): LotBookLot => ({
+    id: 'lot:t1:BTC',
+    assetId: 'BTC',
+    acquiredAt: '2026-11-01T00:00:00.000Z',
+    source: 'trade',
+    qty: '1',
+    remaining: '1',
+    costUsd: '100',
+    remainingCostUsd: '100',
+    valuedAt: null,
+    daysHeld: 9,
+    termClass: null,
+    counted: true,
+    ...over,
+  });
+  const venueLot = lot({
+    id: `lot:${VENUE}:f1:BTC`,
+    venueAccount: VENUE,
+    qty: '0.00999',
+    remaining: '0.00999',
+    costUsd: '600',
+    remainingCostUsd: '600',
+  });
+  const withVenue = book({
+    assets: [
+      { assetId: 'BTC', openQty: '1', openCostUsd: '100', held: '1', uncountedQty: '0' },
+      { assetId: 'BTC', openQty: '0.00999', openCostUsd: '600', held: '0.00999', uncountedQty: '0', venueAccount: VENUE },
+    ],
+    lots: [lot({}), venueLot],
+    realizedUsd: null,
+    venue: {
+      status: 'read',
+      test: true,
+      accounts: [
+        {
+          account: VENUE,
+          venueId: 'test-venue',
+          owner: '0x00000000000000000000000000000000000000a1',
+          subAccount: null,
+          asOf: '2026-11-10T03:00:01.000Z',
+        },
+      ],
+    },
+  });
+
+  it('lists the venue account as its own account for the coin, after the main account', () => {
+    expect(lotAccounts(withVenue, 'BTC')).toEqual(['main', VENUE]);
+    expect(lotsOf(withVenue, 'BTC', VENUE).map((l) => l.id)).toEqual([venueLot.id]);
+    expect(lotsOf(withVenue, 'BTC', 'main').map((l) => l.id)).toEqual(['lot:t1:BTC']);
+    expect(lotsOf(withVenue, 'BTC').map((l) => l.id)).toEqual(['lot:t1:BTC', venueLot.id]);
+    expect(lotAccountFromQuery(`?account=${encodeURIComponent(VENUE)}`, lotAccounts(withVenue, 'BTC'))).toBe(VENUE);
+  });
+
+  it("values the venue coins at no price of ours: their unrealised result is not known, the ledger's is", () => {
+    const view = pnlView(withVenue, [row('BTC', '1', '150')]);
+    expect(view.assets.map((a) => [a.venueAccount, a.valueUsd, a.unrealisedUsd, a.reason])).toEqual([
+      [undefined, '150', '50', null],
+      [VENUE, null, null, 'no_price'],
+    ]);
+    expect(view.unrealisedUsd).toBeNull();
+  });
+
+  it('a venue sale picks only among its own account’s lots, and a ledger sale never a venue lot', () => {
+    const sale = (over: Partial<LotBookSale>): LotBookSale => ({
+      kind: 'sale',
+      counted: 'all',
+      method: 'FIFO',
+      methodSource: 'default',
+      pickedLotId: null,
+      assetId: 'BTC',
+      txId: 's1',
+      disposedAt: '2026-11-11T00:00:00.000Z',
+      qty: '0.001',
+      unmatchedQty: '0',
+      proceedsUsd: '59',
+      costUsd: '60',
+      realizedUsd: '-1',
+      matches: [],
+      ...over,
+    });
+    expect(pickableLots(withVenue, sale({ venueAccount: VENUE })).map((l) => l.id)).toEqual([venueLot.id]);
+    expect(pickableLots(withVenue, sale({})).map((l) => l.id)).toEqual(['lot:t1:BTC']);
+  });
+
+  it('the realised figure is the book’s total, ledger and venue together', () => {
+    const sold = book({
+      ...withVenue,
+      sales: [
+        {
+          kind: 'sale',
+          counted: 'all',
+          method: 'FIFO',
+          methodSource: 'default',
+          pickedLotId: null,
+          assetId: 'BTC',
+          txId: `${VENUE}:f3`,
+          disposedAt: '2026-11-11T00:00:00.000Z',
+          qty: '0.00999',
+          unmatchedQty: '0',
+          proceedsUsd: '592.6',
+          costUsd: '600',
+          realizedUsd: '-7.4',
+          matches: [],
+          venueAccount: VENUE,
+        },
+      ],
+      realizedUsd: '-7.4',
+    });
+    expect(pnlFigures(sold, [row('BTC', '1', '150')], Date.parse('2026-11-12T00:00:00Z')).realised).toEqual({ kind: 'value', usd: '-7.4' });
+    expect(pnlView(sold, null).realisedUsd).toBe('-7.4');
+  });
+});

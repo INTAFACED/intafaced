@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
 import { throwBankProcedure } from '../bank-procedure.js';
+import { BankError } from '../errors.js';
 import { STATEMENT_REPORTS } from './statement-service.js';
 
 /**
@@ -9,6 +10,12 @@ import { STATEMENT_REPORTS } from './statement-service.js';
  * own posted lines, plus a proof object that names the holder, the period and
  * the file hash. It does not state a balance.
  */
+
+export const lineTotalOutput = z.object({
+  asset: z.string(),
+  net: z.string().regex(/^-?\d+(\.\d{1,18})?$/),
+  lines: z.number().int().nonnegative(),
+});
 
 const statementOutput = z.object({
   format: z.enum(['csv', 'pdf']),
@@ -18,6 +25,8 @@ const statementOutput = z.object({
   sha256: z.string(),
   signature: z.string(),
   rowCount: z.number().int().nonnegative(),
+  /** Per asset, the net of the file's lines; the same fold as `activity.totals`. Not a balance. */
+  totals: z.array(lineTotalOutput).optional(),
   generatedAt: z.string().datetime(),
   proof: z.object({
     holderUserId: z.string().guid(),
@@ -86,6 +95,53 @@ export function createStatementsRouter(bank: Pick<BankServices, 'statements' | '
           throwBankProcedure(err);
         }
       }),
+    /** J-bank-16 #1: the net per asset of every posted line in a range, the same fold a statement prints. Self-only. */
+    totals: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z
+          .object({
+            from: z.string().datetime({ offset: true }),
+            to: z.string().datetime({ offset: true }),
+            assetId: z.string().min(1).max(16).optional(),
+          })
+          .strict(),
+      )
+      .output(z.object({ totals: z.array(lineTotalOutput), lines: z.number().int().nonnegative() }))
+      .query(async ({ ctx, input }) => {
+        try {
+          return await bank.statements.totals(ctx.principal.userId, input);
+        } catch (err) {
+          throwBankProcedure(err);
+        }
+      }),
+    letters: router({
+      /**
+       * J-bank-16 #2 (BK-acct-07): an account ownership letter or a balance certificate. A letter is issued on a banking
+       * partner's paper, and none is wired, so the request refuses `rail.bank` and nothing is stored or sent.
+       */
+      request: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ kind: z.enum(['ownership', 'balance']) }).strict())
+        .output(z.object({ id: z.string() }))
+        .mutation(async () => {
+          throwBankProcedure(
+            new BankError('A bank letter is issued with a banking partner, and none is connected in this build', 'rail.bank'),
+          );
+        }),
+    }),
+    /**
+     * J-bank-16 #3 (BK-acct-07): tax statements. They are produced by a tax calculation provider, and none is wired, so
+     * the list refuses `vendor.tax`; no tax figure is worked out here.
+     */
+    tax: router({
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ year: z.number().int().min(1970).max(2200) }).strict())
+        .output(z.object({ items: z.array(z.object({ id: z.string() })) }))
+        .query(async () => {
+          throwBankProcedure(
+            new BankError('Tax statements are produced by a tax calculation provider, and none is connected in this build', 'vendor.tax'),
+          );
+        }),
+    }),
     /**
      * PF-statements-02: background exports. `create` refuses now what the file would be refused for, else returns the one
      * job for that request (the same request, the same job); `list` is the document centre; `download` hands back a ready

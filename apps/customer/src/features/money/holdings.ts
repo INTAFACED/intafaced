@@ -23,8 +23,9 @@ export function heldAssets(holdings: readonly Holding[], spaces: readonly Pick<S
     if (known === undefined || amount > known) byAsset.set(assetId, amount);
   };
   for (const holding of holdings) add(holding.assetId, holding.available);
-  // A space the customer owns also proves they hold that asset, even when the balance feed is down.
-  for (const space of spaces) if (!byAsset.has(space.assetId)) add(space.assetId, space.balance);
+  // A space the customer owns also proves they hold that asset, even when the balance feed is down, or reads 0 because the
+  // partner bank holds the money and our ledger has none of it (OWNER 226).
+  for (const space of spaces) if (!byAsset.get(space.assetId)) add(space.assetId, space.balance);
   const dollar = new Set(['USDT', 'USDC', 'USD']);
   return [...byAsset]
     .filter(([, amount]) => amount > 0n)

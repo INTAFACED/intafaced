@@ -61,7 +61,7 @@ function store(rows: PerkRow[]) {
   };
   Object.defineProperty(sql, 'writes', { get: () => state.writes });
   Object.defineProperty(sql, 'loads', { get: () => state.loads });
-  return sql as unknown as Parameters<typeof changeFeeTier>[0] & {
+  return sql as Parameters<typeof changeFeeTier>[0] & {
     writes: number;
     loads: number;
     rows: PerkRow[];

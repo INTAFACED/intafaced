@@ -1,0 +1,52 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  // tooling/ci/dead-code.mjs runs knip with this file and holds what it finds to tooling/ci/dead-code-baseline.json, which
+  // may only shrink. An entry is a file a runner starts by itself: a test, a Playwright journey or config, a gate, a
+  // package's own start file. A file or export no entry reaches is dead.
+  //
+  // The Playwright, Drizzle and Capacitor plugins are off: each loads its config file to find entries, and those configs
+  // refuse outside a running stack, an earlier build or a deploy setting, so knip would read a different repo on a
+  // different machine. Their files are named below instead.
+  "playwright": false,
+  "drizzle": false,
+  "capacitor": false,
+  "workspaces": {
+    ".": {
+      // Started by name: the gates (tooling/ci/gates.mjs), the look gate (look-gate.yml, through a variable), the compose
+      // files' tooling/infra scripts and T3's worktree setup (t3.json).
+      "entry": [
+        "tooling/**/*.test.{mjs,js}",
+        "tooling/ci/*.mjs",
+        "tooling/ci/look-gate/look-gate.mjs",
+        "tooling/infra/*.mjs",
+        "tooling/t3/setup-worktree.mjs",
+        "*.{mjs,js,cjs,ts}",
+      ],
+      "project": ["tooling/**/*.{mjs,cjs,js,ts}", "*.{mjs,js,cjs,ts}", "!tooling/pay-sim/**"],
+    },
+    "{apps,services,packages,tooling,sites}/*": {
+      "entry": [
+        "**/*.{test,spec,node-test}.{ts,tsx,mjs,js,cjs}",
+        "**/*.pw.{mjs,ts}",
+        "**/*.config.{ts,mjs,js,cjs}",
+        "**/harness/main.tsx",
+        "src/{index,main,server,worker}.{ts,tsx}",
+        "src/db/schema.ts",
+      ],
+      "project": ["**/*.{ts,tsx,mjs,js,cjs}"],
+    },
+    "apps/customer": {
+      // The real-app config names its reporter by path; knip reads no path strings.
+      "entry": [
+        "**/*.{test,spec,node-test}.{ts,tsx,mjs,js,cjs}",
+        "**/*.pw.{mjs,ts}",
+        "**/*.config.{ts,mjs,js,cjs}",
+        "**/harness/main.tsx",
+        "src/main.tsx",
+        "tests/real-app/fail-fast-once.mjs",
+      ],
+      "project": ["**/*.{ts,tsx,mjs,js,cjs}"],
+    },
+  },
+  "ignore": ["**/dist/**", "**/fixtures/**", "**/__fixtures__/**", "**/*.d.ts"],
+}

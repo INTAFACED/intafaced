@@ -882,7 +882,7 @@ describe('futures contract families, expiry schedule and pre-market', () => {
         depth: async () => ({ bids: [], asks: [], sequence: 1 }),
         publicTape: async () => [],
         candles: async () => [],
-      } as unknown as PublicRestDeps);
+      } as PublicRestDeps);
       await app.ready();
       const res = await app.inject({ method: 'GET', url: '/api/v1/markets?limit=50' });
       expect(res.statusCode).toBe(200);

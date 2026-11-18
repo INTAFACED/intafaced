@@ -1,7 +1,7 @@
 import { matchPath } from '../../app/path-match';
 
 /**
- * The Web3 route table (IA-SPEC 2.8). Pure data: navigation.ts reads it to register the rooms and ProtocolRoutes.tsx
+ * The Web3 route table (IA-SPEC 2.8). Pure data: app/rooms/web3.ts reads it to register the rooms and ProtocolRoutes.tsx
  * reads it to mount one component per route. A route with `pending` has its full layout but no data source yet; it names
  * the blocker instead of showing a blank.
  */
@@ -23,6 +23,12 @@ export const WALLET_SECTIONS = {
   sessionKeys: '/wallet/session-keys',
   accounts: '/wallet/accounts',
   safety: '/wallet/safety',
+  /** Any public address's holdings and history, read with nothing about the person (J-dex-protocol-06 #5 #6). */
+  tracker: '/wallet/track',
+  /** The person's own wallet connected to their account for venue trading (J-wallet-09). */
+  venue: '/wallet/venue',
+  /** The person's own embedded self-custody wallet, made with a passkey and no seed phrase (J-wallet-22). */
+  embedded: '/wallet/embedded',
 } as const;
 export type WalletSection = keyof typeof WALLET_SECTIONS;
 
@@ -39,12 +45,20 @@ export interface Web3Route {
   walletClaim?: true;
   /** The Tokens room, or one token's page by its address. */
   tokens?: 'list' | 'detail';
+  /** The person's own wallet orders (D-limit-dca-01 to -04). */
+  orders?: true;
   /** One pool's page by its contract address (D-explorer-05). */
   pool?: 'detail';
   /** One contract's page by its address: source status, proxy, Read and Write (D-explorer-06). */
   contract?: true;
+  /** One token the connected wallet holds, with its entry price (J-dex-protocol-06 #3). */
+  walletToken?: true;
+  /** One convention the wallet portfolio follows, in plain words (J-dex-protocol-06 #2). */
+  walletConvention?: true;
   /** An address page, the account's watched addresses, one block by height or one transaction by hash. */
   explorer?: 'address' | 'watchlist' | 'block' | 'tx';
+  /** The liquidity rooms (D-liquidity-01..04): a new pool, adding to one pool, the wallet's positions, one position. */
+  liquidity?: 'new' | 'add' | 'positions' | 'position';
   /** The shape the route's parameter must have; anything else is answered not found without a lookup. */
   param?: { name: string; shape: RegExp };
   pending?: { page: PendingPage; blocker: PendingBlocker; param?: { name: string; shape: RegExp } };
@@ -56,6 +70,8 @@ const txHash = /^0x[0-9a-fA-F]{64}$/;
 /** A 20-byte hex address, the shape every address route and the token page accept. */
 export const ADDRESS_SHAPE = /^0x[0-9a-fA-F]{40}$/;
 const id = /^[A-Za-z0-9_.:-]{1,128}$/;
+/** A position's id: its pool's address and the holder's, `<pool>:<account>`. */
+const POSITION_ID = /^0x[0-9a-fA-F]{40}:0x[0-9a-fA-F]{40}$/;
 /** A wallet group's id, as svc-protocol issues it. */
 export const WALLET_GROUP_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const walletGroupPath = (groupId: string) => `/wallet/groups/${encodeURIComponent(groupId)}`;
@@ -64,19 +80,20 @@ export const walletGroupPath = (groupId: string) => `/wallet/groups/${encodeURIC
 export const WEB3_ROUTES: readonly Web3Route[] = [
   { path: '/dex', room: 'dex', tab: 'swap' },
   { path: '/dex/pools', room: 'dex', tab: 'pools' },
-  { path: '/dex/pools/new', room: 'dex', pending: { page: 'poolNew', blocker: 'wallet' } },
+  { path: '/dex/pools/new', room: 'dex', liquidity: 'new' },
   { path: '/dex/pools/:poolId', room: 'dex', pool: 'detail', param: { name: 'poolId', shape: ADDRESS_SHAPE } },
-  { path: '/dex/positions', room: 'dex', tab: 'positions' },
-  {
-    path: '/dex/positions/:positionId',
-    room: 'dex',
-    pending: { page: 'positionDetail', blocker: 'wallet', param: { name: 'positionId', shape: id } },
-  },
+  { path: '/dex/pools/:poolId/add', room: 'dex', liquidity: 'add', param: { name: 'poolId', shape: ADDRESS_SHAPE } },
+  { path: '/dex/positions', room: 'dex', liquidity: 'positions' },
+  { path: '/dex/positions/:positionId', room: 'dex', liquidity: 'position', param: { name: 'positionId', shape: POSITION_ID } },
   { path: '/dex/tokens', room: 'dex', tokens: 'list' },
   { path: '/dex/tokens/:address', room: 'dex', tokens: 'detail' },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
+  { path: '/dex/lend', room: 'dex', tab: 'lend' },
+  { path: '/dex/orders', room: 'dex', orders: true },
   ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/wallet/groups/:groupId', room: 'wallet', walletGroup: true },
+  { path: '/wallet/tokens/:token', room: 'wallet', walletToken: true, param: { name: 'token', shape: ADDRESS_SHAPE } },
+  { path: '/wallet/conventions/:convention', room: 'wallet', walletConvention: true },
   { path: '/wallet/claim/:linkId', room: 'wallet', walletClaim: true, param: { name: 'linkId', shape: ADDRESS_SHAPE } },
   { path: '/chain', room: 'chain', tab: 'status' },
   { path: '/chain/blocks', room: 'chain', tab: 'blocks' },

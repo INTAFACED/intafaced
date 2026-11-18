@@ -49,8 +49,7 @@ function scriptSql(
     { id: PAY_CREDIT, currency: 'USDT' },
   ],
 ): Sql {
-  return (async (strings: TemplateStringsArray, ...values: unknown[]) =>
-    answerStatementSql(strings.join(' '), values, captures)) as unknown as Sql;
+  return (async (strings: TemplateStringsArray, ...values: unknown[]) => answerStatementSql(strings.join(' '), values, captures)) as Sql;
 }
 
 function accountId(ref: AccountRef): string {

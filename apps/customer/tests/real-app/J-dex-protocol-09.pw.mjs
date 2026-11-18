@@ -642,15 +642,33 @@ test(`${J} #8 opens a contract's source status and the Read tab: exact, similar 
   const deployer = privateKeyToAccount(generatePrivateKey());
   fundOnTestChain(deployer.address);
   const wallet = createWalletClient({ account: deployer, chain: viemChain, transport: http(chain.gateUrl) });
+  // A block comes every second, so a transaction still unmined after a minute is stuck. The step then ends here and says
+  // what the node reports, where it once used up its whole timeout and named nothing (#7760).
+  const receiptOf = async (hash) => {
+    try {
+      return await reader.waitForTransactionReceipt({ hash, timeout: 60_000 });
+    } catch (error) {
+      const ask = (method, params) => chainRpc(method, params).catch((failure) => `no answer (${failure.message})`);
+      const [intervalMining, automine, latest, transaction, pool] = await Promise.all([
+        ask('anvil_getIntervalMining'),
+        ask('anvil_getAutomine'),
+        ask('eth_getBlockByNumber', ['latest', false]),
+        ask('eth_getTransactionByHash', [hash]),
+        ask('txpool_status'),
+      ]);
+      const node = { intervalMining, automine, block: latest?.number, baseFee: latest?.baseFeePerGas, transaction, pool };
+      throw new Error(`transaction ${hash} did not mine; the node reports ${JSON.stringify(node)}`, { cause: error });
+    }
+  };
   const deployed = async (request) => {
     const hash = await wallet.sendTransaction(request);
-    const receipt = await reader.waitForTransactionReceipt({ hash });
+    const receipt = await receiptOf(hash);
     expect(receipt.status).toBe('success');
     return getAddress(receipt.contractAddress);
   };
   const mined = async (request) => {
     const hash = await wallet.writeContract({ ...request, gas: 200_000n });
-    expect((await reader.waitForTransactionReceipt({ hash })).status).toBe('success');
+    expect((await receiptOf(hash)).status).toBe('success');
   };
   // This step's own contracts, deployed from a fresh TEST key: the TEST token from its committed build (exact), the same
   // build with its metadata hash changed (similar), code no committed source compiles to (unverified), and an EIP-1167
@@ -762,6 +780,8 @@ test(`${J} #8 opens a contract's source status and the Read tab: exact, similar 
   );
   await page.goto('/wallet');
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  // leave the wallet page only once it shows the wallet connected, or the next page loads with none
+  await expect(page.locator('[data-wallet-address]')).toBeVisible();
   await page.goto(`/protocol/contracts/${proxy}`);
   await page.getByRole('tab', { name: 'Write' }).click();
   const mint = write.getByRole('form', { name: 'mint(address,uint256)' });
@@ -901,6 +921,8 @@ test(`${J} #11 requests a token info update with the token owner's signature: th
   const wallet = await installTestWallet(page, { chainId: chain.chainId, privateKey: ownerKey });
   await page.goto('/wallet');
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  // leave the wallet page only once it shows the owner connected, or the token page loads with no wallet to sign
+  await expect(page.locator('[data-wallet-address]')).toHaveText(owner, { ignoreCase: true });
   const dialog = page.getByRole('dialog', { name: 'Request an info update' });
   const challengeOf = async () => {
     const text = await dialog.getByTestId('token-update-challenge').innerText();

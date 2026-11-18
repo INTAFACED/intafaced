@@ -142,7 +142,8 @@ function YoungNote({ symbol, timeZone }: { symbol: string; timeZone: Parameters<
 
 /**
  * The networks this coin moves on, as the platform's asset registry names them (svc-bank `assets.list`, J-portfolio-10
- * #3). The registry holds no contract address or links, so none is shown; a coin the registry does not list says so.
+ * #3), then, for each network where the registry knows them, its contract and links. A network with neither shows no
+ * row; nothing is guessed. A coin the registry does not list says so.
  */
 function CoinNetworks({ asset }: { asset: string }) {
   const { t } = coinCopy.useCopy();
@@ -157,18 +158,54 @@ function CoinNetworks({ asset }: { asset: string }) {
             (entry.allowedActions.includes('deposit') || entry.allowedActions.includes('withdraw')),
         ) ?? null)
       : null;
+  const known = (row?.networks ?? []).filter((network) => network.contract !== null || network.links.length > 0);
   return (
-    <div className="coin-stats__row" data-testid="coin-network">
-      <Term label={t('Networks')} rule={t('Networks rule')} />
-      <span className="coin-stats__value">
-        {registry.resource.status === 'loading'
-          ? '—'
-          : registry.resource.status === 'failed'
-            ? t('not read')
-            : row === null || row.networks.length === 0
-              ? t('not listed')
-              : row.networks.map((network) => network.label).join(', ')}
-      </span>
-    </div>
+    <>
+      <div className="coin-stats__row" data-testid="coin-network">
+        <Term label={t('Networks')} rule={t('Networks rule')} />
+        <span className="coin-stats__value">
+          {registry.resource.status === 'loading'
+            ? '—'
+            : registry.resource.status === 'failed'
+              ? t('not read')
+              : row === null || row.networks.length === 0
+                ? t('not listed')
+                : row.networks.map((network) => network.label).join(', ')}
+        </span>
+      </div>
+      {known.map((network) => (
+        <div
+          key={network.networkId}
+          className="coin-stats__row coin-stats__row--balance"
+          data-testid="coin-network-detail"
+          data-network={network.networkId}
+        >
+          <Term label={t('On {network}', { network: network.label })} rule={t('Network detail rule')} />
+          <span className="coin-stats__value">
+            {network.contract !== null ? (
+              <span
+                className="coin-stats__contract"
+                data-testid="coin-contract"
+                aria-label={t('Contract on {network}', { network: network.label })}
+              >
+                {network.contract}
+              </span>
+            ) : null}
+            {network.links.map((link) => (
+              <a
+                key={link.url}
+                className="coin-stats__link"
+                data-testid="coin-link"
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {link.label}
+              </a>
+            ))}
+          </span>
+        </div>
+      ))}
+    </>
   );
 }

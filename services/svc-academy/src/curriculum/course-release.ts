@@ -8,7 +8,8 @@
  * enrolled the pacing stays (`academy.pacing_locked`). Every change is an event row with who and why. Suggested dates and
  * a minimum lead time before a release are later parts. No money moves here.
  */
-import type { Sql, TransactionSql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
+import type { Sql } from 'postgres';
 import type {
   AcademyCoursePacing,
   AcademyCourseRelease,
@@ -18,7 +19,6 @@ import type {
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 
-type Db = Sql | TransactionSql;
 const DAY_MS = 86_400_000;
 
 /** The stored rule as the contract's. Null is no rule. Pure. */
@@ -43,7 +43,7 @@ export function opensAt(rule: AcademySectionReleaseRule, enrolledAt: Date | null
  * or answered (AC-release-access-02). Work the learner already began on this item (a hand-in, a quiz attempt, a survey
  * answer) stays theirs to read and finish when staff move a date or add a rule later. Writes nothing.
  */
-export async function assertItemOpen(sql: Db, itemId: string, userId: string, now: Date): Promise<void> {
+export async function assertItemOpen(sql: Queryable, itemId: string, userId: string, now: Date): Promise<void> {
   const [row] = await sql<
     Array<{ release_at: Date | null; after_days: number | null; enrolled_at: Date | null; begun: boolean; unmet: string[] }>
   >`
@@ -72,7 +72,7 @@ export async function assertItemOpen(sql: Db, itemId: string, userId: string, no
  * Whether the learner has begun an item (`begun` true: any hand-in, attempt or survey answer) or done it (false: a hand-in
  * that is not a draft or withdrawn, a finished attempt, or a survey answer).
  */
-function doneBy(sql: Db, item: ReturnType<Db>, userId: string, begun: boolean) {
+function doneBy(sql: Queryable, item: ReturnType<Queryable>, userId: string, begun: boolean) {
   return sql`(EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = ${item} AND s.user_id = ${userId}
       ${begun ? sql`` : sql`AND s.state NOT IN ('draft', 'withdrawn')`})
     OR EXISTS (SELECT 1 FROM academy.course_quiz_attempts t WHERE t.item_id = ${item} AND t.user_id = ${userId}
@@ -146,19 +146,19 @@ export class CourseRelease {
   }
 
   /** A course has started once any learner has enrolled, whether or not they are still enrolled. */
-  private async started(sql: Db, courseId: string): Promise<boolean> {
+  private async started(sql: Queryable, courseId: string): Promise<boolean> {
     const [row] = await sql<Array<{ started: boolean }>>`
       SELECT EXISTS (SELECT 1 FROM academy.course_enrolments WHERE course_id = ${courseId}) AS started
     `;
     return row!.started;
   }
 
-  private async lockCourse(tx: Db, courseId: string) {
+  private async lockCourse(tx: Queryable, courseId: string) {
     const [course] = await tx`SELECT id FROM academy.courses WHERE id = ${courseId} FOR UPDATE`;
     if (!course) throw new AcademyError('no course has that id', 'academy.course_not_found');
   }
 
-  private async viewIn(sql: Db, courseId: string): Promise<AcademyCourseRelease> {
+  private async viewIn(sql: Queryable, courseId: string): Promise<AcademyCourseRelease> {
     const [course] = await sql<Array<{ pacing: AcademyCoursePacing | null; set_by: string | null; set_at: Date | null }>>`
       SELECT p.pacing, p.set_by, p.set_at FROM academy.courses c LEFT JOIN academy.course_pacing p ON p.course_id = c.id
       WHERE c.id = ${courseId}

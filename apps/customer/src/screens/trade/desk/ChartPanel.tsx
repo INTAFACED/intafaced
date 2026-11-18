@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import type { Order } from '../../../features/trade/trade-api';
 import { useDeviceSetting } from '../../../features/trade/hooks';
@@ -8,8 +8,6 @@ import { CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } 
 import { PriceChart, type ChartOrderLine } from '../chart/PriceChart';
 import { deskCopy } from './copy';
 import {
-  fmtAmount,
-  fmtPrice,
   Menu,
   MenuContent,
   MenuItem,
@@ -27,34 +25,35 @@ import type { DeskMarket } from './market';
 import { placesOf } from './text';
 import { MarketRulesList } from './MarketRules';
 import { zoneName } from './time';
-
-type Mode = 'candles' | 'line';
-const isSetting = (value: unknown): value is { interval: ChartInterval; mode: Mode } =>
-  typeof value === 'object' &&
-  value !== null &&
-  'interval' in value &&
-  'mode' in value &&
-  [...CHART_INTERVALS, ...MORE_INTERVALS].includes((value as { interval: ChartInterval }).interval) &&
-  ((value as { mode: Mode }).mode === 'candles' || (value as { mode: Mode }).mode === 'line');
+import { flowCopy } from './order-flow-copy';
+import { FEATURESETS, describeFeatureset } from '../../charts/featureset';
+import { CHART_SETTING_DEFAULT, CHART_SETTING_KEY, isChartSetting, type ChartSetting } from './chart-setting';
 
 interface Props {
   market: DeskMarket;
   openOrders: Loadable<Order[]>;
   fills: Loadable<Trade[]>;
+  /** The DOM is showing (J-charts-desk-14 #1); the chart's button opens and closes it. */
+  domOpen?: boolean;
+  onToggleDom?: () => void;
+  /** Buy and Sell on the chart with the live spread (J-charts-desk-14 #5), laid over the chart. */
+  trade?: ReactNode;
+  /** An interval asked for from outside the panel (a saved layout opened); each new nonce is applied once. */
+  requestedInterval?: { interval: ChartInterval; nonce: number } | null;
 }
 
 const intervalLabel = (interval: ChartInterval) => (interval === '1d' ? '1D' : interval === '1w' ? '1W' : interval);
 
 /** Centre top (UI-SPEC 5.7): Chart and Info tabs, interval toolbar, candles or line, full screen. */
-export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }: Props) {
+export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, domOpen, onToggleDom, trade, requestedInterval }: Props) {
   const { t } = deskCopy.useCopy();
+  const flow = flowCopy.useCopy();
   const { timeZone } = usePreferences();
-  const [setting, setSetting] = useDeviceSetting<{ interval: ChartInterval; mode: Mode }>(
-    'trade-desk-chart',
-    { interval: '15m', mode: 'candles' },
-    isSetting,
-  );
+  const [setting, setSetting] = useDeviceSetting<ChartSetting>(CHART_SETTING_KEY, CHART_SETTING_DEFAULT, isChartSetting);
   const { interval, mode } = setting;
+  useEffect(() => {
+    if (requestedInterval) setSetting((current) => ({ ...current, interval: requestedInterval.interval }));
+  }, [requestedInterval?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tab, setTab] = useState<'chart' | 'info'>('chart');
   const [full, setFull] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
@@ -130,6 +129,7 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }
       value={tab}
       onValueChange={(value) => setTab(value as 'chart' | 'info')}
       data-testid="dk-chart"
+      data-featureset={describeFeatureset(FEATURESETS['spot-desk'])}
       className="dk-panel dk-chart"
       ref={panel}
     >
@@ -160,6 +160,11 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }
             </Menu>
           </div>
           <div className="dk-chips dk-chips--right">
+            {onToggleDom ? (
+              <button type="button" aria-pressed={domOpen === true} data-testid="dk-open-dom" onClick={onToggleDom}>
+                {domOpen ? flow.t('Close DOM') : flow.t('Open DOM')}
+              </button>
+            ) : null}
             <div role="group" className="dk-chips" aria-label={t('Chart style')}>
               <button type="button" aria-pressed={mode === 'candles'} onClick={() => setSetting({ ...setting, mode: 'candles' })}>
                 {t('Candles')}
@@ -173,7 +178,10 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }
             </button>
           </div>
         </div>
-        <div className="dk-chart-canvas">{body}</div>
+        <div className="dk-chart-canvas">
+          {body}
+          {trade}
+        </div>
       </TabsPanel>
       <TabsPanel value="info" className="dk-chart-body">
         <div data-testid="dk-info" className="dk-info">

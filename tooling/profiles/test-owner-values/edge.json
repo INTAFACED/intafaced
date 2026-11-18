@@ -1,0 +1,10 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "EDGE_RATE_ROUTE_COSTS": {
+      "service": "edge",
+      "value": "[{\"route\":\"GET /api/v1/account/balance\",\"cost\":2},{\"route\":\"POST /api/v1/orders\",\"cost\":2},{\"route\":\"* /api/v1/**\",\"cost\":1},{\"route\":\"* /api/trade/**\",\"cost\":1},{\"route\":\"* /api/pay/**\",\"cost\":1}]",
+      "note": "TEST: the balance read and an order cost 2 tokens, every other key call at the trade and pay doors costs 1, so the limits page shows a cost table and J-developer-06 #2 spends a burst in a few dozen calls."
+    }
+  }
+}

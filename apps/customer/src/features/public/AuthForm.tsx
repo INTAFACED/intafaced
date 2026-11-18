@@ -6,6 +6,7 @@ import { TesterBuild } from './TesterBuild';
 import { DeviceApproval } from './DeviceApproval';
 import { RecoveryCodeUsed, signInAnswerSchema, type SignInAnswer } from './RecoveryCodeUsed';
 import { FrozenByYou } from './FrozenByYou';
+import { ClosedAppeal } from './ClosedAppeal';
 import { accountStatusSchema, type AccountRestriction } from '@intafaced/contracts/identity-account-status';
 import { recoveryCodeCopy } from './recovery-code-copy';
 import { MfaReset } from './MfaReset';
@@ -97,7 +98,10 @@ export function AuthForm({ register }: { register: boolean }) {
   const [activeRecord, setActiveRecord] = useState<string | null>(null);
   const mounted = useRef(true),
     running = useRef<Original | null>(null),
-    abort = useRef<AbortController | null>(null);
+    abort = useRef<AbortController | null>(null),
+    // The details of a password sign-in identity answered "closed", kept only until the person asks to appeal the
+    // closure (J-identity-14 #3) or anything else happens: a new attempt, leaving, or the form being cleared.
+    closedProof = useRef<{ identifier: string; password: string } | null>(null);
   const form = useRef<HTMLFormElement | null>(null);
   const [, invalidateNavigation] = useState(0);
   const url = location.href;
@@ -146,6 +150,7 @@ export function AuthForm({ register }: { register: boolean }) {
     abort.current?.abort();
     abort.current = null;
     running.current = null;
+    closedProof.current = null;
     clearInputs();
     setIdentifier('');
     setMissingPasskeyIdentifier(false);
@@ -250,6 +255,7 @@ export function AuthForm({ register }: { register: boolean }) {
     if (!sameRender() || (running.current && same(running.current)) || pending || restoring) return;
     let identifierForRequest = identifier.trim();
     if (kind === 'secondStep' && !secondStepOptions) return;
+    closedProof.current = null;
     if (kind === 'options' && !identifierForRequest) {
       const input = form.current?.elements.namedItem('identifier');
       // Some autofill tools change the DOM without an input event. Capture it now:
@@ -435,6 +441,10 @@ export function AuthForm({ register }: { register: boolean }) {
         if (answer.ok && !validAuthSession(answer.data)) answer = authoredRefusal('uncertain', { key: 'unverifiedWrite' });
         if (stage.record) settle(stage.record, answer);
         if (!same(original)) return;
+        closedProof.current =
+          kind === 'password' && !answer.ok && answer.code === 'auth.account_frozen' && answer.accountState === 'closed'
+            ? { identifier: identifierForRequest, password }
+            : null;
         setPassword('');
         setTotp('');
         if (answer.ok) {
@@ -853,6 +863,15 @@ export function AuthForm({ register }: { register: boolean }) {
                         <a className="text-link" href="/appeal" lang={languageFor('stateAppeal')}>
                           {t('stateAppeal')}
                         </a>
+                      )}
+                      {result.accountState === 'closed' && (
+                        <ClosedAppeal
+                          take={() => {
+                            const proof = closedProof.current;
+                            closedProof.current = null;
+                            return proof;
+                          }}
+                        />
                       )}
                     </div>
                   ) : (

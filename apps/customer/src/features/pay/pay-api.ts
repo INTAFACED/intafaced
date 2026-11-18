@@ -573,6 +573,14 @@ export function createPersonalPayApi(
       const key = names.find((name) => name === asset) ?? names.find((name) => name.toLowerCase() === asset.toLowerCase());
       return { ok: true, data: key === undefined ? '0' : result.data.balances[key]!.free };
     },
+    /** RC-p2p-02: the contract escrow for one asset: offered, or refused with its blocker; mainnet is always off. */
+    contractEscrow: (asset: string, signal?: AbortSignal) =>
+      api.query('p2p', 'trades.contractEscrow', { asset }, s.contractEscrowOfferSchema, { signal }),
+    /** RC-p2p-02: the seller attaches the deal they opened and locked; svc-p2p reads it from the chain and checks it. */
+    attachContractDeal: (tradeId: string, dealId: string) =>
+      api.mutate('p2p', 'trades.attachContractDeal', { tradeId, dealId }, s.tradeSchema),
+    /** RC-p2p-02: either party brings the order to its deal's chain state (released, refunded, disputed). */
+    syncContractDeal: (tradeId: string) => api.mutate('p2p', 'trades.syncContractDeal', { tradeId }, s.tradeSchema),
     reputation: async (counterparty: string, signal?: AbortSignal) => {
       const denied = signedIn();
       if (denied) return denied;
@@ -581,6 +589,20 @@ export function createPersonalPayApi(
       // The contract has no returned subject ID: association belongs to this
       // exact requested UUID and current owner/URL view, never a guessed field.
       return p2pCurrent() ? result : p2pDeparted();
+    },
+    /** P-trade-orders-21: the caller's one completion appeal, or null while it is still available. */
+    myAppeal(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.query('p2p', 'reputation.myAppeal', undefined, s.completionAppealSchema.nullable(), { signal });
+    },
+    /** P-trade-orders-21: appeal one cancelled or disputed order, once. The same appeal sent again returns it. */
+    appealCompletion(input: { tradeId: string; reason: string }) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate('p2p', 'reputation.appeal', input, s.completionAppealSchema);
     },
     /** The signed-in account id (null when signed out). Lets a screen tell "you" from the other side. */
     viewer: userId,
@@ -951,7 +973,14 @@ export function createPersonalPayApi(
     async takeOffer(
       offer: s.Offer,
       request: TakeRequest,
-      reviewed: { quote: s.TakeQuote; current: () => boolean; recoveryCurrent?: () => boolean; stepUpApprovalId?: string },
+      reviewed: {
+        quote: s.TakeQuote;
+        current: () => boolean;
+        recoveryCurrent?: () => boolean;
+        stepUpApprovalId?: string;
+        /** RC-p2p-02: a contract-escrow order paying the buyer's own connected wallet. Absent: the ledger escrow. */
+        contractEscrow?: { buyerWallet: string };
+      },
     ) {
       const denied = signedIn();
       if (denied) return denied;
@@ -994,6 +1023,7 @@ export function createPersonalPayApi(
             ...shareOf(offer.id),
             // The fresh confirmation of exactly this review; inside this session's confirmed ten minutes there is none.
             ...(reviewed.stepUpApprovalId ? { stepUpApprovalId: reviewed.stepUpApprovalId } : {}),
+            ...(reviewed.contractEscrow ? { escrowKind: 'contract', buyerWallet: reviewed.contractEscrow.buyerWallet } : {}),
           },
           s.tradeSchema,
         );

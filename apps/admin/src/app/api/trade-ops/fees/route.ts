@@ -15,6 +15,7 @@ import {
   loadFeesDesk,
   proposeFeeSchedule,
   publishFeeNotice,
+  readBuilderCaps,
   readFeeHistory,
   requestFeeNoticePublish,
   writeFeeSchedule,
@@ -22,7 +23,7 @@ import {
 
 /**
  * Fees and convert room (J-cex-spot-17), through svc-trade `admin.fees.*` / `admin.convertDesk.*`, svc-bank
- * `ops.onrampQuotes`, svc-notify's notice board and identity's approvals.
+ * `ops.onrampQuotes` / `ops.onrampFeesNotKnown`, svc-notify's notice board and identity's approvals.
  *
  *   POST { action: 'read' }                                              every read of the room
  *   POST { action: 'propose', basisVersion, draft, reason }              file the two-person request for a new version
@@ -63,7 +64,15 @@ async function proposalBody(ctx: TradeCtx, body: Record<string, unknown>): Promi
     );
   if (basis !== read.data.version)
     return refused('fee_schedule_stale', `The versions changed since you read them (now v${read.data.version}). Read them again.`, 409);
-  const check = buildProposal(base, draft, str(body.reason), new Date());
+  // A version that changes builder fees is checked against the venue's own cap, read now through svc-trade's door (and
+  // again by svc-trade when it writes). The venue is read only when the check needs it, and a read it refuses is said
+  // with its own code.
+  let check = buildProposal(base, draft, str(body.reason), new Date(), null);
+  if (!check.ok && check.code === 'trade.builder_fee_venue_unknown') {
+    const caps = await readBuilderCaps(ctx);
+    if (caps.kind !== 'ok') return caps;
+    check = buildProposal(base, draft, str(body.reason), new Date(), caps.data);
+  }
   if (!check.ok) return bad(check.code, check.message);
   return ok({
     schedule: check.schedule,

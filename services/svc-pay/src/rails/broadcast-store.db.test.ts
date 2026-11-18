@@ -18,7 +18,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PostgresBroadcastStore } from './broadcast-store.js';
-import { runDurableBroadcast } from './durable-broadcast.js';
+import { BroadcastClosedError, runDurableBroadcast } from './durable-broadcast.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -112,7 +112,7 @@ describe('PostgresBroadcastStore — two connections cannot double-send', () => 
             expect(claim.signedRaw).toBe('0xraw');
             await store.put('payout:e13:db:1', '0xabc');
           } else {
-            expect(claim.txHash).toBe('0xabc');
+            expect(claim).toEqual({ kind: 'done', txHash: '0xabc' });
           }
         }),
       ),
@@ -143,5 +143,29 @@ describe('PostgresBroadcastStore — two connections cannot double-send', () => 
     expect(hb).toBe('0xhash-once');
     expect(sign).toHaveBeenCalledTimes(1);
     expect(new Set(broadcast.mock.calls.map((call) => call[0]))).toEqual(new Set(['0xraw-once']));
+  });
+
+  it('a status query racing a send on two clients: exactly one wins the key, and a closed key never broadcasts', async () => {
+    if (!sqlA || !sqlB) throw new Error('H8a: svc-pay broadcast-store PG was not opened');
+    const a = new PostgresBroadcastStore(sqlA, opts);
+    const b = new PostgresBroadcastStore(sqlB, opts);
+    for (let i = 0; i < 10; i++) {
+      const key = `payout:query-race:db:${i}`;
+      const sign = vi.fn(async () => '0xraw-race');
+      const broadcast = vi.fn(async () => '0xhash-race');
+      const [closed, sent] = await Promise.allSettled([
+        b.close(key),
+        runDurableBroadcast({ store: a, idempotencyKey: key, sign, broadcast }),
+      ]);
+      if (closed.status !== 'fulfilled') throw closed.reason;
+      if (closed.value === 'closed') {
+        expect(sent.status).toBe('rejected');
+        expect(sent.status === 'rejected' && sent.reason).toBeInstanceOf(BroadcastClosedError);
+        expect(broadcast).not.toHaveBeenCalled();
+      } else {
+        expect(sent).toEqual({ status: 'fulfilled', value: '0xhash-race' });
+        expect(broadcast).toHaveBeenCalledTimes(1);
+      }
+    }
   });
 });

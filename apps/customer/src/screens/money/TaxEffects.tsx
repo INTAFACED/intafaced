@@ -9,7 +9,7 @@ import { useSession } from '../../features/session/session';
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
 // hand-declared-ok: svc-bank activity.taxEffects declares its answer in its own router; packages/contracts has no schema for it
-const effectsShape = z.object({ effects: z.record(z.string(), z.string()) });
+const effectsShape = z.object({ effects: z.record(z.string(), z.string()), label: z.literal('TEST').nullable().optional() });
 
 const EFFECT_WORD: Record<KnownEffect, 'Tax effect income' | 'Tax effect disposal' | 'Tax effect neutral'> = {
   income: 'Tax effect income',
@@ -22,7 +22,7 @@ type State =
   | { kind: 'loading' }
   | { kind: 'refused'; code: string }
   | { kind: 'failed' }
-  | { kind: 'ready'; effects: Record<string, string> };
+  | { kind: 'ready'; effects: Record<string, string>; test: boolean };
 
 /** A kind's words, as its rows say it. A kind this screen does not know shows as the bank named it. */
 function kindWord(kind: string, copy: Copy): string {
@@ -34,6 +34,16 @@ function kindWord(kind: string, copy: Copy): string {
     ),
   );
   return [...new Set(words)].join(' / ');
+}
+
+/** The kinds of one group in words, comma-separated, each marked with the bank's own kind name. */
+function kindList(kinds: readonly string[], copy: Copy): React.ReactNode {
+  return kinds.map((kind, i) => (
+    <span key={kind} data-kind={kind}>
+      {i > 0 ? ', ' : ''}
+      {kindWord(kind, copy)}
+    </span>
+  ));
 }
 
 /**
@@ -54,7 +64,7 @@ export function TaxEffects() {
     setState({ kind: 'loading' });
     const result = await api.query('bank', 'activity.taxEffects', {}, effectsShape);
     if (ask !== asked.current) return;
-    if (result.ok) setState({ kind: 'ready', effects: result.data.effects });
+    if (result.ok) setState({ kind: 'ready', effects: result.data.effects, test: result.data.label === 'TEST' });
     // A refusal names its code; an unreachable bank or a broken answer has none and is offered again.
     else if (result.code && result.reason !== 'unreachable') setState({ kind: 'refused', code: result.code });
     else setState({ kind: 'failed' });
@@ -78,20 +88,27 @@ export function TaxEffects() {
   } else if (state.kind === 'ready') {
     const { groups, unset } = groupKindsByEffect(state.effects);
     body = (
-      <dl className="money-facts" data-label="tax-effects">
-        {groups.map((group) => (
-          <div className="money-fact" key={group.effect} data-effect={group.effect}>
-            <dt>{group.effect in EFFECT_WORD ? t(EFFECT_WORD[group.effect as KnownEffect]) : group.effect}</dt>
-            <dd>{group.kinds.map((kind) => kindWord(kind, copy)).join(', ')}</dd>
-          </div>
-        ))}
-        {unset.length > 0 && (
-          <div className="money-fact" data-effect="unset">
-            <dt>{t('Tax effect not set')}</dt>
-            <dd>{unset.map((kind) => kindWord(kind, copy)).join(', ')}</dd>
-          </div>
+      <>
+        {state.test && (
+          <p className="money-detail__note" data-label="tax-effects-test">
+            {t('Tax effect test map')}
+          </p>
         )}
-      </dl>
+        <dl className="money-facts" data-label="tax-effects">
+          {groups.map((group) => (
+            <div className="money-fact" key={group.effect} data-effect={group.effect}>
+              <dt>{group.effect in EFFECT_WORD ? t(EFFECT_WORD[group.effect as KnownEffect]) : group.effect}</dt>
+              <dd>{kindList(group.kinds, copy)}</dd>
+            </div>
+          ))}
+          {unset.length > 0 && (
+            <div className="money-fact" data-effect="unset">
+              <dt>{t('Tax effect not set')}</dt>
+              <dd>{kindList(unset, copy)}</dd>
+            </div>
+          )}
+        </dl>
+      </>
     );
   }
 

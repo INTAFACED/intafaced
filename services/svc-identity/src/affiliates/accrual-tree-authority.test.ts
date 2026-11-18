@@ -30,8 +30,8 @@ function fee(over: Partial<FeeEvent> = {}): FeeEvent {
 const PUBLISHED = {
   published: true as const,
   tiers: [
-    { hop: 0, rate: '0.10' },
-    { hop: 1, rate: '0.05' },
+    { hop: 0, rate: '0.130' },
+    { hop: 1, rate: '0.07' },
   ],
 };
 
@@ -92,15 +92,15 @@ describe('accrueTreeUnderRateAuthority (D26-P1-O2)', () => {
     expect(out.rows[0]).toMatchObject({
       beneficiaryId: BENE0,
       hop: 0,
-      rate: '0.10',
-      commissionAmount: '10',
+      rate: '0.130',
+      commissionAmount: '13',
       sourceModule: 'trade',
     });
     expect(out.rows[1]).toMatchObject({
       beneficiaryId: BENE1,
       hop: 1,
-      rate: '0.05',
-      commissionAmount: '5',
+      rate: '0.07',
+      commissionAmount: '7',
     });
     expect(out.frozenSkipped).toBe(0);
     expect(out.mode).toBe('durable');

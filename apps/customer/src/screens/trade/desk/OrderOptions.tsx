@@ -2,11 +2,9 @@ import { ChevronDown } from 'lucide-react';
 import { deskCopy } from './copy';
 import { Menu, MenuContent, MenuItem, MenuTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
 import type { OrderType } from './order-math';
-import { tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey, type UnsupportedType } from './tif';
+import { REFUSED_TAB_KEY, tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey } from './tif';
 
-const TYPE_KEY = {
-  trailingStop: 'Order type trailingStop',
-} as const satisfies Record<UnsupportedType, string>;
+const TYPE_KEY = REFUSED_TAB_KEY;
 
 /**
  * The order kinds the market does not take (trailing stop), listed in the strip's last slot but disabled: each row is

@@ -1,4 +1,5 @@
 import type { StaffMemberView } from './staff';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Desk groups: which tickets a group of staff can see. A lead makes and renames groups and puts staff in them; everyone on
@@ -25,7 +26,6 @@ export const GROUP_NAME_MAX = 80;
 export const KEY_MIN = 8;
 export const KEY_MAX = 200;
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
 const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
 
@@ -131,7 +131,7 @@ export function memberGate(
 
 /** One plain sentence for the signed-in person's own scope, as svc-support reports it. */
 export function scopeSentence(scope: DeskScopeView): string {
-  if (!scope.restricted) return 'No groups are set up, so the whole desk sees every ticket.';
+  if (!scope.restricted) return 'Visibility is not restricted: no groups are set up, so the whole desk sees every ticket.';
   if (scope.seesAllGroups) return 'Groups are set up, and your role is set to see every group’s tickets.';
   return scope.groups.length === 0
     ? 'Groups are set up and you are in none, so you see the tickets assigned to you (and ungrouped ones if you are a lead).'

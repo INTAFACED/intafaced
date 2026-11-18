@@ -181,7 +181,7 @@ export function applyMark(
 export function installTrailingStop(ctor: typeof OrderBook): void {
   if (!ctor) return;
   const proto = ctor.prototype as {
-    submit: (order: EngineOrder, now?: Date | null) => SubmitResult;
+    submit: OrderBook['submit'];
     [FLAG]?: boolean;
   };
   if (proto[FLAG]) return;

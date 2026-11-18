@@ -31,7 +31,7 @@ function testDatabaseUrl(): string {
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
-const principal = (userId: string) => ({ userId, sub: userId, scopes: ['trade:read'], tier: 'full', mfa: false }) as unknown as Principal;
+const principal = (userId: string) => ({ userId, sub: userId, scopes: ['trade:read'], tier: 'full', mfa: false }) as Principal;
 const T0 = new Date('2026-10-30T10:00:00.000Z');
 const window = { from: '2026-10-30T00:00:00.000Z', to: '2026-10-30T23:00:00.000Z', limit: 50 };
 

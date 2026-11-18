@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * Charts module owner values (C-ops-04, LD-14): what the founder page shows and what it may send. Client-safe.
  *
@@ -14,6 +15,7 @@ export const CHART_SCALAR_KEYS = [
   'delayedBoundarySeconds',
   'renderBudgetMs',
   'orderProtectionBps',
+  'queueFillWindowSeconds',
 ] as const;
 export type ChartScalarKey = (typeof CHART_SCALAR_KEYS)[number];
 
@@ -43,6 +45,12 @@ export const CHART_SCALARS: readonly ChartScalarInfo[] = [
     key: 'orderProtectionBps',
     label: 'Order protection distance (basis points)',
     meaning: 'How far from the last price a chart order may be moved before the person must confirm the distance.',
+  },
+  {
+    key: 'queueFillWindowSeconds',
+    label: 'Queue fill window (seconds)',
+    meaning:
+      'How far back the traded volume at or through a resting order’s price is read to estimate its chance of a fill. Blank shows no estimate.',
   },
 ];
 
@@ -84,7 +92,6 @@ export interface ChartOwnerValuesView {
   readonly dataClasses: readonly ChartDataClassRow[];
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const nullableString = (v: unknown): string | null | undefined => (v === null ? null : typeof v === 'string' ? v : undefined);
 const isDataClass = (v: unknown): v is ChartDataClass => typeof v === 'string' && (CHART_DATA_CLASSES as readonly string[]).includes(v);
 

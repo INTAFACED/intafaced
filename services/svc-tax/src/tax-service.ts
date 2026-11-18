@@ -43,7 +43,8 @@ import {
   type ManualPosition,
   type Withdrawal,
 } from './lot-book.js';
-import type { BankOwnSpacesPort } from '@intafaced/contracts';
+import type { BankOwnSpacesPort, TradeVenueActivityPort } from '@intafaced/contracts';
+import { VENUE_TRANSFER_IN, venueAccountKey, venueArrivalLines, withVenue } from './venue-book.js';
 import { pairOwnMoves, type OwnMove, type SpaceInflow } from './own-moves.js';
 import { outsideWithdrawals, WITHDRAWAL_HOLD_PREFIX } from './withdrawals.js';
 import { NO_CHOICES, saleRules, type ChoiceStore, type CostBasisChoices } from './choices.js';
@@ -133,6 +134,11 @@ export interface TaxServiceDeps {
   readonly choices?: ChoiceStore;
   /** Which named spaces are the customer's (svc-bank). Absent: the book follows the main account only, `tax.own_spaces_unwired`. */
   readonly spaces?: BankOwnSpacesPort;
+  /**
+   * The customer's own venue spot trading (svc-trade `venue.ownActivity`, J-cex-spot-01 #11). Absent: the book is the
+   * ledger's only, `tax.venue_unwired`.
+   */
+  readonly venue?: TradeVenueActivityPort;
 }
 
 export const DEPOSIT_BASIS_POLICIES = ['market', 'customer'] as const;
@@ -141,6 +147,7 @@ export type DepositBasisPolicy = (typeof DEPOSIT_BASIS_POLICIES)[number];
 /** Where a coin that was not bought came from, by the ledger reason that brought it. */
 export function inflowSource(reason: string): Inflow['source'] {
   if (reason.startsWith('deposit.')) return 'deposit';
+  if (reason === VENUE_TRANSFER_IN) return 'transfer_in';
   if (reason === 'bank.earn.interest' || reason.includes('reward')) return 'reward';
   if (reason.startsWith('bank.transfer') || reason === 'identity.sub_account.transfer' || reason.startsWith('pay.')) return 'transfer_in';
   return 'other_in';
@@ -230,6 +237,7 @@ export class TaxService {
   private readonly basis: BasisStore | undefined;
   private readonly choices: ChoiceStore | undefined;
   private readonly spaces: BankOwnSpacesPort | undefined;
+  private readonly venue: TradeVenueActivityPort | undefined;
 
   constructor(deps: TaxServiceDeps) {
     this.map = parseJurisdictionMap(deps.mapRaw);
@@ -244,6 +252,7 @@ export class TaxService {
     this.basis = deps.basis;
     this.choices = deps.choices;
     this.spaces = deps.spaces;
+    this.venue = deps.venue;
   }
 
   async exportPreview(input: { userId: string; region: string; lotMethod: string; complete?: boolean }): Promise<TaxExportPreview> {
@@ -261,6 +270,11 @@ export class TaxService {
    * one it previews that method for every sale. An unknown name is refused, not guessed.
    */
   async lotBook(input: { userId: string; method?: string }): Promise<LotBook> {
+    return this.book(input, true);
+  }
+
+  /** The ledger book, with the customer's own venue accounts beside it when `withVenueAccounts` (venue-book.ts). */
+  private async book(input: { userId: string; method?: string }, withVenueAccounts: boolean): Promise<LotBook> {
     const preview = input.method === undefined ? null : requireBookMethod(input.method);
     // The indicator needs no settings to be worked out: if the saved choices cannot be read, it answers with the default
     // and says so (`choices.status: 'unavailable'`), rather than failing every customer's page.
@@ -273,12 +287,40 @@ export class TaxService {
         unreadable = true;
       }
     }
-    return this.bookWith(
-      input.userId,
-      preview,
-      saved,
-      unreadable ? { status: 'unavailable', code: TAX_CHOICES_UNAVAILABLE } : this.bookChoices(saved),
+    const choices: BookChoices = unreadable ? { status: 'unavailable', code: TAX_CHOICES_UNAVAILABLE } : this.bookChoices(saved);
+    const [main, activity] = await Promise.all([
+      this.bookWith(input.userId, preview, saved, choices),
+      withVenueAccounts && this.venue ? this.venue.read({ userId: input.userId }) : Promise.resolve(null),
+    ]);
+    if (!withVenueAccounts) return main;
+    // Coins the venue credited from outside (J-portfolio-02 #6): each a lot of its own, valued and given the owner's deposit
+    // basis the way a ledger arrival is, and priced by the customer the same way.
+    const arrived = activity !== null && activity.state === 'read' ? activity.accounts.filter((a) => a.arrivals !== undefined) : [];
+    const residuals = new Set<string>();
+    const inflows = new Map<string, Inflow[]>();
+    let overridePricePerUnit: Map<string, Amount> | undefined;
+    if (arrived.length > 0) {
+      const [active, valued] = await Promise.all([
+        this.activeBasis(input.userId),
+        Promise.all(arrived.map((a) => this.valueInflows(venueArrivalLines(a), residuals))),
+      ]);
+      arrived.forEach((a, i) => inflows.set(venueAccountKey(a), valued[i]!));
+      overridePricePerUnit = pricesOf(active);
+    }
+    const book = withVenue(
+      main,
+      activity,
+      {
+        method: main.method,
+        rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview),
+        preview: preview !== null,
+        choices,
+        includeTransfers: main.includeTransfers,
+        now: this.now(),
+      },
+      { inflows, ...(overridePricePerUnit ? { overridePricePerUnit } : {}) },
     );
+    return residuals.size === 0 ? book : { ...book, residuals: [...new Set([...book.residuals, ...residuals])].sort() };
   }
 
   /**
@@ -294,7 +336,8 @@ export class TaxService {
     if (!(from.getTime() < to.getTime())) throw new TaxError(TAX_PNL_RANGE_INVALID, 'the range must start before it ends, and before now');
     const interval = chooseInterval(from, to, now);
     if (interval === null) throw new TaxError(TAX_PNL_RANGE_TOO_LONG, 'the range starts too long ago to be priced: pick a later start');
-    const book = await this.lotBook({ userId: input.userId });
+    // The ledger's own book: the result over time is not yet drawn for venue accounts, whose history has no candles here.
+    const book = await this.book({ userId: input.userId }, false);
     const timeline = new BookTimeline(book);
     const coins = timeline.coins();
     const closes = new Map<string, CloseSeries | null>();

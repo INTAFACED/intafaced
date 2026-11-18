@@ -147,15 +147,28 @@ export async function reviewLimit(page, side, price, amount, base = 'BTC') {
   return review;
 }
 
-/** Confirm a review; a requote asks again, so confirm until the dialog closes (at most three times). */
+/**
+ * Confirm a review; a requote asks again, so confirm until the dialog closes (at most three times).
+ *
+ * Before each press it waits until the dialog has closed or Confirm can be pressed again (a requote), never a fixed
+ * time: an order slower than a guess keeps Confirm busy, and a press on a busy Confirm waited for a button that left
+ * with the dialog when the order went through (main's run 42675020712, J-portfolio-04 #3: 240 s on a busy Confirm, the
+ * order already placed).
+ */
 export async function confirm(page, side) {
+  const sheet = reviewSheet(page);
+  const button = page.getByRole('button', { name: side === 'buy' ? 'Confirm buy' : 'Confirm sell' });
+  const closedOrReady = async () => (await sheet.count()) === 0 || (await button.isEnabled({ timeout: 1000 }).catch(() => false));
   for (let i = 0; i < 3; i++) {
-    const button = page.getByRole('button', { name: side === 'buy' ? 'Confirm buy' : 'Confirm sell' });
-    if (!(await button.count())) break;
-    await button.click();
+    await expect.poll(closedOrReady, { timeout: 60_000 }).toBe(true);
+    if (!(await sheet.count())) break;
+    // The dialog can close between the read above and the press, when the order goes through; only then is a missed press fine.
+    await button.click({ timeout: 10_000 }).catch(async (error) => {
+      if (await sheet.count()) throw error;
+    });
     await page.waitForTimeout(1500);
   }
-  await expect(reviewSheet(page)).toHaveCount(0);
+  await expect(sheet).toHaveCount(0);
 }
 
 /** The order sends the browser makes (POST /api/v1/orders), with their bodies, from now on. */

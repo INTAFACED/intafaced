@@ -133,6 +133,7 @@ describe('charts module owner values (C-ops-04)', () => {
       delayedBoundarySeconds: null,
       renderBudgetMs: null,
       orderProtectionBps: null,
+      queueFillWindowSeconds: null,
     });
     expect(view.dataClasses.map((row) => row.symbol)).toEqual(['BTC/USDT', 'ETH/USDT']);
     expect(view.dataClasses.every((row) => row.dataClass === null && row.version === null)).toBe(true);
@@ -449,6 +450,7 @@ describe('charts module owner values (C-ops-04)', () => {
       delayedBoundarySeconds: null,
       renderBudgetMs: null,
       orderProtectionBps: null,
+      queueFillWindowSeconds: null,
     });
     expect(await reader.dataClassFor('BTC/USDT')).toBeNull();
 

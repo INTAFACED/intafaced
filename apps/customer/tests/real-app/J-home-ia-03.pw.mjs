@@ -2,6 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { ORIGIN } from './stack.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-home-ia-03, in the running app (docs/roadmap/journeys.json): I make Home mine. Tests titled "J-home-ia-03 #<n>" prove
 // a whole step. One TEST person on two devices (two browser contexts with nothing shared but the account).
@@ -114,8 +115,7 @@ test(`${J} #1 Customise Home hides and reorders tiles on the account: the same l
   await dialog.getByRole('button', { name: 'Done' }).click();
 
   // After a reload the account answers that layout to the app's own read: this order, Markets hidden.
-  const reread = a.page.waitForResponse(isRead);
-  await a.page.reload();
+  const reread = await answerAfterNavigation(a.page, isRead, () => a.page.reload());
   const stored = homeTilesIn(await (await reread).json());
   expect(stored?.value).toEqual({ order, hidden: ['markets'] });
   // The tile is gone, and Customise lists it as hidden; the other tiles are drawn in the new order.

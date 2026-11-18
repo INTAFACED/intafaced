@@ -31,6 +31,10 @@ import { snapshotOf, type ReputationCounters } from './reputation.js';
 import { BlockRfqService } from './block-rfq.js';
 import { MemoryBlockQuoteStore } from './block-rfq-store.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 // Attributed local screening fixture: exercise downstream authorization and storage.
 // Explicit dev mode accepts this fixture; it is never a production sanctions list.
 beforeEach(() => {
@@ -41,7 +45,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 /**
- * THE MOUNT BOUNDARY, for svc-p2p (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-p2p.
  *
  * Not a test of P2P behaviour — `p2p-service.test.ts` owns that. What this file
  * protects is the one property mounting `/trpc` depends on:

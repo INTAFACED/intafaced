@@ -45,6 +45,7 @@ export type RefusalKind =
   | 'selfTrade'
   | 'orderTypeUnsupported'
   | 'marketLimitOnly'
+  | 'openingWindow'
   | 'marketCancelOnly'
   | 'marketPostOnly'
   | 'optionUnsupported'
@@ -61,6 +62,7 @@ export type RefusalKind =
   | 'ordersPaused'
   | 'accountOnHold'
   | 'tradingOnHold'
+  | 'frozenByYou'
   | 'platformPaused'
   | 'spaceLocked'
   | 'notFound'
@@ -114,6 +116,8 @@ export type RefusalKind =
 const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.convert_spread_unset': 'convertSpreadUnset',
   'trade.slippage_cap_unset': 'slippageCapUnset',
+  // The owner's spread limit on a venue market order is blank: market orders pause the same way.
+  'trade.spread_limit_unset': 'slippageCapUnset',
   // No published price protection for a market order: refused, never a guessed floor.
   'trade.protection_unset': 'protectionUnset',
   // The operator's price band and open-order cap: the screen fills in the edges, the cap and the count it was given.
@@ -153,6 +157,13 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.email_proof_required': 'emailProof',
   'trade.identity_unavailable': 'tryAgain',
   'trade.account_restricted': 'tradingOnHold',
+  // The owner's own freeze (J-wallet-13 #2): INTAFACED takes no action for them while it holds, whichever service refused.
+  'identity.account_frozen_self': 'frozenByYou',
+  'trade.account_frozen_self': 'frozenByYou',
+  'agents.identity.owner_frozen_self': 'frozenByYou',
+  // The freeze could not be read, so the door refused and nothing changed: it clears by itself.
+  'trade.freeze_unavailable': 'tryAgain',
+  'agents.identity.owner_freeze_unread': 'tryAgain',
   // The ledger's posting freeze stops money for everyone; this account is not restricted (ENGINE FRZ-1). `ledger.freeze`
   // and `ledger.freeze_attributed` come only from freeze writes by operators, never from a customer's post.
   'ledger.frozen': 'platformPaused',
@@ -175,6 +186,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
 
   'trade.order_not_found': 'orderGone',
   'trade.order_not_open': 'orderGone',
+  'trade.queue_unavailable': 'tryAgain',
   'trade.convert_price_moved': 'priceMoved',
   'trade.price_not_accepted': 'priceMoved',
   'trade.convert_quote_expired': 'quoteExpired',
@@ -209,6 +221,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.self_trade': 'selfTrade',
   'trade.order_type_unsupported': 'orderTypeUnsupported',
   'trade.mode_limit_only': 'marketLimitOnly',
+  'trade.opening_window': 'openingWindow',
+  'trade.rpi_unavailable': 'optionUnsupported',
   'trade.mode_cancel_only': 'marketCancelOnly',
   'trade.mode_post_only': 'marketPostOnly',
   'trade.stp_mode_unsupported': 'optionUnsupported',

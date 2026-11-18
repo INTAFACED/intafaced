@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
-import { AccountDirectoryError, accountCounts, searchAccounts } from './account-directory.js';
+import { AccountDirectoryError, HANDLES_CAP, accountCounts, accountHandles, searchAccounts } from './account-directory.js';
 import { OperatorApiKeyError, revokeApiKeyForUser } from './operator-api-keys.js';
 import { OperatorSessionError, listSessionsForUser, revokeSessionsForUser } from './operator-sessions.js';
 
@@ -65,6 +65,17 @@ export function createOperatorOpsRouter(sql: Sql) {
         .query(async ({ ctx, input }) => {
           try {
             return await searchAccounts(sql, ctx, input);
+          } catch (error) {
+            directoryError(error);
+          }
+        }),
+      /** The handle of each account id a desk shows (an owner column): id and handle only, audited like a search. */
+      handles: scopedProcedure('admin:compliance')
+        .input(z.object({ ids: z.array(z.string().guid()).min(1).max(HANDLES_CAP) }).strict())
+        .output(z.object({ rows: z.array(z.object({ id: z.string().guid(), handle: z.string() }).strict()) }).strict())
+        .query(async ({ ctx, input }) => {
+          try {
+            return { rows: await accountHandles(sql, ctx, input.ids) };
           } catch (error) {
             directoryError(error);
           }

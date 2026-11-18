@@ -1,6 +1,0 @@
----
-description: INTAFACED agent rules. The one set of rules is AGENTS.md.
-alwaysApply: true
----
-
-Read `AGENTS.md` at the repository root. It is the one set of rules.

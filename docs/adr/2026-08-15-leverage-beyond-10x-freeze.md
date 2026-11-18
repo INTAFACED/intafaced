@@ -1,5 +1,7 @@
 # ADR: D26-P0-07 — freeze leverage / margin / liq params beyond 10× until §1 liquidation proof
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about liquidation proof bar for in-house futures as the thaw condition applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-15 (D26-P0-07 freeze bound to liquidation proof).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-07.  

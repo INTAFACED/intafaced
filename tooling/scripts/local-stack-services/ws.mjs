@@ -1,17 +1,4 @@
-import { loadProfile } from '../owner-settings.mjs';
-
-/**
- * The stream limits from the labelled LOCAL TEST values in tooling/profiles/test-owner-values/ws.json, so every door
- * opens on the test stack (J-developer-09). `LOCAL_STACK_WS_LIMITS=off` on a start or restart leaves them all blank, so
- * each door refuses by its own *_unset code again. Production stays blank until the owner publishes them.
- */
-function streamLimits() {
-  if (process.env.LOCAL_STACK_WS_LIMITS === 'off') return {};
-  const limits = {};
-  for (const [name, entry] of Object.entries(loadProfile().values)) if (entry.service === 'ws') limits[name] = entry.value;
-  if (Object.keys(limits).length === 0) throw new Error('tooling/profiles/test-owner-values/ws.json holds no stream limit.');
-  return limits;
-}
+import { profileEnvFor } from '../owner-settings.mjs';
 
 export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
   name: 'ws',
@@ -30,7 +17,10 @@ export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_
       // The SBE consumer list's read key; svc-edge signs with the same one for the founder console (J-cex-spot-20 #3).
       WS_STATUS_READ_SECRET: secrets.wsStatusRead,
       EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
-      ...streamLimits(),
+      // The labelled TEST stream limits (tooling/profiles/test-owner-values/ws.json): the multiplexed door mounts and
+      // takes subscriptions (#8311), and the public depth socket opens with its depth, lag and listing limits
+      // (J-cex-spot-14 #8). Every other WS_* owner value stays unset and refuses by its own *_unset code.
+      ...profileEnvFor('ws', 'test'),
     };
   },
 });

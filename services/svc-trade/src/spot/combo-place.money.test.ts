@@ -30,7 +30,7 @@ function namedLegs(over: Record<string, unknown>[] = []) {
     { name: 'call', ratio: amt('1'), strike: amt('100'), expiry: EXPIRY },
     { name: 'put', ratio: amt('-1'), strike: amt('100'), expiry: EXPIRY },
   ];
-  return base.map((leg, i) => ({ ...leg, ...(over[i] ?? {}) }));
+  return base.map((leg, i) => ({ ...leg, ...over[i] }));
 }
 
 type ComboInput = PlaceOrderInput & {

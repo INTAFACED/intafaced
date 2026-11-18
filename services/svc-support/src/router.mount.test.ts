@@ -121,7 +121,7 @@ function stubSupport(overrides: Partial<SupportService> = {}): SupportService {
       published: false,
     })),
     ...overrides,
-  } as unknown as SupportService;
+  } as SupportService;
 }
 
 const CITATION = {
@@ -520,7 +520,7 @@ describe('svc-support mount', () => {
   it('maps a KB stale-revision refuse to the dotted key, not English', async () => {
     const support = stubSupport({
       publishKb: vi.fn(async () => {
-        throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
       }),
     });
     const op = principal({ userId: OP, sub: OP, scopes: ['support:read', 'support:write', 'support:ops'] });
@@ -534,7 +534,7 @@ describe('svc-support mount', () => {
       }),
     ).rejects.toMatchObject({
       code: 'CONFLICT',
-      message: userCopy('support.kb.revision_stale'),
+      message: userCopy('support.kb_revision_stale'),
     });
   });
 
@@ -776,7 +776,7 @@ describe('svc-support mount', () => {
     const caller = createSupportRouter(support).createCaller(signed(op));
     // The input schema is strict about this on purpose: `support:ops` plus a
     // free-text user id would be an authority no scope grants.
-    await expect(caller.accountState({ ticketId: TICKET, userId: USER } as unknown as { ticketId: string })).rejects.toMatchObject({
+    await expect(caller.accountState({ ticketId: TICKET, userId: USER } as { ticketId: string })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
     expect(support.readAccountState).not.toHaveBeenCalled();

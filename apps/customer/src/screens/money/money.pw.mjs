@@ -63,6 +63,9 @@ const exchange = {
   'account/trades': () => fills(),
   'orders/open': () => openOrders(),
   'orders/closed': () => closedOrders(),
+  // svc-trade's user-venue door, off as on today's deployments (`user-venue-rest.ts`): `/money` asks it first (J-wallet-01)
+  // and, with it off, shows the portfolio these cases check.
+  'venue/status': () => ({ enabled: false }),
 };
 const bankDefaults = {
   'portfolio.summary': () => summary(),
@@ -87,6 +90,8 @@ const bankDefaults = {
   'activity.list': (input) => (input?.cursor ? activityPage2() : activityPage1()),
   // The session asks for the person's business accounts on every page (HM-navigation-01); this person has none.
   'business.list': () => [],
+  // Activity asks for the person's dormancy fee notices on open (J-bank-16 #7); this person has none, as svc-bank answers.
+  'dormancy.notices': () => [],
 };
 
 /**

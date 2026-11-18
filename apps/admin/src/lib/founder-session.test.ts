@@ -306,14 +306,14 @@ describe('founder admin session security boundaries', () => {
     it.each(ROLES)('the test stack admits %s', async (role) => {
       for (const appEnv of ['dev', 'test']) {
         const asked = identity(role);
-        await expect(assertCurrentFounder(session(), config(), { APP_ENV: appEnv })).resolves.toBeUndefined();
+        await expect(assertCurrentFounder(session(), config(), { APP_ENV: appEnv })).resolves.toEqual({ kind: 'staff', readAreas: [] });
         expect(asked.filter((u) => u.includes('staffTestStatus'))).toHaveLength(1);
       }
     });
 
     it('the test stack admits a TEST role while no founder is configured, and keeps the unconfigured answer for anyone else', async () => {
       identity('risk', { status: 'unconfigured' });
-      await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).resolves.toBeUndefined();
+      await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).resolves.toEqual({ kind: 'staff', readAreas: [] });
       identity(null, { status: 'unconfigured' });
       await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).rejects.toMatchObject({
         code: 'admin.founders_unconfigured',

@@ -1,3 +1,4 @@
+import { assertPartnerOffers } from '../partner/test-partner.js';
 import { z } from 'zod';
 import {
   router,
@@ -61,7 +62,9 @@ export function createSpacesRouter(c: BankRouterContext) {
             ...potState(v, now),
             billsPot: bills.has(v.id) ? { fallback: bills.get(v.id)! } : null,
             balance: v.balance,
-            ledgerAccount: accountForSpace(v),
+            // Partner-held money has no ledger account; the partner's label and report time say whose figure it is.
+            ledgerAccount: v.heldAt ? null : accountForSpace(v),
+            heldAt: v.heldAt,
           }));
         }),
       ),
@@ -83,6 +86,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(z.object({ id: z.string(), name: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'spaces');
           // Inside the owner's limit on live named spaces; blank refuses `bank.space_limit_unset` (BK-pots-01) before
           // any row, the primary included, is written.
           const space = await bank.spaces.createWithinLimit({
@@ -101,6 +105,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(z.object({ archived: z.literal(true) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'spaces');
           const space = await bank.spaces.get(input.spaceId);
           assertSelf(ctx.principal.userId, space.userId);
           await bank.spaces.archive(input.spaceId);
@@ -113,6 +118,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(z.object({ archived: z.literal(false) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'spaces');
           const space = await bank.spaces.get(input.spaceId);
           assertSelf(ctx.principal.userId, space.userId);
           await bank.spaces.unarchiveWithinLimit(input.spaceId);
@@ -126,6 +132,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(potStateOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
           const pot = await bank.spaces.setGoal(
             input.spaceId,
             ctx.principal.userId,
@@ -144,6 +151,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(potStateOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
           const now = new Date();
           const pot = await bank.spaces.setLock(input.spaceId, ctx.principal.userId, new Date(input.lockedUntil), now);
           return { id: pot.id, ...potState(pot, now) };
@@ -160,6 +168,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(potStateOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
           const now = new Date();
           const pot = await bank.spaces.requestUnlock(input.spaceId, ctx.principal.userId, now);
           return { id: pot.id, ...potState(pot, now) };
@@ -172,6 +181,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(potStateOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
           const now = new Date();
           const pot = await bank.spaces.cancelUnlock(input.spaceId, ctx.principal.userId, now);
           return { id: pot.id, ...potState(pot, now) };
@@ -189,6 +199,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
           const pot = await bank.billsPots.set(ctx.principal.userId, input.spaceId, input.fallback);
           return { spaceId: pot.spaceId, assetId: pot.assetId, fallback: pot.fallback };
         }),
@@ -200,6 +211,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(z.object({ spaceId: z.string(), billsPot: z.null() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
           await bank.billsPots.clear(ctx.principal.userId, input.spaceId);
           return { spaceId: input.spaceId, billsPot: null };
         }),

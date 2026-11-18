@@ -26,7 +26,16 @@ export interface MarketRow {
   lotSize: Decimal;
   minAmount: Decimal | null;
   listedAt: string | null;
+  /**
+   * The listing status the service publishes (J-cex-spot-14 #1): open, upcoming (not yet trading), delisting (dated),
+   * delisted or halted. Absent when the read did not carry it; only an open market is a tradeable row.
+   */
+  listing?: ListingState;
+  /** The date a delisting market leaves the board, or null. */
+  delistsAt?: string | null;
 }
+
+export type ListingState = 'open' | 'upcoming' | 'delisting' | 'delisted' | 'halted';
 
 export interface TickerRow {
   symbol: string;

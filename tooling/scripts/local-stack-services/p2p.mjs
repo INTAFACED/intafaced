@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { profileEnvFor } from '../owner-settings.mjs';
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
   name: 'p2p',
   env: () => ({
     ...c('svc-p2p', PORTS.p2p),
@@ -13,8 +13,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // The clocks below have no default and the service will not boot without them; they are LOCAL TEST
     // values (the figures the service's own messages name), not owner decisions.
     // LOCAL_TEST_KMS is this service only. The key file is written under the stack state dir on first boot.
-    LOCAL_TEST_KMS: '1',
-    LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms'),
+    // `LOCAL_STACK_P2P_KEY_STORE=off` on a start or restart leaves it out, as production is until the owner switches a key
+    // store on, so the add control's owner-decision notice can be seen (J-p2p-04 #3).
+    ...(process.env.LOCAL_STACK_P2P_KEY_STORE === 'off' ? {} : { LOCAL_TEST_KMS: '1', LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms') }),
     P2P_FEE_BPS: '0',
     P2P_ESCROW_DEADLINE_SECONDS: '120',
     // 180, not the 900 a person would get: the order-history journey waits for a real payment timeout.
@@ -24,6 +25,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     P2P_DISPUTE_ESCALATION_RECHECK_SECONDS: '3600',
     P2P_SWEEP_INTERVAL_SECONDS: '30',
     P2P_INSTRUMENT_RETENTION_DAYS: '90',
+    // RC-p2p-02 (J-p2p-21): the contract escrow beside the ledger escrow. svc-p2p reads the SovereignEscrow's status and
+    // deals through svc-protocol. On the LOCAL TEST chain, TEST USD (6 decimals) carries the ads' USDT, and a contract
+    // dispute runs 120 s before anyone may settle it by refunding the seller. Both are LOCAL TEST values, not owner
+    // decisions; with no chain they stay blank, so the contract escrow is offered nowhere and says why.
+    PROTOCOL_URL: urlOf('protocol'),
+    ...(testChain?.()?.usdToken
+      ? {
+          P2P_CONTRACT_ESCROW_TOKENS: JSON.stringify({ USDT: { address: testChain().usdToken, decimals: 6 } }),
+          P2P_CONTRACT_ESCROW_DISPUTE_WINDOW_SECONDS: '120',
+        }
+      : {}),
     // Export caps and receipt quotas: the labelled TEST profile (tooling/profiles/test-owner-values/p2p.json).
     ...profileEnvFor('p2p', 'dev'),
   }),

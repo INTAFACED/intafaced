@@ -21,6 +21,7 @@ import {
 } from './board.js';
 import { isNoticeAudience, type MemberAudience, type NoticeAudience } from './audiences.js';
 import { fromStored as changelogFromStored, type Changelog } from './changelog.js';
+import { translationsFromStored } from './translations.js';
 
 type NoticePg = {
   id: string;
@@ -43,6 +44,7 @@ type NoticePg = {
   reminder_offsets: number[] | null;
   category: NoticeCategory | null;
   audience: string;
+  translations: unknown;
   author_id: string;
   client_request_id: string;
   publish_client_request_id: string | null;
@@ -107,6 +109,7 @@ function fromPg(row: NoticePg): NoticeRow {
     reminderOffsets: row.reminder_offsets ?? [],
     category: row.category ?? null,
     audience: asAudience(row.audience),
+    translations: translationsFromStored(row.translations),
     authorId: row.author_id,
     clientRequestId: row.client_request_id,
     publishClientRequestId: row.publish_client_request_id,
@@ -117,7 +120,7 @@ function fromPg(row: NoticePg): NoticeRow {
 
 const COLUMNS = `
   id, kind, title, body, status, published_at, starts_at, ends_at, version,
-  impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category, audience,
+  impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category, audience, translations,
   author_id, client_request_id, publish_client_request_id, approval_id, created_at
 `;
 
@@ -138,7 +141,7 @@ export class PostgresNoticeStore implements NoticeStore {
       INSERT INTO notify.notices (
         id, kind, title, body, status, published_at, starts_at, ends_at, version,
         impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category, audience,
-        author_id, client_request_id
+        translations, author_id, client_request_id
       ) VALUES (
         ${row.id}, ${row.kind}, ${row.title}, ${row.body}, ${row.status},
         ${row.publishedAt}, ${row.startsAt}, ${row.endsAt}, ${row.version},
@@ -148,6 +151,7 @@ export class PostgresNoticeStore implements NoticeStore {
         ${[...(row.reminderOffsets ?? [])]}::integer[],
         ${row.category ? this.sql.json(row.category as never) : null},
         ${row.audience ?? 'everyone'},
+        ${this.sql.json((row.translations ?? {}) as never)},
         ${row.authorId}, ${row.clientRequestId}
       )
     `;

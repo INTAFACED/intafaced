@@ -1,17 +1,21 @@
 // World: book
+// Stack: fresh
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api, journeyState, tool } from './stack.mjs';
+import { api, journeyState, ROOT, STACK_PORTS, stackUrl, tool } from './stack.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-campaigns-16, in the running app (docs/roadmap/journeys.json): build a campaign and take it live, as a founder on the
 // founder console's campaigns desk (/more-ops/campaigns). One test per step, titled "J-campaigns-16 #<n>". Founders A and
 // B are the stack's LOCAL TEST founder pair (admin.mjs); A builds and asks, B approves. Activation reserves the budget and
 // nothing posts until a customer qualifies (J-campaigns-01).
+// #1 starts with no campaigns, which a stack other journeys have used does not hold (they make campaigns and nothing
+// takes them back), so the file needs a fresh stack and runs first in its shard (`// Stack: fresh`, world-line.mjs).
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - The console has only the waitlist waves room under /more-ops/campaigns: no overview, builder, drafts, validation,
 //   rule library, exclusions, earning rules, activation request, approval, revisions or calendar
@@ -37,6 +41,18 @@ async function openDesk(page, founder = 'a') {
   signedIn.add(page);
   await page.goto(`${ADMIN}/more-ops/campaigns`);
   await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible(UNBUILT);
+}
+
+/** svc-campaigns' own database role on the stack (loopback, the marker's postgres port, the stack's secret), to read what is stored. */
+async function campaignsDb() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const postgres = createRequire(path.join(ROOT, 'services', 'svc-campaigns', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  return postgres(`postgres://svc_campaigns:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
 }
 
 async function openDraft(page) {
@@ -65,10 +81,20 @@ test(`${J} #1 opens the campaigns desk with none: the overview with honest empty
   ];
   await expect(overview.getByRole('term')).toHaveText(expected.map(([label]) => label));
   await expect(overview.getByRole('definition')).toHaveText(expected.map(([, n]) => (n === 0 ? 'None yet' : String(n))));
-  if (states.length === 0) {
-    await expect(overview.getByTestId('campaigns-overview-empty')).toHaveText(/^No campaign exists yet\./);
-    await expect(page.getByTestId('campaigns-all')).toContainText('No campaign yet.');
+  // The step starts with no campaigns: the stack holds none and the desk lists none, so every figure reads none and the
+  // overview and the list each say so in words, with no number on the page standing in for one.
+  const sql = await campaignsDb();
+  try {
+    const [{ n }] = await sql`SELECT count(*)::int AS n FROM campaigns.campaigns`;
+    expect(n, 'the step starts from a stack with no campaigns').toBe(0);
+  } finally {
+    await sql.end();
   }
+  expect(states).toEqual([]);
+  await expect(overview.getByRole('definition')).toHaveText(expected.map(() => 'None yet'));
+  await expect(overview.getByTestId('campaigns-overview-empty')).toHaveText(/^No campaign exists yet\./);
+  await expect(page.getByTestId('campaigns-all')).toContainText('No campaign yet.');
+  await expect(overview).not.toContainText(/\d/);
 });
 
 test(`${J} #2 starts the builder, leaves and returns: the draft resumes at the same step, and a second draft leaves the first listed`, async ({
@@ -113,6 +139,25 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
   await page.getByRole('button', { name: 'Open the rule library' }).click(UNBUILT);
   await expect(library).toBeVisible();
   await expect(library).not.toContainText(ruleName);
+  // What is stored before the tests: every library revision and the draft itself, read from svc-campaigns' own tables.
+  const stored = async () => {
+    const sql = await campaignsDb();
+    try {
+      const rules = await sql`SELECT row_to_json(r)::text AS raw FROM campaigns.rule_library r ORDER BY lower(r.name), r.revision`;
+      const drafts = await sql`SELECT row_to_json(c)::text AS raw FROM campaigns.campaigns c WHERE c.name = ${draftName()}`;
+      // And the row count of every table svc-campaigns keeps: a test on a fixture account adds a row to none of them.
+      const tables =
+        await sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'campaigns' AND table_type = 'BASE TABLE' ORDER BY table_name`;
+      const counts = {};
+      for (const { table_name: t } of tables) counts[t] = (await sql`SELECT count(*)::int AS n FROM ${sql('campaigns')}.${sql(t)}`)[0].n;
+      return { rules: rules.map((r) => r.raw), drafts: drafts.map((r) => r.raw), counts };
+    } finally {
+      await sql.end();
+    }
+  };
+  const before = await stored();
+  expect(before.drafts).toHaveLength(1);
+  const shownBefore = await library.innerText();
 
   // Group 1 needs all of: an individual account (1.1), and either full verification (1.2.1) or a region other than KP (1.2.2).
   await rule.getByRole('button', { name: 'Add an AND group' }).click();
@@ -142,9 +187,12 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
   await page.getByRole('button', { name: 'Test on a fixture account' }).click();
   await expect(page.getByTestId('rule-test-result')).toHaveAttribute('data-passes', 'true');
   await expect(failing.getByRole('listitem')).toHaveText(['None: every condition holds for this account.']);
-  // Nothing was stored by the tests.
+  // Nothing was stored by the tests: the library and the draft are exactly as they were, row for row, and the library the
+  // desk lists reads the same.
+  expect(await stored()).toEqual(before);
   await page.getByRole('button', { name: 'Open the rule library' }).click();
   await expect(library).not.toContainText(ruleName);
+  expect(await library.innerText()).toBe(shownBefore);
 
   await page.getByLabel('Rule name').fill(ruleName);
   await page.getByRole('button', { name: 'Save to the library' }).click();
@@ -494,7 +542,7 @@ function redeliverDeposit(userId) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -537,7 +585,7 @@ test(`${J} #6 the earning rule gives one intent per event: a deposit the chain d
   const event = redeliverDeposit(customer.userId);
   expect(event).toMatchObject({ userId: customer.userId, assetId: 'USDT', amount: '20' });
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .flatMap((st) => st.consumer_detail ?? [])

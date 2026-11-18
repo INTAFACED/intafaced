@@ -19,6 +19,7 @@ import type { SupportDeskPort } from '../support-agent/desk-port.js';
 import { parseTierLaws } from '../tier-laws.js';
 import { checkRule, parsePolicyBaseline, type PolicyBaseline } from './guardrails.js';
 import { OWN_RUN_TASK } from './routes.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 
 /**
  * A person's own agent's standing rules, consents and approval requests (AG-guardrails-01, AG-guardrails-02; J-agents-05
@@ -177,6 +178,9 @@ if (!available) {
       funds: { available: async () => 100n * 10n ** 18n },
     });
     const router = createAgentsRouter({
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+
       runtime,
       gateway,
       meter,
@@ -235,7 +239,7 @@ if (!available) {
   beforeEach(async () => {
     await lockConn`select pg_advisory_lock(842671)`;
     await sql`
-      TRUNCATE agents.own_agent_reviews, agents.own_agent_reviewer_settings, agents.own_agent_surfaces, agents.own_agent_versions, agents.own_agent_co_owners, agents.own_agent_session_versions, agents.own_agent_approval_requests, agents.own_agent_consents, agents.own_agent_rules, agents.own_agent_limits,
+      TRUNCATE agents.own_agent_background_runs, agents.own_agent_reviews, agents.own_agent_reviewer_settings, agents.own_agent_surfaces, agents.own_agent_versions, agents.own_agent_co_owners, agents.own_agent_session_versions, agents.own_agent_approval_requests, agents.own_agent_consents, agents.own_agent_rules, agents.own_agent_limits,
                agents.own_agents, agents.spend_reservations, agents.user_spend_limits, agents.think_claims, agents.usage_records,
                agents.usage_windows, agents.agent_actions, agents.agent_sessions
       RESTART IDENTITY CASCADE
@@ -347,6 +351,7 @@ if (!available) {
           cost: '0',
           assetId: expect.any(String),
           occurredAt: held.request.createdAt,
+          messageParams: {},
         },
       ]);
       expect(await executed('support.ticket.comment')).toBe(0);

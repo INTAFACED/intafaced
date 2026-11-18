@@ -85,83 +85,18 @@ export const DEPENDENCY_FILES = [
 ];
 
 /**
- * Advisories present when this gate was installed (2026-08-06, tip 7207d6ec).
+ * Advisories in the tree that cannot be updated yet. The thirteen entries frozen when this gate was installed
+ * (2026-08-06) have all left the tree and their lines are deleted.
  *
- * `note` is the reason it is still here — a path, or the work it is waiting on.
- *
- * BOTH PRODUCTION-PATH ENTRIES ARE GONE as of this bump, and that is the
- * ratchet's whole point rather than an aside. `drizzle-orm` (direct, 13
- * dependents, every service that touches Postgres) and `fast-uri` (transitive
- * under `fastify`, reached by every service) were the two that mattered. The
- * scan refused this PR until their lines were deleted — a fix nobody records
- * leaves a baseline describing a tree that no longer exists.
- *
- * What remains reaches no request path: it arrives through build or lint
- * tooling.
+ * `note` is the reason it is still here: a path, and the work it is waiting on.
  */
 const KNOWN = {
-  'GHSA-mh99-v99m-4gvg': {
+  'GHSA-fc5q-39xc-vjpf': {
     severity: 'high',
-    module: 'brace-expansion',
-    note: 'eslint > minimatch. Lint tooling; never runs in a service.',
-  },
-  'GHSA-rgw5-rvv9-x895': {
-    severity: 'high',
-    module: 'brace-expansion',
-    note: 'eslint and rimraf > glob > minimatch. Lint and clean tooling; never runs in a service.',
-  },
-  'GHSA-ph9p-34f9-6g65': { severity: 'high', module: 'tmp', note: 'svc-indexer > solc > tmp. Solidity compiler, build-time only.' },
-  'GHSA-52f5-9888-hmc6': { severity: 'low', module: 'tmp', note: 'svc-indexer > solc > tmp. Solidity compiler, build-time only.' },
-  'GHSA-67mh-4wv8-2f99': {
-    severity: 'moderate',
-    module: 'esbuild',
-    note: 'packages/db > drizzle-kit > esbuild. Migration tooling, build-time only.',
-  },
-  'GHSA-2883-xcg3-v3hh': {
-    severity: 'high',
-    module: 'js-yaml',
-    note: 'eslint > @eslint/eslintrc > js-yaml. Lint tooling; never runs in a service. Patch is js-yaml 4.3.2.',
-  },
-  // Advisory DB moved on 2026-10-01. None of these packages were added by the
-  // recovery-enum change. A version bump is its own supply-chain PR.
-  'GHSA-q2hr-2g5m-vwhr': {
-    severity: 'moderate',
-    module: 'brace-expansion',
-    note: 'eslint > minimatch. Lint tooling; never runs in a service.',
-  },
-  'GHSA-qhr7-859c-m2p7': {
-    severity: 'high',
-    module: 'brace-expansion',
-    note: 'eslint > minimatch. Lint tooling; never runs in a service.',
-  },
-  'GHSA-6j4f-fj2g-mc7p': {
-    severity: 'high',
-    module: 'brace-expansion',
-    note: 'eslint > minimatch. Lint tooling; never runs in a service.',
-  },
-  'GHSA-g3hv-75wg-m249': {
-    severity: 'moderate',
-    module: 'minimatch',
+    module: 'picomatch',
     note:
-      'eslint, rimraf > glob, and testcontainers > archiver > glob / readdir-glob > minimatch. Lint, clean and test tooling; ' +
-      'never runs in a service. The patch is minimatch 11, a major none of them accepts yet (eslint pins the 3.x API).',
-  },
-  'GHSA-3g3m-2fjr-6pw4': {
-    severity: 'moderate',
-    module: 'glob',
-    note:
-      'rimraf > glob and testcontainers > archiver > archiver-utils > glob. Clean and test tooling; never runs in a service, ' +
-      'and neither passes an AbortSignal. The patch is glob 14, a major neither accepts yet.',
-  },
-  'GHSA-m9gg-hp2v-232j': {
-    severity: 'high',
-    module: '@grpc/grpc-js',
-    note: 'testcontainers > dockerode > @grpc/grpc-js. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-f596-whhp-79r4': {
-    severity: 'low',
-    module: '@grpc/grpc-js',
-    note: 'testcontainers > dockerode > @grpc/grpc-js. Test-only Docker client. Not a service request path.',
+      'vitest, vite and @tailwindcss/vite > picomatch (dev dependencies only; `pnpm why picomatch -r --prod` is empty). ' +
+      'Test and build tooling; never runs in a service. No patched picomatch exists yet (affected <= 4.0.7, the latest).',
   },
 };
 

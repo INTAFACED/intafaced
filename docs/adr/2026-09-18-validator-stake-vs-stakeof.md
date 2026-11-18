@@ -1,5 +1,7 @@
 # ADR: S-D3 — validator security stake is not `token.stakeOf`
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The parts about platform-custodied tokens and unstaking through a ledger recipe apply when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Proposed (spec).** Implement of P1 / `svc-chain` stays **parked**.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** S-D3 (Shehzad board) · feeds `chain.validators`.  

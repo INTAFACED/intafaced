@@ -355,7 +355,7 @@ describe('staking-style earn pool and pool status (BK-earn-04)', () => {
     expect(await bank.earn.accrue({ poolId, at: nextDay })).toMatchObject({ paid: 0n, recipients: 0 });
 
     // The release job: nothing before the end by the bank's clock, whatever time a caller names.
-    const lateClock = { limit: 10, at: new Date(unbondsAt + DAY).toISOString() } as unknown as { limit: number };
+    const lateClock = { limit: 10, at: new Date(unbondsAt + DAY).toISOString() } as { limit: number };
     expect(await jobs(bank).ops.releaseUnbondedEarn(lateClock)).toEqual({ released: [], skipped: [], next: null });
     expect(await main()).toBe(afterInterest);
     // The unbonding ends (moved back in time, as the bank's clock passing it would).

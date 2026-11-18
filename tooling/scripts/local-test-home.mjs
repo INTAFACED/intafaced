@@ -13,17 +13,28 @@
  * Every figure here is an illustrative TEST value.
  */
 
-export const HOME_ASSET = 'USDT';
-export const HOME_NETWORK = 'ethereum';
-export const HOME_DEPOSIT_AMOUNT = '100';
-/** The published minimum on TEST Ethereum is 6 confirmations (local-test-gates.mjs TEST_DEPOSIT_TERMS). */
-export const HOME_DEPOSIT_CONFIRMATIONS = 6;
-/** One fixed transfer: the same label to the same address is the same chain event (local-test-stack.mjs chainTxHash). */
-export const HOME_DEPOSIT_LABEL = 'LOCAL-TEST-seed-home-deposit-v1';
-export const HOME_NOTICE_TITLE = 'TEST · This is a test build';
-export const HOME_NOTICE_BODY = 'TEST notice from the tester seed. Balances here are TEST funds, not real money.';
-/** The TEST notice stays open as long as a test stack is likely to live, unless the caller asks for a shorter window. */
-export const HOME_NOTICE_DAYS = 30;
+// The Home's TEST values live in local-test-facts.mjs, so the journeys read them without this script.
+import {
+  HOME_ASSET,
+  HOME_NETWORK,
+  HOME_DEPOSIT_AMOUNT,
+  HOME_DEPOSIT_CONFIRMATIONS,
+  HOME_DEPOSIT_LABEL,
+  HOME_NOTICE_TITLE,
+  HOME_NOTICE_BODY,
+  HOME_NOTICE_DAYS,
+} from './local-test-facts.mjs';
+
+export {
+  HOME_ASSET,
+  HOME_NETWORK,
+  HOME_DEPOSIT_AMOUNT,
+  HOME_DEPOSIT_CONFIRMATIONS,
+  HOME_DEPOSIT_LABEL,
+  HOME_NOTICE_TITLE,
+  HOME_NOTICE_BODY,
+  HOME_NOTICE_DAYS,
+};
 /** svc-notify's inbox row for a credited deposit (services/svc-notify/src/deposit-credit-notice.ts). */
 export const DEPOSIT_CREDITED_KIND = 'bank.deposit.credited';
 export const NOTICE_WINDOW_MS = HOME_NOTICE_DAYS * 24 * 60 * 60_000;

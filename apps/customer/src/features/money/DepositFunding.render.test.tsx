@@ -82,6 +82,18 @@ describe('deposit address panel', () => {
     expect(address).not.toHaveBeenCalled();
   });
 
+  it('names the decimal places the bank reports for the asset once a network is chosen, and none when it reports none', async () => {
+    const withPrecision = { status: 'ready', data: { assets: [{ ...catalogue.assets[0]!, precision: 6 }] } } as const;
+    const facts = () =>
+      Object.fromEntries([...host.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]));
+    await mount(<DepositAddressPanel asset="USDT" catalogue={withPrecision as never} networkId="ethereum" />);
+    expect(facts()).toMatchObject({ 'Minimum deposit': '10 USDT', 'Decimal places': '6' });
+    await act(async () => root!.render(<DepositAddressPanel asset="USDT" catalogue={withPrecision as never} networkId="" />));
+    expect(facts()).not.toHaveProperty('Decimal places');
+    await act(async () => root!.render(<DepositAddressPanel asset="USDT" catalogue={ready as never} networkId="ethereum" />));
+    expect(facts()).not.toHaveProperty('Decimal places');
+  });
+
   it('with no network chosen asks for one first and requests nothing', async () => {
     await mount(<DepositAddressPanel asset="USDT" catalogue={ready as never} networkId="" />);
     expect(host.textContent).toContain('Choose an asset and a network');

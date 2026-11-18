@@ -1,10 +1,17 @@
-import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { execFile, execFileSync } from 'node:child_process';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LOCAL_TEST_DEVICE_KEY, localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
-import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import {
+  JOURNEY_TMP,
+  LOCAL_TEST_DEVICE_KEY,
+  localStackState,
+  localTestDeviceState,
+  stackUrl,
+} from '../../../../tooling/scripts/local-test-facts.mjs';
+export { HOOK_PORTS, STACK_PORTS, stackUrl } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { noteStackTool } from './partner-start.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
@@ -22,15 +29,16 @@ export async function signOutBrowser(context) {
 }
 
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
-export const EDGE = 'http://127.0.0.1:14500';
-export const LEDGER = 'http://127.0.0.1:14501';
-export const ORIGIN = 'http://127.0.0.1:3210';
+// The stack's addresses come from its one port table (LOCAL_STACK_SLOT moves them all).
+export const EDGE = stackUrl('edge');
+export const LEDGER = stackUrl('ledger');
+export const ORIGIN = stackUrl('customer');
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 
 /** A file in the running stack's own state folder (for example the stand-in engine's hold file). */
 export const stackFile = (name) => path.join(STATE, name);
-const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
+const RUN = process.env.JOURNEY_RUN_DIR ?? JOURNEY_TMP;
 
 /**
  * The shared-world state of this worker's current journey file (journey.mjs, `worldBetweenFiles`): which file it is,
@@ -44,9 +52,14 @@ export const worldState = {
   read() {
     try {
       const state = JSON.parse(readFileSync(WORLD_FILE, 'utf8'));
-      return { file: state.file ?? null, makerArgs: state.makerArgs ?? null, accounts: state.accounts ?? [] };
+      return {
+        file: state.file ?? null,
+        makerArgs: state.makerArgs ?? null,
+        accounts: state.accounts ?? [],
+        venueId: state.venueId ?? null,
+      };
     } catch {
-      return { file: null, makerArgs: null, accounts: [] };
+      return { file: null, makerArgs: null, accounts: [], venueId: null };
     }
   },
   write(state) {
@@ -104,14 +117,162 @@ export function journeyState(id) {
   };
 }
 
-/** A stack tool, as `node tooling/scripts/<script> ...args`; returns its output. */
-export function tool(script, ...args) {
-  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts', script), ...args], {
+/** How long a stack tool may run. */
+const TOOL_CAP_MS = 120_000;
+/** How much of a tool's shown output its error keeps, from the end, so a timed-out restart says where it stood. */
+const OUTPUT_TAIL = 4_000;
+
+/**
+ * The gates script's name, kept out of the function bodies below (`toolError`'s scoped-session rule): journey-world.mjs
+ * counts a helper whose body names a stack script as running the stack's tools.
+ */
+const GATES_SCRIPT = 'local-test-gates.mjs';
+
+/**
+ * The only lines of a tool's output that a failure shows, by shape (an allow-list: anything else is withheld and only
+ * counted, so an output nobody foresaw shows nothing). A failure's text reaches the public job log and report.
+ *   - a status line, `  matching: stopped`, `test market: ok`, `  host dispatch (TEST): app … served`;
+ *   - a row of the stack's health table;
+ *   - a typed refusal, `refusing [code]: …`;
+ *   - the header of a service that exited during start or never became healthy. The log tail that the stack prints
+ *     under an "exited during start" header is never shown: every line after it is withheld.
+ * A line that names a credential (NAMES_CREDENTIAL) is withheld whatever its shape.
+ */
+const SHOWN = [
+  /^ {0,4}[a-z][A-Za-z0-9 ,()/'._-]{0,48}: \S/,
+  /^ {2}(SERVICE|svc-[a-z0-9-]+|postgres|nats|chain \(TEST\)|video-store|rail-statements|customer|invitation|apex|admin|team-tls) +\S/,
+  /^ *refusing \[[a-z0-9._-]+\]/,
+  /^ *(?:local-test-[a-z]+: )?[a-z][a-z0-9-]* did not become healthy at \S+ within \d+s\b/,
+  /^INTAFACED local test stack$/,
+  /^LOCAL TEST GATES — /,
+];
+/**
+ * The headers under which a tool prints a raw log tail, each as far as it is shown; every line after one is withheld.
+ * A stack script's `fail()` writes `local-test-<script>: <message>` (local-test-stack.mjs `fail`, and the same in
+ * -gates, -market, -world), so each header takes that prefix or none. The emitters (#7465 review round 2):
+ *   - local-test-stack.mjs `waitHealthy`: `<service> exited during start. Log <path>:` and 20 log lines;
+ *   - local-test-stack.mjs `startTeamTls`: `team-tls exited during start. Log <path>` (no tail; the header holds it);
+ *   - local-test-stack.mjs `pnpmRun`: `<label> failed (exit <n>). Log: <path>` and 25 log lines;
+ *   - local-test-market.mjs `start --wait`: `test market starting (pid <n>). Watch: …` and 6 log lines, on stdout.
+ */
+const TAIL_HEADERS = [
+  /^ *(?:local-test-[a-z]+: )?[a-z][a-z0-9-]* exited during start\b/,
+  /^ *(?:local-test-[a-z]+: )?[a-z][a-z0-9 ()/._-]* failed \(exit [^)]*\)\. Log\b/,
+  /^ *(?:local-test-[a-z]+: )?test market starting \(pid \d+\)/,
+];
+/** A line naming a credential is withheld whatever its shape: a short value beside it would not be masked as opaque. */
+const NAMES_CREDENTIAL = /password|passphrase|secret|cookie|bearer|authori[sz]ation|private[ _-]?key|api[ _-]?key|totp/i;
+/** A run of 24 or more base64, base64url or hex characters (a generated key, a token, a hash) inside a shown line. */
+const OPAQUE = /[A-Za-z0-9+/_=-]{24,}/g;
+const SHOWN_WIDTH = 160;
+
+/** One line as shown: opaque runs masked, then cut to SHOWN_WIDTH characters. */
+const shownLine = (line) => {
+  const masked = line.replace(OPAQUE, '[withheld]');
+  return masked.length > SHOWN_WIDTH ? `${masked.slice(0, SHOWN_WIDTH)}…` : masked;
+};
+
+/** What of one output stream a failure may show: the allow-listed lines (masked and cut) and how many were withheld. */
+export function shownOutput(text) {
+  const shown = [];
+  let withheld = 0;
+  let inTail = false;
+  for (const line of String(text ?? '').split('\n')) {
+    if (line.trim() === '') continue;
+    if (inTail) {
+      withheld += 1;
+      continue;
+    }
+    const header = TAIL_HEADERS.map((re) => re.exec(line)).find(Boolean);
+    if (header) {
+      // The header only, as far as it matched: what follows on the line is the log's path, then its tail.
+      shown.push(shownLine(header[0]));
+      inTail = true;
+    } else if (!NAMES_CREDENTIAL.test(line) && SHOWN.some((re) => re.test(line))) shown.push(shownLine(line));
+    else withheld += 1;
+  }
+  let kept = shown;
+  while (kept.length > 1 && kept.join('\n').length > OUTPUT_TAIL) kept = kept.slice(1);
+  return { text: kept.join('\n'), lines: kept.length, withheld: withheld + (shown.length - kept.length) };
+}
+
+/** A stream that is never shown: nothing of it, only how many lines it had. */
+const withheldAll = (text) => ({
+  text: '',
+  lines: 0,
+  withheld: String(text ?? '')
+    .split('\n')
+    .filter((l) => l.trim() !== '').length,
+});
+
+/**
+ * The only error `tool` throws: a new Error, never Node's, whose message, `stdout` and `stderr` hold only the shown
+ * output (`shownOutput`). Node's own message appends a failed command's raw stderr, and its error keeps the raw output,
+ * so neither is ever thrown or kept as a cause. `status`, `signal` and `code` are Node's.
+ */
+export function toolError(raw, script, args) {
+  // `gates scoped-session` prints only a TEST console session's cookies: its stdout is never shown, even on a failure.
+  const out = script === GATES_SCRIPT && args[0] === 'scoped-session' ? withheldAll(raw?.stdout) : shownOutput(raw?.stdout);
+  const err = shownOutput(raw?.stderr);
+  const status = typeof raw?.status === 'number' ? raw.status : null;
+  const code = raw?.code ?? raw?.error?.code ?? null;
+  // A timeout reads as Node said it ("spawnSync <node> ETIMEDOUT"), which is how a runner error is told apart.
+  const why =
+    code === 'ETIMEDOUT'
+      ? `timed out after ${TOOL_CAP_MS / 1000} s (spawnSync ${process.execPath} ETIMEDOUT)`
+      : status !== null
+        ? `exit ${status}`
+        : `failed (${code ?? raw?.signal ?? 'no exit status'})`;
+  const block = (name, s) =>
+    `  its ${name} (${s.lines} line(s) shown, ${s.withheld} withheld):${s.text ? `\n${s.text.replace(/^/gm, '    ')}` : ''}`;
+  const error = new Error(`tool ${shownLine([script, ...args].join(' '))} ${why}\n${block('stdout', out)}\n${block('stderr', err)}`);
+  return Object.assign(error, { status, signal: raw?.signal ?? null, code, stdout: out.text, stderr: err.text });
+}
+
+const run = (script, args, timeout) =>
+  execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts', script), ...args], {
     cwd: ROOT,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 120_000,
+    timeout,
   });
+
+/**
+ * A stack tool, as `node tooling/scripts/<script> ...args`; returns its output. A failure, a timeout included, carries
+ * the tool's own stdout and stderr.
+ */
+export function tool(script, ...args) {
+  noteStackTool(script, args);
+  try {
+    return run(script, args, TOOL_CAP_MS);
+  } catch (error) {
+    throw toolError(error, script, args);
+  }
+}
+
+/**
+ * `tool`, awaited: the worker's event loop stays free while the tool runs. A long tool call (a service stopped or
+ * started, about 84 s) that blocks the loop outlives Edge's 72 s keep-alive without this process seeing Edge close the
+ * socket, so the next request through Edge is written to a closed socket and fails with "other side closed" (#7449,
+ * as approveKyb in #7461). Same output, limit and error as `tool`.
+ */
+export async function toolAwaited(script, ...args) {
+  noteStackTool(script, args);
+  try {
+    return await new Promise((resolve, reject) =>
+      execFile(
+        process.execPath,
+        [path.join(ROOT, 'tooling/scripts', script), ...args],
+        { cwd: ROOT, encoding: 'utf8', timeout: TOOL_CAP_MS, maxBuffer: 64 * 1024 * 1024 },
+        (error, stdout, stderr) => (error ? reject(Object.assign(error, { stdout, stderr })) : resolve(stdout)),
+      ),
+    );
+  } catch (error) {
+    // A killed run is the limit reached: it reads as `tool`'s timeout does.
+    const raw = error?.killed ? Object.assign(error, { code: 'ETIMEDOUT' }) : error;
+    if (typeof raw?.code === 'number') Object.assign(raw, { status: raw.code, code: null });
+    throw toolError(raw, script, args);
+  }
 }
 
 /**
@@ -122,6 +283,22 @@ export function restartWith(service, envKey, on) {
   const before = process.env[envKey];
   if (on) delete process.env[envKey];
   else process.env[envKey] = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', service);
+  } finally {
+    if (before === undefined) delete process.env[envKey];
+    else process.env[envKey] = before;
+  }
+}
+
+/**
+ * A stack service restarted with one TEST setting set to `value` (`null` unsets it), for a setting that is off by
+ * default (`LOCAL_STACK_USER_VENUE=on`). As `restartWith`, this process's environment is put back as it was.
+ */
+export function restartWithSetting(service, envKey, value) {
+  const before = process.env[envKey];
+  if (value === null) delete process.env[envKey];
+  else process.env[envKey] = value;
   try {
     tool('local-test-stack.mjs', 'restart', service);
   } finally {
@@ -191,6 +368,15 @@ export async function nextMailedCode(email, seen = 0, waitMs = 20_000, purpose =
  * Sign up through /register as a real person would: details, then the mailed code. `who` needs handle, email and
  * password; the country and birth date are TEST answers. Lands signed in, off /register.
  */
+/**
+ * A fresh TEST person: a handle that starts with `prefix`, its LOCAL-TEST address, and a TEST password made for this run,
+ * kept only in the run file (mode 600). Nothing is signed up.
+ */
+export function testPerson(prefix) {
+  const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+  return { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
+}
+
 export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth = '1990-05-01', accountType = 'individual' } = {}) {
   actedAs(who);
   const seen = mailedCodes(who.email).length;
@@ -200,6 +386,7 @@ export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth =
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
   await page.getByLabel('Country you live in').selectOption(country);
+  await page.getByRole('radio', { name: 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill(dateOfBirth);
   await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();
@@ -222,6 +409,27 @@ export async function json(res) {
   } catch {
     return { status: res.status, body: text };
   }
+}
+
+/**
+ * A spot sell the ledger refused for less base than it asked, with the likely cause added to the refusal's message: a
+ * buy's fee is taken in the asset bought, so a sell of what was bought asks for more than the buy left (#8404
+ * `8cd82aa5`, J-algo-dev-05 #3: "requested 0.001, available 0.000999"). The answer is otherwise the app's own.
+ */
+export function withFeeNote(route, body, res) {
+  if (!/^\/api\/v1\/orders(\?|$)/.test(route) || body?.side !== 'sell' || res?.status !== 400) return res;
+  const message = res.body?.message;
+  const m = typeof message === 'string' ? /Insufficient (\S+): requested (\d[\d.]*\d|\d), available (\d[\d.]*\d|\d)/.exec(message) : null;
+  if (res.body?.intafacedCode !== 'ledger.insufficient_funds' || !m) return res;
+  let short;
+  try {
+    short = toUnits(m[3]) < toUnits(m[2]);
+  } catch {
+    return res;
+  }
+  if (!short) return res;
+  const note = ` (journey helper: a buy's fee is taken in the asset bought, so a sell of what was bought asks for more than the buy left; sell what the balance holds, (await api(who).balances()).${m[1]}.free)`;
+  return { ...res, body: { ...res.body, message: `${message}${note}` } };
 }
 
 /**
@@ -253,10 +461,12 @@ export async function api(who, { totpCode } = {}) {
   // A kept-alive socket that Edge closed while the test waited (a lane restart takes longer than Edge's idle timeout)
   // fails before any answer. A read is sent once more on a fresh socket; a write never is.
   const call = (method, route, body) =>
-    send(method, route, body).catch((error) => {
-      if (method !== 'GET' || error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
-      return send(method, route, body);
-    });
+    send(method, route, body)
+      .catch((error) => {
+        if (method !== 'GET' || error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+        return send(method, route, body);
+      })
+      .then((res) => (method === 'POST' ? withFeeNote(route, body, res) : res));
   return {
     /** The account's user id, as identity answered the sign-in. */
     userId: login.body.result.data.userId,

@@ -27,6 +27,15 @@ import { buybackOrderHold, buybackOrderHoldRelease, buybackTakerFill } from './b
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import { tradeFillFeeCorrection } from './fill-correction.js';
 import { tradeFillMakerRebate } from './fill-rebate.js';
+import { builderFeeEarn, builderFeeReceive } from './builder-fee.js';
+import { ownFundsMove } from './own-funds.js';
+import { campaignBudgetFund, rewardOwe, rewardPayOut, rewardReclaim } from './reward-owed.js';
+import { feeShareBudgetFund, feeShareOwe, feeSharePayOut } from './fee-share-owed.js';
+import { chargeCollect, chargeEarn } from './charge.js';
+import { academyPurchase, academyPurchaseRefund } from './academy-purchase.js';
+import { partnerFeeEarn, partnerFeeSettle } from './partner-fee.js';
+import { merchantFeeEarn } from './merchant-fee.js';
+import { feeGiveBackOwe, feeGiveBackPayOut } from './fee-giveback.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -60,6 +69,36 @@ export type { EscrowDisputeRuling } from './escrow-dispute-law.js';
 export { NATURAL_PERSON_ID, isNaturalPersonId, assertEscrowDisputeRuling, assertEscrowRefundResolution } from './escrow-dispute-law.js';
 export { refusePostedFillPriceEdit, tradeFillFeeCorrection, type TradeFillFeeCorrectionInput } from './fill-correction.js';
 export { makerRebateFor, tradeFillMakerRebate, type MakerRebate, type TradeFillMakerRebateInput } from './fill-rebate.js';
+export {
+  BUILDER_FEE_MODULE,
+  BUILDER_FEE_POT,
+  builderFeeEarn,
+  earnedBuilderFeeKey,
+  builderFeePayoutKey,
+  builderFeeReceive,
+  type BuilderFeeEarnInput,
+  type BuilderFeeReceiveInput,
+} from './builder-fee.js';
+export {
+  OWN_FUNDS_MODULE,
+  ownFundsMove,
+  ownFundsMoveKey,
+  ownFundsPlaceAccount,
+  type OwnFundsMoveInput,
+  type OwnFundsMoveCost,
+  type OwnFundsPlace,
+} from './own-funds.js';
+export {
+  REWARD_ASSET,
+  REWARD_CEILING_UNSET,
+  REWARD_CEILING_UNSET_CODE,
+  REWARD_CEILING_EXCEEDED_CODE,
+  RewardCeilingUnsetError,
+  RewardCeilingExceededError,
+  campaignBudgetAccount,
+  rewardOwedAccount,
+  type RewardCeiling,
+} from './reward-owed.js';
 
 /**
  * LEDGER RECIPES (§4.2).
@@ -1374,6 +1413,13 @@ export * from './pay-received-hold.js';
 export * from './bank-transfer-reversal.js';
 export * from './staff-hold.js';
 export * from './campaign-lock.js';
+export * from './reward-owed.js';
+export * from './fee-share-owed.js';
+export * from './charge.js';
+export * from './academy-purchase.js';
+export * from './partner-fee.js';
+export * from './merchant-fee.js';
+export * from './fee-giveback.js';
 export * from './market-escrow.js';
 export * from './buyback.js';
 export {
@@ -1406,6 +1452,33 @@ export const recipes = {
   tradeFill,
   tradeFillFeeCorrection,
   tradeFillMakerRebate,
+  builderFeeEarn,
+  builderFeeReceive,
+  ownFundsMove,
+  // A reward we owe a customer and its payment to their own wallet, own accounts only (launch money model). See ./reward-owed.ts.
+  campaignBudgetFund,
+  rewardOwe,
+  rewardPayOut,
+  // Cancelling a reward we owe and have not paid, back to the rewards engine (J-campaigns-18). See ./reward-owed.ts.
+  rewardReclaim,
+  // A fee share we owe a lead trader or affiliate and its payment to their own wallet, own accounts only (launch money model). See ./fee-share-owed.ts.
+  feeShareBudgetFund,
+  feeShareOwe,
+  feeSharePayOut,
+  // A charge a customer owes us, earned and collected into one of our own-funds places, own accounts only (launch money model). See ./charge.ts.
+  chargeEarn,
+  chargeCollect,
+  // A paid Academy course bought from the buyer's own wallet into one of our own-funds places, and its staff refund, own accounts only (J-academy-07). See ./academy-purchase.ts.
+  academyPurchase,
+  academyPurchaseRefund,
+  // Our fee on a payment a licensed partner processed, earned and settled by the partner into our own funds, own accounts only (launch money model). See ./partner-fee.ts.
+  partnerFeeEarn,
+  partnerFeeSettle,
+  // Our fee on a payment a business received straight into its own wallet, owed by the business, own accounts only (launch money model). See ./merchant-fee.ts.
+  merchantFeeEarn,
+  // A fee a customer paid on a fill, given back from our own funds to their own wallet with two approvers, own accounts only (launch money model). See ./fee-giveback.ts.
+  feeGiveBackOwe,
+  feeGiveBackPayOut,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,

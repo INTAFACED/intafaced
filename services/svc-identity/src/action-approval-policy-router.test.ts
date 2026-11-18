@@ -168,16 +168,28 @@ describe('actionApproval.policies', () => {
     const { r } = rig({ value: policy() });
     for (const scopes of [OPERATOR, SUPPORT]) {
       const read = await r.createCaller(await ctx(OPERATOR_C, scopes)).actionApproval.policies();
-      expect(read.policies.map((p) => p.actionType)).toEqual(['ops.ledger.reverse', 'ops.ledger.adjust']);
+      // The two ledger correction types, then the six privileged staff changes (J-ops-console-09), each read on its own.
+      expect(read.policies.map((p) => p.actionType)).toEqual([
+        'ops.ledger.reverse',
+        'ops.ledger.adjust',
+        'identity.staff.invite',
+        'identity.staff.disable',
+        'identity.staff.remove',
+        'identity.roles.define',
+        'identity.roles.assign',
+        'identity.roles.unassign',
+      ]);
       expect(read.policies[0]).toMatchObject({
         state: 'set',
         policy: { requiredApprovals: 2, approverAudience: 'operator', applier: 'svc-ops', maxAgeSeconds: 600 },
       });
       expect(read.policies[1]).toEqual({ state: 'unset', actionType: 'ops.ledger.adjust', code: 'action_approval.policy_unset' });
+      // No row was set for any staff change here: each is unset with the typed code, never a default.
+      for (const entry of read.policies.slice(2)) expect(entry).toMatchObject({ state: 'unset', code: 'action_approval.policy_unset' });
     }
     // A live founder whose session carries no operator scope.
     const founderRead = await r.createCaller(await ctx(FOUNDER_B, PLAIN)).actionApproval.policies();
-    expect(founderRead.policies).toHaveLength(2);
+    expect(founderRead.policies).toHaveLength(8);
   });
 
   it('refuses anyone who is neither', async () => {

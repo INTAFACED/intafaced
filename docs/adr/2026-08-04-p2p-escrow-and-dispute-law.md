@@ -1,5 +1,7 @@
 # ADR: P2P escrow and disputes — a timer is not a moderator
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-08.

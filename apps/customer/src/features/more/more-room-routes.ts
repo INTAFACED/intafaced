@@ -11,10 +11,12 @@ export interface MoreRoute {
   /** Key of the page's own title in `moreRoomRoutesCopy`. */
   title:
     | 'positions'
+    | 'predictSettings'
     | 'purchases'
     | 'newLaunch'
     | 'launchCheck'
     | 'launchRequirements'
+    | 'myLaunches'
     | 'governance'
     | 'economy'
     | 'burn'
@@ -38,12 +40,14 @@ export interface MoreRoute {
  */
 export const MORE_ROUTES: readonly MoreRoute[] = [
   { pattern: '/predict/positions', room: 'predict', kind: 'part', title: 'positions' },
+  { pattern: '/predict/settings', room: 'predict', kind: 'part', title: 'predictSettings' },
   { pattern: '/predict/:marketId', room: 'predict', kind: 'detail', title: 'predict' },
   { pattern: '/market/purchases', room: 'market', kind: 'part', title: 'purchases' },
   { pattern: '/market/:listingId', room: 'market', kind: 'detail', title: 'market' },
   { pattern: '/launch/new', room: 'launch', kind: 'part', title: 'newLaunch' },
   { pattern: '/launch/check', room: 'launch', kind: 'part', title: 'launchCheck' },
   { pattern: '/launch/requirements', room: 'launch', kind: 'part', title: 'launchRequirements' },
+  { pattern: '/launch/mine', room: 'launch', kind: 'part', title: 'myLaunches' },
   { pattern: '/launch/:projectId', room: 'launch', kind: 'detail', title: 'launchProject' },
   { pattern: '/token/governance', room: 'token', kind: 'part', title: 'governance' },
   { pattern: '/token/economy', room: 'token', kind: 'part', title: 'economy' },
@@ -90,9 +94,11 @@ export function matchMoreRoute(path: string): MoreRouteMatch | undefined {
     } catch {
       return { route, invalid: true };
     }
-    const reserved = RESERVED_SEGMENTS[route.room];
+    // A section's name is never a record id (J-more-catalogue-01 #3): under a deeper record route such as
+    // /token/governance/:proposalId it is no address at all, so the room-set answers it with the "no customer route" panel.
+    if (RESERVED_SEGMENTS[route.room].includes(id)) return undefined;
     // `/market/a%2Fb` decodes to a slash: that is not one segment, so not an id.
-    return idShape.test(id) && !reserved.includes(id) ? { route, id } : { route, invalid: true };
+    return idShape.test(id) ? { route, id } : { route, invalid: true };
   }
   return undefined;
 }

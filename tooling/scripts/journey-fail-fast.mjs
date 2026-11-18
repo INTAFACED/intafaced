@@ -105,6 +105,31 @@ export const failsFast = (plan, title) => {
   return key !== null && plan.steps.has(key) && !plan.passed.has(title);
 };
 
+/** A file whose tests run as one group in order (`describe.configure({ mode: 'serial' })` or `test.describe.serial`). */
+export const SERIAL_FILE = /mode:\s*['"]serial['"]|describe\.serial\b/;
+
+/**
+ * No retry for a test that fails fast (OWNER 154 point 8): on main a failed test is retried once so a pass on the retry
+ * ends "flaky" (real-app.playwright.config.mjs), but a test of a step the plan expects to fail never turned into a pass
+ * on its retry. Measured on main runs 2559, 2655 and 2708 (9 Nov 2026): 475 to 481 such tests were retried in each,
+ * about 77 job-minutes a run, and every retry failed again. So each test that fails fast gets `retries` 0: it runs once,
+ * every assertion unchanged, and a pass on that one attempt is a pass, as before. Nothing else changes: a test outside
+ * the plan (built, a regression, or new) keeps its retry, and so does every test of a serial file, where Playwright
+ * retries the file's whole group together and a test left out of that retry would let the steps after it run without it.
+ *
+ * `tests` are Playwright's own test cases (the root suite's allTests() in a reporter's onBegin, which the runner then
+ * schedules from); `isSerialFile(file)` says whether a file runs serial. Returns how many tests lost their retry.
+ */
+export function noRetryForFailFast(tests, plan, isSerialFile) {
+  let n = 0;
+  for (const t of tests)
+    if (t.retries > 0 && failsFast(plan, t.title) && !isSerialFile(t.location.file)) {
+      t.retries = 0;
+      n += 1;
+    }
+  return n;
+}
+
 // The planner: node tooling/scripts/journey-fail-fast.mjs --plan [--report <report.json>]... prints the plan as JSON, or
 // nothing when no report was read.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -71,6 +71,11 @@ const messages = {
   'Unlock selected': 'Unlock',
   'Text to place': 'Text',
   'Text label': 'Text to place or edit',
+  'Text size label': 'Text size',
+  'Text colour label': 'Text colour',
+  'Text size option': '{size} px',
+  'On pane': 'Indicator pane {n}',
+  'On price pane': 'Price pane',
   'Object tree': 'Objects',
   'Object tree empty': 'No drawings on this chart.',
   'Object tree lead': 'Every drawing on this chart, with its bar times and prices. Indicators are listed here too.',
@@ -119,6 +124,8 @@ const messages = {
   'Refused brush-cap-reached': 'This stroke reached its point limit and ended.',
   'Refused wrong-side': 'Stop and target must sit on the right side of the entry.',
   'Refused no-risk': 'The stop is at the entry, so the risk is zero.',
+  'Refused pane-not-allowed': 'This tool draws on the price pane only. Lines and text can go on an indicator pane.',
+  'Refused bad-size': 'Pick one of the text sizes offered.',
   'Refused group': 'Check at least one drawing to group.',
 
   // Canvas labels

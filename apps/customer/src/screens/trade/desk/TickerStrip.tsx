@@ -5,7 +5,10 @@ import { ChangeText, CoinIcon, direction as signOf, fmtAmount, Skeleton, type Lo
 import { useFlash, useTickDirection } from './hooks';
 import { tradingMode, type DeskMarket } from './market';
 import { changeLine, dollarPrice, partialWindowStart, placesOf, turnoverText } from './text';
-import { clockMinutes } from './time';
+import { clockMinutes, dayTime } from './time';
+import { maintenanceWhen } from '../../../shared/market-maintenance';
+import { useMarketLifecycle } from '../../charts/market-state';
+import { TEST_EVIDENCE_PREFIX } from '../../charts/data-status';
 import type { Preferences } from '../../../shared/preferences';
 import type { ReactNode } from 'react';
 
@@ -30,9 +33,35 @@ function Stat({ label, value, loading }: { label: string; value: string; loading
   );
 }
 
+/** The market's maintenance window on the ticket (J-cex-spot-14 #5): how far away it is, and its end or "End time not set". */
+function MaintenanceStat({ window, zone }: { window: NonNullable<DeskMarket['maintenance']>; zone: Preferences['timeZone'] }) {
+  const { t } = deskCopy.useCopy();
+  const when = maintenanceWhen(window, Date.now());
+  const text =
+    when.kind === 'now'
+      ? t('Maintenance now')
+      : when.kind === 'hours'
+        ? when.n === 1
+          ? t('Maintenance in one hour')
+          : t('Maintenance in hours', { n: when.n })
+        : t('Maintenance in minutes', { n: when.n });
+  return (
+    <div className="dk-stat" data-testid="dk-maintenance">
+      <span className="dk-stat-label">{text}</span>
+      <span className="dk-stat-value">
+        {window.endsAt === null ? t('Maintenance end not set') : t('Maintenance until', { time: clockMinutes(window.endsAt, zone) })}
+      </span>
+    </div>
+  );
+}
+
 /** Ticker strip, 48 px (UI-SPEC 5.7): pair, last price, 24h change, low, high, volume, turnover from /ticker; the trading mode from the listing. */
 export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite, onToggleFavorite, zone, picker, status }: Props) {
   const { t } = deskCopy.useCopy();
+  // The TEST label follows the market's own lifecycle evidence, the same read and marker the chart's label uses, so the
+  // chart and the price header never disagree. A lifecycle not read names no TEST and claims nothing either way.
+  const lifecycle = useMarketLifecycle(market.symbol);
+  const test = lifecycle.status === 'ready' && lifecycle.data.evidenceRefs.some((ref) => ref.startsWith(TEST_EVIDENCE_PREFIX));
   const row = ticker.status === 'ready' ? ticker.data : null;
   const last = row?.last ?? null;
   const direction = useTickDirection(last, market.symbol);
@@ -44,8 +73,12 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
   const loading = ticker.status === 'loading';
   const pair = `${market.base}/${market.quote}`;
   const mode = tradingMode(market);
-  const modeText =
-    mode.kind === 'open'
+  // A shut session is said as itself, with when it opens: never the lifecycle's bare refusal (J-cex-spot-14 #6).
+  const modeText = market.sessionShut
+    ? market.opensAt != null
+      ? t('Trading mode session shut opens', { time: dayTime(market.opensAt, zone) })
+      : t('Trading mode session shut')
+    : mode.kind === 'open'
       ? t('Trading mode value', { state: t('Mode OPEN') })
       : mode.kind === 'named'
         ? t(mode.newOrders ? 'Trading mode value' : 'Trading mode no orders', { state: t(`Mode ${mode.mode}`) })
@@ -57,6 +90,11 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
         <h1 data-testid="dk-pair" className="dk-pair">
           {pair}
         </h1>
+        {test ? (
+          <span data-testid="dk-test" className="dk-test" title={t('Test market title')}>
+            {t('Test market')}
+          </span>
+        ) : null}
         {picker}
         <button
           type="button"
@@ -92,6 +130,14 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
       <div data-testid="dk-stats" className="dk-stats">
         {/* First, so a narrow strip clips a volume figure before it hides that the market is halted. */}
         <Stat label={t('Trading mode')} value={modeText} loading={false} />
+        {market.maintenance ? <MaintenanceStat window={market.maintenance} zone={zone} /> : null}
+        {market.openingWindowEndsAt != null && market.openingWindowEndsAt > Date.now() ? (
+          // A new listing's opening window (J-cex-spot-14 #7): limit orders only until it ends.
+          <div className="dk-stat" data-testid="dk-opening-window">
+            <span className="dk-stat-label">{t('Opening window')}</span>
+            <span className="dk-stat-value">{t('Opening window until', { time: dayTime(market.openingWindowEndsAt, zone) })}</span>
+          </div>
+        ) : null}
         <Stat
           label={since ? t('Low since', { time: since }) : t('24h low')}
           value={dollarPrice(row?.low24h ?? null, market)}
@@ -112,6 +158,9 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
           value={turnoverText(row?.quoteVolume24h ?? null, market.quote)}
           loading={loading}
         />
+        {/* SP-markets-data-04 is blocked on the engine's priority-class note and the owner's retail decision: the layer
+            is named, never implied, and the place door refuses an order that asks for it (`trade.rpi_unavailable`). */}
+        <Stat label={t('Price improvement')} value={t('Price improvement not available')} loading={false} />
       </div>
       {status ? <div className="dk-ticker-status">{status}</div> : null}
     </header>

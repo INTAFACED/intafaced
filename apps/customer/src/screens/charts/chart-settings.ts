@@ -14,6 +14,10 @@ export interface ChartSettings {
   logScale: boolean;
   /** Canvas. */
   gridLines: boolean;
+  /** Trading: the order button on the price scale (it opens the chart's ticket at the pointer's price). */
+  orderButton: boolean;
+  /** Alerts: the levels of this person's price alerts drawn on the chart (they stay listed under it either way). */
+  alertLevels: boolean;
 }
 
 export const DEFAULT_CHART_SETTINGS: ChartSettings = {
@@ -24,6 +28,8 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   timeScale: true,
   logScale: false,
   gridLines: true,
+  orderButton: true,
+  alertLevels: true,
 };
 
 export const CHART_SETTING_KEYS = Object.keys(DEFAULT_CHART_SETTINGS) as readonly (keyof ChartSettings)[];

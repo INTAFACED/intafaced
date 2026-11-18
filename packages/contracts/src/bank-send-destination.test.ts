@@ -69,7 +69,7 @@ describe('bank send destination client', () => {
     ['a short secret', { bankUrl: 'http://bank.internal', secret: 'short' }],
   ])('answers unavailable without fetching for %s', async (_name, options) => {
     const fetcher = vi.fn();
-    const client = createBankSendDestinationClient({ ...options, fetcher: fetcher as unknown as typeof fetch });
+    const client = createBankSendDestinationClient({ ...options, fetcher: fetcher as typeof fetch });
     await expect(client.check(input)).resolves.toEqual({ state: 'unavailable', code: 'bank.send_destination_unavailable' });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -79,7 +79,7 @@ describe('bank send destination client', () => {
     const client = createBankSendDestinationClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.check({ ...input, network: '' })).resolves.toMatchObject({ state: 'unavailable' });
     expect(fetcher).not.toHaveBeenCalled();
@@ -94,7 +94,7 @@ describe('bank send destination client', () => {
     const client = createBankSendDestinationClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.check(input)).resolves.toEqual({ state: 'unavailable', code: 'bank.send_destination_unavailable' });
   });
@@ -108,7 +108,7 @@ describe('bank send destination client', () => {
       bankUrl: 'http://bank.internal',
       secret: SECRET,
       timeoutMs: 20,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.check(input)).resolves.toMatchObject({ state: 'unavailable' });
   });

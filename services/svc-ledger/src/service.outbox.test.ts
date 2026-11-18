@@ -124,6 +124,7 @@ describe('svc-ledger post outbox', () => {
     const ledger = new LedgerService(
       requireDb().sql,
       gatedBus(inner, () => failPublish),
+      { custodyLayer: 'on' },
     );
     const request = deposit();
 
@@ -162,7 +163,7 @@ describe('svc-ledger post outbox', () => {
 
   it('successful post marks the outbox sent and does not re-publish on recover', async () => {
     const bus = new MemoryEventBus('svc-ledger');
-    const ledger = new LedgerService(requireDb().sql, bus);
+    const ledger = new LedgerService(requireDb().sql, bus, { custodyLayer: 'on' });
     const posted = await ledger.post(deposit());
 
     expect(bus.emitted('ledgerTxPosted')).toHaveLength(1);

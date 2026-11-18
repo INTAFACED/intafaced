@@ -339,6 +339,40 @@ if (!available) {
     await expect(auth.refresh(laptop.refreshToken)).rejects.toThrow(AuthError);
   });
 
+  it('a refused refresh that presented no cookie sends no Set-Cookie, so a sign-in landing first keeps its cookie', async () => {
+    const server = await app();
+    try {
+      const refused = await server.inject({
+        method: 'POST',
+        url: '/trpc/auth.refresh',
+        headers: { host: 'localhost', origin: 'http://localhost:3000' },
+        payload: {},
+      });
+      expect(refused.statusCode).toBe(401);
+      expect(refused.headers['set-cookie']).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('a refused refresh that presented a dead cookie still clears it', async () => {
+    const server = await app();
+    try {
+      const refused = await server.inject({
+        method: 'POST',
+        url: '/trpc/auth.refresh',
+        headers: { host: 'localhost', origin: 'http://localhost:3000', cookie: `${REFRESH_COOKIE_NAME}=not-a-live-session` },
+        payload: {},
+      });
+      expect(refused.statusCode).toBe(401);
+      const cleared = cookieLines(refused);
+      expect(cleared).toHaveLength(REFRESH_COOKIE_PATHS.length);
+      expect(cleared.every((line) => line.includes('Max-Age=0'))).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('logout clears the cookie and revokes that rotation chain, and leaves another login signed in', async () => {
     const handle = await registerUser();
     const server = await app();

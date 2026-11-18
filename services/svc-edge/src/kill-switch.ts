@@ -1,6 +1,7 @@
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { MODULE_IDS, isModuleId, type ModuleId } from '@intafaced/config';
+import { notNormalReason } from './path-normal-form.js';
 import { UPSTREAMS } from './routes.js';
 
 /**
@@ -234,6 +235,10 @@ export function procedureLeaf(procedure: string): string {
  * means the edge and the upstream cannot be made to agree, and a request nobody
  * can route to one place does not get to pick.
  *
+ * Also refused: a path not in normal form (`path-normal-form.ts`), such as an
+ * escaped unreserved character. `/api/trade/%69nternal/x` passed every string
+ * comparison here and was served by the upstream's `/internal/x` handler.
+ *
  * Deliberately NOT refused: a segment that merely decodes to contain a slash,
  * such as `/api/v1/orders/BTC%2FUSDT`. That is an ordinary CCXT symbol, and the
  * cancel paths in `ALWAYS_ALLOWED_REST` are the release routes that let users
@@ -256,6 +261,10 @@ export function resolvedPathname(rawUrl: string): string | null {
     return null;
   }
   if (decoded.split('/').some((segment) => segment === '.' || segment === '..')) return null;
+
+  // A path not in normal form (`%69nternal`, `//`, `%2569`) is one the service behind the edge may read differently
+  // from every string comparison made here. See `path-normal-form.ts` (project-state #2703).
+  if (notNormalReason(pathname) !== null) return null;
 
   return pathname;
 }

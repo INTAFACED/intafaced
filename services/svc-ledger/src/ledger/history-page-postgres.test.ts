@@ -36,6 +36,7 @@ const OTHER = '72222222-2222-4222-8222-222222222222';
 const EMPTY = '73333333-3333-4333-8333-333333333333';
 const RAILER = '74444444-4444-4444-8444-444444444444';
 const CONVERTER = '75555555-5555-4555-8555-555555555555';
+const WITHDRAWER = '76666666-6666-4666-8666-666666666666';
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -338,6 +339,26 @@ describe('PostgresLedger.historyPage', () => {
     const wire = JSON.stringify(serializeHistoryPage(page));
     expect(wire).toContain('"product":"convert"');
     expect(wire).not.toContain('not-a-known-product');
+  });
+
+  it("returns a withdrawal line's own withdrawalId, and null on every other line (J-portfolio-03 #2)", async () => {
+    await engine.post(
+      recipes.deposit({ userId: WITHDRAWER, assetId: 'USDT', amount: amt('50'), rail: 'crypto-native', railRef: 'wd-dep' }),
+    );
+    const wd = { userId: WITHDRAWER, assetId: 'USDT', amount: amt('5'), rail: 'crypto-native' };
+    await engine.post(recipes.withdrawHold({ ...wd, withdrawalId: '7a7a7a7a-0000-4000-8000-000000000001:0' }));
+    await engine.post(recipes.withdrawReverse({ ...wd, withdrawalId: '7a7a7a7a-0000-4000-8000-000000000001:0' }));
+    await engine.post(recipes.withdrawHold({ ...wd, withdrawalId: '7a7a7a7a-0000-4000-8000-000000000001:1' }));
+
+    const page = await engine.historyPage(scope({ ownerId: WITHDRAWER, limit: 200 }));
+    // Oldest to newest: the deposit, the first attempt's hold and its reversal, the second attempt's hold.
+    expect([...page.entries].reverse().map((e) => [e.reason, e.withdrawalId])).toEqual([
+      ['deposit.credited', null],
+      ['withdraw.held', '7a7a7a7a-0000-4000-8000-000000000001:0'],
+      ['withdraw.reversed', '7a7a7a7a-0000-4000-8000-000000000001:0'],
+      ['withdraw.held', '7a7a7a7a-0000-4000-8000-000000000001:1'],
+    ]);
+    expect(serializeHistoryPage(page).entries[0]!.withdrawalId).toBe('7a7a7a7a-0000-4000-8000-000000000001:1');
   });
 
   it('does not touch the old `history`: ascending bare array, window required, cursor still refused', async () => {

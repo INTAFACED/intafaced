@@ -503,18 +503,22 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('founder-controlled clust
       },
       randomUUID(),
     );
-    let blocked = false;
-    for (let i = 0; i < 100 && !blocked; i++) {
-      const rows =
-        await db.sql`SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT * FROM ops.crm_submissions%'`;
-      blocked = rows.length > 0;
-      if (!blocked) await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    if (!blocked) {
+    // The answer runs several statements before it reaches the row lock, so a busy runner takes a while to get there; once it
+    // does it stays blocked until unlock(). Wait on the lock itself, for as long as the test can afford.
+    try {
+      await vi.waitFor(
+        async () => {
+          const blocked =
+            await db.sql`SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT * FROM ops.crm_submissions%'`;
+          expect(blocked.length, 'actual answer row-lock barrier').toBeGreaterThan(0);
+        },
+        { timeout: 20_000, interval: 10 },
+      );
+    } catch (error) {
       unlock();
       await held;
       await answering;
-      throw new Error('Expected actual answer row-lock barrier');
+      throw error;
     }
     const preparing = crm.privacy.begin(beginInput(preview), founders[0]);
     const refusal = expect(preparing).rejects.toMatchObject({ code: 'ops.crm.revision_conflict' });

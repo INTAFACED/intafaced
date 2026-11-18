@@ -1,6 +1,6 @@
 import { parseAbiItem, type Address, type PublicClient } from 'viem';
 import type { TokenBasics, TokenPageData } from '@intafaced/contracts';
-import { TOKENS_READ_TOO_LARGE } from '@intafaced/contracts';
+import { TOKENS_BLOCK_AHEAD, TOKENS_BLOCK_TOO_OLD, TOKENS_PAST_BLOCKS_KEPT, TOKENS_READ_TOO_LARGE } from '@intafaced/contracts';
 import { classifyChainError } from '../chain/availability.js';
 import { listPairs, PAIRS_READ_LIMIT, type PairsChain } from './pairs.js';
 import { holdersFrom, MAX_LOGS, TokensReadError, type MarketSnapshot, type PoolRecord, type SwapLog, type SyncLog } from './tokens.js';
@@ -208,13 +208,29 @@ export async function readMarket(chain: TokenLogsChain, factory: Address, block:
 }
 
 /**
+ * The block a read is at: the head block, or a stated one no later than the head and no further back than
+ * `TOKENS_PAST_BLOCKS_KEPT`. Either side refuses by its code; nothing is read at a block the chain cannot answer for.
+ */
+export async function readBlock(chain: Pick<TokenLogsChain, 'headBlock'>, at?: bigint): Promise<bigint> {
+  const head = await chain.headBlock();
+  if (at === undefined) return head;
+  if (at > head) throw new TokensReadError(TOKENS_BLOCK_AHEAD, `block ${at} is above the head block ${head}.`);
+  if (head - at > TOKENS_PAST_BLOCKS_KEPT)
+    throw new TokensReadError(
+      TOKENS_BLOCK_TOO_OLD,
+      `block ${at} is ${head - at} blocks behind the head block ${head}; reads go back at most ${TOKENS_PAST_BLOCKS_KEPT}.`,
+    );
+  return at;
+}
+
+/**
  * The market once per block, as `pairsReader` does for the pairs: callers in one block share one read, and a refused
- * read is not kept.
+ * read is not kept. `at` reads at that block instead of the head (see `readBlock`).
  */
 export function marketReader(chain: TokenLogsChain) {
   let last: { key: string; answer: Promise<MarketSnapshot> } | null = null;
-  return async (factory: Address): Promise<MarketSnapshot> => {
-    const block = await chain.headBlock();
+  return async (factory: Address, at?: bigint): Promise<MarketSnapshot> => {
+    const block = await readBlock(chain, at);
     const key = `${factory.toLowerCase()}:${block}`;
     if (last?.key !== key) {
       const answer = readMarket(chain, factory, block);

@@ -3,7 +3,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, un
 import path from 'node:path';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { totpNow } from '../../../../tooling/scripts/local-founder-seed.mjs';
-import { LOCAL_TEST_DEVICE_KEY, localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-device.mjs';
+import { LOCAL_TEST_DEVICE_KEY, localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
 import { signUpInBrowser } from './stack.mjs';
 
@@ -18,7 +18,7 @@ import { signUpInBrowser } from './stack.mjs';
 // beside it keeps two workers from making the same member twice or spending the same code step.
 
 /** The roles the TEST roster defines, each with its one member. */
-export const STAFF_TEST_MEMBERS = {
+const STAFF_TEST_MEMBERS = {
   support: 'local-test-staff-support@local-test.invalid',
   compliance: 'local-test-staff-compliance@local-test.invalid',
   risk: 'local-test-staff-risk@local-test.invalid',

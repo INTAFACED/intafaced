@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BROADCAST_PENDING, MemoryBroadcastStore, PostgresBroadcastStore, type BroadcastSql } from './broadcast-store.js';
-import { runDurableBroadcast } from './durable-broadcast.js';
+import { BroadcastClosedError, runDurableBroadcast } from './durable-broadcast.js';
 
 /** In-process fake that mimics INSERT ON CONFLICT / SELECT / UPDATE for the journal. */
 function fakePgSql(): BroadcastSql & {
@@ -76,7 +76,7 @@ describe('MemoryBroadcastStore — Class M claim/put ordering', () => {
             expect(claim.signedRaw).toBe('0xraw');
             await store.put('payout:w1:1', '0xabc');
           } else {
-            expect(claim.txHash).toBe('0xabc');
+            expect(claim).toEqual({ kind: 'done', txHash: '0xabc' });
           }
         }),
       ),
@@ -164,7 +164,7 @@ describe('PostgresBroadcastStore — Class M claim/put (fake SQL)', () => {
             expect(claim.signedRaw).toBe('0xraw');
             await store.put('payout:w1:1', '0xabc');
           } else {
-            expect(claim.txHash).toBe('0xabc');
+            expect(claim).toEqual({ kind: 'done', txHash: '0xabc' });
           }
         }),
       ),
@@ -227,5 +227,39 @@ describe('PostgresBroadcastStore — Class M claim/put (fake SQL)', () => {
     expect(new Set(broadcast.mock.calls.map((call) => call[0]))).toEqual(new Set(['0xraw-once']));
     expect(await a.get('payout:e13:1')).toBe('0xhash-once');
     expect(await b.get('payout:e13:1')).toBe('0xhash-once');
+  });
+});
+
+// PayoutQuery.tla, NeverPaidTwice: a `not_sent` answer closes the key, so the send it was given for can never leave.
+describe.each([
+  ['MemoryBroadcastStore', () => new MemoryBroadcastStore()],
+  ['PostgresBroadcastStore', () => new PostgresBroadcastStore(fakePgSql(), { pollMs: 5, maxWaits: 40 })],
+] as const)('%s close', (_name, make) => {
+  it('a closed key signs and broadcasts nothing, and reads as no hash', async () => {
+    const store = make();
+    expect(await store.close('payout:closed:1')).toBe('closed');
+    expect(await store.close('payout:closed:1')).toBe('closed');
+    expect(await store.claim('payout:closed:1')).toEqual({ kind: 'closed' });
+    const sign = vi.fn(async () => '0xraw');
+    const broadcast = vi.fn(async () => '0xhash');
+    await expect(runDurableBroadcast({ store, idempotencyKey: 'payout:closed:1', sign, broadcast })).rejects.toBeInstanceOf(
+      BroadcastClosedError,
+    );
+    expect(sign).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(await store.get('payout:closed:1')).toBeNull();
+    expect(await store.hasSigned('payout:closed:1')).toBe(false);
+    await expect(store.put('payout:closed:1', '0xlate')).rejects.toThrow(/closed/);
+  });
+
+  it('a key a send has claimed cannot be closed, before or after its hash lands', async () => {
+    const store = make();
+    expect(await store.claim('payout:held:1')).toEqual({ kind: 'mine' });
+    expect(await store.close('payout:held:1')).toBe('held');
+    await store.putSigned('payout:held:1', '0xraw');
+    expect(await store.close('payout:held:1')).toBe('held');
+    await store.put('payout:held:1', '0xhash');
+    expect(await store.close('payout:held:1')).toBe('held');
+    expect(await store.get('payout:held:1')).toBe('0xhash');
   });
 });

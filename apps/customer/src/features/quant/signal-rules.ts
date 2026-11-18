@@ -7,6 +7,7 @@ export const emptySignalRules = (): QuantSignalRules => ({
   signal: { kind: 'ma_cross', average: 'sma', fast: '', slow: '' },
   sizing: { kind: 'quantity', value: '' },
   exit: { stopLossPercent: '', takeProfitPercent: '' },
+  pyramiding: '',
 });
 
 export const trimSignalRules = (rules: QuantSignalRules): QuantSignalRules => ({
@@ -15,14 +16,17 @@ export const trimSignalRules = (rules: QuantSignalRules): QuantSignalRules => ({
   signal: { ...rules.signal, fast: rules.signal.fast.trim(), slow: rules.signal.slow.trim() },
   sizing: { kind: rules.sizing.kind, value: rules.sizing.value.trim() },
   exit: { stopLossPercent: rules.exit.stopLossPercent.trim(), takeProfitPercent: rules.exit.takeProfitPercent.trim() },
+  ...((rules.pyramiding ?? '').trim() ? { pyramiding: (rules.pyramiding ?? '').trim() } : {}),
 });
 
 /** Whether every required input holds something; the service still checks each value and refuses by name. */
 export const signalRulesFilled = (rules: QuantSignalRules): boolean =>
   Boolean(rules.symbol.trim() && rules.signal.fast.trim() && rules.signal.slow.trim() && rules.sizing.value.trim());
 
-export type RuleInputName = 'symbol' | 'signal.fast' | 'signal.slow' | 'sizing.value' | 'exit.stopLossPercent' | 'exit.takeProfitPercent';
+export type RuleInputName =
+  'symbol' | 'signal.fast' | 'signal.slow' | 'sizing.value' | 'exit.stopLossPercent' | 'exit.takeProfitPercent' | 'pyramiding';
 const INPUT_NAMES: readonly RuleInputName[] = [
+  'pyramiding',
   'symbol',
   'signal.fast',
   'signal.slow',

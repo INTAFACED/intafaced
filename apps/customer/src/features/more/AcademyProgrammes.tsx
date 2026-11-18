@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
-import { Details, Limit, Read, TextArea, type ActionControls } from './common';
+import { Details, Limit, Read, TextArea } from './common';
 import { AcademyProgrammeOverview, type ProgrammeAction } from './AcademyProgrammeOverview';
 import { AcademyCourseProgrammes } from './AcademyCourseProgrammes';
 const uuid = z.string().guid(),

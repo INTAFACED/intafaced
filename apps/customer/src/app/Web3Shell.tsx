@@ -5,7 +5,7 @@ import { createProtocolApi } from '../features/protocol/api';
 import { protocolCopy } from '../features/protocol/copy';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
 import { shortAddress } from '../features/protocol/wallet/eip1193';
-import { WalletProvider, useWallet } from '../features/protocol/wallet/WalletProvider';
+import { WalletGate, WalletProvider, useWallet } from '../features/protocol/wallet/WalletProvider';
 import { RegionContext, REGION_BLOCKED_CODE } from '../features/protocol/region';
 import { useApi, useSession } from '../features/session/session';
 import { usePreferences } from '../shared/preferences';
@@ -33,7 +33,7 @@ const PHONE = ['nav_swap', 'nav_pools', 'nav_wallet', 'nav_explorer'] as const;
  */
 export function Web3Shell({ path, children }: { path: string; children: ReactNode }) {
   return (
-    <WalletProvider scope={path}>
+    <WalletProvider scope={path} gate={false}>
       <Web3Frame path={path}>{children}</Web3Frame>
     </WalletProvider>
   );
@@ -41,7 +41,7 @@ export function Web3Shell({ path, children }: { path: string; children: ReactNod
 
 function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
   const wallet = useWallet();
-  const { session, restoring } = useSession();
+  const { session } = useSession();
   const { t: shell } = shellCopy.useCopy();
   const { language } = usePreferences();
   const { t } = protocolCopy.forLocale(language);
@@ -84,6 +84,13 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                   ))}
                 </ul>
               </nav>
+              {/* Algo dev (AL-order-01, J-algo-dev-15 #1): the same editor room the Trade menu opens, in its own small nav so the
+                  six Web3 sections stay exactly six (J-dex-protocol-01 #1). The room lives in the Exchange frame at /quant. */}
+              <nav className="web3-tools" aria-label={t('shellTools')}>
+                <a className="tb-tab" href="/quant/editor">
+                  {t('nav_algo')}
+                </a>
+              </nav>
               <div data-testid="tb-right" className="tb-right web3-chips">
                 <span className="web3-chip" data-chip="network" role="status" title={chip}>
                   {chip}
@@ -92,7 +99,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                   {t('bannerPill')}
                 </span>
                 <span className="web3-chip" data-chip="wallet">
-                  {wallet.status === 'connecting'
+                  {wallet.status === 'connecting' || wallet.status === 'restoring'
                     ? t('walletConnecting')
                     : wallet.status === 'connected' && wallet.address && wallet.connected
                       ? wallet.guard?.ok
@@ -100,7 +107,7 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                         : `${t('walletWrongNetwork')} · ${shortAddress(wallet.address)}`
                       : t('walletNone')}
                 </span>
-                {session || restoring ? null : (
+                {session ? null : (
                   <>
                     {/* Signed out, every Web3 room is the public read-only view; signing in returns through Home. */}
                     <a className="tb-login" href="/login">
@@ -120,7 +127,9 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
                   {t('regionBlocked')}
                 </p>
               )}
-              <RegionContext.Provider value={regionBlocked}>{children}</RegionContext.Provider>
+              <RegionContext.Provider value={regionBlocked}>
+                <WalletGate>{children}</WalletGate>
+              </RegionContext.Provider>
             </main>
             <nav className="mobile-doors web3-doors" aria-label={t('shellNavPhone')}>
               {PHONE.map((key) => {

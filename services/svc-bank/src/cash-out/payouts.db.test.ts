@@ -4,7 +4,7 @@
  * it once each, and a paid cash-out has a signed receipt. Funds are TEST deposits on a MemoryLedger. Uses
  * TEST_DATABASE_URL. Does not start Docker.
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, hkdfSync, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -30,6 +30,8 @@ import { createBankRouter } from '../router.js';
 import type { SecurityLockPort } from '../security-lock.js';
 import { CashOutService, cashOutWithdrawalId } from './cash-out.js';
 import { PAYOUT_SIM_RAIL, payoutSim, type CashOutPartner } from './payout-sim.js';
+import { partnerPayoutsAccount, type PostingFreeze } from '../partner/partner-bank.js';
+import { TEST_PARTNER_LABEL, testPartner, type TestPartner } from '../partner/test-partner.js';
 
 const SECRET = 'bank-cash-out-payout-edge-secret-long-enough';
 const RECEIPTS = 'bank-cash-out-receipt-secret-long-enough';
@@ -58,6 +60,8 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];
   let ledger: MemoryLedger;
+  /** The TEST partner bank, for the partner-held cases only; null elsewhere, so every other case is the ledger path. */
+  let partnerBank: TestPartner | null = null;
   const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
 
   beforeAll(async () => {
@@ -76,16 +80,23 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
   beforeEach(async () => {
     await sql`TRUNCATE bank.cash_out_requests, bank.linked_bank_accounts`;
     ledger = new MemoryLedger();
+    partnerBank = null;
     await ledger.post(
       recipes.deposit({ userId: ADA, assetId: 'USDT', amount: parseAmount('50'), rail: 'test', railRef: 'cash-out-fund-ada' }),
     );
   });
+
+  // svc-ledger's posting freeze, open: a partner move asks it first, and an unwired freeze refuses (bank.posting_frozen).
+  // partner-moves.db.test.ts proves the frozen, unreadable and unwired refusals.
+  const POSTING_ENABLED: PostingFreeze = { postingEnabled: async () => true };
 
   function services(partner: CashOutPartner | null = SIM, securityLock = OPEN) {
     return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       ramps: { addressBookCap: '10', offrampCoolingHours: '24', securityLock },
       cashOutPartner: partner,
       receiptSecret: RECEIPTS,
+      testPartner: partnerBank,
+      postingFreeze: POSTING_ENABLED,
     });
   }
 
@@ -527,6 +538,357 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
 
     it('an answer for no cash-out is not found', async () => {
       expect(await refused(services().cashOut.complete(randomUUID()))).toBe('bank.cash_out_not_found');
+    });
+  });
+
+  describe('partner-held: the partner bank holds the money and the ledger posts nothing (OWNER 226, J-bank-03 adapted)', () => {
+    const main = { userId: ADA, assetId: 'USDT', spaceId: null };
+    const atPartner = async () => (await partnerBank!.bank.balance(main)).amount;
+    beforeEach(() => {
+      partnerBank = testPartner();
+      partnerBank.set(ADA, { custody: 'off' });
+      partnerBank.fund(ADA, { fundId: 'cash-out-partner-fund-ada', assetId: 'USDT', amount: parseAmount('50') });
+    });
+
+    it('quotes against the partner balance, named, and refuses more than it holds', async () => {
+      const id = await usable();
+      partnerBank!.fund(ADA, { fundId: 'cash-out-partner-fund-ada-2', assetId: 'USDT', amount: parseAmount('7') });
+      expect(await as(ADA).cashOut.quote({ assetId: 'USDT', amount: '20', linkedAccountId: id })).toMatchObject({
+        available: '57',
+        heldAt: TEST_PARTNER_LABEL,
+        fee: '1.5',
+        receiveAmount: '16.5',
+        blocker: null,
+      });
+      expect(await refused(as(ADA).cashOut.quote({ assetId: 'USDT', amount: '58', linkedAccountId: id }))).toBe(
+        'bank.cash_out_over_available',
+      );
+    });
+
+    it('confirming is one partner move under the order key; the same client reference returns the first order', async () => {
+      const id = await usable();
+      const posts = ledger.journal().length;
+      const requestId = randomUUID();
+      const first = await start(id, '20', requestId);
+      expect(first).toMatchObject({
+        status: 'processing',
+        heldAt: TEST_PARTNER_LABEL,
+        ledgerTxId: null,
+        payoutRef: `TEST-PAYOUT-${requestId}`,
+      });
+      expect(first.partnerMoveId).toMatch(/^test-partner-move-/);
+      expect(await atPartner()).toBe(parseAmount('30'));
+      expect((await partnerBank!.bank.balance(partnerPayoutsAccount('USDT'))).amount).toBe(parseAmount('20'));
+      expect(await start(id, '20', requestId)).toEqual(first);
+      expect(await atPartner()).toBe(parseAmount('30'));
+      expect((await partnerBank!.bank.moveByKey(`bank.cash-out:${requestId}`))?.id).toBe(first.partnerMoveId);
+      // The ledger posts nothing for it, and the customer's ledger balance is untouched.
+      expect(ledger.journal()).toHaveLength(posts);
+      expect(await available()).toBe(parseAmount('50'));
+    });
+
+    it('a partner balance that moved after the quote keeps the request refused, nothing taken', async () => {
+      const id = await usable();
+      const partner = partnerBank!;
+      await partner.bank.move({ key: 'TEST-drain', from: main, to: { ...main, spaceId: 'TEST-space' }, amount: parseAmount('45') });
+      // A quote read before the drain (here: one priced for what the balance held then) passes; the move itself refuses.
+      const svc = services();
+      const realQuote = svc.cashOut.quote.bind(svc.cashOut);
+      svc.cashOut.quote = async (userId, ask) => ({ ...(await realQuote(userId, { ...ask, amount: '5' })), amount: ask.amount });
+      const kept = await svc.cashOut.start(ADA, { requestId: randomUUID(), assetId: 'USDT', amount: '20', linkedAccountId: id });
+      expect(kept).toMatchObject({ status: 'refused', refusalCode: 'bank.cash_out_over_available', partnerMoveId: null });
+      expect(await atPartner()).toBe(parseAmount('5'));
+    });
+
+    // The request's session lock lives on one connection. If that connection drops while the body runs (a failover, a
+    // reset socket), Postgres frees the lock at once and the body carries on, on the pool's other connections. A replay
+    // of the same request then drives it at the same time. A partner refusal keeps nothing under its key, so the replay's
+    // move under that same key can be made after the first driver was refused.
+    it('a request refused while its lock was lost never leaves the money taken: a refused request took nothing', async () => {
+      const id = await usable();
+      const partner = partnerBank!;
+      await partner.bank.move({ key: 'TEST-drain', from: main, to: { ...main, spaceId: 'TEST-space' }, amount: parseAmount('45') });
+      const svc = services();
+      const realQuote = svc.cashOut.quote.bind(svc.cashOut);
+      svc.cashOut.quote = async (userId, ask) => ({ ...(await realQuote(userId, { ...ask, amount: '5' })), amount: ask.amount });
+      // Each driver's move is answered, then held back on its way to the driver until the test lets it go.
+      const realMove = partner.bank.move.bind(partner.bank);
+      const gate = () => {
+        let arrive!: () => void;
+        let open!: () => void;
+        const reached = new Promise<void>((res) => (arrive = res));
+        const wait = new Promise<void>((res) => (open = res));
+        return { reached, arrive, open, wait };
+      };
+      const gates = [gate(), gate()];
+      let calls = 0;
+      (partner.bank as { move: typeof realMove }).move = async (request) => {
+        if (!request.key.startsWith('bank.cash-out:')) return realMove(request);
+        const g = gates[calls++]!;
+        const answer = await realMove(request).then(
+          (move) => ({ move }),
+          (err: unknown) => ({ err }),
+        );
+        g.arrive();
+        await g.wait;
+        if ('err' in answer) throw answer.err;
+        return answer.move;
+      };
+      // Each session lock's connection, as the lock helper reserves it.
+      const realReserve = sql.reserve.bind(sql);
+      const reserved: Array<Awaited<ReturnType<typeof realReserve>>> = [];
+      (sql as { reserve: typeof realReserve }).reserve = async () => {
+        const r = await realReserve();
+        reserved.push(r);
+        return r;
+      };
+      const requestId = randomUUID();
+      const ask = { requestId, assetId: 'USDT', amount: '20', linkedAccountId: id };
+      // Driver A: the partner refuses its move for funds; the answer is on its way back.
+      const first = svc.cashOut.start(ADA, ask).then(
+        (v) => ({ v }),
+        (err: unknown) => ({ err }),
+      );
+      await gates[0]!.reached;
+      // A's lock connection drops: Postgres frees the lock, and A's body carries on. (Freed here on that same idle
+      // connection, which is what Postgres does for a dropped one; really ending it also breaks the driver's later unlock.)
+      expect(reserved).toHaveLength(1);
+      await reserved[0]!`SELECT pg_advisory_unlock_all()`;
+      // The money arrives, and a replay of the same request drives it: its move under the same key is made.
+      partner.fund(ADA, { fundId: 'cash-out-partner-fund-ada-3', assetId: 'USDT', amount: parseAmount('20') });
+      const second = svc.cashOut.start(ADA, ask).then(
+        (v) => ({ v }),
+        (err: unknown) => ({ err }),
+      );
+      await gates[1]!.reached;
+      // A's refusal arrives and is recorded; then the replay's move arrives.
+      gates[0]!.open();
+      await first;
+      gates[1]!.open();
+      await second;
+      (partner.bank as { move: typeof realMove }).move = realMove;
+      (sql as { reserve: typeof realReserve }).reserve = realReserve;
+      const [row] = await sql<Array<{ status: string; partner_move_id: string | null }>>`
+        SELECT status, partner_move_id FROM bank.cash_out_requests WHERE id = ${requestId}::uuid
+      `;
+      const moved = await partner.bank.moveByKey(`bank.cash-out:${requestId}`);
+      const left = await atPartner();
+      // Either the request took the money and says so, or it was refused and the money is still the customer's.
+      expect([
+        ['processing', true, '5'],
+        ['refused', false, '25'],
+      ]).toContainEqual([row?.status, moved !== null && row?.partner_move_id === moved.id, left === null ? null : formatAmount(left)]);
+    });
+
+    it('a refused request whose move a crashed driver made anyway: the re-drive job gives it back once', async () => {
+      const id = await usable();
+      const partner = partnerBank!;
+      await partner.bank.move({ key: 'TEST-drain', from: main, to: { ...main, spaceId: 'TEST-space' }, amount: parseAmount('45') });
+      const svc = services();
+      const realQuote = svc.cashOut.quote.bind(svc.cashOut);
+      svc.cashOut.quote = async (userId, ask) => ({ ...(await realQuote(userId, { ...ask, amount: '5' })), amount: ask.amount });
+      const requestId = randomUUID();
+      const kept = await svc.cashOut.start(ADA, { requestId, assetId: 'USDT', amount: '20', linkedAccountId: id });
+      expect(kept).toMatchObject({ status: 'refused', refusalCode: 'bank.cash_out_over_available' });
+      // The money arrives, and a driver that lost its lock makes its move under the order key, then crashes before
+      // giving it back.
+      partner.fund(ADA, { fundId: 'cash-out-partner-fund-ada-4', assetId: 'USDT', amount: parseAmount('20') });
+      await partner.bank.move({
+        key: `bank.cash-out:${requestId}`,
+        from: main,
+        to: partnerPayoutsAccount('USDT'),
+        amount: parseAmount('20'),
+      });
+      expect(await atPartner()).toBe(parseAmount('5'));
+      // Not yet a minute old: the job leaves it for a later pass.
+      expect(await svc.cashOut.redrive(10)).toEqual([]);
+      await sql`UPDATE bank.cash_out_requests SET drive_refused_at = now() - interval '2 minutes' WHERE id = ${requestId}::uuid`;
+      expect(await svc.cashOut.redrive(10)).toEqual([{ id: requestId, outcome: 'completed' }]);
+      expect(await atPartner()).toBe(parseAmount('25'));
+      const back = await partner.bank.moveByKey(`bank.cash-out-back:${requestId}`);
+      const [row] = await sql<Array<{ status: string; partner_back_move_id: string | null }>>`
+        SELECT status, partner_back_move_id FROM bank.cash_out_requests WHERE id = ${requestId}::uuid
+      `;
+      expect(row).toEqual({ status: 'refused', partner_back_move_id: back!.id });
+      // Once: the next pass finds nothing, and the balance stays.
+      expect(await svc.cashOut.redrive(10)).toEqual([]);
+      expect(await atPartner()).toBe(parseAmount('25'));
+    });
+
+    it('a refused request with no move under its key: the re-drive job moves nothing', async () => {
+      const id = await usable();
+      const partner = partnerBank!;
+      await partner.bank.move({ key: 'TEST-drain', from: main, to: { ...main, spaceId: 'TEST-space' }, amount: parseAmount('45') });
+      const svc = services();
+      const realQuote = svc.cashOut.quote.bind(svc.cashOut);
+      svc.cashOut.quote = async (userId, ask) => ({ ...(await realQuote(userId, { ...ask, amount: '5' })), amount: ask.amount });
+      const requestId = randomUUID();
+      await svc.cashOut.start(ADA, { requestId, assetId: 'USDT', amount: '20', linkedAccountId: id });
+      await sql`UPDATE bank.cash_out_requests SET drive_refused_at = now() - interval '2 minutes' WHERE id = ${requestId}::uuid`;
+      expect(await svc.cashOut.redrive(10)).toEqual([]);
+      expect(await partner.bank.moveByKey(`bank.cash-out-back:${requestId}`)).toBeNull();
+      expect(await atPartner()).toBe(parseAmount('5'));
+    });
+
+    describe('the re-drive sweep reads every drive-refused request until it is settled, with no window on its age (#8697)', () => {
+      /** A request the drive refused for funds (the partner balance drained after the quote), its refusal `ago` old. */
+      const driveRefused = async (svc: ReturnType<typeof services>, id: string, ago: string) => {
+        const requestId = randomUUID();
+        const kept = await svc.cashOut.start(ADA, { requestId, assetId: 'USDT', amount: '20', linkedAccountId: id });
+        expect(kept).toMatchObject({ status: 'refused', refusalCode: 'bank.cash_out_over_available' });
+        await sql`
+          UPDATE bank.cash_out_requests SET drive_refused_at = now() - ${ago}::interval, created_at = now() - ${ago}::interval
+           WHERE id = ${requestId}::uuid
+        `;
+        return requestId;
+      };
+      /** A driver that lost its lock makes the order move anyway, then crashes before giving it back. */
+      const strayMove = async (requestId: string, fundId: string) => {
+        partnerBank!.fund(ADA, { fundId, assetId: 'USDT', amount: parseAmount('20') });
+        await partnerBank!.bank.move({
+          key: `bank.cash-out:${requestId}`,
+          from: main,
+          to: partnerPayoutsAccount('USDT'),
+          amount: parseAmount('20'),
+        });
+      };
+      const asked = () => {
+        const real = partnerBank!.bank.moveByKey.bind(partnerBank!.bank);
+        const keys: string[] = [];
+        (partnerBank!.bank as { moveByKey: typeof real }).moveByKey = async (key) => {
+          keys.push(key);
+          return real(key);
+        };
+        return keys;
+      };
+      let svc: ReturnType<typeof services>;
+      let id: string;
+      beforeEach(async () => {
+        id = await usable();
+        await partnerBank!.bank.move({ key: 'TEST-drain', from: main, to: { ...main, spaceId: 'TEST-space' }, amount: parseAmount('45') });
+        svc = services();
+        const realQuote = svc.cashOut.quote.bind(svc.cashOut);
+        svc.cashOut.quote = async (userId, ask) => ({ ...(await realQuote(userId, { ...ask, amount: '5' })), amount: ask.amount });
+      });
+
+      it('more refusals than the limit do not crowd a stray move out, and an unmoved one is not re-asked within the hour', async () => {
+        const unmoved = [
+          await driveRefused(svc, id, '30 minutes'),
+          await driveRefused(svc, id, '20 minutes'),
+          await driveRefused(svc, id, '10 minutes'),
+        ];
+        const stray = await driveRefused(svc, id, '40 minutes');
+        await strayMove(stray, 'cash-out-partner-fund-ada-8697-1');
+        expect(await atPartner()).toBe(parseAmount('5'));
+        const keys = asked();
+        // Oldest first: the stray one, then the oldest unmoved.
+        expect(await svc.cashOut.redrive(2)).toEqual([{ id: stray, outcome: 'completed' }]);
+        expect(await atPartner()).toBe(parseAmount('25'));
+        // The next pass reads the two not yet checked; the one checked a moment ago is not asked again.
+        expect(await svc.cashOut.redrive(2)).toEqual([]);
+        expect(await svc.cashOut.redrive(2)).toEqual([]);
+        const askedFor = keys.filter((k) => k.startsWith('bank.cash-out:')).map((k) => k.slice('bank.cash-out:'.length));
+        expect(askedFor.sort()).toEqual([stray, ...unmoved].sort());
+        const rows = await sql<Array<{ id: string; stray_checked_at: Date | null }>>`
+          SELECT id, stray_checked_at FROM bank.cash_out_requests WHERE id = ANY(${unmoved}::uuid[])
+        `;
+        expect(rows.every((r) => r.stray_checked_at !== null)).toBe(true);
+        // An hour on, a refusal still under a day old is asked again: a stray move may yet land.
+        await sql`UPDATE bank.cash_out_requests SET stray_checked_at = now() - interval '61 minutes' WHERE id = ${unmoved[0]!}::uuid`;
+        await strayMove(unmoved[0]!, 'cash-out-partner-fund-ada-8697-2');
+        expect(await svc.cashOut.redrive(2)).toEqual([{ id: unmoved[0], outcome: 'completed' }]);
+        expect(await atPartner()).toBe(parseAmount('45'));
+      });
+
+      it('a request refused more than a day ago is still read until a check a day after its refusal finds no move', async () => {
+        // Created and refused three days ago (a re-drive job down that long, or an old request re-driven), never checked.
+        const old = await driveRefused(svc, id, '3 days');
+        const settled = await driveRefused(svc, id, '3 days');
+        await sql`UPDATE bank.cash_out_requests SET stray_checked_at = now() - interval '2 days' WHERE id = ${settled}::uuid`;
+        await strayMove(old, 'cash-out-partner-fund-ada-8697-3');
+        expect(await svc.cashOut.redrive(10)).toEqual([{ id: old, outcome: 'completed' }]);
+        expect(await atPartner()).toBe(parseAmount('25'));
+        expect(await partnerBank!.bank.moveByKey(`bank.cash-out-back:${old}`)).not.toBeNull();
+        // Settled: one checked a day after its refusal with no move is never read again.
+        const keys = asked();
+        expect(await svc.cashOut.redrive(10)).toEqual([]);
+        expect(keys.filter((k) => k === `bank.cash-out:${settled}`)).toEqual([]);
+      });
+    });
+
+    it('paid closes it with no ledger post; the receipt names the partner payout and its signature verifies', async () => {
+      const id = await usable();
+      const { requestId, partnerMoveId } = await start(id, '20');
+      const posts = ledger.journal().length;
+      const paid = await services().cashOut.complete(requestId);
+      expect(paid).toMatchObject({ status: 'completed', ledgerTxId: null, partnerMoveId, remainsPaidOut: '20' });
+      expect(await services().cashOut.complete(requestId)).toEqual(paid);
+      expect(await atPartner()).toBe(parseAmount('30'));
+      expect(ledger.journal()).toHaveLength(posts);
+      const receipt = await as(ADA).cashOut.receipt({ requestId });
+      expect(receipt).toMatchObject({ ledgerTxId: null, partnerMoveId });
+      expect(receipt.text).toContain(`Payout reference: TEST-PAYOUT-${requestId}`);
+      expect(receipt.text).toContain(`Partner payout: ${partnerMoveId}`);
+      expect(receipt.text).toContain(`Held at: ${TEST_PARTNER_LABEL}`);
+      expect(receipt.text).not.toContain('Ledger transaction');
+      const key = Buffer.from(hkdfSync('sha256', RECEIPTS, Buffer.alloc(0), 'bank.cash-out.receipt.v1', 32));
+      expect(receipt.signature).toBe(createHmac('sha256', key).update(receipt.text, 'utf8').digest('hex'));
+      // Once paid there is nothing to cancel or fail.
+      expect(await refused(services().cashOut.cancel(requestId, 'bank.payout_cancelled_by_bank'))).toBe('bank.ramp_conflict');
+      expect(await refused(services().cashOut.fail(requestId, 'bank.payout_rejected'))).toBe('bank.ramp_conflict');
+      expect(await atPartner()).toBe(parseAmount('30'));
+    });
+
+    it('failed and cancelled each give the amount back to the partner balance once, however often the partner says so', async () => {
+      const id = await usable();
+      const failing = await start(id, '10');
+      const cancelling = await start(id, '15');
+      expect(await atPartner()).toBe(parseAmount('25'));
+      const posts = ledger.journal().length;
+      expect(await services().cashOut.fail(failing.requestId, 'bank.payout_account_closed')).toMatchObject({
+        status: 'failed',
+        failureCode: 'bank.payout_account_closed',
+      });
+      await services().cashOut.fail(failing.requestId, 'bank.payout_account_closed');
+      expect(await atPartner()).toBe(parseAmount('35'));
+      const cancelled = await services().cashOut.cancel(cancelling.requestId, 'bank.payout_cancelled_by_bank');
+      expect(cancelled).toMatchObject({
+        status: 'cancelled',
+        failureCode: 'bank.payout_cancelled_by_bank',
+        cancelledAt: expect.any(String),
+      });
+      expect(await services().cashOut.cancel(cancelling.requestId, 'bank.payout_cancelled_by_bank')).toEqual(cancelled);
+      expect(await atPartner()).toBe(parseAmount('50'));
+      expect(await refused(as(ADA).cashOut.receipt({ requestId: cancelling.requestId }))).toBe('bank.cash_out_receipt_not_ready');
+      expect(await refused(services().cashOut.complete(cancelling.requestId))).toBe('bank.ramp_conflict');
+      expect(ledger.journal()).toHaveLength(posts);
+    });
+
+    it('a return credits what came back to the partner balance once, and the rest stays paid out', async () => {
+      const id = await usable();
+      const { requestId } = await start(id, '20');
+      await services().cashOut.complete(requestId);
+      const posts = ledger.journal().length;
+      const back = await services().cashOut.returned(requestId, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' });
+      expect(back).toMatchObject({ status: 'returned', returnedAmount: '5', remainsPaidOut: '15' });
+      expect(
+        await services().cashOut.returned(requestId, { amount: '5', assetId: 'USDT', reason: 'bank.payout_returned_by_bank' }),
+      ).toEqual(back);
+      expect(await atPartner()).toBe(parseAmount('35'));
+      expect(ledger.journal()).toHaveLength(posts);
+      const receipt = await as(ADA).cashOut.receipt({ requestId });
+      expect(receipt.text).toContain('Stays paid out: 15 USDT');
+      expect(receipt.text).toMatch(/Partner return: test-partner-move-/);
+    });
+
+    it('with the partner gone, an answer for a partner-held cash-out refuses and nothing moves', async () => {
+      const id = await usable();
+      const { requestId } = await start(id, '20');
+      partnerBank!.set(ADA, { custody: 'on' });
+      expect(await refused(services().cashOut.fail(requestId, 'bank.payout_rejected'))).toBe('bank.partner_unavailable');
+      expect((await services().cashOut.list(ADA, 10))[0]).toMatchObject({ status: 'processing' });
+      partnerBank!.set(ADA, { custody: 'off' });
+      expect(await atPartner()).toBe(parseAmount('30'));
     });
   });
 });

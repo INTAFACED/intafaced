@@ -15,6 +15,7 @@ One command starts a private copy of the INTAFACED backend and the Customer app 
 | `pnpm local:stack:plan`                              | Read-only: every service, port, database schema and where Edge sends each route. Changes nothing (`--json` for a machine-readable copy).                                                                                         |
 | `pnpm local:stack --only token,p2p`                  | Start only the named services (plus Postgres and NATS). Anything already running is left alone.                                                                                                                                  |
 | `pnpm local:stack:restart edge`                      | Stop the named services, then start whatever is not running. Use after Edge's wiring changes; other services and their data stay up.                                                                                             |
+| `pnpm local:stack verify <command>`                  | Prove a change in the running app, one command per step: `launch`, `doctor`, `drive <J-id> '#n'`, `look <path>`, `evidence`, `stop`. The steps, the feature map and the evidence: `.claude/skills/verify-intafaced/SKILL.md`.    |
 | `pnpm local:stack customer-dist <abs path>`          | Serve the Customer app from another folder (for example a redesign build under review). Saved, so `start` and `restart` keep it. `customer-dist` alone shows it; `customer-dist --clear` goes back to this checkout's own build. |
 
 ### Serving a different Customer build
@@ -37,7 +38,23 @@ Postgres 15460 · NATS 14232 (monitor 18232) · Edge 14500 · Ledger 14501 · Id
 
 State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode 600, `LOCAL-TEST-STACK.json` marker). Requires PostgreSQL 16 at `/opt/homebrew/bin` and at least 14 GB free disk.
 
-For a fresh database without altering an existing one, set `export LOCAL_STACK_STATE="$HOME/.intafaced/my-fresh-test-stack"` before running any command. The path must be absolute. Stack, funding, market, gates and world commands all use that folder, including background children. Use the same setting for later status, restart and stop commands. Ports stay fixed: stop the previous stack with its original state setting before starting another. The old data and secrets stay in their original folder; nothing is copied automatically. `plan --json` reports `stateDir` so the selected folder can be checked before starting.
+For a fresh database without altering an existing one, set `export LOCAL_STACK_STATE="$HOME/.intafaced/my-fresh-test-stack"` before running any command. The path must be absolute. Stack, funding, market, gates and world commands all use that folder, including background children. Use the same setting for later status, restart and stop commands. Every port stays the same: stop the previous stack with its original state setting before starting another, or run the second one in its own slot (below). The old data and secrets stay in their original folder; nothing is copied automatically. `plan --json` reports `stateDir` so the selected folder can be checked before starting.
+
+**Several stacks on one machine.** Up to four stacks run at once, one per checkout. A start takes the first free slot itself, the moment it begins, and claims it for its checkout in `~/.intafaced/slots/<slot>.json`; every command and journey run from that checkout then uses that slot, with nothing to set. Slot n moves every port above up by 1000 × n, uses the state folder `~/.intafaced/local-test-stack-<n>` (unless `LOCAL_STACK_STATE` is set) and writes journey results to `/tmp/intafaced-real-app-<n>`. Slot 0 is the stack as above. A full `stop` frees the slot; so does a start killed mid-build, once nothing of it runs. With every slot held, a start refuses in one line naming each holder. `LOCAL_STACK_SLOT=<0-3>` picks one by hand. The ports live in one table, `tooling/scripts/local-test-facts.mjs`. Start cold builds one after another where you can: each takes about 5.5 GB and 4 cores for about 4 minutes.
+
+## Check your own journey
+
+A builder may run its own stack to check its own work before pushing. The proof is still CI's Real-app journeys run on the PR's head; a local pass never counts. Another checkout's stack doesn't stop you: the start takes a free slot (above).
+
+```sh
+export LOCAL_STACK_STATE="$PWD/.stack-state"   # this checkout's own stack (git-ignored)
+node tooling/scripts/local-test-stack.mjs start --only edge,identity,trade,matching,ledger,customer,<your services>
+pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --output "$PWD/.jr/results" <J-x>.pw.mjs
+pnpm exec playwright screenshot http://127.0.0.1:3210/<room> "$PWD/.jr/<room>.png"
+node tooling/scripts/local-test-stack.mjs stop
+```
+
+The first start builds everything (4 to 10 minutes); later starts take about 20 seconds. With `--only` the start lists the services you left out as DOWN and exits 1; the ones you named read `ok`.
 
 Helpers also check that this folder's Postgres and recorded services still own their loopback ports, with the expected checkout, database directory and process start time. A stale marker cannot authorize mutations against a different stack that has taken over the fixed ports. Missing ownership evidence refuses the action before account creation, funding or order submission.
 
@@ -46,6 +63,15 @@ Helpers also check that this folder's Postgres and recorded services still own t
 Real: the code. Identity, Ledger, Trade, Matching, Pay, Bank and Edge are the repository's own services, running their own migrations against a real Postgres and a real NATS JetStream. Funds move only through the ledger (`packages/ledger-client` recipes into `svc-ledger`); amounts are decimal strings on the wire.
 
 Test: the money. `local:fund` posts a `deposit` recipe on rail `local-test` with reference `LOCAL-TEST-<timestamp>-<id>`, so every entry is labelled. It refuses unless the marker file exists and the database is `127.0.0.1` on the stack's port. No bank, card, chain or exchange feed is connected. Prices, bank cards, on-chain Pay and loans' price marks are unavailable. WebSocket `/ws` reaches the stack's own svc-ws (`GET /ws/streams` lists its streams); its owner limits are blank, so each stream door refuses by its own `ws.*_unset` code, and `LOCAL_STACK_WS_UPSTREAM=off` on a start or restart of `customer` leaves `/ws` blank (503 `ws.upstream_unset`). Background money jobs in Bank (scheduled transfers, auto-invest, interest, loan accrual) are switched off.
+
+### Custody off
+
+With svc-ledger started with `LEDGER_CUSTODY_LAYER` off, as the launch build runs it (OWNER 226, OWNER 288; `docs/adr/2026-11-10-launch-money-model.md`), INTAFACED's ledger holds no customer money, so the TEST tools never post to a person's account. The stack records the switch on each process it starts with one (`run/processes.json`); `node tooling/scripts/local-test-stack.mjs custody` prints `on` or `off`, and the tools follow that record, not their own environment:
+
+- `local:fund <person>` refuses, exit 3, `local_test.custody_layer_off`, before anything is read or posted. A TEST person's money is where launch keeps it: at the TEST partner (`testPartner.fund`) or on their own TEST venue account. `local:fund house` (INTAFACED's own Convert inventory) still posts.
+- The living test market (`start`, `ensure`, `check`, `history`) does not start and exits 0: it quotes, trades and charts only on our own order book, which is off with custody off (project-state `product/fable-money-2026-11-10/changes/b2-reconcile-and-freeze.md`, change 5), and it is funded by deposits to its two accounts.
+- `local-test-seed.mjs apply` leaves the TEST earn pools and loan products out (their reserves are funded through the TEST funder's account) and loads the house inventory and the TEST P2P method; `fund-earn-pool` and `fund-loan-reserve` refuse typed.
+- `pnpm local:world` and `local:world:seed` refuse typed: every move they make is a person's balance in our ledger.
 
 Placeholders the services refuse to boot without (no owner-published value exists): reconcile cadence, rate limits, Pay checkout limits (from `.env.example`), Bank `LOAN_QUOTE_ASSET_ID=USDT` and batch sizes `1` (jobs off), Matching snapshot cadence `0` (off). They are local-test values, not product decisions. Edge's kill-state file is written once as an explicit all-on list; without it Edge halts every module.
 
@@ -75,7 +101,7 @@ Local-test instrument key (p2p only). The p2p process sets `LOCAL_TEST_KMS=1` an
 
 ## A fresh stack, or a cloud container (root)
 
-A wiped state folder trades only after five steps, in this order, and shows Earn, Loans and P2P working after a sixth (Try it and the journeys workflow run the same):
+A wiped state folder trades only after five steps, in this order, and shows Earn, Loans and P2P working after a sixth (the journeys workflow runs the same):
 
 ```sh
 pnpm local:stack                                         # services up; the founders enrol
@@ -113,24 +139,6 @@ pnpm local:market                                        # live quotes carry on 
 svc-trade has that route only with `TRADE_LOCAL_TEST_TAPE_RETIME=on`, which the stack sets, and refuses to start with it outside `APP_ENV` dev or test (`services/svc-trade/src/spot/local-test-tape.ts`). It refuses any market that already has a trade that is not a tape trade. So `history` skips every market with trades and says so. On a long-lived stack, wipe the state folder for history.
 
 As root (a cloud container's default user), `initdb` and `postgres` refuse to run, so the stack runs them as the OS user `postgres` (`LOCAL_STACK_PG_USER` names another) through `runuser`, and gives that user the database folders. That user cannot enter `/root`, so set the state folder outside it, for example `LOCAL_STACK_STATE=/var/lib/intafaced/local-test-stack`; the stack refuses with that hint otherwise. The container also needs a `nats-server` binary (`LOCAL_STACK_NATS_BIN`) and the screening variables below in its environment.
-
-## Try it (a temporary link, TEST money)
-
-The `Try it` workflow (Actions, Try it, Run workflow) boots this stack on GitHub's runner the same way Real-app journeys does. It then gives a password-protected link to the Customer app for up to about 5 h 45 min (owner decision 48; the ADR amendment is in `docs/adr/2026-08-08-staging-deploy-path.md`). The link is in the run summary. The password is the repository secret `TRY_PASSWORD`; without it, the run refuses before it boots.
-
-- **The gate.** `tooling/scripts/try-it.mjs gate` sits between the tunnel and the Customer server. It shows a password page and sets a SameSite=Strict, HttpOnly, Secure cookie; with ten wrong tries in a minute it stops taking passwords for that minute. Every other request needs the cookie. The gate refuses any Host other than the link's own and any Origin other than the link's. Before forwarding, it rewrites Host and Origin to `http://127.0.0.1:3210`, so the Customer server's Host guard and Edge's `EDGE_ALLOWED_ORIGINS` stay unchanged.
-- **The start page** (`/__try/`, behind the password):
-  - the demo account: `try-demo@local-test.invalid`, with the same password, verified and funded with TEST USDT by `try-it.mjs demo`;
-  - a TEST inbox showing the codes and links the stack "mails" to its outbox file;
-  - a button for the two TEST operators to approve waiting verification requests;
-  - a once-per-account TEST USDT credit, through `local:fund` with a business key per email.
-- **Not on the link:**
-  - live streams (the gate passes no WebSocket upgrade);
-  - the founder console;
-  - passkeys (their relying party is localhost);
-  - anything that needs a partner.
-- **One rate limit.** Everyone on the link counts as one caller against Edge's 1200 requests a minute.
-- **Checks.** `node tooling/scripts/try-it.test.mjs` checks the gate in front of a fake app. `try-it.mjs check <link>` checks a running link; the workflow runs it before posting the link.
 
 ## Founder console
 
@@ -170,6 +178,8 @@ Containment: it refuses unless the state directory and `LOCAL-TEST-STACK.json` e
 
 Preflight: before the stand-ins below existed, three gates stopped every order, and the script reads them (GET only) and refuses with their names instead of sending failing orders: (1) Edge refuses new orders because svc-matching `/health` carries no halt flag (`edge.venue_halt_unavailable`); (2) no market-lifecycle publication exists, so svc-trade refuses every order (`trade.lifecycle_authority_unavailable`); (3) svc-matching holds no book until a first order, and svc-trade will not admit that first order (`trade.matching_market_missing`). Until these are resolved the script prints them and exits. In the Customer the market picker lists every active market but opens on the first one alphabetically (AUD/USD, which is also not orderable), which is why only AUD/USD appears to show.
 
+**Still for the journeys.** `node tooling/scripts/local-test-market.mjs still` stops every walk and every test_taker crossing from the next cycle on: the maker keeps quoting the same ladder at the same TEST PRICE (a `move` still shifts it), so a price, mark, margin tier, candle or fee total changes only when someone trades. `live` walks and crosses again. The journeys ask for `still` before every file that has no `// Market: live` line (`apps/customer/tests/real-app/world-restore.mjs`), and a still request lapses after an hour, so a stack a killed run left still walks again on its own. A journey file that waits for the market's own trades (new candles, a last price that ticks, a walk that drifts into a resting order) carries `// Market: live`. Why: 19 of the 51 `flaky` issues of 4 to 11 Nov were the walk or a crossing moving a price between two reads of one step (project-state #2065).
+
 ## Living test world (local only)
 
 `pnpm local:world` watches for new accounts every 5 s and gives each one labelled test funds (10,000 USDT, 0.25 BTC, 2 ETH; edit `WELCOME_AMOUNTS` in `tooling/scripts/local-test-world.mjs`) through the real ledger, using the `local:fund` recipe with ref `LOCAL-TEST-welcome-<userId>-<ASSET>`, so a repeat is a no-op. `pnpm local:world:seed` creates the test counterparty `test_friend` (credentials in `~/.intafaced/local-test-stack/world-accounts.json`, mode 600) and has it send the newest real user 3 small transfers (run it after `node tooling/scripts/local-test-gates.mjs apply`, which publishes the TEST transfer limits every send needs); the watcher also sends back what anyone pays `test_friend`. It refuses unless `LOCAL-TEST-STACK.json` exists and every target is 127.0.0.1. Log: `logs/world.log`.
@@ -201,7 +211,7 @@ Owner risk limits: the stack publishes LOCAL TEST values for `TRADE_MAX_ORDER`, 
 
 Trade fee schedule: `TRADE_FEE_SCHEDULE` is `{"published":true,"version":"local-test:okx-regular-spot-reference","makerBps":"8","takerBps":"10"}` (maker 0.08%, taker 0.10%, no maker rebate), referenced to OKX's public regular-user spot tier. LOCAL TEST, not an owner decision (option B). Without it every order is refused with 400 `trade.fee_schedule_blank`.
 
-Trade commercial values (LOCAL TEST, not owner decisions, option B 2026-10-13; realistic retail-exchange numbers): `TRADE_MARKET_SLIPPAGE_CAP_BPS=50` (a market buy is funded at best ask plus 0.50% and can never fill above that; without it: `trade.slippage_cap_unset`), `TRADE_CONVERT_SPREAD_BPS=20` (Convert house edge 0.20%; without it: `trade.convert_spread_unset`) and `TRADE_CONVERT_QUOTE_TTL_MS=15000` (a firm Convert quote binds 15 s; without it: `trade.convert_quote_ttl_unset`). Dead-man switch: `TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC=10,30,60,120` (seconds, OKX-style range; without it arming refuses `trade.cancel_all_after_unset`) with a 1 s sweep.
+Trade commercial values (LOCAL TEST, not owner decisions, option B 2026-10-13; realistic retail-exchange numbers): `TRADE_MARKET_SLIPPAGE_CAP_BPS=50` (a market buy is funded at best ask plus 0.50% and can never fill above that; without it: `trade.slippage_cap_unset`), `TRADE_MARKET_SPREAD_LIMIT_BPS=100` (a venue spot market order is refused while the book's spread is wider than 1% of the best bid; without it: `trade.spread_limit_unset`; `LOCAL_STACK_TRADE_SPREAD_LIMIT=off` leaves it blank), `TRADE_CONVERT_SPREAD_BPS=20` (Convert house edge 0.20%; without it: `trade.convert_spread_unset`) and `TRADE_CONVERT_QUOTE_TTL_MS=15000` (a firm Convert quote binds 15 s; without it: `trade.convert_quote_ttl_unset`). Dead-man switch: `TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC=10,30,60,120` (seconds, OKX-style range; without it arming refuses `trade.cancel_all_after_unset`) with a 1 s sweep.
 
 Convert settles against house market-maker inventory (principal quotes, not book trades), so that pot must hold both sides: `pnpm local:fund house BTC 100` and `pnpm local:fund house USDT 5000000` (LOCAL TEST inventory through the real ledger; without it an accepted Convert fails with `Insufficient BTC`). The market runner's taker spends its USDT as it trades, so top it up before a manual trade session.
 

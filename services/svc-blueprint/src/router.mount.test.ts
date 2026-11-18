@@ -4,8 +4,12 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { createBlueprintRouter } from './router.js';
 import type { BlueprintService } from './blueprint-service.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 /**
- * THE MOUNT BOUNDARY, for svc-blueprint (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-blueprint.
  *
  * The context comes from `createEdgeContext` over real headers, exactly as
  * `index.ts` builds it — never a hand-written `Context` literal, which would go

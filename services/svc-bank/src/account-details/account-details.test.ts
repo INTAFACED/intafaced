@@ -68,7 +68,7 @@ function build(options: ConstructorParameters<typeof AccountDetailsService>[0]) 
   const accountDetails = new AccountDetailsService(options);
   // Every call here is Personal, which the profile check answers without a database (business profiles: profile.db.test.ts).
   const profiles = new ProfileService(undefined as never);
-  const router = createBankRouter({ accountDetails, profiles } as unknown as BankServices);
+  const router = createBankRouter({ accountDetails, profiles } as BankServices);
   return {
     as: (scopes: string[], region?: string) => router.createCaller(signed(USER, scopes, region)),
     anonymous: () => router.createCaller(anonymous()),
@@ -199,6 +199,8 @@ describe('the eligibility statement', () => {
     expect(out.rules.productRestrictions[0]!.product).toBe('crypto');
   });
 
+  // OWNER 237 (8 Nov 2026): "US block: the US is blocked at launch as well as sanctioned countries, on the existing
+  // per-country switch." The verdict carries the whole-region block's reason.
   it('a US region is told the bank is not available there and which rule says so', async () => {
     const { anonymous: call } = build({ eligibilityJson: RULES });
     const out = await call().eligibility.get({ region: 'us' });
@@ -206,7 +208,7 @@ describe('the eligibility statement', () => {
       region: 'US',
       status: 'blocked',
       minTier: expect.any(String),
-      notes: null,
+      notes: 'The United States is not served at launch.',
       source: 'JURISDICTION_MATRIX',
       listed: false,
     });

@@ -1,5 +1,14 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
+import {
+  PARTNER_FEES_OWNER,
+  PARTNER_PAY_INS_OWNER,
+  PARTNER_PAYOUTS_OWNER,
+  custodialOnly,
+  type PartnerCustody,
+  type PartnerMove,
+} from '../partner/partner-bank.js';
+import { partnerMovesBetween } from '../partner/partner-history.js';
 import type { HistoryRange, LedgerHistory } from './ledger-history.js';
 
 /**
@@ -65,7 +74,15 @@ export class SpendAnalytics {
   constructor(
     private readonly spaces: SpaceService,
     private readonly history: LedgerHistory,
+    private readonly custody: PartnerCustody = custodialOnly,
   ) {}
+
+  /** A partner-held person's outflow category for one line that left them. */
+  private partnerCategory(move: PartnerMove): SpendCategory {
+    if (move.to.userId === PARTNER_PAYOUTS_OWNER) return 'withdrawals';
+    if (move.to.userId === PARTNER_FEES_OWNER) return 'fees';
+    return 'transfers';
+  }
 
   /**
    * A user's spending across every space they hold in one asset.
@@ -77,7 +94,9 @@ export class SpendAnalytics {
    * which is the honest answer: moving your own money is not spending it.
    */
   async spendSummary(input: { userId: string; assetId: string; range: HistoryRange }): Promise<SpendSummary> {
-    const spaces = await this.spaces.namedSpaces(input.userId, input.assetId);
+    // A person the partner holds money for: the same fold, over the partner's record. The ledger has no line for them.
+    const partner = this.custody.bankFor(input.userId);
+    const spaces = partner ? [] : await this.spaces.namedSpaces(input.userId, input.assetId);
 
     const outflow = new Map<SpendCategory, Amount>();
     let depositInflow: Amount = 0n;
@@ -98,6 +117,23 @@ export class SpendAnalytics {
           totalInflow += entry.amount;
           // A deposit arrives as a debit. It is not spending, and it is not a reward.
           if (categorise(entry.reason) === 'deposits') depositInflow += entry.amount;
+        }
+      }
+    }
+
+    if (partner) {
+      const moves = await partnerMovesBetween(partner, input.userId, { assetId: input.assetId, ...input.range });
+      for (const move of moves) {
+        // A move between the person's own spaces is not spending, and nets to nothing.
+        if (move.from.userId === move.to.userId) continue;
+        movements++;
+        if (move.from.userId === input.userId) {
+          totalOutflow += move.amount;
+          const category = this.partnerCategory(move);
+          outflow.set(category, (outflow.get(category) ?? 0n) + move.amount);
+        } else {
+          totalInflow += move.amount;
+          if (move.from.userId === PARTNER_PAY_INS_OWNER) depositInflow += move.amount;
         }
       }
     }

@@ -4,6 +4,7 @@
  * Moved out of `trade-service.ts` as it was (owner decision 2026-10-23): `TradeService` keeps one method per
  * function here, which passes itself as `svc`.
  */
+import { newBotPausedReason } from '../../copy/platform-pauses.js';
 import { TradingControlError } from '../../controls/trading-controls.js';
 import { businessPayload } from '../../controls/business-payload.js';
 import { requireScope, type Principal } from '@intafaced/auth';
@@ -114,6 +115,9 @@ export async function createTwap(
   // `assertTradable` happens to refuse the kind.
   assertSpotSurface(market, kind === 'twap' ? 'TWAP' : kind === 'vwap' ? 'VWAP' : kind === 'pov' ? 'POV' : 'Chase');
   assertTradable(market);
+  // The platform's pause of this bot type or this symbol (CB-ops-03) refuses a new algo bot; running ones are untouched.
+  const pausedWhy = newBotPausedReason(await svc.platformPauses(), kind, market.symbol, market.id);
+  if (pausedWhy) throw new TradeError(pausedWhy, 'trade.bots_paused_by_platform');
   assertSettlementRails(market);
   assertMarketOpen(market, svc.now());
   assertQty(market, input.totalQty);

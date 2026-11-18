@@ -435,6 +435,11 @@ const WORDS: Readonly<Record<string, Words>> = {
     title: 'That is more than the position',
     body: 'Together with your other reduce-only orders, this would close more than the position holds. Lower the size.',
   },
+  'trade.futures_one_closing_order': {
+    title: 'This position already has a closing order',
+    body: 'One closing order per position: an order on the book already closes all of it. Cancel the one that rests, in Orders, before placing another.',
+    retryable: false,
+  },
   'trade.futures_reduce_past_bankruptcy': {
     title: 'That price would lose more than the margin',
     body: 'A reduce at this price would lose more than the margin on the position. Choose a price closer to the mark.',
@@ -610,6 +615,16 @@ export function futuresRefusal(failure: { code?: string; message?: string; statu
   if (generic) return { title: generic.title, body: generic.body, code, retryable: generic.retryable ?? true };
   const shared = refusalCopy(code ?? 'unknown');
   return { title: shared.title, body: shared.body, code, retryable: true };
+}
+
+/** Words for a margin class the venue does not take, naming that venue when the service names it (J-derivatives-02 #4). */
+export function collateralRefusal(venue: string | undefined): FuturesRefusal {
+  const known = futuresRefusal({ code: 'trade.unsupported_collateral_class' });
+  if (!venue) return known;
+  return {
+    ...known,
+    body: `${venue} does not take yield-bearing, staked or lending balances as margin. Use cash from your free balance.`,
+  };
 }
 
 /** Codes that mean "the whole futures plane is not accepting this", so the room shows one plane-level block. */

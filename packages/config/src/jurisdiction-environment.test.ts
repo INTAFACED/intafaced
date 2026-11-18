@@ -3,6 +3,7 @@ import { SCREENING_FAIL_CLOSED_ENV, UnscreenedJurisdictionError, assertScreening
 import {
   SANCTIONS_REGIONS_ENV,
   SANCTIONS_SOURCE_ENV,
+  SANCTIONED_ROWS_SOURCE_UNSIGNED,
   SCREENING_REVIEWED_EMPTY,
   ScreeningMoneyPostureError,
   UNSET_SCREENING_LIST,
@@ -11,10 +12,10 @@ import {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('jurisdiction boot screening requires an explicit local environment', () => {
-  it.each(['dev', 'test'])('reports the unconfigured gap without blocking explicit APP_ENV=%s', (appEnv) => {
+  it.each(['dev', 'test'])('boots explicit APP_ENV=%s on the unsigned rows, never on an empty list', (appEnv) => {
     const status = assertScreeningConfigured({ APP_ENV: appEnv });
-    expect(status.configured).toBe(false);
-    expect(status.readsAsScreenedClean).toBe(false);
+    expect(status.configured).toBe(true);
+    expect(status.source).toBe(SANCTIONED_ROWS_SOURCE_UNSIGNED);
   });
 
   it.each([undefined, '', '   ', 'production', 'prodd', 'local', 'preview', 'DEV', ' dev '])(

@@ -180,11 +180,112 @@ test(`${J} #2 picks 1h, then another interval from More, and the pressed one is 
   await keepsRightEdge(page, '30m');
 });
 
+/**
+ * The points the drawing library itself holds for the chart's main series, oldest first, read from the library's own
+ * series object (`series.data()`), found through the chart component's refs on the page. No figure here is the app's
+ * own copy of the bars: it is what the library draws.
+ */
+async function libraryPoints(page) {
+  return canvas(page).evaluate((el) => {
+    const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
+    for (let fiber = key ? el[key] : null; fiber; fiber = fiber.return) {
+      for (let hook = fiber.memoizedState; hook && typeof hook === 'object' && 'next' in hook; hook = hook.next) {
+        const series = hook.memoizedState?.current;
+        if (series && typeof series.seriesType === 'function' && typeof series.data === 'function') {
+          const points = series
+            .data()
+            .map((p) => ({ time: p.time, open: p.open, high: p.high, low: p.low, close: p.close, value: p.value }));
+          // The series found is the one the chart says it drew (its own data-drawn and data-drawn-bars), not another.
+          const own = series.seriesType() === el.getAttribute('data-drawn') && String(points.length) === el.getAttribute('data-drawn-bars');
+          return { type: series.seriesType(), points, own };
+        }
+      }
+    }
+    throw new Error('the chart holds no drawing-library series');
+  });
+}
+
+/** Heikin Ashi from plain bars: close (O+H+L+C)/4, open the mean of the previous HA open and close ((O+C)/2 first). */
+function heikinAshiOf(bars) {
+  const out = [];
+  let prev = null;
+  for (const b of bars) {
+    const close = (b.open + b.high + b.low + b.close) / 4;
+    const open = prev ? (prev.open + prev.close) / 2 : (b.open + b.close) / 2;
+    out.push({ time: b.time, open, high: Math.max(b.high, open, close), low: Math.min(b.low, open, close), close });
+    prev = { open, close };
+  }
+  return out;
+}
+
+const near = (a, b) => typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+
+/**
+ * Whether the library's points are the glyph of `id` over these plain bars: point by point at the same times, each value
+ * the style draws (OHLC for candles and bars, the averaged OHLC for Heikin Ashi, the close for line, area and columns).
+ * The window may have moved on since the bars were read (a new bucket, the oldest dropped): the points are matched from
+ * the bar their first point names, Heikin Ashi seeded there as the chart seeds it, and a bucket newer than the bars is
+ * checked only for its time. The newest of the bars was still trading when read, so its values are not compared.
+ */
+function drawsAs(id, points, bars) {
+  const start = bars.findIndex((b) => b.time === points[0]?.time);
+  if (start < 0) return `the first point (${points[0]?.time}) is not one of the bars`;
+  const base = bars.slice(start);
+  if (points.length < base.length) return `drew ${points.length} points over ${base.length} bars`;
+  if (points.length - base.length > 2) return `drew ${points.length - base.length} points past the bars`;
+  const want = id === 'heikin-ashi' ? heikinAshiOf(base) : base;
+  const fields = ['line', 'area', 'columns'].includes(id) ? [['value', 'close']] : ['open', 'high', 'low', 'close'].map((f) => [f, f]);
+  for (let i = 0; i < points.length; i += 1) {
+    const got = points[i];
+    if (i >= base.length) {
+      if (!(got.time > points[i - 1].time)) return `point ${i} at ${got.time} is not after the one before`;
+      continue;
+    }
+    if (got.time !== want[i].time) return `point ${i} at ${got.time}, bar at ${want[i].time}`;
+    if (i === base.length - 1) continue;
+    for (const [g, f] of fields) if (!near(got[g], want[i][f])) return `point ${i} ${g} ${got[g]}, wanted ${want[i][f]}`;
+  }
+  return 'ok';
+}
+
 test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ashi, and the choice is kept`, async ({ page }) => {
   await openChart(page);
   const styles = page.getByRole('group', { name: 'Chart style' }).first();
-  // Each style is drawn by the library's own series of that kind (Heikin Ashi draws candles from its averaged values),
-  // over the same bars: the same count and the same first and last bar time as the chart holds.
+  const pick = async (label, id) => {
+    await styles.getByRole('button', { name: label, exact: true }).click();
+    await expect(canvas(page)).toHaveAttribute('data-style', id);
+    await expect(styles.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
+  };
+
+  // The plain bars: what the library draws as candles, and those are Edge's own candles, open, high, low and close,
+  // at every time Edge serves within them (an empty bucket between trades is the chart's, not Edge's).
+  await pick('Candles', 'candles');
+  let bars = [];
+  await expect
+    .poll(async () => {
+      const got = await libraryPoints(page);
+      const held = await drawn(page);
+      bars = got.points;
+      return [got.type, got.own, got.points.length === held.held, got.points[0]?.time * 1000 === held.heldFirst];
+    })
+    .toEqual(['Candlestick', true, true, true]);
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&limit=240`);
+  expect(res.status).toBe(200);
+  const edge = new Map((await res.json()).map((row) => [row[0] / 1000, row]));
+  const shared = bars.slice(0, -1).filter((b) => edge.has(b.time));
+  expect(shared.length, 'Edge serves candles among the bars the chart draws').toBeGreaterThan(0);
+  for (const b of shared) {
+    const [, o, h, l, c] = edge.get(b.time).map(Number);
+    expect([b.open, b.high, b.low, b.close], `the candle at ${b.time}`).toEqual([o, h, l, c]);
+  }
+  // Heikin Ashi is not plain candles redrawn: its averaged values differ from the bars somewhere in the window.
+  expect(
+    heikinAshiOf(bars)
+      .slice(0, -1)
+      .some((ha, i) => !near(ha.close, bars[i].close) || !near(ha.open, bars[i].open)),
+  ).toBe(true);
+
+  // Each style is drawn by the library's own series of that kind, over the same bars, with that style's values.
   for (const [label, id, kind] of [
     ['Bars', 'bars', 'Bar'],
     ['Line', 'line', 'Line'],
@@ -193,19 +294,45 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
     ['Heikin Ashi', 'heikin-ashi', 'Candlestick'],
     ['Candles', 'candles', 'Candlestick'],
   ]) {
-    await styles.getByRole('button', { name: label, exact: true }).click();
-    await expect(canvas(page)).toHaveAttribute('data-style', id);
-    await expect(styles.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await pick(label, id);
     await expect
       .poll(async () => {
-        const got = await drawn(page);
-        return [got.type, got.bars === got.held, got.first === got.heldFirst, got.last === got.heldLast];
+        // The drawn series is exactly the bars the chart holds right now: the same count, first and last bar time.
+        const held = await drawn(page);
+        const got = await libraryPoints(page);
+        return [
+          held.type,
+          held.bars === held.held,
+          held.first === held.heldFirst,
+          held.last === held.heldLast,
+          got.type,
+          got.own,
+          drawsAs(id, got.points, bars),
+        ];
       })
-      .toEqual([kind, true, true, true]);
+      .toEqual([kind, true, true, true, kind, true, 'ok']);
   }
-  await styles.getByRole('button', { name: 'Heikin Ashi', exact: true }).click();
+
+  // The choice is kept on this device: after a reload Heikin Ashi is pressed and drawn, averaged, over the same bars.
+  await pick('Heikin Ashi', 'heikin-ashi');
   await page.reload();
   await expect(canvas(page)).toHaveAttribute('data-style', 'heikin-ashi');
+  await expect(styles.getByRole('button', { name: 'Heikin Ashi', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect
+    .poll(async () => {
+      const held = await drawn(page);
+      const got = await libraryPoints(page);
+      return [
+        held.type,
+        held.bars === held.held,
+        held.first === held.heldFirst,
+        held.last === held.heldLast,
+        got.type,
+        got.own,
+        drawsAs('heikin-ashi', got.points, bars),
+      ];
+    })
+    .toEqual(['Candlestick', true, true, true, 'Candlestick', true, 'ok']);
 });
 
 test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({ page }) => {

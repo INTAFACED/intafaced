@@ -8,6 +8,12 @@ import {
   apiKeyRevokeOutputSchema,
   apiKeyScopesOutputSchema,
   apiKeySetExpiryOutputSchema,
+  developerSetRoleOutputSchema,
+  developerTeamSchema,
+  type DeveloperRole,
+  type DeveloperTeam,
+  apiKeyRotateOutputSchema,
+  type ApiKeyRotateOutput,
   type ApiKeyCreateInput,
   type ApiKeyCreateOutput,
   type ApiKeyDetail,
@@ -16,9 +22,11 @@ import {
   type ApiKeyRevokeOutput,
   type ApiKeyScopeEntry,
 } from '@intafaced/contracts/api-keys';
+import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session/webauthn';
 import type { ApiKeysCopyKey } from './api-keys-copy';
+import { subaccountsIn, type Subaccount } from './subaccount-guards';
 
 /** The most keys the room reads at once; the owner's cap is far below it. */
 const LIST_LIMIT = 200;
@@ -31,13 +39,69 @@ export function readKeyScopes(api: ApiClient, signal: AbortSignal): Promise<ApiR
   return api.query('identity', 'developerKeys.scopes', undefined, apiKeyScopesOutputSchema, { signal });
 }
 
-export type Preset = 'read' | 'trade' | 'custom';
+/** The most sub-accounts the key form offers at once; the owner's sub-account cap is far below it. */
+const SUBACCOUNT_LIMIT = 50;
+
+/**
+ * The master's live sub-accounts, offered on the create form so a key can be bound to one (DV-sub-accounts-01). A
+ * revoked one is left out: identity refuses a key for it (`identity.key_account_denied`).
+ */
+export async function readKeySubaccounts(api: ApiClient, signal: AbortSignal): Promise<ApiResult<Subaccount[]>> {
+  const rows = await api.query('identity', 'subAccounts.list', { limit: SUBACCOUNT_LIMIT }, subaccountsIn(SUBACCOUNT_LIMIT), { signal });
+  return rows.ok ? { ok: true, data: rows.data.filter((row) => !row.revoked) } : rows;
+}
+
+/** The organisations the person belongs to; the key page shows each one's developer area (DV-console-01). */
+const orgsOut = z.object({ orgs: z.array(z.object({ id: z.string(), name: z.string(), role: z.string() })) });
+export function readMyOrgs(api: ApiClient, signal: AbortSignal): Promise<ApiResult<z.infer<typeof orgsOut>>> {
+  return api.query('identity', 'listOrgs', undefined, orgsOut, { signal });
+}
+
+/** One organisation's developer area as the person sees it: their role, why they may not manage keys, and its keys. */
+export function readDeveloperTeam(api: ApiClient, orgId: string, signal: AbortSignal): Promise<ApiResult<DeveloperTeam>> {
+  return api.query('identity', 'developerKeys.team', { orgId }, developerTeamSchema, { signal });
+}
+
+/** The owner gives a member a developer role, or takes it away. The request id is new per press; a repeat changes nothing. */
+/**
+ * A role change's request id is a business key: the organisation, the member, how many changes the page saw, and the
+ * role asked. Pressing again after a lost answer repeats it (the service answers `changed: false`); a change made from
+ * a stale page names an old version, and a different role at that version refuses.
+ */
+export function developerRoleRequestId(orgId: string, userId: string, roleVersion: number, role: DeveloperRole | null): string {
+  return `dev-role:${orgId}:${userId}:v${roleVersion}:${role ?? 'none'}`;
+}
+
+export function setDeveloperRole(api: ApiClient, orgId: string, userId: string, role: DeveloperRole | null, requestId: string) {
+  return api.mutate('identity', 'developerKeys.setTeamRole', { orgId, userId, role, requestId }, developerSetRoleOutputSchema);
+}
+
+/** Revokes an organisation's key; only its owner or a key admin may, and the service decides. */
+export function revokeOrgKey(api: ApiClient, orgId: string, keyId: string, reason: string): Promise<ApiResult<ApiKeyRevokeOutput>> {
+  const trimmed = reason.trim();
+  if ([...trimmed].length > API_KEY_REVOKE_REASON_MAX) {
+    const code = 'identity.key_revoke_reason_invalid';
+    return Promise.resolve({ ok: false, reason: 'error', code, message: code });
+  }
+  return api.mutate(
+    'identity',
+    'developerKeys.revoke',
+    { keyId, orgId, ...(trimmed ? { reason: trimmed } : {}) },
+    apiKeyRevokeOutputSchema,
+  );
+}
+
+export type Preset = 'read' | 'trade' | 'lead' | 'copy' | 'custom';
 
 /** The scopes a preset ticks, from those this sign-in may put on a key. */
 export function presetScopes(preset: Exclude<Preset, 'custom'>, offered: readonly ApiKeyScopeEntry[]): string[] {
   const allowed = offered.filter((entry) => entry.onKey);
   if (preset === 'read') return allowed.filter((entry) => entry.access === 'read').map((entry) => entry.scope);
-  return allowed.filter((entry) => entry.scope === 'trade:read' || entry.scope === 'trade:write').map((entry) => entry.scope);
+  // A lead key and a copier key (J-copy-bots-otc-07) also place orders, so each carries trade:read and trade:write.
+  const extra = preset === 'lead' ? 'copy:lead' : preset === 'copy' ? 'copy:follow' : null;
+  return allowed
+    .filter((entry) => entry.scope === 'trade:read' || entry.scope === 'trade:write' || entry.scope === extra)
+    .map((entry) => entry.scope);
 }
 
 /** One address per line; blank lines dropped. The service checks each one. */
@@ -181,9 +245,22 @@ const REFUSALS = new Set<string>([
   'identity.key_expiry_invalid',
   'identity.key_cap_unset',
   'identity.key_signing_unset',
+  'identity.key_lead_not_approved',
+  'identity.key_lead_check_unavailable',
   'identity.key_cap_reached',
   'identity.key_request_conflict',
+  'identity.key_account_required',
+  'identity.key_account_denied',
+  'identity.key_org_denied',
+  'identity.portfolio_key_cap_unset',
+  'identity.portfolio_key_cap_reached',
+  'auth.agent_scope_forbidden',
+  'identity.developer_roles_unset',
+  'identity.developer_role_read_only',
+  'identity.developer_role_none',
   'identity.delegated_refused',
+  // The owner's own freeze (J-wallet-13 #2).
+  'identity.account_frozen_self',
   'auth.passkey_missing',
   'auth.passkey_verify_unavailable',
 ]);
@@ -208,4 +285,52 @@ export function createRefusal(result: Extract<ApiResult<unknown>, { ok: false }>
 export function environmentFile(key: string, signingSecret?: string | null): string {
   const signing = signingSecret ? `INTAFACED_API_SIGNING_SECRET=${signingSecret}\n` : '';
   return `# API key for your program. Keep this file out of source control.\nINTAFACED_API_KEY=${key}\n${signing}`;
+}
+
+/**
+ * Rotate a key with an overlap (J-developer-07 #1 #2): always with a passkey. A repeat after a lost reply answers with the
+ * replacement already made (`replayed`, no secret), so retrying never makes a second key.
+ */
+export async function rotateDeveloperKey(
+  api: ApiClient,
+  keyId: string,
+  overlapSeconds: number,
+  signal?: AbortSignal,
+): Promise<ApiResult<ApiKeyRotateOutput>> {
+  const proof = await proofFor(api, { passkey: true }, signal);
+  if (!proof.ok) return proof;
+  return api.mutate(
+    'identity',
+    'developerKeys.rotate',
+    { keyId, overlapSeconds, ...(proof.proof ? { factorProof: proof.proof } : {}) },
+    apiKeyRotateOutputSchema,
+    { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
+  );
+}
+
+const rotationRequestSchema = z.object({
+  request: z.object({ requestId: z.string(), keyId: z.string(), overlapSeconds: z.number().int(), createdAt: z.string() }).nullable(),
+});
+export type RotationRequestRead = z.infer<typeof rotationRequestSchema>;
+
+/** The rotation a key asked for itself, waiting for its owner (DV-keys-04, J-developer-07 #3), or none. */
+export function readRotationRequest(api: ApiClient, keyId: string, signal: AbortSignal): Promise<ApiResult<RotationRequestRead>> {
+  return api.query('identity', 'developerKeys.rotationRequest', { keyId }, rotationRequestSchema, { signal });
+}
+
+/** The owner approves a key's own rotation request with a fresh passkey: one replacement, shown once. */
+export async function approveRotationRequest(
+  api: ApiClient,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<ApiResult<ApiKeyRotateOutput>> {
+  const proof = await proofFor(api, { passkey: true }, signal);
+  if (!proof.ok) return proof;
+  return api.mutate(
+    'identity',
+    'developerKeys.approveRotation',
+    { requestId, ...(proof.proof ? { factorProof: proof.proof } : {}) },
+    apiKeyRotateOutputSchema,
+    { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
+  );
 }

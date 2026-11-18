@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   kybApplicationSectionDataSchema,
   type KybApplicationSection,
@@ -259,7 +259,7 @@ export class KybApplicationService {
   }
 
   /** Delete the sections and move the document boundary past every upload so far. The caller holds the row lock. */
-  private async clear(tx: Sql, applicationId: string): Promise<ApplicationRow> {
+  private async clear(tx: Queryable, applicationId: string): Promise<ApplicationRow> {
     await tx`DELETE FROM pay.kyb_application_sections WHERE application_id = ${applicationId}`;
     const [row] = await tx<ApplicationRow[]>`
       UPDATE pay.kyb_applications
@@ -309,7 +309,7 @@ export class KybApplicationService {
     return this.view(this.sql, row);
   }
 
-  private async lockDraft(tx: Sql, applicationId: string): Promise<ApplicationRow> {
+  private async lockDraft(tx: Queryable, applicationId: string): Promise<ApplicationRow> {
     const [app] = await tx<ApplicationRow[]>`
       SELECT ${tx.unsafe(APPLICATION_COLUMNS)} FROM pay.kyb_applications WHERE id = ${applicationId} FOR UPDATE
     `;
@@ -323,7 +323,7 @@ export class KybApplicationService {
    * no current upload, its current one was rejected, or the type or country is no longer published, so the view never
    * says ready while submit would refuse.
    */
-  private async missing(q: Sql, app: ApplicationRow): Promise<KybApplicationSection[]> {
+  private async missing(q: Queryable, app: ApplicationRow): Promise<KybApplicationSection[]> {
     const done = await q<Array<{ section: KybApplicationSection }>>`
       SELECT section FROM pay.kyb_application_sections WHERE application_id = ${app.id} AND complete
     `;
@@ -339,7 +339,7 @@ export class KybApplicationService {
    * The published document keys of the application's type with no current upload since the boundary, or whose current
    * upload was rejected. Read with the caller's connection. A refusal when the type or its country is no longer published.
    */
-  private async absentDocuments(q: Sql, app: ApplicationRow): Promise<string[] | KybError> {
+  private async absentDocuments(q: Queryable, app: ApplicationRow): Promise<string[] | KybError> {
     const [type] = await q<Array<{ document_keys: string[]; countries: string[] }>>`
       SELECT document_keys, countries FROM pay.kyb_entity_types WHERE entity_type = ${app.entity_type}
     `;
@@ -360,7 +360,7 @@ export class KybApplicationService {
   }
 
   /** Refuses `pay.kyb_documents_missing`, naming the keys, unless every required document has a usable current upload. */
-  private async assertDocuments(q: Sql, app: ApplicationRow): Promise<void> {
+  private async assertDocuments(q: Queryable, app: ApplicationRow): Promise<void> {
     const absent = await this.absentDocuments(q, app);
     if (absent instanceof KybError) throw absent;
     if (absent.length > 0) {
@@ -368,7 +368,7 @@ export class KybApplicationService {
     }
   }
 
-  private async view(q: Sql, app: ApplicationRow): Promise<KybApplicationView> {
+  private async view(q: Queryable, app: ApplicationRow): Promise<KybApplicationView> {
     const rows = await q<SectionRow[]>`
       SELECT section, version, complete, data, updated_at FROM pay.kyb_application_sections WHERE application_id = ${app.id}
     `;

@@ -328,3 +328,34 @@ describe('pool names from the earn pools read', () => {
     expect(header!.split(',')).toHaveLength(row!.split(',').length);
   });
 });
+
+describe('rowsWhere keeps only the rows of one subject (a KYC case’s documents)', () => {
+  const spec: ReadSpec = {
+    id: 'x',
+    title: 'x',
+    note: 'x',
+    module: 'identity',
+    procedure: 'kyc.listDocuments',
+    shape: 'list',
+    idKey: 'id',
+    page: 3,
+    rowsWhere: { key: 'reviewRecordId', equals: 'r1' },
+    columns: [
+      { key: 'id', label: 'Id', kind: 'text' },
+      { key: 'reviewRecordId', label: 'Verification', kind: 'text', nullable: true },
+    ],
+    emptyText: 'none',
+    forbiddenText: 'no',
+  };
+  it('lists only matching rows, judges a full page on what the service sent, and still refuses a malformed row', () => {
+    const data = readData(spec, [
+      { id: 'a', reviewRecordId: 'r1' },
+      { id: 'b', reviewRecordId: null },
+      { id: 'c', reviewRecordId: 'r2' },
+    ]);
+    expect(data).toMatchObject({ shape: 'list', pageFull: true });
+    expect(data?.shape === 'list' ? data.rows.map((r) => r.id) : null).toEqual(['a']);
+    expect(readData(spec, [{ id: 'a', reviewRecordId: 'r1' }, { id: 'b' }])).toBeNull();
+    expect(readData(spec, [{ id: 'b', reviewRecordId: 'r2' }])).toMatchObject({ shape: 'list', rows: [], pageFull: false });
+  });
+});

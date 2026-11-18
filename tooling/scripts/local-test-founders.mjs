@@ -19,7 +19,9 @@ import { readLatestEmailConfirmToken } from './local-test-state.mjs';
 
 export { GuardError };
 
-export const FOUNDER_VAULT_NAME = 'founders.json';
+import { FOUNDER_VAULT_NAME } from './local-test-facts.mjs';
+
+export { FOUNDER_VAULT_NAME };
 /** Each founder's last used TOTP step (a, b), shared with local-test-gates.mjs so no tool replays a code. */
 export const FOUNDER_STEPS_NAME = 'founder-totp-steps.json';
 export const PIN_STAMP_NAME = 'identity-founder-pin.json';

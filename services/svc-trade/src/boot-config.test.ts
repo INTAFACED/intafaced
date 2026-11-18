@@ -340,17 +340,45 @@ describe('svc-trade boots on shipped configuration', () => {
     expect(read('docker-compose.apps.yml')).toMatch(/TRADE_FUTURES_PROFIT_SOURCE:\s*\$\{TRADE_FUTURES_PROFIT_SOURCE:-\}/);
   });
 
-  it('ships D26-P0-02 fee-share law while D26-P0-15 geo stays closed', async () => {
+  it('ships the copy fee-share law blank (owner figures are host-only, in the private records) while D26-P0-15 geo stays closed', async () => {
     const { parseCopyFeeShareLawJson } = await import('./copy/fee-share-law.js');
     const raw = shipped.get('TRADE_COPY_FEE_SHARE_LAW') ?? '';
+    expect(raw).toBe('');
     const law = parseCopyFeeShareLawJson(raw);
-    expect(law.published).toBe(true);
-    if (law.published) {
-      expect(law.leaderShareBps).toBe(1000);
-      expect(law.earningsCapPerFollower).toBe('1000.00');
-      expect(law.decayRoundTrips).toBe(50);
-      expect(law.decayShareBps).toBe(5000);
-    }
+    expect(law).toEqual({ published: false });
+    // The shipped blank law refuses with its typed error on every door that reads it, never a default.
+    const { requirePublishedCopyFeeShareLaw } = await import('./copy/fee-share-law.js');
+    const { attributeCopyFeeShare } = await import('./copy/fee-share.js');
+    const { presentCustomerCopyDesk } = await import('./copy/desk-status.js');
+    const refusalCode = (fn: () => unknown): unknown => {
+      try {
+        fn();
+      } catch (err) {
+        return (err as { code?: unknown }).code;
+      }
+      return 'no refusal';
+    };
+    expect(refusalCode(() => requirePublishedCopyFeeShareLaw(law))).toBe('trade.copy_fee_share_blank');
+    expect(
+      refusalCode(() =>
+        attributeCopyFeeShare({
+          law,
+          fillId: 'fill-1',
+          leaderId: 'leader-1',
+          followerId: 'follower-1',
+          assetId: 'USDT',
+          followerFillNotional: 1n,
+          protocolFeeBps: 0,
+          fillFeeAmount: 1n,
+          roundTripsThisPeriod: 0,
+          earningsPaidThisPeriod: 0n,
+          feeShareKilled: false,
+        }),
+      ),
+    ).toBe('trade.copy_fee_share_blank');
+    const desk = presentCustomerCopyDesk({ mounted: true, fee: law, jurisdiction: { published: false }, placeEnabled: false });
+    expect(desk.feeSharePublished).toBe(false);
+    expect(desk.blockers).toContainEqual({ code: 'trade.copy_fee_share_blank' });
     const geoRaw = shipped.get('TRADE_COPY_JURISDICTION_LAW') ?? '';
     const { parseCopyJurisdictionLawJson } = await import('./copy/fee-share-law.js');
     const geo = parseCopyJurisdictionLawJson(geoRaw);

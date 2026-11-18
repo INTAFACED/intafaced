@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**88 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**107 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -16,6 +16,25 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `tradeFill`                     | `trade`     | `trade.fill`                                                     |
 | `tradeFillFeeCorrection`        | `trade`     | `trade.fill.fee.correction`                                      |
 | `tradeFillMakerRebate`          | `trade`     | `trade.fill.rebate`                                              |
+| `builderFeeEarn`                | `trade`     | `trade.builder_fee.earned`                                       |
+| `builderFeeReceive`             | `trade`     | `trade.builder_fee.received`                                     |
+| `ownFundsMove`                  | `treasury`  | `treasury.own_funds.moved`                                       |
+| `campaignBudgetFund`            | `campaigns` | `campaigns.budget.funded`                                        |
+| `rewardOwe`                     | `campaigns` | `campaigns.reward.owed`                                          |
+| `rewardPayOut`                  | `campaigns` | `campaigns.reward.paid_out`                                      |
+| `rewardReclaim`                 | `campaigns` | `campaigns.reward.reclaimed`                                     |
+| `feeShareBudgetFund`            | `trade`     | `trade.fee_share.budget_funded`                                  |
+| `feeShareOwe`                   | `trade`     | `trade.fee_share.owed`                                           |
+| `feeSharePayOut`                | `trade`     | `trade.fee_share.paid_out`                                       |
+| `chargeEarn`                    | `<module>`  | `charge.earned`                                                  |
+| `chargeCollect`                 | `<module>`  | `charge.collected`                                               |
+| `academyPurchase`               | `academy`   | `academy.purchase.posted`                                        |
+| `academyPurchaseRefund`         | `academy`   | `academy.purchase.refunded`                                      |
+| `partnerFeeEarn`                | `<module>`  | `partner_fee.earned`                                             |
+| `partnerFeeSettle`              | `<module>`  | `partner_fee.settled`                                            |
+| `merchantFeeEarn`               | `<module>`  | `merchant_fee.earned`                                            |
+| `feeGiveBackOwe`                | `trade`     | `trade.fee_giveback.owed`                                        |
+| `feeGiveBackPayOut`             | `trade`     | `trade.fee_giveback.paid_out`                                    |
 | `orderHold`                     | `trade`     | `order.hold`                                                     |
 | `orderHoldRelease`              | `trade`     | `order.hold.released`                                            |
 | `orderHoldAmend`                | `trade`     | `order.hold.amend`                                               |
@@ -97,20 +116,26 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 
 ## Source files
 
-| File                              | Owns                                                                                               |
-| --------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `src/recipes/index.ts`            | core trade / pay / token / futures / escrow / stake + registry                                     |
-| `src/recipes/order-hold-amend.ts` | qty-up extra hold (same pot as `orderHold`; sequenced key)                                         |
-| `src/recipes/bank.ts`             | transfer + earn + business dual-control holds + atomic payroll                                     |
-| `src/recipes/loans.ts`            | collateral / draw / repay / liquidate / bad debt / reserve                                         |
-| `src/recipes/chargeback.ts`       | chargeback open / shortfall / won / recovered (live; posted from svc-pay chargeback-ledger.ts)     |
-| `src/recipes/sub-accounts.ts`     | only legal cross-partition transfer                                                                |
-| `src/recipes/market.ts`           | purchase + house commission (live); listing fee + premium placement (§13 unwired)                  |
-| `src/recipes/market-escrow.ts`    | held purchase: hold, numbered refunds, release after the window (wired by svc-market next)         |
-| `src/recipes/buyback.ts`          | token buyback IOC buy: hold from the rewards engine, taker fill against a customer ask, release    |
-| `src/recipes/conversion.ts`       | sandbox USD→USDT hold, fill, release, reverse, and late-fill booking from clearing or fx-inventory |
-| `src/recipes/staff-hold.ts`       | ops staff holds: place, release in part (approver or expiry), confirm to the owner-named account   |
-| `src/recipes/campaign-lock.ts`    | campaign locked rewards and bonuses: rewards engine to a per-reward pot, then unlock or forfeit    |
+| File                              | Owns                                                                                                |
+| --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `src/recipes/index.ts`            | core trade / pay / token / futures / escrow / stake + registry                                      |
+| `src/recipes/order-hold-amend.ts` | qty-up extra hold (same pot as `orderHold`; sequenced key)                                          |
+| `src/recipes/bank.ts`             | transfer + earn + business dual-control holds + atomic payroll                                      |
+| `src/recipes/loans.ts`            | collateral / draw / repay / liquidate / bad debt / reserve                                          |
+| `src/recipes/chargeback.ts`       | chargeback open / shortfall / won / recovered (live; posted from svc-pay chargeback-ledger.ts)      |
+| `src/recipes/sub-accounts.ts`     | only legal cross-partition transfer                                                                 |
+| `src/recipes/market.ts`           | purchase + house commission (live); listing fee + premium placement (§13 unwired)                   |
+| `src/recipes/market-escrow.ts`    | held purchase: hold, numbered refunds, release after the window (wired by svc-market next)          |
+| `src/recipes/buyback.ts`          | token buyback IOC buy: hold from the rewards engine, taker fill against a customer ask, release     |
+| `src/recipes/conversion.ts`       | sandbox USD→USDT hold, fill, release, reverse, and late-fill booking from clearing or fx-inventory  |
+| `src/recipes/staff-hold.ts`       | ops staff holds: place, release in part (approver or expiry), confirm to the owner-named account    |
+| `src/recipes/campaign-lock.ts`    | campaign locked rewards and bonuses: rewards engine to a per-reward pot, then unlock or forfeit     |
+| `src/recipes/reward-owed.ts`      | reward owed with custody off: budget, owe (ceiling unset refuses), pay to the customer wallet       |
+| `src/recipes/fee-share-owed.ts`   | fee share owed with custody off: budget from a collected claim, owe (rate unset refuses), pay       |
+| `src/recipes/charge.ts`           | a charge a customer owes us with custody off: earn (price unset refuses), collect at our place      |
+| `src/recipes/academy-purchase.ts` | a paid Academy course from the buyer's wallet into our own place, and its exact staff refund        |
+| `src/recipes/partner-fee.ts`      | our fee on a partner-processed payment: earn (rate unset refuses), settle into our own funds        |
+| `src/recipes/fee-giveback.ts`     | a fee given back from our own funds: owe (two approvers, at most the fill's fee), pay to the wallet |
 
 ## Sealed notes
 

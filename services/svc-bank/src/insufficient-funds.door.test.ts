@@ -68,7 +68,7 @@ function build(opts: { transferError: unknown; earnFails?: boolean }) {
   const sql = ((_s: TemplateStringsArray, ...values: unknown[]) =>
     opts.earnFails
       ? Promise.reject(new Error('earn read down'))
-      : Promise.resolve(values[0] === USER ? [{ principal: '20' }] : [{ principal: '999' }])) as unknown as Sql;
+      : Promise.resolve(values[0] === USER ? [{ principal: '20' }] : [{ principal: '999' }])) as Sql;
   const ledger = {
     balances: async (_t: string, ownerId: string) =>
       [bal('available', '10'), bal('hold', '5'), bal('available', '777', OTHER)].filter((b) => b.account.ownerId === ownerId),
@@ -84,6 +84,11 @@ function build(opts: { transferError: unknown; earnFails?: boolean }) {
     },
     transfers: {
       transfer: async (input: unknown) => {
+        posted.push(input);
+        throw opts.transferError;
+      },
+      // `transfers.create`'s door: the service decides whose book holds the money (OWNER 226).
+      moveBetweenSpaces: async (input: unknown) => {
         posted.push(input);
         throw opts.transferError;
       },

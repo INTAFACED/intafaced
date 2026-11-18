@@ -572,6 +572,31 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The request you reviewed is not the one the approval was created for. Nothing was approved or used.',
     next: 'Ask the first founder to send a fresh request packet and review it again.',
   },
+  'action_approval.policy_unset': {
+    title: 'No approval policy is set for this action',
+    body: 'Its approval row is blank or unreadable, so identity refuses to ask, approve or apply it. Nothing was changed.',
+    next: 'Two founders set a whole row for it on Approval policy first.',
+  },
+  'action_approval.policy_changed': {
+    title: 'The approval policy changed after this was asked',
+    body: 'The request was made under a row that has since changed, so it is never judged by the new one. Nothing was applied.',
+    next: 'Start a new request under the current row.',
+  },
+  'identity.staff_invite_ttl_unset': {
+    title: 'Invites are not set up yet',
+    body: 'How long an invite link lasts is an owner setting, and it is blank, so identity refuses every invite. Nothing was changed.',
+    next: 'Set the invite lifetime in the deployment, then invite again.',
+  },
+  'identity.staff_already_invited': {
+    title: 'That person is already invited',
+    body: 'A staff record for this email already exists. Nothing was changed.',
+    next: 'Find them in the staff list.',
+  },
+  'identity.staff_invite_invalid': {
+    title: 'This invite link does not work',
+    body: 'It is unknown, already used or past its end. Nothing was changed.',
+    next: 'Ask a founder for a new invite.',
+  },
   'action_approval.not_pending': {
     title: 'This request is no longer waiting for a decision',
     body: 'It was already approved, rejected, withdrawn, used or has expired.',
@@ -1365,10 +1390,50 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A grade file is a CSV whose first line is learner,score,comment,reason, with at least one row below it.',
     next: 'Correct the file and upload it again. Nothing was changed.',
   },
+  'academy.grant_expired': {
+    title: 'This learner’s access has ended',
+    body: 'Their access record for this course reached its end date, so the course’s items do not open for them.',
+    next: 'Reinstate the access record on the learner page, with a reason, if they should have it again.',
+  },
+  'academy.grant_not_found': {
+    title: 'No such access record',
+    body: 'This learner holds no access record with that reference.',
+    next: 'Read the learner page again. Nothing was changed.',
+  },
+  'academy.grant_active': {
+    title: 'This access has not ended',
+    body: 'Only an access record that has ended can be reinstated.',
+    next: 'Read the learner page again. Nothing was changed.',
+  },
   'academy.permission_denied': {
     title: 'This needs a role you do not hold',
-    body: 'Answer-level quiz data needs the data researcher role on the course. Academy has no course roles to hold, so no account holds it.',
-    next: 'Read the item analysis and score distribution instead. Nothing was changed.',
+    body: 'Your roles on this course do not permit this. Answer-level quiz data is not served to any role yet, the data researcher role included.',
+    next: 'Ask a founder who holds the permission, or read what your role allows. Nothing was changed.',
+  },
+  'academy.role_escalation': {
+    title: 'That would give more than you hold',
+    body: 'Nobody may give a role that permits something they do not hold on this course themselves.',
+    next: 'Ask a founder whose roles here cover it. Nothing was changed.',
+  },
+  'academy.role_limit_unset': {
+    title: 'The custom role limit is not set',
+    body: 'The owner has not set how many custom roles the Academy may hold, so no custom role is created. The built-in roles still work.',
+    next: 'Ask the owner to set the custom role limit. Nothing was saved.',
+  },
+  'academy.role_limit_reached': {
+    title: 'The custom role limit is reached',
+    body: 'The Academy already holds as many custom roles as the owner allows. A switched-off role still counts.',
+    next: 'Use a built-in role, or ask the owner to raise the limit. Nothing was saved.',
+  },
+  'academy.role_not_found': {
+    title: 'No such role or role change',
+    body: 'There is no role, or no role change waiting, with that name or id.',
+    next: 'Read the team again. Nothing was changed.',
+  },
+  'academy.second_founder_required': {
+    title: 'A second founder confirms this',
+    body: 'A role change takes effect only when a founder other than the one who proposed it confirms it.',
+    next: 'Ask the other founder to confirm it from their own session. Nothing was changed.',
   },
   'academy.bulk_limit_unset': {
     title: 'The curve file limit is not set',
@@ -1502,7 +1567,7 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   },
   'academy.report_limit_unset': {
     title: 'The report size is not set',
-    body: 'The owner has not set how many learner rows one grade report may hold, so no report is made.',
+    body: 'The owner has not set how many rows one report or export may hold, so none is made or listed.',
     next: 'The owner sets the limit for this deployment. Nothing was made.',
   },
   'academy.report_too_large': {
@@ -1514,6 +1579,51 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'That report number skips one',
     body: 'Reports of a course are numbered one after another, and this number is past the next one.',
     next: 'The list below is read again. Make the next report from it. Nothing was made.',
+  },
+  'academy.cert_signatory_missing': {
+    title: 'The design has no signatory',
+    body: 'A certificate design needs at least one signatory, with a name and a role, before it can be active.',
+    next: 'Add a signatory, save the design, then activate it. Nothing was changed.',
+  },
+  'academy.cert_disclaimer_unset': {
+    title: 'The disclaimer is blank',
+    body: "A certificate design needs its disclaimer text before it can be active. The wording is the owner's.",
+    next: 'Put in the disclaimer the owner gave, save the design, then activate it. Nothing was changed.',
+  },
+  'academy.cert_design_stale': {
+    title: 'The design changed since you read it',
+    body: 'Someone saved a newer revision of this design first.',
+    next: 'The page is read again. Make your change on the newest revision. Nothing was changed.',
+  },
+  'academy.cert_delay_unset': {
+    title: 'The delay is blank',
+    body: "A delayed issue rule needs the wait, in whole minutes after the course is complete. The wait is the owner's.",
+    next: 'Put in the delay, or choose automatic or manual. Nothing was changed.',
+  },
+  'academy.cert_sweep_unset': {
+    title: 'No issue sweep runs',
+    body: 'A delayed certificate is issued by the issue sweep, and its interval (ACADEMY_CERT_ISSUE_SWEEP_SECONDS) is not set, so a learner would wait forever.',
+    next: 'The owner sets the sweep interval first. Nothing was changed.',
+  },
+  'academy.cert_already_granted': {
+    title: 'The learner already holds this certificate',
+    body: 'This learner was issued this certificate already, so there is no exception to make.',
+    next: 'Nothing was changed and no approval was spent.',
+  },
+  'academy.cert_revoked': {
+    title: 'This certificate was revoked',
+    body: "The learner's certificate was revoked. A revoked certificate stays revoked and is not issued again.",
+    next: 'Nothing was changed and no approval was spent.',
+  },
+  'academy.cert_not_found': {
+    title: 'No such certificate',
+    body: 'svc-academy publishes no certificate with that id, or no issued certificate has that code.',
+    next: 'Check the id or the code. Nothing was changed and no approval was spent.',
+  },
+  'academy.cert_design_not_found': {
+    title: 'No design yet',
+    body: 'This certificate has no design to activate.',
+    next: 'Save a design first. Nothing was changed.',
   },
   'academy.report_not_found': {
     title: 'No such report',

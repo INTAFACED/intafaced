@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { codedCancelReason, isCodedCancelText, resolvedByOf } from './cancel-reasons.js';
 import { p2pCancelReasonAllowed } from '@intafaced/contracts/p2p-cancel';
 import { checkOfferLimit, NO_OFFER_LIMITS, type OfferLimitPolicy } from './merchant-limits.js';
@@ -28,6 +28,7 @@ import {
   claimWriteKey,
   disputeOpenForTrade,
   eitherBlocked,
+  lockContactPair,
   encodeOfferCursor,
   type BoardSort,
   finishWriteKey,
@@ -86,6 +87,7 @@ import {
   requireSetting,
   startOfUtcDay,
   RECEIPT_QUOTA_LOCK_CLASS,
+  EXPORT_QUOTA_LOCK_CLASS,
   type ExportFormat,
   type ExportPolicy,
 } from './export-receipt.js';
@@ -184,6 +186,7 @@ import {
   type MismatchReport,
 } from './amount-mismatch.js';
 import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
+import { CounterpartyStateUnavailableError, type CounterpartyStatePort } from './counterparty-state.js';
 import {
   ADVERTISER_TERMS_SETTING,
   AdvertiserTermsError,
@@ -231,6 +234,11 @@ import {
  */
 
 export type P2pErrorCode =
+  // RC-p2p-02: the contract escrow.
+  | 'p2p.contract_escrow_unavailable'
+  | 'p2p.escrow_contract_held'
+  | 'p2p.escrow_deal_mismatch'
+  | 'p2p.escrow_kind_immutable'
   | 'p2p.non_instant_not_accepted'
   | 'p2p.floating_not_allowed_for_method'
   | 'p2p.content_rule_violation'
@@ -253,6 +261,9 @@ export type P2pErrorCode =
   // P-ads-merchant-08: a presence schedule that is not a valid week, and a bulk action naming no ads or too many.
   | 'p2p.schedule_invalid'
   | 'p2p.maker_offline'
+  // #4689: the ad's maker is frozen, closed or unknown to identity (one code for all three), or identity could not say.
+  | 'p2p.counterparty_unavailable'
+  | 'p2p.counterparty_unverifiable'
   | 'p2p.bulk_scope_invalid'
   | 'p2p.edit_quota_reached'
   | 'p2p.offer_unfunded'
@@ -375,6 +386,7 @@ export type P2pErrorCode =
   | 'p2p.export_format_unbuilt'
   | 'p2p.export_range_too_large'
   | 'p2p.export_too_many_rows'
+  | 'p2p.export_quota_reached'
   | 'p2p.receipt_quota_reached'
   | 'p2p.receipt_not_available'
   | 'p2p.user_not_found'
@@ -384,6 +396,10 @@ export type P2pErrorCode =
   | 'p2p.chat_list_limit_unset'
   | 'p2p.export_range_invalid'
   | 'p2p.contact_self'
+  | 'p2p.block_open_order'
+  | 'p2p.appeal_decided'
+  | 'p2p.appeal_not_found'
+  | 'p2p.appeal_self_decision'
   | 'p2p.ops_offers_limit_unset'
   | 'p2p.ops_trades_limit_unset'
   | 'p2p.ops_cursor_invalid'
@@ -713,7 +729,7 @@ export interface TradeInstrumentAttacher {
   duringTake<T>(run: (sink: DenialSink) => Promise<T>): Promise<T>;
 
   attachToTrade(
-    tx: Sql,
+    tx: Queryable,
     input: { tradeId: string; sellerId: string; takerId: string; methodId: string; fiatCurrency: string; sink: DenialSink },
   ): Promise<{ instrumentId: string; fingerprint: string; settlement?: MethodSettlement; cashReleaseSeconds?: number | null }>;
 
@@ -740,14 +756,18 @@ export interface TradeInstrumentAttacher {
    * never advertised — closing the residual named on `TAKE_REFUSED_MESSAGE`.
    * Empty operator registry ⇒ empty set: a leftover destination is not a rail.
    */
-  liveMethodKeys(ownerId: string, fiatCurrency: string, opts?: { db?: Sql; exceptInstrumentId?: string }): Promise<ReadonlySet<string>>;
+  liveMethodKeys(
+    ownerId: string,
+    fiatCurrency: string,
+    opts?: { db?: Queryable; exceptInstrumentId?: string },
+  ): Promise<ReadonlySet<string>>;
 
   /**
    * P-ads-merchant-18: remove the owner's active instrument inside the caller's transaction, so the ads it was the last
    * destination for pause in the same commit. Optional so a test stub without instruments still builds; `removeMethod`
    * refuses without it.
    */
-  removeInstrument?(input: { instrumentId: string; ownerId: string }, db?: Sql): Promise<InstrumentHeader>;
+  removeInstrument?(input: { instrumentId: string; ownerId: string }, db?: Queryable): Promise<InstrumentHeader>;
 
   /**
    * Method ids an operator has registered and left enabled. Empty = no payable
@@ -765,13 +785,13 @@ export interface TradeInstrumentAttacher {
    * P-disputes-security-09: each non-instant method's board profile (absent = instant). Optional so a test stub without
    * a catalogue still builds (every method then reads instant).
    */
-  boardSettlements?(methodIds: readonly string[], db?: Sql): Promise<ReadonlyMap<string, MethodSettlement>>;
+  boardSettlements?(methodIds: readonly string[], db?: Queryable): Promise<ReadonlyMap<string, MethodSettlement>>;
 
   /**
    * P-ads-merchant-19: the methods any market's enabled row calls cash in person (a locked price). Optional so a test
    * stub without a catalogue still builds (no method is then cash).
    */
-  cashMethods?(methodIds: readonly string[], db?: Sql): Promise<ReadonlySet<string>>;
+  cashMethods?(methodIds: readonly string[], db?: Queryable): Promise<ReadonlySet<string>>;
 }
 
 export interface P2pServiceOptions {
@@ -798,6 +818,11 @@ export interface P2pServiceOptions {
   offerLimits?: OfferLimitPolicy;
   /** P-trade-orders-21: hours support has to review a completion appeal. Unset → appeal refuses `p2p.config_unset`. */
   appealReviewHours?: number;
+  /**
+   * P-ads-merchant-22: how many of one trader's new ads a day reach their followers as a notice. Unset → no follower
+   * notice is written; the ad posts as usual.
+   */
+  followerNoticesPerDay?: number;
   /** P-trade-orders-14 owner caps for capped exports and receipts. Unset → those paths refuse `p2p.config_unset`. */
   exportPolicy?: ExportPolicy;
   /**
@@ -884,6 +909,12 @@ export interface P2pServiceOptions {
    * in it `p2p.config_unset`.
    */
   postingThresholds?: PostingThresholds;
+  /**
+   * #4689. Whether the ad's maker may be the other side of a new order (svc-identity's account status). `index.ts`
+   * always passes it, where no IDENTITY_URL refuses every take `p2p.counterparty_unverifiable`; omitted is a service
+   * built without it (tests).
+   */
+  counterpartyState?: CounterpartyStatePort;
 }
 
 /**
@@ -1041,6 +1072,17 @@ export const REMARK_MAX = 280;
 /** P-trade-orders-15: an ad's own release window is at least this long, the published release clock's own floor. */
 export const RELEASE_WINDOW_MIN_SECONDS = 60;
 
+/** P-ads-merchant-22: how many follower notices a post hands over itself; the sweep takes any more. */
+const FOLLOWER_FAST_PATH = 100;
+
+/** One followed-trader notice the sweep could not hand to the bus. */
+export interface FollowerNoticeSweepFailure {
+  readonly offerId: string;
+  readonly followerId: string;
+  readonly code: string | null;
+  readonly error: string;
+}
+
 /** One removal notice the sweep could not hand to the bus. */
 export interface OfferPauseSweepFailure {
   readonly instrumentId: string;
@@ -1084,6 +1126,44 @@ export interface TradeRecord {
   cashReleaseSeconds?: number | null;
   /** P-trade-orders-15: the ad's own release window copied at take, or null when the ad kept the published clock. */
   releaseWindowSeconds?: number | null;
+  /** RC-p2p-02: who holds the coins, chosen at take and fixed after. */
+  escrowKind: EscrowKind;
+  /** The contract deal's terms and, once attached, the deal; null on a ledger order. */
+  contract: ContractEscrow | null;
+}
+
+/** RC-p2p-02: `ledger` (svc-ledger holds the coins) or `contract` (the SovereignEscrow contract does; no ledger entry). */
+export type EscrowKind = 'ledger' | 'contract';
+
+/** The terms a contract deal must carry, fixed at take (the chain, the token, base units, the buyer's wallet, the window). */
+export interface ContractEscrowTerms {
+  chainId: number;
+  token: string;
+  /** Base units of `token`, a decimal string. */
+  units: string;
+  buyerWallet: string;
+  disputeWindowSeconds: number;
+}
+
+export interface ContractEscrow extends ContractEscrowTerms {
+  /** The opened deal, once the seller attached it; null before. */
+  dealId: string | null;
+  sellerWallet: string | null;
+}
+
+/** The deal as svc-protocol reads it from the chain (contracts `ProtocolEscrowDeal`), the fields this service checks. */
+export interface ContractDealRead {
+  dealId: string;
+  chainId: number;
+  seller: string;
+  buyer: string;
+  token: string;
+  amount: string;
+  arbiter: string | null;
+  disputeWindowSeconds: number;
+  disputeDeadline: number | null;
+  timeout: 'refund_seller' | 'release_buyer';
+  state: 'open' | 'locked' | 'disputed' | 'released' | 'refunded';
 }
 
 export interface DisputeRecord {
@@ -1150,6 +1230,14 @@ interface TradeRow {
   settlement_window_seconds?: number | null;
   cash_release_seconds?: number | null;
   release_window_seconds?: number | null;
+  escrow_kind?: EscrowKind;
+  contract_chain_id?: number | null;
+  contract_token?: string | null;
+  contract_units?: string | null;
+  contract_buyer_wallet?: string | null;
+  contract_dispute_window_seconds?: number | null;
+  contract_deal_id?: string | null;
+  contract_seller_wallet?: string | null;
 }
 
 interface OfferRow {
@@ -1285,7 +1373,7 @@ interface QuoteRow {
   expires_in_ms: string;
 }
 
-async function readQuote(sql: Sql, quoteId: string): Promise<QuoteRow | null> {
+async function readQuote(sql: Queryable, quoteId: string): Promise<QuoteRow | null> {
   const rows = await sql<QuoteRow[]>`
     SELECT *, GREATEST(0, floor(extract(epoch FROM (expires_at - now())) * 1000))::bigint AS expires_in_ms
       FROM p2p.take_quotes WHERE quote_id = ${quoteId}`;
@@ -1329,7 +1417,7 @@ function sameQuoteOrConflict(
  * placed. Read inside the reservation transaction, before pricing: a floating ad is placed at the quoted price.
  */
 async function heldQuote(
-  tx: Sql,
+  tx: Queryable,
   input: { quoteId: string; tradeId: string; takerId: string; offerId: string; method: string; amount: Amount },
 ): Promise<QuoteRow | null> {
   const placed = await tx`SELECT 1 FROM p2p.p2p_trades WHERE id = ${input.tradeId}`;
@@ -1388,7 +1476,7 @@ function toRemarkCase(row: RemarkCaseRow): RemarkCase {
 }
 
 /** The order's amount report, read with `db` (the order's transaction, or the pool). */
-async function readMismatch(db: Sql, tradeId: string): Promise<MismatchReport | null> {
+async function readMismatch(db: Queryable, tradeId: string): Promise<MismatchReport | null> {
   const [row] = await db<MismatchRow[]>`
     SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
       FROM p2p.trade_mismatches WHERE trade_id = ${tradeId}
@@ -1444,7 +1532,7 @@ function toMismatch(row: MismatchRow): MismatchReport {
  * microseconds down to JS millisecond precision, so a value read here and bound
  * back into a column is always <= the true transaction timestamp, never past it.
  */
-async function txNow(tx: Sql): Promise<Date> {
+async function txNow(tx: Queryable): Promise<Date> {
   const rows = await tx<Array<{ now: Date }>>`SELECT now() AS now`;
   return rows[0]!.now;
 }
@@ -1456,6 +1544,7 @@ export class P2pService {
   private readonly referencePrices: ReferencePriceSource | undefined;
   private readonly offerLimits: OfferLimitPolicy;
   private readonly appealReviewHours: number | undefined;
+  private readonly followerNoticesPerDay: number | undefined;
   private readonly exportPolicy: ExportPolicy;
   private readonly merchantStatusOf: ((userId: string) => Promise<MerchantStatus | null>) | undefined;
   private readonly instruments: TradeInstrumentAttacher;
@@ -1474,6 +1563,7 @@ export class P2pService {
   private readonly sellBalanceAtPost: boolean;
   private readonly adContentRules: AdContentRules;
   private readonly postingThresholds: PostingThresholds | undefined;
+  private readonly counterpartyState: CounterpartyStatePort | undefined;
   private tradingEnabled: boolean;
 
   /**
@@ -1502,6 +1592,7 @@ export class P2pService {
     this.referencePrices = options.referencePrices;
     this.offerLimits = options.offerLimits ?? NO_OFFER_LIMITS;
     this.appealReviewHours = options.appealReviewHours;
+    this.followerNoticesPerDay = options.followerNoticesPerDay;
     this.exportPolicy = options.exportPolicy ?? {};
     this.merchantStatusOf = options.merchantStatusOf;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
@@ -1519,6 +1610,7 @@ export class P2pService {
     this.sellBalanceAtPost = options.sellBalanceAtPost === true;
     this.adContentRules = options.adContentRules ?? { status: 'absent' };
     this.postingThresholds = options.postingThresholds;
+    this.counterpartyState = options.counterpartyState;
   }
 
   /**
@@ -1696,7 +1788,7 @@ export class P2pService {
   }
 
   private async buyerFiatUsed(
-    sql: Sql,
+    sql: Queryable,
     input: { buyerId: string; currency: string; excludeTradeId: string | null },
   ): Promise<{ daily: Amount; lifetime: Amount }> {
     const [row] = await sql<{ daily: string; lifetime: string }[]>`
@@ -1725,7 +1817,7 @@ export class P2pService {
    * themselves: an order not yet paid is cancelled when its window runs out. A paid or disputed order frees its place
    * only when someone acts, so it gives no end time, and with only those open the refusal has none.
    */
-  private async assertActiveOrderCap(sql: Sql, input: { takerId: string; excludeTradeId: string | null }): Promise<void> {
+  private async assertActiveOrderCap(sql: Queryable, input: { takerId: string; excludeTradeId: string | null }): Promise<void> {
     if (!this.takeLimits) return;
     const cap = this.takeLimits.activeOrderCap;
     if (cap === null) throw new P2pError('The most ongoing orders one person may hold is not set', 'p2p.config_unset');
@@ -1781,7 +1873,7 @@ export class P2pService {
    * they let run out), on the database clock, newest first, at most `limit` of them, each with when it stops counting.
    * A seller's cancel, an unfinished lock and a moderator's refund are not the buyer's doing.
    */
-  private async recentBuyerCancels(sql: Sql, buyerId: string, limit: number, windowHours: number): Promise<{ until: Date }[]> {
+  private async recentBuyerCancels(sql: Queryable, buyerId: string, limit: number, windowHours: number): Promise<{ until: Date }[]> {
     return sql<{ until: Date }[]>`
       SELECT resolved_at + make_interval(hours => ${windowHours}) AS until
         FROM p2p.p2p_trades
@@ -1824,7 +1916,7 @@ export class P2pService {
    * instrument-owner lock on a take.
    */
   private async assertBuyingNotRestricted(
-    sql: Sql,
+    sql: Queryable,
     input: { buyerId: string; tradeId: string | null; /** The buyer is the ad's maker, not the person asking. */ asMaker: boolean },
   ): Promise<void> {
     if (!this.takeLimits) return;
@@ -1879,7 +1971,7 @@ export class P2pService {
    * P-ads-merchant-19: cash in person has a locked price, so a floating ad may not list a method any market calls cash.
    * Checked at post, on an edit that changes the methods, and again at take (the operator may make a method cash later).
    */
-  private async assertFloatingAllowed(input: { priceType: PriceType; methods: readonly unknown[]; db?: Sql }): Promise<void> {
+  private async assertFloatingAllowed(input: { priceType: PriceType; methods: readonly unknown[]; db?: Queryable }): Promise<void> {
     if (input.priceType !== 'float' || !this.instruments.cashMethods) return;
     const ids = input.methods.map(methodIdFromOfferEntry).filter((id): id is string => id !== null);
     const cash = await this.instruments.cashMethods(ids, input.db);
@@ -1921,7 +2013,7 @@ export class P2pService {
   }
 
   private async assertBuyerVerificationLimit(
-    sql: Sql,
+    sql: Queryable,
     input: {
       buyerId: string;
       fiatCurrency: string;
@@ -1976,7 +2068,7 @@ export class P2pService {
    * lifetime and per-order bounds have no end time; a higher verification level is the way past them.
    */
   private async verificationLimitDetails(
-    sql: Sql,
+    sql: Queryable,
     code: string,
     tier: string | undefined,
     used: { daily: Amount; lifetime: Amount },
@@ -2322,6 +2414,8 @@ export class P2pService {
               subjectId: offerId,
             });
           }
+          // P-ads-merchant-22: the notices owed to this trader's followers, from the same commit as the ad.
+          await this.writeFollowerNotices(tx, rows[0]!);
           return { row: rows[0]! };
         },
         { isolation: 'read committed', maxAttempts: 1 },
@@ -2352,8 +2446,136 @@ export class P2pService {
       },
       { idempotencyKey: `p2p.offer:${offer.id}` },
     );
+    // The followers' notices are owed from the commit above. Handing them to the bus here is the fast path; if this
+    // process dies first, or the bus is down, the sweep hands them over on its next tick.
+    try {
+      await this.handOverFollowerNotices(offer.id);
+    } catch (err) {
+      recordSwallowed('p2p.trader_posted.publish', err);
+    }
 
     return offer;
+  }
+
+  /**
+   * P-ads-merchant-22: one outbox row per person who follows the maker of a newly posted public ad, written in the ad's
+   * own transaction. A private ad, a pair where either side blocked the other, and a trader past the owner's daily
+   * figure write none; a blank figure writes none. An ad is posted once and an edit never comes here, so a follower is
+   * told once per ad. Returns how many followers are owed a notice.
+   */
+  private async writeFollowerNotices(tx: Queryable, row: OfferRow): Promise<number> {
+    const perDay = this.followerNoticesPerDay;
+    if (perDay === undefined || !Number.isInteger(perDay) || perDay < 1) return 0;
+    if ((row.visibility ?? 'public') !== 'public') return 0;
+    // One trader's posts count against the daily figure one at a time, so posts at the same moment cannot pass it together.
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.follower_notices:${row.maker_id}`}, 0))`;
+    const today = await tx<Array<{ n: number }>>`
+      SELECT count(DISTINCT offer_id)::int AS n
+        FROM p2p.follower_notices
+       WHERE trader_id = ${row.maker_id} AND posted_at > now() - interval '1 day'
+    `;
+    if (Number(today[0]?.n ?? 0) >= perDay) return 0;
+    const written = await tx`
+      INSERT INTO p2p.follower_notices (offer_id, follower_id, trader_id, posted_at)
+      SELECT ${row.id}, c.owner_id, ${row.maker_id}, now()
+        FROM p2p.contacts c
+       WHERE c.kind = 'follow'
+         AND c.peer_id = ${row.maker_id}
+         AND c.owner_id <> ${row.maker_id}
+         AND NOT EXISTS (
+           SELECT 1 FROM p2p.contacts b
+            WHERE b.kind = 'block'
+              AND ((b.owner_id = c.owner_id AND b.peer_id = ${row.maker_id}) OR (b.owner_id = ${row.maker_id} AND b.peer_id = c.owner_id))
+         )
+      ON CONFLICT (offer_id, follower_id) DO NOTHING
+      RETURNING follower_id
+    `;
+    return written.length;
+  }
+
+  /**
+   * The fast path after a post: hands over at most FOLLOWER_FAST_PATH notices for one ad, so posting stays quick however
+   * many people follow the trader; the sweep hands over the rest. The bus and svc-notify dedupe on the pair.
+   */
+  private async handOverFollowerNotices(offerId: string): Promise<number> {
+    const owed = await this.sql<Array<{ follower_id: string; posted_at: Date }>>`
+      SELECT follower_id, posted_at FROM p2p.follower_notices
+       WHERE offer_id = ${offerId} AND handed_at IS NULL AND dropped_at IS NULL
+       ORDER BY posted_at ASC, follower_id ASC
+       LIMIT ${FOLLOWER_FAST_PATH}
+    `;
+    if (owed.length === 0) return 0;
+    const offer = await this.loadOfferRaw(offerId);
+    let sent = 0;
+    for (const row of owed) if (await this.handOverFollowerNotice(offer, row.follower_id, row.posted_at)) sent++;
+    return sent;
+  }
+
+  /**
+   * One notice, checked again at hand-over: if the pair has blocked each other since, or the ad is no longer up and
+   * public, it is dropped (stamped, never sent). Otherwise it goes to the bus, then is stamped as handed. Answers whether
+   * it was sent.
+   */
+  private async handOverFollowerNotice(offer: OfferRecord, followerId: string, postedAt: Date): Promise<boolean> {
+    const stale = offer.status !== 'active' || offer.visibility !== 'public' || (await eitherBlocked(this.sql, offer.makerId, followerId));
+    if (stale) {
+      await this.sql`
+        UPDATE p2p.follower_notices SET dropped_at = now()
+         WHERE offer_id = ${offer.id} AND follower_id = ${followerId} AND handed_at IS NULL AND dropped_at IS NULL
+      `;
+      return false;
+    }
+    await this.bus.publish(
+      'p2pTraderPosted',
+      {
+        offerId: offer.id,
+        traderId: offer.makerId,
+        followerId,
+        side: offer.side,
+        asset: offer.asset,
+        fiatCurrency: offer.fiatCurrency,
+        postedAt: postedAt.toISOString(),
+      },
+      { idempotencyKey: `p2p.trader.posted:${offer.id}:${followerId}` },
+    );
+    await this.sql`
+      UPDATE p2p.follower_notices SET handed_at = now()
+       WHERE offer_id = ${offer.id} AND follower_id = ${followerId} AND handed_at IS NULL AND dropped_at IS NULL
+    `;
+    return true;
+  }
+
+  /** Hand over every followed-trader notice still owed, oldest first; each ad is read once per sweep. */
+  async sweepFollowerNotices(limit?: number): Promise<{ sent: number; failures: FollowerNoticeSweepFailure[] }> {
+    const lim = assertSweepSettlementsLimit(limit);
+    const owed = await this.sql<Array<{ offer_id: string; follower_id: string; posted_at: Date }>>`
+      SELECT offer_id, follower_id, posted_at FROM p2p.follower_notices
+       WHERE handed_at IS NULL AND dropped_at IS NULL
+       ORDER BY posted_at ASC
+       LIMIT ${lim}
+    `;
+    let sent = 0;
+    const failures: FollowerNoticeSweepFailure[] = [];
+    const offers = new Map<string, Promise<OfferRecord>>();
+    for (const row of owed) {
+      try {
+        let offer = offers.get(row.offer_id);
+        if (!offer) {
+          offer = this.loadOfferRaw(row.offer_id);
+          offers.set(row.offer_id, offer);
+        }
+        if (await this.handOverFollowerNotice(await offer, row.follower_id, row.posted_at)) sent++;
+      } catch (err) {
+        const code = (err as { code?: unknown })?.code;
+        failures.push({
+          offerId: row.offer_id,
+          followerId: row.follower_id,
+          code: typeof code === 'string' ? code : null,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return { sent, failures };
   }
 
   async listOffers(
@@ -2421,7 +2643,7 @@ export class P2pService {
    * next UTC midnight). A blank cap refuses `p2p.config_unset`, and so does a service built without one (tests), whose
    * edits are not counted.
    */
-  async offerEditQuota(makerId: string, db: Sql = this.sql): Promise<OfferEditQuota> {
+  async offerEditQuota(makerId: string, db: Queryable = this.sql): Promise<OfferEditQuota> {
     const limit = this.offerEditsPerDay;
     if (limit === null || limit === undefined) {
       throw new P2pError('P2P_OFFER_EDITS_PER_DAY is not published; ads cannot be edited', 'p2p.config_unset');
@@ -2440,7 +2662,7 @@ export class P2pService {
    * person's edits run one after another under a transaction lock on their id, so two cannot both take the last one.
    * The row is keyed by the edit's own key, so the edit's retry (a replay, answered before this) never counts twice.
    */
-  private async countOfferEdit(tx: Sql, makerId: string, idempotencyKey: string, offerId: string): Promise<void> {
+  private async countOfferEdit(tx: Queryable, makerId: string, idempotencyKey: string, offerId: string): Promise<void> {
     if (this.offerEditsPerDay === undefined) return;
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.offer_edits:${makerId}`}, 0))`;
     const quota = await this.offerEditQuota(makerId, tx);
@@ -2462,7 +2684,7 @@ export class P2pService {
    * never be taken again, so it closes as sold out. Run inside the write that left it so (a release, an edit), under the
    * ad's row lock, so it closes once and a take waiting on the lock reads it closed.
    */
-  private async closeIfSoldOut(tx: Sql, offerId: string, locked = false): Promise<OfferRow | null> {
+  private async closeIfSoldOut(tx: Queryable, offerId: string, locked = false): Promise<OfferRow | null> {
     // The row lock comes first, so the open-order check below reads after any take that held it has committed.
     if (!locked) await tx`SELECT 1 FROM p2p.offers WHERE id = ${offerId} FOR UPDATE`;
     const [closed] = await tx<OfferRow[]>`
@@ -2526,11 +2748,32 @@ export class P2pService {
   }
 
   /**
+   * #4689. The ad's maker is the other side of the order and is not the caller, so the edge's frozen/closed check on
+   * the caller never covers them. A frozen, closed or unknown maker refuses `p2p.counterparty_unavailable`, one code
+   * for all three; an unanswered check refuses `p2p.counterparty_unverifiable`. Either way nothing is reserved.
+   */
+  private async assertCounterpartyMayTrade(makerId: string, takerId: string): Promise<void> {
+    if (!this.counterpartyState || makerId === takerId) return;
+    let status;
+    try {
+      status = await this.counterpartyState.statusOf(makerId);
+    } catch (err) {
+      if (err instanceof CounterpartyStateUnavailableError) {
+        throw new P2pError('This ad cannot be checked right now; nothing was held. Try again shortly', 'p2p.counterparty_unverifiable');
+      }
+      throw err;
+    }
+    if (status !== 'active') {
+      throw new P2pError('This ad cannot take orders; nothing was held', 'p2p.counterparty_unavailable');
+    }
+  }
+
+  /**
    * P-ads-merchant-08: an ad whose maker is offline, or on a schedule outside every window, takes no order; it is off
    * the board for the same reason. Refuses `p2p.maker_offline` with when the maker's hours open again (null when
    * offline with no schedule). Orders already open are not touched.
    */
-  private async assertMakerPresent(db: Sql, makerId: string, takerId: string | null): Promise<void> {
+  private async assertMakerPresent(db: Queryable, makerId: string, takerId: string | null): Promise<void> {
     if (takerId !== null && takerId === makerId) return;
     const [row] = await db<Array<{ on_board: boolean }>>`SELECT p2p.maker_on_board(${makerId}, now()) AS on_board`;
     if (row?.on_board !== false) return;
@@ -2547,7 +2790,7 @@ export class P2pService {
    * a private ad it is refused by why (an unknown token says no more than private).
    */
   private async assertOfferAccess(
-    db: Sql,
+    db: Queryable,
     offer: Pick<OfferRecord, 'id' | 'makerId' | 'visibility'>,
     viewerId: string | null,
     shareToken: string | undefined,
@@ -2868,7 +3111,7 @@ export class P2pService {
    * why resuming needs a method first.
    */
   private async readRemovalImpact(
-    db: Sql,
+    db: Queryable,
     instrumentId: string,
     ownerId: string,
     lock: boolean,
@@ -3067,6 +3310,12 @@ export class P2pService {
     quoteId?: string;
     /** P-ads-merchant-07: the share link the taker came by. Required for a private ad; marks the order shared. */
     shareToken?: string;
+    /**
+     * RC-p2p-02: a contract-escrow order. The caller (the router) has already checked the contract is deployed and the
+     * asset has a token on its chain; this names that chain and token, the buyer's wallet and the dispute window.
+     * Absent: a ledger order, exactly as before.
+     */
+    contract?: { chainId: number; token: string; decimals: number; buyerWallet: string; disputeWindowSeconds: number };
   }): Promise<TradeRecord> {
     this.assertTradingEnabled();
 
@@ -3083,6 +3332,9 @@ export class P2pService {
         span.setAttribute('intafaced.sellerId', reserved.sellerId);
         span.setAttribute('intafaced.buyerId', reserved.buyerId);
         span.setAttribute('intafaced.fiatAmount', formatAmount(reserved.fiatAmount));
+        // A contract order locks nothing here: it waits in `created` for the seller to open and fund the deal from their
+        // own wallet (`attachContractDeal`). No ledger recipe is called for it, now or later.
+        if (reserved.escrowKind === 'contract') return reserved;
 
         try {
           return await this.ensureEscrowed(reserved.id);
@@ -3111,6 +3363,7 @@ export class P2pService {
     tier?: string;
     quoteId?: string;
     shareToken?: string;
+    contract?: { chainId: number; token: string; decimals: number; buyerWallet: string; disputeWindowSeconds: number };
   }): Promise<TradeRecord> {
     // Read the offer once, unlocked, purely to decide whether a reference price
     // is needed. Fetching a mark price is a network call; holding the offer's
@@ -3119,6 +3372,8 @@ export class P2pService {
     // missing offer mid-take. Take still refuses with the uniform message when
     // the destination is gone; get/list stay honest for strangers.
     const preview = await this.loadOfferRaw(input.offerId);
+    // #4689: before anything is reserved, and outside the transaction (a network call must not hold the offer lock).
+    await this.assertCounterpartyMayTrade(preview.makerId, input.takerId);
     const referencePrice =
       preview.priceType === 'float' ? ((await this.referencePrices?.price(preview.asset, preview.fiatCurrency)) ?? null) : null;
 
@@ -3175,6 +3430,8 @@ export class P2pService {
               // record raises limits platform-wide (§6.2 → §4.1).
               throw new P2pError('A maker cannot take their own offer', 'p2p.self_trade');
             }
+            // Under the pair lock a block takes too, so the two can never both commit (P-ads-merchant-22).
+            await lockContactPair(tx, offer.makerId, input.takerId);
             if (await eitherBlocked(tx, offer.makerId, input.takerId)) {
               throw new P2pError('p2p.blocked', 'p2p.blocked');
             }
@@ -3182,6 +3439,13 @@ export class P2pService {
             // has to name the seller in the access log.
             const { sellerId, buyerId } = partiesFor(offer.side, offer.makerId, input.takerId);
             this.assertSellNotLocked(input.takerId === sellerId);
+            // RC-p2p-02: the contract escrow is the buyer's choice on a sell ad: the buyer names the wallet the deal pays.
+            if (input.contract && input.takerId !== buyerId) {
+              throw new P2pError(
+                'A contract escrow is chosen by the buyer when taking a sell ad; on a buy ad the escrow is the ledger',
+                'p2p.contract_escrow_unavailable',
+              );
+            }
 
             if (!methodAllowed(offer.methods, input.method)) {
               // NOT a distinct error any more. "The offer does not accept that
@@ -3223,8 +3487,10 @@ export class P2pService {
             const deadlines = withDeadline({}, 'created', deadlineAt);
             // Fee is constructor/`P2P_FEE_BPS` only — never a take-time argument.
             // Unset refuses rather than inventing 30 (or 0).
-            const feeBps = publishedFeeBps(this.feeBps);
-            if (held) assertQuoteTerms(held, { offerPrice: offer.price, price: priced.price, feeBps });
+            const publishedFee = publishedFeeBps(this.feeBps);
+            if (held) assertQuoteTerms(held, { offerPrice: offer.price, price: priced.price, feeBps: publishedFee });
+            // RC-p2p-02: the contract deal is opened with no fee and no fee recipient, so a contract order records none.
+            const feeBps = input.contract ? 0 : publishedFee;
             this.assertPairLimit({ asset: offer.asset, fiatCurrency: offer.fiatCurrency, fiatAmount: priced.fiatAmount });
             // Before inventory moves: a dust take that cannot post a release would
             // lock value into a trade that can never settle.
@@ -3246,6 +3512,9 @@ export class P2pService {
               });
             }
 
+            // RC-p2p-02: the deal's amount in the token's base units. An order finer than the token can hold refuses.
+            const contractUnits = input.contract ? contractUnitsOf(priced.amount, input.contract.decimals) : null;
+
             await tx`
             UPDATE p2p.offers
                SET remaining_amt = remaining_amt - ${formatAmount(input.amount)}::numeric,
@@ -3257,7 +3526,9 @@ export class P2pService {
             INSERT INTO p2p.p2p_trades (
               id, offer_id, taker_id, maker_id, seller_id, buyer_id, asset, fiat_currency,
               amount, price, fiat_amount, method, fee_bps, status, deadlines, deadline_at, created_at,
-              terms_snapshot, shared_from, release_window_seconds
+              terms_snapshot, shared_from, release_window_seconds,
+              escrow_kind, contract_chain_id, contract_token, contract_units, contract_buyer_wallet,
+              contract_dispute_window_seconds
             )
             VALUES (
               ${input.tradeId}, ${offer.id}, ${input.takerId}, ${offer.makerId}, ${sellerId}, ${buyerId},
@@ -3265,7 +3536,9 @@ export class P2pService {
               ${formatAmount(priced.amount)}::numeric, ${formatAmount(priced.price)}::numeric,
               ${formatAmount(priced.fiatAmount)}::numeric, ${input.method}, ${feeBps},
               'created', ${tx.json(deadlines as never)}, ${deadlineAt}, ${now},
-              ${offer.terms}, ${sharedFrom}, ${offer.releaseWindowSeconds ?? null}
+              ${offer.terms}, ${sharedFrom}, ${offer.releaseWindowSeconds ?? null},
+              ${input.contract ? 'contract' : 'ledger'}, ${input.contract?.chainId ?? null}, ${input.contract?.token ?? null},
+              ${contractUnits}, ${input.contract?.buyerWallet ?? null}, ${input.contract?.disputeWindowSeconds ?? null}
             )
             ON CONFLICT (id) DO NOTHING
             RETURNING *
@@ -3355,6 +3628,8 @@ export class P2pService {
    * it, and calling it on an already-escrowed trade is a no-op read.
    */
   private async ensureEscrowed(tradeId: string): Promise<TradeRecord> {
+    // RC-p2p-02: never a ledger lock for a contract order, whoever calls (a take, a sweep, a retry).
+    assertLedgerEscrow(await this.getTrade(tradeId));
     // Commit the possible remote attempt BEFORE dispatch. HTTP abort cannot
     // cancel a request already accepted by the ledger, nor prove it had no effect.
     const ordinal = await this.claimEscrowLockAttempt(tradeId);
@@ -3453,7 +3728,7 @@ export class P2pService {
   }
 
   /** Stamp an acknowledged lock while the caller still holds the trade row. */
-  private async advanceToEscrowed(tx: Sql, trade: TradeRecord): Promise<TradeRecord> {
+  private async advanceToEscrowed(tx: Queryable, trade: TradeRecord): Promise<TradeRecord> {
     const now = await txNow(tx);
     // P-disputes-security-09: a non-instant order's payment window is its method's settlement window; a blank window
     // keeps the published payment deadline.
@@ -3472,6 +3747,137 @@ export class P2pService {
     await this.bumpReputation(tx, trade.sellerId, 'escrowed');
     await this.bumpReputation(tx, trade.buyerId, 'escrowed');
     return toTrade(next[0]);
+  }
+
+  // ── RC-p2p-02: the contract escrow ─────────────────────────────────────────
+
+  /**
+   * The seller attaches the deal they opened and funded from their own wallet. `deal` is the chain's own answer
+   * (svc-protocol `escrow.deal`, read by the router for this request), never the caller's word: it must carry exactly the
+   * order's terms (chain, token, base units, the buyer's wallet, no arbiter, the dispute window, refund on timeout) and be
+   * locked. The order then moves to `escrowed` with the deal id written once. One deal backs one order (unique index).
+   * Retrying with the same deal returns the order; a different deal refuses `p2p.escrow_deal_mismatch`. No ledger call.
+   */
+  async attachContractDeal(input: { tradeId: string; actorId: string; deal: ContractDealRead }): Promise<TradeRecord> {
+    return withSpan('p2p.attachContractDeal', async () =>
+      transaction(
+        this.sql,
+        async (tx) => {
+          const trade = await this.lockTrade(tx, input.tradeId);
+          if (trade.sellerId !== input.actorId && trade.buyerId !== input.actorId) throw unknownTrade(input.tradeId);
+          if (trade.escrowKind !== 'contract' || !trade.contract) {
+            throw new P2pError('This order is held by the ledger escrow; its escrow kind is fixed at take', 'p2p.escrow_kind_immutable');
+          }
+          if (trade.sellerId !== input.actorId) throw new P2pError('Only the seller opens and funds the deal', 'p2p.not_the_seller');
+          const terms = trade.contract;
+          if (terms.dealId !== null) {
+            if (terms.dealId === input.deal.dealId) return trade;
+            throw new P2pError(`This order is already held by deal ${terms.dealId}`, 'p2p.escrow_deal_mismatch');
+          }
+          assertTransition(trade.status, 'escrowed');
+          const deal = input.deal;
+          const wrong = [
+            deal.chainId !== terms.chainId && 'network',
+            !sameAddress(deal.token, terms.token) && 'token',
+            deal.amount !== terms.units && 'amount',
+            !sameAddress(deal.buyer, terms.buyerWallet) && "buyer's wallet",
+            deal.arbiter !== null && 'arbiter',
+            deal.disputeWindowSeconds !== terms.disputeWindowSeconds && 'dispute window',
+            deal.timeout !== 'refund_seller' && 'timeout disposition',
+          ].filter((x): x is string => typeof x === 'string');
+          if (wrong.length > 0) {
+            throw new P2pError(`Deal ${deal.dealId} does not match this order: ${wrong.join(', ')}`, 'p2p.escrow_deal_mismatch');
+          }
+          if (deal.state !== 'locked') {
+            throw new P2pError(
+              `Deal ${deal.dealId} is ${deal.state}; the seller's coins must be locked in it before it can hold this order`,
+              'p2p.escrow_deal_mismatch',
+            );
+          }
+          const [taken] = await tx<{ id: string }[]>`
+            SELECT id FROM p2p.p2p_trades
+             WHERE contract_chain_id = ${terms.chainId} AND contract_deal_id = ${deal.dealId}::numeric AND id <> ${trade.id}
+          `;
+          if (taken) throw new P2pError(`Deal ${deal.dealId} already holds another order`, 'p2p.escrow_deal_mismatch');
+          await tx`
+            UPDATE p2p.p2p_trades
+               SET contract_deal_id = ${deal.dealId}::numeric, contract_seller_wallet = ${deal.seller}
+             WHERE id = ${trade.id} AND contract_deal_id IS NULL
+          `;
+          return this.advanceToEscrowed(tx, trade);
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      ),
+    );
+  }
+
+  /**
+   * Either party brings the order to what its deal says on the chain (`deal`, read by the router): released pays the
+   * buyer, so the order completes; refunded returns the coins to the seller, so it is cancelled; disputed is the
+   * contract's own dispute, settled by the refund both agreed after its window. Locked changes nothing. The decision
+   * is written and stamped settled in one transaction, since the contract already moved the coins: no ledger recipe is
+   * called. Running it twice for one chain state changes the order once.
+   */
+  async syncContractDeal(input: { tradeId: string; actorId: string; deal: ContractDealRead }): Promise<TradeRecord> {
+    return withSpan('p2p.syncContractDeal', async () =>
+      transaction(
+        this.sql,
+        async (tx) => {
+          const trade = await this.lockTrade(tx, input.tradeId);
+          if (trade.sellerId !== input.actorId && trade.buyerId !== input.actorId) throw unknownTrade(input.tradeId);
+          if (trade.escrowKind !== 'contract' || !trade.contract?.dealId) {
+            throw new P2pError('This order is not held by a contract deal', 'p2p.escrow_deal_mismatch');
+          }
+          if (trade.contract.dealId !== input.deal.dealId || trade.contract.chainId !== input.deal.chainId) {
+            throw new P2pError(`Deal ${input.deal.dealId} does not hold this order`, 'p2p.escrow_deal_mismatch');
+          }
+          const state = input.deal.state;
+          if (isTerminal(trade.status) || state === 'locked' || state === 'open') return trade;
+          const now = await txNow(tx);
+          if (state === 'disputed') {
+            if (trade.status === 'disputed') return trade;
+            assertTransition(trade.status, 'disputed');
+            // The contract's own deadline: after it, anyone may settle the deal by the refund agreed at open.
+            const deadlineAt = new Date((input.deal.disputeDeadline ?? Math.floor(now.getTime() / 1000)) * 1000);
+            const [row] = await tx<TradeRow[]>`
+              UPDATE p2p.p2p_trades
+                 SET status = 'disputed', deadline_at = ${deadlineAt},
+                     deadlines = ${tx.json(withDeadline(trade.deadlines, 'disputed', deadlineAt) as never)}
+               WHERE id = ${trade.id} AND status = ${trade.status}
+              RETURNING *
+            `;
+            if (!row) throw new P2pError(`Trade ${trade.id} moved while its deal was read`, 'p2p.trade_moved');
+            return toTrade(row);
+          }
+          const to: TradeStatus = state === 'released' ? 'released' : 'cancelled';
+          const resolution: TradeResolution = state === 'released' ? 'released' : 'refunded';
+          assertTransition(trade.status, to);
+          await this.writeDecision(tx, { trade, to, resolution, reason: `contract.${state}`, now });
+          const [row] = await tx<TradeRow[]>`
+            UPDATE p2p.p2p_trades SET settled_at = ${now} WHERE id = ${trade.id} AND settled_at IS NULL RETURNING *
+          `;
+          return row ? toTrade(row) : this.lockTrade(tx, trade.id);
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      ),
+    );
+  }
+
+  /** A contract order still in `created` with no deal attached: voided and stamped settled, nothing to post. */
+  private async voidUnfundedContractOrder(tradeId: string): Promise<void> {
+    await transaction(
+      this.sql,
+      async (tx) => {
+        const trade = await this.lockTrade(tx, tradeId);
+        if (trade.escrowKind !== 'contract' || trade.status !== 'created' || trade.contract?.dealId) {
+          throw new P2pError(`Trade ${tradeId} moved before its funding window closed`, 'p2p.trade_moved');
+        }
+        const now = await txNow(tx);
+        await this.writeDecision(tx, { trade, to: 'cancelled', resolution: 'voided', reason: 'timeout.contract_unfunded', now });
+        await tx`UPDATE p2p.p2p_trades SET settled_at = ${now} WHERE id = ${tradeId} AND settled_at IS NULL`;
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   // ── Buyer marks the fiat sent ──────────────────────────────────────────────
@@ -4198,6 +4604,8 @@ export class P2pService {
         if (origin === 'party' && trade.sellerId !== input.openedBy && trade.buyerId !== input.openedBy) {
           throw unknownTrade(input.tradeId);
         }
+        // RC-p2p-02: a contract order is disputed on the contract (its own window and pre-agreed timeout), never here.
+        assertLedgerEscrow(trade);
         assertTransition(trade.status, 'disputed');
 
         const now = await txNow(tx);
@@ -4626,6 +5034,8 @@ export class P2pService {
       this.sql,
       async (tx) => {
         const trade = await this.lockTrade(tx, input.tradeId);
+        // RC-p2p-02: a contract order's release and refund are the contract's; this service only reads them (`syncContractDeal`).
+        assertLedgerEscrow(trade);
         assertTransition(trade.status, input.to);
 
         if (input.expectStatus && trade.status !== input.expectStatus) {
@@ -4671,7 +5081,7 @@ export class P2pService {
    * reopens the skew this service cannot tolerate.
    */
   private async writeDecision(
-    tx: Sql,
+    tx: Queryable,
     args: { trade: TradeRecord; to: TradeStatus; resolution: TradeResolution; reason: string; now: Date },
   ): Promise<void> {
     const { trade, to, resolution, reason, now } = args;
@@ -4710,7 +5120,7 @@ export class P2pService {
   }
 
   /** Initial server-validated terms, not a receipt or a guess that escrow posted. */
-  private async requireOriginalTermsClaim(tradeId: string, sql: Sql = this.sql): Promise<void> {
+  private async requireOriginalTermsClaim(tradeId: string, sql: Queryable = this.sql): Promise<void> {
     const [row] = await sql<{ original_terms_claimed_at: Date | null }[]>`
       SELECT original_terms_claimed_at FROM p2p.p2p_trades WHERE id = ${tradeId}
     `;
@@ -4746,6 +5156,8 @@ export class P2pService {
 
     if (!trade.resolution) throw new P2pError(`Trade ${tradeId} has no recorded resolution to settle`, 'p2p.escrow_missing');
     if (trade.settledAt) return trade;
+    // A contract order is stamped settled in the same transaction as its decision; nothing here may post for it.
+    assertLedgerEscrow(trade);
     await this.requireOriginalTermsClaim(trade.id);
 
     let fee: Amount = 0n;
@@ -4951,6 +5363,8 @@ export class P2pService {
     const due = await this.sql<Array<{ id: string; status: TradeStatus }>>`
       SELECT id, status FROM p2p.p2p_trades
        WHERE deadline_at IS NOT NULL AND deadline_at <= ${at} AND resolution IS NULL
+         -- RC-p2p-02: past \`created\` a contract order's clock is the contract's; the sweep never touches it.
+         AND (escrow_kind = 'ledger' OR status = 'created')
        ORDER BY deadline_at ASC
        LIMIT ${lim}
     `;
@@ -4988,6 +5402,13 @@ export class P2pService {
 
     switch (action) {
       case 'settle_or_void': {
+        // RC-p2p-02: a contract order the seller never funded holds nothing anywhere this service can see; it is voided
+        // with no ledger call. Coins the seller locked in a deal they never attached stay theirs to refund on the contract.
+        if ((await this.getTrade(tradeId)).escrowKind === 'contract') {
+          await this.voidUnfundedContractOrder(tradeId);
+          await this.publishExpired(tradeId, status, 'voided');
+          return 'acted';
+        }
         // `created` — the take never finished. Re-drive the lock so we KNOW
         // whether anything is in escrow, then unwind whatever we find.
         const result = await this.unwind(tradeId, 'timeout.escrow_incomplete', status);
@@ -5154,7 +5575,7 @@ export class P2pService {
    * (`p2p_disputes.deadline_at`) is not moved. The trade deadline is.
    */
   private async writeEscalation(
-    tx: Sql,
+    tx: Queryable,
     tradeId: string,
     actor?: { actorId: string; reason: string },
   ): Promise<{ tradeId: string; escalatedAt: Date; escalations: number; deadlineAt: Date }> {
@@ -5889,6 +6310,36 @@ export class P2pService {
     return toAppeal(inserted[0]);
   }
 
+  /**
+   * P-trade-orders-21: support decides a submitted appeal, once. An accepted appeal takes its order out of the person's
+   * completion denominator from that moment (`completionRates` reads the status); the decision columns are the audit
+   * row: who decided, when and why. The same decision sent again by the same person returns it; any other second
+   * decision refuses `p2p.appeal_decided`. Nobody decides their own appeal.
+   */
+  async decideCompletionAppeal(input: {
+    appealId: string;
+    actorId: string;
+    decision: 'accepted' | 'rejected';
+    reason: string;
+  }): Promise<AppealRecord> {
+    const reason = input.reason.trim();
+    if (!reason) throw new P2pError('p2p.reason_required', 'p2p.reason_required');
+    const updated = await this.sql<AppealRow[]>`
+      UPDATE p2p.completion_appeals
+         SET status = ${input.decision}, decided_by = ${input.actorId}, decided_at = now(), decision_reason = ${reason}
+       WHERE id = ${input.appealId} AND status = 'submitted' AND user_id <> ${input.actorId}
+      RETURNING *
+    `;
+    if (updated[0]) return toAppeal(updated[0]);
+    const rows = await this.sql<AppealRow[]>`SELECT * FROM p2p.completion_appeals WHERE id = ${input.appealId}`;
+    const current = rows[0];
+    if (!current) throw new P2pError('p2p.appeal_not_found', 'p2p.appeal_not_found');
+    if (current.user_id === input.actorId) throw new P2pError('p2p.appeal_self_decision', 'p2p.appeal_self_decision');
+    const record = toAppeal(current);
+    if (record.status === input.decision && record.decidedBy === input.actorId && record.decisionReason === reason) return record;
+    throw new P2pError('p2p.appeal_decided', 'p2p.appeal_decided');
+  }
+
   private async asReview<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
@@ -5995,7 +6446,13 @@ export class P2pService {
     if (input.attachment !== undefined) {
       throw new P2pError('p2p.chat_attachment_unwired', 'p2p.chat_attachment_unwired');
     }
-    await this.assertChatParticipant(input.tradeId, input.senderId, input.asModerator);
+    const trade = await this.assertChatParticipant(input.tradeId, input.senderId, input.asModerator);
+    // P-ads-merchant-22: a blocked pair cannot chat. Staff on an open dispute still can; the history stays readable.
+    // A block cannot be made while an order between the pair is open (`contacts.block`), so an open order between a
+    // blocked pair is one blocked before that rule; its parties keep talking until it ends, as the order needs them to.
+    const party = trade.buyerId === input.senderId || trade.sellerId === input.senderId;
+    if (party && isTerminal(trade.status) && (await eitherBlocked(this.sql, trade.buyerId, trade.sellerId)))
+      throw new P2pError('p2p.blocked', 'p2p.blocked');
     try {
       return await insertChatMessage(this.sql, input);
     } catch (err) {
@@ -6075,7 +6532,9 @@ export class P2pService {
 
   /**
    * P-trade-orders-14: `trades.export` under owner caps, with an audit row.
-   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`. The audit
+   * rows are the daily quota's counter: past it the export refuses
+   * `p2p.export_quota_reached` with the next UTC midnight.
    */
   async exportTrades(input: {
     userId: string;
@@ -6083,6 +6542,7 @@ export class P2pService {
     to: string;
     /** Omitted means csv, the format this endpoint has always served. */
     format?: ExportFormat;
+    now?: Date;
   }): Promise<{
     csv: string;
     rows: number;
@@ -6093,6 +6553,8 @@ export class P2pService {
       const format = assertFormatBuilt(input.format ?? 'csv');
       const maxRangeDays = requireSetting(this.exportPolicy.maxRangeDays, 'P2P_EXPORT_MAX_RANGE_DAYS');
       const maxRows = requireSetting(this.exportPolicy.maxRows, 'P2P_EXPORT_MAX_ROWS');
+      const daily = requireSetting(this.exportPolicy.exportDailyQuota, 'P2P_EXPORT_DAILY_QUOTA');
+      const now = input.now ?? new Date();
       const from = new Date(input.from);
       const to = new Date(input.to);
       if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
@@ -6115,10 +6577,24 @@ export class P2pService {
            AND created_at >= ${from} AND created_at <= ${to}
          GROUP BY asset, fiat_currency ORDER BY asset, fiat_currency
       `;
-      await this.sql`
-        INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count)
-        VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows})
-      `;
+      await transaction(this.sql, async (tx) => {
+        // One user's exports serialise, so two parallel clicks cannot both take the last export of the day.
+        await tx`SELECT pg_advisory_xact_lock(${EXPORT_QUOTA_LOCK_CLASS}, hashtext(${input.userId}))`;
+        const used = await tx<Array<{ today: number }>>`
+          SELECT count(*)::int AS today FROM p2p.export_audit
+           WHERE user_id = ${input.userId} AND kind = 'export' AND created_at >= ${startOfUtcDay(now)}
+        `;
+        if (Number(used[0]?.today ?? 0) >= daily) {
+          throw new P2pError(
+            `p2p.export_quota_reached: daily quota ${daily} used; resets at ${nextUtcMidnight(now).toISOString()}`,
+            'p2p.export_quota_reached',
+          );
+        }
+        await tx`
+          INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count, created_at)
+          VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows}, ${now})
+        `;
+      });
       return {
         ...file,
         format,
@@ -6274,7 +6750,7 @@ export class P2pService {
     }
   }
 
-  private async lockTrade(tx: Sql, tradeId: string): Promise<TradeRecord> {
+  private async lockTrade(tx: Queryable, tradeId: string): Promise<TradeRecord> {
     const rows = await tx<TradeRow[]>`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId} FOR UPDATE`;
     const row = rows[0];
     if (!row) throw unknownTrade(tradeId);
@@ -6289,7 +6765,7 @@ export class P2pService {
    * from the whole row and must be recomputed from the post-increment values,
    * not from whatever a second statement would read back.
    */
-  private async bumpReputation(tx: Sql, userId: string, outcome: TradeOutcome, releaseSecs?: number): Promise<void> {
+  private async bumpReputation(tx: Queryable, userId: string, outcome: TradeOutcome, releaseSecs?: number): Promise<void> {
     const rows = await tx<
       Array<{
         trades_total: number;
@@ -6407,8 +6883,41 @@ function toTrade(row: TradeRow): TradeRecord {
     settlement: row.non_instant ? { instant: false, windowSeconds: row.settlement_window_seconds ?? null } : { instant: true },
     cashReleaseSeconds: row.cash_release_seconds ?? null,
     releaseWindowSeconds: row.release_window_seconds ?? null,
+    escrowKind: row.escrow_kind === 'contract' ? 'contract' : 'ledger',
+    contract:
+      row.escrow_kind === 'contract'
+        ? {
+            chainId: Number(row.contract_chain_id),
+            token: row.contract_token!,
+            units: String(row.contract_units),
+            buyerWallet: row.contract_buyer_wallet!,
+            disputeWindowSeconds: Number(row.contract_dispute_window_seconds),
+            dealId: row.contract_deal_id === null || row.contract_deal_id === undefined ? null : String(row.contract_deal_id),
+            sellerWallet: row.contract_seller_wallet ?? null,
+          }
+        : null,
   };
 }
+
+/** The refusal every ledger path gives a contract-escrow order: its coins are in the contract, never the ledger. */
+function assertLedgerEscrow(trade: Pick<TradeRecord, 'id' | 'escrowKind'>): void {
+  if (trade.escrowKind === 'contract')
+    throw new P2pError(
+      `Trade ${trade.id} is held by the escrow contract; its parties act on the contract from their own wallets`,
+      'p2p.escrow_contract_held',
+    );
+}
+
+/** An order's coin amount (18-place scaled) in a token's base units; refuses when the token cannot hold it exactly. */
+export function contractUnitsOf(amount: Amount, decimals: number): string {
+  const drop = 10n ** BigInt(18 - decimals);
+  if (decimals < 0 || decimals > 18 || amount <= 0n || amount % drop !== 0n)
+    throw new P2pError(`The order amount has more decimal places than the escrow token's ${decimals}`, 'p2p.contract_escrow_unavailable');
+  return (amount / drop).toString();
+}
+
+const sameAddress = (a: string | null | undefined, b: string | null | undefined) =>
+  typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 
 function toDispute(row: DisputeRow): DisputeRecord {
   return {
@@ -6638,7 +7147,7 @@ function assertPausesConfirmed(impact: MethodRemovalImpact, confirmed: readonly 
 
 /** A sell ad's methods each have a live destination, read under the maker's instrument key (taken first, per its rules). */
 async function assertSellDestinations(
-  tx: Sql,
+  tx: Queryable,
   instruments: Pick<TradeInstrumentAttacher, 'liveMethodKeys'>,
   makerId: string,
   fiatCurrency: string,

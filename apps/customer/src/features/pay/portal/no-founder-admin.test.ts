@@ -40,7 +40,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       expect(name, name).toMatch(
         new RegExp(
           [
-            '^(merchantOps\\.|merchantCatalog\\.|merchantStores\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(add|cancelHold|list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress|terms\\.accept)$|railHealth$',
+            '^(merchantOps\\.|merchantCatalog\\.|merchantStores\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(add|cancelHold|list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress|onboardingDraft|saveOnboardingDraft|terms\\.accept)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
             'payment\\.(list|get|history|refunds\\.(list|get))$',
             // M-adv-payments-core-01: the caller's own saved views and one clear payer detail, on the caller's business.
@@ -88,6 +88,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       'merchantCheckout',
       // The payment methods of the business's own hosted checkout (svc-pay checkout-methods/router.ts): resolves the caller's business.
       'merchantCheckoutMethods',
+      // The business's own receiving wallet and its money outside our book (svc-pay receiving-wallet/router.ts): resolves the caller's business.
+      'merchantReceivingWallet',
       'merchantMetrics',
       'merchantAnalytics',
       'submerchant',
@@ -114,6 +116,9 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
         'merchant.payoutDestinations.remove',
         'merchant.statement.list',
         'merchant.onboarding.progress',
+        // The business step's draft: the signed-in person's own row, keyed by the session (J-merchant-02 #1).
+        'merchant.onboardingDraft',
+        'merchant.saveOnboardingDraft',
         'merchant.businessProfile.get',
         'merchant.businessProfile.history',
         'merchant.businessProfile.submit',

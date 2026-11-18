@@ -4,8 +4,10 @@ import { KB_AUDIENCES } from './audience';
 import type { BulkChange } from './bulk';
 import { readGroupActionRequest, type GroupActionRequest } from './groups';
 import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
+import { readRoutingActionRequest, type RoutingActionRequest } from './routing';
 import { clauseOf, parseFilterText, type FilterClause } from './queue-query';
 import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Support queue: strict readers and the metrics that can honestly be computed from one page of the queue.
@@ -20,10 +22,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES: readonly string[] = ['open', 'pending', 'on_hold', 'resolved', 'closed'];
 
 export const isTicketId = (value: unknown): value is string => typeof value === 'string' && UUID.test(value);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 function readEntry(raw: unknown): QueueEntry | null {
   if (!isRecord(raw)) return null;
@@ -231,6 +229,7 @@ export function propertiesGate(ticket: { status: string }, change: PropertiesCha
 export type SupportActionRequest =
   | StaffAvailabilityRequest
   | GroupActionRequest
+  | RoutingActionRequest
   | ({
       readonly action: 'properties';
       readonly ticketId: string;
@@ -395,6 +394,10 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
     case 'group_save':
     case 'group_member':
       return readGroupActionRequest(raw);
+    case 'routing_mode':
+    case 'staff_routing':
+    case 'ticket_skill':
+      return readRoutingActionRequest(raw);
     case 'properties': {
       if (!isTicketId(raw.ticketId) || !isText(raw.clientRequestId, 200)) return null;
       if (raw.reason !== undefined && !isText(raw.reason, REASON_MAX)) return null;

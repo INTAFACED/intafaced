@@ -1,7 +1,7 @@
 // Test harness only: serves ./harness with the real trade rooms, theme and data layer; the test mocks the API.
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 
 const here = dirname(fileURLToPath(import.meta.url));

@@ -18,6 +18,7 @@ import {
   type TableColumn,
 } from '@intafaced/ui';
 import { navigate } from '../../../app/location';
+import { LiveDeployWizard } from '../../../features/quant/LiveDeploy';
 import { usePortfolio } from '../../../data';
 import { useApi, useSession } from '../../../features/session/session';
 import { createTradeApi } from '../../../features/trade/trade-api';
@@ -31,6 +32,8 @@ import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
 import { TwapWizard, type BotKind } from './TwapWizard';
 import { GRID_TONE, GRID_WORD, GridRoom } from './GridRoom';
+import { WebhooksRoom } from './WebhooksRoom';
+import { SignalsRoom } from './SignalsRoom';
 import type { GridBot } from './api';
 import { roomRefusal } from './refusals';
 
@@ -111,6 +114,10 @@ const UNKNOWN_KIND = { title: 'Trading bots', reason: 'No bot type has that addr
 export function BotsRoom({ path }: { path: string }) {
   const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
   if (pathname === TYPE_LINK.grid.href) return <GridRoom path={path} />;
+  if (pathname === '/trade/bots/webhooks') return <WebhooksRoom />;
+  // The deploy wizard of a saved Quant Studio strategy (AL-live-02): `/trade/bots/new?from=<strategyId>`.
+  if (pathname === '/trade/bots/new') return <LiveDeployWizard path={path} />;
+  if (pathname === '/trade/bots/signals' || pathname.startsWith('/trade/bots/signals/')) return <SignalsRoom path={path} />;
   const parked = PARKED[pathname];
   if (parked) return <ParkedBotRoom title={parked.title} reason={parked.reason} />;
   // Only grid and DCA have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
@@ -121,7 +128,7 @@ export function BotsRoom({ path }: { path: string }) {
 function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
   const { t } = roomCopy.useCopy();
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
       <EmptyState
@@ -157,6 +164,7 @@ function BotsHub({ path }: { path: string }) {
   const setTab = (id: string) => go({ tab: id });
 
   const policy = useLive((signal) => api.algoPolicy(signal), 'bots-policy', 60_000);
+  const pauses = useLive((signal) => api.platformPauses(signal), 'bots-platform-pauses', 30_000);
   const markets = useLive((signal) => tradeApi.markets(signal), 'bots-markets', 300_000);
   const studio = useLive((signal) => api.studio(signal), 'bots-studio', 60_000);
   // The grid service answers for this person: below the owner's verification level (or with none set) it refuses.
@@ -263,6 +271,11 @@ function BotsHub({ path }: { path: string }) {
   const catalogueStatus = (
     row: CatalogueRow,
   ): { tone: BadgeTone; word: string; reason: string | null; ready: boolean; worded?: boolean } => {
+    // The platform paused new bots of this type (CB-ops-03): running ones keep running, a new one is refused.
+    if (pauses.data?.botTypes.includes(row.id)) {
+      const words = roomRefusal({ ok: false, reason: 'forbidden', message: '', code: 'trade.bots_paused_by_platform' });
+      return { tone: 'warn', word: words.title, reason: words.body, ready: false, worded: true };
+    }
     if (row.id === 'twap' || row.id === 'vwap' || row.id === 'pov') {
       if (!policy.data && policy.status === 'error')
         return { tone: 'warn', word: 'Unknown', reason: 'The bot service did not answer. Try again in a moment.', ready: false };
@@ -441,11 +454,21 @@ function BotsHub({ path }: { path: string }) {
       cell: (r) => displayAmount(r.risk.maxNotional),
     },
     { id: 'kill', header: t('Stops at a loss of'), value: (r) => r.risk.kill, numeric: true, cell: (r) => displayAmount(r.risk.kill) },
+    {
+      id: 'deploy',
+      header: t('Live'),
+      cell: (r) => (
+        <a href={`/trade/bots/new?from=${encodeURIComponent(r.id)}`} data-testid="bots-deploy-live">
+          {t('Deploy live')}
+        </a>
+      ),
+      width: 140,
+    },
   ];
 
   const schedulerOff = policy.data !== null && !policy.data.capability.jobsEnabled;
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader
         title={t('Bots')}
@@ -625,7 +648,7 @@ function BotsHub({ path }: { path: string }) {
             />
             <KeyValue
               items={[
-                { label: t('Running a strategy live'), value: t('Not built: a strategy cannot trade real money') },
+                { label: t('Running a strategy live'), value: t('Deploy live opens the deploy wizard, which checks the strategy first') },
                 { label: t('Where to write one'), value: t('Quant Studio') },
               ]}
             />

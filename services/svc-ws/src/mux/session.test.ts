@@ -593,7 +593,7 @@ describe('backpressure — slow clients are dropped with a clear close code', ()
       ],
     });
     // Simulate a hub evicting only one channel (e.g. trades seed failure → 1013 "trades unavailable").
-    (r.trades as unknown as { closeAll(code: number, reason: string): void }).closeAll(1013, 'trades unavailable');
+    (r.trades as { closeAll(code: number, reason: string): void }).closeAll(1013, 'trades unavailable');
     expect(r.socket.closed).toBeNull();
     expect(r.socket.errors().at(-1)).toMatchObject({ op: 'error', code: 'unavailable', ch: 'trades', market: ETH });
     expect(r.session.subscriptions).toBe(1);

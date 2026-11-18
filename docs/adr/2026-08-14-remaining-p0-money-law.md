@@ -1,5 +1,7 @@
 # ADR: remaining Denon P0 money-law seals (2026-08-14)
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about PKT-C7 operator settlement of closing in-house futures positions; PKT-C8 moderation of custodial P2P escrow applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-14.**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-04 · D26-P0-12 · D26-P0-13 · PKT-C7 · PKT-C8 · PKT-C9.  

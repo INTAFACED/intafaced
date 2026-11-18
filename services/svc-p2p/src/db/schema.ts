@@ -215,6 +215,20 @@ export const p2pTrades = p2p.table(
      */
     lastSettleError: text('last_settle_error'),
     lastSettleErrorAt: tstz('last_settle_error_at'),
+    /**
+     * RC-p2p-02: `ledger` (svc-ledger holds the coins) or `contract` (the SovereignEscrow contract holds them and no ledger
+     * entry is ever made). Chosen at take and fixed after (trigger `p2p_trades_contract_escrow_fixed_trg`).
+     */
+    escrowKind: text('escrow_kind').notNull().default('ledger'),
+    /** The terms the contract deal must carry, fixed at take; null on a ledger order. */
+    contractChainId: integer('contract_chain_id'),
+    contractToken: text('contract_token'),
+    contractUnits: numeric('contract_units', { precision: 78, scale: 0 }),
+    contractBuyerWallet: text('contract_buyer_wallet'),
+    contractDisputeWindowSeconds: integer('contract_dispute_window_seconds'),
+    /** The opened deal, checked against the chain and written once when the seller attaches it. */
+    contractDealId: numeric('contract_deal_id', { precision: 78, scale: 0 }),
+    contractSellerWallet: text('contract_seller_wallet'),
   },
   (t) => [
     /** The sweeper: what is overdue, oldest first. */

@@ -8,6 +8,10 @@ import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilde
 import { agentBuilderCopy } from './agent-builder-copy';
 import { AgentsTeam } from './AgentsTeam';
 import { AgentApprovals } from './AgentApprovals';
+import { AgentConnect } from './AgentConnect';
+import { agentConnectCopy } from './agent-connect-copy';
+import { AgentRunPage, agentRunId } from './AgentRun';
+import { agentRunCopy } from './agent-run-copy';
 import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
@@ -23,6 +27,8 @@ import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant/QuantRoutes';
 import { Support, supportPageTitleKey } from './Support';
+import { SupportChatRoom } from './SupportChat';
+import { chatCopy } from './support-chat-copy';
 import { supportRoute } from './support-desk';
 import { deskCopy } from './support-desk-copy';
 import { Token, type TokenTab } from './Token';
@@ -81,9 +87,17 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
     content = <Agents paper={paper} />;
+  } else if (p === '/agents/connect') {
+    title = <agentConnectCopy.Copy k="title" />;
+    description = <agentConnectCopy.Copy k="description" />;
+    content = <AgentConnect />;
   } else if (p === '/agents/new') {
     title = agentBuilderCopy.t('newAgent');
     content = <NewAgent />;
+  } else if (agentRunId(p)) {
+    const runId = agentRunId(p)!;
+    title = agentRunCopy.t('title');
+    content = <AgentRunPage key={runId} runId={runId} />;
   } else if (ownAgentId(p)) {
     const id = ownAgentId(p)!;
     title = <OwnAgentTitle id={id} />;
@@ -148,6 +162,10 @@ function MoreRooms({ path }: { path: string }) {
     content = <Token />;
   } else if (quant) {
     ({ title, description, content } = quant);
+  } else if (p === '/support/chat') {
+    title = <chatCopy.Copy k="pageTitle" />;
+    description = <chatCopy.Copy k="pageDescription" />;
+    content = <SupportChatRoom />;
   } else if (p === '/support' || p.startsWith('/support/')) {
     const key = supportPageTitleKey(supportRoute(p, url.search));
     title = key ? <deskCopy.Copy k={key} /> : copyText('moreroutes.support');
@@ -207,7 +225,7 @@ function MoreRooms({ path }: { path: string }) {
 const section = (path: string) => (path.split(/[?#]/)[0] ?? '').split('/')[2] ?? '';
 /** The tab each section's own address opens its room on, so /mining/workers is not the same page as /mining (Phantom 24 Oct). */
 export const SECTION_TABS: { launch: Record<string, LaunchTab>; token: Record<string, TokenTab>; mining: Record<string, MiningTab> } = {
-  launch: { new: 'Journey', check: 'Check', requirements: 'Requirements' },
+  launch: { new: 'Journey', check: 'Check', requirements: 'Requirements', mine: 'Participation' },
   token: { governance: 'Governance', economy: 'Economy', burn: 'Burn' },
   mining: { workers: 'Workers', shares: 'Shares', rewards: 'Rewards', status: 'Status' },
 };

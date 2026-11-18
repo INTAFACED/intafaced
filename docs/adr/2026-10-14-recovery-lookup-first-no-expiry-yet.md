@@ -1,5 +1,7 @@
 # ADR: Recovery looks the key up first and books it at any age; re-sends are bounded in flight, with no expiry yet
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about recovery of customer loan, earn, transfer, withdrawal and liquidation posts applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** accepted (phased). Phase 1 = bug fixes and the in-flight bound (this PR). Phase 2 = a fence for price-dependent system posts (liquidation rungs, a re-driven loan draw). Phase 3 = scheduled recovery jobs and age alerts.
 **Date:** 2026-10-14
 **Deciders:** agents (lead plus two independent Opus refuters). Nitro decides any step that would expire a customer-authorised request (deferred, see "Deferred decisions").

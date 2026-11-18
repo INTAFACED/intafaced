@@ -232,6 +232,95 @@ describe('lesson revisions (AC-course-structure-03)', () => {
     ).rejects.toMatchObject({ code: 'academy.outline_too_large' });
   });
 
+  it('a course duplicate is a draft at its own address with the outline and newest lessons, and no learner record', async () => {
+    const { course, lesson } = await draftWithOutline();
+    await lessons().save({ itemId: lesson.id, revision: 0, blocks: text('One'), operatorId: A, now: NOW });
+    const live = await lessons().publish({
+      itemId: lesson.id,
+      lessonRevision: 1,
+      courseRevision: course.revision,
+      reason: 'go',
+      operatorId: A,
+      now: NOW,
+    });
+    await lessons().save({ itemId: lesson.id, revision: 1, blocks: text('Two'), operatorId: A, now: NOW });
+    const published = await courses().setState({
+      courseId: course.id,
+      to: 'published',
+      revision: live.courseRevision,
+      reason: 'open',
+      operatorId: A,
+      now: NOW,
+    });
+    expect(published.state).toBe('published');
+    // A learner is enrolled on the source: the record a duplicate must leave behind.
+    const learner = '55555555-5555-4555-8555-555555555555';
+    await db.sql`INSERT INTO academy.course_enrolments (course_id, user_id, track, enrolled_at) VALUES (${course.id}, ${learner}, 'audit', ${NOW})`;
+
+    const input = {
+      courseId: course.id,
+      slug: 'risk-basics-copy',
+      title: 'Risk basics again',
+      reason: 'next cohort',
+      operatorId: A,
+      now: LATER,
+    };
+    const copy = await courses().duplicate(input);
+    expect(copy).toMatchObject({
+      slug: 'risk-basics-copy',
+      title: 'Risk basics again',
+      state: 'draft',
+      revision: 1,
+      items: 2,
+      createdBy: A,
+    });
+    const detail = await courses().get(copy.id);
+    const source = await courses().get(course.id);
+    expect(detail.outline.map((s) => [s.title, s.items.map((i) => [i.kind, i.title, i.indent, i.url])])).toEqual(
+      source.outline.map((s) => [s.title, s.items.map((i) => [i.kind, i.title, i.indent, i.url])]),
+    );
+    expect(detail.outline[0]!.items.every((i) => !source.outline[0]!.items.some((o) => o.id === i.id))).toBe(true);
+    expect(detail.events).toEqual([
+      {
+        kind: 'created',
+        revision: 1,
+        fromState: null,
+        toState: 'draft',
+        actor: A,
+        reason: 'duplicated from risk-basics: next cohort',
+        at: LATER.toISOString(),
+      },
+    ]);
+    // The copied lesson starts at revision 1 with the newest words, and nothing is live on it.
+    const copiedLesson = await lessons().get(detail.outline[0]!.items[1]!.id);
+    expect(copiedLesson.item).toMatchObject({ title: 'Position size', lessonRevision: 1, liveRevision: null });
+    expect(copiedLesson.revisions).toEqual([
+      {
+        revision: 1,
+        source: 'duplicated',
+        fromRevision: null,
+        fromItemId: lesson.id,
+        blocks: text('Two'),
+        actor: A,
+        at: LATER.toISOString(),
+      },
+    ]);
+    // No learner record on the copy; the source keeps its learner.
+    const enrolled = await db.sql<Array<{ course_id: string }>>`SELECT course_id FROM academy.course_enrolments`;
+    expect(enrolled.map((r) => r.course_id)).toEqual([course.id]);
+    // The source is unchanged.
+    expect((await courses().get(course.id)).course).toEqual(source.course);
+
+    // A repeat after a lost reply answers with the stored copy; anyone else at that address is a taken slug.
+    expect(await courses().duplicate(input)).toEqual(copy);
+    await expect(courses().duplicate({ ...input, operatorId: B })).rejects.toMatchObject({ code: 'academy.course_slug_taken' });
+    await expect(courses().duplicate({ ...input, reason: 'other' })).rejects.toMatchObject({ code: 'academy.course_slug_taken' });
+    await expect(courses().duplicate({ ...input, slug: 'videos' })).rejects.toMatchObject({ code: 'academy.slug_reserved' });
+    await expect(
+      courses().duplicate({ ...input, slug: 'nowhere-copy', courseId: '66666666-6666-4666-8666-666666666666' }),
+    ).rejects.toMatchObject({ code: 'academy.course_not_found' });
+  });
+
   it("review findings: image replay, another item's publish, a lesson-less duplicate replay, kind lock, an old live revision", async () => {
     const { course, section, subheader, lesson, link } = await draftWithOutline();
     // jsonb reorders keys; a repeat of an image block still answers with its own revision.

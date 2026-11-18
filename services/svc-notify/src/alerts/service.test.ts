@@ -486,8 +486,42 @@ describe('AlertService — fire only when the inbox can receive it', () => {
     expect(again.results[0]!.outcome.kind).toBe('fire');
     const inbox = await notifyStore.list({ userId: 'u1', limit: 10, unreadOnly: false });
     expect(inbox.items).toHaveLength(1);
-    expect(inbox.items[0]!.sourceIdempotencyKey).toBe(`${row.id}:100.5`);
+    expect(inbox.items[0]!.sourceIdempotencyKey).toBe(`${row.id}:once`);
     expect(inbox.items[0]!.params).toMatchObject({ markPrice: '100.50' });
     expect(await notifyStore.unreadCount('u1')).toBe(1);
+  });
+
+  it('a one-shot alert retried at a different mark after markFired missed still writes one inbox row (J-charts-desk-10 #5)', async () => {
+    const notifyStore = new MemoryNotifyStore();
+    const alertStore = new (class extends MemoryAlertStore {
+      attempts = 0;
+      override async markFired(userId: string, id: string, at: Date) {
+        this.attempts += 1;
+        if (this.attempts === 1) throw new Error('markFired missed');
+        return super.markFired(userId, id, at);
+      }
+    })();
+    let price = '101';
+    const marks: MarkSource = {
+      kind: 'live',
+      async quote() {
+        return { kind: 'ok', price, at: new Date() };
+      },
+    };
+    const alerts = new AlertService(
+      alertStore,
+      marks,
+      new NotifyService(notifyStore, { fanoutEnabled: true }),
+      undefined,
+      TEST_ALERT_LIMITS,
+    );
+    const row = await alerts.create({ userId: 'u1', marketId: 'BTC-USD', direction: 'above', targetPrice: '100' });
+    await expect(alerts.evaluateMarket('BTC-USD')).rejects.toThrow(/markFired missed/);
+    // The next pass reads a different mark: the same firing all the same.
+    price = '102';
+    expect((await alerts.evaluateMarket('BTC-USD')).results[0]!.outcome.kind).toBe('fire');
+    const inbox = await notifyStore.list({ userId: 'u1', limit: 10, unreadOnly: false });
+    expect(inbox.items).toHaveLength(1);
+    expect(inbox.items[0]!.sourceIdempotencyKey).toBe(`${row.id}:once`);
   });
 });

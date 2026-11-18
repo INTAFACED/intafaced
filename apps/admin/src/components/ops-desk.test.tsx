@@ -161,19 +161,21 @@ describe('academy and more desks', () => {
   it('academy reads its grants and enrolments, and links each section to a page of its own', () => {
     const html = render(props('academy', view('academy', [])));
     expect(html).not.toContain('Not available:');
-    expect(html).toContain('Certificate grants');
+    expect(html).toContain('Grants and revokes');
     expect(html).toContain('href="/academy-ops/grants"');
     const page = render({ ...props('academy', view('academy', [])), spec: academySectionDesk('grants') });
     expect(page).toContain('aria-current="page"');
     expect(page).not.toContain('Ambassadors and residencies');
   });
-  it('more names mining and campaigns as not available, links the launch issuer lens, and Predict as waiting on a decision', () => {
+  it('more names mining as not available, links the launch issuer lens and the campaign watch desk, and Predict as waiting on a decision', () => {
     const html = render(props('more', view('more', [])));
     expect(html).toContain('Not available: Payouts made and hashrate of the pool');
     // svc-token keeps the issuers now (J-more-catalogue-14): the launch section links its lens instead of naming a gap.
     expect(html).not.toContain('Not available: Issuer state');
     expect(html).toContain('href="/launch"');
-    expect(html).toContain('Not available: Campaign participation');
+    // svc-campaigns has an operator read of who joined now (J-campaigns-17): the campaigns section links its watch desk.
+    expect(html).not.toContain('Not available: Campaign participation');
+    expect(html).toContain('href="/more-ops/campaigns/watch"');
     expect(html).toContain('Waiting on a decision, not on code.');
   });
 });
@@ -287,7 +289,10 @@ describe('Export CSV on every list read', () => {
                       ? ['a']
                       : c.kind === 'assetAmounts'
                         ? [{ assetId: 'USDC', amount: '1' }]
-                        : 'x';
+                        : // A text column with plain words takes one of its own values (any other value is invalid by design).
+                          c.words
+                          ? Object.keys(c.words)[0]
+                          : 'x';
         }
         const raw = spec.rowsKey ? { [spec.rowsKey]: [sample], ...(spec.cursorKey ? { [spec.cursorKey]: null } : {}) } : [sample];
         const html = render(props(id, view(id, [okOutcome(id, spec.id, raw)])));

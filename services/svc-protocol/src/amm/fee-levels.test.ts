@@ -81,7 +81,7 @@ function caller(overrides: Partial<ProtocolRouterDeps>, onRead: () => void = () 
     ammFactoryAddress: () => '0x0000000000000000000000000000000000000000',
     swapSlippageBps: () => null,
     ...overrides,
-  } as unknown as ProtocolRouterDeps;
+  } as ProtocolRouterDeps;
   return createProtocolRouter(deps).createCaller(anonymous());
 }
 

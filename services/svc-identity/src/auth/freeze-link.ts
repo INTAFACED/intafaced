@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { MailPurpose, PasswordResetMail } from './password-reset.js';
 import { generateToken, hashToken } from './passwords.js';
 
@@ -53,9 +53,10 @@ export type SelfFreezeRow = { id: string; reason: 'compromise' | 'temporary' | '
 
 /**
  * The one freeze both doors run, inside the caller's transaction: the open freeze if there is one, else a new one with
- * every session and API key revoked. Locks the user row first so two freezes never race.
+ * every session, API key and OAuth app token revoked. Locks the user row first so two freezes never race. The freeze is
+ * then announced on the bus (`self-freeze-events.ts`) so other services revoke the agent permissions they keep.
  */
-export async function applySelfFreeze(tx: Sql, userId: string, reason: SelfFreezeRow['reason']): Promise<SelfFreezeRow> {
+export async function applySelfFreeze(tx: Queryable, userId: string, reason: SelfFreezeRow['reason']): Promise<SelfFreezeRow> {
   await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
   const open = await tx<Array<{ id: string; reason: SelfFreezeRow['reason']; since: Date }>>`
     SELECT id, reason, since FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`;
@@ -64,6 +65,8 @@ export async function applySelfFreeze(tx: Sql, userId: string, reason: SelfFreez
     INSERT INTO account_self_freezes (user_id, reason) VALUES (${userId}, ${reason}) RETURNING id, since`;
   await tx`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false`;
   await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze' WHERE user_id = ${userId} AND revoked = false`;
+  // An app the person let act for them (OAuth) is an agent permission too (J-wallet-13 #1): its tokens end with the rest.
+  await tx`UPDATE oauth_tokens SET revoked_at = now() WHERE user_id = ${userId} AND revoked_at IS NULL`;
   return { id: made[0]!.id, reason, since: made[0]!.since, changed: true };
 }
 

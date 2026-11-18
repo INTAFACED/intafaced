@@ -1,0 +1,515 @@
+import {
+  formatAmount,
+  movesCustomerBalance,
+  parseCustodyLayer,
+  type Amount,
+  type CustodyLayerState,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
+import { heldFigure, type HeldFigure } from '@intafaced/venue-contracts';
+import { BankError } from '../errors.js';
+
+/**
+ * PARTNER-HELD BANK MONEY (OWNER 226; CUSTODY-DELTA §3).
+ *
+ * INTAFACED holds no customer money at launch: a person's currency accounts and spaces are held by the partner bank,
+ * under its licence. This is the port svc-bank reads and moves that money through. No partner is named, so the only
+ * implementation is the TEST partner bank (`test-partner.ts`), labelled TEST.
+ *
+ *   - A balance is what the partner reports, with its label and the partner's own time for it. One it does not report
+ *     is null, read as "not known", never 0; one it sends with no time is "not known" too (b2 change 6). The partner
+ *     declares how old its figure may be (`staleAfterMs`), and `partnerFigure` is the one displayed figure of it.
+ *   - A move is ONE partner instruction under a business key (`bank.transfer.<keySpace>:<id>:<occurrence>`, the same key
+ *     the custodial path posts the ledger under). The partner deduplicates on the key: a retry after a lost reply is
+ *     the same move, answered with the first one, never a second; a different move under the same key is refused.
+ *   - Nothing here posts to the ledger. The ledger records only what INTAFACED itself owes or is owed, and is never
+ *     authoritative over the partner's figures.
+ *
+ * Which path runs for a person is `PartnerCustody.bankFor(userId)`: the partner for a person whose money it holds,
+ * null for the custodial layer (the journeys marked Later), exactly as before.
+ */
+
+/** One of a person's accounts at the partner: the main balance in a currency (`spaceId` null) or one named space. */
+export interface PartnerAccountRef {
+  readonly userId: string;
+  readonly assetId: string;
+  readonly spaceId: string | null;
+}
+
+/**
+ * The partner's own outbound-payments account in one currency: a payout to a person's bank account leaves their main
+ * balance into it, as one partner move under the payout's key, and an amount the partner gives back (a failed,
+ * cancelled or returned payout) comes out of it into the main balance, again as one move under its own key. It is the
+ * partner's, never a person's, so it is on no person's list of balances.
+ */
+export const PARTNER_PAYOUTS_OWNER = 'partner:outbound-payments';
+export function partnerPayoutsAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_PAYOUTS_OWNER, assetId, spaceId: null };
+}
+
+/**
+ * Where money paid in from outside comes from on the partner's record. It holds nothing and is on no person's list of
+ * balances: a pay-in is a line the partner reports, not a move anyone instructed, so `moves` lists it only when asked.
+ */
+export const PARTNER_PAY_INS_OWNER = 'partner:incoming-payments';
+export function partnerPayInsAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_PAY_INS_OWNER, assetId, spaceId: null };
+}
+
+/** The partner's account a fee it takes for us goes to. It is the partner's, never a person's, like its payouts account. */
+export const PARTNER_FEES_OWNER = 'partner:fees';
+export function partnerFeesAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_FEES_OWNER, assetId, spaceId: null };
+}
+
+/** A space as svc-bank knows it, mapped to the partner's account: a primary space is the main balance. */
+export function partnerAccountFor(space: {
+  readonly id: string;
+  readonly userId: string;
+  readonly assetId: string;
+  readonly kind: 'primary' | 'named';
+}): PartnerAccountRef {
+  return { userId: space.userId, assetId: space.assetId, spaceId: space.kind === 'primary' ? null : space.id };
+}
+
+export interface PartnerBalance {
+  readonly account: PartnerAccountRef;
+  /** As the partner reports it; null when it has not said ("not known", never 0). */
+  readonly amount: Amount | null;
+  /** The partner's own time for the figure; null when it sent none ("not known": we cannot say how old it is). */
+  readonly asOf: Date | null;
+  /** True when the partner is not answering and this is the last figure it gave, or none. */
+  readonly unavailable?: boolean;
+  /** Whose figure this is, e.g. "TEST partner bank". */
+  readonly label: string;
+}
+
+/** One order the partner reports still open for a person, in the currency it reserves. */
+export interface PartnerOpenOrder {
+  /** The partner's own reference for the order. */
+  readonly id: string;
+  readonly assetId: string;
+  readonly label: string;
+}
+
+/** One recipient of a payout the partner carries out to outside bank accounts (J-bank-21): who, where and how much. */
+export interface PartnerPayee {
+  readonly name: string;
+  readonly iban: string;
+  readonly amount: Amount;
+  readonly reference: string | null;
+}
+
+export interface PartnerMoveRequest {
+  /** The business key. One key is one move at the partner, however many times it is sent. */
+  readonly key: string;
+  readonly from: PartnerAccountRef;
+  readonly to: PartnerAccountRef;
+  readonly amount: Amount;
+  /**
+   * For a payout to outside accounts through the partner's payout rail: every recipient, adding up to `amount` exactly.
+   * One instruction carries them all; the partner refuses a list that does not add up (`bank.partner_amount_invalid`).
+   */
+  readonly payees?: readonly PartnerPayee[];
+}
+
+export interface PartnerMove {
+  /** The partner's own reference for the move. */
+  readonly id: string;
+  readonly key: string;
+  readonly from: PartnerAccountRef;
+  readonly to: PartnerAccountRef;
+  readonly amount: Amount;
+  readonly movedAt: Date;
+  readonly label: string;
+  /** The recipients the instruction carried, as the partner took them; absent for a move between accounts. */
+  readonly payees?: readonly PartnerPayee[];
+}
+
+export interface PartnerMovesQuery {
+  readonly limit: number;
+  /** Only moves older than this partner reference (newest first paging). */
+  readonly before?: string;
+  readonly assetId?: string;
+  /** Also list money paid in from outside (J-bank-16: the statement has every line the partner reports). */
+  readonly payIns?: boolean;
+}
+
+/** What the partner lets a person send today and what it charges, as it reports them. A figure it has not given is null. */
+export interface PartnerSendLimits {
+  readonly assetId: string;
+  readonly label: string;
+  readonly dailySend: Amount | null;
+  readonly usedToday: Amount | null;
+  readonly sendFee: Amount | null;
+  /** The partner's own time for these figures; null when it sent none. */
+  readonly asOf: Date | null;
+}
+
+export interface PartnerBank {
+  readonly label: string;
+  /** How old the partner's figure may be before it is stale, as the partner declares it, in milliseconds. */
+  readonly staleAfterMs: number;
+  /** One account's balance as the partner reports it. */
+  balance(account: PartnerAccountRef): Promise<PartnerBalance>;
+  /** Every account the partner holds for the person, in every currency. */
+  balances(userId: string): Promise<PartnerBalance[]>;
+  /**
+   * Make one move under its key. Refuses before anything moves: `bank.partner_unavailable` (not answering),
+   * `bank.partner_insufficient_funds` (the source does not hold it), `bank.partner_move_conflict` (another move under
+   * this key). `bank.partner_reply_lost` means the move may have been made and the outcome is not known: retry it under
+   * the same key, which answers with the move if it was made and makes it once if not.
+   */
+  move(request: PartnerMoveRequest): Promise<PartnerMove>;
+  /** The move made under a key, or null when the partner has none. */
+  moveByKey(key: string): Promise<PartnerMove | null>;
+  /** The person's moves (either side), newest first. */
+  moves(userId: string, query: PartnerMovesQuery): Promise<PartnerMove[]>;
+  /** The partner's send limit and fee for the person in one currency (J-bank-16 #6). */
+  limits(userId: string, assetId: string): Promise<PartnerSendLimits>;
+  /**
+   * The person's orders the partner still has open (an exchange it has not filled), each in the currency it reserves.
+   * A partner that takes no orders leaves it out, and has none.
+   */
+  openOrders?(userId: string): Promise<readonly PartnerOpenOrder[]>;
+  /**
+   * The partner's own statement of one account over `[from, to)` (J-bank-23 #3). A partner that offers none leaves it out,
+   * and a statement export refuses `bank.partner_statement_unavailable`. Refuses `bank.partner_unavailable` when down.
+   */
+  statement?(account: PartnerAccountRef, range: { from: Date; to: Date }): Promise<PartnerStatement>;
+  /** The partner's history window and strong customer authentication rule for statements; absent when it declares none. */
+  readonly historyRules?: PartnerHistoryRules;
+  /**
+   * The partner's quote for one move between two of a person's own accounts (J-bank-24 #3): the exact figures it will move
+   * them on, until its valid-until. A partner that quotes none leaves it out, and the bank API refuses
+   * `bank.partner_quote_unavailable`. Refuses `bank.partner_unavailable` when down.
+   */
+  quoteMove?(request: {
+    readonly from: PartnerAccountRef;
+    readonly to: PartnerAccountRef;
+    readonly amount: Amount;
+  }): Promise<PartnerMoveQuote>;
+  /**
+   * Payments out over the partner's own bank rails (J-bank-24 #4): a partner with none leaves it out, and every payment
+   * is refused `rail.bank` with its intent row kept.
+   */
+  readonly payments?: PartnerPayments;
+}
+
+/** The partner's quote for one move between a person's own accounts: what it moves, what it takes, what arrives. */
+export interface PartnerMoveQuote {
+  /** The partner's own reference for the quote. */
+  readonly quoteId: string;
+  readonly from: PartnerAccountRef;
+  readonly to: PartnerAccountRef;
+  /** What leaves `from`. */
+  readonly amount: Amount;
+  /** What the partner takes for the move; null when it does not say ("not known", never 0). */
+  readonly fee: Amount | null;
+  /** What arrives in `to`; null when the fee is not known. */
+  readonly receives: Amount | null;
+  readonly quotedAt: Date;
+  readonly validUntil: Date;
+  readonly label: string;
+}
+
+/** How a payment out travels: an instant payment, or ACH. */
+export const PARTNER_PAYMENT_METHODS = ['instant', 'ach'] as const;
+export type PartnerPaymentMethod = (typeof PARTNER_PAYMENT_METHODS)[number];
+
+/** A transfer's lifecycle at the partner: made and pending, then completed, or cancelled or reversed. */
+export const PARTNER_TRANSFER_STATES = ['pending', 'completed', 'cancelled', 'reversed'] as const;
+export type PartnerTransferState = (typeof PARTNER_TRANSFER_STATES)[number];
+
+export interface PartnerPaymentRecipient {
+  readonly name: string;
+  readonly accountNumber: string;
+  readonly routingNumber: string;
+}
+
+export interface PartnerPaymentRequest {
+  /** The business key: the partner makes one payment under it. */
+  readonly key: string;
+  readonly from: PartnerAccountRef;
+  readonly method: PartnerPaymentMethod;
+  readonly recipient: PartnerPaymentRecipient;
+  readonly amount: Amount;
+}
+
+/** A payment as the partner reports it: its state and the version of that state, from 1, rising by one per change. */
+export interface PartnerPayment {
+  readonly id: string;
+  readonly key: string;
+  readonly from: PartnerAccountRef;
+  readonly method: PartnerPaymentMethod;
+  readonly amount: Amount;
+  readonly state: PartnerTransferState;
+  readonly version: number;
+  /** The state before this one; null for the first (the payment was made pending). */
+  readonly previous: PartnerTransferState | null;
+  readonly changedAt: Date;
+  readonly label: string;
+}
+
+export interface PartnerPayments {
+  /**
+   * Make one payment under its key. A retry under the same key answers with the payment made; a different payment under
+   * it refuses `bank.partner_move_conflict`. Refuses `rail.bank` when the partner carries no rail for this person.
+   */
+  pay(request: PartnerPaymentRequest): Promise<PartnerPayment>;
+  /** The payment made under a key, as it stands now, or null. */
+  paymentByKey(key: string): Promise<PartnerPayment | null>;
+}
+
+/**
+ * The partner's own statement of one account over one period (J-bank-23 #3): its opening and closing balance and how many
+ * lines it lists, as the partner works them out from its own record. A statement file we make is checked against it: the
+ * same closing balance and the same line count, or no file.
+ */
+export interface PartnerStatement {
+  readonly account: PartnerAccountRef;
+  readonly label: string;
+  /** Inclusive. */
+  readonly from: Date;
+  /** Exclusive, as every history range is. */
+  readonly to: Date;
+  readonly opening: Amount;
+  readonly closing: Amount;
+  /** How many lines the partner's statement lists for the period: every move and pay-in on the account. */
+  readonly lines: number;
+  /** The partner's own time for the statement. */
+  readonly asOf: Date;
+}
+
+/** How far back the partner's record reaches, and from how old a line it asks for a fresh strong customer authentication. */
+export interface PartnerHistoryRules {
+  readonly label: string;
+  /** The partner keeps no line older than this many days before now. */
+  readonly historyDays: number;
+  /** A statement reaching back further than this many days needs a fresh strong customer authentication. */
+  readonly scaAfterDays: number;
+}
+
+/** Which path holds a person's bank money: the partner, or (null) the custodial layer as before. */
+export interface PartnerCustody {
+  bankFor(userId: string): PartnerBank | null;
+}
+
+/**
+ * svc-ledger's platform posting freeze, as svc-bank reads it (`${LEDGER_URL}/health`). The freeze belongs to svc-ledger
+ * (AGENTS.md floor 4); a partner move posts nothing there, so svc-bank asks before every partner move.
+ */
+export interface PostingFreeze {
+  /** True when posting is enabled. Throws when the freeze cannot be read. */
+  postingEnabled(): Promise<boolean>;
+  /** Whether posting is enabled, and when it is not, why (svc-ledger's `frozenCause`). Throws when it cannot be read. */
+  read?(): Promise<FreezeReading>;
+}
+
+/**
+ * Why a partner instruction met the freeze (project-state #1790; the money model's change 4 item 4): svc-ledger's own
+ * cause (`person`, `mismatch`, `unfinished_proofs`, `startup_setting`), `not_reported` when svc-ledger answered frozen
+ * without one, `unreadable` when the freeze did not answer within 2 seconds or answered badly, `not_wired` when no
+ * freeze is wired at all.
+ */
+export const FREEZE_CAUSES = [
+  'person',
+  'mismatch',
+  'unfinished_proofs',
+  'startup_setting',
+  'not_reported',
+  'unreadable',
+  'not_wired',
+] as const;
+export type FreezeCause = (typeof FREEZE_CAUSES)[number];
+const LEDGER_CAUSES: ReadonlySet<string> = new Set(['person', 'mismatch', 'unfinished_proofs', 'startup_setting']);
+
+export interface FreezeReading {
+  readonly postingEnabled: boolean;
+  /** Null while posting is enabled. */
+  readonly cause: FreezeCause | null;
+}
+
+/** One refusal made before the partner was asked, as the operations desk counts it (`partner/partner-refusals.ts`). */
+export interface PartnerRefusal {
+  readonly refusedBy: 'posting_freeze' | 'partner_stop';
+  /** The freeze's cause, or for the stop `stopped` / `unreadable`. */
+  readonly cause: string;
+  /** The kind of instruction refused (`partner-stops.ts`, PARTNER_STOP_KINDS). */
+  readonly kind: string;
+}
+
+/** Counts a refusal. Never throws and never changes the refusal: a count that cannot be written is dropped. */
+export type NoteRefusal = (refusal: PartnerRefusal) => Promise<void>;
+
+/** The freeze read from svc-ledger's `/health`. Anything but an exact `postingEnabled: true` reads as frozen. */
+export function ledgerPostingFreeze(ledgerUrl: string, fetcher: typeof fetch = fetch): PostingFreeze {
+  const read = async (): Promise<FreezeReading> => {
+    const res = await fetcher(new URL('/health', ledgerUrl), { signal: AbortSignal.timeout(2_000) });
+    if (!res.ok) throw new Error(`svc-ledger /health answered ${res.status}`);
+    const body = (await res.json()) as { postingEnabled?: unknown; frozenCause?: unknown };
+    if (body.postingEnabled === true) return { postingEnabled: true, cause: null };
+    const cause =
+      typeof body.frozenCause === 'string' && LEDGER_CAUSES.has(body.frozenCause) ? (body.frozenCause as FreezeCause) : 'not_reported';
+    return { postingEnabled: false, cause };
+  };
+  return { read, postingEnabled: async () => (await read()).postingEnabled };
+}
+
+/** The freeze's reading, from `read` when it has one; one that cannot be read is frozen, `unreadable`. */
+export async function readFreeze(freeze: PostingFreeze): Promise<FreezeReading> {
+  try {
+    if (freeze.read) return await freeze.read();
+    return (await freeze.postingEnabled()) ? { postingEnabled: true, cause: null } : { postingEnabled: false, cause: 'not_reported' };
+  } catch {
+    return { postingEnabled: false, cause: 'unreadable' };
+  }
+}
+
+/** svc-ledger's posting freeze refused a partner move before the partner was asked: nothing was sent. It names why. */
+export class PostingFrozenError extends BankError {
+  constructor(readonly freezeCause: FreezeCause) {
+    super('Money moves are paused across the platform right now. Nothing was sent or changed.', 'bank.posting_frozen');
+  }
+}
+
+export function postingFrozen(cause: FreezeCause = 'not_reported'): BankError {
+  return new PostingFrozenError(cause);
+}
+
+/** Frozen, or a freeze that cannot be read, refuses `bank.posting_frozen` naming why, and counts the refusal. */
+export async function assertPostingEnabled(freeze: PostingFreeze, kind = 'bank_move', note?: NoteRefusal): Promise<void> {
+  const reading = await readFreeze(freeze);
+  if (reading.postingEnabled) return;
+  const cause = reading.cause ?? 'not_reported';
+  await note?.({ refusedBy: 'posting_freeze', cause, kind });
+  throw postingFrozen(cause);
+}
+
+/**
+ * Every partner move asks the posting freeze first: frozen, or a freeze that cannot be read, refuses
+ * `bank.posting_frozen` before the partner is asked. Reads stay open, as they do on the ledger while it is frozen.
+ */
+export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFreeze, note?: NoteRefusal): PartnerCustody {
+  const guarded = new WeakMap<PartnerBank, PartnerBank>();
+  const guard = (bank: PartnerBank): PartnerBank => {
+    let wrapped = guarded.get(bank);
+    if (!wrapped) {
+      // One wrapper per partner, so two sides of one move still compare as the same partner.
+      wrapped = Object.freeze({
+        label: bank.label,
+        staleAfterMs: bank.staleAfterMs,
+        balance: (account: PartnerAccountRef) => bank.balance(account),
+        balances: (userId: string) => bank.balances(userId),
+        moveByKey: (key: string) => bank.moveByKey(key),
+        moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
+        limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
+        ...(bank.openOrders ? { openOrders: (userId: string) => bank.openOrders!(userId) } : {}),
+        ...(bank.statement
+          ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }
+          : {}),
+        ...(bank.historyRules ? { historyRules: bank.historyRules } : {}),
+        // A quote moves nothing, so it stays open; a payment out is a move and asks the freeze first (J-bank-24).
+        ...(bank.quoteMove ? { quoteMove: bank.quoteMove.bind(bank) } : {}),
+        ...(bank.payments
+          ? {
+              payments: Object.freeze({
+                paymentByKey: (key: string) => bank.payments!.paymentByKey(key),
+                pay: async (request: PartnerPaymentRequest) => {
+                  await assertPostingEnabled(freeze, 'bank_move', note);
+                  return bank.payments!.pay(request);
+                },
+              }),
+            }
+          : {}),
+        move: async (request: PartnerMoveRequest) => {
+          await assertPostingEnabled(freeze, 'bank_move', note);
+          return bank.move(request);
+        },
+      });
+      guarded.set(bank, wrapped);
+    }
+    return wrapped;
+  };
+  return {
+    bankFor: (userId) => {
+      const bank = custody.bankFor(userId);
+      return bank ? guard(bank) : null;
+    },
+  };
+}
+
+/** No partner holds anyone's money here: every person is on the custodial layer, exactly as before. */
+export const custodialOnly: PartnerCustody = Object.freeze({ bankFor: () => null });
+
+/**
+ * The amount, or a typed refusal when the figure is not known: the partner has not reported it, or sent it with no time.
+ * Never read a missing figure as 0. A stale figure is returned: it is the partner's, and the display says how old it is.
+ */
+export function reportedAmount(balance: PartnerBalance): Amount {
+  if (balance.amount === null || balance.asOf === null) throw partnerBalanceNotKnown(balance.label);
+  return balance.amount;
+}
+
+/** The refusal for a partner figure that is not known: never shown as a figure, and never as 0. */
+export function partnerBalanceNotKnown(label: string): BankError {
+  return new BankError(`${label} has not reported this balance, so it is not known.`, 'bank.partner_balance_not_known');
+}
+
+/** The displayed figure of a partner balance (b2 change 6): known, stale, or unknown with a reason, never 0. */
+export function partnerFigure(balance: PartnerBalance, staleAfterMs: number, now: Date): HeldFigure {
+  return heldFigure({
+    source: balance.label,
+    amount: balance.amount === null ? null : formatAmount(balance.amount),
+    asOf: balance.asOf,
+    staleAfterMs,
+    now,
+    unavailable: balance.unavailable === true,
+  });
+}
+
+/** The two sides of a move are held in different places, so no single partner instruction can make it. */
+export function partnerCustodyMismatch(): BankError {
+  return new BankError(
+    'One side of this move is held at the partner bank and the other is not, so it cannot be made as one partner move. Nothing was sent or changed.',
+    'bank.partner_custody_mismatch',
+  );
+}
+
+/** Code for a customer-balance post refused because the custodial layer is off and no partner holds the money. */
+export const NO_PARTNER_BANK_CODE = 'bank.no_partner_bank';
+
+/**
+ * svc-bank's own reading of the custody switch (`LEDGER_CUSTODY_LAYER`, the same value and parser svc-ledger uses).
+ * Unset or blank is off. A value passed in wins; otherwise the live env.
+ */
+export function bankCustodyLayer(passed: CustodyLayerState | undefined): CustodyLayerState {
+  return passed ?? parseCustodyLayer(process.env.LEDGER_CUSTODY_LAYER);
+}
+
+/**
+ * The ledger as svc-bank's services see it. With the custodial layer off, a post that would move a customer balance is
+ * refused here, by name, before any request reaches svc-ledger (which would refuse it too, `ledger.custody_layer_off`):
+ * no partner bank holds this money and INTAFACED holds none. A partner-held person's money never reaches this: its
+ * paths ask the partner and post nothing. With the layer on, every call passes through unchanged.
+ */
+export function custodyGuardedLedger<L extends Pick<LedgerClient, 'post'>>(ledger: L, layer: CustodyLayerState): L {
+  if (layer === 'on') return ledger;
+  return new Proxy(ledger, {
+    get(target, prop, receiver) {
+      if (prop !== 'post') {
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      }
+      return async (request: Parameters<LedgerClient['post']>[0]) => {
+        if (movesCustomerBalance(request.entries)) {
+          throw new BankError(
+            'No banking partner holds this money, and INTAFACED holds no customer money, so nothing was moved.',
+            NO_PARTNER_BANK_CODE,
+          );
+        }
+        return target.post(request);
+      };
+    },
+  });
+}

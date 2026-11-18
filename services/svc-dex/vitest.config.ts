@@ -1,8 +1,8 @@
 import { defineConfig } from 'vitest/config';
+import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';
 
 export default defineConfig({
   test: {
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    ...TEST_BUDGET,
   },
 });

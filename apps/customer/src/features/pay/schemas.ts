@@ -43,8 +43,12 @@ export const transferQuoteSchema = z.object({
   perTransferLimit: amount,
   dailyLimit: amount,
   spentToday: amount,
+  /** The daily limit less what was sent today, from the bank (BK-acct-04). Older bank builds leave it out. */
+  remainingToday: amount.optional(),
   fee: amount,
   feeBlocker: z.string().nullable(),
+  /** The partner's fee on the move: absent when none is reported, null when the partner has not said ("not known"). */
+  networkFee: amount.nullable().optional(),
   withinPerTransfer: z.boolean(),
   withinDaily: z.boolean(),
 });
@@ -138,6 +142,22 @@ export const tradeSchema = z.object({
   escrowedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
+  /** RC-p2p-02: who holds the coins: the ledger, or the escrow contract (no ledger entry). Fixed at take. */
+  escrowKind: z.enum(['ledger', 'contract']).optional(),
+  /** RC-p2p-02: the contract deal's terms (fixed at take) and, once the seller attached it, the deal. Null on a ledger order. */
+  contract: z
+    .object({
+      chainId: z.number().int().positive(),
+      token: z.string(),
+      units: z.string().regex(/^[1-9][0-9]*$/),
+      buyerWallet: z.string(),
+      disputeWindowSeconds: z.number().int().positive(),
+      timeout: z.literal('refund_seller'),
+      dealId: z.string().nullable(),
+      sellerWallet: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
   /** `trades.get` only: the ad's terms when the order was placed (later ad edits never change them); null when the order predates the copy. */
   terms: z.string().nullable().optional(),
   /** `trades.get` only: the readable status the order list shows. */
@@ -394,6 +414,21 @@ export const reputationSchema = z
       .object({ status: z.enum(['unwired', 'found', 'absent']) })
       .passthrough()
       .optional(),
+    /** P-trade-orders-21: decimal-string percents ("95.24") over 30 days and all time; null when nothing is counted. */
+    completionRate30d: z
+      .string()
+      .regex(/^\d{1,3}\.\d{2}$/)
+      .nullish(),
+    completionRateTotal: z
+      .string()
+      .regex(/^\d{1,3}\.\d{2}$/)
+      .nullish(),
+    /** What the rates count, as the service words it (data, so the page and the SQL cannot disagree). */
+    completionDefinition: z
+      .object({ numerator: z.string(), denominator: z.string(), window30d: z.string(), noHistory: z.string() })
+      .nullish(),
+    /** Visible good and bad reviews; null when there are none. */
+    rating: z.object({ good: z.number().int().nonnegative(), bad: z.number().int().nonnegative() }).nullish(),
   })
   .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);
 /** `trades.stepUpWindow`: until when this session's takes need no new confirmation, or null. */
@@ -725,7 +760,7 @@ export const webhookDeliverySchema = z.object({
   merchantId: id,
   eventId: z.string(),
   eventType: z.string(),
-  status: z.enum(['pending', 'delivered', 'failed', 'dead']),
+  status: z.enum(['pending', 'delivered', 'failed', 'dead', 'unknown']),
   attempts: z.number().int(),
   nextAttemptAt: z.string(),
   lastStatusCode: z.number().nullable(),
@@ -767,6 +802,20 @@ export type ChatSent = z.infer<typeof chatSentSchema>;
 export type Contacts = z.infer<typeof contactsSchema>;
 export type TakeQuote = z.infer<typeof takeQuoteSchema>;
 export type Reputation = z.infer<typeof reputationSchema>;
+/** P-trade-orders-21: the person's one completion appeal (`reputation.myAppeal`, `reputation.appeal`). */
+export const completionAppealSchema = z.object({
+  id,
+  userId: z.string(),
+  tradeId: id,
+  reason: z.string(),
+  status: z.enum(['submitted', 'accepted', 'rejected']),
+  submittedAt: z.string(),
+  reviewDueAt: z.string(),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  decisionReason: z.string().nullable(),
+});
+export type CompletionAppeal = z.infer<typeof completionAppealSchema>;
 export type Merchant = z.infer<typeof merchantSchema>;
 export type Payment = z.infer<typeof paymentSchema>;
 
@@ -850,3 +899,17 @@ export const shareLinkSchema = z.object({
   revokedAt: z.string().datetime().nullable(),
 });
 export type ShareLink = z.infer<typeof shareLinkSchema>;
+
+/** RC-p2p-02 `trades.contractEscrow`: the contract escrow for one asset, offered or refused with its blocker. */
+export const contractEscrowOfferSchema = z.object({
+  available: z.boolean(),
+  blocker: z.string().nullable(),
+  reason: z.string().nullable(),
+  network: z.object({ chainId: z.number().int().positive(), label: z.string(), escrow: z.string() }).nullable(),
+  token: z.object({ address: z.string(), decimals: z.number().int() }).nullable(),
+  disputeWindowSeconds: z.number().int().positive().nullable(),
+  timeout: z.literal('refund_seller'),
+  mainnet: z.object({ available: z.literal(false), blocker: z.literal('audit.external') }),
+  audited: z.literal(false),
+});
+export type ContractEscrowOffer = z.infer<typeof contractEscrowOfferSchema>;

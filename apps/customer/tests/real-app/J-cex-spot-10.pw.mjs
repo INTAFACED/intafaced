@@ -1,4 +1,4 @@
-// World: book
+// World: book, market
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
@@ -11,7 +11,8 @@ import {
   setFeeDiscountSchedule,
   setFeeSchedule,
 } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
+import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits, tool } from './stack.mjs';
 import {
   awayBid,
   confirm,
@@ -38,6 +39,9 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 // markets no other journey trades: ETH/USDC at zero fee, and IFC/USDT, which #3 leaves blank for a moment. #5-#6 add a
 // TEST tier programme only for as long as they run, and #11 once more. #9 adds TEST terms for paying fees in IFC and a
 // TEST stake-discount ladder, and takes the terms away again. Step 7 joins this file with the slice that builds it.
+// At launch the person trades on their own venue account: #1 #2 #3 #4 #6 #9 are proven there, in
+// J-cex-spot-10-venue.pw.mjs. Their checks here, of today's custodial desk, are kept and titled "part of", so they count
+// for no step.
 const J = 'J-cex-spot-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -240,7 +244,7 @@ async function checkOf(page, act) {
   return res.json();
 }
 
-test(`${J} #1 previews a maker limit and a taker market: the fee line names the role and its rate, from the order check`, async ({
+test(`${J}, part of #1, checked on today's custodial desk: previews a maker limit and a taker market: the fee line names the role and its rate, from the order check`, async ({
   page,
 }) => {
   const who = await fundedTrader(page, 'js10', '5000');
@@ -269,7 +273,7 @@ test(`${J} #1 previews a maker limit and a taker market: the fee line names the 
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
 });
 
-test(`${J} #2 opens the public fee page: maker and taker by pair group and tier, a blank one "not set", the network fee apart`, async ({
+test(`${J}, part of #2, checked on today's custodial desk: opens the public fee page: maker and taker by pair group and tier, a blank one "not set", the network fee apart`, async ({
   page,
 }) => {
   await publish(SCHEDULE, 'TEST schedule by pair group and tier');
@@ -302,7 +306,9 @@ test(`${J} #2 opens the public fee page: maker and taker by pair group and tier,
   }
 });
 
-test(`${J} #3 orders on a market whose fee is blank: refused "Fee schedule not set" before anything is held`, async ({ page }) => {
+test(`${J}, part of #3, checked on today's custodial desk: orders on a market whose fee is blank: refused "Fee schedule not set" before anything is held`, async ({
+  page,
+}) => {
   // Two schedule versions (blank, then restored) on top of the desk.
   test.setTimeout(180_000);
   const who = account();
@@ -343,7 +349,7 @@ test(`${J} #3 orders on a market whose fee is blank: refused "Fee schedule not s
   }
 });
 
-test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a maker rebate on the other, never a negative fee`, async ({
+test(`${J}, part of #4, checked on today's custodial desk: fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a maker rebate on the other, never a negative fee`, async ({
   page,
 }) => {
   // A schedule version (and its restore) on top of two fills and two desks.
@@ -382,6 +388,13 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     await tab(page, 'Limit').click();
     await page.getByRole('combobox', { name: 'Time in force' }).click();
     await page.getByRole('option', { name: 'Post only', exact: true }).click();
+    // The TEST maker re-quotes every 8 s cycle and its walk moves up to 12 bps, more than half its spread, so a buy priced
+    // midway can meet its next ask and the post-only is refused instead of resting: in runs 42438858355 and 42439927846
+    // fillsOf found no fill of it, and the second run's desk showed it neither resting nor filled (5,000 USDT free, 0 IFC).
+    // Held, the maker's ladder rests as it is and its taker sends nothing, so only this step's own sell meets the buy.
+    // Timed from before the ask, as the hold's own lapse is (it is asked, then waits for a cycle to pass).
+    const heldAt = Date.now();
+    tool('local-test-market.mjs', 'hold', 'IFC/USDT');
     const { bid, ask: ifcAsk } = await bestPrices('IFC/USDT');
     // Inside the spread, so it rests ahead of the house bids and a crossing sell reaches it first.
     const price = fromUnits(toUnits(bid) + ((toUnits(ifcAsk) - toUnits(bid)) / 2n / 10n ** 14n) * 10n ** 14n);
@@ -405,6 +418,9 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     const id = placed.body.id;
 
     await sellInto(who, { id, price, amount }, `${J}-4-${id}`);
+    // The hold lapses HOLD_MAX_MS after it was asked for; the price read, the placement and the sell must all fall inside
+    // it, or the maker's walk was back on and this step proved nothing about the race it guards. Fail and say so.
+    expect(Date.now() - heldAt, 'the IFC/USDT hold lapsed before the sell met the buy').toBeLessThan(HOLD_MAX_MS);
 
     // Every fill of the order: a maker, no fee, and a rebate in the USDT the maker paid, at 0.05% rounded down.
     const fills = await fillsOf(client, 'IFC/USDT', id);
@@ -441,6 +457,11 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
   } finally {
     await publish(SCHEDULE, 'IFC/USDT back in the default pair group');
   }
+});
+
+// Held for #4 only, passed or not: the next step's IFC/USDT book is quoted again.
+test.afterEach(() => {
+  if (test.info().title.startsWith(`${J} #4 `)) tool('local-test-market.mjs', 'release', 'IFC/USDT');
 });
 
 test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is excluded, and the next threshold`, async ({ page }) => {
@@ -504,7 +525,7 @@ test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is
   await expect(page.locator('[data-tier-page=thresholds-not-set]')).toHaveText('Thresholds not set. Every account is on the regular tier.');
 });
 
-test(`${J} #6 crosses the threshold during the day: the tier changes at the next snapshot, and its row shows the figures`, async ({
+test(`${J}, part of #6, checked on today's custodial desk: crosses the threshold during the day: the tier changes at the next snapshot, and its row shows the figures`, async ({
   page,
 }) => {
   // Two schedule versions, a fill, and a wait of up to three minutes for the snapshot.
@@ -858,10 +879,14 @@ test(`${J} part of #7 compliance decides in the founder console: the proof saved
 
     // B approves exactly that hash in Freezes & approvals; A applies it.
     await b.goto(`${ADMIN}/trade-ops/approvals`);
+    // The pending list loads after the page and lands above the form, moving "Approve request": act once it is in, or a
+    // press before it lands and a release after miss the button (J-cex-spot-17 #4, main run 42455893390, #7536).
+    await expect(b.getByRole('grid', { name: 'Approvals waiting for this operator' })).toBeVisible();
     await b.getByLabel('Approval id', { exact: true }).fill(approvalId);
     await b.getByLabel('Payload hash you reviewed').fill(payloadHash);
     await b.getByRole('button', { name: 'Approve request' }).click();
     const approveDialog = b.getByRole('alertdialog');
+    await expect(approveDialog).toBeVisible();
     await approveDialog.getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(approveDialog.locator('[data-outcome=ok]')).toBeVisible();
 
@@ -948,7 +973,9 @@ const TEST_LADDER = {
   ],
 };
 
-test(`${J} #9 chooses to pay trading fees in IFC: the published discount with its decay, the fee posting in IFC`, async ({ page }) => {
+test(`${J}, part of #9, checked on today's custodial desk: chooses to pay trading fees in IFC: the published discount with its decay, the fee posting in IFC`, async ({
+  page,
+}) => {
   // A ladder, a stake, a schedule version and its restore around one desk order.
   test.setTimeout(240_000);
   const who = account();

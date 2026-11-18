@@ -1,4 +1,5 @@
 // World: book, market, restart
+// Market: live
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, ROOT, api, bestPrices, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
@@ -625,11 +626,17 @@ function percentBps(percent) {
   return sign === '-' ? -bps : bps;
 }
 
-/** Wait until the BTC/USDT book's mid is past `limit` (`above` or `below`). */
+/**
+ * Wait until the BTC/USDT book's mid is past `limit` (`above` or `below`). A `move` is a jump: the maker takes its old
+ * ladder down before the new one goes up, and a cycle the stack's guard stops part-way (a trade restart, as #4's finally
+ * makes just before #5) can leave one side down until a later cycle. So a one-sided book is the price not there yet, waited
+ * out within this wait, not refused at `bestPrices`' own 15 s (#8436: #5's +7% left no ask for 15 s, and #6 and #7 then
+ * failed on the bot the file's teardown had stopped).
+ */
 async function untilMid(side, limit, waitMs = 60_000) {
   const until = Date.now() + waitMs;
   for (;;) {
-    const { bid, ask } = await bestPrices();
+    const { bid, ask } = await bestPrices('BTC/USDT', 50, Math.max(until - Date.now(), 0));
     const mid = (toUnits(bid) + toUnits(ask)) / 2n;
     if (side === 'above' ? mid > limit : mid < limit) return mid;
     if (Date.now() >= until) throw new Error(`the BTC/USDT mid ${fromUnits(mid)} is not ${side} ${fromUnits(limit)}`);

@@ -1,5 +1,7 @@
 # ADR: options / forex settlement asset law
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Accepted freeze — 2026-08-15 (D26-P0-05 sealed).** Shape from 2026-08-13 still binds. This freeze **names** the live set and the settlement asset as empty/unset so engines cannot invent a catalogue.
 **Decision owner:** repo owner (Denon). **Written by:** Denon.
 **Board:** D26-P0-05 — Options / forex settlement asset law.

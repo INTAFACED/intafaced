@@ -10,15 +10,23 @@
  *   green                move the `last-green` branch to this commit, never backwards, and close the open
  *                        "Main is red" issue when every red it names is this commit or older.
  *
+ * Every issue this opens carries its label from the moment it exists (RULING 7, project-state #2065): "Main is red"
+ * opens as `main-unknown-red` (a builder's pick 1) and main-bisect switches it to `regression` when it names the merge;
+ * a "Flaky on main: <test file>" issue is a unit test, no journey step, so it opens as `flaky-test`, which is no pick 1
+ * label (a journey step's flake is `flaky`, from post-merge-trust.mjs or tooling/ci/open-flaky.mjs).
+ *
  * Owner of a flaky test = the author of the last commit that touched the file (the PR is named in the issue),
  * unless tooling/ci/flaky-owners.json maps a path prefix to a GitHub login. Failures are confirmed by re-run
- * before anything acts on them; there is no quarantine and no skip.
+ * before anything acts on them; there is no quarantine and no skip. (The one set-aside is the machine's, for journey
+ * steps on main, never a money step: tooling/ci/journey-verdict.mjs.)
  *
- *   node tooling/ci/main-trust.mjs --self-test
  *   (CI) GH_TOKEN GITHUB_REPOSITORY RUN_ID RUN_ATTEMPT CONCLUSION HEAD_SHA node tooling/ci/main-trust.mjs
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { JOB_PROBES, RED_LABELS } from './bisect-main.mjs';
+import { refusalDetail } from './refusal.mjs';
 
 const GROUPS = ['apps', 'services', 'packages'];
 export const LAST_GREEN_BRANCH = 'last-green';
@@ -68,7 +76,7 @@ export function decide({ conclusion, attempt }) {
 }
 
 // ── GitHub API ────────────────────────────────────────────────────────────
-const API = 'https://api.github.com';
+export const API = 'https://api.github.com';
 async function gh(method, path, body) {
   const res = await fetch(`${API}${path}`, {
     method,
@@ -80,11 +88,11 @@ async function gh(method, path, body) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 403 || res.status === 429) {
-    // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop.
-    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
-  }
   const text = await res.text();
+  if (res.status === 403 || res.status === 429) {
+    // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop. GitHub's own reason goes in the stop line.
+    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying${refusalDetail(res.headers, text)}`);
+  }
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
@@ -98,20 +106,53 @@ async function failedStepNames(repo, runId, attempt) {
   return names;
 }
 
+/** The failed jobs of a run attempt that bisect-main.mjs can probe by their own command (JOB_PROBES). */
+async function failedProbedJobs(repo, runId, attempt) {
+  const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`);
+  return probedJobs(json?.jobs);
+}
+
+/** Pure: the names of failed or timed-out jobs that have a probe, sorted, once each. */
+export function probedJobs(jobs) {
+  const names = (jobs ?? [])
+    .filter((j) => j?.conclusion === 'failure' || j?.conclusion === 'timed_out')
+    .map((j) => j.name)
+    .filter((n) => Object.hasOwn(JOB_PROBES, n));
+  return [...new Set(names)].sort();
+}
+
 async function findOpenIssue(repo, title) {
   const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "${title}"`);
   const { json } = await gh('GET', `/search/issues?q=${q}&per_page=5`);
   return (json?.items ?? []).find((i) => i.title === title) ?? null;
 }
 
-async function upsertIssue(repo, title, body, assignee) {
+/** The label a unit test's "Flaky on main" issue opens with: not a journey step, so no pick 1 label. */
+export const UNIT_FLAKY_LABEL = 'flaky-test';
+
+/**
+ * The labels an open issue is missing: none when it already has one of `accepted` (a "Main is red" issue that the
+ * bisect switched to `regression` keeps it), else `labels`. Pure.
+ */
+export function missingLabels(have, labels, accepted = labels) {
+  const names = (have ?? []).map((l) => (typeof l === 'string' ? l : l?.name));
+  return accepted.some((l) => names.includes(l)) ? [] : labels;
+}
+
+/** Open the issue with its labels set in the same request, or comment on the open one and give it any it lacks. */
+async function upsertIssue(repo, title, body, { assignee, labels, accepted } = {}) {
   const existing = await findOpenIssue(repo, title);
   if (existing) {
     await gh('POST', `/repos/${repo}/issues/${existing.number}/comments`, { body });
+    const add = missingLabels(existing.labels, labels, accepted);
+    if (add.length) await gh('POST', `/repos/${repo}/issues/${existing.number}/labels`, { labels: add });
     return existing.number;
   }
-  const { json } = await gh('POST', `/repos/${repo}/issues`, { title, body, assignees: assignee ? [assignee] : [] });
-  return json?.number;
+  let made = await gh('POST', `/repos/${repo}/issues`, { title, body, labels, assignees: assignee ? [assignee] : [] });
+  // An owner GitHub can't assign (an App, a departed login) must not cost the issue: open it unassigned, labels kept.
+  if (made.status === 422 && assignee) made = await gh('POST', `/repos/${repo}/issues`, { title, body, labels });
+  if (made.status !== 201) throw new Error(`could not open "${title}": HTTP ${made.status}`);
+  return made.json?.number;
 }
 
 /** The commits an open "Main is red" issue names, from its body and the comments added by later reds. */
@@ -166,8 +207,8 @@ async function publishLastGreen(repo, sha) {
 }
 
 /** Start the bisect between the last green and this red commit. Needs a last-green branch that is an ancestor. */
-async function startBisect(repo, sha, tests) {
-  if (!tests.length) return 'bisect not started: no failing test file was named';
+async function startBisect(repo, sha, tests, jobs = [], runId = '') {
+  if (!tests.length && !jobs.length) return 'bisect not started: no failing test file or probed job was named';
   const cur = await gh('GET', `/repos/${repo}/git/ref/heads/${LAST_GREEN_BRANCH}`);
   if (cur.status !== 200) return `bisect not started: no ${LAST_GREEN_BRANCH} branch yet`;
   const good = cur.json.object.sha;
@@ -176,48 +217,12 @@ async function startBisect(repo, sha, tests) {
     return `bisect not started: ${LAST_GREEN_BRANCH} (${good.slice(0, 10)}) is ${cmp.json?.status} of ${sha.slice(0, 10)}`;
   const r = await gh('POST', `/repos/${repo}/actions/workflows/main-bisect.yml/dispatches`, {
     ref: 'main',
-    inputs: { good, bad: sha, tests: tests.join('\n') },
+    inputs: { good, bad: sha, tests: tests.join('\n'), jobs: jobs.join(','), red_run: String(runId) },
   });
   return r.status === 204 ? `bisect started between ${good.slice(0, 10)} and ${sha.slice(0, 10)}` : `bisect not started: HTTP ${r.status}`;
 }
 
-function selfTest() {
-  const eq = (got, want, m) => {
-    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
-  };
-  eq(decide({ conclusion: 'failure', attempt: 1 }), 'rerun', 'first red re-runs');
-  eq(decide({ conclusion: 'failure', attempt: 2 }), 'real-red', 'second red is real');
-  eq(decide({ conclusion: 'success', attempt: 2 }), 'green-after-rerun', 'green after re-run');
-  eq(decide({ conclusion: 'success', attempt: 1 }), 'green', 'plain green');
-  eq(decide({ conclusion: 'cancelled', attempt: 1 }), 'ignore', 'cancelled ignored');
-  eq(
-    redShas(['Main failed twice on `46b3f74801` (x)', 'Main failed twice on `46b3f74801`', 'Main failed twice on `abcdef1234`']),
-    ['46b3f74801', 'abcdef1234'],
-    'red shas, deduped',
-  );
-  eq(redShas([null, 'nothing here']), [], 'no red named');
-  eq(
-    [settlesRed(['ahead', 'identical']), settlesRed(['ahead', 'behind']), settlesRed(['diverged']), settlesRed([])],
-    [true, false, false, false],
-    'a green settles only reds at or behind it',
-  );
-  const resolve = (rel, pkgs) => (pkgs.includes('svc-protocol') ? 'services/svc-protocol' : 'packages/x');
-  eq(
-    failingTestPaths(
-      ['Run tests', 'Failing: Failed:    svc-protocol#test; FAIL  src/lending/a.onchain.test.ts > S > cascade; FAIL  src/b.test.ts > x;'],
-      resolve,
-    ),
-    ['services/svc-protocol/src/b.test.ts', 'services/svc-protocol/src/lending/a.onchain.test.ts'],
-    'parses the Failing step',
-  );
-  eq(failingTestPaths(['Why: AssertionError: x'], resolve), [], 'other steps ignored');
-  eq(ownerFor('services/svc-a/x.test.ts', { 'services/svc-a/': 'alice' }, 'bob'), 'alice', 'override wins');
-  eq(ownerFor('services/svc-b/x.test.ts', { 'services/svc-a/': 'alice' }, 'bob'), 'bob', 'last committer otherwise');
-  eq(ownerFor('x.test.ts', {}, null), null, 'unknown owner stays null');
-  console.log('✓ main-trust --self-test OK (12 fixtures)');
-}
-
-async function main() {
+export async function main() {
   const { GITHUB_REPOSITORY: repo, RUN_ID: runId, RUN_ATTEMPT, CONCLUSION, HEAD_SHA: sha } = process.env;
   if (!repo || !runId || !CONCLUSION || !sha) throw new Error('GITHUB_REPOSITORY, RUN_ID, CONCLUSION and HEAD_SHA are required');
   const attempt = Number(RUN_ATTEMPT || 1);
@@ -246,8 +251,12 @@ async function main() {
       '',
       '_Opened by tooling/ci/main-trust.mjs._',
     ].join('\n');
-    console.log(`opened or updated issue #${await upsertIssue(repo, 'Main is red', body)}`);
-    console.log(await startBisect(repo, sha, tests));
+    const red = await upsertIssue(repo, 'Main is red', body, {
+      labels: [RED_LABELS.untraced],
+      accepted: [RED_LABELS.untraced, RED_LABELS.traced],
+    });
+    console.log(`opened or updated issue #${red}`);
+    console.log(await startBisect(repo, sha, tests, await failedProbedJobs(repo, runId, attempt), runId));
     return;
   }
 
@@ -262,7 +271,9 @@ async function main() {
         '',
         '_Opened by tooling/ci/main-trust.mjs._',
       ].join('\n');
-      console.log(`flaky ${t}: issue #${await upsertIssue(repo, `Flaky on main: ${t}`, body, owner)}`);
+      console.log(
+        `flaky ${t}: issue #${await upsertIssue(repo, `Flaky on main: ${t}`, body, { assignee: owner, labels: [UNIT_FLAKY_LABEL] })}`,
+      );
     }
   }
 
@@ -270,9 +281,7 @@ async function main() {
   console.log(await closeSettledRed(repo, sha, runUrl));
 }
 
-if (process.argv.includes('--self-test')) {
-  selfTest();
-} else if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main().catch((e) => {
     console.error(`✖ main-trust: ${e.message}`);
     process.exit(1);

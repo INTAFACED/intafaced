@@ -201,7 +201,7 @@ if (!available) {
   beforeEach(async () => {
     await lockConn`select pg_advisory_lock(842671)`;
     await sql`
-      TRUNCATE agents.own_agent_surfaces, agents.own_agent_versions, agents.own_agent_co_owners, agents.own_agent_session_versions, agents.own_agent_eval_runs, agents.own_agent_eval_cases, agents.own_agents, agents.spend_reservations,
+      TRUNCATE agents.own_agent_background_runs, agents.own_agent_surfaces, agents.own_agent_versions, agents.own_agent_co_owners, agents.own_agent_session_versions, agents.own_agent_eval_runs, agents.own_agent_eval_cases, agents.own_agents, agents.spend_reservations,
                agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions
       RESTART IDENTITY CASCADE
     `;

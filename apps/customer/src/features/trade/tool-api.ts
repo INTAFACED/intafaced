@@ -80,6 +80,10 @@ export const copyFollowSchema = z.object({
   maxNotionalPerOrder: decimalSchema,
   maxAggregateExposure: decimalSchema,
   fixedOrderSize: decimalSchema.nullable().optional(),
+  /** How each copy is sized, and the follower's most per contract and per owner day (null when not set). */
+  sizingMode: z.enum(['fixed_amount', 'smart_sync']).optional(),
+  maxPerMarket: decimalSchema.nullable().optional(),
+  maxPerDay: decimalSchema.nullable().optional(),
   /** What this follow may use of the spot balance. A limit, not a hold: nothing moved when it was set. */
   reserve: z.object({ asset: z.string(), amount: decimalSchema, released: z.boolean() }).nullable().optional(),
   maxLoss: decimalSchema.nullable(),
@@ -214,7 +218,7 @@ export const positionPreviewSchema = z.object({
     .nullable()
     .optional(),
   orderable: z.boolean(),
-  refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
+  refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string(), venue: z.string().optional() })),
 });
 /** What can be converted now (`convert.pairs`): each coin with its per-conversion limit, null when none is set. */
 export const convertPairsSchema = z.object({

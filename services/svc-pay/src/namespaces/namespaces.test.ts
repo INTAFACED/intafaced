@@ -19,6 +19,7 @@ const isW15 = (path: string) =>
   path.startsWith('merchantStores.') ||
   path.startsWith('merchantCheckout.') ||
   path.startsWith('merchantCheckoutMethods.') ||
+  path.startsWith('merchantReceivingWallet.') ||
   path.startsWith('founderAdmin.ops.') ||
   path.startsWith('b2bRamp.') ||
   path.startsWith('merchant.customerEmails.') ||
@@ -45,6 +46,7 @@ const CALLS: Record<string, { founder: boolean; input: unknown }> = {
     input: { merchantId, from: '2026-10-01T00:00:00Z', to: '2026-10-08T00:00:00Z', bucket: 'day' },
   },
   'merchantMetrics.settlementAssets': { founder: false, input: { merchantId } },
+  'merchantMetrics.partnerTerms': { founder: false, input: { merchantId } },
   'conversion.quote': {
     founder: false,
     input: { merchantId, settlementId: id(), fromAsset: 'USD', toAsset: 'USDT', fromAmount: '10' },

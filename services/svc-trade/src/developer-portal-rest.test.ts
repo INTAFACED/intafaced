@@ -5,9 +5,11 @@
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import {
+  DEVELOPER_BOT_POLICY_PATH,
   DEVELOPER_DATA_TERMS_PATH,
   DEVELOPER_HOSTS_PATH,
   DEVELOPER_REGIONAL_RULE_PATH,
+  parseBotPolicy,
   parseDataTerms,
   parseDeveloperHosts,
   parseRegionalRule,
@@ -82,5 +84,28 @@ describe('developer portal values', () => {
     expect(() => parseRegionalRule('x'.repeat(1001))).toThrow(/TRADE_DEVELOPER_REGIONAL_RULE is malformed/);
     expect(parseRegionalRule('x'.repeat(1000))).toBe('x'.repeat(1000));
     expect(parseRegionalRule('\u{1F310}'.repeat(1000))).toBe('\u{1F310}'.repeat(1000));
+  });
+
+  it('the bot policy refuses until the owner publishes it, then answers its text; too long stops boot', async () => {
+    for (const raw of ['', '  \n ']) {
+      const app = Fastify();
+      registerDeveloperPortalRest(app, { hosts: null, dataTerms: null, regionalRule: null, botPolicy: parseBotPolicy(raw) });
+      const res = await app.inject({ method: 'GET', url: DEVELOPER_BOT_POLICY_PATH });
+      await app.close();
+      expect(res.statusCode).toBe(503);
+      expect(res.json().code).toBe('trade.developer_bot_policy_unset');
+    }
+    const app = Fastify();
+    registerDeveloperPortalRest(app, {
+      hosts: null,
+      dataTerms: null,
+      regionalRule: null,
+      botPolicy: parseBotPolicy(' TEST: bots may trade spot. '),
+    });
+    const res = await app.inject({ method: 'GET', url: DEVELOPER_BOT_POLICY_PATH });
+    await app.close();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ policy: 'TEST: bots may trade spot.' });
+    expect(() => parseBotPolicy('x'.repeat(4001))).toThrow(/TRADE_DEVELOPER_BOT_POLICY is malformed/);
   });
 });

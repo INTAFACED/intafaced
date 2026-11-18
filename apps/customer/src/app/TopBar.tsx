@@ -250,9 +250,9 @@ export function TopBar({
 }) {
   const { t } = shellCopy.useCopy();
   const { language, layoutMode } = usePreferences();
-  const { session, restoring } = useSession();
+  const { session } = useSession();
   useBannerOffset();
-  const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
+  const tabs = tabSpecs(layoutMode, Boolean(session));
   const here = typeof location === 'undefined' ? path : path + location.search;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   if (isMerchantArea(path))
@@ -285,9 +285,6 @@ export function TopBar({
               <ProfileChip />
               <AccountButton onSignOut={onSignOut} />
             </>
-          ) : restoring ? (
-            // The boot refresh has not answered: show neither the signed-in controls nor Log in / Sign up.
-            <span className="tb-restoring" aria-hidden="true" />
           ) : (
             <>
               <a className="tb-login" href={signIn}>
@@ -314,8 +311,8 @@ export function TopBar({
 export function MobileTabs({ door, language }: { door: Door | undefined; language: Parameters<typeof doorLabel>[1] }) {
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
-  const { session, restoring } = useSession();
-  const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
+  const { session } = useSession();
+  const tabs = tabSpecs(layoutMode, Boolean(session));
   return (
     <nav className="mobile-doors" data-obscures="bottom" aria-label={t('Customer doors on phone')}>
       {MOBILE_DOOR_ORDER.map((name) => tabs.find((tab) => tab.door === name)).flatMap((tab) =>

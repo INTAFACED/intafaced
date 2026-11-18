@@ -61,6 +61,34 @@ const day = (iso) => new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone
 const setIssueRule = (mode, delayMinutes = null) =>
   staff('admin.setCertIssueRule', { certId: CERT, mode, delayMinutes, reason: `TEST ${J}: issue rule ${mode}` });
 
+/**
+ * XP awarded through svc-identity's one award door (`rank.awardXp`, service-signed), as the modules that earn XP call it.
+ * A TEST stand-in for activity elsewhere: one key per person and purpose, so a retry awards nothing more.
+ */
+async function awardXp(userId, xpDelta, purpose) {
+  const { ctx } = await founders();
+  const raw = JSON.stringify({
+    userId,
+    sourceModule: 'local-test-stack',
+    action: 'test.xp_elsewhere',
+    xpDelta,
+    idempotencyKey: `${J}:xp-elsewhere:${userId}:${purpose}`,
+  });
+  const res = await fetch(`${ctx.url('identity')}/trpc/rank.awardXp`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await res.json().catch(() => null);
+  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data;
+}
+
 /** Founder A proposes, founder B approves, then A revokes: the two-founder rule for a revoke. */
 async function revoke(publicId) {
   const { gates, ctx, sessions, token } = await founders();
@@ -130,10 +158,25 @@ test(`${J} #1 the last required item completes the course; with a delay rule the
   const second = await context.newPage();
   const earner = await learnerUpToLast(second, 'ja5');
   const session = await api(earner.who);
+  // A TEST stand-in for the XP this learner earned elsewhere: it brings them to exactly the certificate's published XP
+  // short of their next rank, so step #5 can see the certificate raise the rank.
+  const foundationsXp = (await read(earner.who, 'certXpPlane')).policies.find((row) => row.certId === CERT)?.xpDelta;
+  expect(foundationsXp, 'the owner published an XP value for the Foundations certificate').toBeGreaterThan(0);
+  const fresh = (await session.get('/api/identity/trpc/rank.get')).body.result.data;
+  expect(fresh.nextRankAt, JSON.stringify(fresh)).not.toBeNull();
+  const topUp = Number(fresh.nextRankAt) - foundationsXp;
+  expect(topUp, JSON.stringify({ fresh, foundationsXp })).toBeGreaterThan(0);
+  await awardXp(fresh.userId, topUp, `${fresh.rank}`);
+  const rankBefore = (await session.get('/api/identity/trpc/rank.get')).body.result.data;
+  expect(rankBefore.rank).toBe(fresh.rank);
+  expect(rankBefore.nextRankAt).toBe(String(foundationsXp));
   run.reset({
     waiting: waiting.who,
     earner: earner.who,
-    xpBefore: (await session.get('/api/identity/trpc/rank.get')).body.result.data.xp,
+    xpBefore: rankBefore.xp,
+    // Step #5 compares the rank ladder and the perks after the certificate with these, read before it was issued.
+    rankBefore,
+    perksBefore: (await session.get('/api/identity/trpc/rank.perks')).body.result.data,
     balancesBefore: await session.balances(),
   });
   await completeLast(second, earner.last);
@@ -263,36 +306,93 @@ test(`${J} #4 the public verify page says valid with the issue date, revoked onc
 
 test(`${J} #5 after the certificate my rank shows the XP the owner published for it; no perk is invented and no balance moved`, async ({
   page,
+  browser,
 }) => {
-  const { earner, xpBefore, balancesBefore } = state('earner', 'balancesBefore');
+  test.setTimeout(180_000);
+  const { earner, xpBefore, rankBefore, balancesBefore } = state('earner', 'rankBefore', 'balancesBefore');
   await signIn(page, earner);
-  const policy = (await read(earner, 'certXpPlane')).policies.find((row) => row.certId === CERT);
   const session = await api(earner);
-  if (policy) {
-    // The owner published an XP value for this certificate: the rank ladder got exactly that much.
-    await expect
-      .poll(async () => BigInt((await session.get('/api/identity/trpc/rank.get')).body.result.data.xp) - BigInt(xpBefore), {
-        timeout: 30_000,
-      })
-      .toBe(BigInt(policy.xpDelta));
+  const rankNow = async () => (await session.get('/api/identity/trpc/rank.get')).body.result.data;
+  const perksNow = async () => (await session.get('/api/identity/trpc/rank.perks')).body.result.data;
+  // Both outcomes happen here. The owner published an XP value for the Foundations certificate this learner earned in #1;
+  // a programme certificate has none published, and this step issues one below.
+  const plane = await read(earner, 'certXpPlane');
+  expect(plane.emitEnabled, JSON.stringify(plane)).toBe(true);
+  const policy = plane.policies.find((row) => row.certId === CERT);
+  expect(policy, JSON.stringify(plane.policies)).toBeDefined();
+  expect(policy.xpDelta).toBeGreaterThan(0);
+
+  // With a published value: the rank ladder got exactly that much XP, lifetime and season.
+  await expect.poll(async () => BigInt((await rankNow()).xp) - BigInt(xpBefore), { timeout: 30_000 }).toBe(BigInt(policy.xpDelta));
+  const rank = await rankNow();
+  expect(BigInt(rank.seasonXp) - BigInt(rankBefore.seasonXp)).toBe(BigInt(policy.xpDelta));
+  const perks = await perksNow();
+  // #1 left this learner exactly the certificate's XP short of the next rank, so the certificate raised the rank by one.
+  expect(rankBefore.nextRankAt).toBe(String(policy.xpDelta));
+  expect(rank.rank).toBe(rankBefore.rank + 1);
+  // No perk is invented: the raised rank holds exactly the perks identity gives that rank to a TEST person who reached it
+  // with XP from elsewhere and no certificate at all.
+  const context = await browser.newContext({ baseURL: ORIGIN });
+  const other = await context.newPage();
+  const control = await signUp(other, 'ja5c');
+  await verify(other, control);
+  await signIn(other, control);
+  const controlSession = await api(control);
+  const controlRank = async () => (await controlSession.get('/api/identity/trpc/rank.get')).body.result.data;
+  for (let climbed = await controlRank(); climbed.rank < rank.rank; climbed = await controlRank()) {
+    expect(climbed.nextRankAt, JSON.stringify(climbed)).not.toBeNull();
+    await awardXp(climbed.userId, Number(climbed.nextRankAt), `control-${climbed.rank}`);
   }
-  const rank = (await session.get('/api/identity/trpc/rank.get')).body.result.data;
-  // With no XP published for it, the certificate left the rank ladder where it was.
-  if (!policy) expect(rank.xp).toBe(xpBefore);
+  expect((await controlRank()).rank).toBe(rank.rank);
+  expect(perks).toEqual((await controlSession.get('/api/identity/trpc/rank.perks')).body.result.data);
+  await context.close();
+
   await page.goto('/academy/certificates');
   await certCard(page).getByRole('button', { name: 'View certificate', exact: true }).click();
   const xp = page.locator(`[data-certificate-sheet="${CERT}"]`).getByTestId('certificate-xp');
   await expect(xp.getByTestId('certificate-xp-text')).toHaveText(
-    policy
-      ? `This certificate is worth ${policy.xpDelta} XP on your rank. Perks come with your rank, not with the certificate.`
-      : 'This certificate carries no XP: no XP value is published for it, so your rank and perks did not change.',
+    `This certificate is worth ${policy.xpDelta} XP on your rank. Perks come with your rank, not with the certificate.`,
   );
   await xp.getByRole('link', { name: 'See your rank', exact: true }).click();
   await expect(page).toHaveURL(/\/uc\/account$/);
-  // The rank page shows the lifetime XP the ladder holds now.
-  const lifetime = page.getByTestId('rank-perks').locator('dt', { hasText: 'Lifetime XP' }).locator('xpath=following-sibling::dd[1]');
-  await expect(lifetime).toHaveText(new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(BigInt(rank.xp)));
-  // A certificate never posts to the ledger.
+  // The rank page shows the rank and lifetime XP the ladder holds now, and the fee perk the identity service reads for it.
+  const panel = page.getByTestId('rank-perks');
+  const lifetime = panel.locator('dt', { hasText: 'Lifetime XP' }).locator('xpath=following-sibling::dd[1]');
+  const fee = panel.locator('.rank-perks__rows dt').first().locator('xpath=following-sibling::dd[1]');
+  const whole = (n) => new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(BigInt(n));
+  await expect(panel.locator('.rank-perks__number')).toHaveText(`Rank ${rank.rank}`);
+  await expect(lifetime).toHaveText(whole(rank.xp));
+  await expect(fee).toHaveText(`${perks.feeDiscountBps / 100}%`);
+
+  // With no published value: staff publish a programme of the course this learner finished, and the learner's programme
+  // read issues its certificate. No XP value is published for it, so it gives no XP and no perk.
+  const slug = `test-j05x-${Date.now().toString(36)}`;
+  const certId = `programme:${slug}`;
+  await staff('admin.saveProgramme', {
+    slug,
+    title: `TEST J-academy-05 no-XP programme ${slug.slice('test-j05x-'.length)}`,
+    summary: 'TEST Foundations only, with no XP value published.',
+    courseSlugs: [COURSE],
+    expectedRevision: null,
+    reason: `TEST ${J}: a certificate with no XP value published`,
+  });
+  expect((await read(earner, 'certXpPlane')).policies.find((row) => row.certId === certId)).toBeUndefined();
+  const mine = (await read(earner, 'programmes', { limit: 50, mine: true })).find((row) => row.slug === slug);
+  expect(mine?.certificate.state, JSON.stringify(mine)).toBe('earned');
+  // Give any XP event time to land before reading the ladder: it must not have moved at all.
+  await page.waitForTimeout(5_000);
+  const after = await rankNow();
+  expect(after.xp).toBe(rank.xp);
+  expect(after.seasonXp).toBe(rank.seasonXp);
+  expect(after.rank).toBe(rank.rank);
+  expect(after.nextRankAt).toBe(rank.nextRankAt);
+  expect(await perksNow()).toEqual(perks);
+  await page.reload();
+  await expect(panel.locator('.rank-perks__number')).toHaveText(`Rank ${rank.rank}`);
+  await expect(lifetime).toHaveText(whole(rank.xp));
+  await expect(fee).toHaveText(`${perks.feeDiscountBps / 100}%`);
+
+  // A certificate never posts to the ledger: neither certificate moved a balance.
   expect(await session.balances()).toEqual(balancesBefore);
   // Put the issue rule back as it was before this journey.
   await setIssueRule('manual');

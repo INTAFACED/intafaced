@@ -153,6 +153,31 @@ describe('dataStatus: the chip names the real state of the data', () => {
     expect(dataStatus(inputs({ candles: failed })).chip).toBe('down');
     expect(dataStatus(inputs({ candles: { status: 'ready', data: [], asOf: NOW - 60_000 } })).chip).toBe('stale');
   });
+
+  it('our own outage (candles, state and book all unread) reads Down or Stale with the last tick seen, and refuses order entry', () => {
+    const outage = { lifecycle: failed, bookHalt: failed, lastTrade: failed, lastTradeSeenMs: NOW - 40_000 };
+    expect(dataStatus(inputs({ ...outage, candles: failed }))).toMatchObject({
+      chip: 'down',
+      orderEntry: 'refused',
+      lastTradeMs: NOW - 40_000,
+    });
+    const old = { status: 'ready' as const, data: [], asOf: NOW - 60_000 };
+    expect(dataStatus(inputs({ ...outage, candles: old }))).toMatchObject({ chip: 'stale', orderEntry: 'refused' });
+    expect(dataStatus(inputs({ lifecycle: open, bookHalt: failed, candles: failed })).chip).toBe('down');
+  });
+
+  it('an unread state with candles still current stays refused as unavailable, never Down or live', () => {
+    expect(dataStatus(inputs({ lifecycle: failed })).chip).toBe('lifecycle_unavailable');
+  });
+
+  it('a halted market stays halted when the feed stops: only an unread state gives way to the feed', () => {
+    const halted = ready({ state: 'HALTED', effectiveAt: NOW, evidenceRefs: [] });
+    expect(dataStatus(inputs({ lifecycle: halted, candles: failed })).chip).toBe('halted');
+  });
+
+  it('a kept last tick never makes the chart live: an unread tape is tick unread', () => {
+    expect(dataStatus(inputs({ lastTrade: failed, lastTradeSeenMs: NOW - 1_000 })).chip).toBe('tick_unread');
+  });
 });
 
 describe('tradeRefusal: one rule for the chip and the trade link', () => {

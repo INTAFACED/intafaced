@@ -1,5 +1,7 @@
 # ADR: who may call whom, for the service-access calls left open on 2026-10-22
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about staff holds over a customer's available and held balances applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** accepted 2026-10-22. Decided by an agent on security and least-privilege grounds under the project's rule that technical calls do not wait on the owner. The svc-dex sign-in call (section 3.2) was put to the owner, who chose the recommended option on 2026-10-22.
 **Date:** 2026-10-22
 **Area:** service-to-service identity (`packages/contracts/src/service-keys.ts`), the ledger post allowlist and door lists (`services/svc-ledger/src/caller-allowlist.ts`, `door-callers.ts`), the Edge route table and admin routes (`services/svc-edge/src/routes.ts`, `admin-api.ts`), and the cross-service reads named below.

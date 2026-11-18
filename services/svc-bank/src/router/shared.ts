@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ExtraControlsPort } from '../safety/extra-controls.js';
 import { TRPCError } from '@intafaced/contracts';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';
 import { BankError } from '../errors.js';
@@ -251,10 +252,34 @@ export const spaceOutput = z.object({
   unlockRequestedAt: z.string().nullable(),
   /** Set when this pot pays the person's bills (BK-pots-03): whether a standing order from it tops it up from the account. */
   billsPot: z.object({ fallback: z.boolean() }).nullable(),
-  /** Read from the ledger at request time. Not stored, not cached. */
+  /** Read from the ledger at request time, or from the partner bank when it holds this money. Not stored, not cached. */
   balance: amountString,
-  /** The ledger account this space is a view of — so a client can verify us. */
-  ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }),
+  /**
+   * The ledger account this space is a view of — so a client can verify us. Null when the partner bank holds this money
+   * (OWNER 226): no ledger account holds it, and `heldAt` says whose figure the balance is.
+   */
+  ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }).nullable(),
+  /**
+   * Set when the partner bank holds this money: its label (TEST on the TEST partner), the partner's own time for the
+   * balance, and the displayed figure (b2 change 6): `known`, or `stale` when older than the partner's declared limit.
+   * An unknown figure is never sent: the read refuses `bank.partner_balance_not_known`.
+   */
+  heldAt: z
+    .object({
+      label: z.string(),
+      asOf: z.string().datetime(),
+      figure: z
+        .object({
+          state: z.enum(['known', 'stale']),
+          source: z.string(),
+          amount: amountString,
+          asOf: z.string().datetime(),
+          staleAfterMs: z.number().int().positive(),
+          reason: z.null(),
+        })
+        .strict(),
+    })
+    .nullable(),
 });
 
 /**
@@ -292,6 +317,13 @@ export type BankRouterOptions = {
    * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
+  /**
+   * Strong customer authentication for a business statement that reaches back past the partner's age for it (J-bank-23
+   * #3). Always required, whatever the money-out rule says: omitted, it fails closed (`bank.step_up_unavailable`).
+   */
+  statementStepUp?: StepUpGate;
+  /** The person's own step-up extras (BK-safe-01), read per send to another person. Omitted: no extras are checked (router tests). */
+  extraControls?: ExtraControlsPort;
   /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
   loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
 };
@@ -327,3 +359,40 @@ export const heldSendOutput = z.object({
   createdAt: z.string().datetime(),
   decidedAt: z.string().datetime().nullable(),
 });
+
+/**
+ * The card partner's figures for one cardholder and asset, as it reports them (OWNER 226; `cards/partner-card-holds.ts`).
+ * `test` is true on the TEST partner card. Each null is "not known", never 0.
+ */
+export const partnerFiguresOutput = z
+  .object({
+    test: z.boolean(),
+    mode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
+    assetId: z.string(),
+    available: z.string().nullable(),
+    held: z.string().nullable(),
+  })
+  .strict();
+
+/** One partner-held hold as the card partner reports it now. */
+export const partnerHoldReportOutput = z
+  .object({
+    test: z.boolean(),
+    partnerRef: z.string(),
+    mode: z.enum(['partner_holds', 'wallet_pull']),
+    status: z.enum(['held', 'captured', 'released', 'expired']),
+    amount: z.string(),
+    captured: z.string(),
+    released: z.string(),
+    refunded: z.string(),
+    open: z.string(),
+    expiresAt: z.string().nullable(),
+    /** The asset the partner holds it in, when it says. */
+    assetId: z.string().optional(),
+    /** A hold by a pay-from order (J-bank-29): the merchant's amount, the partner's rate and the rate's time. */
+    conversion: z
+      .object({ settlementAssetId: z.string(), settlementAmount: z.string(), rate: z.string(), rateAsOf: z.string() })
+      .strict()
+      .optional(),
+  })
+  .strict();

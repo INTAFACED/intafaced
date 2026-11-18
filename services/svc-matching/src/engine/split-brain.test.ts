@@ -50,7 +50,7 @@ function order(spec: { id: string; account?: string; side: OrderSide; qty: strin
 function build() {
   const journal = new MemoryJournal();
   const bus = new MemoryEventBus('svc-matching');
-  const engine = new MatchingEngine({ journal, bus, snapshotEvery: 0 }) as unknown as SplitBrainHost;
+  const engine = new MatchingEngine({ journal, bus, snapshotEvery: 0 }) as SplitBrainHost;
   return { journal, bus, engine };
 }
 
@@ -127,7 +127,7 @@ describe('split-brain fence — PX-S03', () => {
       journal,
       bus: new MemoryEventBus('svc-matching'),
       snapshotEvery: 0,
-    }) as unknown as SplitBrainHost;
+    }) as SplitBrainHost;
     await recovered.recover();
 
     expect(recovered.isSplitBrain).toBe(true);
@@ -148,7 +148,7 @@ describe('split-brain fence — PX-S03', () => {
       journal,
       bus: new MemoryEventBus('svc-matching'),
       snapshotEvery: 0,
-    }) as unknown as SplitBrainHost;
+    }) as SplitBrainHost;
     await recovered.recover();
     expect(recovered.isSplitBrain).toBe(false);
 

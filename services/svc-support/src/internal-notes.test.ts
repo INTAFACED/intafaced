@@ -105,6 +105,19 @@ const READS_A_REQUEST = [
  * `listComments`, and `guest-requests.pg.test.ts` proves a staff note is not in it.
  */
 const READS_BY_GUEST_LINK = ['guestThread', 'guestReply'] as const;
+/**
+ * Live chat (SP-chat-01): these read a chat session (its own messages), never a request or a comment, so a staff note is
+ * in none of them. The request a closed chat becomes is read through `get` and `listComments` above.
+ */
+const READS_A_CHAT = [
+  'chatAvailability',
+  'chatIdentityToken',
+  'chatOpen',
+  'chatSend',
+  'chatPoll',
+  'chatClose',
+  'chatContinueByEmail',
+] as const;
 /** These read no request and no comment: help centre, knowledge base, forms, desk settings and a guest's submission. */
 const READS_NO_REQUEST = [
   'guestCreate',
@@ -123,19 +136,29 @@ const READS_NO_REQUEST = [
   'deskPolicy',
   'kbPolicy',
   'categories',
+  'officialChannels',
   'create',
   'listKb',
   'searchKb',
   'getKb',
   'kbFeedback',
   'kbRelated',
+  // A complaint or bereavement report opens a request as `create` does, and answers only its acknowledgement: id, kind,
+  // ticket id, reference, time and deadline (`supportSafetyAcknowledgementSchema`), never a comment (J-bank-18 #5 #6).
+  'safety.complain',
+  'safety.reportBereavement',
+  'safety.mine',
+  // A scam report answers the same acknowledgement with its case note, written by the service from the report's own
+  // words, never a staff note; the money mule policy is the owner's published text (J-bank-18 #3).
+  'safety.reportScam',
+  'safety.mulePolicy',
 ] as const;
 
 describe('internal notes', () => {
   it('the lists above are every procedure a customer token reaches', async () => {
     const { router, customer } = await desk();
     const reachable: string[] = [];
-    for (const path of Object.keys((router as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures)) {
+    for (const path of Object.keys((router as { _def: { procedures: Record<string, unknown> } })._def.procedures)) {
       const call = (customer as unknown as Record<string, (input: unknown) => Promise<unknown>>)[path]!;
       const refused = await call({}).then(
         () => null,
@@ -143,7 +166,7 @@ describe('internal notes', () => {
       );
       if (refused !== 'FORBIDDEN') reachable.push(path);
     }
-    expect(reachable.sort()).toEqual([...READS_A_REQUEST, ...READS_BY_GUEST_LINK, ...READS_NO_REQUEST].sort());
+    expect(reachable.sort()).toEqual([...READS_A_REQUEST, ...READS_BY_GUEST_LINK, ...READS_A_CHAT, ...READS_NO_REQUEST].sort());
   });
 
   it('a note is in no answer a customer procedure gives, and moves nothing the customer reads', async () => {

@@ -1,4 +1,4 @@
-// World: stack
+// World: market, stack
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, api as account, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api as account, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-11, in the running app (docs/roadmap/journeys.json): I repay and close my loan. Step 1 (BK-loan-06): the loan's
@@ -203,6 +204,12 @@ test(`${J} #2 repays TEST 50: the interest owed first, then principal; the loan 
   expect(before).toMatchObject({ outstandingPrincipal: '100', status: 'active', collateral: '0.01' });
   const owed = toUnits(before.outstandingInterest);
   expect(owed).toBeGreaterThan(0n);
+  // The LTV is marked at svc-trade's BTC/USDT ticker (svc-bank `tickerPriceSource`), which the TEST maker walks up to
+  // 12 bps every 8 s cycle, so the screen's reading and a later API reading could be a tick apart (7.73% shown, 7.74%
+  // read, in run 42462599553). Held, the maker's ladder rests as it is and its taker sends nothing, so both LTVs here
+  // and the one the screen shows are marked at one price. Timed from before the ask, as the hold's own lapse is.
+  const heldAt = Date.now();
+  tool('local-test-market.mjs', 'hold', 'BTC/USDT');
   const ltvBefore = await ltvNow(api, loanId);
 
   await signIn(page, who);
@@ -230,8 +237,17 @@ test(`${J} #2 repays TEST 50: the interest owed first, then principal; the loan 
   // The loan reads again without a refresh: the new principal, and a lower LTV on the same collateral.
   await expect(record).toContainText(`${remaining} USDT`, { timeout: 30_000 });
   const ltvAfter = await ltvNow(api, loanId);
+  // The hold lapses HOLD_MAX_MS after it was asked for; both readings and the screen's must fall inside it, or the walk
+  // was back on and the comparison proved nothing on one price. Fail and say so.
+  expect(Date.now() - heldAt, 'the BTC/USDT hold lapsed before the LTV was read again').toBeLessThan(HOLD_MAX_MS);
   expect(ltvAfter).toBeLessThan(ltvBefore);
   await expect(record.getByRole('region', { name: `Risk for loan ${loanId}` })).toContainText(`${ltvAfter / 100}%`, { timeout: 30_000 });
+  expect(Date.now() - heldAt, 'the BTC/USDT hold lapsed before the screen showed the LTV').toBeLessThan(HOLD_MAX_MS);
+});
+
+// Held for #2 only, passed or not: the next step's BTC/USDT book is quoted again.
+test.afterEach(() => {
+  if (test.info().title.startsWith(`${J} #2 `)) tool('local-test-market.mjs', 'release', 'BTC/USDT');
 });
 
 test(`${J} #3 loses the reply and sends the same repayment again: the bank collects it once and answers with the first result`, async ({

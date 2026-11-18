@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { createProtocolEscrowReader, parseContractEscrowTokens } from './contract-escrow.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -22,6 +23,7 @@ import { describeLimits, limitsConfigured, offerLimitsFromEnv, offerLimitsPostur
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
+import { createIdentityCounterpartyState, unconfiguredCounterpartyState } from './counterparty-state.js';
 import type { MerchantStatus } from './merchant-programme.js';
 import { programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
 import { MerchantService } from './merchant-service.js';
@@ -150,10 +152,12 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   tradingEnabled: env.P2P_TRADING_ENABLED,
   offerLimits,
   appealReviewHours: env.P2P_APPEAL_REVIEW_HOURS,
+  followerNoticesPerDay: env.P2P_FOLLOWER_NOTICES_PER_DAY,
   reviewEditWindowSeconds: env.P2P_REVIEW_EDIT_WINDOW_SECONDS,
   exportPolicy: {
     maxRangeDays: env.P2P_EXPORT_MAX_RANGE_DAYS,
     maxRows: env.P2P_EXPORT_MAX_ROWS,
+    exportDailyQuota: env.P2P_EXPORT_DAILY_QUOTA,
     receiptDailyQuota: env.P2P_RECEIPT_DAILY_QUOTA,
     receiptPerTradeQuota: env.P2P_RECEIPT_PER_TRADE_QUOTA,
   },
@@ -169,6 +173,10 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   merchantStatusOf: async (userId: string): Promise<MerchantStatus | null> => (await merchants.get(userId))?.status ?? null,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
+  // #4689: a take asks identity whether the ad's maker may trade. Without IDENTITY_URL nobody can say, so every take refuses.
+  counterpartyState: env.IDENTITY_URL
+    ? createIdentityCounterpartyState(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
+    : unconfiguredCounterpartyState(),
   verificationLimits: parseVerificationLimits(env.P2P_VERIFICATION_LIMITS),
   securityChangeLockSeconds: env.P2P_SECURITY_CHANGE_LOCK_SECONDS,
   takeLimits: {
@@ -240,6 +248,13 @@ const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
 const releaseStepUp = createReleaseStepUp({ sql, approvals: actionApprovals });
 const instrumentStepUp = createInstrumentStepUp({ sql, approvals: actionApprovals });
 
+// RC-p2p-02: the contract escrow reads svc-protocol as the person of the request; blank owner values refuse by name.
+const contractEscrow = {
+  tokens: parseContractEscrowTokens(env.P2P_CONTRACT_ESCROW_TOKENS),
+  disputeWindowSeconds: env.P2P_CONTRACT_ESCROW_DISPUTE_WINDOW_SECONDS ?? null,
+  reader: env.PROTOCOL_URL ? createProtocolEscrowReader({ protocolUrl: env.PROTOCOL_URL }) : null,
+};
+
 export const appRouter = createP2pRouter(
   p2p,
   instruments,
@@ -256,6 +271,7 @@ export const appRouter = createP2pRouter(
     takeStepUp,
     releaseStepUp,
     instrumentStepUp,
+    contractEscrow,
     // The other side of an order by their handle; without IDENTITY_URL reputation.get says the profile is unwired.
     ...(env.IDENTITY_URL ? { publicProfile: createIdentityPublicProfile(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) } : {}),
   },
@@ -361,6 +377,11 @@ async function sweep(): Promise<void> {
       app.log.error({ err, sweep: 'offer_paused' }, 'p2p ad-paused notice sweep failed — makers may not be told yet');
       return { sent: 0, failures: [] };
     });
+    // Followed-trader notices (a new ad) the fast path did not hand over, on their own catch likewise.
+    const followers = await p2p.sweepFollowerNotices(100).catch((err: unknown) => {
+      app.log.error({ err, sweep: 'follower_notice' }, 'p2p followed-trader notice sweep failed — followers may not be told yet');
+      return { sent: 0, failures: [] };
+    });
     // Remark-case notices (a reported payment note) the fast path did not hand over, on their own catch likewise.
     const remarks = await p2p.sweepRemarkCases(100).catch((err: unknown) => {
       app.log.error({ err, sweep: 'remark_case' }, 'p2p remark-case notice sweep failed — reported parties may not be told yet');
@@ -394,6 +415,12 @@ async function sweep(): Promise<void> {
     }
     for (const f of pauses.failures) {
       app.log.error({ ...f, sweep: 'offer_paused' }, 'p2p ad-paused notice could not be handed to the bus — the maker is not told yet');
+    }
+    for (const f of followers.failures) {
+      app.log.error(
+        { ...f, sweep: 'follower_notice' },
+        'p2p followed-trader notice could not be handed to the bus — the follower is not told yet',
+      );
     }
     for (const f of remarks.failures) {
       app.log.error(

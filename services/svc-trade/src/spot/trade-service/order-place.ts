@@ -15,6 +15,7 @@ import { isPlacedForThem } from '../fee-tier-store.js';
 import { ifcFeeAtPlacement, sameFeeCurrency, type IfcPlacement } from '../fee-ifc.js';
 import {
   assertMarketOpen,
+  assertOutsideOpeningWindow,
   assertNotional,
   assertPrice,
   assertQty,
@@ -153,7 +154,12 @@ export async function placeOrderInner(
   // cannot create new value and remains recoverable during an authority
   // outage. A fresh PLACE/PLACE_POST_ONLY must have explicit authority,
   // dossier, session, risk, and matching readiness evidence.
-  const lifecycleProof = await svc.assertLifecycleAction(market, tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE', orderType);
+  // A position close passes no order type: limit-only keeps CLOSE, and the close is protection-priced like any market order.
+  const lifecycleProof = await svc.assertLifecycleAction(
+    market,
+    tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE',
+    input.positionClose === true ? undefined : orderType,
+  );
 
   // The per-kind half of the kill-switch. `TRADE_SPOT_ENABLED` is the spot
   // plane's switch and stays exactly that — it does not halt futures, and
@@ -184,6 +190,8 @@ export async function placeOrderInner(
   // to rest a funded order until Monday). Read the clock ONCE so this request
   // cannot straddle a session boundary and get two answers.
   assertMarketOpen(market, svc.now());
+  // A new listing in its opening window takes limit orders only; a position close is a market order and is refused too.
+  assertOutsideOpeningWindow(market, orderType, svc.now());
 
   // The fee tier is read once, here, and carried in the admitted payload like the rank perks: the row keeps it and a
   // tier snapshot taken after this never re-prices the order. The house market maker and a sub-account have no tier of

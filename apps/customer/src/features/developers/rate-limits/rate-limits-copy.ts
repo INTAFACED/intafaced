@@ -1,0 +1,89 @@
+import { defineCopy } from '../../../shared/i18n';
+
+// The rate-limits page's words (/developers/rate-limits, DV-limits-01 to 03). Every number on the page comes from the
+// services: the tiers from svc-identity, the costs from the edge. None is written here.
+export const rateLimitsCopy = defineCopy('developers-rate-limits', {
+  lead: 'How many calls an API key may make, what each call costs, what a refused call tells you, and how to ask for more.',
+  modelTitle: 'How the limit works',
+  modelBucket:
+    'Each key has a bucket of tokens. The burst is the most the bucket holds, so it is how many calls of cost 1 the key can make at once. The bucket refills at a steady rate, the refill, up to the burst again.',
+  modelCost:
+    'Each call spends its route’s cost from the bucket. When the bucket holds less than the call’s cost, the call is refused with 429 and nothing is done.',
+  modelReplica: 'Each server counts on its own, and a restart fills every bucket again.',
+  liveNumbers:
+    'The tiers and the cost per route are set by the owner and read live, never written into these pages: the tiers from /api/identity/trpc/apiRateTiers and the costs from /api/edge/rate-limits/costs. The page /developers/rate-limits shows both.',
+  tiersTitle: 'Rate-limit tiers',
+  tiersUnset: 'No rate-limit tiers are set yet. Until they are, every call made with an API key is refused with edge.limits_unset.',
+  tiersFailed: 'The tiers could not be read.',
+  colTier: 'Tier',
+  colBurst: 'Burst (tokens)',
+  colRefillMinute: 'Refill per minute',
+  colRefillSecond: 'Refill per second',
+  tier_base: 'Base: every live key',
+  tier_sandbox: 'Sandbox: every sandbox key',
+  ceiling: 'The most one key may be granted: {count} calls a minute.',
+  ceilingUnset: 'The most one key may be granted is not set, so no higher limit can be granted.',
+  costsTitle: 'Cost per route',
+  costsLead:
+    'The first row that matches a call sets its cost. * stands for one part of the path, ** for the rest, and * as the method for any method.',
+  costsUnset: 'No route costs are set yet. Until they are, every call made with an API key is refused with edge.cost_unset.',
+  costsFailed: 'The cost table could not be read.',
+  colRoute: 'Route',
+  colCost: 'Cost (tokens)',
+  refusalTitle: 'A refused call',
+  refusalBody:
+    'A call over the limit is answered 429 with code edge.rate_limited. The body names the reason (global: the key’s bucket is spent; endpoint: the route costs more than the whole burst; concurrency: too many calls at once), retryAfterSeconds and the requestId to quote to support.',
+  refusalHeaders:
+    'The headers say the same: retry-after, x-ratelimit-reason, x-ratelimit-remaining (0), x-ratelimit-cost, x-ratelimit-limit and x-request-id. Every allowed call carries x-ratelimit-remaining and x-ratelimit-limit, so a program can slow down before it is refused.',
+  backoffTitle: 'Backing off after a 429',
+  backoffBody:
+    'Wait at least the retry-after seconds before the next try. If that try is refused too, back off exponentially: double the wait each time, up to a cap you choose, and add random jitter to each wait (any value between zero and the wait), so many clients refused together do not all retry at the same moment.',
+  backoffExample: 'For example: wait retry-after, then a random time up to 2 seconds, then up to 4, then up to 8, and so on.',
+  formTitle: 'Ask for a higher limit',
+  formLead:
+    'Ask for a higher refill for one of your live keys, and tell us when a spike in traffic is coming. A reviewer answers every request.',
+  formSignIn: 'Sign in to ask for a higher limit.',
+  formUnset: 'Limits not set: the owner has set no rate-limit tiers, so no higher limit can be asked for.',
+  formNoKeys: 'You have no live API keys to ask for.',
+  fieldKey: 'Key',
+  fieldAsked: 'Limit asked for (calls a minute)',
+  fieldAskedHint: 'More than the key’s refill now.',
+  fieldSpikeStarts: 'Spike starts',
+  fieldSpikeEnds: 'Spike ends',
+  fieldSpikeHint: 'Optional: both days, or neither.',
+  fieldNote: 'Why',
+  send: 'Send request',
+  sending: 'Sending…',
+  sent: 'Your request is recorded. A reviewer will answer it here.',
+  'refused.identity.rate_limits_unset': 'Limits not set: the owner has set no rate-limit tiers. Nothing was sent.',
+  'refused.identity.key_not_found': 'That key is not one of yours. Nothing was sent.',
+  'refused.identity.key_not_live': 'That key is revoked or past its end date. Nothing was sent.',
+  'refused.identity.limit_not_higher': 'Ask for more calls a minute than the key has now. Nothing was sent.',
+  'refused.identity.limit_key_sandbox': 'A sandbox key stays on the sandbox tier. Choose a live key. Nothing was sent.',
+  'refused.identity.limit_spike_invalid':
+    'Give both spike days, the first on or before the last, and the last not in the past. Nothing was sent.',
+  'refused.identity.limit_request_open': 'This key already has a request waiting for review. Nothing was sent.',
+  invalidAsked: 'Enter a whole number of calls a minute.',
+  requestsTitle: 'Your limit requests',
+  requestsEmpty: 'You have asked for no higher limit yet.',
+  requestsFailed: 'Your requests could not be read.',
+  colKey: 'Key',
+  colAsked: 'Asked (a minute)',
+  colHad: 'Had (a minute)',
+  colSpike: 'Spike',
+  colStatus: 'Status',
+  colAnswer: 'Answer',
+  spikeNone: 'No spike given',
+  spikeRange: '{from} to {to}',
+  status_waiting: 'Waiting for review',
+  status_granted: 'Granted',
+  status_granted_in_part: 'Granted in part',
+  status_refused: 'Refused',
+  answerGranted: 'Granted {count} calls a minute',
+  answerNone: '—',
+  asOf: 'As of {at}',
+  refresh: 'Refresh',
+  loading: 'Loading…',
+});
+
+export type RateLimitsCopyKey = Parameters<ReturnType<typeof rateLimitsCopy.useCopy>['t']>[0];

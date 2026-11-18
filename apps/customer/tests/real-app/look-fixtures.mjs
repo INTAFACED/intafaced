@@ -39,7 +39,14 @@ export const TRPC = {
   'identity:listSessions': () => sessions(),
   'identity:apiKeys.list': () => apiKeys(),
   // Home's owner values and every owner's work list: an established account owes nothing.
-  'ops:home.config': () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, noticeStripLimit: 3, revision: 1 }),
+  'ops:home.config': () => ({
+    workListCap: 5,
+    workListOrder: null,
+    searchResultCap: null,
+    noticeStripLimit: 3,
+    recentActivityLimit: 3,
+    revision: 1,
+  }),
   'workItems.list': () => ({ items: [] }),
   'notify:notify.alerts': () => alertList(),
   // bank
@@ -63,6 +70,8 @@ export const TRPC = {
   }),
   'bank:spaces.list': () => spaces(),
   'bank:business.list': () => [],
+  // The TEST account's money is not held at a partner, so Withdraw shows no partner holds (J-wallet-01 #3).
+  'bank:partnerHolds': () => ({ held: false }),
   // The bank pages its history, filters it by kind and direction and cuts it at the limit, as Home's one-line reads ask.
   'bank:activity.list': (input = {}) => {
     const page = input.cursor ? activityPage2() : activityPage1();

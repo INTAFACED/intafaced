@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
-import { Amount, Button, Skeleton, StateBlock, Switch, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
+import { Amount, Button, Skeleton, StateBlock, Switch, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy } from './deps';
 import { MissingCost, basisRefusalWords } from './MissingCost';
 import {
   LOT_METHODS,
@@ -11,7 +11,9 @@ import {
   lotAccounts,
   lotAssets,
   lotsOf,
+  lotAccountOf,
   spaceOf,
+  venueAccountOf,
   methodFromQuery,
   pickableLots,
   pnlFigures,
@@ -333,9 +335,15 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
         </thead>
         <tbody>
           {assets.map((a) => (
-            <tr key={a.asset} data-asset={a.asset}>
+            <tr key={`${a.venueAccount ?? 'main'}:${a.asset}`} data-asset={a.asset} data-venue={a.venueAccount}>
               <th scope="row">
                 {a.asset}
+                {a.venueAccount !== undefined ? (
+                  <span data-testid="money-note" className="money-note" data-label="venue">
+                    {' '}
+                    {t('In your venue account')}
+                  </span>
+                ) : null}
                 {a.otherQty !== '0' ? (
                   <span data-testid="money-note" className="money-note">
                     {' '}
@@ -720,13 +728,23 @@ function LotRows({
     else params.set('account', next);
     navigate(`/money/pnl?${params.toString()}`, true);
   };
-  const accountName = (spaceId: string | undefined): string => {
-    if (spaceId === undefined) return t('Main account');
+  const accountName = (key: string): string => {
+    if (key === 'main') return t('Main account');
+    if (key.startsWith('venue:')) {
+      const found = venueAccountOf(book, key);
+      const owner = found?.owner ?? key.split(':')[2] ?? key;
+      const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+      const sub = found?.subAccount ?? key.split(':')[3] ?? null;
+      if (sub) return t('Venue sub-account {owner} {sub}', { owner: short(owner), sub: short(sub) });
+      return t('Venue account {owner}', { owner: short(owner) });
+    }
+    const spaceId = key;
     const space = spaceOf(book, spaceId);
     if (space === null) return t('Space {name}', { name: spaceId });
     return space.archived ? t('Space archived {name}', { name: space.name }) : t('Space {name}', { name: space.name });
   };
-  const carried = book.lots.some((lot) => lot.carriedFrom !== undefined);
+  const carried = book.lots.some((lot) => lot.carriedFrom !== undefined && lot.venueAccount === undefined);
+  const carriedVenue = book.lots.some((lot) => lot.carriedFrom !== undefined && lot.venueAccount !== undefined);
   return (
     <section data-testid="money-card" className="money-card" aria-label={t('Lots')}>
       <header data-testid="money-card__head" className="money-card__head">
@@ -748,7 +766,7 @@ function LotRows({
               <option value="all">{t('All accounts')}</option>
               {accounts.map((id) => (
                 <option key={id} value={id}>
-                  {accountName(id === 'main' ? undefined : id)}
+                  {accountName(id)}
                 </option>
               ))}
             </select>
@@ -784,6 +802,11 @@ function LotRows({
       {carried ? (
         <p data-testid="money-note" className="money-note">
           {t('Carried rule')}
+        </p>
+      ) : null}
+      {carriedVenue ? (
+        <p data-testid="money-note" className="money-note">
+          {t('Carried rule venue')}
         </p>
       ) : null}
       {book.spaces !== undefined && book.spaces.status !== 'read' ? (
@@ -830,8 +853,8 @@ function LotRows({
                   </span>
                 )}
               </td>
-              <td data-col="account" data-space={lot.spaceId ?? 'main'}>
-                {accountName(lot.spaceId)}
+              <td data-col="account" data-space={lot.spaceId ?? 'main'} data-venue={lot.venueAccount}>
+                {accountName(lotAccountOf(lot))}
                 {lot.carriedFrom !== undefined ? (
                   <span data-testid="money-note" className="money-note" data-label="carried">
                     {' '}
@@ -882,6 +905,35 @@ function LotRows({
         {t('Term rule unset')}
       </p>
     </section>
+  );
+}
+
+/**
+ * The person's own venue accounts (J-cex-spot-01 #11): the venue's figures with its as-of time, TEST on a TEST venue, or
+ * that the venue could not be read just now. Nothing shows when the book holds no venue account.
+ */
+function VenueNotes({ book, copy }: { book: LotBook; copy: Copy }) {
+  const { t } = copy;
+  const { timeZone } = usePreferences();
+  const venue = book.venue;
+  if (venue?.status === 'unavailable')
+    return (
+      <p data-testid="money-note" className="money-note" data-refusal={venue.code}>
+        {t('Venue not read')} ({venue.code})
+      </p>
+    );
+  if (venue?.status !== 'read') return null;
+  const shown = new Set(book.lots.map((lot) => lot.venueAccount).filter((key) => key !== undefined));
+  return (
+    <>
+      {venue.accounts
+        .filter((a) => shown.has(a.account))
+        .map((a) => (
+          <p key={a.account} data-testid="money-note" className="money-note" data-venue={a.account} data-as-of={a.asOf}>
+            {t(venue.test ? 'Venue as of TEST' : 'Venue as of', { time: stamp(a.asOf, timeZone) })}
+          </p>
+        ))}
+    </>
   );
 }
 
@@ -991,8 +1043,11 @@ export default function Pnl({ search = '' }: { search?: string }) {
   } else if (
     book.status === 'empty' ||
     !view ||
-    // Coins held only in lots left out still show, with the switch that puts them back.
-    (book.data.assets.every((a) => a.openQty === '0' && a.uncountedQty === '0') && book.data.sales.length === 0)
+    // Coins held only in lots left out still show, with the switch that puts them back. A venue account that could not be
+    // read is not "no trades": the figures show as not known.
+    (book.data.assets.every((a) => a.openQty === '0' && a.uncountedQty === '0') &&
+      book.data.sales.length === 0 &&
+      book.data.venue?.status !== 'unavailable')
   ) {
     body = (
       <StateBlock
@@ -1113,6 +1168,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
       <p data-testid="money-note" className="money-note" data-indicator="true">
         {t('Pnl indicator label')}
       </p>
+      {book.status === 'ready' ? <VenueNotes book={book.data} copy={copy} /> : null}
       <MethodSwitch method={method} onChange={pick} copy={copy} />
       <p data-testid="money-note" className="money-note">
         {t('Pnl method rule')}

@@ -3,7 +3,7 @@ import { skipWords } from './FollowCopies';
 import { allowedActions, copyingSwitch, isCloseOnly, stateWord, type Follow } from './FollowDetail';
 
 const follow = (relationshipState: string) =>
-  ({ relationshipState, sessionKeyGranted: true, sessionKeyRevoked: false, permittedMarkets: ['BTC/USDT'] }) as unknown as Follow;
+  ({ relationshipState, sessionKeyGranted: true, sessionKeyRevoked: false, permittedMarkets: ['BTC/USDT'] }) as Follow;
 
 describe('a close-only follow (CB-copy-09)', () => {
   it('reads Stopping, cannot be paused, resumed or stopped again, and can still be left or closed out', () => {
@@ -29,10 +29,13 @@ describe('skipWords (CB-copy-11)', () => {
       'paused',
       'stopped',
       'lead_stopped',
+      'platform_paused',
       'risk_control',
       'insufficient_funds',
       'max_copy_total',
       'copy_slippage_exceeded',
+      'per_contract_cap',
+      'daily_cap',
       'position_closed',
       'refused',
     ];
@@ -40,6 +43,7 @@ describe('skipWords (CB-copy-11)', () => {
     expect(new Set(words).size).toBe(reasons.length);
     for (const w of words) expect(w).not.toMatch(/_|trade\./);
     expect(skipWords('paused')).toBe('You had paused this follow');
+    expect(skipWords('platform_paused')).toBe('Paused by the platform');
     expect(skipWords('trade.something_new')).toBe('The copy was refused');
   });
 });

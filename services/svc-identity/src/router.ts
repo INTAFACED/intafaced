@@ -1,3 +1,4 @@
+import { keyRateLimitSchema } from '@intafaced/contracts/api-rate-limits';
 import { SecurityLockError } from './auth/security-lock.js';
 import { SignInChallengeError, type SignInAdmission, type SignInChallengeService } from './auth/signin-challenge.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
@@ -8,6 +9,7 @@ import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/con
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
 import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
+import { TradingCheckError, type TradingChecksDesk } from './kyc/trading-checks.js';
 import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
 import { KycSelfieError, type KycSelfieDesk } from './kyc/selfie.js';
 import {
@@ -37,6 +39,11 @@ import {
   kycProfileUploadInputSchema,
 } from '@intafaced/contracts/identity-kyc-profile';
 import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
+import {
+  kycTradingChecksResultSchema,
+  kycTradingChecksRunInputSchema,
+  kycTradingChecksSchema,
+} from '@intafaced/contracts/identity-kyc-trading-checks';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
@@ -97,7 +104,9 @@ import {
   planAffiliatePayout,
   postAffiliatePayout,
 } from './affiliates/payout-engine.js';
+import { beneficiariesWhoCannotReceive } from './affiliates/account-standing.js';
 import { describeAffiliatesPolicy } from './affiliates/affiliates-policy.js';
+import { AffiliateProgrammeDepthUnsetError, requireProgrammeDepth } from './affiliates/programme-depth.js';
 import { ReferralError } from './affiliates/referral-tree.js';
 import { AffiliateMembersLimitUnsetError, type ReferralService } from './affiliates/referral-service.js';
 import { ShareError } from './affiliates/share-service.js';
@@ -105,6 +114,12 @@ import type { ShareService } from './affiliates/share-service.js';
 import { SESSION_KEY_PATTERN, SHARE_SURFACES } from './affiliates/share-tag.js';
 import type { ReferralCodeService } from './affiliates/referral-code.js';
 import type { RebindRequest, ReferralRebindService } from './affiliates/referral-rebind.js';
+import {
+  PARTNER_REJECT_CATEGORIES,
+  PartnerError,
+  type PartnerApplication,
+  type PartnerApplicationService,
+} from './affiliates/partner-application.js';
 import type { ReferralLapse, ReferralLapseService } from './affiliates/referral-lapse.js';
 import { attachWindowStatus } from './affiliates/attach-window.js';
 import { FreezeError } from './affiliates/freeze-store.js';
@@ -141,6 +156,8 @@ import type { ProfileService } from './profile/profile-service.js';
 import { createProfileRouter } from './profile/profile-router.js';
 import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
+import { createCompromiseRouter } from './account/compromise-router.js';
+import { createSafetyRouter } from './account/safety-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
 import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-features-router.js';
@@ -254,6 +271,23 @@ export function toTrpcError(err: unknown): TRPCError {
     }
   }
 
+  // The trading checks (J-cex-spot-01 #3): a blank owner list or an unset key is the deployment's, never the person's.
+  if (err instanceof TradingCheckError) {
+    switch (err.code) {
+      case 'kyc.screening_list_unset':
+      case 'kyc.trading_checks_unconfigured':
+      case 'kyc.date_of_birth_unknown':
+      case 'kyc.country_unknown':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'kyc.level_held':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      case 'kyc.region_blocked':
+        return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      default:
+        return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    }
+  }
+
   if (err instanceof KycProfileError) {
     switch (err.code) {
       case 'kyc.profile_unconfigured':
@@ -335,6 +369,25 @@ export function toTrpcError(err: unknown): TRPCError {
     }
   }
 
+  if (err instanceof PartnerError) {
+    switch (err.code) {
+      case 'partner.eligibility_unset':
+      case 'partner.reapply_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} [${err.code}]`, cause: err });
+      case 'partner.not_eligible':
+      case 'partner.not_partner':
+      case 'partner.self_decision':
+        return new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
+      case 'partner.reapply_too_soon':
+      case 'partner.not_open':
+        return new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
+      case 'partner.not_found':
+        return new TRPCError({ code: 'NOT_FOUND', message: `${err.message} [${err.code}]`, cause: err });
+      case 'partner.invalid':
+        return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
+    }
+  }
+
   if (err instanceof ShareError) {
     switch (err.code) {
       case 'share.unknown':
@@ -368,6 +421,10 @@ export function toTrpcError(err: unknown): TRPCError {
 
   if (err instanceof CommissionError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+  }
+
+  if (err instanceof AffiliateProgrammeDepthUnsetError) {
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} [${err.code}]`, cause: err });
   }
 
   if (err instanceof AccrualRateRefuseError) {
@@ -504,6 +561,7 @@ export function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.session_invalid':
     case 'auth.session_reused':
+    case 'auth.session_idle':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.handle_taken':
     case 'auth.email_taken':
@@ -541,6 +599,9 @@ export function toTrpcError(err: unknown): TRPCError {
     case 'auth.sub_account_cap_unset':
       // Owner number unpublished — not a 401 (no identity) or 403 (known, not allowed).
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'identity.screening_unset':
+      // The owner's blocked-countries list is not set: the deployment's, never the person's (J-identity-22 #1).
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     case 'auth.webauthn_unconfigured':
     case 'auth.totp_key_missing':
       // Server misconfiguration — enrol cannot write plaintext. Ops must set IDENTITY_TOTP_SECRET_KEY.
@@ -561,6 +622,9 @@ export function toTrpcError(err: unknown): TRPCError {
     case 'auth.reset_unwired':
       // No mail port or no owner-published lifetime. Same answer for every address.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    case 'auth.reset_limit':
+      // The owner's cap per address, counted for every address alike: the sentence names the cap and its window.
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
     case 'auth.email_confirm_invalid':
       // A wrong, rebound or code-spent link. An expired or used one is named apart (auth.email_confirm_expired, _used).
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
@@ -617,6 +681,7 @@ function signUpTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     case 'identity.underage':
     case 'identity.region_blocked':
+    case 'identity.us_person_blocked':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.handle_taken':
     case 'auth.email_taken':
@@ -862,6 +927,43 @@ function operatorRebind(r: RebindRequest): z.infer<typeof rebindForOperator> {
   return { ...customerRebind(r), userId: r.userId, decidedBy: r.decidedBy };
 }
 
+/**
+ * What the person sees of their own partner application (CM-referral-05). An approval shows its reason; a rejection
+ * shows its category and the reapply date, never the operator's notes or name.
+ */
+const partnerForCustomer = z.object({
+  applicationId: z.string().uuid(),
+  state: z.enum(['submitted', 'approved', 'rejected']),
+  qualifiedCount: z.number().int().nonnegative(),
+  requiredCount: z.number().int().positive(),
+  approvalReason: z.string().nullable(),
+  rejectCategory: z.enum(PARTNER_REJECT_CATEGORIES).nullable(),
+  reapplyAt: z.string().nullable(),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+const partnerForOperator = partnerForCustomer.extend({
+  userId: z.string().uuid(),
+  decidedBy: z.string().uuid().nullable(),
+  decisionReason: z.string().nullable(),
+});
+function customerPartner(a: PartnerApplication): z.infer<typeof partnerForCustomer> {
+  return {
+    applicationId: a.id,
+    state: a.state,
+    qualifiedCount: a.qualifiedCount,
+    requiredCount: a.requiredCount,
+    approvalReason: a.state === 'approved' ? a.decisionReason : null,
+    rejectCategory: a.rejectCategory,
+    reapplyAt: iso(a.reapplyAt),
+    createdAt: a.createdAt.toISOString(),
+    decidedAt: iso(a.decidedAt),
+  };
+}
+function operatorPartner(a: PartnerApplication): z.infer<typeof partnerForOperator> {
+  return { ...customerPartner(a), userId: a.userId, decidedBy: a.decidedBy, decisionReason: a.decisionReason };
+}
+
 export function createIdentityRouter(
   auth: AuthService,
   rank: RankService,
@@ -899,6 +1001,8 @@ export function createIdentityRouter(
     kycCapabilityReasons?: KycRejectReasons;
     /** Guided verification (I-kyc-compliance-08). Absent: every `kyc.profile.*` door refuses `kyc.profile_unconfigured`. */
     kycProfile?: KycProfileDesk;
+    /** The trading checks (J-cex-spot-01 #3). Absent: every `kyc.tradingChecks.*` door refuses `kyc.trading_checks_unconfigured`. */
+    tradingChecks?: TradingChecksDesk;
     /** Proof of address (I-kyc-compliance-11). Absent: every `kyc.proofOfAddress.*` door refuses `kyc.poa_unconfigured`. */
     kycPoa?: KycPoaDesk;
     /** Selfie (I-kyc-compliance-09). Absent: every `kyc.selfie.*` door refuses `kyc.selfie_unconfigured`. */
@@ -918,6 +1022,8 @@ export function createIdentityRouter(
     referralCodes?: ReferralCodeService;
     /** Reviewed referrer change (CM-referral-01 RF-3). Absent → the rebind doors refuse closed. */
     referralRebind?: ReferralRebindService;
+    /** Partner applications (CM-referral-05, J-campaigns-07). Absent → the partner doors refuse closed. */
+    partnerApplications?: PartnerApplicationService;
     /** Referral lapse after the owner's inactivity period (CM-referral-01 RF-4). Absent → the lapse doors refuse closed. */
     referralLapse?: ReferralLapseService;
     /**
@@ -931,9 +1037,14 @@ export function createIdentityRouter(
     /**
      * Owner-published commission tier law (DIRECTION §8).
      * Blank / unpublished → accrue refuses when the request omits tiers.
-     * Default unpublished — never invent 10/5/2%.
+     * Default unpublished — never invent a rate.
      */
     accrualTierLaw?: AccrualTierLaw;
+    /**
+     * The partner programme depth, 1..5 (RC-campaigns-07, `IDENTITY_PARTNER_PROGRAMME_DEPTH`). NO DEFAULT: undefined
+     * refuses every accrual, dry-run, payout and partner sub-tree with `affiliate.programme_depth_unset`.
+     */
+    programmeDepth?: number;
     /**
      * Slice C payout rail. Narrow on purpose — `post` is the only capability an
      * affiliate payout needs, and a wider handle here would let this service
@@ -970,9 +1081,9 @@ export function createIdentityRouter(
      */
     waitlist?: WaitlistService;
     /**
-     * Per-caller budget for `users.resolveHandle`. Defaults to 30 per minute,
-     * process-local. Injected so tests can pin the clock and a shared store can
-     * replace it later.
+     * Per-caller budget for the people lookups (`resolveHandle`, `searchPayees`),
+     * 30 per minute. index.ts wires the shared Postgres one
+     * (`PgHandleLookupLimiter`); absent, a process-local one serves light tests.
      */
     handleLookupLimiter?: HandleLookupLimiterPort;
     /**
@@ -984,6 +1095,8 @@ export function createIdentityRouter(
     profile?: ProfileService;
     /** Email and phone change. Absent → those doors refuse closed. */
     account?: AccountChange;
+    /** The owner's least number of step-up extras (`IDENTITY_EXTRA_CONTROLS_MIN`). Absent or null → setting extras refuses. */
+    extraControlsMin?: number | null;
     /** Account closure. Absent → the door refuses `identity.close_disabled`. */
     closure?: AccountClosureService;
     /** Sub-account delete. Absent → `subAccounts.delete` refuses `identity.sub_account_check_unavailable`. */
@@ -1033,6 +1146,7 @@ export function createIdentityRouter(
   const freeze = options.freeze;
   const accruals = options.accruals;
   const accrualTierLaw = options.accrualTierLaw ?? UNPUBLISHED_ACCRUAL_TIER_LAW;
+  const programmeDepth = options.programmeDepth;
   const ledger = options.ledger;
   const kycDocs = options.kycDocs;
   const bindKycProviderRef = options.bindKycProviderRef;
@@ -1059,6 +1173,13 @@ export function createIdentityRouter(
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referral tree is not configured' });
     }
     return referral;
+  }
+
+  function requirePartners(): PartnerApplicationService {
+    if (!options.partnerApplications) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Partner applications are not configured' });
+    }
+    return options.partnerApplications;
   }
 
   function requireReferralRebind(): ReferralRebindService {
@@ -1112,6 +1233,11 @@ export function createIdentityRouter(
   function requireKycPoa(): KycPoaDesk {
     if (!options.kycPoa) throw new KycPoaError('Proof of address is not configured', 'kyc.poa_unconfigured');
     return options.kycPoa;
+  }
+
+  function requireTradingChecks(): TradingChecksDesk {
+    if (!options.tradingChecks) throw new TradingCheckError('The trading checks are not configured', 'kyc.trading_checks_unconfigured');
+    return options.tradingChecks;
   }
 
   function requireKycProfile(): KycProfileDesk {
@@ -1226,7 +1352,11 @@ export function createIdentityRouter(
     }),
 
     profile: createProfileRouter(options.profile, options.antiPhishing),
-    account: createAccountRouter(options.account),
+    account: createAccountRouter(
+      options.account,
+      createCompromiseRouter(auth, privilegedUserIds),
+      createSafetyRouter(auth, privilegedUserIds, () => options.extraControlsMin ?? null),
+    ),
     accountClosure: createAccountClosureRouter(options.closure),
 
     users: router({
@@ -1242,9 +1372,10 @@ export function createIdentityRouter(
        * frozen, closed and undiscoverable (to anyone but their owner) handles
        * all answer `{ found: false }`; a per-caller
        * budget (30/min) refuses bulk probing with 429. Sessions only: an API
-       * key may not probe the handle space.
+       * key may not probe the handle space. The token must carry `identity:read`,
+       * so a narrow token (svc-ws mints a `trade:read`-only one on recovery) cannot.
        */
-      resolveHandle: protectedProcedure
+      resolveHandle: scopedProcedure('identity:read')
         .input(z.object({ handle: z.string().max(64) }))
         .output(
           z.discriminatedUnion('found', [
@@ -1277,9 +1408,9 @@ export function createIdentityRouter(
        * The payee card for an account a handle lookup or a pay code has already named (J-pay-01 #2): the name the person
        * chose for their profile (null when none) and the month they joined (the member badge). Keyed by the user id
        * those answers carry, so it is no way to find anyone. A frozen, closed or unknown account, and one that turned
-       * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions only.
+       * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions with `identity:read` only.
        */
-      payeeCard: protectedProcedure
+      payeeCard: scopedProcedure('identity:read')
         .input(z.object({ userId: z.string().guid() }))
         .output(
           z.discriminatedUnion('found', [
@@ -1299,10 +1430,10 @@ export function createIdentityRouter(
 
       /**
        * Find a person by exact email or exact phone. Same budget and the same
-       * miss as `resolveHandle`. A hit requires that person's consent flag.
+       * miss as `resolveHandle`, and the same `identity:read` gate. A hit requires that person's consent flag.
        * The email and the phone are never in the answer.
        */
-      searchPayees: protectedProcedure
+      searchPayees: scopedProcedure('identity:read')
         .input(
           z
             .object({
@@ -1451,7 +1582,12 @@ export function createIdentityRouter(
             phone: z.string().trim().max(20).optional(),
             password: z.string().max(200),
             country: z.string().trim().length(2),
-            nationality: z.string().trim().length(2).optional(),
+            /** ISO 3166-2 subdivision of residence (`CA-QC`); asked for where a subdivision is blocked on its own. */
+            subdivision: z.string().trim().min(4).max(6).optional(),
+            /** Country of citizenship (ISO 3166-1 alpha-2) or an ISO 3166-2 subdivision. */
+            nationality: z.string().trim().min(2).max(6).optional(),
+            /** A US citizen, green-card holder or US resident, wherever they live. Left out is refused by the service, never read as no. */
+            usPerson: z.boolean().optional(),
             dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
             accountType: z.enum(ACCOUNT_TYPES),
             referrerId: z.string().guid().optional(),
@@ -1853,14 +1989,24 @@ export function createIdentityRouter(
         }),
 
       refresh: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
+        .input(
+          z
+            .object({
+              refreshToken: z.string().min(1).optional(),
+              /** The app saw no use since its last refresh (an unused tab's timer): the idle sign-out keeps counting. */
+              idle: z.boolean().optional(),
+            })
+            .optional(),
+        )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken));
+            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken), input?.idle === true ? { idle: true } : {});
             return sessionWire(ctx, session);
           } catch (err) {
+            // No cookie came in, so none is ours to clear: this reply can land after a sign-in's, and would erase its new cookie.
             if (
+              ctx.refreshCookie?.presented &&
               !input?.refreshToken &&
               err instanceof AuthError &&
               (err.code === 'auth.session_reused' || err.code === 'auth.session_invalid')
@@ -1985,13 +2131,22 @@ export function createIdentityRouter(
         .query(() => auth.passwordResetChannel()),
 
       /**
+       * The owner's reset request cap: how many codes one address may ask for inside the window (J-identity-03 #2).
+       * Null while the reset is unwired, so the page names no number it doesn't have. The same for every visitor.
+       */
+      passwordResetLimits: publicProcedure
+        .output(z.object({ requestMax: z.number().int().positive(), windowSeconds: z.number().int().positive() }).nullable())
+        .query(() => auth.passwordResetLimits()),
+
+      /**
        * Signed-out password reset, step 2. A correct proof replaces the hash
        * and ends the old sessions. This does not sign the caller in.
        */
       completePasswordReset: publicProcedure
         .input(
           z.object({
-            email: z.string().trim().email().max(320),
+            // Absent from the mailed link (J-identity-03 #2): the code alone names its flow.
+            email: z.string().trim().email().max(320).optional(),
             code: z.string().trim().min(1).max(200),
             newPassword: z.string().max(200),
           }),
@@ -2449,15 +2604,25 @@ export function createIdentityRouter(
       /** The caller's own records, and the tier they currently add up to. Limit required — omit never dumps records. */
       status: scopedProcedure('identity:read')
         .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(z.object({ tier: z.enum(['none', 'basic', 'full', 'institutional']), records: z.array(kycRecordOutput) }))
+        .output(
+          z.object({
+            tier: z.enum(['none', 'basic', 'full', 'institutional']),
+            /** True when the level held was cleared by the trading checks alone (no ID checked): it is for trading. */
+            tradingOnly: z.boolean(),
+            records: z.array(kycRecordOutput),
+          }),
+        )
         .query(async ({ ctx, input }) => {
           try {
+            // Read from the same function the token issuer uses, rather than
+            // re-deriving "highest approved, unexpired" here. Two implementations
+            // of that rule would eventually disagree, and the one the user is
+            // shown is not the one that decides what they can do. A trading-checks
+            // clear reads `basic` with `tradingOnly`: the token's `trd`, for trading alone.
+            const tradingOnly = await auth.kycTradingOnly(ctx.principal.userId);
             return {
-              // Read from the same function the token issuer uses, rather than
-              // re-deriving "highest approved, unexpired" here. Two implementations
-              // of that rule would eventually disagree, and the one the user is
-              // shown is not the one that decides what they can do.
-              tier: await auth.kycTier(ctx.principal.userId),
+              tradingOnly,
+              tier: tradingOnly ? 'basic' : await auth.kycTier(ctx.principal.userId),
               records: (await auth.listKycRecords(ctx.principal.userId, input.limit)).map(presentKyc),
             };
           } catch (err) {
@@ -2760,6 +2925,33 @@ export function createIdentityRouter(
        * it resumes where it was left. No `userId` input on any door. The fields are sealed under the KYC document key;
        * the ID photo goes to the vault under the owner's caps. `submit` opens the request through `kyc.submit`'s path.
        */
+      /**
+       * The trading checks (J-cex-spot-01 #3, OWNER 258 (4)): legal name and the country confirmed, screened with the
+       * sign-up date of birth against the owner's sanctions list. A clear grants level basic for trading; a match holds
+       * the account for a person to review and answers only `held`. No ID document, selfie or ID vendor.
+       */
+      tradingChecks: router({
+        read: scopedProcedure('identity:read')
+          .output(kycTradingChecksSchema)
+          .query(async ({ ctx }) => {
+            try {
+              return await requireTradingChecks().read(ctx.principal.userId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        run: scopedProcedure('identity:write')
+          .input(kycTradingChecksRunInputSchema)
+          .output(kycTradingChecksResultSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              const result = await requireTradingChecks().run(ctx.principal.userId, input);
+              return { state: result.outcome };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
       profile: router({
         read: scopedProcedure('identity:read')
           .output(kycProfileSchema)
@@ -3196,6 +3388,7 @@ export function createIdentityRouter(
             requireSignature: z.boolean().optional(),
             requireNonEmptyIpAllowlist: z.boolean().optional(),
             ipAllowlist: z.array(z.string()).optional(),
+            rateLimit: keyRateLimitSchema.nullable().optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -3215,6 +3408,7 @@ export function createIdentityRouter(
               ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
               ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
               ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
+              ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
             };
           } catch (err) {
             throw toTrpcError(err);
@@ -3806,6 +4000,109 @@ export function createIdentityRouter(
         }),
 
       /**
+       * Partner eligibility (J-campaigns-07 #1): my qualified invitees against the owner's required count. A blank count
+       * refuses with `partner.eligibility_unset`; nothing is recorded by reading it.
+       */
+      partnerEligibility: scopedProcedure('identity:read')
+        .output(
+          z.object({ requiredCount: z.number().int().positive(), qualifiedCount: z.number().int().nonnegative(), eligible: z.boolean() }),
+        )
+        .query(async ({ ctx }) => {
+          try {
+            return await requirePartners().eligibility(ctx.principal.userId);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** Files my partner application (J-campaigns-07 #2). Pressing twice files one; an open or approved one comes back. */
+      applyPartner: scopedProcedure('identity:write')
+        .input(z.object({}).strict().optional())
+        .output(partnerForCustomer)
+        .mutation(async ({ ctx }) => {
+          try {
+            return customerPartner(await requirePartners().apply(ctx.principal.userId));
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** My latest partner application, or null. */
+      myPartnerApplication: scopedProcedure('identity:read')
+        .output(partnerForCustomer.nullable())
+        .query(async ({ ctx }) => {
+          try {
+            const a = await requirePartners().latestOf(ctx.principal.userId);
+            return a ? customerPartner(a) : null;
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** Partner applications waiting for an operator, oldest first. Operator session with a second factor. */
+      partnerQueue: scopedProcedure('admin:compliance')
+        .input(z.object({ limit: z.number().int().min(1).max(100) }))
+        .output(z.array(partnerForOperator))
+        .query(async ({ ctx, input }) => {
+          try {
+            requireMfa(ctx.principal);
+            return (await requirePartners().queue(input.limit)).map(operatorPartner);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * An operator approves or rejects a partner application with a reason (J-campaigns-07 #3). A rejection names a
+       * category and sets the reapply date from the owner's wait. The applicant can never decide their own.
+       */
+      decidePartner: scopedProcedure('admin:compliance')
+        .input(
+          z.object({
+            applicationId: z.string().uuid(),
+            decision: z.enum(['approve', 'reject']),
+            reason: z.string().min(3).max(500),
+            category: z.enum(PARTNER_REJECT_CATEGORIES).optional(),
+          }),
+        )
+        .output(partnerForOperator)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            requireMfa(ctx.principal);
+            return operatorPartner(
+              await requirePartners().decide(ctx.principal.userId, input.applicationId, input.decision, input.reason, input.category),
+            );
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * My own sub-tree as an approved partner (J-campaigns-07 #4): the people below me, level by level to the programme
+       * depth; anyone deeper is counted, never named. Blank depth refuses with `affiliate.programme_depth_unset`.
+       */
+      mySubTree: scopedProcedure('identity:read')
+        .output(
+          z.object({
+            depth: z.number().int().positive(),
+            members: z.array(z.object({ handle: z.string(), level: z.number().int().positive(), joinedAt: z.string() })),
+            beyondDepth: z.number().int().nonnegative(),
+          }),
+        )
+        .query(async ({ ctx }) => {
+          try {
+            const tree = await requirePartners().subTree(ctx.principal.userId);
+            return {
+              depth: tree.depth,
+              members: tree.members.map((m) => ({ handle: m.handle, level: m.level, joinedAt: m.joinedAt.toISOString() })),
+              beyondDepth: tree.beyondDepth,
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
        * Where this person's referral relationship stands against the owner's inactivity period (J-campaigns-05 #7): the
        * date it ends without a fee event, and their latest ended relationship. A blank period reads `unset`; no end date
        * is invented.
@@ -4208,7 +4505,8 @@ export function createIdentityRouter(
         )
         .mutation(async ({ ctx, input }) => {
           try {
-            // Rate law first — before store, ledger, or field validation.
+            // Programme depth, then rate law — before store, ledger, or field validation.
+            const maxTierDepth = requireProgrammeDepth(programmeDepth);
             assertPayoutRateProvenance([], accrualTierLaw);
 
             const feeEventId = input.feeEventId?.trim() ?? '';
@@ -4231,12 +4529,17 @@ export function createIdentityRouter(
               );
             }
             const frozen = await freeze.frozenIds();
+            const payRows = input.beneficiaryId ? rows.filter((r) => r.beneficiaryId === input.beneficiaryId) : rows;
+            // The account itself, not only the programme's freeze: a frozen or closed account takes no credit.
+            const cannotReceive = await beneficiariesWhoCannotReceive(auth, payRows);
 
             const plan = planAffiliatePayout({
               feeEventId,
-              rows: input.beneficiaryId ? rows.filter((r) => r.beneficiaryId === input.beneficiaryId) : rows,
+              rows: payRows,
               law: accrualTierLaw,
               frozenBeneficiaryIds: frozen,
+              cannotReceiveBeneficiaryIds: cannotReceive,
+              maxTierDepth,
             });
 
             if (input.dryRun === true) {
@@ -4335,6 +4638,7 @@ export function createIdentityRouter(
         )
         .query(async ({ input }) => {
           try {
+            const maxDepth = requireProgrammeDepth(programmeDepth);
             const parent = await requireReferral().loadParentMap();
             const frozen = await requireFreeze().frozenIds();
             const fee = {
@@ -4351,6 +4655,7 @@ export function createIdentityRouter(
               law: accrualTierLaw,
               frozenBeneficiaryIds: frozen,
               simulationTiers: input.tiers,
+              maxDepth,
               mode: 'dryRun',
             });
             return {
@@ -4430,6 +4735,7 @@ export function createIdentityRouter(
         )
         .mutation(async ({ input }) => {
           try {
+            const maxDepth = requireProgrammeDepth(programmeDepth);
             const parent = await requireReferral().loadParentMap();
             const frozen = await requireFreeze().frozenIds();
             const store = requireAccruals();
@@ -4447,6 +4753,7 @@ export function createIdentityRouter(
               law: accrualTierLaw,
               frozenBeneficiaryIds: frozen,
               simulationTiers: input.tiers,
+              maxDepth,
               mode: 'durable',
             });
             const inserted = await store.saveRows(out.rows);

@@ -12,14 +12,18 @@ import {
   firstAddress,
   parseChainId,
   runSignRequest,
+  SIGN_TIMEOUT_MS,
   toHexChainId,
   type ChainGuard,
   type DiscoveredWallet,
   type Eip1193Provider,
   type SignRequest,
   type SignResult,
+  type TypedDataDocument,
 } from './eip1193';
 
+/** How long a remembered wallet has to answer `eth_accounts` (it never prompts) before the room is shown disconnected. */
+export const RESTORE_TIMEOUT_MS = 5_000;
 /** Remembered only to restore the same wallet without a prompt. Storage may be absent or blocked; the page works without it. */
 const REMEMBER_KEY = 'if.web3.wallet';
 function remembered(store: Pick<Storage, 'getItem'> | undefined): string | null {
@@ -46,23 +50,45 @@ function browserStore(): Storage | undefined {
 }
 
 /** The node reads a room may make through the wallet. Nothing here can sign or send. */
-export type ReadMethod = 'eth_getTransactionReceipt' | 'eth_blockNumber';
-const READ_METHODS: ReadonlySet<string> = new Set<ReadMethod>(['eth_getTransactionReceipt', 'eth_blockNumber']);
+/** Read-only node calls. `eth_getBlockByNumber`, `eth_getBalance` and `eth_call` at one block let Assets read a wallet as of one block. */
+export type ReadMethod = 'eth_getTransactionReceipt' | 'eth_blockNumber' | 'eth_getBlockByNumber' | 'eth_getBalance' | 'eth_call';
+const READ_METHODS: ReadonlySet<string> = new Set<ReadMethod>([
+  'eth_getTransactionReceipt',
+  'eth_blockNumber',
+  'eth_getBlockByNumber',
+  'eth_getBalance',
+  'eth_call',
+]);
+type TransactionRequest = Extract<SignRequest, { kind: 'transaction' }>;
+/**
+ * One step of a sequence: a transaction to send; typed data to sign (a permit); or a transaction that can only be built
+ * once the signatures before it exist (the swap that carries the permit). A built step shows `preview` on the sheet,
+ * every part of it but the signatures, which go in exactly as signed.
+ */
+export type SequenceStep =
+  | { label: string; request: TransactionRequest }
+  | { label: string; sign: TypedDataDocument }
+  | {
+      label: string;
+      preview: string;
+      prepare: (signatures: string[]) => Promise<{ ok: true; request: TransactionRequest } | { ok: false; message: string }>;
+    };
 export interface Sequence {
   /** The sheet's list of steps is named by this, for example "Swap steps". */
   title: string;
-  steps: Array<{ label: string; request: Extract<SignRequest, { kind: 'transaction' }> }>;
+  steps: SequenceStep[];
   /** Facts the person checks before every step, such as each token's contract address. */
   facts?: Array<{ label: string; value: string }>;
 }
 export type SequenceResult =
-  | { status: 'sent'; hashes: string[] }
+  | { status: 'sent'; hashes: string[]; signatures?: string[] }
   | { status: 'rejected'; sent: string[] }
   | { status: 'failed'; step: number; sent: string[]; message: string; reverted?: boolean };
 /** How long a step may wait to be mined before the next one is given up (the person's wallet still holds the first). */
 const STEP_MINED_TIMEOUT_MS = 120_000;
 
-export type WalletStatus = 'disconnected' | 'connecting' | 'connected';
+/** `restoring`: a remembered wallet is being asked, without a prompt, whether it is still authorised; nothing inside renders. */
+export type WalletStatus = 'restoring' | 'disconnected' | 'connecting' | 'connected';
 export interface WalletState {
   status: WalletStatus;
   wallets: DiscoveredWallet[];
@@ -119,6 +145,20 @@ const Context = createContext<WalletApi>(empty);
 /** Outside a provider (a server render, a test) the wallet is simply not connected. */
 export const useWallet = (): WalletApi => useContext(Context);
 
+/** What sits behind a wallet: nothing renders until a remembered wallet has answered, so no control offers Connect first. */
+export function WalletGate({ children }: { children: ReactNode }) {
+  const { status } = useWallet();
+  const { language } = usePreferences();
+  const { t } = walletCopy.forLocale(language);
+  return status === 'restoring' ? (
+    <p className="muted" role="status" aria-busy="true" data-wallet="restoring">
+      {t('restoring')}
+    </p>
+  ) : (
+    children
+  );
+}
+
 interface PendingSequence {
   sequence: Sequence;
   account: string;
@@ -171,12 +211,30 @@ interface Pending {
 /**
  * `scope` names the room the provider serves. The Web3 frame keeps one provider across its rooms, so the connection
  * outlasts a move between them; a sheet still open when the room changes is cancelled, as nothing in it was sent.
+ * `chainId` is the network the room signs on: the app's own (APP_CHAIN_ID) unless the room names another, as a venue
+ * desk does with the chain its venue's signatures name. `gate={false}` leaves the gate to the frame, which places `WalletGate`
+ * around its room and keeps its own bar.
  */
-export function WalletProvider({ children, discovery = true, scope }: { children: ReactNode; discovery?: boolean; scope?: string }) {
+export function WalletProvider({
+  children,
+  discovery = true,
+  scope,
+  chainId: configured = APP_CHAIN_ID,
+  gate = true,
+}: {
+  children: ReactNode;
+  discovery?: boolean;
+  gate?: boolean;
+  scope?: string;
+  chainId?: number;
+}) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const [wallets, setWallets] = useState<DiscoveredWallet[]>([]);
-  const [status, setStatus] = useState<WalletStatus>('disconnected');
+  const store = useMemo(browserStore, []);
+  const [status, setStatus] = useState<WalletStatus>(() => (remembered(store) ? 'restoring' : 'disconnected'));
+  // Every wallet this page will see has answered discovery: the request was made once the page had loaded.
+  const [discovered, setDiscovered] = useState(!discovery);
   const [connected, setConnected] = useState<DiscoveredWallet | null>(null);
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
@@ -184,12 +242,24 @@ export function WalletProvider({ children, discovery = true, scope }: { children
   const [pending, setPending] = useState<Pending | null>(null);
   const [sequence, setSequence] = useState<PendingSequence | null>(null);
   const [idleMinutes, setIdleMinutes] = useState<number | null>(null);
-  const store = useMemo(browserStore, []);
   const restored = useRef(false);
 
   useEffect(() => {
-    if (!discovery || typeof window === 'undefined') return;
-    return discoverWallets(window, setWallets);
+    if (!discovery || typeof window === 'undefined') {
+      setDiscovered(true);
+      return;
+    }
+    const stop = discoverWallets(window, setWallets);
+    if (document.readyState === 'complete') {
+      setDiscovered(true);
+      return stop;
+    }
+    const loaded = () => setDiscovered(true);
+    window.addEventListener('load', loaded, { once: true });
+    return () => {
+      window.removeEventListener('load', loaded);
+      stop();
+    };
   }, [discovery]);
 
   const adopt = useCallback((wallet: DiscoveredWallet, accounts: unknown, chain: unknown) => {
@@ -237,21 +307,37 @@ export function WalletProvider({ children, discovery = true, scope }: { children
 
   // A wallet that is still authorised comes back without a prompt (eth_accounts never asks).
   useEffect(() => {
-    if (restored.current || status !== 'disconnected') return;
+    if (restored.current || status !== 'restoring') return;
     const rdns = remembered(store);
     const wallet = rdns ? wallets.find((entry) => entry.info.rdns === rdns) : undefined;
-    if (!wallet) return;
+    if (!wallet) {
+      if (discovered) setStatus('disconnected');
+      return;
+    }
     restored.current = true;
+    let answered = false;
+    const unanswered = setTimeout(() => {
+      answered = true;
+      setStatus('disconnected');
+    }, RESTORE_TIMEOUT_MS);
     void (async () => {
       try {
         const accounts = await wallet.provider.request({ method: 'eth_accounts' });
-        if (!firstAddress(accounts)) return remember(store, null);
-        adopt(wallet, accounts, await wallet.provider.request({ method: 'eth_chainId' }));
+        const chain = firstAddress(accounts) ? await wallet.provider.request({ method: 'eth_chainId' }) : null;
+        if (answered) return;
+        if (!firstAddress(accounts)) {
+          remember(store, null);
+          return setStatus('disconnected');
+        }
+        adopt(wallet, accounts, chain);
       } catch {
-        /* the wallet will be asked again when the person presses Connect */
+        if (!answered) setStatus('disconnected');
+      } finally {
+        answered = true;
+        clearTimeout(unanswered);
       }
     })();
-  }, [wallets, status, store, adopt]);
+  }, [wallets, discovered, status, store, adopt]);
 
   // A move to another room cancels a sheet that is still open: the room that asked for it is gone.
   const scopeRef = useRef(scope);
@@ -329,12 +415,12 @@ export function WalletProvider({ children, discovery = true, scope }: { children
     if (!connected) return;
     setProblem(null);
     try {
-      await connected.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHexChainId(APP_CHAIN_ID) }] });
+      await connected.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHexChainId(configured) }] });
       setChainId(parseChainId(await connected.provider.request({ method: 'eth_chainId' })));
     } catch {
       setProblem(t('switchFailed'));
     }
-  }, [connected, t]);
+  }, [connected, configured, t]);
 
   const sign = useCallback(
     (request: SignRequest): Promise<SignResult> => {
@@ -342,7 +428,8 @@ export function WalletProvider({ children, discovery = true, scope }: { children
       const refused = refuseReason(request);
       if (refused)
         return Promise.resolve({ status: 'failed', reason: 'invalid_request', message: `${refused} Nothing was signed or sent.` });
-      if (!chainGuard(chainId).ok) return Promise.resolve({ status: 'failed', reason: 'chain_mismatch', message: t('signWrongNetwork') });
+      if (!chainGuard(chainId, configured).ok)
+        return Promise.resolve({ status: 'failed', reason: 'chain_mismatch', message: t('signWrongNetwork') });
       const wallet = connected;
       const account = address;
       return new Promise<SignResult>((resolve) => {
@@ -350,13 +437,13 @@ export function WalletProvider({ children, discovery = true, scope }: { children
         setPending({
           request,
           account,
-          chainId: chainId ?? APP_CHAIN_ID,
+          chainId: chainId ?? configured,
           resolve,
-          run: () => runSignRequest(wallet.provider, account, request),
+          run: () => runSignRequest(wallet.provider, account, request, SIGN_TIMEOUT_MS, configured),
         });
       });
     },
-    [connected, address, chainId, t],
+    [connected, address, chainId, configured, t],
   );
 
   const call = useCallback(
@@ -403,22 +490,56 @@ export function WalletProvider({ children, discovery = true, scope }: { children
       const notConnected: SequenceResult = { status: 'failed', step: 0, sent: [], message: t('signNotConnected') };
       if (!connected || !address || next.steps.length === 0) return Promise.resolve(notConnected);
       for (const step of next.steps) {
-        const refused = refuseReason(step.request);
+        const refused =
+          'request' in step
+            ? refuseReason(step.request)
+            : 'sign' in step
+              ? refuseReason({ kind: 'typedData', typedData: step.sign })
+              : null;
         if (refused) return Promise.resolve({ status: 'failed', step: 0, sent: [], message: `${refused} Nothing was signed or sent.` });
       }
-      if (!chainGuard(chainId).ok) return Promise.resolve({ status: 'failed', step: 0, sent: [], message: t('signWrongNetwork') });
+      if (!chainGuard(chainId, configured).ok)
+        return Promise.resolve({ status: 'failed', step: 0, sent: [], message: t('signWrongNetwork') });
       const wallet = connected;
       const account = address;
       return new Promise<SequenceResult>((resolve) => {
         setSequence({
           sequence: next,
           account,
-          chainId: chainId ?? APP_CHAIN_ID,
+          chainId: chainId ?? configured,
           resolve,
           run: async () => {
             const sent: string[] = [];
+            const signatures: string[] = [];
             for (const [index, step] of next.steps.entries()) {
-              const result = await runSignRequest(wallet.provider, account, step.request);
+              if ('sign' in step) {
+                const signed = await runSignRequest(
+                  wallet.provider,
+                  account,
+                  { kind: 'typedData', typedData: step.sign },
+                  SIGN_TIMEOUT_MS,
+                  configured,
+                );
+                if (signed.status === 'rejected') return { status: 'rejected', sent };
+                if (signed.status !== 'signed')
+                  return {
+                    status: 'failed',
+                    step: index,
+                    sent,
+                    message: signed.status === 'failed' ? signed.message : t('signNotConnected'),
+                  };
+                signatures.push(signed.signature);
+                continue;
+              }
+              let request: TransactionRequest;
+              if ('prepare' in step) {
+                const built = await step.prepare([...signatures]);
+                if (!built.ok) return { status: 'failed', step: index, sent, message: built.message };
+                const refused = refuseReason(built.request);
+                if (refused) return { status: 'failed', step: index, sent, message: `${refused} Nothing was signed or sent.` };
+                request = built.request;
+              } else request = step.request;
+              const result = await runSignRequest(wallet.provider, account, request, SIGN_TIMEOUT_MS, configured);
               if (result.status === 'rejected') return { status: 'rejected', sent };
               if (result.status !== 'sent')
                 return {
@@ -444,12 +565,12 @@ export function WalletProvider({ children, discovery = true, scope }: { children
                   message: t(mined.status === 'reverted' ? 'seqReverted' : 'seqNotMined'),
                 };
             }
-            return { status: 'sent', hashes: sent };
+            return { status: 'sent', hashes: sent, signatures };
           },
         });
       });
     },
-    [connected, address, chainId, t],
+    [connected, address, chainId, configured, t],
   );
 
   const api: WalletApi = {
@@ -458,7 +579,7 @@ export function WalletProvider({ children, discovery = true, scope }: { children
     connected,
     address,
     chainId,
-    guard: status === 'connected' ? chainGuard(chainId) : null,
+    guard: status === 'connected' ? chainGuard(chainId, configured) : null,
     problem,
     connect,
     disconnect,
@@ -473,7 +594,7 @@ export function WalletProvider({ children, discovery = true, scope }: { children
   };
   return (
     <Context.Provider value={api}>
-      {children}
+      {gate ? <WalletGate>{children}</WalletGate> : children}
       {sequence && (
         <SequenceSheet
           sequence={sequence.sequence}
@@ -589,7 +710,14 @@ export function SequenceSheet({
   return (
     <Dialog title={t('sheetTitle')} onClose={onCancel}>
       <div data-sheet="sequence">
-        <p>{t('seqSends', { count: String(sequence.steps.length) })}</p>
+        <p>
+          {sequence.steps.some((step) => 'sign' in step)
+            ? t('seqSignsAndSends', {
+                signs: String(sequence.steps.filter((step) => 'sign' in step).length),
+                count: String(sequence.steps.filter((step) => !('sign' in step)).length),
+              })
+            : t('seqSends', { count: String(sequence.steps.length) })}
+        </p>
         <dl className="protocol-facts">
           <div>
             <dt>{t('fact_account')}</dt>
@@ -615,7 +743,11 @@ export function SequenceSheet({
           <summary>{t('sheetExact')}</summary>
           {sequence.steps.map((step, index) => (
             <pre key={index} className="numeric" data-sheet-payload>
-              {payloadText(step.request, account, chainId)}
+              {'request' in step
+                ? payloadText(step.request, account, chainId)
+                : 'sign' in step
+                  ? payloadText({ kind: 'typedData', typedData: step.sign }, account, chainId)
+                  : step.preview}
             </pre>
           ))}
         </details>

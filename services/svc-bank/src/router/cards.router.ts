@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type { CardRecord } from '../cards/card-service.js';
 import { assertSelf } from '../assert-self.js';
 import {
   issueCardBinding,
@@ -15,10 +14,83 @@ import {
   updateCardShippingBinding,
 } from '../step-up/money-out-fields.js';
 import { cardInactive } from '../cards/card-service.js';
+import { cardOutput, presentCard } from '../cards/card-view.js';
+import { cardholderDisputeRouter } from '../cards/cardholder-disputes.js';
 import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
+import { CARD_CATEGORIES, CARD_CONTROL_KINDS } from '../cards/card-controls.js';
+import { CARD_CUSTODY_MODES, NOT_USED_FOR_CARDS } from '../cards/partner-terms.js';
+
+const decimalOrNull = z
+  .string()
+  .regex(/^\d+(\.\d{1,18})?$/)
+  .nullable();
+/** `cards.controls.*`: the card's live controls, the categories it can block, and its lock history (J-bank-14 #1). */
+const cardControlsOutput = z.object({
+  categories: z.array(z.enum(CARD_CATEGORIES)),
+  controls: z.array(z.object({ id: z.string(), kind: z.enum(CARD_CONTROL_KINDS), value: z.string(), createdAt: z.string() })),
+  history: z.array(
+    z.object({
+      id: z.string(),
+      status: z.enum(['active', 'frozen', 'closed']),
+      actor: z.enum(['owner', 'holder', 'operator', 'system']),
+      at: z.string(),
+    }),
+  ),
+});
+
+/** One 3D Secure challenge as the person sees it (J-bank-14 #5). */
+const threeDSChallengeOutput = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  challengeRef: z.string(),
+  amount: z.string(),
+  merchant: z.string().nullable(),
+  merchantCountry: z.string().nullable(),
+  state: z.enum(['open', 'approved', 'locked']),
+  /** Null while the owner has not set the count (answering refuses `bank.card_3ds_try_limit_unset`). */
+  triesLeft: z.number().int().nullable(),
+  authorizationId: z.string().nullable(),
+  /** The completed authorisation's own decision: an approved code can still meet a declined purchase. */
+  decision: z.enum(['approved', 'declined']).nullable(),
+  declineCode: z.string().nullable(),
+  createdAt: z.string(),
+  testCode: z.string().nullable(),
+});
+
+/** One card fraud report (J-bank-14 #7). */
+const fraudReportOutput = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  authorizationId: z.string(),
+  state: z.literal('open'),
+  createdAt: z.string(),
+});
+
+const payFromOutput = z.object({
+  test: z.boolean(),
+  custodyMode: z.enum(CARD_CUSTODY_MODES).nullable(),
+  settlementAssetId: z.string().nullable(),
+  assets: z.array(
+    z.object({
+      assetId: z.string(),
+      state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
+      partnerBalance: decimalOrNull,
+      rate: decimalOrNull,
+      rateAsOf: z.string().nullable(),
+    }),
+  ),
+  order: z.array(z.string()).nullable(),
+  notUsedForCards: z.array(z.enum(NOT_USED_FOR_CARDS)),
+});
 import type { CardDelivery } from '../cards/card-orders.js';
 import { BankError } from '../errors.js';
-import { amountString, stepUpApprovalField, refuseCardSecretWithoutStepUp } from './shared.js';
+import {
+  amountString,
+  partnerFiguresOutput,
+  partnerHoldReportOutput,
+  stepUpApprovalField,
+  refuseCardSecretWithoutStepUp,
+} from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
 
@@ -48,55 +120,6 @@ export function createCardsRouter(c: BankRouterContext) {
    * deployment with no issuer at all cannot get this far: it refuses with
    * `bank.no_card_issuer` before a row is written.
    */
-  const cardOutput = z.object({
-    id: z.string(),
-    /** Which balance the card draws on. Every posting against it is in this asset. */
-    assetId: z.string(),
-    /**
-     * What merchants charge this card in (§18).
-     *
-     * Equal to `assetId` means no conversion happens and no rate is consulted.
-     * Different means every authorisation is quoted at the authorisation moment
-     * — and refuses by name where no rate can be got, which on a fiat settlement
-     * asset is every time, because this platform has no FX source.
-     */
-    settlementAssetId: z.string(),
-    /** The programme id, which is also the ledger rail label. */
-    issuer: z.string(),
-    /** TRUE MEANS THERE IS NO CARD. Never omitted, never defaulted. */
-    simulated: z.boolean(),
-    /** Four digits. Not a card number and not part of one. */
-    panTail: z.string(),
-    /** `inactive`: issued but not activated yet (BK-cissue-04); it declines every authorisation until it is. */
-    status: z.enum(['active', 'inactive', 'frozen', 'closed']),
-    cashbackBps: z.number().int(),
-    perAuthorizationLimit: amountString,
-    dailyLimit: amountString.nullable(),
-    monthlyLimit: amountString.nullable(),
-    cashLimit: amountString.nullable(),
-    online: z.boolean(),
-    contactless: z.boolean(),
-    atm: z.boolean(),
-    abroad: z.boolean(),
-    cardType: z.enum(['virtual', 'physical']),
-    shippingAddress: z
-      .object({
-        name: z.string(),
-        line1: z.string(),
-        line2: z.string().nullable(),
-        city: z.string(),
-        region: z.string().nullable(),
-        postalCode: z.string(),
-        country: z.string(),
-      })
-      .nullable(),
-    /** Single-use (1) or n-use: captured payments before it closes itself. NULL is no limit. */
-    usesAllowed: z.number().int().nullable(),
-    designId: z.string().nullable(),
-    deliverySpeed: z.string().nullable(),
-    replacesCardId: z.string().nullable(),
-    replacedByCardId: z.string().nullable(),
-  });
 
   const shippingAddressInput = z.object({
     name: z.string().trim().min(1).max(120),
@@ -110,38 +133,6 @@ export function createCardsRouter(c: BankRouterContext) {
       .trim()
       .regex(/^[A-Za-z]{2}$/),
   });
-
-  function presentCard(c: CardRecord) {
-    return {
-      id: c.id,
-      assetId: c.assetId,
-      settlementAssetId: c.settlementAssetId,
-      issuer: c.issuer,
-      simulated: c.simulated,
-      panTail: c.panTail,
-      status: presentStatus(c),
-      cashbackBps: c.cashbackBps,
-      perAuthorizationLimit: formatAmount(c.perAuthorizationLimit),
-      dailyLimit: c.dailyLimit == null ? null : formatAmount(c.dailyLimit),
-      monthlyLimit: c.monthlyLimit == null ? null : formatAmount(c.monthlyLimit),
-      cashLimit: c.cashLimit == null ? null : formatAmount(c.cashLimit),
-      online: c.online ?? true,
-      contactless: c.contactless ?? true,
-      atm: c.atm ?? true,
-      abroad: c.abroad ?? true,
-      cardType: c.cardType ?? 'virtual',
-      shippingAddress: c.shippingAddress ?? null,
-      usesAllowed: c.usesAllowed ?? null,
-      designId: c.designId ?? null,
-      deliverySpeed: c.deliverySpeed ?? null,
-      replacesCardId: c.replacesCardId ?? null,
-      replacedByCardId: c.replacedByCardId ?? null,
-    };
-  }
-
-  function presentStatus(c: CardRecord): 'active' | 'inactive' | 'frozen' | 'closed' {
-    return c.status === 'active' && cardInactive(c) ? 'inactive' : c.status;
-  }
 
   const deliveryOutput = z.object({
     cardId: z.string(),
@@ -472,13 +463,53 @@ export function createCardsRouter(c: BankRouterContext) {
       ),
 
     /**
+     * The card's controls (J-bank-14 #1, BK-cctl-01): the merchant categories, merchants and countries the person blocked,
+     * the categories they can block, and the history of the card's temporary lock. A purchase that names a blocked one
+     * declines before anything is held.
+     */
+    controls: router({
+      get: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid() }))
+        .output(cardControlsOutput)
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            return { categories: [...CARD_CATEGORIES], ...(await bank.cards.controls(card.id)) };
+          }),
+        ),
+      block: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid(), kind: z.enum(CARD_CONTROL_KINDS), value: z.string().min(1).max(64) }))
+        .output(cardControlsOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            await bank.cards.blockControl(card.id, input.kind, input.value);
+            return { categories: [...CARD_CATEGORIES], ...(await bank.cards.controls(card.id)) };
+          }),
+        ),
+      lift: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid(), controlId: z.string().guid() }))
+        .output(cardControlsOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            await bank.cards.liftControl(card.id, input.controlId);
+            return { categories: [...CARD_CATEGORIES], ...(await bank.cards.controls(card.id)) };
+          }),
+        ),
+    }),
+
+    /**
      * PAN, expiry and CVV from a live issuer. Step-up every time. Not stored.
      * card-sim refuses `bank.card_pan_issuer_unset` before step-up. With step-up
      * not `required`, the call refuses `bank.step_up_unavailable` and the issuer is not called.
      */
     reveal: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ cardId: z.string().guid(), revealId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
-      .output(z.object({ pan: z.string(), expiry: z.string(), cvv: z.string(), expiresAt: z.string() }))
+      .output(z.object({ pan: z.string(), expiry: z.string(), cvv: z.string(), expiresAt: z.string(), test: z.boolean() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const card = await bank.cards.card(input.cardId);
@@ -491,14 +522,16 @@ export function createCardsRouter(c: BankRouterContext) {
             input.stepUpApprovalId,
             false,
           );
-          return bank.cards.reveal({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+          // `test`: the TEST partner's stand-in details (J-bank-14 #3), so a screen labels them TEST.
+          const revealed = await bank.cards.reveal({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+          return { ...revealed, test: bank.cards.secretsAreTest() };
         }),
       ),
 
     pin: router({
       reveal: scopedProcedure('bank:read', { module: 'bank' })
         .input(z.object({ cardId: z.string().guid(), revealId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
-        .output(z.object({ pin: z.string(), expiresAt: z.string() }))
+        .output(z.object({ pin: z.string(), expiresAt: z.string(), test: z.boolean() }))
         .mutation(async ({ ctx, input }) =>
           guard(async () => {
             const card = await bank.cards.card(input.cardId);
@@ -511,7 +544,8 @@ export function createCardsRouter(c: BankRouterContext) {
               input.stepUpApprovalId,
               false,
             );
-            return bank.cards.revealPin({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+            const revealed = await bank.cards.revealPin({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+            return { ...revealed, test: bank.cards.secretsAreTest() };
           }),
         ),
       set: scopedProcedure('bank:write', { module: 'bank' })
@@ -546,7 +580,10 @@ export function createCardsRouter(c: BankRouterContext) {
         ),
     }),
 
-    /** Opaque push-provisioning payload. Refuses until socket.live-issuer can produce one. */
+    /**
+     * Opaque push-provisioning payload, and one wallet token row per card and wallet (J-bank-14 #4). Refuses until
+     * socket.live-issuer can produce one, except on the TEST partner adapter with `secrets: "test"`, whose payload says TEST.
+     */
     walletProvision: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
@@ -556,20 +593,117 @@ export function createCardsRouter(c: BankRouterContext) {
           nonce: z.string().min(1).max(4096),
         }),
       )
-      .output(z.object({ payload: z.string(), expiresAt: z.string() }))
+      .output(z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const card = await bank.cards.card(input.cardId);
           assertSelf(ctx.principal.userId, card.userId);
-          return bank.cards.walletProvision({
+          const provisioned = await bank.cards.walletProvision({
             cardId: input.cardId,
             userId: ctx.principal.userId,
             provisionId: input.provisionId,
             wallet: input.wallet,
             nonce: input.nonce,
           });
+          return { ...provisioned, test: bank.cards.secretsAreTest() };
         }),
       ),
+
+    /** Which of card details, PIN and phone wallets the issuer offers, and whether they are TEST (J-bank-14 #3, #4). */
+    secretsOffered: scopedProcedure('bank:read', { module: 'bank' })
+      .output(z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean(), walletNotOffered: z.boolean() }))
+      .query(async ({ ctx }) => guard(async () => bank.cards.secretsOffered(ctx.principal.userId))),
+
+    /** The phone wallets this card was added to: `added`, `paused` while the card is frozen, or `closed` (J-bank-14 #4). */
+    walletTokens: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid() }))
+      .output(
+        z.object({
+          test: z.boolean(),
+          tokens: z.array(
+            z.object({
+              id: z.string(),
+              wallet: z.enum(['apple', 'google']),
+              state: z.enum(['added', 'paused', 'closed']),
+              addedAt: z.string(),
+            }),
+          ),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          return {
+            test: bank.cards.secretsAreTest(),
+            tokens: await bank.cards.walletTokens({ cardId: input.cardId, userId: ctx.principal.userId }),
+          };
+        }),
+      ),
+
+    /**
+     * 3D Secure (J-bank-14 #5): the challenges the card partner asked this person to answer for online purchases, and the
+     * answer. A wrong code counts once and the owner's count locks the challenge; the right code completes the purchase's
+     * authorisation once. `testCode` is the TEST partner's code, shown only on the TEST stack; a real partner sends its own.
+     */
+    threeDS: router({
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid() }))
+        .output(z.object({ challenges: z.array(threeDSChallengeOutput) }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => ({
+            challenges: await bank.cards.safety.list({ cardId: input.cardId, userId: ctx.principal.userId }),
+          })),
+        ),
+      answer: scopedProcedure('bank:write', { module: 'bank' })
+        .input(
+          z.object({
+            cardId: z.string().guid(),
+            challengeId: z.string().guid(),
+            /** Omitted only to finish an approved challenge whose authorisation was never written. */
+            code: z
+              .string()
+              .regex(/^\d{4,8}$/)
+              .optional(),
+          }),
+        )
+        .output(threeDSChallengeOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            bank.cards.safety.answer({
+              cardId: input.cardId,
+              userId: ctx.principal.userId,
+              challengeId: input.challengeId,
+              ...(input.code === undefined ? {} : { code: input.code }),
+            }),
+          ),
+        ),
+    }),
+
+    /**
+     * Report fraud on an approved card payment (J-bank-14 #7): the card is frozen as the person's own lock and one case
+     * opens for that payment. The payment is the business key: reported again, it returns its case.
+     */
+    fraud: router({
+      report: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid(), authorizationId: z.string().guid() }))
+        .output(fraudReportOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            bank.cards.safety.reportFraud({
+              cardId: input.cardId,
+              userId: ctx.principal.userId,
+              authorizationId: input.authorizationId,
+            }),
+          ),
+        ),
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid() }))
+        .output(z.object({ reports: z.array(fraudReportOutput) }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => ({ reports: await bank.cards.safety.fraudReports({ cardId: input.cardId, userId: ctx.principal.userId }) })),
+        ),
+    }),
 
     /**
      * Close this card and issue another with the same asset, ceilings and channels.
@@ -613,6 +747,8 @@ export function createCardsRouter(c: BankRouterContext) {
           paid: amountString,
           unpaid: amountString,
           refused: amountString,
+          /** Owed by INTAFACED on partner-held spend and paid to the person's own wallet; never spendable here. */
+          toWallet: amountString,
           payments: z.array(
             z.object({
               authorizationId: z.string(),
@@ -621,6 +757,8 @@ export function createCardsRouter(c: BankRouterContext) {
               status: z.string(),
               rejectionCode: z.string().nullable(),
               ledgerTxId: z.string().nullable(),
+              paidBy: z.enum(['ledger', 'wallet']),
+              announced: z.boolean(),
             }),
           ),
           paying: z.boolean(),
@@ -635,10 +773,41 @@ export function createCardsRouter(c: BankRouterContext) {
             paid: formatAmount(c.paid),
             unpaid: formatAmount(c.unpaid),
             refused: formatAmount(c.refused),
+            toWallet: formatAmount(c.toWallet),
             payments: c.payments.map((p) => ({ ...p, amount: formatAmount(p.amount) })),
           };
         }),
       ),
+
+    /**
+     * Pay from (J-bank-29 #1 and #2; BK-ccrypto-01): the owner's spendable assets and any other the person's cards draw on,
+     * each offered, "not offered by the partner" or "not known", from the card partner's own list; how the partner spends
+     * (it holds the crypto, or the card pulls from the person's own wallet); for each offered asset the partner's balance
+     * and the rate with its time, or null ("not known"); the saved order; and the account kinds a card never pays from. No
+     * owner list refuses `bank.card_spend_assets_unset`. Reads only.
+     */
+    payFrom: scopedProcedure('bank:read', { module: 'bank' })
+      .output(payFromOutput)
+      .query(({ ctx }) => guard(async () => bank.cards.payFrom(ctx.principal.userId))),
+
+    /**
+     * Save the pay-from order (J-bank-29 #2): each asset once, each one the owner lists and the partner can spend from. No
+     * owner list refuses `bank.card_spend_assets_unset`; another asset refuses `bank.card_pay_from_not_offered`. Saving the
+     * same order again changes nothing. Moves no value.
+     */
+    setPayFromOrder: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z
+          .object({
+            assetIds: z
+              .array(z.string().regex(/^[A-Z0-9]{2,16}$/))
+              .min(1)
+              .max(50),
+          })
+          .strict(),
+      )
+      .output(payFromOutput)
+      .mutation(({ ctx, input }) => guard(async () => bank.cards.setPayFromOrder(ctx.principal.userId, input.assetIds))),
 
     // ── Getting a card (J-bank-13; BK-cissue-01 to -04) ─────────────────────
 
@@ -871,10 +1040,35 @@ export function createCardsRouter(c: BankRouterContext) {
             /** WHAT MOVED, in the card's funding asset. */
             amount: amountString,
             merchantCategory: z.string().nullable(),
+            /** The merchant and its country as the issuer named them; null when it named none. */
+            merchant: z.string().nullable(),
+            merchantCountry: z.string().nullable(),
             channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']),
+            /** The issuer flagged it as a merchant charging the card on file on an agreed schedule (J-bank-14 #6). */
+            recurring: z.boolean(),
             decision: z.enum(['approved', 'declined']),
             declineCode: z.string().nullable(),
             status: z.string(),
+            /**
+             * THE MERCHANT'S REFUND of this payment (J-bank-14 #6), as recorded: the partner gives it back to the partner
+             * balance on a partner-held capture, and our ledger posts nothing. Null when there is none.
+             */
+            refund: z.object({ amount: amountString, status: z.enum(['pending', 'settled', 'rejected']), at: z.string() }).nullable(),
+            /** Whose book held it (OWNER 226): `ledger`, or `partner` (the card partner held it; our ledger posted nothing). */
+            heldBy: z.enum(['ledger', 'partner']),
+            /**
+             * A payment taken by the person's pay-from order (J-bank-29 #3 to #7): the order the partner walked, and, once it
+             * held, the asset it held from (`amount` is then in that asset; the rate and its time are `conversion`, as the
+             * partner reported them), with what it captured and returned of the hold. Null on a payment in the card's own asset.
+             */
+            payFrom: z
+              .object({
+                order: z.array(z.string()),
+                assetId: z.string().nullable(),
+                captured: amountString.nullable(),
+                returned: amountString.nullable(),
+              })
+              .nullable(),
             decidedAt: z.string(),
             /**
              * WHAT THE MERCHANT CHARGED, and the rate it converted at (§18).
@@ -911,10 +1105,23 @@ export function createCardsRouter(c: BankRouterContext) {
             authorizationRef: a.authorizationRef,
             amount: formatAmount(a.amount),
             merchantCategory: a.merchantCategory,
+            merchant: a.merchant,
+            merchantCountry: a.merchantCountry,
             channel: a.channel,
+            recurring: a.recurring,
             decision: a.decision,
             declineCode: a.declineCode,
             status: a.status,
+            refund: a.refund ? { amount: formatAmount(a.refund.amount), status: a.refund.status, at: a.refund.at.toISOString() } : null,
+            heldBy: a.heldBy,
+            payFrom: a.payFromOrder
+              ? {
+                  order: a.payFromOrder,
+                  assetId: a.conversion?.quality === 'partner' ? a.conversion.fundingAssetId : null,
+                  captured: a.settled.captured === null ? null : formatAmount(a.settled.captured),
+                  returned: a.settled.returned === null ? null : formatAmount(a.settled.returned),
+                }
+              : null,
             decidedAt: a.decidedAt.toISOString(),
             conversion: a.conversion
               ? {
@@ -926,6 +1133,79 @@ export function createCardsRouter(c: BankRouterContext) {
                 }
               : null,
           }));
+        }),
+      ),
+
+    /**
+     * THE CARD'S RECURRING PAYMENTS, one row per merchant (J-bank-14 #6; BK-cpay-02): the approved payments the issuer
+     * flagged as a merchant charging the card on file, grouped by merchant, newest first. Reads only.
+     */
+    recurring: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }))
+      .output(
+        z.array(
+          z.object({
+            merchant: z.string().nullable(),
+            merchantCountry: z.string().nullable(),
+            payments: z.number().int(),
+            firstAt: z.string(),
+            lastAt: z.string(),
+            lastAmount: amountString,
+          }),
+        ),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          const rows = await bank.cards.recurringOf(input.cardId, input.limit);
+          return rows.map((r) => ({
+            merchant: r.merchant,
+            merchantCountry: r.merchantCountry,
+            payments: r.payments,
+            firstAt: r.firstAt.toISOString(),
+            lastAt: r.lastAt.toISOString(),
+            lastAmount: formatAmount(r.lastAmount),
+          }));
+        }),
+      ),
+
+    /**
+     * THE CARD PARTNER'S OWN REPORT FOR THIS CARD (OWNER 226; J-bank-14's hold, capture and release steps): whose book a
+     * new authorisation is held in now (`ledger`, `partner`, or `none`: no partner and the custodial layer off), the
+     * partner's figures for the card's asset, and each partner-held authorisation as the partner reports it now: held,
+     * captured, released, or given back by the partner on expiry. `test` is true on the TEST partner card. Every null is
+     * "not known", never 0. Reads only.
+     */
+    /** J-bank-15: the cardholder disputes their own card charge (BK-cdisp-01). */
+    disputes: cardholderDisputeRouter(bank, guard),
+
+    partnerHeld: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }))
+      .output(
+        z.object({
+          heldBy: z.enum(['ledger', 'partner', 'none']),
+          figures: partnerFiguresOutput.nullable(),
+          authorizations: z.array(
+            z.object({
+              authorizationId: z.string(),
+              authorizationRef: z.string(),
+              amount: amountString,
+              report: partnerHoldReportOutput.nullable(),
+            }),
+          ),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          const held = await bank.cards.partnerHeld(input.cardId, input.limit);
+          return {
+            heldBy: held.heldBy,
+            figures: held.figures,
+            authorizations: held.authorizations.map((a) => ({ ...a, amount: formatAmount(a.amount) })),
+          };
         }),
       ),
   });

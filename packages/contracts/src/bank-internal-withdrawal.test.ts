@@ -121,7 +121,7 @@ describe('bank internal withdrawal client', () => {
     ['a short secret', { bankUrl: 'http://bank.internal', secret: 'short' }],
   ])('answers unknown without fetching for %s, never refused', async (_name, options) => {
     const fetcher = vi.fn();
-    const client = createBankInternalWithdrawalClient({ ...options, fetcher: fetcher as unknown as typeof fetch });
+    const client = createBankInternalWithdrawalClient({ ...options, fetcher: fetcher as typeof fetch });
     await expect(client.settle(input)).resolves.toEqual(UNKNOWN);
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -131,7 +131,7 @@ describe('bank internal withdrawal client', () => {
     const client = createBankInternalWithdrawalClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.settle({ ...input, toUserId: input.fromUserId })).rejects.toThrow();
     expect(fetcher).not.toHaveBeenCalled();
@@ -146,7 +146,7 @@ describe('bank internal withdrawal client', () => {
     const client = createBankInternalWithdrawalClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.settle(input)).resolves.toEqual(UNKNOWN);
   });
@@ -160,7 +160,7 @@ describe('bank internal withdrawal client', () => {
       bankUrl: 'http://bank.internal',
       secret: SECRET,
       timeoutMs: 20,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.settle(input)).resolves.toEqual(UNKNOWN);
   });

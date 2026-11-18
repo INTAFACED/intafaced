@@ -6,10 +6,12 @@
  * 2. Break: compose booted matching with only MATCHING_JOURNAL_PATH → host
  *    kill is a no-op and the container keeps the schema default forever.
  * 3. Done bar: docker-compose.apps.yml svc-matching has
- *    MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-true}
+ *    MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-false} and the custody
+ *    switch, so the engine runs only where the host turns custody on too
+ *    (OWNER 288: our own book settles fills as customer money in our ledger).
  * 4. Class N
  * 5. Paths: docker-compose.apps.yml (svc-matching block only)
- * 6. RED: pin fails if the kill drops off, is duplicated, defaults false, or
+ * 6. RED: pin fails if the kill drops off, is duplicated, defaults true, or
  *    restamps MATCHING_JOURNAL_PATH / INTERNAL_SERVICE_SECRET / SNAPSHOT
  * 7. Collision: none — this pin only reads svc-matching. No books, no mids.
  */
@@ -43,16 +45,17 @@ describe('compose passes matching engine kill-switch into svc-matching', () => {
   const envTs = readFileSync(join(ROOT, 'services/svc-matching/src/env.ts'), 'utf8');
   const block = matchingComposeBlock();
 
-  it('env.ts still defaults MATCHING_ENGINE_ENABLED true (halt is host-explicit)', () => {
+  it('env.ts leaves an unset MATCHING_ENGINE_ENABLED to the custody switch (no default of its own)', () => {
     expect(envTs).toMatch(/MATCHING_ENGINE_ENABLED:\s*z/);
-    expect(envTs).toMatch(/\.default\(true\)/);
-    expect(envTs).not.toMatch(/MATCHING_ENGINE_ENABLED:[\s\S]*?\.default\(false\)/);
+    expect(envTs).not.toMatch(/MATCHING_ENGINE_ENABLED:[\s\S]{0,200}?\.default\(/);
+    expect(envTs).toMatch(/resolveOwnOrderBook\('MATCHING_ENGINE_ENABLED'/);
   });
 
-  it('compose svc-matching block passes the kill from the host with default true', () => {
+  it('compose svc-matching block passes the kill from the host with default false, and the custody switch default off', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-matching/);
-    expect(block, `${ENGINE} missing true-default pass-through`).toMatch(new RegExp(`${ENGINE}:\\s*\\$\\{${ENGINE}:-true\\}`));
-    expect(block).not.toMatch(new RegExp(`${ENGINE}:\\s*\\$\\{${ENGINE}:-false\\}`));
+    expect(block, `${ENGINE} missing false-default pass-through`).toMatch(new RegExp(`${ENGINE}:\\s*\\$\\{${ENGINE}:-false\\}`));
+    expect(block).not.toMatch(new RegExp(`${ENGINE}:\\s*\\$\\{${ENGINE}:-true\\}`));
+    expect(block).toMatch(/LEDGER_CUSTODY_LAYER:\s*\$\{LEDGER_CUSTODY_LAYER:-off\}/);
   });
 
   it('names each matching host-env key once in compose (no duplicate assignments)', () => {

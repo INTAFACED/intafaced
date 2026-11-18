@@ -7,7 +7,7 @@ const fetchMock = vi.fn();
 const ctx = {
   session: { userId: 'op-a', accessToken: 'founder-session-token' },
   config: { origin: 'https://admin.example', edgeUrl: 'http://isolated-edge:4000' },
-} as unknown as TradeCtx;
+} as TradeCtx;
 
 beforeEach(() => vi.stubGlobal('fetch', fetchMock));
 afterEach(() => {

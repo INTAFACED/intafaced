@@ -20,12 +20,18 @@ export const COPY_SKIP_REASONS = [
   'stopped',
   /** The leader was suspended or delisted by the operator. */
   'lead_stopped',
+  /** The platform paused copying this lead, or halted the market (the copy and bots kill switch, CB-ops-03). */
+  'platform_paused',
   /** A follower risk control held it back: loss or drawdown stop, open-copy limit, a limit that could not be read, or an account control. */
   'risk_control',
   /** The follower's balance did not cover the copy. */
   'insufficient_funds',
   /** The copy would have gone past the follower's per-order or total limit. */
   'max_copy_total',
+  /** The copy would have gone past the follower's most per contract. */
+  'per_contract_cap',
+  /** The copy would have gone past the follower's most per owner day; copying resumes the next owner day. */
+  'daily_cap',
   /** The copy's price was further from the leader's than the follower's slippage limit. */
   'copy_slippage_exceeded',
   /** A leader close found nothing copied left open to close. */
@@ -44,11 +50,14 @@ const BY_COPY_CODE: Partial<Record<string, CopySkipReason>> = {
   'trade.copy_key_expired': 'stopped',
   'trade.copy_leader_suspended': 'lead_stopped',
   'trade.copy_leader_delisted': 'lead_stopped',
+  'trade.copy_paused_by_platform': 'platform_paused',
   'trade.copy_drawdown_stop': 'risk_control',
   'trade.copy_concurrency_exceeded': 'risk_control',
   'trade.copy_limit_unevaluable': 'risk_control',
   'trade.copy_limit_missing': 'risk_control',
   'trade.copy_cap_exceeded': 'max_copy_total',
+  'trade.copy_market_cap_reached': 'per_contract_cap',
+  'trade.copy_daily_cap_reached': 'daily_cap',
   'trade.copy_slippage_exceeded': 'copy_slippage_exceeded',
   'trade.copy_reserve_exceeds_balance': 'insufficient_funds',
   'trade.copy_position_closed': 'position_closed',

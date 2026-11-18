@@ -13,6 +13,8 @@ import { dexHealthHonesty, dexReadyHonesty } from './quote/door-honesty.js';
 import { venuesFor as venuesForEnv } from './quote/venue-set.js';
 import { clobCostsFromOptional } from './quote/clob-costs.js';
 import { createHideListReader } from './quote/hide-list.js';
+import { OrderSessions, checkOrderSessionSetting } from './auth/order-session.js';
+import { FileSessionStore } from './auth/session-store.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -75,7 +77,22 @@ const triggerSettings = {
   orderDomain: env.DEX_ORDER_DOMAIN,
 };
 
+// The order session (D-limit-dca-01): its spent nonces and sign-outs live next to the orders. Blank settings refuse by name.
+const orderSessions = new OrderSessions(
+  checkOrderSessionSetting(
+    {
+      secret: env.DEX_AUTH_SECRET,
+      accessTtlSeconds: env.DEX_AUTH_ACCESS_TTL_SECONDS,
+      refreshTtlSeconds: env.DEX_AUTH_REFRESH_TTL_SECONDS,
+      cap: env.DEX_ORDER_CAP_SCHEDULE,
+    },
+    process.env.APP_ENV,
+  ),
+  new FileSessionStore(triggerStoreDir),
+);
+
 export const appRouter = createDexRouter({
+  orderSessions,
   venues: venuesFor,
   maxAgeMs: env.QUOTE_MAX_AGE_MS,
   depth: env.DEX_QUOTE_DEPTH,

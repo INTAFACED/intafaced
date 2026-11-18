@@ -19,6 +19,7 @@ import { mc } from './copy';
 import { amountFor, hasHiddenDigits, roundedDecimal } from './model';
 import { ReserveCard } from './Reserve';
 import { AllBalances } from './AllBalances';
+import { OutsideFunds } from './OutsideFunds';
 import { statementCard, statementColumns } from './Statement';
 import { pictureCount, usePayoutPicture, type PayoutPicture } from './payout-picture';
 import { defaultStatementRange, payoutRowState } from './model';
@@ -40,14 +41,20 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
   const halts = useResource((s) => portal.haltStatus(merchantId, s), `money:halts:${merchantId}`);
   // svc-pay's own list of the assets this business settles in, each with its ledger figures (J-merchant-07 #1).
   const enabled = useResource((s) => portal.settlementAssets(merchantId, s), `money:settlement-assets:${merchantId}`);
+  // The acquiring partner's own terms: its reserve rule and the currencies it offers, "not known" until it says.
+  const partner = useResource((s) => portal.partnerTerms(merchantId, s), `money:partner-terms:${merchantId}`);
   // The same read Settlements and Payouts use, so "ready" and "waiting" are the same figures on every page.
   const picture = usePayoutPicture(portal, merchantId);
+  // Launch money model (J-merchant-04): what customers paid into the business's own wallet or to the partner, as they report it.
+  const outside = useResource((s) => portal.outsideFunds(s), `money:outside-funds:${merchantId}`);
   const reload = () => {
     snapshot.reload();
     reserve.reload();
     halts.reload();
     enabled.reload();
+    partner.reload();
     picture.reload();
+    outside.reload();
   };
   return (
     <div className="stack mn-page">
@@ -57,6 +64,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
       <div className="pp-actions">
         <LinkButton href="/pay/money/top-up">{t('actTopUp')}</LinkButton>
       </div>
+      <OutsideFunds funds={outside.resource} retry={outside.reload} test={test} />
       <Gate resource={snapshot.resource} retry={reload} rows={4}>
         {(data) => {
           const assets = data.balances.map((b) => b.assetCode);
@@ -66,7 +74,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                 <EmptyState title={t('balEmptyTitle')} action={<LinkButton href="/pay/links/new">{t('balEmptyAction')}</LinkButton>}>
                   {t('balEmptyBody')}
                 </EmptyState>
-                <AllBalances held={[]} enabled={enabled.resource} retry={enabled.reload} test={test} />
+                <AllBalances held={[]} enabled={enabled.resource} partner={partner.resource} retry={enabled.reload} test={test} />
               </>
             );
           const asset = assets.includes(picked) ? picked : assets[0]!;
@@ -158,7 +166,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
                   },
                 ]}
               />
-              <AllBalances held={data.balances} enabled={enabled.resource} retry={enabled.reload} test={test} />
+              <AllBalances held={data.balances} enabled={enabled.resource} partner={partner.resource} retry={enabled.reload} test={test} />
               <StillClearing portal={portal} merchantId={merchantId} test={test} />
               <OnTheWay resource={picture.resource} approvals={approvalMap} retry={picture.reload} test={test} />
               <RecentMovements portal={portal} merchantId={merchantId} asset={asset} test={test} />
@@ -172,7 +180,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
         }}
       </Gate>
       {/* The reserve reads apart from the balances, so it shows before a first payment and while balances cannot be read. */}
-      <ReserveCard resource={reserve.resource} retry={reserve.reload} test={test} />
+      <ReserveCard resource={reserve.resource} partner={partner.resource} retry={reserve.reload} test={test} />
     </div>
   );
 }

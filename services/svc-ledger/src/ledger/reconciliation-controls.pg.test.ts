@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { actionApprovalSchema, type Context } from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt, recipes } from '@intafaced/ledger-client';
@@ -33,6 +33,7 @@ import { readDatabaseNow } from './clock-skew.js';
 import { PostgresLedger } from './postgres-ledger.js';
 import {
   defineReconciliationControl,
+  existedAt,
   listReconciliationControlRuns,
   listReconciliationEvaluations,
   RECONCILIATION_EVALUATION_SETTLE_SECONDS,
@@ -219,6 +220,40 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     expect(run.outsideSide).toBe('unset');
     expect(run.status).toBe('UNSET');
     expect(run.assets.every((asset) => asset.expected === 'unset' && asset.difference === 'unset')).toBe(true);
+  });
+
+  it('a past read finds the set with one hashed lookup of posted entries, never a walk of every account (#8044)', async () => {
+    // Issue #8044: on a young database with no statistics, a per-account EXISTS was planned as a correlated subplan that,
+    // for a readAt before every posting, read every entry of every account in the set. The posted side must be one
+    // uncorrelated lookup that Postgres hashes once. Temporary tables of the same shape shadow the real ones on this
+    // connection (pg_temp is searched first) and are never analysed, so the planner sees exactly that young database.
+    const readAt = new Date('2025-06-01T00:00:00.000Z');
+    const text = await db.sql.begin(async (tx) => {
+      for (const table of ['accounts', 'ledger_tx', 'ledger_entries']) {
+        await tx.unsafe(`CREATE TEMP TABLE ${table} (LIKE ${table} INCLUDING DEFAULTS INCLUDING INDEXES) ON COMMIT DROP`);
+      }
+      await tx`
+        INSERT INTO accounts (owner_type, owner_id, asset_id, kind)
+        SELECT 'user', gen_random_uuid()::text, 'USDT', 'available' FROM generate_series(1, 3000)
+      `;
+      await tx`
+        INSERT INTO ledger_tx (idempotency_key, module, reason, hash)
+        SELECT 'recon-8044-' || g, 'bank', 'bank.transfer.in', 'h' FROM generate_series(1, 30000) g
+      `;
+      await tx`
+        INSERT INTO ledger_entries (tx_id, account_id, asset_id, direction, amount, balance_after)
+        SELECT t.id, a.id, 'USDT', 'debit', 1, 1
+          FROM (SELECT id, row_number() OVER () AS n FROM ledger_tx) t
+          JOIN (SELECT id, row_number() OVER () AS n FROM accounts) a ON a.n = 1 + (t.n % 3000)
+      `;
+      const plan = await tx<Array<{ 'QUERY PLAN': string }>>`
+        EXPLAIN SELECT id, asset_id FROM accounts WHERE ${existedAt(tx, readAt)} AND asset_id = 'USDT'
+      `;
+      return plan.map((row) => row['QUERY PLAN']).join('\n');
+    });
+    // The filter names the subplan it evaluates: `(hashed SubPlan 1)` is built once, a bare `(SubPlan 1)` runs per row.
+    expect(text).toMatch(/\(hashed SubPlan \d+\)/);
+    expect(text).not.toMatch(/(?<!hashed )SubPlan \d+\)/);
   });
 
   it('reads a past instant minus the margin, accepts 0, and refuses a blank margin or a future instant', async () => {
@@ -522,7 +557,11 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     // The hours that fell due while it was paused are not caught up on resume.
     await runDueReconciliationControls(db.sql);
     expect(await runCount()).toBe(0);
-    expect((await run()).status).toBe('PASS');
+    // A resumed control runs. Its set holds no USDT account, so the ledger side is missing: FAIL by name, never a PASS
+    // over a zero (OWNER 288).
+    const resumedRun = await run();
+    expect(resumedRun.status).toBe('FAIL');
+    expect(resumedRun.assets).toEqual([expect.objectContaining({ assetId: 'USDT', observed: 'unset', missing: 'ledger' })]);
     expect(await runCount()).toBe(1);
 
     const retired = await move('retire');
@@ -837,6 +876,71 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
       operationId: nextOp(),
     });
     expect(run.status).toBe('PASS');
+  });
+
+  it('reads an empty set as NOTHING_TO_COMPARE, never PASS, and counts what a PASS compared (OWNER 288)', async () => {
+    // Planted fault: a control whose set holds no account. Before OWNER 288 it folded an empty asset list to PASS.
+    const empty = await defineReconciliationControl(db.sql, actor, {
+      template: 'ledger_invariant',
+      accountSet: { mode: 'query', ownerIdPrefix: 'abcdeaaa-7777-4777-8777-' },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    const nothing = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: empty.id,
+      reason: REASON,
+      approvalId: 'appr-empty',
+      operationId: nextOp(),
+    });
+    expect(nothing.status).toBe('NOTHING_TO_COMPARE');
+    expect(nothing.compared).toBe(0);
+    expect(nothing.assets).toEqual([]);
+    // Stored as it was judged: a fresh read of the run list shows the same word and count.
+    const stored = await listReconciliationControlRuns(db.sql, { controlId: empty.id });
+    expect(stored.runs.map((r) => [r.status, r.compared])).toEqual([['NOTHING_TO_COMPARE', 0]]);
+
+    // One account in the set: one record compared, no difference, PASS.
+    const holder = await insertAccount('abcdeaaa-7777-4777-8777-000000000001');
+    const one = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: empty.id,
+      reason: REASON,
+      approvalId: 'appr-empty',
+      operationId: nextOp(),
+    });
+    expect(holder).toMatch(/^[0-9a-f-]{36}$/);
+    expect(one.status).toBe('PASS');
+    expect(one.compared).toBe(1);
+  });
+
+  it('names a threshold asset no account holds as a missing ledger side: FAIL, never a zero (OWNER 288)', async () => {
+    const holder = await insertAccount('abcdeaaa-8888-4888-8888-000000000001');
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'explicit', accountIds: [holder] },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      // A max bound of 1: before OWNER 288 the absent USDC read as 0, under the bound, and the run PASSed.
+      threshold: { bound: 'max', byAsset: { USDC: '1', USDT: '1' } },
+      reason: REASON,
+      activate: true,
+    });
+    const run = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: defined.id,
+      reason: REASON,
+      approvalId: 'appr-missing',
+      operationId: nextOp(),
+    });
+    expect(run.status).toBe('FAIL');
+    expect(run.phase).toEqual({ status: 'set', value: 'missing' });
+    expect(run.assets).toEqual([
+      { assetId: 'USDC', observed: 'unset', expected: '1', difference: 'unset', tolerance: '0', missing: 'ledger' },
+      { assetId: 'USDT', observed: '0', expected: '1', difference: '0', tolerance: '0' },
+    ]);
+    expect(run.compared).toBe(1);
   });
 
   it('fails a replay now when two accounts drift by amounts that cancel in the asset total', async () => {

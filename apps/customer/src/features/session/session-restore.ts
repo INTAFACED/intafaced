@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createApiClient, type ApiResult } from '../../shared/api';
+import { forgetDeviceSessionKeys } from '../../shared/device-session-key';
 
 /**
  * What the page holds about a sign-in. There is no refresh token here, on purpose: the server keeps it in the HttpOnly
@@ -39,9 +40,36 @@ const BACKOFF_MAX_MS = 60_000;
  * Why a refresh ended the session, when the server said so. Shown to the person; never guessed. `subaccount_ended`: the
  * tab acted as a sub-account and is back on the main account, because the sub-account could not be confirmed again.
  */
-export type SessionNotice = 'reused' | 'frozen' | 'subaccount_ended';
+export type SessionNotice = 'reused' | 'frozen' | 'idle' | 'subaccount_ended';
 export function noticeFor(code: string | undefined): SessionNotice | null {
-  return code === 'auth.session_reused' ? 'reused' : code === 'auth.account_frozen' ? 'frozen' : null;
+  if (code === 'auth.session_reused') return 'reused';
+  if (code === 'auth.account_frozen') return 'frozen';
+  return code === 'auth.session_idle' ? 'idle' : null;
+}
+
+/**
+ * When the person last used this browser and when its sign-in was last refreshed (I-signin-sessions-06), held in memory
+ * and shared by its tabs over the session channel, never stored. A refresh the timer makes with no use since the one
+ * before tells identity so (`idle: true`), and the idle sign-out keeps counting: an open tab nobody touches is a device
+ * left unused. Before the first refresh or the first use is known, a refresh counts as use, as it always did.
+ */
+/** Calls `onUse` for a key, a click or a touch, at most once every few seconds; returns the way to stop listening. */
+export function watchUse(onUse: (at: number) => void, now: () => number = Date.now): () => void {
+  const target = globalThis.window;
+  if (!target?.addEventListener) return () => undefined;
+  let last = 0;
+  const used = () => {
+    const at = now();
+    if (at - last < 5_000) return;
+    last = at;
+    onUse(at);
+  };
+  const events = ['pointerdown', 'keydown', 'touchstart'] as const;
+  for (const name of events) target.addEventListener(name, used, { capture: true, passive: true });
+  used();
+  return () => {
+    for (const name of events) target.removeEventListener(name, used, { capture: true });
+  };
 }
 
 export type RefreshOutcome =
@@ -103,31 +131,35 @@ export function createSessionRefresher(
   });
   const retryDelayMs = options.retryDelayMs ?? REFRESH_RETRY_MS;
   let flight: Promise<RefreshOutcome> | null = null;
-  const attempt = async () => mapRefreshResult(await api.mutate('identity', 'auth.refresh', {}, sessionSchema));
-  async function once(): Promise<RefreshOutcome> {
-    const first = await attempt();
+  const attempt = async (idle: boolean) =>
+    mapRefreshResult(await api.mutate('identity', 'auth.refresh', idle ? { idle: true } : {}, sessionSchema));
+  async function once(idle: boolean): Promise<RefreshOutcome> {
+    const first = await attempt(idle);
     if (first.kind !== 'unavailable') return first;
     if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    return attempt();
+    return attempt(idle);
   }
-  async function locked(): Promise<RefreshOutcome> {
+  async function locked(idle: () => boolean): Promise<RefreshOutcome> {
     const locks = options.locks === undefined ? browserLocks() : (options.locks ?? undefined);
-    if (!locks) return once();
+    if (!locks) return once(idle());
     let started = false;
     try {
       return await locks.request(REFRESH_LOCK, async () => {
         started = true;
-        return once();
+        // Read under the lock: another tab may have refreshed (and been used) while this one waited.
+        return once(idle());
       });
     } catch {
       // The lock could not be taken (blocked or opaque origin): refresh without it. Once the callback has run, never run twice.
-      return started ? { kind: 'unavailable' } : once();
+      return started ? { kind: 'unavailable' } : once(idle());
     }
   }
   return {
-    refresh(): Promise<RefreshOutcome> {
+    /** `unused`: says whether this browser saw no use since its last refresh (read when the refresh is sent). */
+    refresh(options: { unused?: () => boolean } = {}): Promise<RefreshOutcome> {
       if (!flight) {
-        const started: Promise<RefreshOutcome> = locked().finally(() => {
+        const idle = () => options.unused?.() === true;
+        const started: Promise<RefreshOutcome> = locked(idle).finally(() => {
           if (flight === started) flight = null;
         });
         flight = started;
@@ -196,6 +228,7 @@ export type ChannelLike = {
 const channelMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('logout') }),
   z.object({ type: z.literal('session'), session: sessionSchema }),
+  z.object({ type: z.literal('used'), at: z.number().finite() }),
 ]);
 function browserChannel(): ChannelLike | null {
   try {
@@ -249,6 +282,13 @@ function refusedByIdentity(result: ApiResult<unknown>): boolean {
 /** Refresh this long before the access token expires. */
 const REFRESH_LEAD_MS = 30_000;
 const MAX_TIMER_MS = 2_147_483_647;
+/**
+ * The least time between two silent refreshes. A device whose clock runs ahead of the server's sees every fresh token as
+ * already due, and without this floor would refresh again at once, without end, until identity rate-limits the person
+ * and every read fails "Too many requests" (J-bank-16 #1, run 42191788272). The server judges a token by its own clock,
+ * so a token refreshed a minute ago is still good there.
+ */
+const MIN_REFRESH_GAP_MS = 60_000;
 
 /**
  * The sign-in, held in memory only: the access token lives in this closure and nowhere else (no storage, no cookie the
@@ -280,7 +320,17 @@ export function createSessionController(
   let state: SessionState = { session: null, restoring: true, restoreFailed: false, notice: null };
   let epoch = 0;
   let active = false;
+  let stopWatchingUse: (() => void) | null = null;
+  let usedAt: number | null = null;
+  let refreshedAt: number | null = null;
+  const unused = () => usedAt !== null && refreshedAt !== null && usedAt <= refreshedAt;
+  function used(at: number) {
+    usedAt = Math.max(usedAt ?? 0, at);
+    tell({ type: 'used', at });
+  }
   let failures = 0;
+  /** When the last silent refresh was asked for, by this tab's clock: the next one waits at least MIN_REFRESH_GAP_MS. */
+  let lastSilentAt = Number.NEGATIVE_INFINITY;
   let boot: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let channel: ChannelLike | null = null;
@@ -291,6 +341,28 @@ export function createSessionController(
   let reentry: Promise<ApiResult<Session>> | null = null;
   let reentryTimer: ReturnType<typeof setTimeout> | undefined;
   let reentryFailures = 0;
+  /** After a boot outage the Retry panel shows, and the cookie is tried again on its own with growing pauses. */
+  let bootRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let bootFailures = 0;
+  function stopBootRetry() {
+    if (bootRetryTimer !== undefined) clearTimeout(bootRetryTimer);
+    bootRetryTimer = undefined;
+  }
+  /**
+   * The boot refresh got no answer: show Retry (the cookie is untouched), and ask again by itself, so a blip in the
+   * account service does not leave the person on Retry until they press it. The panel stays while it asks.
+   */
+  function bootOutage() {
+    set({ session: null, restoring: false, restoreFailed: true, notice: null });
+    stopBootRetry();
+    if (!active) return;
+    const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** bootFailures);
+    bootFailures += 1;
+    bootRetryTimer = setTimeout(() => {
+      bootRetryTimer = undefined;
+      if (active && !state.session && state.restoreFailed) boot = bootRefresh();
+    }, delay);
+  }
 
   function set(next: SessionState) {
     state = next;
@@ -316,13 +388,16 @@ export function createSessionController(
       signOut(null);
       return;
     }
-    const delay = retryDelay ?? Math.max(0, Math.min(MAX_TIMER_MS, deadline - now() - REFRESH_LEAD_MS));
+    const due = Math.max(0, Math.min(MAX_TIMER_MS, deadline - now() - REFRESH_LEAD_MS));
+    const delay = retryDelay ?? Math.max(due, lastSilentAt + MIN_REFRESH_GAP_MS - now());
     timer = setTimeout(() => void silent(session), delay);
   }
   async function silent(forSession: Session) {
     timer = undefined;
+    lastSilentAt = now();
     const started = epoch;
-    const outcome = await refresher.refresh();
+    const outcome = await refresher.refresh({ unused });
+    if (outcome.kind === 'session') refreshedAt = now();
     if (epoch !== started || state.session?.accessToken !== forSession.accessToken) return;
     if (outcome.kind === 'session') {
       // Other tabs on the main account take the rotated main token; this tab keeps acting as its sub-account when it was.
@@ -417,7 +492,7 @@ export function createSessionController(
           return answer;
         }
         if (mode === 'boot') {
-          set({ session: null, restoring: false, restoreFailed: true, notice: null });
+          bootOutage();
           return answer;
         }
         if (reentryTimer !== undefined) clearTimeout(reentryTimer);
@@ -440,6 +515,8 @@ export function createSessionController(
     else if (wanted) memory.write(wanted);
     epoch += 1;
     failures = 0;
+    stopBootRetry();
+    bootFailures = 0;
     set({ session: value, restoring: false, restoreFailed: false, notice });
     arm();
   }
@@ -458,6 +535,10 @@ export function createSessionController(
     epoch += 1;
     failures = 0;
     disarm();
+    stopBootRetry();
+    bootFailures = 0;
+    // A trading session's key on this device ends with the sign-out (J-wallet-22 #8): nothing here signs with it again.
+    forgetDeviceSessionKeys();
     set({ session: null, restoring: false, restoreFailed: false, notice });
   }
   function clear() {
@@ -466,6 +547,12 @@ export function createSessionController(
   function heard(data: unknown) {
     const message = channelMessage.safeParse(data);
     if (!message.success) return;
+    if (message.data.type === 'used') {
+      usedAt = Math.max(usedAt ?? 0, Math.min(message.data.at, now()));
+      return;
+    }
+    // Another tab refreshed: this browser's sign-in was refreshed now.
+    if (message.data.type === 'session') refreshedAt = now();
     const current = state.session;
     if (!current) return;
     if (message.data.type === 'logout') {
@@ -488,6 +575,7 @@ export function createSessionController(
     if (state.session) return;
     const started = epoch;
     const outcome = await refresher.refresh();
+    if (outcome.kind === 'session') refreshedAt = now();
     if (epoch !== started || state.session) return;
     if (outcome.kind === 'session') {
       const remembered = memory.read();
@@ -503,7 +591,7 @@ export function createSessionController(
     } else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
     // A definite refusal at boot: retrying cannot help, so the visitor goes to sign-in rather than an endless Retry.
     else if (outcome.kind === 'refused') signOut(null);
-    else set({ session: null, restoring: false, restoreFailed: true, notice: null });
+    else bootOutage();
   }
   async function serverLogout(): Promise<ApiResult<{ ok: true }>> {
     // A refresh already in flight would set a fresh cookie after the logout cleared it.
@@ -531,6 +619,7 @@ export function createSessionController(
     /** Idempotent: the boot refresh runs once however often this is called (React StrictMode mounts twice). */
     start(): Promise<void> {
       active = true;
+      stopWatchingUse ??= watchUse(used, now);
       if (!channel) {
         channel = openChannel();
         if (channel) channel.onmessage = (event) => heard(event.data);
@@ -541,9 +630,12 @@ export function createSessionController(
     },
     stop() {
       active = false;
+      stopWatchingUse?.();
+      stopWatchingUse = null;
       disarm();
       if (reentryTimer !== undefined) clearTimeout(reentryTimer);
       reentryTimer = undefined;
+      stopBootRetry();
       if (channel) {
         channel.onmessage = null;
         channel.close();
@@ -553,6 +645,7 @@ export function createSessionController(
     /** After a boot outage: try the cookie again. */
     retryRestore(): Promise<void> {
       if (state.restoring || state.session) return boot ?? Promise.resolve();
+      stopBootRetry();
       set({ session: null, restoring: true, restoreFailed: false, notice: null });
       boot = bootRefresh();
       return boot;

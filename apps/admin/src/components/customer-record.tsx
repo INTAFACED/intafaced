@@ -4,7 +4,16 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ReadBlock } from '@/components/ops-desk';
-import { CUSTOMER_TABS, INDICATOR_STRIP, RECORD_SOURCE_UNWIRED, RISK_CARD, TAB_LABELS, type CustomerTab } from '@/lib/customer-record/tabs';
+import {
+  CUSTOMER_TABS,
+  INDICATOR_STRIP,
+  RECORD_PERMISSION_DENIED,
+  RECORD_SOURCE_UNWIRED,
+  RISK_CARD,
+  TAB_LABELS,
+  TAB_STAFF_AREA,
+  type CustomerTab,
+} from '@/lib/customer-record/tabs';
 import type { ReadOutcome, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
 import './desk.css';
 
@@ -15,13 +24,15 @@ export interface CustomerRecordProps {
   readonly reads: readonly ReadSpec[];
   readonly outcomes: Readonly<Record<string, ReadOutcome>>;
   readonly unwired: readonly Unavailable[];
+  /** The signed-in person may not read this tab's area: the tab says so and nothing was read for it. */
+  readonly denied?: boolean;
 }
 
 /**
  * One customer's record: a tab per area, the open tab read when the page opened. Each read answers or refuses on its own; a part
  * no service can read for one account says so with the reason. Nothing here changes the account.
  */
-export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwired }: CustomerRecordProps) {
+export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwired, denied = false }: CustomerRecordProps) {
   const router = useRouter();
   const [openKey, setOpenKey] = useState<string | null>(null);
   const ctx = { userId: founderId, onChanged: () => router.refresh() };
@@ -72,9 +83,20 @@ export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwire
       </nav>
       <section className="dk-stack" aria-labelledby="h-customer-tab" data-testid={`customer-panel-${tab}`}>
         <h2 id="h-customer-tab">{TAB_LABELS[tab]}</h2>
+        {denied ? (
+          <article className="adm-callout" data-tone="danger" data-testid="customer-tab-denied" data-state="denied" role="alert">
+            <strong>Permission denied</strong>
+            <p>
+              Your staff role may not read {TAB_LABELS[tab].toLowerCase()} (the {TAB_STAFF_AREA[tab]} area), so nothing on this tab was read
+              for this account.
+            </p>
+            <p className="dk-muted">Code: {RECORD_PERMISSION_DENIED}</p>
+          </article>
+        ) : null}
         {reads.map((spec) => (
           <ReadBlock key={spec.id} spec={spec} outcome={outcomes[spec.id]} ctx={ctx} openKey={openKey} onOpen={setOpenKey} />
         ))}
+        {tab === 'documents' ? <KycCaseLinks base={base} outcome={outcomes['identity.kyc-cases']} /> : null}
         {unwired.map((u) => (
           <article key={u.id} className="adm-callout" data-tone="warn" data-testid={`unwired-${u.id}`} data-state="unwired">
             <strong>{u.label}: no source</strong>
@@ -84,5 +106,27 @@ export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwire
         ))}
       </section>
     </div>
+  );
+}
+
+/** One link per KYC case identity listed for this person, to the case's own page with its documents. */
+function KycCaseLinks({ base, outcome }: { base: string; outcome: ReadOutcome | undefined }) {
+  if (outcome?.part.kind !== 'ok' || outcome.part.data.shape !== 'list' || outcome.part.data.rows.length === 0) return null;
+  const text = (cells: readonly { key: string; value: unknown }[], key: string) => {
+    const v = cells.find((c) => c.key === key)?.value;
+    return typeof v === 'string' ? v : '';
+  };
+  return (
+    <nav aria-label="Verification cases" data-testid="kyc-case-links">
+      <ul className="dk-row" role="list">
+        {outcome.part.data.rows.map((row) => (
+          <li key={row.id}>
+            <Link href={`${base}/kyc/${encodeURIComponent(row.id)}`} data-testid={`kyc-case-link-${row.id}`} className="adm-btn">
+              Open case: {text(row.cells, 'tier')} verification, {text(row.cells, 'state')}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }

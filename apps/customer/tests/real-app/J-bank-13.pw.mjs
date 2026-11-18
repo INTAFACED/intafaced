@@ -2,9 +2,16 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, json, toUnits, tool } from './stack.mjs';
+import { keccak256, toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, fromUnits, fund, journeyState, json, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
+import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueRecord } from './venue.mjs';
+import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
 
 // J-bank-13, in the running app (docs/roadmap/journeys.json): I get a card. One TEST account, signed up in Germany,
 // verified and funded with TEST 100 USDT, starts on /bank/cards/new. The stack's card issuer is the simulator
@@ -20,10 +27,17 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // card with a design and a speed, and its delivery address changed before print and refused once produced. Steps 5 and
 // 6 (BK-cissue-04): activation with a fresh authenticator code (the owner's step-up rule on, for that restart), then a
 // lost report that closes the card once, reverses its open hold once and leaves one new inactive card. Step 7
-// (RC-bank-02, owner decision 2026-11-06: add cashback): an IFC card's spend is paid cashback in IFC at the rate for the
-// person's rank card tier, from the one reward pot, which the two TEST founders fund from IFC trade fees the platform
-// earned. The simulator pays it only through the stack's TEST stand-in (BANK_CARD_SIM_CASHBACK=test, refused outside
-// dev/test); a simulated card elsewhere still pays none.
+// (RC-bank-02, owner decision 2026-11-06: add cashback; launch money model, OWNER 226 and 288): the person's TEST
+// partner switch `custody: 'off'` puts a USDC card's money at the TEST card partner, and each spend earns cashback at the
+// rate of the person's rank card tier. svc-bank records it once per authorisation and announces it
+// (bank.card_cashback.earned); this run's TEST card cashback programme (a campaign the two TEST founders make, which the
+// person joins) owes it in USDC in svc-ledger from INTAFACED's own budget, and svc-campaigns' payer pays it to the
+// wallet the person connected, from INTAFACED's TEST rewards wallet on the stack's TEST chain. That money is our own TEST
+// builder fees, earned on a TEST trader's sells through our venue door (#7 restarts trade with `LOCAL_STACK_USER_VENUE=on`
+// and the file puts it back off after), as J-campaigns-03 does. The simulator earns cashback only through the stack's
+// TEST stand-in (BANK_CARD_SIM_CASHBACK=test, refused outside dev/test). Step 8 (NO-SLICE): with the TEST card partner's
+// per-person switch saying it does not add cards to phone wallets, the panel reads "not offered by the partner" and an
+// add is refused; with it offered, the #7 card goes into a phone wallet as the partner reports its token.
 const J = 'J-bank-13';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = { name: 'Ada TEST', line1: '1 TEST Strasse', city: 'Berlin', postalCode: '10115', country: 'DE' };
@@ -75,6 +89,8 @@ async function bank(who = person()) {
     return { ok: true, data: body.result.data };
   };
   const client = {
+    /** The session's access token, for the person's own calls to other services through Edge. */
+    token,
     query: (procedure, input) =>
       fetch(`${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
         headers,
@@ -512,18 +528,6 @@ test(`${J} #6 reports it lost or stolen: the old card closes once, a new inactiv
   expect(await authorize(physicalId, '1')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_not_active' });
 });
 
-/** Founder A asks to sweep earned trade fees into the one reward pot; founder B approves, which posts it (as J-campaigns-02). */
-async function fundRewardPot(reference, asset, amount) {
-  const { ctx, sessions } = await founders();
-  const a = await sessions.a.campaignsOpsToken();
-  const b = await sessions.b.campaignsOpsToken();
-  const asked = await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'trade', asset, amount }, a);
-  expect(asked.status, asked.text.slice(0, 300)).toBe(200);
-  const funded = await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b);
-  expect(funded.status, funded.text.slice(0, 300)).toBe(200);
-  expect(funded.json.result.data.state).toBe('posted');
-}
-
 /** A fresh access token for the person (with an authenticator code once #5 set one up). */
 async function accessToken(who = person()) {
   const totpCode = await code();
@@ -576,72 +580,453 @@ async function awardXp(userId, xpDelta, rank) {
   return body.result.data;
 }
 
-/**
- * The reward pot is funded from trade fees the platform earned in IFC: the person buys TEST IFC on the stack's IFC/USDT
- * book, paying the taker fee in IFC, and the two TEST founders sweep `amount` of it into the pot.
- */
-async function earnFeesIntoPot(who, token, amount) {
-  expect(fund(who.email, 'USDT', '60').tx).toBeTruthy();
-  const order = await fetch(`${EDGE}/api/v1/orders`, {
-    method: 'POST',
-    headers: { origin: ORIGIN, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ symbol: 'IFC/USDT', type: 'market', side: 'buy', amount: '50', clientOrderId: `${J}-ifc-${randomUUID()}` }),
-  }).then(json);
-  expect(order.status, JSON.stringify(order.body).slice(0, 300)).toBeLessThan(300);
-  await fundRewardPot(`TEST-${J}-${randomUUID().slice(0, 8)}`, 'IFC', fromUnits(amount));
-}
-
 /** One TEST spend on the card, authorised then captured; returns the capture's cashback and the authorisation. */
-async function spendOn(api, cardId, spend) {
+async function spendOn(api, cardId, spend, beforeCapture = async () => {}) {
   const held = await authorize(cardId, spend);
   expect(held).toMatchObject({ decision: 'approved' });
   const rows = await api.query('cards.authorizations', { cardId, limit: 50 });
   const ref = rows.data.find((row) => row.id === held.authorizationId).authorizationRef;
+  await beforeCapture(held);
   const captured = await capture(cardId, ref, spend);
   return { held, cashback: captured.cashback };
 }
 
-test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, async ({ page }) => {
-  test.setTimeout(360_000);
+/** svc-ledger's own accounts under one address prefix, by account id, read as an operator (founder a, admin:treasury). */
+async function ledgerAccounts(prefix) {
+  const { ctx, sessions } = await founders();
+  const res = await fetch(`${ctx.url('ledger')}/operator/accounts?prefix=${encodeURIComponent(prefix)}`, {
+    headers: { authorization: `Bearer ${await sessions.a.treasuryToken()}` },
+  });
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  const page = JSON.parse(text);
+  expect(page.nextCursor, `one page holds every account under ${prefix}`).toBeNull();
+  return new Map(page.accounts.map((row) => [row.accountId, row]));
+}
+
+/** One booked transaction as svc-ledger itself holds it, read as an operator (founder a, admin:treasury). */
+async function ledgerTx(txId) {
+  const { ctx, sessions } = await founders();
+  const res = await fetch(`${ctx.url('ledger')}/operator/transactions/${encodeURIComponent(txId)}`, {
+    headers: { authorization: `Bearer ${await sessions.a.treasuryToken()}` },
+  });
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  return JSON.parse(text);
+}
+
+// ── #7: the cashback programme, our own money, the person's wallet ──────────────────────────────────────────────────
+
+const USDC = 'USDC';
+const reply = (res, what) => {
+  const row = res.json?.result?.data;
+  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return row;
+};
+
+/**
+ * This run's TEST card cashback programme: a campaign whose one earning rule owes, for each `bank.card_cashback.earned`,
+ * exactly the cashback the bank worked out (`formula: cashback`), in USDC, from a TEST budget. Founder A creates and asks,
+ * founder B approves, A activates (the campaigns desk's two-person rule).
+ */
+async function liveCashbackProgramme() {
+  const { ctx, sessions } = await founders();
+  const a = await sessions.a.campaignsOpsToken();
+  const b = await sessions.b.campaignsOpsToken();
+  const name = `TEST card cashback ${Date.now().toString(36)}`;
+  const definition = {
+    name,
+    type: 'task',
+    rules: `TEST rules for ${name}: card spend the card partner holds earns cashback at your rank's card tier, owed by INTAFACED in TEST USDC and paid to your connected wallet.`,
+    startsAt: new Date(Date.now() - 60_000).toISOString(),
+    endsAt: new Date(Date.now() + 14 * 86_400_000).toISOString(),
+    participation: { exclusions: [], regionScope: 'platform' },
+    budget: { asset: USDC, limit: '1' },
+    // TEST limits (CM-eligibility-rules-03), wide enough that only a step about limits meets them.
+    limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
+    reward: { asset: USDC, amount: '1' },
+    earning: [{ name: 'Card cashback', trigger: 'bank.card_cashback.earned', minAmount: null, formula: 'cashback' }],
+  };
+  const made = reply(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition, a), 'ops.campaigns.create');
+  reply(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'submit', revision: 1 }, a), 'submit');
+  reply(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'approve', revision: 1 }, b), 'approve');
+  const live = reply(
+    await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'activate', revision: 1 }, a),
+    'activate',
+  );
+  expect(live.state).toBe('active');
+  return live;
+}
+
+/** Founders A and B sweep `amount` of the builder fees the platform earned into the USDC reward pot, once svc-trade posted them. */
+async function fundPotFromBuilderFees(amount) {
+  const { ctx, sessions } = await founders();
+  await expect
+    .poll(
+      async () => {
+        const reference = `TEST-${J}-${Date.now().toString(36)}`;
+        const a = await sessions.a.campaignsOpsToken();
+        const b = await sessions.b.campaignsOpsToken();
+        const asked = await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'builder', asset: USDC, amount }, a);
+        if (asked.status !== 200) return asked.text.slice(0, 200);
+        const funded = await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b);
+        return funded.json?.result?.data?.state ?? funded.text.slice(0, 200);
+      },
+      { timeout: 90_000, intervals: [5_000] },
+    )
+    .toBe('posted');
+}
+
+/** Restarts trade with the user-venue door on (it starts the TEST venue) or off, and puts this process's env back. */
+function userVenue(on) {
+  const before = process.env.LOCAL_STACK_USER_VENUE;
+  if (on) process.env.LOCAL_STACK_USER_VENUE = 'on';
+  else delete process.env.LOCAL_STACK_USER_VENUE;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+    else process.env.LOCAL_STACK_USER_VENUE = before;
+  }
+}
+let doorTurnedOn = false;
+test.afterAll(() => {
+  if (doorTurnedOn) userVenue(false);
+});
+
+const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
+const traderKey = privateKeyToAccount(keccak256(toHex(`intafaced TEST venue journey trader ${J} ${RUN}`)));
+const traderOwner = traderKey.address.toLowerCase();
+
+/** One action through svc-trade's user-venue door as the TEST trader account: prepare, sign with its key, submit. */
+async function door(session, intent, actionKey) {
+  const signer = { role: 'owner', address: traderOwner };
+  const prepared = await session.post('/api/v1/venue/prepare', { owner: traderOwner, signer, intent, ...(actionKey ? { actionKey } : {}) });
+  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
+  const p = prepared.body.prepared;
+  const t = p.typedData;
+  const signature = await traderKey.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await session.post('/api/v1/venue/submit', {
+    actionKey: prepared.body.actionKey,
+    signature: { digest: p.digest, signature, signedBy: traderOwner },
+  });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
+  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
+  return sent.body;
+}
+
+/**
+ * INTAFACED's own TEST money for the cashback: builder fees the TEST venue credits us on a TEST trader's sells through our
+ * venue door (seven sells of 0.5 BTC at the stack's TEST 0.5 bps, about 10.5 TEST USDC, as J-campaigns-03 earns them).
+ * Returns the builder address the venue credits.
+ */
+async function earnBuilderFees(session) {
+  const sells = 7;
+  const size = 0.5;
+  const since = new Date(Date.now() - 1000);
+  const account = { venueId: (await testVenue('/venue')).body.venue.id, owner: traderOwner, subAccount: null };
+  for (const [asset, amount] of [
+    [USDC, '10000'],
+    ['BTC', String(size * sells + 0.5)],
+  ]) {
+    const ref = `84532:${keccak256(toHex(`${J} ${RUN} ${traderOwner} ${asset}`))}:0`;
+    const funded = await testVenue('/test/deposit', { account, asset, amount, depositRef: ref });
+    expect(funded.status, JSON.stringify(funded.body)).toBe(200);
+  }
+  const status = (await session.get('/api/v1/venue/status')).body;
+  expect(status, JSON.stringify(status).slice(0, 300)).toMatchObject({ enabled: true, test: true });
+  const markets = await testVenue('/markets', { account: null });
+  const cap = markets.body.value.find((m) => m.symbol === 'BTC-USDC').builderFeeCapBps.value;
+  await door(
+    session,
+    { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: cap },
+    `approve-builder:${traderOwner}:${J}`,
+  );
+  const buyer = `${J}-buyer-${RUN}`;
+  await testDeposit(otherTraderKey(buyer).address, USDC, '400000', `seed:${buyer}:USDC`);
+  const bidKey = `order:${buyer}:bid:${Date.now()}`;
+  const bid = await otherTraderRun(buyer, {
+    kind: 'place_order',
+    symbol: 'BTC-USDC',
+    side: 'buy',
+    type: 'limit',
+    amount: String(size * sells),
+    price: '59990',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: bidKey,
+    builderFee: null,
+  });
+  expect(bid, JSON.stringify(bid).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+  // The TEST maker's own bid at this price sits ahead of the buyer's in time, so the sells fill it first and part of the
+  // buyer's bid is left resting above the maker's next level. It is cancelled once the sells are done, so no later file
+  // on this stack meets a TEST bid it did not place (#8546: J-cex-spot-02 #7's sell filled at once against the remainder).
+  try {
+    for (let i = 0; i < sells; i += 1) {
+      await door(session, {
+        kind: 'place_order',
+        symbol: 'BTC-USDC',
+        side: 'sell',
+        type: 'limit',
+        amount: String(size),
+        price: '59990',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: `order:${J}:${RUN}:${Date.now()}:${i}`,
+        builderFee: null,
+      });
+    }
+    await expect
+      .poll(
+        async () => {
+          const body = await venueRecord(traderOwner, '/fills', { since: since.toISOString() });
+          return body.value.filter((f) => f.feeAsset === USDC && !/^0(\.0+)?$/.test(f.builderFee)).length;
+        },
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThanOrEqual(sells);
+  } finally {
+    const left = (await venueRecord(otherTraderKey(buyer).address, '/open-orders')).value.filter((o) => o.symbol === 'BTC-USDC');
+    if (left.length) await otherTraderRun(buyer, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: bidKey });
+  }
+  // Nothing of the buyer's rests on BTC-USDC now, as the venue's own record says.
+  expect((await venueRecord(otherTraderKey(buyer).address, '/open-orders')).value.filter((o) => o.symbol === 'BTC-USDC')).toEqual([]);
+  return status.builder.address;
+}
+
+/** TEST USD (base units) `address` holds on the TEST chain, read from the node itself. */
+async function chainUsd(address) {
+  const res = await fetch(GATE_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'eth_call',
+      params: [{ to: TOKEN_USD.address, data: `0x70a08231${address.slice(2).toLowerCase().padStart(64, '0')}` }, 'latest'],
+    }),
+  });
+  return BigInt((await res.json()).result);
+}
+
+/** Mines `n` empty blocks on the stack's TEST chain (`evm_mine`, the TEST chain's own control). */
+async function mineBlocks(n) {
+  for (let i = 0; i < n; i += 1) {
+    const res = await fetch(testChain().gateUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'evm_mine', params: [] }),
+    });
+    const body = await res.json();
+    if (body.error) throw new Error(`evm_mine: ${JSON.stringify(body.error)}`);
+  }
+}
+
+/**
+ * Pays INTAFACED's TEST rewards wallet from our own TEST builder fees, as the launch money model moves them: the TEST
+ * trader sends 20 TEST USD to the TEST venue's deposit address on the chain (so the venue holds tokens to pay a withdrawal
+ * from), then the TEST venue records a claim of our unclaimed builder fees (its TEST claim control). svc-trade books it
+ * collected and sweeps what is above the TEST float to the rewards wallet; nothing here moves our money itself.
+ */
+async function claimOurBuilderFees(builder) {
+  fundOnTestChain(traderOwner, 'venue');
+  const { createWalletClient, encodeFunctionData, http, parseAbiItem } = await import('viem');
+  const chain = {
+    id: CHAIN_ID,
+    name: 'TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [GATE_URL] } },
+  };
+  const before = await chainUsd(TEST_VENUE_DEPOSIT_ADDRESS);
+  const wallet = createWalletClient({ account: traderKey, chain, transport: http(GATE_URL) });
+  await wallet.sendTransaction({
+    to: TOKEN_USD.address,
+    data: encodeFunctionData({
+      abi: [parseAbiItem('function transfer(address to, uint256 value) returns (bool)')],
+      functionName: 'transfer',
+      args: [TEST_VENUE_DEPOSIT_ADDRESS, 20_000_000n],
+    }),
+  });
+  await mineBlocks(4);
+  expect(await chainUsd(TEST_VENUE_DEPOSIT_ADDRESS)).toBe(before + 20_000_000n);
+  const claimed = await testVenue('/test/builder-claim', { builder });
+  expect(claimed.status, JSON.stringify(claimed.body)).toBe(200);
+}
+
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+/** The TEST chain's own receipt of `txHash`: the token transfers it made, as { token, to, value } (read from the chain). */
+async function chainTransfers(txHash) {
+  const res = await fetch(GATE_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [txHash] }),
+  });
+  const receipt = (await res.json()).result;
+  expect(receipt, `the TEST chain has a receipt for ${txHash}`).toBeTruthy();
+  expect(receipt.status).toBe('0x1');
+  return receipt.logs
+    .filter((l) => l.topics[0] === TRANSFER_TOPIC)
+    .map((l) => ({ token: l.address.toLowerCase(), to: `0x${l.topics[2].slice(26)}`, value: BigInt(l.data) }));
+}
+
+/** A decimal TEST USD amount in the token's base units (6 decimals), exactly. */
+const usdUnits = (amount) => {
+  const [w, f = ''] = amount.split('.');
+  return BigInt(w + f.padEnd(TOKEN_USD.decimals, '0'));
+};
+
+/** The person's own campaigns API through Edge, on the bank client's session. */
+async function campaignsAs(api, procedure, input) {
+  const res = await fetch(
+    `${EDGE}/api/campaigns/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`,
+    { headers: { origin: ORIGIN, authorization: `Bearer ${api.token}` } },
+  ).then(json);
+  if (!res.body?.result) throw new Error(`${procedure} refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
+  return res.body.result.data;
+}
+
+/** The person's reward for one card authorisation's cashback, as My rewards lists it (the earning key ends with it). */
+async function cashbackReward(api, authorizationId) {
+  const mine = await campaignsAs(api, 'rewards.mine', {});
+  return mine.rewards.find((r) => r.rewardKey.endsWith(`:${authorizationId}`)) ?? null;
+}
+
+test(`${J} #7 sees cashback in USDC on card spend with the rank-linked tier: recorded in the ledger as owed by INTAFACED and paid to the person's own wallet, never spendable before it is paid`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(900_000);
   const who = person();
-  const api = await bank();
   const spend = '4';
   const earnedAt = (bps) => (toUnits(spend) * BigInt(bps)) / 10_000n;
 
-  // The tier the bank pays at is the one the person's rank gives in svc-identity, read there, not from the bank.
+  // INTAFACED's own TEST money first: a TEST trader's sells through our venue door earn us builder fees; the founders sweep
+  // some into the USDC reward pot, and our claimed fees reach our TEST rewards wallet on the chain.
+  const traderPage = await (await browser.newContext()).newPage();
+  const trader = await signUp(traderPage, 'jb13trader');
+  await verify(traderPage, trader);
+  const traderSession = await api(trader);
+  if (!(await traderSession.get('/api/v1/venue/status')).body?.deposit) {
+    userVenue(true);
+    doorTurnedOn = true;
+  }
+  const builder = await earnBuilderFees(await api(trader));
+  await claimOurBuilderFees(builder);
+  await fundPotFromBuilderFees('0.5');
+  const programme = await liveCashbackProgramme();
+
+  // The person's card money is the card partner's (TEST partner switch `custody: 'off'`): nothing of theirs is in our book.
+  const switched = await (await bank(who)).mutate('testPartner.set', { custody: 'off', cardDecline: 'none' });
+  expect(switched, JSON.stringify(switched.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { custody: 'off' } });
+  const joined = await fetch(`${EDGE}/api/campaigns/trpc/participation.join`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, authorization: `Bearer ${(await bank(who)).token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ campaignId: programme.id }),
+  }).then(json);
+  expect(joined.body?.result?.data?.participation, JSON.stringify(joined.body).slice(0, 300)).toBeTruthy();
+
+  // The person connects their own TEST wallet (svc-protocol's record), the wallet INTAFACED pays cashback to.
+  const walletKey = testWalletKey();
+  const walletAddress = privateKeyToAccount(walletKey).address.toLowerCase();
+  await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey });
+  await signInPerson(page);
+  await page.goto('/wallet');
+  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await page.getByRole('button', { name: 'Connect to my account' }).click();
+  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
+  const walletBefore = await chainUsd(walletAddress);
+
+  // The tier the bank earns at is the one the person's rank gives in svc-identity, read there, not from the bank.
   const token = await accessToken(who);
   const start = await rankOf(token);
-  const before = await api.query('cards.cashback');
+  const before = await (await bank(who)).query('cards.cashback');
   expect(before.ok, JSON.stringify(before.body ?? {}).slice(0, 300)).toBe(true);
-  expect(before.data).toMatchObject({ assetId: 'IFC', paying: true, simulated: true, tier: start.cardTier });
+  expect(before.data).toMatchObject({ assetId: USDC, paying: true, simulated: true, tier: start.cardTier, toWallet: '0' });
   const rateOf = (tier) => before.data.rates.find((r) => r.tier === tier)?.bps ?? null;
   const firstBps = before.data.rateBps;
   expect(firstBps, `a TEST rate for tier ${start.cardTier}`).not.toBeNull();
   expect(firstBps).toBe(rateOf(start.cardTier));
   const first = earnedAt(firstBps);
 
-  // A virtual card that draws on IFC, ordered in the card room.
-  await earnFeesIntoPot(who, token, first);
-  await signInPerson(page);
-  await page.goto('/bank/cards/new');
-  await page.getByLabel('Country you live in').selectOption('DE');
-  await page.getByRole('radio', { name: 'Virtual card' }).check();
-  await page.getByLabel('Card draws on').selectOption('IFC');
-  await page.getByLabel('Limit per payment (IFC)').fill('20');
-  await page.getByRole('button', { name: 'Issue virtual card' }).click();
-  const result = page.getByTestId('card-order-result');
-  await expect(result).toContainText('Virtual card issued');
-  const cardId = await result.getAttribute('data-card-id');
-  expect(await cardOf(cardId)).toMatchObject({ assetId: 'IFC', status: 'active' });
+  // A virtual card in USDC, which the TEST card partner holds for this person (its TEST USDC spendable, never our book's):
+  // issued through the person's own card door, as J-bank-14 #6 does, since the card room's funding list names only what
+  // INTAFACED's book holds for them.
+  const issued = await (await bank(who)).mutate('cards.issue', { cardId: randomUUID(), assetId: USDC, perAuthorizationLimit: '20' });
+  expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
+  const cardId = issued.data.id;
+  expect(await cardOf(cardId)).toMatchObject({ assetId: USDC, status: 'active' });
+  run.write({ cashbackCardId: cardId });
 
-  // A TEST spend of 4 IFC at the starting tier: cashback is paid once, in IFC, at that tier's rate.
-  const ifcBefore = toUnits((await api.holding('IFC')).free);
-  const one = await spendOn(api, cardId, spend);
-  expect(one.cashback).toMatchObject({ status: 'paid', amount: fromUnits(first) });
-  expect(ifcBefore - toUnits((await api.holding('IFC')).free)).toBe(toUnits(spend) - first);
+  // Our book's USDC for the person stays exactly as it was through every spend and every cashback: nothing is credited.
+  const ledgerUsdc = await (await bank(who)).holding(USDC);
+  const partnerAvailable = async () => (await (await bank(who)).query('cards.partnerHeld', { cardId, limit: 50 })).data.figures.available;
+  const partnerStart = toUnits(await partnerAvailable());
 
-  // The person's rank rises, one rank at a time by the XP identity says the next rank needs, until it gives the next
-  // card tier on identity's ladder. That tier's TEST rate differs, so a bank that ignored rank would fail here.
+  /** One spend at the current tier: owed once by INTAFACED, never spendable, then paid once to the connected wallet. */
+  async function spendAndPaid(expected, bps, tier) {
+    const spent = await spendOn(await bank(who), cardId, spend);
+    // The bank earned it at the tier's rate and handed it on; it holds none of it.
+    expect(spent.cashback).toMatchObject({ status: 'owed', amount: fromUnits(expected) });
+    const row = (await (await bank(who)).query('cards.cashback')).data.payments.find(
+      (p) => p.authorizationId === spent.held.authorizationId,
+    );
+    expect(row).toMatchObject({ paidBy: 'wallet', announced: true, amount: fromUnits(expected), ledgerTxId: null });
+    expect(await (await bank(who)).holding(USDC)).toEqual(ledgerUsdc);
+
+    // svc-campaigns owes exactly that, once, under the authorisation's key; then pays it to the connected wallet.
+    let reward = null;
+    await expect
+      .poll(
+        async () => {
+          reward = await cashbackReward(await bank(who), spent.held.authorizationId);
+          return reward?.owed ? 'owed' : (reward?.state ?? 'none');
+        },
+        { timeout: 60_000 },
+      )
+      .toBe('owed');
+    expect(reward).toMatchObject({ campaignId: programme.id, asset: USDC, amount: fromUnits(expected), form: 'paid' });
+    // The owe in svc-ledger: our campaign budget to what we owe for this reward, both INTAFACED's own module accounts.
+    const owe = await ledgerTx(reward.owed.txId);
+    expect(owe).toMatchObject({ reason: 'campaigns.reward.owed' });
+    expect(owe.postings).toHaveLength(2);
+    const ours = await ledgerAccounts('module:campaigns:');
+    const from = owe.postings.find((p) => p.side === 'source');
+    const to = owe.postings.find((p) => p.side === 'destination');
+    expect(from).toMatchObject({ assetId: USDC, amount: fromUnits(expected) });
+    expect(to).toMatchObject({ assetId: USDC, amount: fromUnits(expected) });
+    expect(ours.get(from.accountId)?.address).toBe(`module:campaigns:budget:${programme.id}`);
+    expect(ours.get(to.accountId)?.address).toMatch(/^module:campaigns:owed:/);
+
+    await expect
+      .poll(
+        async () => {
+          reward = await cashbackReward(await bank(who), spent.held.authorizationId);
+          return reward?.state;
+        },
+        { timeout: 180_000, intervals: [3_000] },
+      )
+      .toBe('paid');
+    expect(reward.payout.toWallet.toLowerCase()).toBe(walletAddress);
+    // The chain's own receipt: exactly the cashback in TEST USD, to the person's own wallet.
+    expect(await chainTransfers(reward.payout.chainTx)).toEqual([
+      { token: TOKEN_USD.address.toLowerCase(), to: walletAddress, value: usdUnits(fromUnits(expected)) },
+    ]);
+    // A capture replayed owes and pays nothing more.
+    expect(
+      (await campaignsAs(await bank(who), 'rewards.mine', {})).rewards.filter((r) =>
+        r.rewardKey.endsWith(`:${spent.held.authorizationId}`),
+      ),
+    ).toHaveLength(1);
+    expect(await (await bank(who)).holding(USDC)).toEqual(ledgerUsdc);
+    return { spent, reward, tier, bps };
+  }
+
+  const one = await spendAndPaid(first, firstBps, start.cardTier);
+
+  // The person's rank rises, one rank at a time by the XP identity says the next rank needs, until it gives the next card
+  // tier on identity's ladder. That tier's TEST rate differs, so a bank that ignored rank would fail here.
   let risen = start;
   while (risen.cardTier === start.cardTier) {
     expect(risen.nextRankAt, `identity's ladder has a card tier above ${start.cardTier}`).not.toBeNull();
@@ -655,36 +1040,98 @@ test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, a
   expect(secondBps).not.toBe(firstBps);
   const second = earnedAt(secondBps);
   expect(second).not.toBe(first);
-  const mid = await api.query('cards.cashback');
-  expect(mid.data).toMatchObject({ tier: risen.cardTier, rateBps: secondBps });
+  expect((await (await bank(who)).query('cards.cashback')).data).toMatchObject({ tier: risen.cardTier, rateBps: secondBps });
 
-  // The same spend now pays at the new tier's rate, once.
-  await earnFeesIntoPot(who, token, second);
-  const ifcMid = toUnits((await api.holding('IFC')).free);
-  const two = await spendOn(api, cardId, spend);
-  expect(two.cashback).toMatchObject({ status: 'paid', amount: fromUnits(second) });
-  expect(ifcMid - toUnits((await api.holding('IFC')).free)).toBe(toUnits(spend) - second);
+  const two = await spendAndPaid(second, secondBps, risen.cardTier);
 
-  const after = await api.query('cards.cashback');
-  expect(toUnits(after.data.paid) - toUnits(before.data.paid)).toBe(first + second);
-  for (const [spent, amount] of [
-    [one, first],
-    [two, second],
-  ]) {
-    expect(after.data.payments.filter((p) => p.authorizationId === spent.held.authorizationId)).toEqual([
-      expect.objectContaining({ status: 'settled', amount: fromUnits(amount) }),
-    ]);
-  }
+  // The partner spent exactly the two spends; the wallet received exactly the two cashbacks; our book moved nothing of theirs.
+  expect(partnerStart - toUnits(await partnerAvailable())).toBe(2n * toUnits(spend));
+  expect((await chainUsd(walletAddress)) - walletBefore).toBe(usdUnits(fromUnits(first)) + usdUnits(fromUnits(second)));
+  const after = await (await bank(who)).query('cards.cashback');
+  expect(after.data).toMatchObject({ paid: '0', unpaid: '0', toWallet: fromUnits(first + second) });
 
-  // The card page shows it: the tier the rank now gives, its rate in IFC, the tier table, and the cashback paid.
+  // The card page: the tier the rank now gives, its rate in USDC, the tier table, and the cashback owed to the wallet,
+  // which is never shown as spendable.
   await page.goto('/bank/cards');
   const panelCashback = page.getByTestId('card-cashback');
   const tierName = { none: 'None', standard: 'Standard', metal: 'Metal', obsidian: 'Obsidian' }[risen.cardTier];
   await expect(panelCashback).toContainText(`Your rank’s card tier: ${tierName}`);
-  const percent = (secondBps / 100).toString();
-  await expect(panelCashback).toContainText(`${percent}% cashback in IFC on spend from your IFC card`);
-  const table = panelCashback.getByRole('table', { name: 'Cashback by card tier' });
-  await expect(table.getByRole('row')).toHaveCount(after.data.rates.length + 1);
-  await expect(panelCashback.getByTestId('card-cashback-paid')).toHaveAttribute('data-paid', after.data.paid);
-  await expect(panelCashback.getByTestId('card-cashback-paid')).toContainText(`Cashback paid: ${after.data.paid} IFC`);
+  await expect(panelCashback).toContainText(`${(secondBps / 100).toString()}% cashback in USDC on spend from your USDC card`);
+  await expect(panelCashback.getByRole('table', { name: 'Cashback by card tier' }).getByRole('row')).toHaveCount(
+    after.data.rates.length + 1,
+  );
+  const owedLine = panelCashback.getByTestId('card-cashback-wallet');
+  await expect(owedLine).toHaveAttribute('data-owed', fromUnits(first + second));
+  await expect(owedLine).toContainText('INTAFACED owes it to you and pays it to your own wallet. It is not spendable until it is paid.');
+  await expect(panelCashback.getByTestId('card-cashback-paid')).toHaveAttribute('data-paid', '0');
+
+  // My rewards: each cashback paid to the connected wallet, with its chain transaction.
+  await owedLine.getByRole('link', { name: 'See each payment in My rewards' }).click();
+  await expect(page).toHaveURL(/\/uc\/promotion$/);
+  for (const paid of [one, two]) {
+    const rowEl = page.locator(`[data-testid="reward-row"][data-reward-key="${paid.reward.rewardKey}"]`);
+    await expect(rowEl).toHaveAttribute('data-state', 'paid');
+    await expect(rowEl.getByTestId('reward-chain-tx')).toBeVisible();
+  }
+});
+
+test(`${J} #8 adds the card to the phone's wallet: the card shows as added, as the partner reports it; or "not offered by the partner"`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const { cashbackCardId: cardId } = run.read();
+  if (!cardId) throw new Error(`${J} #7 issued no card, so there is nothing to add to a phone wallet`);
+  expect((await cardOf(cardId)).status).toBe('active');
+  const here = page.locator(`[data-card="${cardId}"]`);
+  const wallets = here.getByRole('region', { name: 'Phone wallets', exact: true });
+  // The card's own panels open from its row, as J-bank-14 opens them.
+  const showCard = async () => {
+    const inspect = page.getByRole('button', { name: `Inspect decisions for card ${cardId}` });
+    const controls = here.getByRole('region', { name: 'Card controls', exact: true });
+    await expect(controls.or(inspect)).toBeVisible();
+    if (await inspect.isVisible()) await inspect.click();
+    await expect(controls).toBeVisible();
+  };
+
+  // The TEST card partner does not add this person's cards to phone wallets (its per-person "not offered" switch): the
+  // panel says it is not offered by the partner, nothing can be added, and the bank refuses an add by that name.
+  const off = await (await bank()).mutate('testPartner.set', { notOffered: ['phone_wallet'] });
+  expect(off, JSON.stringify(off.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { notOffered: ['phone_wallet'] } });
+  try {
+    await signInPerson(page);
+    await page.goto('/bank/cards');
+    await showCard();
+    await expect(wallets.getByTestId('card-wallets')).toHaveAttribute('data-offered', 'not-by-partner');
+    await expect(wallets).toContainText('Not offered by the partner: your card partner does not add cards to phone wallets.');
+    await expect(wallets.getByRole('button', { name: 'Add to Google Wallet' })).toBeDisabled();
+    const refused = await (
+      await bank()
+    ).mutate('cards.walletProvision', {
+      cardId,
+      provisionId: randomUUID(),
+      wallet: 'google',
+      nonce: randomUUID(),
+    });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
+    expect((await (await bank()).query('cards.walletTokens', { cardId })).data.tokens).toEqual([]);
+  } finally {
+    const on = await (await bank()).mutate('testPartner.set', { notOffered: [] });
+    expect(on, JSON.stringify(on.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { notOffered: [] } });
+  }
+
+  // The partner offers it: the card goes into Google Wallet, and shows as added as the partner reports it.
+  await page.reload();
+  await showCard();
+  await expect(wallets).toContainText('This card is in no phone wallet.');
+  await wallets.getByRole('button', { name: 'Add to Google Wallet' }).click();
+  const google = wallets.locator('li[data-wallet="google"]');
+  await expect(google).toHaveText('Google Wallet: Added');
+  await expect(wallets).toContainText('TEST wallet tokens from a stand-in card partner');
+  // As the partner reports it: svc-bank's read of the card partner's tokens, labelled TEST, one token in state added.
+  const tokens = await (await bank()).query('cards.walletTokens', { cardId });
+  expect(tokens).toMatchObject({ ok: true, data: { test: true } });
+  expect(tokens.data.tokens).toEqual([expect.objectContaining({ wallet: 'google', state: 'added' })]);
+  await page.reload();
+  await showCard();
+  await expect(google).toHaveText('Google Wallet: Added');
 });

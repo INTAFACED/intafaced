@@ -1,3 +1,4 @@
+import { keyRateLimitSchema } from '@intafaced/contracts/api-rate-limits';
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError, assertDelegateCannotGrant, type AuthService } from './auth/auth-service.js';
@@ -147,6 +148,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
             scopes: z.array(z.string()),
             mode: z.enum(['live', 'sandbox']),
             attribution: surfacesView,
+            rateLimit: keyRateLimitSchema.nullable().optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -163,6 +165,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
               scopes: result.scopes,
               mode: result.mode,
               attribution: attributedSurfaces(stamp),
+              ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
             };
           } catch (err) {
             mapAttributionErr(err);

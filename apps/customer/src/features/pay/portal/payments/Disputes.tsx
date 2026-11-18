@@ -10,8 +10,15 @@ import { portalCopy } from './copy';
 import { useNow, useUrlParam, type ListState } from '../hooks';
 import { shortId } from '../model';
 import { useOptionalMerchantAccess } from '../access/MerchantAccess';
+import { WithAccount } from '../access/WithAccount';
+import { mc } from '../money/copy';
+import { useTestMode } from '../money/common';
+import { MoneyText } from '../ui/MoneyText';
+import { PartnerShortfallLine } from '../money/PartnerTerms';
 import { useRequestId } from './invoice-model';
 import { refusalText } from '../refusal';
+import type { DisputeFunds } from './dispute-funds-api';
+import { parseAmount } from '../../../../shared/money';
 import type { PortalApi } from '../api';
 import type { z } from 'zod';
 import { disputeStatuses, evidenceKinds, type Dispute, type DisputeDetail, type EvidenceKind } from '../schemas';
@@ -212,7 +219,86 @@ export function DisputesView({
 
 export function DisputeDetailPage({ portal, disputeId }: { portal: PortalApi; disputeId: string }) {
   const dispute = useResource((s) => portal.dispute(disputeId, s), `portal:dispute:${disputeId}`);
-  return <DisputeDetailView portal={portal} dispute={dispute.resource} reload={dispute.reload} />;
+  return (
+    <>
+      <DisputeDetailView portal={portal} dispute={dispute.resource} reload={dispute.reload} />
+      {/* The money only for a case that has loaded: a missing one has none. Read again when the case is. */}
+      {dispute.resource.status === 'ready' && (
+        <DisputeFundsSection portal={portal} disputeId={dispute.resource.data.disputeId} status={dispute.resource.data.status} />
+      )}
+      {/* Only for a case that has loaded and is not won: a won case takes nothing, and a missing one has no cover. */}
+      {dispute.resource.status === 'ready' && dispute.resource.data.status !== 'won' && (
+        <WithAccount>{({ merchantId }) => <DisputeShortfallCover portal={portal} merchantId={merchantId} />}</WithAccount>
+      )}
+    </>
+  );
+}
+
+/**
+ * M-disp-01 (J-merchant-18 #2, #5): where the dispute's money is, as the acquiring partner reported each step and svc-pay
+ * booked it under the dispute's keys (`merchantOps.disputes.funds`): taken at opening, returned, and what was not taken
+ * because the business held less. A read that fails is a refusal in words, never a zero.
+ */
+function DisputeFundsSection({ portal, disputeId, status }: { portal: PortalApi; disputeId: string; status: string }) {
+  const funds = useResource((s) => portal.disputeFunds(disputeId, s), `portal:dispute-funds:${disputeId}:${status}`);
+  return <DisputeFundsView funds={funds.resource} retry={funds.reload} test={useTestMode()} />;
+}
+
+const FUNDS_OUTCOME = {
+  open: 'fundsOutcome_pending',
+  contested: 'fundsOutcome_pending',
+  accepted: 'fundsOutcome_accepted',
+  won: 'fundsOutcome_won',
+  lost: 'fundsOutcome_lost',
+} as const satisfies Record<DisputeFunds['status'], string>;
+
+const isZeroAmount = (v: string) => parseAmount(v) === 0n;
+
+export function DisputeFundsView({ funds, retry, test }: { funds: Resource<DisputeFunds>; retry: () => void; test: boolean }) {
+  const { t } = portalCopy.useCopy();
+  return (
+    <PaySection title={t('fundsTitle')} description={t('fundsBody')}>
+      <Gate resource={funds} retry={retry} rows={4}>
+        {(f) => (
+          <>
+            <Facts
+              items={[
+                [t('fundsDisputed'), <MoneyText value={f.disputed} asset={f.assetId} test={test} />],
+                [t('fundsTaken'), <MoneyText value={f.takenAtOpening} asset={f.assetId} test={test} />],
+                [t('fundsReturned'), <MoneyText value={f.returned} asset={f.assetId} test={test} />],
+                [t('fundsNotYetTaken'), <MoneyText value={f.notYetTaken} asset={f.assetId} test={test} />],
+                // Only the cover's own `who: 'house'` path books one; shown so the figures always add up.
+                ...(f.shortfall !== null && !isZeroAmount(f.shortfall)
+                  ? [[t('fundsCovered'), <MoneyText value={f.shortfall} asset={f.assetId} test={test} />] as const]
+                  : []),
+                ...(!isZeroAmount(f.shortfallRecovered)
+                  ? [[t('fundsRecovered'), <MoneyText value={f.shortfallRecovered} asset={f.assetId} test={test} />] as const]
+                  : []),
+                [t('colStatus'), <Chip kind="dispute" value={f.status} />],
+              ]}
+            />
+            {!f.openingBooked && <p className="muted">{t('fundsOpeningNotBooked')}</p>}
+            {f.openingBooked && f.status !== 'won' && !isZeroAmount(f.notYetTaken) && <p className="muted">{t('fundsNotYetTakenNote')}</p>}
+            <p data-testid="dispute-funds-outcome">{t(FUNDS_OUTCOME[f.status])}</p>
+          </>
+        )}
+      </Gate>
+    </PaySection>
+  );
+}
+
+/**
+ * J-merchant-18 #5: who covers what a lost dispute takes beyond the business's funds, as the acquiring partner's terms
+ * say, "not known" until they do. The ledger never covers it (OWNER 226).
+ */
+function DisputeShortfallCover({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+  const partner = useResource((s) => portal.partnerTerms(merchantId, s), `portal:partner-terms:${merchantId}`);
+  const { t } = mc.useCopy();
+  return (
+    <PaySection title={t('partnerShortfallTitle')} description={t('partnerShortfallBody')}>
+      <PartnerShortfallLine terms={partner.resource} />
+    </PaySection>
+  );
 }
 
 export function DisputeDetailView({

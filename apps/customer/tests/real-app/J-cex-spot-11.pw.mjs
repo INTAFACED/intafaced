@@ -232,10 +232,13 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   page.on('request', (r) => {
     if (/convert\.accept/.test(r.url())) sent.push(r.postDataJSON());
   });
+  // What the service answered the lost accept, so a refusal is named rather than read later as a missing receipt.
+  let lost;
   await page.route(
     /convert\.accept/,
     async (route) => {
-      await route.fetch();
+      const answer = await route.fetch();
+      lost = { status: answer.status(), body: await answer.text() };
       // The page may already have given up on the request; either way its answer never reaches the page.
       await route.abort('connectionreset').catch((err) => {
         if (!/already handled/.test(String(err?.message))) throw err;
@@ -245,6 +248,9 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   );
   await dialog.getByRole('button', { name: 'Convert now' }).click();
   await expect(page.getByTestId('pending')).toContainText('We couldn’t confirm this conversion');
+  // The lost answer was a conversion: the service settled it, so Check again has one to find (#8734).
+  await expect.poll(() => lost?.status, { message: 'the service answered the lost accept' }).toBeDefined();
+  expect(lost.status, `the lost accept: ${lost.body.slice(0, 300)}`).toBe(200);
   await page.unroute(/convert\.accept/);
   await page.reload();
   // The note stays across a reload.
@@ -252,7 +258,9 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   // Check again asks about the same quote, under the same request id: the service answers with the one conversion.
   const checked = page.waitForResponse((r) => /convert\.accept/.test(r.url()));
   await page.getByTestId('pending').getByRole('button', { name: 'Check again' }).click();
-  const fill = (await (await checked).json()).result.data;
+  const answer = await (await checked).json();
+  expect(answer.result, `Check again: ${JSON.stringify(answer).slice(0, 300)}`).toBeDefined();
+  const fill = answer.result.data;
   expect(sent).toHaveLength(2);
   expect(sent[1].quoteId).toBe(sent[0].quoteId);
   expect(sent[1].clientConvertId).toBe(sent[0].clientConvertId);
@@ -423,6 +431,12 @@ test(`${J} #12 a developer asks for a quote and trades through the convert API: 
   const key = await makeKey(page, { name: 'convert-bot', preset: 'Trade' });
   const me = await api(who);
   const before = await me.balances();
+  // The quote walks the BTC/USDT asks as they rest now. A TEST `move` is a jump: the maker takes its old ladder down
+  // before the new one goes up (tooling/scripts/local-test-market.mjs); #8 puts its move back, and a journey sharing the
+  // stack may move it too, so for a moment the book holds no ask and the quote is refused with
+  // trade.convert_no_liquidity (#7546, run 42460986049). Asked only once the book has both sides again, as J-cex-spot-08
+  // waits before it reads its prices.
+  await bestPrices('BTC/USDT', 50, 60_000);
   const quote = await withKey(key, { method: 'POST', path: '/api/v1/convert/quote', body: { from: 'USDT', to: 'BTC', amount: '10' } });
   expect(quote.status, JSON.stringify(quote.body).slice(0, 300)).toBe(200);
   expect(quote.body).toMatchObject({ fromAsset: 'USDT', toAsset: 'BTC' });

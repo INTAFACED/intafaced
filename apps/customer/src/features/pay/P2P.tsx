@@ -1,4 +1,5 @@
 import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
+import { ContractEscrowPanel } from './personal/ContractEscrow';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
@@ -6,17 +7,7 @@ import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui';
 import { EmptyState, Field, Page } from './ui-kit';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
-import {
-  PayAmount,
-  PayDetails,
-  PayNotice,
-  PayPagination,
-  PaySection,
-  PayState,
-  ReviewedAction,
-  Status,
-  MutationResult,
-} from './components';
+import { PayAmount, PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { id, type Trade, type TradeDestination } from './schemas';
 import { CancelOrder, RequestCancel } from './p2p-cancel';
 import { displayAmount } from '../../shared/money';
@@ -37,6 +28,7 @@ import { OfferForm } from './personal/OfferForm';
 import { OrderHistory } from './personal/OrderHistory';
 import { OrderReceipt } from './personal/OrderReceipt';
 import { OrderReview } from './personal/OrderReview';
+import { OwnCompletion } from './personal/CompletionRates';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
 import { PaymentMethods } from './personal/PaymentMethods';
@@ -177,6 +169,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
       ) : showAccess ? (
         <div className="stack">
           <P2PEligibilityPanel pay={pay} userId={userId} />
+          <OwnCompletion pay={pay} userId={userId} />
           <TradingProgramme pay={pay} userId={userId} />
         </div>
       ) : showMethods ? (
@@ -264,7 +257,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
           <PaymentNoteRules trade={trade} pay={pay} userId={userId} />
           <ReportRemark key={trade.id} trade={trade} pay={pay} userId={userId} />
           <OrderChat pay={pay} trade={trade} userId={userId} />
-          <OrderDispute trade={trade} pay={pay} reloadOrder={reload} />
+          {trade.escrowKind !== 'contract' ? <OrderDispute trade={trade} pay={pay} reloadOrder={reload} /> : null}
         </>
       )}
     />
@@ -437,7 +430,9 @@ export function OrderActions({
         )}
         {trade.buyerId === userId && trade.status === 'fiat_sent' && <RemindSeller trade={trade} pay={pay} onSent={reload} />}
         {trade.buyerId === userId && trade.status === 'fiat_sent' && <BuyerMismatch trade={trade} />}
-        {trade.sellerId === userId && trade.status === 'fiat_sent' && (
+        {/* RC-p2p-02: a contract order is released, refunded and disputed on the contract (ContractEscrowPanel). */}
+        {trade.escrowKind === 'contract' && <ContractEscrowPanel pay={pay} trade={trade} userId={userId} reload={reload} />}
+        {trade.escrowKind !== 'contract' && trade.sellerId === userId && trade.status === 'fiat_sent' && (
           <ReleaseAction
             trade={trade}
             pay={pay}
@@ -448,9 +443,9 @@ export function OrderActions({
         )}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && <ValidatePayment trade={trade} pay={pay} onChecked={reload} />}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && <ReportMismatch trade={trade} pay={pay} onReported={reload} />}
-        {trade.sellerId === userId && trade.status === 'fiat_sent' && <RequestCancel />}
+        {trade.escrowKind !== 'contract' && trade.sellerId === userId && trade.status === 'fiat_sent' && <RequestCancel />}
       </div>
-      {['created', 'escrowed'].includes(trade.status) && (
+      {trade.escrowKind !== 'contract' && ['created', 'escrowed'].includes(trade.status) && (
         <details className="p2p-order-other">
           <summary>
             <Copy k="other" />

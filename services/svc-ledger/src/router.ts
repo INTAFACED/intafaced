@@ -84,6 +84,7 @@ import {
 import type { LedgerService } from './service.js';
 import type { Sql } from 'postgres';
 import { userCopy } from './user-copy.js';
+import { openCustomerBalances } from './ledger/reconcile.js';
 
 /**
  * svc-ledger's internal API.
@@ -506,6 +507,10 @@ export function createLedgerRouter(
           accountsChecked: z.number(),
           chainLength: z.number(),
           unbalancedAssets: z.array(z.string()),
+          /** `nothing_to_compare` on an empty book: it proves nothing and is not matched (OWNER 288). */
+          result: z.enum(['matched', 'nothing_to_compare', 'mismatch']),
+          /** Customer accounts holding a balance while custody is off; null with custody on. */
+          customerBalancesOpen: z.number().int().nonnegative().nullable(),
           confirmOperatorId: z.string(),
           /** Present only when the hash chain failed — where verification stopped. */
           chainBrokenAt: z.string().optional(),
@@ -533,6 +538,8 @@ export function createLedgerRouter(
             accountsChecked: report.balances.accountsChecked,
             chainLength: report.chain.length,
             unbalancedAssets: report.unbalancedAssets,
+            result: report.result,
+            customerBalancesOpen: openCustomerBalances(report),
             confirmOperatorId,
             ...(!report.chain.ok && 'brokenAt' in report.chain ? { chainBrokenAt: report.chain.brokenAt } : {}),
           };

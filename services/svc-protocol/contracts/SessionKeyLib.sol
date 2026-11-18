@@ -134,6 +134,19 @@ library SessionKeyLib {
     bytes4 internal constant SEL_CARD_SET_SETTLEMENT = 0x8f4e6f37; // setSettlement(address)
     bytes4 internal constant SEL_PAYMASTER_WITHDRAW_FLOAT = 0xf9bf1347; // withdrawFloat(address,uint256)
     bytes4 internal constant SEL_CLAIM_LINK_CREATE = 0x9c1d17ce; // create(address,uint256,address,uint64)
+    // Router v2 and SovereignPermit (D-swap-03, D-swap-intents-01): no permit through a session (PRM-5), and router v2's
+    // recipient sits in a struct with dynamic fields, so it cannot be bound to the account.
+    bytes4 internal constant SEL_ROUTER_V2_EXACT_IN = 0xcf2af4bc; // exactIn((address[],address[],uint256,uint256,uint256[],address,uint256,uint8,bool))
+    bytes4 internal constant SEL_ROUTER_V2_EXACT_OUT = 0x083c696d; // exactOut((address[],address[],uint256,uint256,uint256[],address,uint256,uint8,bool))
+    bytes4 internal constant SEL_ROUTER_V2_SELF_PERMIT = 0x53f2c956; // selfPermit(address,uint256,uint256,uint8,bytes32,bytes32,bool)
+    bytes4 internal constant SEL_ROUTER_V2_STANDING_PERMIT = 0xdfc0aacf; // standingPermit(address,uint160,uint48,uint48,uint256,bytes)
+    // multicall delegatecalls any of the router's own functions, exactIn and exactOut included, so it is refused with them.
+    bytes4 internal constant SEL_ROUTER_V2_MULTICALL = 0xac9650d8; // multicall(bytes[])
+    // Liquidity v2 (J-dex-protocol-12): creating and seeding a pool sets its pair and its first price from the
+    // caller's arguments, so a session could seed the account's tokens against a token it controls; an owner act only.
+    bytes4 internal constant SEL_LIQUIDITY_CREATE_AND_SEED = 0xf45902c2; // createAndSeed(address,address,uint16,uint256,uint256,uint256,address,uint256)
+    bytes4 internal constant SEL_SOVEREIGN_PERMIT_ALLOWANCE = 0x0c9c8e22; // permit(address,address,address,uint160,uint48,uint48,uint256,bytes)
+    bytes4 internal constant SEL_SOVEREIGN_PERMIT_TRANSFER = 0xcd280ab8; // permitTransferFrom(address,uint256,uint256,uint256,address,address,uint256,bytes)
 
     // ── The recipient-bearing selectors ──────────────────────────────────────
     //
@@ -159,6 +172,10 @@ library SessionKeyLib {
     bytes4 internal constant SEL_POOL_BURN = 0x9dc29fac;
     bytes4 internal constant SEL_VAULT_PROPOSE_SPEND = 0x20a1440a;
     bytes4 internal constant SEL_NFT_SET_TOKEN_ROYALTY = 0x78db6c53;
+    bytes4 internal constant SEL_LIQUIDITY_ADD = 0x3837e8fe; // addLiquidity(address,uint256,uint256,uint256,uint256,uint256,address,uint256)
+    bytes4 internal constant SEL_LIQUIDITY_REMOVE = 0x96c92f5e; // removeLiquidity(address,uint256,uint256,uint256,address,uint256)
+    bytes4 internal constant SEL_LIQUIDITY_SWAP_AND_ADD = 0x5fb3af25; // swapAndAdd(address,address,uint256,uint256,address,uint256)
+    bytes4 internal constant SEL_POOL_SKIM = 0xbc25cf77; // skim(address)
 
     error SessionKeyRequired();
     error SessionExpiryRequired();
@@ -292,6 +309,14 @@ library SessionKeyLib {
             selector == SEL_CARD_SET_SETTLEMENT ||
             selector == SEL_PAYMASTER_WITHDRAW_FLOAT ||
             selector == SEL_CLAIM_LINK_CREATE ||
+            selector == SEL_ROUTER_V2_EXACT_IN ||
+            selector == SEL_ROUTER_V2_EXACT_OUT ||
+            selector == SEL_ROUTER_V2_SELF_PERMIT ||
+            selector == SEL_ROUTER_V2_STANDING_PERMIT ||
+            selector == SEL_ROUTER_V2_MULTICALL ||
+            selector == SEL_LIQUIDITY_CREATE_AND_SEED ||
+            selector == SEL_SOVEREIGN_PERMIT_ALLOWANCE ||
+            selector == SEL_SOVEREIGN_PERMIT_TRANSFER ||
             selector == SEL_UPGRADE_TO_AND_CALL;
     }
 
@@ -308,6 +333,10 @@ library SessionKeyLib {
         if (selector == SEL_POOL_BURN) return 4;
         if (selector == SEL_VAULT_PROPOSE_SPEND) return 4;
         if (selector == SEL_NFT_SET_TOKEN_ROYALTY) return 36;
+        if (selector == SEL_LIQUIDITY_ADD) return 196;
+        if (selector == SEL_LIQUIDITY_REMOVE) return 132;
+        if (selector == SEL_LIQUIDITY_SWAP_AND_ADD) return 132;
+        if (selector == SEL_POOL_SKIM) return 4;
         return 0;
     }
 
@@ -339,6 +368,9 @@ library SessionKeyLib {
      */
     function targetArgOffset(bytes4 selector) internal pure returns (uint256) {
         if (selector == SEL_ROUTER_SWAP_EXACT_IN) return 4;
+        if (selector == SEL_LIQUIDITY_ADD) return 4;
+        if (selector == SEL_LIQUIDITY_REMOVE) return 4;
+        if (selector == SEL_LIQUIDITY_SWAP_AND_ADD) return 4;
         return 0;
     }
 

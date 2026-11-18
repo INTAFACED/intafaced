@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
+import { fundsRefusalParams, fundsShortfall, readFunds, type FundsReading } from '../funds.js';
 import { windowCost, type UsageGroup } from '../metering/pricing.js';
 import type { SpendGate, SpendLimitView, SpendPeriod, SpendReservationView } from './gate.js';
 import { canonicalAmount, decideReservation, parseSpendAmount, parseSpendLimitInput, periodStart, type SpendScope } from './limits.js';
@@ -23,7 +24,7 @@ function ownCapExceeded(cap: Amount, assetId: string, scope: 'call' | 'session' 
 }
 
 /** Held and committed holds on this person's sessions of one own agent since `since`. */
-async function ownAgentUsed(tx: Sql, userId: string, agentId: string, since: Date): Promise<Amount> {
+async function ownAgentUsed(tx: Queryable, userId: string, agentId: string, since: Date): Promise<Amount> {
   const rows = await tx<Array<{ total: string }>>`
     SELECT COALESCE(SUM(
       CASE
@@ -114,11 +115,11 @@ function viewReservation(row: ReservationRow, replayed: boolean): SpendReservati
   };
 }
 
-async function lockUser(tx: Sql, userId: string): Promise<void> {
+async function lockUser(tx: Queryable, userId: string): Promise<void> {
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`agents.spend:${userId}`}, 0))`;
 }
 
-async function readLimit(tx: Sql, userId: string): Promise<LimitRow | null> {
+async function readLimit(tx: Queryable, userId: string): Promise<LimitRow | null> {
   const rows = await tx<LimitRow[]>`
     SELECT asset_id, per_call::text, per_session::text, per_period::text, period, updated_at
       FROM agents.user_spend_limits
@@ -133,7 +134,7 @@ async function readLimit(tx: Sql, userId: string): Promise<LimitRow | null> {
  * two never count one run twice. Usage is metered in the one fee asset, so its windows count for that asset.
  * `sealedUnpaid` is the part of `owed` in sealed windows the ledger refused, read in the same query so the two agree.
  */
-async function exposure(tx: Sql, userId: string, assetId: string): Promise<{ owed: Amount; sealedUnpaid: Amount }> {
+async function exposure(tx: Queryable, userId: string, assetId: string): Promise<{ owed: Amount; sealedUnpaid: Amount }> {
   const usage = await tx<
     Array<{
       session_id: string;
@@ -183,7 +184,7 @@ async function exposure(tx: Sql, userId: string, assetId: string): Promise<{ owe
   return { owed: owed + parseAmount(held[0]?.total ?? '0'), sealedUnpaid };
 }
 
-async function summed(tx: Sql, userId: string, sessionId: string | null, periodStartAt: Date | null): Promise<Amount> {
+async function summed(tx: Queryable, userId: string, sessionId: string | null, periodStartAt: Date | null): Promise<Amount> {
   const rows =
     sessionId !== null
       ? await tx<Array<{ total: string }>>`
@@ -317,7 +318,7 @@ export class UserSpendStore implements SpendGate {
      */
     agentCap?: string | null;
     /** The person's available balance, read under this reservation's lock (see `SpendGate.reserve`). */
-    funds?: () => Promise<Amount | null>;
+    funds?: () => Promise<Amount | FundsReading>;
     /**
      * The owner's overage grace: unpaid usage in sealed windows up to this much does not count against the balance,
      * so a run whose own worst case the balance covers still starts. Blank forgives nothing.
@@ -446,27 +447,26 @@ export class UserSpendStore implements SpendGate {
           const exposed = await exposure(tx, input.userId, assetId);
           const grace = input.overageGrace ?? 0n;
           const owed = exposed.owed - (exposed.sealedUnpaid < grace ? exposed.sealedUnpaid : grace);
-          let available: Amount | null;
-          try {
-            available = await input.funds();
-          } catch {
-            available = null;
-          }
-          if (available === null) {
+          const outcome = await readFunds(input.funds);
+          if (!outcome.ok) {
             // The balance was not read, so the person is told that, not that they are short.
             throw new AgentError(
               `Available balance could not be read to cover ${canonicalAmount(amount)} ${assetId}`,
               'agents.funds_unread',
               'agents.refused.funds_unread',
-              { worstCase: canonicalAmount(amount), asset: assetId },
+              fundsRefusalParams(canonicalAmount(amount), assetId, outcome),
             );
           }
-          if (available - owed < amount) {
+          const short = fundsShortfall(outcome.reading, owed, amount);
+          if (short !== null) {
+            const unread = !short.ok;
             throw new AgentError(
-              `Available balance does not cover ${canonicalAmount(amount)} ${assetId} after ${canonicalAmount(owed)} owed`,
-              'agents.funds_insufficient',
-              'agents.refused.funds_insufficient',
-              { worstCase: canonicalAmount(amount), asset: assetId },
+              unread
+                ? `Available balance could not be read to cover ${canonicalAmount(amount)} ${assetId}`
+                : `Available balance does not cover ${canonicalAmount(amount)} ${assetId} after ${canonicalAmount(owed)} owed`,
+              unread ? 'agents.funds_unread' : 'agents.funds_insufficient',
+              unread ? 'agents.refused.funds_unread' : 'agents.refused.funds_insufficient',
+              fundsRefusalParams(canonicalAmount(amount), assetId, short),
             );
           }
         }
@@ -502,13 +502,13 @@ export class UserSpendStore implements SpendGate {
     );
   }
 
-  async commitIn(tx: Sql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView> {
+  async commitIn(tx: TransactionSql, input: { userId: string; reservationKey: string; amount: string }): Promise<SpendReservationView> {
     await lockUser(tx, input.userId);
     const view = await this.finish(tx, input, 'commit');
     // The commit that brings an own agent's month to its alert records the alert with it (published after). In a
     // savepoint: an alert that cannot be written never undoes the charge of a run the engine already answered, and the
     // agent's next commit records it.
-    await (tx as unknown as TransactionSql).savepoint((sp) => noteUsageAlert(sp as unknown as Sql, input)).catch(() => undefined);
+    await tx.savepoint((sp) => noteUsageAlert(sp, input)).catch(() => undefined);
     return view;
   }
 
@@ -588,7 +588,7 @@ export class UserSpendStore implements SpendGate {
   }
 
   private async finish(
-    tx: Sql,
+    tx: Queryable,
     input: { userId: string; reservationKey: string; amount: string },
     op: 'commit' | 'release',
   ): Promise<SpendReservationView> {

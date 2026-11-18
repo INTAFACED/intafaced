@@ -3326,3 +3326,6 @@ function attachmentFromPg(row: PgAttachment): AttachmentMeta {
     createdAt: toIso(row.created_at),
   };
 }
+
+/** The trail write every assignment makes, for another book in svc-support that assigns inside its own transaction (desk-routing). */
+export const insertTicketEvent = insertEvent;

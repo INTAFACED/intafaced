@@ -1,8 +1,9 @@
 // World: none
 import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ORIGIN, ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
+import { ORIGIN, ROOT, mailedLines, signUpInBrowser, stackFile } from './stack.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
@@ -12,6 +13,18 @@ const J = 'J-identity-04';
 
 test.describe.configure({ mode: 'default' });
 test.use({ baseURL: PASSKEY_ORIGIN });
+
+/** The LOCAL-TEST text-message codes the stack sent to `phone` (svc-identity's sms-outbox.log), oldest first. */
+function textedCodes(phone) {
+  const file = stackFile('sms-outbox.log');
+  if (!existsSync(file)) return [];
+  const digits = phone.replace(/\D/g, '');
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.replace(/\D/g, '').includes(digits))
+    .map((line) => /code=(\d{6})/.exec(line)?.[1])
+    .filter(Boolean);
+}
 
 function person(prefix) {
   const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -245,6 +258,32 @@ test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and l
   await expect(names).toContainText('Name saved.');
   await expect(names).toContainText('Work laptop');
 
+  // The service itself refuses a name over the length, not only the page's field: the same rename sent with this
+  // browser's own session and a 65-character name is a typed refusal before any step-up, and the stored name stays.
+  // identity's own list also says no per-account limit is set (null), as the page does.
+  const listed = page.waitForRequest((r) => new URL(r.url()).pathname.endsWith('/api/identity/trpc/listPasskeys'));
+  await page.reload();
+  const listRequest = await listed;
+  const authorization = listRequest.headers().authorization;
+  expect(authorization).toMatch(/^Bearer \S+$/);
+  const stored = async () => {
+    const res = await page.request.get(listRequest.url(), { headers: { origin: ORIGIN, authorization } });
+    expect(res.status()).toBe(200);
+    return (await res.json()).result.data;
+  };
+  const before = await stored();
+  expect(before.maxPerAccount).toBeNull();
+  expect(before.passkeys).toHaveLength(1);
+  expect(before.passkeys[0].label).toBe('Work laptop');
+  expect(before.passkeys[0].kind).toBe('platform');
+  const tooLong = await page.request.post('/api/identity/trpc/renamePasskey', {
+    headers: { origin: ORIGIN, authorization, 'content-type': 'application/json' },
+    data: { credentialId: before.passkeys[0].credentialId, label: 'x'.repeat(65), clientRequestId: `pn-too-long-${who.handle}` },
+  });
+  expect(tooLong.status()).toBe(400);
+  expect(await tooLong.text()).toContain('identity.passkey_label_invalid');
+  expect((await stored()).passkeys[0].label).toBe('Work laptop');
+
   // A second passkey from another authenticator. This sign-in has not passed a second factor, so the add asks
   // "Confirm it is you" first; the first passkey answers it.
   await virtualAuthenticator(page, 'usb');
@@ -260,6 +299,15 @@ test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and l
   await expect(names.getByTestId('security__row')).toHaveCount(2);
   await expect(names.locator('[data-testid="security__row"]', { hasText: 'Work laptop' })).toContainText('This device');
   await expect(names.locator('[data-testid="security__row"]', { hasText: 'Unnamed passkey' })).toContainText('Security key');
+  // identity holds the same two: the named one on this device, the unnamed security key, and still no limit.
+  const after = await stored();
+  expect(after.maxPerAccount).toBeNull();
+  expect(after.passkeys.map((p) => [p.label, p.kind]).sort()).toEqual(
+    [
+      ['Work laptop', 'platform'],
+      [null, 'security_key'],
+    ].sort(),
+  );
 });
 
 test(`${J} #1 Security opens on a checklist: each method, its status and why an open one matters; money out and security changes are always "Required"`, async ({
@@ -455,6 +503,7 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
     await other.getByLabel('Handle').fill(`${who.handle}x`);
     await other.getByLabel('Password').fill(`TEST-${randomBytes(9).toString('base64url')}-9b`);
     await other.getByLabel('Country you live in').selectOption('DE');
+    await other.getByRole('radio', { name: 'No, I am not a US person' }).check();
     await other.getByLabel('Date of birth').fill('1990-05-01');
     await other.getByRole('button', { name: 'Create account' }).click();
     await other.getByRole('heading', { name: 'Check your email' }).waitFor();
@@ -726,7 +775,7 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   );
 });
 
-test(`${J} #7 links a wallet with its own signature and a confirmation, refuses a wrong key, shows the texting and social provider notices, and refuses to remove the last way in`, async ({
+test(`${J} #7 links a phone with its texted code and a wallet with its own signature, each with a confirmation, refuses a wrong code and a wrong key, shows the social provider notice, and refuses to remove the last way in`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -742,11 +791,28 @@ test(`${J} #7 links a wallet with its own signature and a confirmation, refuses 
   await expect(row('Code by email')).toContainText(`On: we can mail a sign-in code to ${who.email}.`);
   await expect(row('Wallets')).toContainText('No wallet linked.');
 
-  // A phone number and a social account need outside providers that are off in this build; the card names them.
+  // A phone number links only with the code texted to it (the stack's LOCAL-TEST outbox texts nobody) and a confirmation:
+  // a wrong code is refused before any confirmation is asked for, and nothing is linked.
+  const phone = `+4479${String(Date.now()).slice(-8)}`;
   await row('Phone number').getByRole('button', { name: 'Link a phone number' }).click();
-  await row('Phone number').getByLabel('Phone number, starting with +').fill('+44 20 7946 0000');
+  await row('Phone number').getByLabel('Phone number, starting with +').fill(phone);
   await row('Phone number').getByRole('button', { name: 'Text me a code' }).click();
-  await expect(card.locator('[data-not-connected="vendor.sms"]')).toContainText('Texting a sign-in code needs an SMS delivery provider.');
+  await expect(card.locator('[data-not-connected="vendor.sms"]')).toHaveCount(0);
+  await expect.poll(() => textedCodes(phone).length, { timeout: 20_000 }).toBeGreaterThan(0);
+  const texted = textedCodes(phone).at(-1);
+  const wrong = `${(Number(texted[0]) + 1) % 10}${texted.slice(1)}`;
+  await row('Phone number').getByLabel('6-digit code from the text').fill(wrong);
+  await row('Phone number').getByRole('button', { name: 'Confirm phone number' }).click();
+  await expect(card.getByTestId('failure')).toContainText('That code did not work, or it ran out.');
+  await expect(card.getByRole('form', { name: 'Confirm it is you' })).toHaveCount(0);
+  await expect(row('Phone number')).not.toContainText(phone.slice(-4));
+  await row('Phone number').getByLabel('6-digit code from the text').fill(texted);
+  await row('Phone number').getByRole('button', { name: 'Confirm phone number' }).click();
+  await card.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+  await expect(card.getByRole('status')).toContainText(`Phone number ${phone} added.`);
+  await expect(row('Phone number')).toContainText(phone);
+
+  // A social account needs an outside sign-in provider that is off in this build; the card names it.
   await row('Social account').getByRole('button', { name: 'Link a social account' }).click();
   await expect(card.locator('[data-not-connected="idp.social"]')).toContainText(
     'Signing in with a social account needs an outside sign-in provider.',

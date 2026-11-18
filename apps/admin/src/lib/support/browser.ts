@@ -15,15 +15,15 @@ import type {
   SupportRatingSummaryView,
   SupportQueueView,
   SupportGroupsView,
+  SupportGroupLogView,
+  SupportRoutingWaitingView,
   SupportStaffView,
+  SupportTicketRoutingView,
   SupportTicketView,
   SupportViewsView,
   TicketExtrasView,
 } from './types';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchQueue(query: QueueQuery = EMPTY_QUERY, signal?: AbortSignal): Promise<SupportQueueView | null> {
   // `view` names the part of the desk asked for here, so a saved view's id travels as `savedView`.
@@ -152,15 +152,16 @@ export async function fetchTicketExtras(id: string, signal?: AbortSignal): Promi
 
 /** The card when the console refused the read itself: unread, with the console's code. */
 export function consoleRefusedCard(status: number, code: string | null, now: Date = new Date()): SupportCustomerView {
+  const refused = {
+    kind: 'failed',
+    code,
+    notBuilt: false,
+    forbidden: status === 401 || status === 403,
+  } as const;
   return {
     asOf: now.toISOString(),
-    account: {
-      kind: 'failed',
-      message: `The console could not read the account (HTTP ${String(status)}).`,
-      code,
-      notBuilt: false,
-      forbidden: status === 401 || status === 403,
-    },
+    account: { ...refused, message: `The console could not read the account (HTTP ${String(status)}).` },
+    orders: { ...refused, message: `The console could not read the related orders (HTTP ${String(status)}).` },
   };
 }
 
@@ -174,7 +175,9 @@ export async function fetchCustomerCard(id: string, signal?: AbortSignal): Promi
     const body: unknown = await res.json().catch(() => null);
     // The console's own refusal (its founder check asks svc-identity first) keeps its code, so the card names why it is unread.
     if (!res.ok) return consoleRefusedCard(res.status, isRecord(body) && typeof body.code === 'string' ? body.code : null);
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.account) ? (body as unknown as SupportCustomerView) : null;
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.account) && isRecord(body.orders)
+      ? (body as unknown as SupportCustomerView)
+      : null;
   } catch {
     return null;
   }
@@ -237,7 +240,9 @@ export async function fetchStaff(signal?: AbortSignal): Promise<SupportStaffView
       typeof body.asOf === 'string' &&
       typeof body.meId === 'string' &&
       isRecord(body.roster) &&
-      isRecord(body.policy)
+      isRecord(body.policy) &&
+      isRecord(body.routing) &&
+      isRecord(body.log)
       ? (body as unknown as SupportStaffView)
       : null;
   } catch {
@@ -255,12 +260,38 @@ export async function fetchGroups(signal?: AbortSignal): Promise<SupportGroupsVi
       typeof body.meId === 'string' &&
       isRecord(body.groups) &&
       isRecord(body.scope) &&
-      isRecord(body.roster)
+      isRecord(body.roster) &&
+      isRecord(body.routing)
       ? (body as unknown as SupportGroupsView)
       : null;
   } catch {
     return null;
   }
+}
+
+async function readView(path: string, signal: AbortSignal | undefined, has: readonly string[]): Promise<unknown> {
+  try {
+    const res = await fetch(path, { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) && typeof body.asOf === 'string' && has.every((k) => isRecord(body[k])) ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchGroupLog(groupId: string, signal?: AbortSignal): Promise<SupportGroupLogView | null> {
+  const body = await readView(`/api/support?view=group_log&id=${encodeURIComponent(groupId)}`, signal, ['log']);
+  return body && (body as { groupId?: unknown }).groupId === groupId ? (body as SupportGroupLogView) : null;
+}
+
+export async function fetchRoutingWaiting(signal?: AbortSignal): Promise<SupportRoutingWaitingView | null> {
+  return (await readView('/api/support?view=routing_waiting', signal, ['waiting'])) as SupportRoutingWaitingView | null;
+}
+
+export async function fetchTicketRouting(ticketId: string, signal?: AbortSignal): Promise<SupportTicketRoutingView | null> {
+  const body = await readView(`/api/support?view=ticket_routing&id=${encodeURIComponent(ticketId)}`, signal, ['routing', 'roster']);
+  return body && typeof (body as { meId?: unknown }).meId === 'string' ? (body as SupportTicketRoutingView) : null;
 }
 
 export async function fetchViews(signal?: AbortSignal): Promise<SupportViewsView | null> {
@@ -302,6 +333,9 @@ const ACTIONS: readonly string[] = [
   'staff_availability',
   'group_save',
   'group_member',
+  'routing_mode',
+  'staff_routing',
+  'ticket_skill',
   'kb_publish',
   'kb_unpublish',
   'kb_audience',

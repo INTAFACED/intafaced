@@ -42,6 +42,15 @@ export function followRelationshipState(follow: CopyFollow): CopyRelationshipSta
   return follow.relationshipState ?? 'ACTIVE';
 }
 
+/**
+ * A stopped follow (stopping, close-only or detached) can never copy new trades again, so it no longer holds its leader:
+ * a new follow of that leader may start, with any sizing mode (J-copy-bots-otc-02 #1). An active or paused one still does.
+ */
+export function copyFollowHoldsLeader(follow: CopyFollow): boolean {
+  const state = followRelationshipState(follow);
+  return state === 'ACTIVE' || state === 'PAUSED';
+}
+
 export function copyNewIntentFenced(state: CopyRelationshipState): boolean {
   return state !== 'ACTIVE';
 }

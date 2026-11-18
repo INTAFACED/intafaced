@@ -46,3 +46,26 @@ export function registerClosureFinalize(
     }
   });
 }
+
+/**
+ * HMAC job door for staff closes with a grace date (J-identity-14 #1): closes each account whose grace date has passed,
+ * once its closure checks are clean; one with anything open stays in grace and is listed as held. A missing or out of
+ * range limit refuses, as the customer closure job does.
+ */
+export function registerGraceClosureFinalize(
+  app: FastifyInstance,
+  deps: {
+    secret: string;
+    s2s?: IdentityS2s;
+    controls: { finalizeGraceClosures(limit: number): Promise<{ closed: string[]; held: unknown[] }> };
+  },
+): void {
+  app.post('/internal/jobs/finalize-grace-closures', async (req, reply) => {
+    if (!authorized(req, deps.secret, deps.s2s)) {
+      return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+    }
+    const limit = publishedFinalizeLimit(bodyLimit(req.body));
+    if (limit === null) return reply.code(400).send({ error: 'finalize limit is unset', code: 'identity.close_finalize_limit_unset' });
+    return deps.controls.finalizeGraceClosures(limit);
+  });
+}

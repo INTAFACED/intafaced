@@ -7,7 +7,6 @@
  * shared writer, and one intent keeps one request id until the numbers change.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { Position } from '@intafaced/exchange-contract/schemas';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -48,7 +47,7 @@ import { STALE_AFTER_MS, useFuturesApi, useFuturesRefresh, useOrderTypes } from 
 import { entryLegProblem, legSide } from './protection-logic';
 import { newNonce, useFuturesWriter, type Writer } from './hooks';
 import { allInCost, isStale, leveragePresets, openId, reduceId, stateOf } from './model';
-import { futuresRefusal, isPlaneOff, type FuturesRefusal } from './refusals';
+import { collateralRefusal, futuresRefusal, isPlaneOff, type FuturesRefusal } from './refusals';
 import { ticketCopy } from './ticket-copy';
 import {
   contractsAllowed,
@@ -863,7 +862,7 @@ export function Ticket(props: TicketProps) {
         <>
           <KeyValue density="dense" items={costItems(shown, review.at)} unknownLabel={t('Unknown figure')} now={now} />
           {shown.refusals.map((r) => {
-            const words = r.field === 'collateral' ? futuresRefusal({ code: r.code }) : null;
+            const words = r.field === 'collateral' ? collateralRefusal(r.venue) : null;
             return (
               <p key={`${r.code}:${r.field}`} role="status" className="text-xs text-warn" data-code={r.code}>
                 {words ? `${words.title}. ${words.body}` : r.message}

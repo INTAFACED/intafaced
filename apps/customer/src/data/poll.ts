@@ -6,6 +6,8 @@
  * - Pauses while the tab is hidden and catches up when it is shown again.
  * - Holds a budget of requests per minute for the whole tab (default 120; the
  *   edge allows 300) and exposes a counter so tests, and the E2E run, can assert it.
+ *   Reads that wait for the budget wait in one line and start in the order they
+ *   came, so fast reads cannot starve a slow one (open orders behind the queue reads).
  * - Backs off after failures (2x, 4x, 8x the interval) and keeps showing the last
  *   good answer for a while rather than flashing an error on one dropped request.
  * - While a screen shows an error, the next three tries come soon (2 s, 4 s, 8 s, never
@@ -74,6 +76,8 @@ export interface Poller {
 const WINDOW_MS = 60_000;
 const IDLE_EVICT_MS = 5 * 60_000;
 const MAX_BACKOFF = 8;
+/** Scheduled reads that may start back to back before pacing at the budget's rate. */
+const BURST = 20;
 /** First early retry while a screen shows an error; doubles per failure, for at most EARLY_RETRIES tries. */
 const EARLY_RETRY_MS = 2_000;
 const EARLY_RETRIES = 3;
@@ -237,17 +241,83 @@ export function createPoller(options: PollerOptions = {}): Poller {
     }, delay);
   }
 
-  function run(entry: Entry) {
+  /** Reads waiting for the budget, first come first served. */
+  const waiting: Entry[] = [];
+  let drainTimer: unknown = null;
+
+  const runnable = (entry: Entry) => entry.intervals.size > 0 && !entry.inflight && visibility.isVisible();
+
+  function scheduleDrain(ms: number) {
+    if (drainTimer !== null) return;
+    drainTimer = setTimer(() => {
+      drainTimer = null;
+      drain();
+    }, ms);
+  }
+
+  /**
+   * Scheduled reads also draw from a small bucket, refilled so that the burst plus a minute's refill is the budget, so a
+   * busy screen spends its minute evenly instead of in one burst and then a stall while the burst ages out of the window.
+   */
+  const burst = Math.max(1, Math.min(BURST, Math.floor(budget.limit / 4)));
+  const perMs = (budget.limit - burst) / WINDOW_MS;
+  let tokens = burst;
+  let refilledAt = now();
+
+  /** 0 and a slot is taken, or the ms until one may be. */
+  function acquire(): number {
+    const t = now();
+    tokens = Math.min(burst, tokens + (t - refilledAt) * perMs);
+    refilledAt = t;
+    if (tokens < 1) {
+      budget.deferred += 1;
+      return Math.max(1, Math.ceil((1 - tokens) / perMs));
+    }
+    const wait = budget.tryAcquire(t);
+    if (wait === 0) tokens -= 1;
+    return wait;
+  }
+
+  /** Start waiting reads in the order they came, while the budget has room. */
+  function drain() {
+    while (waiting.length > 0) {
+      const head = waiting[0] as Entry;
+      if (!runnable(head)) {
+        waiting.shift();
+        continue;
+      }
+      const wait = acquire();
+      if (wait > 0) {
+        scheduleDrain(wait);
+        return;
+      }
+      waiting.shift();
+      start(head);
+    }
+  }
+
+  /** Start a read now if the budget has room, else join the line; `first` (a refresh after a save) goes to its front. */
+  function run(entry: Entry, first = false) {
     stop(entry);
-    if (entry.intervals.size === 0 || entry.inflight || !visibility.isVisible()) return;
-    const wait = budget.tryAcquire(now());
-    if (wait > 0) {
-      entry.timer = setTimer(() => {
-        entry.timer = null;
-        run(entry);
-      }, wait);
+    if (!runnable(entry)) return;
+    const queued = waiting.indexOf(entry);
+    if (queued >= 0) {
+      if (first && queued > 0) waiting.unshift(...waiting.splice(queued, 1));
       return;
     }
+    if (waiting.length === 0) {
+      const wait = acquire();
+      if (wait === 0) {
+        start(entry);
+        return;
+      }
+      scheduleDrain(wait);
+    }
+    if (first) waiting.unshift(entry);
+    else waiting.push(entry);
+  }
+
+  function start(entry: Entry) {
     const controller = new AbortController();
     entry.inflight = controller;
     entry.startedAt = now();
@@ -365,7 +435,7 @@ export function createPoller(options: PollerOptions = {}): Poller {
       if (!entry) return;
       entry.inflight?.abort();
       entry.inflight = null;
-      run(entry);
+      run(entry, true);
     },
     recordExternalRequest(count = 1) {
       budget.record(now(), count);
@@ -382,6 +452,9 @@ export function createPoller(options: PollerOptions = {}): Poller {
     },
     dispose() {
       unsubscribeVisibility();
+      if (drainTimer !== null) clearTimer(drainTimer);
+      drainTimer = null;
+      waiting.length = 0;
       for (const entry of entries.values()) {
         stop(entry);
         entry.inflight?.abort();

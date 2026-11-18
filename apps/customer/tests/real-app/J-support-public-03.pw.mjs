@@ -1,8 +1,11 @@
 // World: restart
 import { readFileSync, existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { asDesk, ensureDeskGroup } from './help-centre.mjs';
-import { journeyState, ORIGIN, restartWith, stackFile, tool } from './stack.mjs';
+import { asDesk, clearOfGuestWindowEdge, ensureDeskGroup } from './help-centre.mjs';
+import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { journeyState, ORIGIN, restartWith, ROOT, STACK_PORTS, stackFile, tool } from './stack.mjs';
 
 // J-support-public-03, in the running app (docs/roadmap/journeys.json): someone with no account asks for help, confirms
 // their address by the emailed link, and reads and replies on that one request by link. svc-support stores the request and
@@ -61,6 +64,22 @@ async function deskRequests(text, filter) {
   return res.json.result.data.filter((row) => row.subject.includes(text));
 }
 
+/** The guest requests svc-support stored whose subject starts with this text, read as svc-support's own database role. */
+async function storedGuestRequests(subject) {
+  const ctx = await makeContext({ log: () => undefined });
+  const postgres = createRequire(path.join(ROOT, 'services', 'svc-support', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  const sql = postgres(`postgres://svc_support:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await sql`SELECT id, subject, status, ticket_id FROM support.guest_requests WHERE subject LIKE ${`${subject}%`} ORDER BY created_at`;
+  } finally {
+    await sql.end();
+  }
+}
+
 /** Opens the emailed link and presses Open; the request page it lands on. */
 async function openLink(page, link) {
   await page.goto(link);
@@ -103,8 +122,6 @@ test(`${J} #2 sending it shows "check your email" and opens no request yet`, asy
 });
 
 test(`${J} #3 with no email sender, the send says so with vendor.email and the request waits`, async ({ browser }) => {
-  // Two restarts of svc-support fit in this step's own limit.
-  test.setTimeout(240_000);
   const email = address('nosender');
   const subject = `TEST ${J} ${RUN} no sender`;
   restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', false);
@@ -113,16 +130,21 @@ test(`${J} #3 with no email sender, the send says so with vendor.email and the r
     const page = await guest(browser);
     const form = await sendRequest(page, { email, subject });
     const off = form.getByTestId('support-guest-not-connected');
-    await expect(off).toContainText('A verification email needs an email delivery provider. It is switched off in this build.');
+    await expect(off).toContainText('A verification email needs an email sender. It is switched off in this build.');
     await expect(off.locator('[data-not-connected="vendor.email"]')).toBeVisible();
     expect(guestMail(email)).toHaveLength(0);
     expect(await deskRequests(subject)).toHaveLength(0);
+    // The request is stored and pending: one row, waiting for a sender, with no ticket.
+    const pending = await storedGuestRequests(subject);
+    expect(pending.map((row) => [row.status, row.ticket_id])).toEqual([['pending_delivery', null]]);
     // The request was kept, waiting: once a sender exists, sending the same form again mails that request's link.
     restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
     restored = true;
     await form.getByRole('button', { name: 'Send request' }).click();
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible({ timeout: 15_000 });
     await mailedLink(email);
+    // The mail went out for that same pending request, not a new one.
+    expect((await storedGuestRequests(subject)).map((row) => row.id)).toEqual([pending[0].id]);
   } finally {
     if (!restored) restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
   }
@@ -149,7 +171,10 @@ test(`${J} #5 too many requests from one address are refused with no request sto
   test.setTimeout(240_000);
   const email = address('busy');
   const page = await guest(browser);
-  // The stack's TEST limit is three per address per hour.
+  // The stack's TEST limit is three per address per hour, counted in fixed windows: all four sends fall in one (#8365).
+  // Two restarts of svc-support, and the wait for a fresh window, fit in this step's own limit.
+  test.setTimeout(240_000 + 125_000);
+  await clearOfGuestWindowEdge();
   for (let n = 1; n <= 3; n += 1) {
     await sendRequest(page, { email, subject: `TEST ${J} ${RUN} busy ${n}` });
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible();
@@ -161,6 +186,9 @@ test(`${J} #5 too many requests from one address are refused with no request sto
   await expect(refused).toContainText('This address has sent too many requests.');
   await mailedLink(email, 3);
   expect(guestMail(email)).toHaveLength(3);
+  // No row stored for the refused one: svc-support holds the three it accepted and nothing for the fourth.
+  const busy = `TEST ${J} ${RUN} busy `;
+  expect((await storedGuestRequests(busy)).map((row) => row.subject)).toEqual([1, 2, 3].map((n) => `${busy}${n}`));
   // With the owner's limit blank, every guest request refuses and names the setting.
   restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', false);
   try {
@@ -170,6 +198,7 @@ test(`${J} #5 too many requests from one address are refused with no request sto
     await expect(unset).toHaveAttribute('data-code', 'support.guest_rate_limit_unset');
     await expect(unset).toContainText('SUPPORT_GUEST_RATE_LIMIT is not set');
     expect(guestMail(other)).toHaveLength(0);
+    expect(await storedGuestRequests(`TEST ${J} ${RUN} unset`)).toHaveLength(0);
   } finally {
     restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', true);
   }
@@ -220,7 +249,8 @@ test(`${J} #7 an expired link is refused as expired, with a way back to the form
   }
   try {
     const page = await guest(browser);
-    await sendRequest(page, { email, subject: `TEST ${J} ${RUN} expired` });
+    const subject = `TEST ${J} ${RUN} expired`;
+    await sendRequest(page, { email, subject });
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible();
     const link = await mailedLink(email);
     await page.waitForTimeout(65_000);
@@ -229,6 +259,12 @@ test(`${J} #7 an expired link is refused as expired, with a way back to the form
     const dead = page.getByTestId('support-guest-link-dead');
     await expect(page.getByRole('heading', { name: 'This link has expired' })).toBeVisible();
     await expect(dead).toHaveAttribute('data-code', 'support.guest_link_expired');
+    // A refusal: no request was opened from the expired link, and the stored guest request is still unverified.
+    expect(await deskRequests(subject)).toHaveLength(0);
+    const kept = await storedGuestRequests(subject);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].ticket_id).toBeNull();
+    expect(kept[0].status).not.toBe('verified');
     await page.getByTestId('support-guest-back').click();
     await expect(page).toHaveURL(/\/support\/new$/);
     await expect(page.getByTestId('support-guest-new')).toBeVisible();

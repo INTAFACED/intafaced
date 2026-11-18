@@ -1,0 +1,31 @@
+{
+  "name": "@intafaced/assistant-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MCP server for a person's own outside assistant, trading on its agent account with an agent key. Private. Not published.",
+  "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "bin": {
+    "intafaced-assistant-mcp": "./dist/server.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rimraf dist .turbo"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "rimraf": "^6.1.4",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12"
+  }
+}

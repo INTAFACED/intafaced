@@ -6,6 +6,7 @@ import {
   optionalAccountIdFromExchange,
   requestAccountId,
   KeyAccountError,
+  subAccountKeyRouteAllowed,
 } from './api-key-account.js';
 
 const ACC = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -68,5 +69,19 @@ describe('assertApiKeyAccount', () => {
     } catch (err) {
       expect(err).toMatchObject({ code: 'auth.account_required' });
     }
+  });
+});
+
+describe('subAccountKeyRouteAllowed (J-developer-15 #1: a sub-account key reaches only that account)', () => {
+  it("lets a bound key read only the routes that answer for the token's sub-account", () => {
+    expect(subAccountKeyRouteAllowed({ method: 'GET', path: '/api/v1/account/balance' })).toBe(true);
+    expect(subAccountKeyRouteAllowed({ method: 'get', path: '/api/v1/account/balance?x=1' })).toBe(true);
+  });
+
+  it('refuses every other route, another method, and a request it cannot see', () => {
+    expect(subAccountKeyRouteAllowed({ method: 'GET', path: '/api/v1/orders/open' })).toBe(false);
+    expect(subAccountKeyRouteAllowed({ method: 'POST', path: '/api/v1/account/balance' })).toBe(false);
+    expect(subAccountKeyRouteAllowed({ method: 'GET', path: '/api/v1/account/balance/' })).toBe(false);
+    expect(subAccountKeyRouteAllowed(undefined)).toBe(false);
   });
 });

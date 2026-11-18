@@ -39,7 +39,8 @@ export function requireScope(principal: Principal, scope: Scope): void {
   }
 }
 
-function isApiKeyPrincipal(principal: Principal): boolean {
+/** True for a token minted for an API key (it names the key's `kid`): the one test of "this credential is a key". */
+export function isApiKeyPrincipal(principal: Principal): boolean {
   return typeof principal.kid === 'string' && principal.kid.length > 0;
 }
 
@@ -57,6 +58,22 @@ export const TIER_ORDER = { none: 0, basic: 1, full: 2, institutional: 3 } as co
  */
 export function requireTier(principal: Principal, tier: Principal['tier']): void {
   if (TIER_ORDER[principal.tier] < TIER_ORDER[tier]) {
+    throw new AuthError(`Verification tier "${tier}" is required`, 'tier.insufficient');
+  }
+}
+
+/**
+ * The level a trading gate reads: the approved `tier`, or `basic` for a person the trading checks alone cleared for
+ * trading (`trd`, OWNER 258 (4)). Only trading gates use it; every other gate reads `tier`, so a trading clear never
+ * opens custody, transfer or withdrawal.
+ */
+export function tradeTier(principal: Pick<Principal, 'tier' | 'trd'>): Principal['tier'] {
+  return principal.tier === 'none' && principal.trd === true ? 'basic' : principal.tier;
+}
+
+/** `requireTier` for a trading action: the trading checks' clear counts as `basic` here, and only here. */
+export function requireTradeTier(principal: Principal, tier: Principal['tier']): void {
+  if (TIER_ORDER[tradeTier(principal)] < TIER_ORDER[tier]) {
     throw new AuthError(`Verification tier "${tier}" is required`, 'tier.insufficient');
   }
 }

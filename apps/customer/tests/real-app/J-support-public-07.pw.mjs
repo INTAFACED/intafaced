@@ -1,8 +1,8 @@
-// World: none
+// World: restart
 import { test, expect } from './journey.mjs';
-import { draftNotice, publishNotice } from './notices.mjs';
-import { configureStatusPage, findSubscriber, recordReading } from './status-page.mjs';
-import { ORIGIN, statusMail } from './stack.mjs';
+import { draftNotice, publishNotice, publishedNotices } from './notices.mjs';
+import { configureStatusPage, findSubscriber, recordReading, statusDefinition } from './status-page.mjs';
+import { ORIGIN, restartWith, restartWithSetting, statusMail } from './stack.mjs';
 
 // J-support-public-07, in the running app (docs/roadmap/journeys.json): a signed-out visitor checks /status and sees
 // only states the platform recorded or published. Tests titled "J-support-public-07 #<n>" prove a whole step.
@@ -180,50 +180,124 @@ test(`${J} #4 an active incident shows its update timeline and sets the affected
   await page.context().close();
 });
 
-test(`${J} #5 /notice lists published notices with their kind, and maintenance as scheduled, in progress or completed`, async ({
+test(`${J} #5 /notice lists published notices with their kind and category, and maintenance as scheduled, in progress or completed; with none published, "none are published" and no sample row`, async ({
   browser,
 }) => {
-  // Each window's times are taken just before it is drafted. The scheduled one is ten years ahead, so no stack that
-  // stays up ever sees it open; the in-progress one is published last and ends within J-home-ia-06's seven-minute wait
-  // for an empty board, in case both run on one stack.
-  const at = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
-  const windows = [
-    ['scheduled', 'Scheduled', () => [at(3650 * 24 * 60), at(3650 * 24 * 60 + 60)]],
-    ['completed', 'Completed', () => [at(-120), at(-60)]],
-    ['in_progress', 'In progress', () => [at(-5), at(6)]],
+  // Two restarts of notify (each up to two minutes), on top of the browser steps.
+  test.setTimeout(600_000);
+  // With none published: notify on its own new database (LOCAL_STACK_NOTIFY_NOTICES=off, local-stack-services/notify.mjs),
+  // so the board holds no notice at all; then back on the stack's own database, whatever happened.
+  restartWithSetting('notify', 'LOCAL_STACK_NOTIFY_NOTICES', 'off');
+  try {
+    expect(await publishedNotices()).toEqual([]);
+    const page = await visitor(browser);
+    await page.goto('/notice');
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: 'Notices' })).toBeVisible();
+    const none = main.getByRole('status').filter({ has: page.getByRole('heading', { name: 'No public notices are published' }) });
+    await expect(none.getByRole('heading', { name: 'No public notices are published' })).toBeVisible();
+    await expect(none).toContainText('None is published right now.');
+    // No sample row: not one notice card, kind label or window on the page.
+    await expect(main.locator('article')).toHaveCount(0);
+    await expect(main.locator('[data-testid^="notice-"]')).toHaveCount(0);
+    await expect(main.getByText(/Maintenance ·|Announcement ·|Window /)).toHaveCount(0);
+    await page.context().close();
+  } finally {
+    restartWithSetting('notify', 'LOCAL_STACK_NOTIFY_NOTICES', null);
+  }
+
+  // Published: the founders' category list (an owner value, labelled TEST here and put back as it was at the end), then
+  // two announcements, each filed under a category, and three maintenance windows. svc-notify files categories on
+  // announcements only; maintenance carries its kind and its phase (board.ts categoryField). Each window's times are
+  // taken just before it is drafted. The scheduled one is ten years ahead, so no stack that stays up ever sees it open;
+  // the in-progress one is published last and ends within J-home-ia-06's seven-minute wait for an empty board, in case
+  // both run on one stack.
+  const before = (await statusDefinition()).noticeCategories ?? null;
+  const CATEGORIES = [
+    { id: 'j07-platform', name: 'TEST platform' },
+    { id: 'j07-wallets', name: 'TEST wallets' },
   ];
-  const published = [];
-  for (const [phase, , times] of windows) {
-    const key = `${J}-maint-${phase}-${RUN}`;
-    const [startsAt, endsAt] = times();
-    published.push(
-      await publishNotice(
-        await draftNotice({
-          kind: 'maintenance',
-          title: `TEST ${phase} maintenance ${RUN}`,
-          body: `TEST ${phase} window`,
+  await configureStatusPage({ noticeCategories: CATEGORIES }, `TEST journey ${J} #5 categories`);
+  try {
+    const at = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
+    const rows = [
+      { name: 'platform', kind: 'announcement', phase: null, label: 'Announcement', category: CATEGORIES[0], times: () => [null, at(10)] },
+      { name: 'wallets', kind: 'announcement', phase: null, label: 'Announcement', category: CATEGORIES[1], times: () => [null, at(10)] },
+      {
+        name: 'scheduled',
+        kind: 'maintenance',
+        phase: 'scheduled',
+        label: 'Maintenance · Scheduled',
+        category: null,
+        times: () => [at(3650 * 24 * 60), at(3650 * 24 * 60 + 60)],
+      },
+      {
+        name: 'completed',
+        kind: 'maintenance',
+        phase: 'completed',
+        label: 'Maintenance · Completed',
+        category: null,
+        times: () => [at(-120), at(-60)],
+      },
+      {
+        name: 'in_progress',
+        kind: 'maintenance',
+        phase: 'in_progress',
+        label: 'Maintenance · In progress',
+        category: null,
+        times: () => [at(-5), at(6)],
+      },
+    ];
+    const published = [];
+    for (const row of rows) {
+      const { name } = row;
+      const key = `${J}-notice-${name}-${RUN}`;
+      const [startsAt, endsAt] = row.times();
+      published.push(
+        await publishNotice(
+          await draftNotice({
+            kind: row.kind,
+            title: `TEST ${name} ${row.kind} ${RUN}`,
+            body: `TEST ${name} notice`,
+            key,
+            startsAt,
+            endsAt,
+            category: row.category?.id ?? null,
+          }),
           key,
-          startsAt,
-          endsAt,
-        }),
-        key,
-      ),
-    );
+        ),
+      );
+    }
+    // The service publishes each once, with its kind and category.
+    const board = await publishedNotices();
+    for (const [i, row] of rows.entries()) {
+      const shown = board.filter((n) => n.id === published[i].id);
+      expect(shown).toHaveLength(1);
+      expect(shown[0]).toMatchObject({ kind: row.kind, category: row.category });
+    }
+    const page = await visitor(browser);
+    await page.goto('/notice');
+    const main = page.locator('main');
+    for (const [i, row] of rows.entries()) {
+      const { name } = row;
+      const card = main.getByTestId(`notice-${published[i].id}`);
+      await expect(card.getByRole('heading', { name: `TEST ${name} ${row.kind} ${RUN}` })).toBeVisible();
+      await expect(card).toHaveAttribute('data-kind', row.kind);
+      await expect(card).toContainText(row.label);
+      if (row.category) await expect(card.getByTestId('notice-category')).toHaveText(row.category.name);
+      else await expect(card.getByTestId('notice-category')).toHaveCount(0);
+      if (row.phase) await expect(card).toHaveAttribute('data-phase', row.phase);
+      else await expect(card).not.toHaveAttribute('data-phase');
+    }
+    // Only maintenance carries a phase, and with notices published there is no "none are published".
+    await expect(main.locator('article[data-phase]:not([data-kind="maintenance"])')).toHaveCount(0);
+    await expect(main.getByText('No public notices are published')).toHaveCount(0);
+    await page.context().close();
+  } finally {
+    const now = await statusDefinition();
+    if (JSON.stringify(now.noticeCategories ?? null) !== JSON.stringify(before))
+      await configureStatusPage({ noticeCategories: before }, `TEST journey ${J} #5: categories put back`);
   }
-  const page = await visitor(browser);
-  await page.goto('/notice');
-  const main = page.locator('main');
-  for (const [i, [phase, label]] of windows.entries()) {
-    const card = main.getByTestId(`notice-${published[i].id}`);
-    await expect(card.getByRole('heading', { name: `TEST ${phase} maintenance ${RUN}` })).toBeVisible();
-    await expect(card).toHaveAttribute('data-kind', 'maintenance');
-    await expect(card).toHaveAttribute('data-phase', phase);
-    await expect(card).toContainText(`Maintenance · ${label}`);
-  }
-  // Only maintenance carries a phase.
-  await expect(main.locator('article[data-phase]:not([data-kind="maintenance"])')).toHaveCount(0);
-  await expect(main.getByText('No public notices are published')).toHaveCount(0);
-  await page.context().close();
 });
 
 test(`${J} #6 subscribe to status updates by email: proof of work in the browser, a failed check stores nothing, SMS and push named not offered`, async ({
@@ -263,6 +337,70 @@ test(`${J} #6 subscribe to status updates by email: proof of work in the browser
   expect(mail).toHaveLength(1);
   expect(mail[0].subject).toBe('Confirm your status updates');
   await page.context().close();
+
+  // Nothing is sent before they confirm: an incident published on the component they chose reaches no unconfirmed
+  // subscriber, so the confirmation stays their only message and nothing is delivered to them for it.
+  const earlyKey = `${J}-unconfirmed-${RUN}`;
+  const early = await publishNotice(
+    await draftNotice({
+      kind: 'incident',
+      title: `TEST unconfirmed incident ${RUN}`,
+      body: 'TEST unconfirmed',
+      minutes: 15,
+      key: earlyKey,
+      impact: 'minor',
+      components: ['trading'],
+    }),
+    earlyKey,
+  );
+  try {
+    expect(await statusMailAtLeast(SUBSCRIBER, 2, 5_000)).toHaveLength(1);
+    const still = await findSubscriber(SUBSCRIBER);
+    expect(still.state).toBe('unconfirmed');
+    expect(still.deliveries.filter((row) => row.event === early.id)).toEqual([]);
+  } finally {
+    // Resolved at once, so later steps start with no open incident of this step's.
+    const key = `${J}-unconfirmed-resolve-${early.id}`;
+    await publishNotice(
+      await draftNotice({
+        kind: 'incident',
+        title: early.title,
+        body: 'TEST resolved',
+        minutes: 15,
+        key,
+        parentId: early.id,
+        resolves: true,
+      }),
+      key,
+    );
+  }
+  expect(statusMail(SUBSCRIBER)).toHaveLength(1);
+
+  // With no email sender (svc-notify started without one), the form says email needs a sender with vendor.email, SMS
+  // and push keep their own codes, and nothing is mailed to an address typed in.
+  const quiet = `status-nosender-${RUN}@example.com`;
+  restartWith('notify', 'LOCAL_STACK_NOTIFY_STATUS_MAIL', false);
+  try {
+    const off = await visitor(browser);
+    await off.goto('/status');
+    const offForm = off.getByTestId('status-subscribe');
+    const emailOff = offForm.getByTestId('status-subscribe-email-off');
+    await expect(emailOff).toContainText('Email updates need an email sender. It is switched off in this build.');
+    await expect(emailOff).toContainText('vendor.email');
+    const channels = offForm.getByTestId('status-subscribe-channels');
+    await expect(channels).toContainText('vendor.sms');
+    await expect(channels).toContainText('vendor.push');
+    const policy = await fetch(`${ORIGIN}/api/notify/trpc/statusPage.subscriptions.policy`).then((res) => res.json());
+    expect(JSON.stringify(policy)).toContain('vendor.email');
+    await offForm.getByLabel('Email address').fill(quiet);
+    await offForm.getByRole('button', { name: 'Subscribe' }).click();
+    await off.waitForTimeout(3_000);
+    expect(statusMail(quiet)).toHaveLength(0);
+    await off.context().close();
+  } finally {
+    restartWith('notify', 'LOCAL_STACK_NOTIFY_STATUS_MAIL', true);
+  }
+  expect(statusMail(quiet)).toHaveLength(0);
 });
 
 test(`${J} #7 confirm by the emailed link, twice is one subscriber; choose components; a private webhook is refused`, async ({
@@ -300,8 +438,23 @@ test(`${J} #7 confirm by the emailed link, twice is one subscriber; choose compo
   await again.getByRole('button', { name: 'Confirm' }).click();
   await expect(again.getByTestId('status-subscription-state')).toHaveText('Active');
   const stored = await findSubscriber(SUBSCRIBER);
-  expect(stored).toMatchObject({ state: 'active', email: SUBSCRIBER });
+  expect(stored).toMatchObject({ state: 'active', email: SUBSCRIBER, componentIds: expect.arrayContaining(['trading', 'wallets']) });
+  // The channel chosen is email alone: the refused webhooks left none.
+  expect(stored.webhookUrl).toBeNull();
   expect(statusMail(SUBSCRIBER)).toHaveLength(1);
+
+  // A subscribe whose proof-of-work check fails stores no row: refused by name, no subscriber and no mail for the address.
+  const other = `status-pow-${RUN}@example.com`;
+  const challenge = await publicMutate('statusPage.subscriptions.challenge');
+  const failed = await publicMutate('statusPage.subscriptions.subscribe', {
+    email: other,
+    componentIds: ['trading'],
+    challenge: { token: challenge.json.result.data.token, nonce: 'zzzzzzzz' },
+  });
+  expect(failed.status).toBe(400);
+  expect(JSON.stringify(failed.json)).toContain('status.challenge_failed');
+  expect(await findSubscriber(other)).toBeNull();
+  expect(statusMail(other)).toHaveLength(0);
   await page.context().close();
   await again.context().close();
 });
