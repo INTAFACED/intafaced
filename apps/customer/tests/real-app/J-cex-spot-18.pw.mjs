@@ -238,16 +238,16 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
   await expect(read).toHaveAttribute('data-order-id', routed);
   const operatorStatus = (await read.getByTestId('venue-read-status').textContent()).trim();
   const operatorFilled = await read.getAttribute('data-filled');
-  const operatorFills = await page
-    .getByRole('region', { name: 'Venue fills', exact: true })
-    .getByTestId('venue-read-fill')
-    .evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill-id')).sort());
+  const operatorRows = page.getByRole('region', { name: 'Venue fills', exact: true }).getByTestId('venue-read-fill');
+  await expect(operatorRows).toHaveCount(truth.fills.length);
+  const operatorFills = await operatorRows.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill-id')).sort());
   // The customer's own order page, on their own wallet, says the same.
   const context = await browser.newContext();
   const theirs = await context.newPage();
   await openVenuePage(theirs, customer, `/trade/orders/${routed}`, walletKey);
   const mine = theirs.getByTestId('venue-order');
   await expect(mine.getByTestId('venue-order-heading').locator('[data-cell="status"]')).toHaveText(operatorStatus);
+  await expect(mine.getByTestId('venue-order-fill')).toHaveCount(truth.fills.length);
   const theirFills = await mine.getByTestId('venue-order-fill').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill')).sort());
   expect(theirFills).toEqual(operatorFills);
   expect(theirFills).toEqual(truth.fills.map((f) => f.fillId).sort());
