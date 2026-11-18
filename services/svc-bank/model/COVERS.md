@@ -60,6 +60,8 @@ The same on the real service with a real Postgres: `src/holds/received-holds.db.
 
 Not covered: the send itself and the "never arrived" lapse (the model starts with the send posted), the release date's own timing, the timer's singleton lock (one timer pass at a time is assumed), and a placer paused between its claim and its post for longer than the in-flight bound (the model sends the request at the claim, as the code's bound assumes).
 
+TLC's deadlock check is on: every state of this model has a step out (the clock and the in-flight requests run to their bound), so a run that freezes fails.
+
 ## Last confirmed
 
 Against `received-holds.ts` with #8586's fix, branch `model/received-hold-strand` off `origin/main` at `76621e07ff`, 16 Nov 2026. Whoever changes a covered function reruns `check.sh` and updates this line.

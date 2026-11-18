@@ -5,6 +5,7 @@
 - **RefusedTookNothing** (the promise): once every driver has finished, a refused request took nothing: no move under its key, or the money went back.
 - **TakenMeansMoved**, **TakenStays**: a taken request has its move, and stays taken.
 - **MovedOnce**: the partner moves the money once.
+- **No dead end** (TLC's deadlock check): the only state with no step out is `Done`, every driver finished. A driver stuck halfway, with the request's money undecided, fails the check.
 
 ## Run it
 
