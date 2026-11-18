@@ -93,6 +93,18 @@ function doorCalls(page) {
   });
   return { all: calls, of: (name) => calls.filter((c) => c.path === name), sent: () => calls.filter((c) => c.path !== 'preview') };
 }
+/**
+ * Every venue prepare answer this page gets, in order: the intent and the venue client id it names (a placed order's own,
+ * or the one order a cancel names). `since(n)` is every answer after the first `n`.
+ */
+function prepareAnswers(page) {
+  const answers = [];
+  page.on('response', (r) => {
+    if (new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST')
+      answers.push(r.json().then((b) => ({ status: r.status(), intent: b.prepared?.intent, id: b.prepared?.venueClientOrderId ?? null })));
+  });
+  return { count: () => answers.length, since: (n) => Promise.all(answers.slice(n)), all: () => Promise.all(answers) };
+}
 /** The next venue preview the page asks for, and the venue's answer to it. */
 const nextPreview = (page) =>
   page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
@@ -993,6 +1005,7 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   await openDom(page);
   await setLadder(page, 'Single', '1 tick');
   const door = doorCalls(page);
+  const answers = prepareAnswers(page);
   const review = reviewSheet(page);
   const clickSize = chartTrade(page).getByLabel('Click size (BTC)');
   const cancelReview = page.getByTestId('of-cancel-review');
@@ -1069,6 +1082,10 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   expect(door.of('prepare').filter((c) => c.body.intent.kind === 'cancel_order' || c.body.intent.kind === 'cancel_orders')).toHaveLength(
     named.length,
   );
+  // One cancel names my resting order, by the client order key its own prepare used.
+  const reviewedCancels = (await answers.all()).filter((a) => a.intent?.kind === 'cancel_order' && a.id === restId);
+  expect(reviewedCancels).toHaveLength(1);
+  expect(reviewedCancels[0].intent.clientOrderKey).toBe(rest.clientOrderKey);
   expect(signatures(w)).toBe(2 + named.length);
   let signed = 2 + named.length;
 
@@ -1098,6 +1115,10 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   const sellIntent = door.of('prepare').at(-1).body.intent;
   expect(sellIntent).toMatchObject({ side: 'sell', type: 'limit' });
   expect(same(sellIntent.price, bidConfirmed) && same(sellIntent.amount, freeConfirmed)).toBe(true);
+  const sellId = (await answers.all()).at(-1).id;
+  await expect.poll(async () => (await venueByClientId(owner, sellId))?.side ?? null, { timeout: 20_000 }).toBe('sell');
+  const sellOrder = await venueByClientId(owner, sellId);
+  expect(sameDecimal(sellOrder.price, bidConfirmed) && sameDecimal(sellOrder.amount, freeConfirmed)).toBe(true);
   signed += 1;
   expect(signatures(w)).toBe(signed);
   await expect.poll(async () => toUnits((await venueBalance(owner, 'BTC')).free) < lot, { timeout: 20_000 }).toBe(true);
@@ -1109,6 +1130,9 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
     .getByRole('button', { name: `${SMALL} BTC` })
     .click();
   const instantSent = submits();
+  const instantPrepared = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST',
+  );
   const instantPrice = await pressAskCell(page, 4);
   await continueInWallet(page);
   await expect.poll(submits, { timeout: 20_000 }).toBe(instantSent + 1);
@@ -1116,19 +1140,32 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   const instantIntent = door.of('prepare').at(-1).body.intent;
   expect(same(instantIntent.price, instantPrice) && same(instantIntent.amount, SMALL)).toBe(true);
   signed += 1;
-  let instantId = null;
-  await expect
-    .poll(async () => {
-      const o = (await venueOpen(owner)).find((x) => sameDecimal(x.price, instantPrice));
-      instantId = o?.venueClientOrderId ?? null;
-      return instantId !== null;
-    })
-    .toBe(true);
-  await pressRowCancel(page, instantPrice);
-  await continueInWallet(page);
+  // The instant order is named by the venue client id its own prepare returned, never by its price.
+  const instantId = (await (await instantPrepared).json()).prepared.venueClientOrderId;
+  expect(instantId).toBeTruthy();
+  await expect.poll(async () => (await venueByClientId(owner, instantId))?.status, { timeout: 20_000 }).toBe('open');
+  const instantOrder = await venueByClientId(owner, instantId);
+  expect(sameDecimal(instantOrder.price, instantPrice) && sameDecimal(instantOrder.amount, SMALL) && instantOrder.side === 'buy').toBe(
+    true,
+  );
+  // Instant one-click cancel on its row, once the page has read every order of mine there: no review, one signed cancel
+  // per order at the row and no more, one of them naming exactly the instant order.
+  const atInstantRow = (await venueOpen(owner)).filter((o) => sameDecimal(o.price, instantPrice)).map((o) => o.venueClientOrderId);
+  expect(atInstantRow).toContain(instantId);
+  const cancelsBefore = answers.count();
+  await pressRowCancel(page, instantPrice, atInstantRow.length);
+  for (let i = 0; i < atInstantRow.length; i++) await continueInWallet(page);
   await expect(cancelReview).toHaveCount(0);
   await expect.poll(async () => (await venueByClientId(owner, instantId)).status, { timeout: 20_000 }).toBe('canceled');
-  signed += 1;
+  await page.waitForTimeout(1_000);
+  const instantCancels = await answers.since(cancelsBefore);
+  expect(instantCancels.map((a) => a.intent?.kind).every((k) => k === 'cancel_order' || k === 'cancel_orders')).toBe(true);
+  expect(instantCancels).toHaveLength(atInstantRow.length);
+  const namingInstant = instantCancels.filter((a) => a.id === instantId);
+  expect(namingInstant).toHaveLength(1);
+  expect(namingInstant[0].intent.clientOrderKey).toBe(instantIntent.clientOrderKey);
+  for (const id of atInstantRow) expect((await venueByClientId(owner, id)).status).toBe('canceled');
+  signed += atInstantRow.length;
   expect(signatures(w)).toBe(signed);
 
   // Instant one-click close: buy a little at the venue's ask first (instant, one signature), then one limit sell of every
@@ -1150,6 +1187,10 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   const instantClose = door.of('prepare').at(-1).body.intent;
   expect(instantClose).toMatchObject({ side: 'sell', type: 'limit' });
   expect(same(instantClose.price, bidNow) && same(instantClose.amount, freeNow)).toBe(true);
+  const closeId = (await answers.all()).at(-1).id;
+  await expect.poll(async () => (await venueByClientId(owner, closeId))?.side ?? null, { timeout: 20_000 }).toBe('sell');
+  const closeOrder = await venueByClientId(owner, closeId);
+  expect(sameDecimal(closeOrder.price, bidNow) && sameDecimal(closeOrder.amount, freeNow)).toBe(true);
   signed += 1;
   await expect.poll(async () => toUnits((await venueBalance(owner, 'BTC')).free) < lot, { timeout: 20_000 }).toBe(true);
   await page.waitForTimeout(1_000);
@@ -1162,6 +1203,10 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
         .of('prepare')
         .filter((x) => x.body.intent.kind === 'place_order' && x.body.intent.clientOrderKey === c.body.intent.clientOrderKey),
     ).toHaveLength(1);
+  // And the venue holds exactly one order under each placed client id.
+  const placedIds = (await answers.all()).filter((a) => a.intent?.kind === 'place_order').map((a) => a.id);
+  expect(new Set(placedIds).size).toBe(placedIds.length);
+  for (const id of placedIds) expect((await venueByClientId(owner, id))?.venueClientOrderId).toBe(id);
 
   await turnInstantOff(page);
   expect(await ledgerView(s.account)).toEqual(ledgerBefore);
