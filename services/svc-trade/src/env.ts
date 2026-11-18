@@ -998,6 +998,15 @@ const schema = serviceEnvSchema
       TRADE_DEVELOPER_HOSTS: z.string().default(''),
 
       /**
+       * The stream endpoint hosts the WebSocket developer page publishes (developer-portal-rest.ts, J-developer-09 #1):
+       * JSON or empty, {"public":{"primary":"stream.example.test","failover":"…"},"private":{…},"business":{…}}.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/stream-hosts refuses trade.developer_stream_hosts_unset and every host
+       * reads "host not set". A host left out reads "host not set" on its own. Malformed refuses boot. Never invent a host.
+       */
+      TRADE_DEVELOPER_STREAM_HOSTS: z.string().default(''),
+
+      /**
        * The market data terms per product the developer portal publishes (developer-portal-rest.ts). JSON or empty:
        * {"ticker":{"entitlement":"…","redistribution":"…","retention":"…","privacy":"…","commercial":"…"},…}.
        *

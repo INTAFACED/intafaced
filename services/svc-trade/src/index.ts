@@ -137,6 +137,7 @@ import {
   parseDeveloperHosts,
   parseRegionalRule,
   parseBotPolicy,
+  parseDeveloperStreamHosts,
   registerDeveloperPortalRest,
 } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
@@ -1587,6 +1588,7 @@ registerDeveloperPortalRest(app, {
   dataTerms: parseDataTerms(env.TRADE_DEVELOPER_DATA_TERMS),
   regionalRule: parseRegionalRule(env.TRADE_DEVELOPER_REGIONAL_RULE),
   botPolicy: parseBotPolicy(env.TRADE_DEVELOPER_BOT_POLICY),
+  streamHosts: parseDeveloperStreamHosts(env.TRADE_DEVELOPER_STREAM_HOSTS),
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,

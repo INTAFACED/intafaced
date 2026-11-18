@@ -34,6 +34,7 @@ import {
   scopeText,
   streamName,
 } from './developers-reference';
+import { PROTOCOL_GUIDE, STREAM_ENDPOINTS, STREAM_ENDPOINT_PATH } from './developers-streams';
 
 const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
@@ -374,6 +375,33 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: sectionTitle('bot-policy'),
     summary: trading('botLead'),
     body: () => [trading('botLead'), trading('botStaticNote')].join('\n\n'),
+  },
+  {
+    slug: 'websocket',
+    title: sectionTitle('websocket'),
+    summary: docs('wsLead'),
+    body: () =>
+      [
+        docs('wsLead'),
+        docs('wsStaticNote'),
+        `## ${docs('wsEndpointsTitle')}`,
+        table(
+          [docs('colEndpoint'), docs('colPath')],
+          STREAM_ENDPOINTS.map((endpoint) => [docs(`wsEndpoint_${endpoint}`), code(STREAM_ENDPOINT_PATH[endpoint])]),
+        ),
+        docs('wsFailover'),
+        `## ${docs('wsMessagesTitle')}`,
+        `${docs('wsUnknown')} ${docs('wsUnknownMore')}`,
+        `## ${docs('wsGuideTable')}`,
+        table(
+          [docs('colProtocolName'), docs('colUseFor'), docs('colOwner')],
+          PROTOCOL_GUIDE.map(({ protocol, module }) => [
+            docs(`guide_${protocol}`),
+            docs(`guide_${protocol}_use`),
+            docs('ownedBy', { module }),
+          ]),
+        ),
+      ].join('\n\n'),
   },
   {
     slug: 'idempotency',

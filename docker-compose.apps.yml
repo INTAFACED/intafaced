@@ -819,6 +819,9 @@ services:
       TRADE_OTC_DESK_LAW: ${TRADE_OTC_DESK_LAW:-}
       TRADE_OTC_MIDS: ${TRADE_OTC_MIDS:-}
       TRADE_DEVELOPER_HOSTS: ${TRADE_DEVELOPER_HOSTS:-}
+      # Owner-published stream hosts (public, private, business; primary and
+      # failover). Blank refuses trade.developer_stream_hosts_unset.
+      TRADE_DEVELOPER_STREAM_HOSTS: ${TRADE_DEVELOPER_STREAM_HOSTS:-}
       TRADE_DEVELOPER_DATA_TERMS: ${TRADE_DEVELOPER_DATA_TERMS:-}
       TRADE_DEVELOPER_REGIONAL_RULE: ${TRADE_DEVELOPER_REGIONAL_RULE:-}
       TRADE_OTC_MID_FROM_VENUE: ${TRADE_OTC_MID_FROM_VENUE:-false}
@@ -920,6 +923,12 @@ services:
       # invent a timeout: this service has no connection idle setting, so the
       # multiplexed door stays unmounted. Never invent a duration.
       WS_MUX_IDLE_MS: ${WS_MUX_IDLE_MS:-}
+      # Owner-published per-IP cap and storm ban on the public doors. Blank cap
+      # refuses every public socket (ws.per_ip_cap_unset); a blank storm count
+      # or ban time leaves the ban off, said on GET /policy. Never invented.
+      WS_PER_IP_MAX_CONNECTIONS: ${WS_PER_IP_MAX_CONNECTIONS:-}
+      WS_PER_IP_STORMS_BEFORE_BAN: ${WS_PER_IP_STORMS_BEFORE_BAN:-}
+      WS_PER_IP_BAN_SECONDS: ${WS_PER_IP_BAN_SECONDS:-}
       # Host can pin ping cadence. Default matches env.ts (30_000). Without
       # this name, a host `.env` never reaches the container.
       WS_HEARTBEAT_MS: ${WS_HEARTBEAT_MS:-30000}

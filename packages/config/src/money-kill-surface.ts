@@ -121,6 +121,14 @@ export const MONEY_PUBLIC_DOORS: readonly MoneyPublicDoor[] = [
     control: { kind: 'edge-module', module: 'trade' },
   },
   {
+    id: 'trade.stream.token',
+    module: 'trade',
+    method: 'POST',
+    path: '/api/v1/stream/token',
+    what: 'mint a short-lived stream token for the private trading stream (J-developer-09 #2)',
+    control: { kind: 'edge-module', module: 'trade' },
+  },
+  {
     id: 'trade.ccxt.create',
     module: 'trade',
     method: 'POST',

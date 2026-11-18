@@ -15,6 +15,7 @@ import {
   QuickstartPage,
   ReferencePage,
   RestPage,
+  WebSocketPage,
 } from './DocsPages';
 import {
   AUDIENCES,
@@ -64,6 +65,7 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   'bot-policy': BotPolicyPage,
   idempotency: IdempotencyPage,
   quant: QuantApiPage,
+  websocket: WebSocketPage,
 };
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */

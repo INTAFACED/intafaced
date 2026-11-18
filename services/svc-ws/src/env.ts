@@ -178,6 +178,24 @@ const schema = baseEnvSchema
       ),
 
       /**
+       * Owner-published per-IP cap and storm ban on the public doors (`per-ip.ts`, DV-limits-03). Blank cap refuses
+       * every public socket `ws.per_ip_cap_unset`; a blank storm count or ban time leaves the ban off, and says so on
+       * `GET /policy`. Never invented.
+       */
+      WS_PER_IP_MAX_CONNECTIONS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
+      WS_PER_IP_STORMS_BEFORE_BAN: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
+      WS_PER_IP_BAN_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
+
+      /**
        * Owner-published private / drop-copy max open sockets per authenticated
        * user on this replica. Stops one principal from filling
        * `WS_MAX_CONNECTIONS`. Blank / unset is unpublished — attach refuses
@@ -383,6 +401,9 @@ export const SVC_WS_OWN_ENV_KEYS = [
   'WS_MAX_LAG_TICKS',
   'WS_MAX_CONNECTIONS',
   'WS_MAX_NEW_CONNECTIONS_PER_MINUTE',
+  'WS_PER_IP_MAX_CONNECTIONS',
+  'WS_PER_IP_STORMS_BEFORE_BAN',
+  'WS_PER_IP_BAN_SECONDS',
   'WS_PRIVATE_MAX_CONNECTIONS_PER_USER',
   'WS_HEARTBEAT_MS',
   'WS_TRADE_RECENT_LIMIT',

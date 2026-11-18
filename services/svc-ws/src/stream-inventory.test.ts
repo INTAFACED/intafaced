@@ -40,7 +40,10 @@ function served(entry: Pick<StreamEntry, 'door' | 'channel'>): boolean {
   }
 }
 
-async function streamsFrom(withMux: boolean): Promise<readonly StreamEntry[]> {
+async function inventoryFrom(
+  withMux: boolean,
+  timing?: { heartbeatMs: number; muxIdleMs: number | undefined },
+): Promise<{ streams: StreamEntry[]; timing: { heartbeatMs: number | null; muxIdleMs: number | null } }> {
   const source: DepthSource = {
     snapshot: async () => {
       throw new Error('not read');
@@ -68,12 +71,34 @@ async function streamsFrom(withMux: boolean): Promise<readonly StreamEntry[]> {
     privateBus: () => false,
     // Only its presence is read by `/streams`; no request here reaches it.
     ...(withMux ? { mux: { gateway: {} as MuxGateway, tickerHub: {} as TickerHub, candleHub: {} as CandleHub } } : {}),
+    ...(timing ? { timing } : {}),
   });
   const res = await app.inject({ method: 'GET', url: '/streams' });
   await app.close();
   expect(res.statusCode).toBe(200);
-  return (res.json() as { streams: StreamEntry[] }).streams;
+  return res.json();
 }
+
+async function streamsFrom(withMux: boolean): Promise<readonly StreamEntry[]> {
+  return (await inventoryFrom(withMux)).streams;
+}
+
+describe('GET /streams timing (DV-websocket-02)', () => {
+  it('publishes the ping cadence and the multiplexed idle close the doors run', async () => {
+    expect((await inventoryFrom(true, { heartbeatMs: 2_000, muxIdleMs: 60_000 })).timing).toEqual({
+      heartbeatMs: 2_000,
+      muxIdleMs: 60_000,
+    });
+  });
+
+  it('an unpublished idle close reads null, never a borrowed number', async () => {
+    expect((await inventoryFrom(false, { heartbeatMs: 30_000, muxIdleMs: undefined })).timing).toEqual({
+      heartbeatMs: 30_000,
+      muxIdleMs: null,
+    });
+    expect((await inventoryFrom(false)).timing).toEqual({ heartbeatMs: null, muxIdleMs: null });
+  });
+});
 
 describe('GET /streams', () => {
   it('lists every door, each channel exactly once, and every listed channel is one its door serves', async () => {
