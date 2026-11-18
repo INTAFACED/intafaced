@@ -4,7 +4,8 @@ import { expect } from './journey.mjs';
 import { ROOT, api } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { nextCode } from './identity-factors.mjs';
-import { venueInfo } from './venue.mjs';
+import { venueInfo, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 export const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
@@ -95,3 +96,15 @@ export function personDoor(J, run, test) {
 
   return { state, codeFor, signInNow, door, resetSession, bankGet, bankPost, signAndSend };
 }
+
+/** The stack's TEST partner bank's own book, on loopback: read straight from the stand-in, never through our doors. */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+
+/** The partner's own figure for the person's main account in `asset`, from its book. */
+export async function partnerMainBalance(userId, asset) {
+  const rows = (await venueRecord(userId, '/balances', {}, PARTNER_RECORD, null)).value;
+  return rows.find((r) => r.asset === asset)?.total ?? '0';
+}
+
+/** Every move on the person's record at the TEST partner, as its own book lists it. */
+export const partnerBookMoves = async (userId) => (await venueRecord(userId, '/moves', {}, PARTNER_RECORD, null)).value;

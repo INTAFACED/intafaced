@@ -511,6 +511,42 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
         "into the venue's TEST insurance fund.",
     },
   },
+  {
+    // J-derivatives-26: a TEST perpetual of its own on cross margin, which the TEST venue liquidates at the account's cross
+    // liquidation level (simulator CROSS_RULE), so moving its mark reaches no other journey. Only J-derivatives-26 trades
+    // it. Priced by its TEST oracle, so a fill never moves its mark; it tracks nothing outside the simulator.
+    symbol: 'XCRS-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XCRS',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['cross'],
+    maxLeverageBps: 200_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    // TEST: maintenance half the initial margin at the most leverage (20x).
+    maintenanceMarginRate: parseAmount('0.025'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        'TEST rule: on cross margin the venue judges the whole account, not one position: once the account’s equity falls to ' +
+        'half its maintenance requirement, it closes every cross position at its mark.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each position's value at the mark, capped at what the account has left, paid " +
+        "into the venue's TEST insurance fund.",
+    },
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
@@ -524,6 +560,7 @@ const LADDER_SYMBOLS: ReadonlySet<string> = new Set([
   'XLIQ-PERP',
   'XFND-PERP',
   'XBIL-PERP',
+  'XCRS-PERP',
 ]);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
@@ -545,6 +582,7 @@ const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'XLIQ-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
   'XFND-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
   'XBIL-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XCRS-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
 };
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
@@ -645,7 +683,13 @@ export async function seedTestVenue(
       if (market.kind === 'perpetual') {
         const lev = await sim.leverage(acct, market.symbol);
         if (!lev.value)
-          await makerRun(sim, name, { kind: 'update_leverage', symbol: market.symbol, leverageBps: 100_000, marginMode: 'isolated' });
+          await makerRun(sim, name, {
+            kind: 'update_leverage',
+            symbol: market.symbol,
+            leverageBps: 100_000,
+            // Each market's own first mode: isolated, or cross where the market takes cross alone (XCRS-PERP).
+            marginMode: market.marginModes[0] ?? 'isolated',
+          });
         // A market with its deployer's own margin account is margined there: the maker moves TEST collateral in, signed.
         if (market.marginAccount) {
           const margin = await sim.marketMargin(acct, market.symbol);
