@@ -294,6 +294,9 @@ async function sentSince(from, afterBlock, head) {
   return hashes;
 }
 
+/** keccak256("Transfer(address,address,uint256)"): an ERC-20 transfer's log topic. */
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
 /** TEST USD, the TEST chain's dollar token, in its own 6-decimal units, as a decimal string. */
 const usd = (raw) => fromUnits(raw * 10n ** 12n);
 /** TEST ETH in wei, as a decimal string. */
@@ -754,11 +757,28 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
     .poll(async () => sameDecimal(await amountOf(venueRow.locator('[data-part-amount]')), venueNow.free), { timeout: 30_000 })
     .toBe(true);
   keepShown(6, 'trading on the venue on Home, from the venue', await amountOf(venueRow.locator('[data-part-amount]')), venueNow.free);
+  // Never one INTAFACED balance: Home's estimated total names no figure for what the sources hold, and "Spendable now" is
+  // only its parts added as they are shown, each part named by its own source.
+  await expect(page.getByTestId('home-total')).toContainText('No total');
+  const parts = page.getByTestId('spendable-now').locator('li[data-spendable]');
+  expect((await parts.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-spendable')))).sort()).toEqual([
+    'partner',
+    'venue',
+    'wallet',
+  ]);
+  let partsSum = 0n;
+  for (const row of await parts.all()) {
+    await expect(row.locator('[data-part-source]')).toContainText(/own figure|read from the chain/);
+    partsSum += toUnits(await amountOf(row.locator('[data-part-amount]')));
+  }
+  const spendable = await page.getByTestId('spendable-total').innerText();
+  expect(toUnits(spendable.replace(/,/g, '').replace(/ USD$/, '')), `"${spendable}" is the parts as shown, added`).toBe(partsSum);
   await ledgerHoldsNothing('after moving profit to spending');
 });
 
 test(`${J} #7 withdraws what is left on the venue to the TEST wallet: the wallet signs one venue withdrawal; its amount and the venue's fee read back from the venue and the chain; the venue account reads empty; the ledger records nothing`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const { owner } = state();
@@ -806,15 +826,32 @@ test(`${J} #7 withdraws what is left on the venue to the TEST wallet: the wallet
     keepShown(7, 'venue withdrawal fee, from the venue', fromUnits(shownUnits(await fee.innerText())), w.fee.value);
   } else await expect(fee).toHaveText(/not known/i);
   // And from the chain: the transfer the venue paid out landed in the wallet.
+  // The venue's payout is one TEST USD transfer to the wallet in the transaction it names; the wallet rose by exactly it,
+  // and by the amount less the venue's network fee when the venue reports that fee.
   await paidFee(w.txHash);
+  const payout = await chain().getTransactionReceipt({ hash: w.txHash });
+  const toWallet = payout.logs.filter(
+    (l) =>
+      l.address.toLowerCase() === TOKEN_USD.address.toLowerCase() &&
+      l.topics[0] === TRANSFER_TOPIC &&
+      `0x${l.topics[2].slice(-40)}`.toLowerCase() === owner,
+  );
+  expect(toWallet, 'one TEST USD transfer to the wallet in the payout').toHaveLength(1);
+  const paidOut = BigInt(toWallet[0].data);
   const arrived = (await chainBalance(TOKEN_USD.address, owner)) - walletBefore;
-  const networkFee = w.networkFee?.known ? toUnits(w.networkFee.value) / 10n ** 12n : null;
-  if (networkFee !== null) expect(arrived).toBe(leftUnits / 10n ** 12n - networkFee);
-  else expect(arrived > 0n && arrived <= leftUnits / 10n ** 12n).toBe(true);
+  expect(arrived, 'the wallet rose by exactly the payout').toBe(paidOut);
+  if (w.networkFee?.known) expect(paidOut).toBe(leftUnits / 10n ** 12n - toUnits(w.networkFee.value) / 10n ** 12n);
+  else expect(paidOut <= leftUnits / 10n ** 12n, 'the payout is never more than the withdrawal').toBe(true);
   // The venue account reads empty: no USDC left on it, and the desk shows the venue's own figures.
   const after = await venueBalance(owner, 'USDC');
   expect(toUnits(after.total), 'the venue account holds no USDC').toBe(0n);
   await panelEqualsVenue(page, 7);
+  // The picture from the top of the page, so the bar that stays at the top covers nothing of the panel.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture(page);
   await ledgerHoldsNothing('after the last withdrawal');
 });
 
