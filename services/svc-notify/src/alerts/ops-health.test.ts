@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { channelDeliveries, sweepView } from './ops-health.js';
+import { channelDeliveries, sweepView, webhookStatus } from './ops-health.js';
 
 const report = { markets: 2, fired: 12, held: 30, refused: 1, refusals: { 'alert.price_unavailable': 1 } };
 
@@ -63,5 +63,25 @@ describe('channelDeliveries (J-charts-desk-18 #4 deliveries and failures per cha
 
   it('is empty when nothing was delivered', () => {
     expect(channelDeliveries([])).toEqual([]);
+  });
+});
+
+describe('webhookStatus (J-charts-desk-18 #4 the webhook channel)', () => {
+  it('reads a webhook delivery on the same scale as the other channels', () => {
+    expect(webhookStatus('delivered', 1)).toBe('accepted');
+    expect(webhookStatus('pending', 0)).toBe('pending');
+    expect(webhookStatus('pending', 2)).toBe('failed');
+    expect(webhookStatus('failed', 4)).toBe('abandoned');
+    expect(webhookStatus('unknown', 1)).toBeNull();
+  });
+
+  it('counts a spent webhook as a failure of its channel', () => {
+    const [hook] = channelDeliveries([
+      { channel: 'webhook', status: webhookStatus('failed', 4)!, n: 1 },
+      { channel: 'webhook', status: webhookStatus('pending', 1)!, n: 2 },
+      { channel: 'webhook', status: webhookStatus('delivered', 1)!, n: 3 },
+    ]);
+    expect(hook).toMatchObject({ channel: 'webhook', total: 6, failures: 3 });
+    expect(hook!.byStatus).toEqual({ pending: 0, accepted: 3, refused: 0, failed: 2, abandoned: 1 });
   });
 });

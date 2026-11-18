@@ -5,7 +5,7 @@
  *                                 today by channel and status, and the alert counts the charts module metrics show.
  *
  * Every figure is a count of rows this service keeps (notify.price_alerts, notify.alert_fires, notify.notifications,
- * notify.deliveries) or the sweep's own record of its last pass. Nothing is estimated. A pass that never completed is
+ * notify.deliveries, notify.alert_webhook_deliveries) or the sweep's own record of its last pass. Nothing is estimated. A pass that never completed is
  * `null`, never zero. "Today" is the UTC day. Read only: nothing here retries, pauses or writes.
  */
 import type { Sql } from 'postgres';
@@ -87,6 +87,18 @@ export function channelDeliveries(rows: readonly { channel: string; status: stri
     }));
 }
 
+/**
+ * A webhook delivery's status (notify.alert_webhook_deliveries) on the same scale as the other channels: `delivered` is
+ * accepted; `pending` with no attempt yet is pending; `pending` after an attempt is failed (it did not get through and
+ * is sent again under the owner's retry schedule); `failed` is abandoned (the schedule is spent). Pure.
+ */
+export function webhookStatus(status: string, attempts: number): DeliveryStatus | null {
+  if (status === 'delivered') return 'accepted';
+  if (status === 'failed') return 'abandoned';
+  if (status === 'pending') return attempts > 0 ? 'failed' : 'pending';
+  return null;
+}
+
 /** The sweep half of the view, from its record. Pure. */
 export function sweepView(
   record: AlertSweepRecord | null,
@@ -129,6 +141,16 @@ export class AlertOpsReader {
         JOIN notify.notifications n ON n.id = d.notification_id
        WHERE n.kind LIKE 'alert.%' AND n.created_at >= ${since}
        GROUP BY 1, 2`;
+    // The webhook is the alert's own channel, kept in its own table: one row per firing that has a webhook.
+    const hooks = await this.sql<{ status: string; tried: boolean; n: number }[]>`
+      SELECT status, jsonb_array_length(attempts) > 0 AS tried, count(*)::int AS n
+        FROM notify.alert_webhook_deliveries
+       WHERE created_at >= ${since}
+       GROUP BY 1, 2`;
+    const webhook = hooks.flatMap((r) => {
+      const status = webhookStatus(r.status, r.tried ? 1 : 0);
+      return status ? [{ channel: 'webhook', status, n: r.n }] : [];
+    });
     const open = await this.sql<{ kind: string; n: number }[]>`
       SELECT kind, count(*)::int AS n FROM notify.price_alerts WHERE status IN ('active', 'stopped') GROUP BY 1`;
     const byKind = Object.fromEntries(fires.map((r) => [r.kind, r.n]));
@@ -139,7 +161,7 @@ export class AlertOpsReader {
       since: since.toISOString(),
       sweep: sweepView(sweep.record, sweep.failure, sweep.intervalMs, now),
       firings: { total: firedToday, byKind },
-      deliveries: channelDeliveries(deliveries),
+      deliveries: channelDeliveries([...deliveries, ...webhook]),
       alerts: { open: open.reduce((sum, r) => sum + r.n, 0), firedToday, byKindOpen },
     };
   }

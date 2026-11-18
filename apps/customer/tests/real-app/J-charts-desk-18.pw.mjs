@@ -1,9 +1,10 @@
 // World: market
 // Market: live
+import { createServer } from 'node:http';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signUp } from './desk.mjs';
-import { EDGE, api, bestPrices, signOutBrowser, tool } from './stack.mjs';
+import { EDGE, HOOK_PORTS, api, bestPrices, signOutBrowser, tool } from './stack.mjs';
 import { makerStatus, ownerValues } from './charts-desk.mjs';
 import { answerAfterNavigation } from './navigation.mjs';
 
@@ -201,8 +202,13 @@ async function customer(page, prefix) {
   return { who, client: await api(who) };
 }
 
-async function createAlert(client, targetPrice, direction = 'above') {
-  const res = await client.post('/api/notify/trpc/notify.createAlert', { marketId: await marketIdOf(BTC), direction, targetPrice });
+async function createAlert(client, targetPrice, direction = 'above', extra = {}) {
+  const res = await client.post('/api/notify/trpc/notify.createAlert', {
+    marketId: await marketIdOf(BTC),
+    direction,
+    targetPrice,
+    ...extra,
+  });
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
 }
@@ -246,51 +252,11 @@ test(`${J} #3 opens charts module metrics: chart opens, alerts, layouts and indi
   await context.close();
 });
 
-test(`${J} #4 opens alert engine and delivery health: evaluation lag, firings, deliveries and failures per channel`, async ({
-  page,
-  browser,
-}) => {
-  test.setTimeout(240_000);
-  const { client } = await customer(page, 'cd18a');
-  const context = await browser.newContext();
-  const desk = await context.newPage();
-  await founderSignIn(desk, 'a');
-
-  const firingsNow = async () => {
-    await desk.goto(`${ADMIN}/trade-ops/alerts`);
-    await expect(desk.getByRole('heading', { name: 'Alert engine', exact: true })).toBeVisible();
-    return Number(await desk.locator('[data-field=firings]').getAttribute('data-count'));
-  };
-  const before = await firingsNow();
-
-  // An alert that is already crossed: above a price below the market fires on the next evaluation pass.
-  const { bid } = await bestPrices();
-  const target = String(Math.max(1, Math.floor(Number(bid) / 2)));
-  await createAlert(client, target);
-  const inbox = async () => {
-    const res = await client.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
-    expect(res.status).toBe(200);
-    const data = res.body.result.data;
-    return (Array.isArray(data) ? data : (data.items ?? [])).filter((n) => String(n.kind).startsWith('alert.'));
-  };
-  // The sweep runs every minute: the fire reaches the person's own inbox within two passes.
-  await expect.poll(async () => (await inbox()).length, { timeout: 150_000, intervals: [5_000] }).toBeGreaterThan(0);
-  await expect.poll(firingsNow, { timeout: 30_000 }).toBeGreaterThanOrEqual(before + 1);
-
-  // Evaluation lag: a number of seconds since the last pass, within two passes of a sweep that runs every minute.
-  const lag = desk.locator('[data-field=lag]');
-  const lagSeconds = Number(await lag.getAttribute('data-seconds'));
-  expect(Number.isInteger(lagSeconds)).toBe(true);
-  expect(lagSeconds).toBeLessThanOrEqual(120);
-  await expect(lag).toContainText(`${lagSeconds} s since the last pass`);
-  await expect(desk.locator('[data-field=interval]')).toHaveText('60 s');
-  await expect(desk.locator('[data-field=last-pass]')).toContainText(/UTC, took \d+ ms/);
-
-  // Deliveries and failures per channel: each channel's row adds up, and every channel the person's own alert was
-  // delivered on is on the desk with at least that many.
+/** The alert engine desk's deliveries table: one row per channel, each status count, and failures, as the page shows them. */
+async function deliveryRows(desk) {
   const table = desk.getByRole('table', { name: 'Alert deliveries by channel', exact: true });
   await expect(table).toBeVisible();
-  const rows = await table.locator('tbody tr').evaluateAll((trs) =>
+  return table.locator('tbody tr').evaluateAll((trs) =>
     trs.map((tr) => {
       const n = (f) => Number(tr.querySelector(`[data-field="${f}"]`).textContent);
       return {
@@ -305,26 +271,111 @@ test(`${J} #4 opens alert engine and delivery health: evaluation lag, firings, d
       };
     }),
   );
-  expect(rows.length).toBeGreaterThan(0);
-  for (const r of rows) {
-    expect(r.total, r.channel).toBe(r.pending + r.accepted + r.refused + r.failed + r.abandoned);
-    expect(r.failures, r.channel).toBe(r.failed + r.abandoned);
+}
+
+test(`${J} #4 opens alert engine and delivery health: evaluation lag, firings, deliveries and failures per channel`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  // The person's own webhook endpoint, a TEST server on one of the stack's TEST webhook ports, answers 503 every time: the
+  // alert's webhook delivery fails, is sent again under the owner's TEST schedule (5, 5 and 5 s), and is then given up.
+  const hook = createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      res.statusCode = 503;
+      res.end();
+    });
+  });
+  await new Promise((resolve, reject) => {
+    hook.once('error', reject);
+    hook.listen(HOOK_PORTS.alert, '127.0.0.1', resolve);
+  });
+  try {
+    const { client } = await customer(page, 'cd18a');
+    const context = await browser.newContext();
+    const desk = await context.newPage();
+    await founderSignIn(desk, 'a');
+
+    const openEngineDesk = async () => {
+      await desk.goto(`${ADMIN}/trade-ops/alerts`);
+      await expect(desk.getByRole('heading', { name: 'Alert engine', exact: true })).toBeVisible();
+    };
+    const firingsNow = async () => {
+      await openEngineDesk();
+      return Number(await desk.locator('[data-field=firings]').getAttribute('data-count'));
+    };
+    const webhookRow = async () => (await deliveryRows(desk)).find((r) => r.channel === 'webhook') ?? { abandoned: 0, failures: 0 };
+    const before = await firingsNow();
+    const hookBefore = await webhookRow();
+
+    // An alert that is already crossed: above a price below the market fires on the next evaluation pass.
+    const { bid } = await bestPrices();
+    const target = String(Math.max(1, Math.floor(Number(bid) / 2)));
+    const alert = await createAlert(client, target, 'above', { webhookUrl: `http://127.0.0.1:${HOOK_PORTS.alert}/down/${RUN}` });
+    const inbox = async () => {
+      const res = await client.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+      expect(res.status).toBe(200);
+      const data = res.body.result.data;
+      return (Array.isArray(data) ? data : (data.items ?? [])).filter((n) => String(n.kind).startsWith('alert.'));
+    };
+    // The sweep runs every minute: the fire reaches the person's own inbox within two passes.
+    await expect.poll(async () => (await inbox()).length, { timeout: 150_000, intervals: [5_000] }).toBeGreaterThan(0);
+    await expect.poll(firingsNow, { timeout: 30_000 }).toBeGreaterThanOrEqual(before + 1);
+
+    // Evaluation lag: a number of seconds since the last pass, within two passes of a sweep that runs every minute.
+    const lag = desk.locator('[data-field=lag]');
+    const lagSeconds = Number(await lag.getAttribute('data-seconds'));
+    expect(Number.isInteger(lagSeconds)).toBe(true);
+    expect(lagSeconds).toBeLessThanOrEqual(120);
+    await expect(lag).toContainText(`${lagSeconds} s since the last pass`);
+    await expect(desk.locator('[data-field=interval]')).toHaveText('60 s');
+    await expect(desk.locator('[data-field=last-pass]')).toContainText(/UTC, took \d+ ms/);
+
+    // The person's own webhook record for this firing, read as the person: every attempt answered 503, and it was given up.
+    const ownHook = async () => {
+      const res = await client.get(
+        `/api/notify/trpc/notify.alertTriggers?input=${encodeURIComponent(JSON.stringify({ alertId: alert.id, limit: 5 }))}`,
+      );
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+      return res.body.result.data.items[0]?.webhook ?? null;
+    };
+    await expect.poll(async () => (await ownHook())?.status, { timeout: 90_000, intervals: [5_000] }).toBe('failed');
+    const given = await ownHook();
+    expect(given.attempts.length, 'the endpoint was tried and sent again').toBeGreaterThan(1);
+    for (const a of given.attempts) expect(a.status, `attempt ${a.n}`).toBe(503);
+
+    // Deliveries and failures per channel: each channel's row adds up, the webhook channel counts the person's given-up
+    // delivery as one more failure, and every channel the person's own alert was delivered on is on the desk with at least
+    // that many.
+    await openEngineDesk();
+    const rows = await deliveryRows(desk);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.total, r.channel).toBe(r.pending + r.accepted + r.refused + r.failed + r.abandoned);
+      expect(r.failures, r.channel).toBe(r.failed + r.abandoned);
+    }
+    const hookNow = rows.find((r) => r.channel === 'webhook');
+    expect(hookNow, 'the webhook channel is on the desk').toBeTruthy();
+    expect(hookNow.abandoned, 'the given-up webhook delivery').toBeGreaterThanOrEqual(hookBefore.abandoned + 1);
+    expect(hookNow.failures, 'the given-up webhook delivery is a failure').toBeGreaterThanOrEqual(hookBefore.failures + 1);
+    const [fired] = await inbox();
+    const own = await client.get(
+      `/api/notify/trpc/notify.deliveries?input=${encodeURIComponent(JSON.stringify({ notificationId: fired.id }))}`,
+    );
+    expect(own.status, JSON.stringify(own.body).slice(0, 300)).toBe(200);
+    const mine = own.body.result.data;
+    expect(mine.length, 'the fired alert was delivered on at least one channel').toBeGreaterThan(0);
+    for (const d of mine) {
+      const row = rows.find((r) => r.channel === d.channel);
+      expect(row, `channel ${d.channel} of the person's own alert delivery is on the desk`).toBeTruthy();
+      expect(row[d.status], `${d.channel} ${d.status}`).toBeGreaterThanOrEqual(1);
+    }
+    await desk.locator('tr[data-channel="webhook"]').scrollIntoViewIfNeeded();
+    await context.close();
+  } finally {
+    await new Promise((resolve) => hook.close(resolve));
   }
-  // The person's own alert notification and its deliveries, read as the person: each of its channels is on the desk,
-  // and that channel counts at least one delivery in the same status.
-  const [fired] = await inbox();
-  const own = await client.get(
-    `/api/notify/trpc/notify.deliveries?input=${encodeURIComponent(JSON.stringify({ notificationId: fired.id }))}`,
-  );
-  expect(own.status, JSON.stringify(own.body).slice(0, 300)).toBe(200);
-  const mine = own.body.result.data;
-  expect(mine.length, 'the fired alert was delivered on at least one channel').toBeGreaterThan(0);
-  for (const d of mine) {
-    const row = rows.find((r) => r.channel === d.channel);
-    expect(row, `channel ${d.channel} of the person's own alert delivery is on the desk`).toBeTruthy();
-    expect(row[d.status], `${d.channel} ${d.status}`).toBeGreaterThanOrEqual(1);
-  }
-  await context.close();
 });
 
 async function openSettings(page) {
