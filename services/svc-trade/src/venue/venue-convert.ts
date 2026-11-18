@@ -308,7 +308,7 @@ const bad = (message: string): never => refuse(message, 'trade.venue_request_inv
 
 /** The business key an accepted quote's one order is stored and placed under. */
 export const convertKey = (owner: string, quoteId: string) => `${CONVERT_KEY_PREFIX}${owner}:${quoteId}`;
-export const limitConvertKey = (owner: string, limitKey: string) => `${CONVERT_KEY_PREFIX}${owner}:${LIMIT_PART}:${limitKey}`;
+const limitConvertKey = (owner: string, limitKey: string) => `${CONVERT_KEY_PREFIX}${owner}:${LIMIT_PART}:${limitKey}`;
 
 /** `{ quoteId }` for an instant conversion's key, `{ limitKey }` for a limit convert's, `null` for anything else. */
 function partsOf(key: string): { owner: string; quoteId: string | null; limitKey: string | null } | null {

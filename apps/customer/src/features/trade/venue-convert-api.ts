@@ -12,7 +12,7 @@ import { preparedAnswerSchema, submitAnswerSchema, type KeptSignature } from './
 const isoTime = z.string().datetime({ offset: true });
 const assetAmount = z.object({ asset: z.string(), amount: decimalSchema });
 
-export const convertPairsSchema = z.object({
+const convertPairsSchema = z.object({
   venueId: z.string(),
   test: z.boolean(),
   paused: z.boolean(),
@@ -33,7 +33,7 @@ export const convertPairsSchema = z.object({
 export type ConvertPairs = z.infer<typeof convertPairsSchema>;
 export type ConvertPair = ConvertPairs['pairs'][number];
 
-export const convertQuoteSchema = z.object({
+const convertQuoteSchema = z.object({
   quoteId: z.string(),
   venueId: z.string(),
   test: z.boolean(),
@@ -70,7 +70,7 @@ export const convertQuoteSchema = z.object({
 });
 export type ConvertQuote = z.infer<typeof convertQuoteSchema>;
 
-export const conversionSchema = z.object({
+const conversionSchema = z.object({
   actionKey: z.string(),
   kind: z.enum(['instant', 'limit']),
   quoteId: z.string().nullable(),
