@@ -955,7 +955,7 @@ const CULPRIT_PULL = /^Revert #(\d+), which turned the Real-app journeys red \(r
  * fails, so it gets the ordinary scope: opened by the factory App from this repository, exactly one commit whose message
  * says it reverts the commit the branch names, no file outside that commit's (shared journey setup included: its reverse
  * restores what main proved before that commit, intafaced #8149), and at least one
- * journey file named. `commits`: GET /pulls/n/commits; `culprit`: GET /commits/<sha> (or null); `culpritTitle`: the
+ * journey file named. `full`: it touches shared setup, so its own run is the full suite (the seal still asks for it). `commits`: GET /pulls/n/commits; `culprit`: GET /commits/<sha> (or null); `culpritTitle`: the
  * culprit pull request's title (or ''); `journeyFiles`: the head's journey file names.
  */
 export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle = '', journeyFiles }) {
@@ -980,13 +980,24 @@ export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTi
   const dir = 'apps/customer/tests/real-app';
   const files = [...journeyFiles].filter((f) => journeys.has(JOURNEY_TEST.exec(`${dir}/${f}`)?.[1])).sort();
   if (!files.length) return no('it names no journey file');
+  // Shared setup still needs the seal's full run on the head (sealPull, judgeFullRun), so its own run is that full run:
+  // a narrow one left the seal waiting for a run nobody started (project-state #2997: #8813 and #8817 on 18 Nov).
+  const full = paths.some(isSharedSetup);
   return {
     ok: true,
     sha,
     files,
-    why: `the automatic revert of ${sha.slice(0, 10)} runs the journeys that failed on main and the reverted change's own (${files.length}); main's full journeys run after the merge guards main`,
+    full,
+    why: full
+      ? `the automatic revert of ${sha.slice(0, 10)} undoes shared journey setup, so its own run is the full run the seal asks for`
+      : `the automatic revert of ${sha.slice(0, 10)} runs the journeys that failed on main and the reverted change's own (${files.length}); main's full journeys run after the merge guards main`,
   };
 }
+
+/** What the journeys run's planner (real-app-journeys.yml, `--auto-revert-scope`) reads: the narrow files, or null for
+ *  the ordinary scope, which is full for shared setup (journey-touch.mjs). Pure. */
+export const autoRevertPlan = (scope) =>
+  scope?.ok && !scope.full ? { files: scope.files, why: scope.why } : { files: null, why: scope?.why ?? '' };
 
 /** The culprit pull request number an automatic revert's title names, or null. */
 export const autoRevertCulprit = (title) => Number(CULPRIT_PULL.exec(String(title ?? ''))?.[1]) || null;
@@ -2289,7 +2300,7 @@ async function main() {
     if (!Number.isSafeInteger(n) || n < 1) throw new Error('--auto-revert-scope needs a pull request number');
     const pull = await io.pull(n);
     const scope = await readAutoRevertScope({ io, repo: REPO, pull, number: n, paths: await io.files(n) });
-    return console.log(JSON.stringify(scope?.ok ? { files: scope.files, why: scope.why } : { files: null, why: scope?.why ?? '' }));
+    return console.log(JSON.stringify(autoRevertPlan(scope)));
   }
   const dry = process.argv.indexOf('--dry-run');
   if (dry > 0) {
