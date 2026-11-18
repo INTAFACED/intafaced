@@ -60,7 +60,7 @@ jobs:
   now:
     name: Does the seal wait for its inputs
     if: github.run_attempt == '1'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5 # healthy run: seconds
     permissions:
       contents: read # the default branch's scripts, and ci.yml at the head
@@ -89,7 +89,7 @@ jobs:
     name: ${{ (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') && 'CI merge seal' || 'CI merge seal waits for CI, the CI review and the journeys it needs' }}
     needs: [now]
     if: ${{ !cancelled() && (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # healthy run: seconds once its inputs have finished; up to 60 minutes waiting for them, checking every 5 (journey-seal.mjs WAIT_POLLS)
     # and up to 20 more for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 85

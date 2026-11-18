@@ -95,7 +95,9 @@ describe('EvmLiveChain send receipt', () => {
 // PayoutQuery.tla (services/svc-pay/model), NeverPaidTwice: a reconciler that hears `not_sent` reverses the held payout, so `not_sent`
 // must be proof the send can no longer leave. A send that has claimed its key and is still signing can.
 describe('EvmLiveChain lookupSend while a send is on its way', () => {
-  it('never answers not_sent for a send that has claimed its key and goes on to broadcast', async () => {
+  // The payer claims the key and is signing; the reconciler asks. A not_sent answer must close the key, so the send
+  // fails at putSigned and nothing leaves: a not_sent that let the send go on would mean paid and given back.
+  it('never both answers not_sent and broadcasts, for a query that comes while the send is signing', async () => {
     const port = chain();
     stubBroadcast(port, 'success');
     const surface = clients(port);
@@ -119,9 +121,62 @@ describe('EvmLiveChain lookupSend while a send is on its way', () => {
     // The status query a reconciler makes while the send is signing (a remote signer can take seconds).
     const during = await port.lookupSend(key);
     release();
+    const sent = await sending.then(
+      () => 'sent',
+      (err: unknown) => err,
+    );
+    expect(during.state).toBe('not_sent');
+    expect(sent).toBeInstanceOf(Error);
+    expect(String(sent)).toMatch(/closed by a not_sent answer/);
+    expect(broadcasts).toBe(0);
+  });
+
+  it('answers unknown, never not_sent, once the send has journalled its signed bytes', async () => {
+    const port = chain();
+    stubBroadcast(port, 'success');
+    const surface = clients(port);
+    let reached!: () => void;
+    const broadcasting = new Promise<void>((resolve) => (reached = resolve));
+    let release!: () => void;
+    const answered = new Promise<void>((resolve) => (release = resolve));
+    let broadcasts = 0;
+    surface.public.sendRawTransaction = async () => {
+      broadcasts += 1;
+      reached();
+      await answered;
+      return TX;
+    };
+    const key = 'payout-query-while-broadcasting';
+    const sending = port.send({ ...sendRequest, idempotencyKey: key });
+    await broadcasting;
+    const during = await port.lookupSend(key);
+    release();
     await sending;
+    expect(during.state).toBe('unknown');
     expect(broadcasts).toBe(1);
-    expect(during.state).not.toBe('not_sent');
+  });
+
+  // The send claims its key and its signer throws (or the process dies) before anything is journalled. The claim must
+  // not stay pending forever with every query answering unknown and the hold stuck.
+  it('a send whose signer failed before anything was journalled can still be answered not_sent', async () => {
+    const port = chain();
+    stubBroadcast(port, 'success');
+    const surface = clients(port);
+    let broadcasts = 0;
+    surface.wallet.signTransaction = async () => {
+      throw new Error('remote signer timed out');
+    };
+    surface.public.sendRawTransaction = async () => {
+      broadcasts += 1;
+      return TX;
+    };
+    const key = 'payout-signer-failed';
+    await expect(port.send({ ...sendRequest, idempotencyKey: key })).rejects.toThrow(/timed out/);
+    expect(broadcasts).toBe(0);
+    expect((await port.lookupSend(key)).state).toBe('not_sent');
+    // The retry of the payout, after its money was given back on that answer, sends nothing.
+    await expect(port.send({ ...sendRequest, idempotencyKey: key })).rejects.toThrow(/closed/);
+    expect(broadcasts).toBe(0);
   });
 
   it('never sends under a key it has already answered not_sent for', async () => {

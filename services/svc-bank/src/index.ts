@@ -37,8 +37,8 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { moneyHeldBy, testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
-import { firstAdministrator, registerAgentsUsagePayment } from './agents/usage-payment.js';
+import { testPartnerAccountDetails, testPartnerFor, type TestPartnerDoors } from './partner/test-partner.js';
+import { firstAdministrator, registerAgentsUsagePayment, usagePaymentHeldBy } from './agents/usage-payment.js';
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
@@ -189,7 +189,9 @@ const onrampPartner = onrampPartnerFor(
 );
 
 /** The TEST partner bank and ramp: none unless chosen, and it refuses to boot outside dev/test. It holds no money. */
-const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+const wholeTestPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+/** Everything below holds it without its raw bank: a move at the partner goes through `bank.partnerCustody` (floor 4). */
+const testPartner: TestPartnerDoors | null = wholeTestPartner;
 /** The TEST partner's USDC pay-in a venue can withdraw to (J-bank-31): none unless the TEST chain is given. */
 const payInRail = testPayInRailFor(testPartner, {
   rpcUrl: env.BANK_TEST_PAY_IN_RPC_URL,
@@ -209,7 +211,7 @@ const cardIssuer = cardIssuerFor(
 );
 
 const bank = createBankServices(sql, ledger, history, {
-  testPartner,
+  testPartner: wholeTestPartner,
   // J-bank-24 #5: a webhook endpoint on loopback, over http, only on an explicit dev or test stack (the URL guard's hatch).
   bankApi: { allowLocalHttp: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production' },
   taxEffects,
@@ -561,12 +563,7 @@ registerAgentsUsagePayment(app, {
   s2s: doorS2s,
   freeze: ledgerPostingFreeze(env.LEDGER_URL),
   businessPayer: (businessId) => firstAdministrator(sql, businessId),
-  heldBy: (userId) => {
-    const held = moneyHeldBy(testPartner, userId, env.LEDGER_CUSTODY_LAYER);
-    return held === 'partner' && testPartner
-      ? { kind: 'partner', bank: testPartner.bank, partnerId: 'test' }
-      : { kind: held === 'partner' ? 'none' : held };
-  },
+  heldBy: usagePaymentHeldBy(testPartner, bank.partnerCustody, env.LEDGER_CUSTODY_LAYER),
 });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));

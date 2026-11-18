@@ -62,6 +62,8 @@ export const AGENTS_USAGE_PAYMENT_REFUSALS = [
   'reply_lost',
   /** svc-ledger's posting freeze is on, or could not be read. */
   'posting_frozen',
+  /** An operator's stop on this partner's moves is on, or could not be read. */
+  'partner_stopped',
   /** The person's money is not at a partner (custodial, or no payment method): nothing to collect from there. */
   'not_partner_held',
 ] as const;
