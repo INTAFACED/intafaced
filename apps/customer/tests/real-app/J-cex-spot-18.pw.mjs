@@ -7,7 +7,7 @@ import { ownOrderFills, placeOwnOrder } from './own-book.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { api, bestPrices, fromUnits, journeyState, times, toUnits, tool } from './stack.mjs';
-import { openVenueDesk, otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { openVenuePage, otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-cex-spot-18 "I look up a customer's routed order, and later reconcile or bust a trade on our own book", in the
 // running app and the founder console. One test per step, titled "J-cex-spot-18 #<n>". The support agent is founder B
@@ -243,7 +243,7 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
   // The customer's own order page, on their own wallet, says the same.
   const context = await browser.newContext();
   const theirs = await context.newPage();
-  await openVenueDesk(theirs, customer, `/trade/orders/${routed}`, walletKey);
+  await openVenuePage(theirs, customer, `/trade/orders/${routed}`, walletKey);
   const mine = theirs.getByTestId('venue-order');
   await expect(mine.getByTestId('venue-order-heading').locator('[data-cell="status"]')).toHaveText(operatorStatus);
   const theirFills = await mine.getByTestId('venue-order-fill').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill')).sort());
