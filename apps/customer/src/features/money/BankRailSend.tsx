@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
-import { date, funds, useBankRead } from './components';
+import { date, funds, useBankRead, useSpaces } from './components';
 import { railPayeeSchema, railSendCheckSchema, railSendSchema, type RailPayee, type RailSend, type RegionNotice } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { railSendCopy } from './rail-send-copy';
@@ -116,7 +116,7 @@ export function BankRailSend() {
   const requirements = useBankRead('railSends.requirements', undefined);
   const region = useBankRead('safety.regionNotice', undefined);
   const blocked = region.resource.status === 'ready' && region.resource.data.blocked ? region.resource.data : null;
-  const spaces = useBankRead('spaces.list', { limit: 200 });
+  const spaces = useSpaces(200);
   const sends = useBankRead('railSends.list', { limit: 20 });
   const payees = useBankRead('railSends.payees', { limit: PAYEE_PAGE });
   const [payeeId, setPayeeId] = useState('');

@@ -276,6 +276,65 @@ export async function toolAwaited(script, ...args) {
 }
 
 /**
+ * After a stop, start or restart: cheap reads of Edge's own health (unthrottled, it moves nothing) drop every kept-alive
+ * socket Edge closed while the stack tool ran, until three in a row answer, so the next request, a write included, goes
+ * out on a live socket and is never sent twice. A read that meets a closed socket fails before any answer
+ * (`UND_ERR_SOCKET`, "other side closed").
+ */
+async function dropClosedSockets() {
+  for (let i = 0, live = 0; i < 20 && live < 3; i++) {
+    try {
+      await fetch(`${EDGE}/health`, { headers: { origin: ORIGIN } }).then((r) => r.arrayBuffer());
+      live += 1;
+    } catch (error) {
+      if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      live = 0;
+    }
+  }
+}
+
+/** Runs `fn` with these stack settings set (a string) or unset (`undefined` or `null`), and puts the environment back. */
+async function withSettings(settings, fn) {
+  const before = Object.fromEntries(Object.keys(settings).map((k) => [k, process.env[k]]));
+  const put = (values) => {
+    for (const [k, v] of Object.entries(values)) {
+      if (v === undefined || v === null) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+  put(settings);
+  try {
+    return await fn();
+  } finally {
+    put(before);
+  }
+}
+
+/**
+ * The one supported way a journey stops, starts or restarts a stack service. The stack tool waits for the service's
+ * health (local-test-stack.mjs `waitHealthy`); it runs awaited, so this worker's event loop sees Edge close an idle
+ * kept-alive socket while it runs, and then every closed socket is dropped (`dropClosedSockets`). A blocking `tool(…)`
+ * restart froze the worker past Edge's 72 s keep-alive, and the next call through Edge failed with "other side closed"
+ * (#7449, #8395). `settings` are `LOCAL_STACK_*` values for this call only (`undefined` or `null` unsets one).
+ */
+export async function restartService(service, settings = {}) {
+  await withSettings(settings, () => toolAwaited('local-test-stack.mjs', 'restart', service));
+  await dropClosedSockets();
+}
+
+/** A stack service stopped, as `restartService` (awaited, closed sockets dropped). */
+export async function stopService(service, settings = {}) {
+  await withSettings(settings, () => toolAwaited('local-test-stack.mjs', 'stop', service));
+  await dropClosedSockets();
+}
+
+/** A stopped stack service started again on its own (`start --only`), as `restartService`. */
+export async function startService(service, settings = {}) {
+  await withSettings(settings, () => toolAwaited('local-test-stack.mjs', 'start', '--only', service));
+  await dropClosedSockets();
+}
+
+/**
  * A stack service restarted with one of its TEST settings switched `off` (blank), or back on: the switch is set for the
  * restart only, and this process's environment is put back as it was.
  */

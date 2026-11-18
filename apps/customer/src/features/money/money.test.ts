@@ -58,9 +58,24 @@ it('reads a balance the partner bank holds, which no ledger account backs, and r
     balance: '12.5',
     goalTarget: null,
     lockedUntil: null,
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
+    heldAt: null,
     ledgerAccount: null,
   };
-  const heldAt = { label: 'TEST partner', asOf: '2026-11-11T00:00:00.000Z', figure: 'known' };
+  const heldAt = {
+    label: 'TEST partner',
+    asOf: '2026-11-11T00:00:00.000Z',
+    figure: {
+      state: 'known',
+      source: 'TEST partner',
+      amount: '12.5',
+      asOf: '2026-11-11T00:00:00.000Z',
+      staleAfterMs: 60_000,
+      reason: null,
+    },
+  };
   const clientFor = (space: unknown) =>
     createMoneyClient(
       createApiClient({
@@ -93,6 +108,10 @@ it('sends a reviewed transfer as an exact amount and preserves its request ident
     balance: '1',
     goalTarget: null,
     lockedUntil: null,
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
+    heldAt: null,
     ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: 'BTC', kind: 'available' },
   };
   const to = { ...from, id: '422cdfae-55ad-43b8-a36c-ac93d6e34715', kind: 'named' as const, name: 'Goal' };
@@ -172,6 +191,10 @@ describe('a note and a payment reference travel with a transfer', () => {
     balance: '50',
     goalTarget: null,
     lockedUntil: null,
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
+    heldAt: null,
     ledgerAccount: { ownerType: 'user', ownerId: owner, assetId: 'USDT', kind: 'available' },
   });
   const from = space('7880f322-b31d-4de1-a3eb-ebdd38f11709', 'primary');
@@ -298,6 +321,10 @@ describe('a move between spaces the partner bank holds (OWNER 226)', () => {
     balance: '100',
     goalTarget: null,
     lockedUntil: null,
+    unlocksAt: null,
+    unlockRequestedAt: null,
+    billsPot: null,
+    heldAt: null,
     ledgerAccount: null,
   };
   const to = { ...from, id: '422cdfae-55ad-43b8-a36c-ac93d6e34715', kind: 'named' as const, name: 'Trip TEST' };
