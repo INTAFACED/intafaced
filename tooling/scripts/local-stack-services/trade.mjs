@@ -282,7 +282,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // perpetual XFND-PERP (the one whose funding the TEST venue builds and settles).
           // ETH-USDC is left unlisted, for two operators to review.
           // J-derivatives-12's TEST perpetual XBIL-PERP (the one its bills come from: funding, a close and a liquidation).
-          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP',
+          // J-derivatives-26's TEST perpetual XCRS-PERP (cross margin, liquidated at the account's cross level).
+          TRADE_USER_VENUE_TEST_LISTINGS:
+            'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP',
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
           // `LOCAL_STACK_USER_VENUE_ELIGIBILITY=off` leaves it blank, so the eligible list is empty with its reason.
           TRADE_USER_VENUE_ELIGIBILITY_LEVEL:
