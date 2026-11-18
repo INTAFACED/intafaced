@@ -4,7 +4,7 @@ import { TestnetSigner } from './evm-signer.js';
 import type { Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { describe, expect, it } from 'vitest';
-import { MemoryBroadcastStore } from './broadcast-store.js';
+import { BroadcastClosedError, MemoryBroadcastStore } from './broadcast-store.js';
 import { parseEvmAssets } from './evm-assets.js';
 import { EvmLiveChain, EvmSendRevertedError } from './evm-chain.js';
 
@@ -126,8 +126,7 @@ describe('EvmLiveChain lookupSend while a send is on its way', () => {
       (err: unknown) => err,
     );
     expect(during.state).toBe('not_sent');
-    expect(sent).toBeInstanceOf(Error);
-    expect(String(sent)).toMatch(/closed by a not_sent answer/);
+    expect(sent).toBeInstanceOf(BroadcastClosedError);
     expect(broadcasts).toBe(0);
   });
 
