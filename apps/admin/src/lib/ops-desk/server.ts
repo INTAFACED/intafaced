@@ -8,6 +8,7 @@ import {
   DESKS,
   PAY_TRANSFER_DETAIL,
   allReads,
+  narrowDesk,
   readSpecFor,
 } from './catalog';
 import { inputFor, readData } from './model';
@@ -135,14 +136,18 @@ export async function loadReads(
   return Object.fromEntries(outcomes.map((o) => [o.id, o]));
 }
 
-/** `sections`, when given, reads only those sections of the desk (the mining desk is the More modules desk's mining section). */
+/**
+ * `sections`, when given, reads only those sections of the desk (the mining desk is the More modules desk's mining section).
+ * `filter` is the page address's narrowing (`narrowDesk`): a read that names a filter it holds is read for that one thing.
+ */
 export async function loadDesk(
   ctx: FounderCallContext,
   deskId: OpsDeskId,
   now: Date = new Date(),
   sections?: readonly string[],
+  filter: Readonly<Record<string, string | string[] | undefined>> = {},
 ): Promise<DeskView> {
   const desk = DESKS[deskId];
-  const reads = allReads(sections ? { ...desk, sections: desk.sections.filter((s) => sections.includes(s.id)) } : desk);
+  const reads = allReads(narrowDesk(sections ? { ...desk, sections: desk.sections.filter((s) => sections.includes(s.id)) } : desk, filter));
   return { deskId, asOf: now.toISOString(), reads: await loadReads(ctx, reads, now) };
 }

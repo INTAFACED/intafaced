@@ -95,6 +95,14 @@ export interface ReadSpec {
    * more may exist.
    */
   readonly rowsWhere?: { readonly key: string; readonly equals: string };
+  /**
+   * List only: the service can narrow this list to one thing (`course`, `certificate`), named in the page's address
+   * (`?course=<slug>`). Each key's label and what an empty answer means for it. The desk sends the first one the address
+   * names on to the service (`narrowDesk`), which judges it; it never filters rows itself.
+   */
+  readonly filters?: Readonly<Record<string, { readonly label: string; readonly emptyText: string }>>;
+  /** The narrowing `narrowDesk` applied from the page's address; never set in the catalog. */
+  readonly narrowed?: { readonly key: string; readonly value: string; readonly label: string };
   /** List only, instead of `idKey`: the service gives these rows no id (a total per vendor and asset). They are shown by position and carry no row action. */
   readonly anonymousRows?: true;
   readonly columns: readonly Column[];
@@ -208,6 +216,8 @@ export interface DeskSpec {
   readonly commonSet?: CommonDeskId;
   /** Section pages of this desk: when set, the section navigation links to each page instead of to anchors on this one. */
   readonly pages?: readonly DeskPage[];
+  /** The address's narrowing this desk was read with (`narrowDesk`), sent again on every refresh. */
+  readonly filter?: Readonly<Record<string, string>>;
 }
 
 export interface DeskPage {
