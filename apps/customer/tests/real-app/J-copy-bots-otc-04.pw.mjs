@@ -242,7 +242,14 @@ test(`${J} #2 submits a valid application: submitted, the same submit again retu
     .poll(
       async () => {
         await page.reload();
-        return page.getByText('The waiting period has ended').isVisible();
+        // The room opens after the reload: wait for its answer, not the loading state.
+        return page
+          .getByText('The waiting period has ended')
+          .waitFor({ timeout: 10_000 })
+          .then(
+            () => true,
+            () => false,
+          );
       },
       { timeout: left + 60_000, intervals: [5_000], message: 'the room never said the wait had ended' },
     )
