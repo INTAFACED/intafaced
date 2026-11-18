@@ -16,7 +16,7 @@
  * the mean of its runs, and a control passes only when every run passes.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -98,7 +98,8 @@ export function totals(results) {
 
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 
-/** The tree at `sha`, exported (no .git), for the judge's Read, Grep and Glob. */
+/** The tree at `sha`, exported (no .git), for the judge's Read, Grep and Glob. Each is about 200 MB: the caller removes
+ * it once its case is asked, so at most `--jobs` copies exist at a time (project-state#2968: kept copies filled the disk). */
 function exportTree(sha, dir) {
   mkdirSync(dir, { recursive: true });
   execFileSync('sh', ['-c', 'git -C "$1" archive "$2" | tar -x -C "$3"', 'sh', ROOT, sha, dir]);
@@ -163,10 +164,14 @@ async function runReview(c, brief, call, work) {
   if (Buffer.byteLength(diff) > MAX_DIFF_BYTES)
     throw new Error(`${c.id}: the diff is over ${MAX_DIFF_BYTES} bytes; pick a case the job reviews in one call`);
   const repo = join(work, 'repo');
-  exportTree(base, repo);
-  const prompt = buildPrompt({ brief, diff, pr: c.pr, head });
-  const text = await ask(call, { repo, prompt, schema: VERDICT_SCHEMA, question: REVIEW_ASK, out: join(work, 'answer.json') });
-  return scoreReview(c, readReviewAnswer(text));
+  try {
+    exportTree(base, repo);
+    const prompt = buildPrompt({ brief, diff, pr: c.pr, head });
+    const text = await ask(call, { repo, prompt, schema: VERDICT_SCHEMA, question: REVIEW_ASK, out: join(work, 'answer.json') });
+    return scoreReview(c, readReviewAnswer(text));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 }
 
 function wordsAt(clone, sha) {
@@ -191,11 +196,15 @@ async function runRead(c, brief, call, work, clone) {
   if (!got.applicable) return { score: 0, got: `no read built (${got.why})` };
   const repo = join(work, 'repo');
   const pics = join(work, 'pictures');
-  exportTree(head, repo);
-  mkdirSync(pics, { recursive: true });
-  const out = join(work, 'answer.json');
-  await ask(call, { repo, extraDir: pics, prompt: got.prompt, schema: READ_SCHEMA, question: READ_ASK, out });
-  return scoreRead(c, readReadAnswer(out, got.required));
+  try {
+    exportTree(head, repo);
+    mkdirSync(pics, { recursive: true });
+    const out = join(work, 'answer.json');
+    await ask(call, { repo, extraDir: pics, prompt: got.prompt, schema: READ_SCHEMA, question: READ_ASK, out });
+    return scoreRead(c, readReadAnswer(out, got.required));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 }
 
 async function main() {
