@@ -48,12 +48,21 @@ export function FeedsTable({ rows, link = true }: { rows: readonly FeedRow[]; li
 }
 
 /** One line on what the states are judged against, so a reader never guesses the threshold. */
-export function BoundaryNote({ boundarySeconds }: { boundarySeconds: number | null }) {
+export function BoundaryNote({ staleAgeSeconds, delayedAgeSeconds }: { staleAgeSeconds: number | null; delayedAgeSeconds: number | null }) {
+  const delayed =
+    delayedAgeSeconds === null
+      ? ' The delayed age is not set, so no stream reads delayed.'
+      : ` Older than ${delayedAgeSeconds} s (the owner's delayed age) it reads delayed.`;
   return (
-    <p className="text-sm text-fg-3" data-testid="feed-boundary" data-seconds={boundarySeconds ?? undefined}>
-      {boundarySeconds === null
-        ? 'The delayed boundary is not set (Charts settings), so no stream is judged live or stale and no feed event is written.'
-        : `A stream whose newest candle tick is older than ${boundarySeconds} s (the owner's delayed boundary, Charts settings) reads stale.`}
+    <p
+      className="text-sm text-fg-3"
+      data-testid="feed-boundary"
+      data-seconds={staleAgeSeconds ?? undefined}
+      data-delayed-seconds={delayedAgeSeconds ?? undefined}
+    >
+      {staleAgeSeconds === null
+        ? 'The stale age is not set (Charts settings), so no stream is judged live or stale and no feed event is written.'
+        : `A stream whose newest candle tick is older than ${staleAgeSeconds} s (the owner's stale age, Charts settings) reads stale.${delayed}`}
     </p>
   );
 }

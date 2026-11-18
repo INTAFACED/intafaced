@@ -2719,6 +2719,8 @@ export const TEST_CHART_COUNTS = Object.freeze({
   drawingCap: 50,
   brushPointCap: 2000,
   delayedBoundarySeconds: 30,
+  // The owner's stale age (row d115): a stream older than this reads stale on the feed desk (J-charts-desk-18 #1). TEST.
+  staleAgeSeconds: 35,
   renderBudgetMs: 500,
   // 5% of the last price: a chart order dragged further than that asks first (J-charts-desk-15 #5). TEST stand-in.
   orderProtectionBps: 500,

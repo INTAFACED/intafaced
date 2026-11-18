@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { HOOK_PORTS } from '../local-test-facts.mjs';
+import { loadProfile } from '../owner-settings.mjs';
 
 /**
  * The stack's empty notice board: `LOCAL_STACK_NOTIFY_NOTICES=off` on a start or restart of notify runs svc-notify on a
@@ -15,6 +16,12 @@ export function onEmptyNoticesDb(url) {
   const u = new URL(url);
   u.pathname = `/${NOTIFY_EMPTY_NOTICES_DB}`;
   return u.toString();
+}
+/** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
+function testValue(name) {
+  const entry = loadProfile().values[name];
+  if (!entry) throw new Error(`${name} is missing from tooling/profiles/test-owner-values/.`);
+  return entry.value;
 }
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => ({
@@ -37,6 +44,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST only: how many price alerts one person may hold. Production has no value until the owner sets one,
     // and every create is refused (notify.alert_quota_unset) until then.
     NOTIFY_ALERT_MAX_ACTIVE_PRICE: '20',
+    // LOCAL TEST only: the owner's account plan table, the one TEST entry bank reads too (bank.json), so the charts
+    // settings page can set an alert quota per plan (J-charts-desk-18 #6). Everyone is on its default plan, TEST Standard.
+    BANK_PLANS_JSON: testValue('BANK_PLANS_JSON'),
     // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/notify.json: alert expiry, text length,
     // conditions, trigger log, repeat frequencies and the burst rule. Production stays blank and refuses.
     NOTIFY_ALERT_MAX_EXPIRY_DAYS: '30',

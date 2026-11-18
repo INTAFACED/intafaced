@@ -1,11 +1,11 @@
 /**
  * Market feed health (C-ops-01, J-charts-desk-18 #1 #2): what svc-trade `admin.feedHealth.*` answers, parsed. Client-safe.
  *
- * A stream's state is decided by svc-trade against the owner's delayed boundary; this file only reads it. A value the
+ * A stream's state is decided by svc-trade against the owner's stale and delayed ages; this file only reads it. A value the
  * service did not send is "—", never zero.
  */
 
-export type FeedState = 'live' | 'stale' | 'no_ticks' | 'threshold_not_set';
+export type FeedState = 'live' | 'delayed' | 'stale' | 'no_ticks' | 'threshold_not_set';
 
 export interface FeedRow {
   readonly symbol: string;
@@ -17,7 +17,10 @@ export interface FeedRow {
 
 export interface FeedListView {
   readonly asOf: string;
-  readonly boundarySeconds: number | null;
+  /** The owner's stale age in seconds, or null while it is not set. */
+  readonly staleAgeSeconds: number | null;
+  /** The owner's delayed age in seconds, or null while it is not set. */
+  readonly delayedAgeSeconds: number | null;
   readonly watcher: { readonly intervalMs: number; readonly writing: boolean };
   readonly markets: readonly FeedRow[];
 }
@@ -50,6 +53,7 @@ export const DEFAULT_GAP_WINDOW_MINUTES = 60;
 
 export const FEED_STATE_LABEL: Readonly<Record<FeedState, string>> = {
   live: 'live',
+  delayed: 'delayed',
   stale: 'stale',
   no_ticks: 'no ticks yet',
   threshold_not_set: 'threshold not set',
@@ -61,7 +65,7 @@ export const feedHref = (symbol: string): string => `/trade-ops/feeds/${encodeUR
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 const str = (v: unknown): v is string => typeof v === 'string';
 const intOrNull = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isInteger(v));
-const STATES: readonly FeedState[] = ['live', 'stale', 'no_ticks', 'threshold_not_set'];
+const STATES: readonly FeedState[] = ['live', 'delayed', 'stale', 'no_ticks', 'threshold_not_set'];
 
 function parseRow(raw: unknown): FeedRow | null {
   if (!isObj(raw) || !str(raw.symbol) || typeof raw.test !== 'boolean') return null;
@@ -77,14 +81,16 @@ function parseRow(raw: unknown): FeedRow | null {
 }
 
 export function parseFeedListView(raw: unknown): FeedListView | null {
-  if (!isObj(raw) || !str(raw.asOf) || !intOrNull(raw.boundarySeconds) || !Array.isArray(raw.markets)) return null;
+  if (!isObj(raw) || !str(raw.asOf) || !intOrNull(raw.staleAgeSeconds) || !intOrNull(raw.delayedAgeSeconds) || !Array.isArray(raw.markets))
+    return null;
   const w = raw.watcher;
   if (!isObj(w) || typeof w.intervalMs !== 'number' || typeof w.writing !== 'boolean') return null;
   const markets = raw.markets.map(parseRow);
   if (markets.some((m) => m === null)) return null;
   return {
     asOf: raw.asOf,
-    boundarySeconds: raw.boundarySeconds as number | null,
+    staleAgeSeconds: raw.staleAgeSeconds as number | null,
+    delayedAgeSeconds: raw.delayedAgeSeconds as number | null,
     watcher: { intervalMs: w.intervalMs, writing: w.writing },
     markets: markets as FeedRow[],
   };

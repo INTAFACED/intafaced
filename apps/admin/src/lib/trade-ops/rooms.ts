@@ -31,7 +31,7 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     id: 'feeds',
     href: '/trade-ops/feeds',
     label: 'Market feeds',
-    job: "Each market's candle stream: age, last tick, stale past the owner's boundary; candle gaps and the feed event journal.",
+    job: "Each market's candle stream: age, last tick, delayed or stale past the owner's ages; candle gaps and the feed event journal.",
   },
   {
     id: 'charts-metrics',

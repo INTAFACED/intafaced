@@ -1,20 +1,32 @@
 // World: market
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { EDGE, tool } from './stack.mjs';
+import { signUp } from './desk.mjs';
+import { EDGE, api, bestPrices, signOutBrowser, tool } from './stack.mjs';
 
 // J-charts-desk-18 "I watch the health of market feeds, chart usage and the alert engine, and set the module's owner
 // values", in the founder console (apps/admin) against the running stack. One test per step, titled "J-charts-desk-18 #<n>".
-// The founder is founder A. Every figure on the desk is checked against a source read on its own: the public trade tape
-// for the last tick, svc-trade's public owner values for the boundary.
+// The founder is founder A. Every figure on a desk is checked against a source read on its own: the public trade tape for
+// the last tick, svc-trade's public owner values for the two ages and the compare cap, and a customer's own alert, inbox,
+// deliveries and alerts page for the alert counts and quota.
 //
 // #1 and #2 need a real-time market whose stream really stops: the TEST market maker is run on BTC/USDT only, so
-// ETH/USDT gets no trade, its stream ages past the owner's delayed boundary (a TEST 30 s on the stack) and the feed
-// watcher journals a drop; the maker is then started on every market again, ETH/USDT trades, and a reconnect is journaled.
+// ETH/USDT gets no trade, its stream ages past the owner's stale age (a TEST 35 s on the stack; row d115, 17 Nov 2026:
+// delayed and stale are the owner's two ages, the same on every screen) and the feed watcher journals a drop; the maker
+// is then started on every market again, ETH/USDT trades, and a reconnect is journaled.
+//
+// #5 and #6 change platform-wide owner values (the compare cap, the price-alert quota of one plan), so each puts the value
+// it found back before it ends, through the same page, with a reason.
 const J = 'J-charts-desk-18';
+const RUN = Date.now().toString(36);
 const BTC = 'BTC/USDT';
 const ETH = 'ETH/USDT';
 const MINUTE = 60_000;
+const SETTINGS = `${ADMIN}/trade-ops/charts/settings`;
+// The owner's account plan table on the stack is a TEST table (tooling/profiles/test-owner-values/bank.json, the same
+// table svc-bank reads): everyone is on its default plan, TEST Standard, until subscribing is built.
+const PLAN = 'standard';
+const PLAN_LABEL = 'Price alert quota, TEST Standard';
 
 /** The TEST market maker's own status line; `status` exits non-zero when the maker is down, which is an answer here. */
 function maker(cmd) {
@@ -25,8 +37,8 @@ function maker(cmd) {
   }
 }
 
-/** The owner's chart values svc-trade serves (`delayedBoundarySeconds` is the stale boundary). */
-async function ownerValues(symbol) {
+/** The owner's chart values svc-trade serves for `symbol` (`staleAgeSeconds` and `delayedBoundarySeconds` are the two ages). */
+async function ownerValues(symbol = BTC) {
   const res = await fetch(`${EDGE}/api/v1/charts/owner-values?symbol=${encodeURIComponent(symbol)}`);
   expect(res.status).toBe(200);
   return res.json();
@@ -71,8 +83,9 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
     page,
   }) => {
     test.setTimeout(300_000);
-    boundary = (await ownerValues(ETH)).delayedBoundarySeconds;
-    expect(Number.isInteger(boundary) && boundary > 0 && boundary < 40, `the delayed boundary is set below 40 s (${boundary})`).toBe(true);
+    const owner = await ownerValues(ETH);
+    boundary = owner.staleAgeSeconds;
+    expect(Number.isInteger(boundary) && boundary > 0 && boundary < 40, `the stale age is set below 40 s (${boundary})`).toBe(true);
     lastTick = await newestTrade(ETH);
     expect(lastTick, 'ETH/USDT has traded on the stack').not.toBeNull();
     // Wait until the stream is at least 40 s old and a whole minute after its last tick has closed with no trade.
@@ -101,7 +114,9 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
     await expect(row.locator('[data-field=last-tick]')).toHaveText(
       `${new Date(lastTick).toISOString().slice(0, 19).replace('T', ' ')} UTC`,
     );
+    // The desk judges by the owner's stale age, the one svc-trade serves to every screen.
     await expect(page.getByTestId('feed-boundary')).toHaveAttribute('data-seconds', String(boundary));
+    await expect(page.getByTestId('feed-boundary')).toContainText(`older than ${boundary} s (the owner's stale age`);
 
     await row.getByRole('link', { name: ETH }).click();
     await expect(page.getByRole('heading', { name: `${ETH} feed` })).toBeVisible();
@@ -122,7 +137,7 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
       await page.goto(`${ADMIN}/trade-ops/feeds/${encodeURIComponent(ETH)}`);
       return page.getByRole('region', { name: 'Feed event journal' });
     };
-    // The drop: dated when the stream passed the boundary, from the system, with the reason.
+    // The drop: dated when the stream passed the stale age, from the system, with the reason.
     const dropAt = new Date(lastTick + boundary * 1000).toISOString();
     await expect
       .poll(async () => (await journalOf()).locator(`tr[data-kind=drop][data-at="${dropAt}"]`).count(), { timeout: 30_000 })
@@ -131,7 +146,7 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
     const drop = journal.locator(`tr[data-kind=drop][data-at="${dropAt}"]`);
     await expect(drop.locator('[data-field=event]')).toHaveText('drop');
     await expect(drop.locator('[data-field=actor]')).toHaveText('system');
-    await expect(drop.locator('[data-field=reason]')).toContainText(`past the owner's ${boundary} s boundary`);
+    await expect(drop.locator('[data-field=reason]')).toContainText(`past the owner's ${boundary} s stale age`);
     await expect(drop.locator('[data-field=time]')).toHaveText(`${dropAt.slice(0, 19).replace('T', ' ')} UTC`);
 
     // The stream resumes: the maker trades ETH/USDT again, and the watcher journals the reconnect at that trade's time.
@@ -164,4 +179,286 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
     await expect(journal.getByRole('textbox')).toHaveCount(0);
     await expect(journal.locator('input, select, textarea')).toHaveCount(0);
   });
+});
+
+/** A fresh customer and its API client. */
+async function customer(page, prefix) {
+  const who = await signUp(page, `${prefix}${RUN}`);
+  await signOutBrowser(page.context());
+  return { who, client: await api(who) };
+}
+
+async function createAlert(client, targetPrice, direction = 'above') {
+  const res = await client.post('/api/notify/trpc/notify.createAlert', { marketId: 'BTC-USDT', direction, targetPrice });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+const metric = (page, key) => page.getByRole('table', { name: 'Charts module metrics' }).locator(`tr[data-metric="${key}"]`);
+
+async function openAlertsOnMetrics(page) {
+  await page.goto(`${ADMIN}/trade-ops/charts/metrics`);
+  await expect(page.getByRole('heading', { name: 'Charts metrics' })).toBeVisible();
+  const row = metric(page, 'alerts');
+  await expect(row).toHaveAttribute('data-served', 'true');
+  return Number(await row.locator('[data-field=count]').getAttribute('data-open'));
+}
+
+test(`${J} #3 opens charts module metrics: chart opens, alerts, layouts and indicator use with real counts or named blockers`, async ({
+  page,
+  browser,
+}) => {
+  const { client } = await customer(page, 'cd18m');
+  const context = await browser.newContext();
+  const desk = await context.newPage();
+  await founderSignIn(desk, 'a');
+  const before = await openAlertsOnMetrics(desk);
+  // A real count: one more alert held open moves it by exactly one (an alert far above the price never fires).
+  await createAlert(client, '10000000');
+  await expect.poll(async () => openAlertsOnMetrics(desk), { timeout: 20_000 }).toBe(before + 1);
+  await expect(metric(desk, 'alerts').locator('[data-field=count]')).toHaveText(/^\d+ open, \d+ fired today$/);
+  // The counts no service keeps are named, never drawn as zero.
+  for (const [key, label, what] of [
+    ['chart_opens', 'Chart opens', 'records no chart open on the server'],
+    ['layouts', 'Saved layouts', "layouts are kept in the person's browser"],
+    ['indicator_use', 'Indicator use', 'no server records which ones are used'],
+  ]) {
+    const row = metric(desk, key);
+    await expect(row.getByRole('rowheader')).toHaveText(label);
+    await expect(row).toHaveAttribute('data-served', 'false');
+    await expect(row.locator('[data-field=count]')).toHaveText('Not served');
+    await expect(row.locator('[data-field=source]')).toContainText(what);
+    await expect(row.locator('[data-field=count]')).not.toHaveText(/\d/);
+  }
+  await context.close();
+});
+
+test(`${J} #4 opens alert engine and delivery health: evaluation lag, firings, deliveries and failures per channel`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const { client } = await customer(page, 'cd18a');
+  const context = await browser.newContext();
+  const desk = await context.newPage();
+  await founderSignIn(desk, 'a');
+
+  const firingsNow = async () => {
+    await desk.goto(`${ADMIN}/trade-ops/alerts`);
+    await expect(desk.getByRole('heading', { name: 'Alert engine' })).toBeVisible();
+    return Number(await desk.locator('[data-field=firings]').getAttribute('data-count'));
+  };
+  const before = await firingsNow();
+
+  // An alert that is already crossed: above a price below the market fires on the next evaluation pass.
+  const { bid } = await bestPrices();
+  const target = String(Math.max(1, Math.floor(Number(bid) / 2)));
+  await createAlert(client, target);
+  const inbox = async () => {
+    const res = await client.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+    expect(res.status).toBe(200);
+    const data = res.body.result.data;
+    return (Array.isArray(data) ? data : (data.items ?? [])).filter((n) => String(n.kind).startsWith('alert.'));
+  };
+  // The sweep runs every minute: the fire reaches the person's own inbox within two passes.
+  await expect.poll(async () => (await inbox()).length, { timeout: 150_000, intervals: [5_000] }).toBeGreaterThan(0);
+  await expect.poll(firingsNow, { timeout: 30_000 }).toBeGreaterThanOrEqual(before + 1);
+
+  // Evaluation lag: a number of seconds since the last pass, within two passes of a sweep that runs every minute.
+  const lag = desk.locator('[data-field=lag]');
+  const lagSeconds = Number(await lag.getAttribute('data-seconds'));
+  expect(Number.isInteger(lagSeconds)).toBe(true);
+  expect(lagSeconds).toBeLessThanOrEqual(120);
+  await expect(lag).toContainText(`${lagSeconds} s since the last pass`);
+  await expect(desk.locator('[data-field=interval]')).toHaveText('60 s');
+  await expect(desk.locator('[data-field=last-pass]')).toContainText(/UTC, took \d+ ms/);
+
+  // Deliveries and failures per channel: each channel's row adds up, and every channel the person's own alert was
+  // delivered on is on the desk with at least that many.
+  const table = desk.getByRole('table', { name: 'Alert deliveries by channel' });
+  await expect(table).toBeVisible();
+  const rows = await table.locator('tbody tr').evaluateAll((trs) =>
+    trs.map((tr) => {
+      const n = (f) => Number(tr.querySelector(`[data-field="${f}"]`).textContent);
+      return {
+        channel: tr.getAttribute('data-channel'),
+        total: n('total'),
+        pending: n('pending'),
+        accepted: n('accepted'),
+        refused: n('refused'),
+        failed: n('failed'),
+        abandoned: n('abandoned'),
+        failures: n('failures'),
+      };
+    }),
+  );
+  expect(rows.length).toBeGreaterThan(0);
+  for (const r of rows) {
+    expect(r.total, r.channel).toBe(r.pending + r.accepted + r.refused + r.failed + r.abandoned);
+    expect(r.failures, r.channel).toBe(r.failed + r.abandoned);
+  }
+  // The person's own alert notification and its deliveries, read as the person: each of its channels is on the desk,
+  // and that channel counts at least one delivery in the same status.
+  const [fired] = await inbox();
+  const own = await client.get(
+    `/api/notify/trpc/notify.deliveries?input=${encodeURIComponent(JSON.stringify({ notificationId: fired.id }))}`,
+  );
+  expect(own.status, JSON.stringify(own.body).slice(0, 300)).toBe(200);
+  const mine = own.body.result.data;
+  expect(mine.length, 'the fired alert was delivered on at least one channel').toBeGreaterThan(0);
+  for (const d of mine) {
+    const row = rows.find((r) => r.channel === d.channel);
+    expect(row, `channel ${d.channel} of the person's own alert delivery is on the desk`).toBeTruthy();
+    expect(row[d.status], `${d.channel} ${d.status}`).toBeGreaterThanOrEqual(1);
+  }
+  await context.close();
+});
+
+async function openSettings(page) {
+  await page.goto(SETTINGS);
+  await expect(page.getByRole('heading', { name: 'Charts settings' })).toBeVisible();
+}
+
+/** Types `value` (blank clears) into the row whose input is labelled `<label>: new value`, saves it with `reason`. */
+async function saveValue(page, label, value, reason) {
+  const input = page.getByLabel(`${label}: new value`, { exact: true });
+  await input.fill(value);
+  await page.getByRole('row').filter({ has: input }).getByRole('button', { name: 'Save', exact: true }).click();
+  const dialog = page.getByRole('alertdialog');
+  await dialog.getByLabel('Reason (kept in the audit)').fill(reason);
+  await dialog.getByRole('button', { name: 'Save value', exact: true }).click();
+  await expect(dialog.locator('[data-outcome=ok]')).toBeVisible();
+}
+
+/** The owner's chart values svc-trade serves for BTC/USDT. */
+const chartValues = () => ownerValues(BTC);
+
+const alertRow = (page, key, plan) =>
+  page
+    .getByRole('table', { name: 'Alert owner values' })
+    .locator(plan ? `tr[data-key="${key}"][data-plan="${plan}"]` : `tr[data-key="${key}"]`);
+
+test(`${J} #5 opens the module's settings page: compare cap, alert quotas, retention and the delayed and stale ages each not set or set; a blank compare cap refuses the customer add with the cap-unset error`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  await founderSignIn(page, 'a');
+  await openSettings(page);
+  // Compare cap and the owner's two ages: what svc-trade serves is what the page shows, a number or "Not set".
+  const served = await chartValues();
+  const cap = served.compareCap;
+  for (const [label, value] of [
+    ['Compare cap', cap],
+    ['Delayed boundary (seconds)', served.delayedBoundarySeconds],
+    ['Stale age (seconds)', served.staleAgeSeconds],
+  ]) {
+    const input = page.getByLabel(`${label}: new value`, { exact: true });
+    await expect(input, label).toHaveValue(value === null ? '' : String(value));
+    await expect(page.getByRole('row').filter({ has: input }), label).toContainText(value === null ? 'Not set' : String(value));
+  }
+  // Alert quotas, one per plan of the owner's (TEST) plan table, and the trigger log retention: each a number or
+  // "Not set", with where it comes from.
+  await expect(page.getByTestId('alert-plans')).toHaveAttribute('data-default-plan', PLAN);
+  const plans = await page
+    .getByRole('table', { name: 'Alert owner values' })
+    .locator('tr[data-key="priceQuota"]')
+    .evaluateAll((rows) => rows.map((r) => r.getAttribute('data-plan')));
+  expect(plans).toContain(PLAN);
+  for (const plan of plans) {
+    const row = alertRow(page, 'priceQuota', plan);
+    await expect(row.locator('[data-field=current]')).toHaveText(/^(\d+|Not set)$/);
+    await expect(row.locator('[data-field=source]')).toHaveText(
+      /^(Set on this page, .+ UTC by .+|Deployment setting \(never set on this page\))$/,
+    );
+  }
+  await expect(alertRow(page, 'triggerLogDays').locator('[data-field=current]')).toHaveText(/^(\d+|Not set)$/);
+
+  // A blank compare cap: the customer's compare add refuses with the cap-unset error, and nothing is added.
+  expect(Number.isInteger(cap), `the stack sets a compare cap to put back (${cap})`).toBe(true);
+  await saveValue(page, 'Compare cap', '', `${J} #5 clears the compare cap to see the customer refusal (TEST ${RUN})`);
+  try {
+    await expect.poll(async () => (await chartValues()).compareCap).toBeNull();
+    await openSettings(page);
+    await expect(page.getByRole('row').filter({ has: page.getByLabel('Compare cap: new value', { exact: true }) })).toContainText(
+      'Not set',
+    );
+
+    const context = await browser.newContext();
+    const chart = await context.newPage();
+    await chart.goto('/charts/BTC-USDT');
+    const tools = chart.getByRole('group', { name: 'Compare and share' }).first();
+    const picker = tools.getByRole('combobox', { name: /Compare with/ });
+    const first = (await picker.locator('option').allTextContents())[0];
+    await picker.selectOption(first);
+    await tools.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(chart.getByTestId('compare-note')).toHaveAttribute('data-code', 'trade.chart.owner_value_unset');
+    await expect(chart.getByTestId('compare-note')).toContainText('compare limit, which is not set. Nothing was added.');
+    await expect(tools.getByRole('list', { name: 'Compared markets' }).getByRole('listitem')).toHaveCount(0);
+    await context.close();
+  } finally {
+    await openSettings(page);
+    await saveValue(page, 'Compare cap', String(cap), `${J} #5 puts the TEST compare cap back as it was (TEST ${RUN})`);
+    await expect.poll(async () => (await chartValues()).compareCap).toBe(cap);
+  }
+});
+
+test(`${J} #6 sets an alert quota for a plan and saves: the change is recorded with who and when, and customers see the new quota`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  // A fresh customer is on the default plan, TEST Standard: nobody can subscribe to another yet.
+  const who = await signUp(page, `cd18q${RUN}`);
+  const client = await api(who);
+  const quotaLine = () => page.getByTestId('alerts-quota');
+  await page.goto('/notifications?view=alerts');
+  await expect(quotaLine()).toBeVisible();
+
+  const context = await browser.newContext();
+  const desk = await context.newPage();
+  const founder = await founderSignIn(desk, 'a');
+  await openSettings(desk);
+  const row = alertRow(desk, 'priceQuota', PLAN);
+  const before = await row.locator('[data-field=current]').textContent();
+  // The customer sees what applies to their plan now.
+  await expect(quotaLine()).toContainText(before === 'Not set' ? 'has not been set' : `0 of ${before} price alerts in use`);
+
+  // A TEST quota of 2 for the plan, saved with a reason.
+  const label = PLAN_LABEL;
+  const reason = `${J} #6 TEST quota of 2 for the TEST Standard plan (${RUN})`;
+  const startedAt = Date.now();
+  await saveValue(desk, label, '2', reason);
+  try {
+    await openSettings(desk);
+    await expect(alertRow(desk, 'priceQuota', PLAN).locator('[data-field=current]')).toHaveText('2');
+    await expect(alertRow(desk, 'priceQuota', PLAN)).toHaveAttribute('data-source', 'page');
+    // Recorded with who and when: the newest change names the founder, the time, the old and new value and the reason.
+    const change = desk.getByRole('table', { name: 'Alert settings changes' }).locator('tbody tr').first();
+    await expect(change).toHaveAttribute('data-plan', PLAN);
+    await expect(change.locator('[data-field=who]')).toHaveText(founder.userId);
+    const at = Date.parse(await change.locator('[data-field=at]').getAttribute('data-at'));
+    expect(at).toBeGreaterThanOrEqual(startedAt - 5_000);
+    expect(at).toBeLessThanOrEqual(Date.now() + 5_000);
+    await expect(change.locator('[data-field=old]')).toHaveText(before);
+    await expect(change.locator('[data-field=new]')).toHaveText('2');
+    await expect(change.locator('[data-field=reason]')).toHaveText(reason);
+
+    // The customer sees the new quota, and it holds: two price alerts are taken, the third is refused at the quota.
+    await page.reload();
+    await expect(quotaLine()).toContainText('0 of 2 price alerts in use');
+    const create = (n) =>
+      client.post('/api/notify/trpc/notify.createAlert', { marketId: 'BTC-USDT', direction: 'above', targetPrice: String(10_000_000 + n) });
+    expect((await create(1)).status).toBe(200);
+    expect((await create(2)).status).toBe(200);
+    const third = await create(3);
+    expect(third.status).not.toBe(200);
+    expect(JSON.stringify(third.body)).toContain('alert.quota_reached');
+    await page.reload();
+    await expect(quotaLine()).toContainText('2 of 2 price alerts in use');
+  } finally {
+    await openSettings(desk);
+    await saveValue(desk, label, before === 'Not set' ? '' : before, `${J} #6 puts the quota back as it was (TEST ${RUN})`);
+    await context.close();
+  }
 });

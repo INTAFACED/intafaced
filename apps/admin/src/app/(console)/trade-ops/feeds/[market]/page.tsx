@@ -50,7 +50,7 @@ export default async function FeedMarketPage({
         <div className="flex flex-col gap-6">
           <PageSection title="Candle stream">
             <div className="flex flex-col gap-3">
-              <BoundaryNote boundarySeconds={read.data.boundarySeconds} />
+              <BoundaryNote staleAgeSeconds={read.data.staleAgeSeconds} delayedAgeSeconds={read.data.delayedAgeSeconds} />
               <FeedsTable rows={[read.data.market]} link={false} />
             </div>
           </PageSection>
@@ -109,8 +109,8 @@ export default async function FeedMarketPage({
             <h2 className="text-base font-semibold">Feed event journal</h2>
             <p className="text-sm text-fg-3">
               Written by the feed watcher every {read.data.watcher.intervalMs / 1000} s, never by a person: a drop when the stream passes
-              the delayed boundary, a reconnect when a tick arrives after a drop. Nobody can edit it.
-              {read.data.watcher.writing ? '' : ' The delayed boundary is not set, so nothing is being written.'}
+              the stale age, a reconnect when a tick arrives after a drop. Nobody can edit it.
+              {read.data.watcher.writing ? '' : ' The stale age is not set, so nothing is being written.'}
             </p>
             {read.data.journal.length === 0 ? (
               <EmptyState variant="empty" size="inline" title="No drops or reconnects recorded for this market" />

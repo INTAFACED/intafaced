@@ -5,24 +5,34 @@ import { candleGaps, FeedHealthDesk, feedStateOf } from './feed-health.js';
 const at = (iso: string) => new Date(iso);
 const ms = (iso: string) => Date.parse(iso);
 
-describe('feedStateOf (J-charts-desk-18 #1)', () => {
+describe("feedStateOf (J-charts-desk-18 #1; row d115: the owner's delayed and stale ages)", () => {
   const now = at('2026-11-07T09:00:40Z');
+  const ages = { delayedSeconds: 20, staleSeconds: 30 };
 
-  it('reads a 40 second old stream as stale past a 30 s boundary, with its age and last tick', () => {
-    expect(feedStateOf(at('2026-11-07T09:00:00Z'), 30, now)).toEqual({
+  it('reads a 40 second old stream as stale past a 30 s stale age, with its age and last tick', () => {
+    expect(feedStateOf(at('2026-11-07T09:00:00Z'), ages, now)).toEqual({
       lastTickAt: '2026-11-07T09:00:00.000Z',
       ageSeconds: 40,
       state: 'stale',
     });
   });
 
-  it('reads a stream within the boundary as live, and one exactly at it as live', () => {
-    expect(feedStateOf(at('2026-11-07T09:00:30Z'), 30, now).state).toBe('live');
-    expect(feedStateOf(at('2026-11-07T09:00:10Z'), 30, now).state).toBe('live');
+  it('reads a stream past the delayed age but within the stale age as delayed', () => {
+    expect(feedStateOf(at('2026-11-07T09:00:15Z'), ages, now).state).toBe('delayed');
+    expect(feedStateOf(at('2026-11-07T09:00:10Z'), ages, now).state).toBe('delayed');
   });
 
-  it('judges nothing while the boundary is blank, and still shows the age', () => {
-    expect(feedStateOf(at('2026-11-07T09:00:00Z'), null, now)).toEqual({
+  it('reads a stream within the delayed age as live, and one exactly at it as live', () => {
+    expect(feedStateOf(at('2026-11-07T09:00:20Z'), ages, now).state).toBe('live');
+    expect(feedStateOf(at('2026-11-07T09:00:35Z'), ages, now).state).toBe('live');
+  });
+
+  it('reads a stream within the stale age as live when the delayed age is blank', () => {
+    expect(feedStateOf(at('2026-11-07T09:00:15Z'), { delayedSeconds: null, staleSeconds: 30 }, now).state).toBe('live');
+  });
+
+  it('judges nothing while the stale age is blank, and still shows the age', () => {
+    expect(feedStateOf(at('2026-11-07T09:00:00Z'), { delayedSeconds: 20, staleSeconds: null }, now)).toEqual({
       lastTickAt: '2026-11-07T09:00:00.000Z',
       ageSeconds: 40,
       state: 'threshold_not_set',
@@ -30,7 +40,7 @@ describe('feedStateOf (J-charts-desk-18 #1)', () => {
   });
 
   it('says a market with no tick has none, never age zero', () => {
-    expect(feedStateOf(null, 30, now)).toEqual({ lastTickAt: null, ageSeconds: null, state: 'no_ticks' });
+    expect(feedStateOf(null, ages, now)).toEqual({ lastTickAt: null, ageSeconds: null, state: 'no_ticks' });
   });
 });
 

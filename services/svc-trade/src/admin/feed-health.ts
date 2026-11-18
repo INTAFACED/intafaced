@@ -5,13 +5,15 @@
  *   admin.feedHealth.market   one market's row, its candle gaps in a window, and its feed event journal (admin:read)
  *
  * The candle stream is what the chart draws: 1-minute buckets of the public taker tape with seeded fills left out
- * (spot/candles.ts, SD-3). A market's last tick is its newest such fill. Its age is judged against the owner's delayed
- * boundary (`delayedBoundarySeconds`, C-ops-04): past it the stream reads `stale`. While the boundary is blank nothing is
- * judged: the state is `threshold_not_set`, and the age is still shown. No number here is a default.
+ * (spot/candles.ts, SD-3). A market's last tick is its newest such fill. Its age is judged against the owner's two ages
+ * (C-ops-04; row d115, 17 Nov 2026: delayed and stale are the owner's two ages, the same on every screen): past the
+ * stale age (`staleAgeSeconds`) the stream reads `stale`; past the delayed age (`delayedBoundarySeconds`) but not the
+ * stale one it reads `delayed`. While the stale age is blank no stream is judged stale: the state is
+ * `threshold_not_set`, and the age is still shown. No number here is a default.
  *
  * The journal is written by the feed watcher (`runFeedWatchTick`), never by a person: a `drop` when a stream passes the
- * boundary, a `reconnect` when a tick arrives after a drop. Each row says when, why, and that the actor is the system.
- * It is append-only and read-only on the page. The watcher ticks every FEED_WATCH_INTERVAL_MS; while the boundary is
+ * stale age, a `reconnect` when a tick arrives after a drop. Each row says when, why, and that the actor is the system.
+ * It is append-only and read-only on the page. The watcher ticks every FEED_WATCH_INTERVAL_MS; while the stale age is
  * blank it writes nothing, and the page says so.
  *
  * Nothing here moves money or imports a ledger write: these are reads of the trade tape.
@@ -21,7 +23,7 @@ import type { Principal } from '@intafaced/auth';
 import { requireOperator, TradeOpsError } from './common.js';
 import { readChartScalars } from './chart-owner-values.js';
 
-export const FEED_STATES = ['live', 'stale', 'no_ticks', 'threshold_not_set'] as const;
+export const FEED_STATES = ['live', 'delayed', 'stale', 'no_ticks', 'threshold_not_set'] as const;
 export type FeedState = (typeof FEED_STATES)[number];
 
 /** The gap window a caller may ask for, in minutes. The page shows its own value in the field; this is a schema bound. */
@@ -33,7 +35,7 @@ const BUCKET_MS = 60_000;
 
 /**
  * How often the watcher looks, in ms. An operational tick, not an owner value: what it judges against is the owner's
- * boundary, and a blank boundary writes nothing. A transition's `at` is the stream's own time, so the tick only bounds
+ * stale age, and a blank stale age writes nothing. A transition's `at` is the stream's own time, so the tick only bounds
  * how soon a row appears (within this many ms).
  */
 export const FEED_WATCH_INTERVAL_MS = 5_000;
@@ -53,14 +55,16 @@ export interface FeedRow {
 export interface FeedWatcherView {
   /** How often the watcher looks, in ms. */
   readonly intervalMs: number;
-  /** False while the owner's boundary is blank: the watcher judges nothing and writes no row. */
+  /** False while the owner's stale age is blank: the watcher judges nothing and writes no row. */
   readonly writing: boolean;
 }
 
 export interface FeedListView {
   readonly asOf: string;
-  /** The owner's delayed boundary in seconds, or null while it is not set. */
-  readonly boundarySeconds: number | null;
+  /** The owner's stale age in seconds, or null while it is not set. */
+  readonly staleAgeSeconds: number | null;
+  /** The owner's delayed age in seconds, or null while it is not set. */
+  readonly delayedAgeSeconds: number | null;
   readonly watcher: FeedWatcherView;
   readonly markets: readonly FeedRow[];
 }
@@ -76,7 +80,7 @@ export interface FeedGap {
 export interface FeedEvent {
   readonly id: string;
   readonly kind: 'drop' | 'reconnect';
-  /** When it happened on the stream: the moment the boundary passed (drop) or the first tick back (reconnect). */
+  /** When it happened on the stream: the moment the stale age passed (drop) or the first tick back (reconnect). */
   readonly at: string;
   readonly observedAt: string;
   readonly reason: string;
@@ -117,11 +121,31 @@ async function readTicks(sql: Sql, symbol?: string): Promise<TickRow[]> {
      LIMIT ${MAX_MARKETS}`;
 }
 
-/** The state of one stream at `now`, judged against the owner's boundary. Pure. */
-export function feedStateOf(lastTick: Date | null, boundarySeconds: number | null, now: Date): Omit<FeedRow, 'symbol' | 'test'> {
+/** The owner's two ages in seconds (C-ops-04, row d115); null is not set. */
+export interface FeedAges {
+  readonly staleSeconds: number | null;
+  readonly delayedSeconds: number | null;
+}
+
+/** The owner's two ages as svc-trade's charts owner values hold them. */
+async function readAges(sql: Sql): Promise<FeedAges> {
+  const { values } = await readChartScalars(sql);
+  return { staleSeconds: values.staleAgeSeconds, delayedSeconds: values.delayedBoundarySeconds };
+}
+
+/** The state of one stream at `now`, judged against the owner's two ages. Pure. */
+export function feedStateOf(lastTick: Date | null, ages: FeedAges, now: Date): Omit<FeedRow, 'symbol' | 'test'> {
   if (lastTick === null) return { lastTickAt: null, ageSeconds: null, state: 'no_ticks' };
   const ageSeconds = Math.max(0, Math.floor((now.getTime() - lastTick.getTime()) / 1000));
-  const state: FeedState = boundarySeconds === null ? 'threshold_not_set' : ageSeconds > boundarySeconds ? 'stale' : 'live';
+  const { staleSeconds, delayedSeconds } = ages;
+  const state: FeedState =
+    staleSeconds === null
+      ? 'threshold_not_set'
+      : ageSeconds > staleSeconds
+        ? 'stale'
+        : delayedSeconds !== null && ageSeconds > delayedSeconds
+          ? 'delayed'
+          : 'live';
   return { lastTickAt: lastTick.toISOString(), ageSeconds, state };
 }
 
@@ -178,14 +202,15 @@ export class FeedHealthDesk {
   async list(principal: Principal): Promise<FeedListView> {
     requireOperator(principal);
     const { sql } = this.deps;
-    const boundarySeconds = (await readChartScalars(sql)).values.delayedBoundarySeconds;
+    const ages = await readAges(sql);
     const now = this.deps.now();
     const rows = await readTicks(sql);
     return {
       asOf: now.toISOString(),
-      boundarySeconds,
-      watcher: { intervalMs: FEED_WATCH_INTERVAL_MS, writing: boundarySeconds !== null },
-      markets: rows.map((row) => ({ symbol: row.symbol, test: row.test, ...feedStateOf(row.last_tick, boundarySeconds, now) })),
+      staleAgeSeconds: ages.staleSeconds,
+      delayedAgeSeconds: ages.delayedSeconds,
+      watcher: { intervalMs: FEED_WATCH_INTERVAL_MS, writing: ages.staleSeconds !== null },
+      markets: rows.map((row) => ({ symbol: row.symbol, test: row.test, ...feedStateOf(row.last_tick, ages, now) })),
     };
   }
 
@@ -196,7 +221,7 @@ export class FeedHealthDesk {
     if (!Number.isInteger(window) || window < 1 || window > FEED_GAP_WINDOW_MAX_MINUTES) {
       throw new TradeOpsError('trade.feed.gap_window_invalid', `the gap window is 1 to ${FEED_GAP_WINDOW_MAX_MINUTES} minutes`);
     }
-    const boundarySeconds = (await readChartScalars(sql)).values.delayedBoundarySeconds;
+    const ages = await readAges(sql);
     const now = this.deps.now();
     const [row] = await readTicks(sql, input.symbol);
     if (!row) throw new TradeOpsError(FEED_SYMBOL_UNKNOWN, `no spot market ${input.symbol}`);
@@ -220,11 +245,12 @@ export class FeedHealthDesk {
       SELECT id::text AS id, kind, at, observed_at, reason, actor
         FROM trade.feed_events WHERE symbol = ${row.symbol}
        ORDER BY id DESC LIMIT ${FEED_LIST_MAX}`;
-    const market = { symbol: row.symbol, test: row.test, ...feedStateOf(row.last_tick, boundarySeconds, now) };
+    const market = { symbol: row.symbol, test: row.test, ...feedStateOf(row.last_tick, ages, now) };
     return {
       asOf: now.toISOString(),
-      boundarySeconds,
-      watcher: { intervalMs: FEED_WATCH_INTERVAL_MS, writing: boundarySeconds !== null },
+      staleAgeSeconds: ages.staleSeconds,
+      delayedAgeSeconds: ages.delayedSeconds,
+      watcher: { intervalMs: FEED_WATCH_INTERVAL_MS, writing: ages.staleSeconds !== null },
       markets: [market],
       market,
       gapWindowMinutes: window,
@@ -239,18 +265,19 @@ export interface FeedWatchResult {
   readonly checked: number;
   readonly drops: number;
   readonly reconnects: number;
-  /** True when the owner's boundary is blank: nothing was judged and nothing was written. */
+  /** True when the owner's stale age is blank: nothing was judged and nothing was written. */
   readonly boundaryUnset: boolean;
 }
 
 /**
- * One pass of the feed watcher. For each spot market with a tick: a stream past the boundary whose last journal row is not
- * a drop gets a `drop` dated when the boundary passed; a stream within the boundary whose last row is a drop gets a
+ * One pass of the feed watcher. For each spot market with a tick: a stream past the stale age whose last journal row is not
+ * a drop gets a `drop` dated when the stale age passed; a stream within the stale age whose last row is a drop gets a
  * `reconnect` dated at its newest tick. Each market is decided under its own advisory lock, so two replicas never write
- * the same transition twice. A blank boundary writes nothing.
+ * the same transition twice. A blank stale age writes nothing.
  */
 export async function runFeedWatchTick(sql: Sql, now: Date = new Date()): Promise<FeedWatchResult> {
-  const boundarySeconds = (await readChartScalars(sql)).values.delayedBoundarySeconds;
+  const ages = await readAges(sql);
+  const boundarySeconds = ages.staleSeconds;
   if (boundarySeconds === null) return { checked: 0, drops: 0, reconnects: 0, boundaryUnset: true };
   const rows = await readTicks(sql);
   let drops = 0;
@@ -259,23 +286,25 @@ export async function runFeedWatchTick(sql: Sql, now: Date = new Date()): Promis
   for (const row of rows) {
     if (row.last_tick === null) continue;
     checked += 1;
-    const { state, ageSeconds } = feedStateOf(row.last_tick, boundarySeconds, now);
+    const { state, ageSeconds } = feedStateOf(row.last_tick, ages, now);
     const lastTick = row.last_tick;
     const wrote = await sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`trade.feed_events:${row.symbol}`}, 0))`;
-      const [last] = await tx<Array<{ kind: string; at: Date }>>`
-        SELECT kind, at FROM trade.feed_events WHERE symbol = ${row.symbol} ORDER BY id DESC LIMIT 1`;
+      const [last] = await tx<Array<{ kind: string; at: Date; boundary_seconds: number }>>`
+        SELECT kind, at, boundary_seconds FROM trade.feed_events WHERE symbol = ${row.symbol} ORDER BY id DESC LIMIT 1`;
+      // The drop's own last tick: its time less the stale age it was judged by, so a stale age changed since still finds it.
+      const droppedTickMs = last?.kind === 'drop' ? last.at.getTime() - last.boundary_seconds * 1000 : null;
       if (state === 'stale' && last?.kind !== 'drop') {
         const at = new Date(lastTick.getTime() + boundarySeconds * 1000);
         await tx`
           INSERT INTO trade.feed_events (symbol, kind, at, observed_at, reason, actor, age_seconds, boundary_seconds)
           VALUES (${row.symbol}, 'drop', ${at}, ${now},
-                  ${`No candle tick for ${ageSeconds} s, past the owner's ${boundarySeconds} s boundary; last tick ${lastTick.toISOString()}`},
+                  ${`No candle tick for ${ageSeconds} s, past the owner's ${boundarySeconds} s stale age; last tick ${lastTick.toISOString()}`},
                   'system', ${ageSeconds}, ${boundarySeconds})`;
         return 'drop';
       }
-      if (state === 'live' && last?.kind === 'drop' && lastTick.getTime() > last.at.getTime() - boundarySeconds * 1000) {
-        const quietSeconds = Math.round((lastTick.getTime() - (last.at.getTime() - boundarySeconds * 1000)) / 1000);
+      if ((state === 'live' || state === 'delayed') && droppedTickMs !== null && lastTick.getTime() > droppedTickMs) {
+        const quietSeconds = Math.round((lastTick.getTime() - droppedTickMs) / 1000);
         await tx`
           INSERT INTO trade.feed_events (symbol, kind, at, observed_at, reason, actor, age_seconds, boundary_seconds)
           VALUES (${row.symbol}, 'reconnect', ${lastTick}, ${now},
