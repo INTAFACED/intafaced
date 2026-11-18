@@ -69,6 +69,7 @@ import { venueProtectCopy } from './venue-protect-copy';
 import { VenueCollateral, VenueTiers } from './VenueRisk';
 import { venueRiskCopy } from './venue-risk-copy';
 import { VenueFunding } from './VenueFunding';
+import { intervalText } from './venue-funding-logic';
 import { roomLeft, takenAssets } from './venue-risk-logic';
 import { canonical, protectionClientId } from './venue-protect-logic';
 import type { RoutePreview } from '../../../features/trade/venue-api';
@@ -309,11 +310,6 @@ export function percentOf(fraction: string): string {
   const rest = padded.slice(2).replace(/0+$/, '');
   const out = rest ? `${int}.${rest}` : int;
   return negative && /[1-9]/.test(out) ? `-${out}` : out;
-}
-
-/** A funding interval in hours when it is whole hours, else in seconds. */
-export function intervalText(seconds: number): string {
-  return seconds % 3600 === 0 ? `${seconds / 3600}h` : `${seconds}s`;
 }
 
 /**

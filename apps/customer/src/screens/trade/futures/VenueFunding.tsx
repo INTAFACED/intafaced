@@ -5,7 +5,8 @@ import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import type { VenueFundingPayment, VenueMarket } from '../../../features/trade/venue-api';
 import { TestMark, VENUE_POLL_MS, useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { countdown } from './ContractStrip';
-import { intervalText, percentOf } from './VenueFuturesDesk';
+import { intervalText } from './venue-funding-logic';
+import { percentOf } from './venue-risk-logic';
 import { venueFundingCopy } from './venue-funding-copy';
 
 /** How far back the funding payments are read. */
