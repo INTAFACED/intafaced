@@ -7,6 +7,7 @@ import { EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, signOutBr
 import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrdersLoaded, followOnScreen, leadVenueAccount, listLeader, mineOf, openFollow } from './copy.mjs';
 import { testDeposit, venueForThisFile } from './venue.mjs';
+import { agePast } from './test-age.mjs';
 import { LEAD_TEST_SPOT } from '../../../../tooling/scripts/seed-spot-test-listing.mjs';
 
 // J-copy-bots-otc-04, in the running app (docs/roadmap/journeys.json): become a lead trader and place my first lead trade.
@@ -28,8 +29,6 @@ const run = journeyState(`${J}-${RUN}`);
 const PROFILE = JSON.parse(
   readFileSync(new URL('../../../../tooling/profiles/test-owner-values/trade.json', import.meta.url), 'utf8'),
 ).values;
-/** The owner's wait before a rejected applicant may apply again, as the stack's TEST profile sets it, in milliseconds. */
-const REAPPLY_WAIT_MS = Number(PROFILE.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS.value) * 1000;
 /** The least venue USDC to lead, as the stack's TEST profile sets it. */
 const THRESHOLD = PROFILE.TRADE_COPY_LEAD_MIN_VENUE_USDC.value;
 /** The new-trader mission minimum and the lead daily buy cap, as the stack's TEST profile sets them. */
@@ -200,7 +199,7 @@ test(`${J} #2 submits a valid application: submitted, the same submit again retu
   page,
   browser,
 }) => {
-  test.setTimeout(REAPPLY_WAIT_MS + 300_000);
+  test.setTimeout(300_000);
   const applicant = state('applicant');
   const displayName = state('displayName');
   await signIn(page, applicant);
@@ -237,9 +236,9 @@ test(`${J} #2 submits a valid application: submitted, the same submit again retu
   await expect(page.getByText(reason)).toBeVisible();
   await expect(page.getByTestId('reapply-after')).toHaveAttribute('datetime', decided.reapplyAfter);
   await expect(page.getByRole('button', { name: 'Apply to lead', exact: true })).toHaveCount(0);
-  // After the wait, on the real clock, the room offers the application again and a new one is submitted.
-  const left = Date.parse(decided.reapplyAfter) - Date.now();
-  if (left > 0) await page.waitForTimeout(left + 1_000);
+  // After the wait (the rejection aged past it through svc-trade's TEST age door), the room offers the application
+  // again and a new one is submitted.
+  await agePast('trade', 'lead-application', first.applicationId, decided.reapplyAfter);
   await page.reload();
   await expect(page.getByText('The waiting period has ended')).toBeVisible();
   const resubmit = await applyOnScreen(page, displayName);

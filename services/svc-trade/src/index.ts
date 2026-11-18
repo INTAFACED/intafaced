@@ -241,7 +241,7 @@ import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
 import { registerLocalTestTapeRoutes } from './spot/local-test-tape-routes.js';
 import { testAgeDoorOpen } from '@intafaced/service-kit';
-import { ageOtcQuote, registerTestAgeDoor } from './test-age-door.js';
+import { ageLeadApplication, ageOtcQuote, registerTestAgeDoor } from './test-age-door.js';
 import { logTrpcServerFault } from './trpc-error-log.js';
 
 registerProcessHooks(
@@ -1630,7 +1630,7 @@ registerTestAgeDoor(app, {
   open: testAgeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
-  subjects: { 'otc-quote': ageOtcQuote(sql) },
+  subjects: { 'otc-quote': ageOtcQuote(sql), 'lead-application': ageLeadApplication(sql) },
   installRawBody: false,
 });
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);
