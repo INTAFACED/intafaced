@@ -5,6 +5,7 @@
 - **NeverPaidTwice** (the promise): a payout is never both sent and given back.
 - **ReversedOnce**: the money goes back once.
 - **SignedOnce**: one transaction is signed for the key.
+- **No dead end** (TLC's deadlock check): the only state with no step out is `Done`, both stopped and the held money answered (hashed, given back, or never held). The `code-ends` run finds an open dead end today (#8828), so the other runs keep the check off until it is fixed.
 
 ## Run it
 
@@ -16,6 +17,7 @@ It needs Java 11 or later (`java` on the PATH, or `JAVA=/path/to/java`). It down
 
 | Run                        | What                                                            | Expected                                 |
 | -------------------------- | --------------------------------------------------------------- | ---------------------------------------- |
+| `code-ends`                | the code with the deadlock check on                             | **deadlock reached**: the open #8828     |
 | `code-lock-held`           | the code, the lock never lost, the payer dying and retrying     | no error                                 |
 | `code-lock-lost`           | the code, the lock's connection may drop, every rule            | no error                                 |
 | `open-lock-held`           | before #8604 (`not_sent` left the key open), the lock held      | no error                                 |
@@ -34,6 +36,12 @@ Before the fix, `lookupSend` (`rails/evm-chain.ts`) answered `not_sent` whenever
 The fix (`Fixed = TRUE`, now the code): `not_sent` closes the key (`BroadcastStore.close`, `rails/broadcast-store.ts`). The status query takes the key's claim itself, with the same `INSERT ... ON CONFLICT DO NOTHING` the send uses. If it wins, nothing was or ever will be sent under that key, and the answer is `not_sent`. If it loses, a send holds the key, and the answer is `unknown` until it has a hash. A send that finds the key closed sends nothing (`claim` answers `closed`, `runDurableBroadcast` throws `BroadcastClosedError`). Answering `unknown` for a pending claim alone was tried first and does not hold: the query can come before the send claims the key.
 
 The same on the real chain port: `src/rails/evm-chain.send.test.ts`, the two tests under the `PayoutQuery.tla` comment.
+
+## The open dead end (#8828)
+
+With the deadlock check on, the shortest order of events (`SHOW_TRACE=1`): the payer posts the hold, commits `dispatched` and claims the key; it dies (or its signer throws) before journalling signed bytes; its retry's claim finds the key pending with nothing journalled and stalls; the reconciler hears `unknown`, because a send holds the key, and the hold stays. No step leads out: nothing was sent, and nothing can ever answer `not_sent`. The same on the real chain port: the failing test in #8828.
+
+When #8828 is fixed, `code-ends` expects `pass` and every run drops `DEADLOCK=FALSE`. The next dead end TLC then shows is the model's own bound, not the code: with signed bytes journalled and the payer out of its one retry, the hold stays until a later retry of the payout resumes those bytes (`claim` answers `resume`). Model a further retry rather than widening `Done`.
 
 ## What it covers
 

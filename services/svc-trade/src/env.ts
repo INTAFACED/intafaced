@@ -920,6 +920,37 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
+       * The least USDC a lead applicant's own venue account must hold, as the venue reports it, in a decimal string
+       * (CB-copy-12, J-copy-bots-otc-04 #1). Read from the account the person's own wallet signed for through the
+       * user-venue door; INTAFACED holds none of it.
+       *
+       * Empty (default) = unset → every application to lead refuses `trade.copy_lead_balance_threshold_unset`.
+       * Owner value. Never invent a threshold; blank never means zero.
+       */
+      TRADE_COPY_LEAD_MIN_VENUE_USDC: z.string().default(''),
+
+      /**
+       * The new-trader mission minimum: the USDC an applicant's own venue account must hold, as the venue reports it, to
+       * complete the funding mission (CB-copy-12, J-copy-bots-otc-04 #3). Empty (default) = unset → the mission reads
+       * "Not set by the platform" and is never done. Owner value; never invented.
+       */
+      TRADE_COPY_LEAD_MISSION_MIN_USDC: z.string().default(''),
+
+      /**
+       * The most a lead may buy in lead trades per owner day, in the pair's quote asset, a decimal string (CB-copy-16,
+       * J-copy-bots-otc-04 #7). Empty (default) = unset → every lead buy refuses `trade.copy_leader_limit_not_set`.
+       * Owner value; never invented.
+       */
+      TRADE_COPY_LEAD_DAILY_BUY_CAP: z.string().default(''),
+
+      /**
+       * The most a lead may hold per pair in lead trades, as JSON of pair to decimal string in its quote asset
+       * (`{"BTC/USDT":"5000"}`; CB-copy-16, J-copy-bots-otc-04 #7). Empty (default) = unset → every lead trade refuses
+       * `trade.copy_pair_limit_not_set`, as does a pair it does not name. Owner value; never invented.
+       */
+      TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS: z.string().default(''),
+
+      /**
        * The smallest most-in-total a follow may have, in the quote asset (CB-copy-06, J-copy-bots-otc-02 #2).
        *
        * Empty (default) = unset → every Start copying refuses `trade.copy_min_not_set`. Owner value. Never invent one.

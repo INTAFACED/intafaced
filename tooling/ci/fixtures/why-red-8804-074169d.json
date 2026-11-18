@@ -1,0 +1,132 @@
+{
+  "stats": {
+    "startTime": "2026-11-17T22:40:38.995Z",
+    "duration": 745460.8979492188,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 4,
+    "flaky": 0
+  },
+  "suites": [
+    {
+      "title": "J-p2p-21.pw.mjs",
+      "file": "J-p2p-21.pw.mjs",
+      "specs": [
+        {
+          "title": "J-p2p-21 #2 the buyer places the order; the contract deal opens with an id the order shows",
+          "ok": false,
+          "file": "J-p2p-21.pw.mjs",
+          "line": 207,
+          "tests": [
+            {
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "timedOut",
+                  "retry": 0,
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 300000ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs",
+                        "column": 99,
+                        "line": 126
+                      },
+                      "message": "Error: locator.click: Test ended.\nCall log:\n\u001b[2m  - waiting for getByTestId('order-contract-escrow').getByRole('button', { name: 'Open and fund the deal in your wallet', exact: true })\u001b[22m\n\n\n  124 |   const panel = page.getByTestId('order-contract-escrow');\n  125 |   await connectIn(panel);\n> 126 |   await panel.getByRole('button', { name: 'Open and fund the deal in your wallet', exact: true }).click();\n      |                                                                                                   ^\n  127 |   await continueInWallet(page); // approve + open\n  128 |   await continueInWallet(page); // lock\n  129 |   await expect(panel.getByTestId('order-deal-id')).toHaveText(/^#\\d+$/, { timeout: 60_000 });\n    at sellerFunds (/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs:126:99)\n    at /home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs:226:18"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "J-p2p-21 #3 the buyer marks paid and the seller releases: the contract release matches the order and the coins were never also in the ledger",
+          "ok": false,
+          "file": "J-p2p-21.pw.mjs",
+          "line": 243,
+          "tests": [
+            {
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "timedOut",
+                  "retry": 0,
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 300000ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs",
+                        "column": 79,
+                        "line": 137
+                      },
+                      "message": "Error: locator.click: Test ended.\nCall log:\n\u001b[2m  - waiting for getByRole('main').getByRole('button', { name: 'Mark payment sent', exact: true })\u001b[22m\n\n\n  135 |   await page.goto(`/uc/order?tradeId=${tradeId}`);\n  136 |   const order = page.getByRole('main');\n> 137 |   await order.getByRole('button', { name: 'Mark payment sent', exact: true }).click();\n      |                                                                               ^\n  138 |   const review = page.getByRole('dialog');\n  139 |   for (const box of await review.getByTestId('order-paid-checklist').getByRole('checkbox').all()) await box.check();\n  140 |   await review.getByRole('button', { name: 'Mark payment sent', exact: true }).click();\n    at markPaid (/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs:137:79)\n    at /home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs:252:3"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "J-p2p-21 #4 the deal on mainnet shows the audit.external notice, switched off in this build",
+          "ok": false,
+          "file": "J-p2p-21.pw.mjs",
+          "line": 281,
+          "tests": [
+            {
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "failed",
+                  "retry": 0,
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs",
+                        "column": 25,
+                        "line": 286
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByTestId('order-contract-escrow').getByTestId('order-escrow-mainnet')\nExpected: \u001b[32m\"audit.external: the escrow contract has no external audit, so a mainnet deal is switched off in this build.\"\u001b[39m\nTimeout: 15000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" getByTestId('order-contract-escrow').getByTestId('order-escrow-mainnet') with timeout 15000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('order-contract-escrow').getByTestId('order-escrow-mainnet')\u001b[22m\n\n\n  284 |   await buyerSide.page.goto(`/uc/order?tradeId=${state.tradeId}`);\n  285 |   const mainnet = buyerSide.page.getByTestId('order-contract-escrow').getByTestId('order-escrow-mainnet');\n> 286 |   await expect(mainnet).toHaveText(\n      |                         ^\n  287 |     'audit.external: the escrow contract has no external audit, so a mainnet deal is switched off in this build.',\n  288 |   );\n  289 |   const offered = await p2p(await api(state.buyer)).query('trades.contractEscrow', { asset: 'USDT' });\n    at /home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs:286:25"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "J-p2p-21 #5 after the buyer marked paid, the seller finds no Cancel: release or a dispute only, and the coins stay in the contract",
+          "ok": false,
+          "file": "J-p2p-21.pw.mjs",
+          "line": 294,
+          "tests": [
+            {
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "failed",
+                  "retry": 0,
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs",
+                        "column": 22,
+                        "line": 117
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mpage\u001b[39m\u001b[2m).\u001b[22mtoHaveURL\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nExpected pattern: \u001b[32m/\\/uc\\/order\\?tradeId=/\u001b[39m\nReceived string:  \u001b[31m\"http://localhost:3210/p2p?offerId=b5c344a4-a78b-49f0-bdb6-d14442663256\"\u001b[39m\nTimeout: 30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveURL\" with timeout 30000ms\u001b[22m\n\u001b[2m    63 × locator resolved to <html lang=\"en\" dir=\"ltr\" data-theme=\"dark\" data-up-color=\"green\" data-phone-chart=\"top\">…</html>\u001b[22m\n\u001b[2m       - unexpected value \"http://localhost:3210/p2p?offerId=b5c344a4-a78b-49f0-bdb6-d14442663256\"\u001b[22m\n\n\n  115 |   await expect(passkey.or(confirm).first()).toBeVisible();\n  116 |   await ((await passkey.isVisible()) ? passkey : confirm).click();\n> 117 |   await expect(page).toHaveURL(/\\/uc\\/order\\?tradeId=/, { timeout: 30_000 });\n      |                      ^\n  118 |   return new URL(page.url()).searchParams.get('tradeId');\n  119 | }\n  120 |\n    at takeWithContract (/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs:117:22)\n    at /home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-p2p-21.pw.mjs:300:19"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

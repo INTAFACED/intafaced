@@ -72,8 +72,13 @@ GiveBack(p) == /\ pc[p] = "giveback"
                /\ Go(p, "done") /\ Release(p)
                /\ UNCHANGED <<status, wasTaken, arrivals, moves, answer>>
 
+\* The end: every driver has finished. It changes nothing, so the deadlock check fails any other state with no step out
+\* (a driver stuck halfway with the request's money undecided).
+Done == /\ \A p \in Procs : pc[p] = "done" /\ UNCHANGED vars
+
 Next == \/ Arrive \/ LoseLock
         \/ \E p \in Procs : Lock(p) \/ Read(p) \/ Move(p) \/ Record(p) \/ GiveBack(p)
+        \/ Done
 Spec == Init /\ [][Next]_vars
 
 \* ---- the rules ----

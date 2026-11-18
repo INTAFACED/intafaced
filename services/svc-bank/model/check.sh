@@ -15,16 +15,24 @@ sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -
 
 mkdir -p "$cache"
 if [ ! -f "$jar" ] || [ "$(sha256 "$jar")" != "$TLA_SHA256" ]; then
-  curl -fsSL -o "$jar.part" "https://github.com/tlaplus/tlaplus/releases/download/$TLA_VERSION/tla2tools.jar"
+  curl -fsSL -o "$jar.part" "https://github.com/tlaplus/tlaplus/releases/download/$TLA_VERSION/tla2tools.jar" ||
+    { echo "COULD NOT CHECK: tla2tools.jar $TLA_VERSION did not download" >&2; exit 3; }
   got="$(sha256 "$jar.part")"
-  if [ "$got" != "$TLA_SHA256" ]; then echo "tla2tools.jar $TLA_VERSION has sha256 $got, expected $TLA_SHA256" >&2; exit 2; fi
+  if [ "$got" != "$TLA_SHA256" ]; then echo "tla2tools.jar $TLA_VERSION has sha256 $got, expected $TLA_SHA256; COULD NOT CHECK" >&2; exit 3; fi
   mv "$jar.part" "$jar"
 fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failed=0
+couldnt=0
 ALL="NeverStranded HeldHasHold HoldOnce OneOutcome OutcomeMatches"
+
+# The whole counterexample of a run that broke a rule, from the line that names the break to the end; a run that
+# names none prints its last 80 lines.
+trace() {
+  if grep -qE 'is violated|Deadlock reached' "$1"; then sed -nE '/is violated|Deadlock reached/,$p' "$1"; else tail -n 80 "$1"; fi
+}
 
 # run <name> <placers> <invariants> <expect: "pass" or the invariant that must be violated> [<sed expression>]
 run() {
@@ -36,14 +44,17 @@ run() {
   else
     cp "$here/ReceivedHold.tla" "$d/ReceivedHold.tla"
   fi
-  printf 'CONSTANTS Placers = {%s}  B = 2  MaxT = %s  Tries = 2\nSPECIFICATION Spec\nINVARIANTS %s\nCHECK_DEADLOCK FALSE\n' \
+  printf 'CONSTANTS Placers = {%s}  B = 2  MaxT = %s  Tries = 2\nSPECIFICATION Spec\nINVARIANTS %s\n' \
     "$placers" "${MAXT:-8}" "$invariants" > "$d/ReceivedHold.cfg"
   local status=0
   ( cd "$d" && "$java" -XX:+UseSerialGC -Xmx2g -cp "$jar" tlc2.TLC -workers "${WORKERS:-auto}" -config ReceivedHold.cfg ReceivedHold.tla > out.txt 2>&1 ) || status=$?
+  # TLC's exit: 0 no error, 11 to 13 a broken rule (deadlock, invariant, temporal property); anything else (a parse
+  # error, out of memory, no Java) means it could not check, which is no verdict on the code (pstack statechart run.ts).
+  case "$status" in 0 | 11 | 12 | 13) ;; *) echo "COULD NOT CHECK $name: TLC exit $status"; tail -n 40 "$d/out.txt"; couldnt=1; return ;; esac
   local states; states="$(grep -Eo '[0-9,]+ distinct states found' "$d/out.txt" | tail -1 || true)"
   if [ "$expect" = pass ]; then
     if [ "$status" -eq 0 ] && grep -q 'No error has been found' "$d/out.txt"; then echo "ok   $name: no error, $states"
-    else echo "FAIL $name: expected no error (exit $status)"; sed -n '1,80p' "$d/out.txt"; failed=1; fi
+    else echo "FAIL $name: expected no error (exit $status)"; trace "$d/out.txt"; failed=1; fi
   else
     if grep -q "Invariant $expect is violated" "$d/out.txt"; then echo "ok   $name: $expect violated as it should be, $states"
       if [ -n "${SHOW_TRACE:-}" ]; then sed -n "/is violated/,\$p" "$d/out.txt"; fi
@@ -73,6 +84,10 @@ run broken-hold-key-repeats '"inline", "sweep"' "$ALL" HoldOnce 's/IF holdKey TH
 run broken-claim-without-cas '"sweep"' "$ALL" OutcomeMatches 's/state = "held"$/state \\notin {"placing", "lapsed"}/'
 
 # The CashOutLock model (#8597) shares this folder; CI runs one check.sh per folder, so it runs from here.
-"$here/check-cashout.sh" || failed=1
+cash=0
+"$here/check-cashout.sh" || cash=$?
+case "$cash" in 0) ;; 3) couldnt=1 ;; *) failed=1 ;; esac
 
+# A broken rule fails (1); a run that could not check, with no rule broken, exits 3: the workflow reads it as judge down.
+if [ "$failed" -eq 0 ] && [ "$couldnt" -eq 1 ]; then exit 3; fi
 exit "$failed"

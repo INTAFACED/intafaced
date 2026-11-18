@@ -68,6 +68,8 @@ import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './Venu
 import { venueProtectCopy } from './venue-protect-copy';
 import { VenueCollateral, VenueTiers } from './VenueRisk';
 import { venueRiskCopy } from './venue-risk-copy';
+import { VenueFunding } from './VenueFunding';
+import { intervalText } from './venue-funding-logic';
 import { roomLeft, takenAssets } from './venue-risk-logic';
 import { canonical, protectionClientId } from './venue-protect-logic';
 import type { RoutePreview } from '../../../features/trade/venue-api';
@@ -308,11 +310,6 @@ export function percentOf(fraction: string): string {
   const rest = padded.slice(2).replace(/0+$/, '');
   const out = rest ? `${int}.${rest}` : int;
   return negative && /[1-9]/.test(out) ? `-${out}` : out;
-}
-
-/** A funding interval in hours when it is whole hours, else in seconds. */
-export function intervalText(seconds: number): string {
-  return seconds % 3600 === 0 ? `${seconds / 3600}h` : `${seconds}s`;
 }
 
 /**
@@ -1100,7 +1097,7 @@ function Blotter({
 }) {
   const { t } = futuresVenueCopy.useCopy();
   const s = spotVenueCopy.useCopy().t;
-  const [tab, setTab] = useState<'positions' | 'orders' | 'history'>('positions');
+  const [tab, setTab] = useState<'positions' | 'orders' | 'history' | 'funding'>('positions');
   const keysHeld = useMemo(() => heldKeys(owner), [owner]);
   const tags = useMemo(() => heldTags(owner), [owner]);
   const tagOf = (clientOrderId: string) => tags.get(clientOrderId);
@@ -1114,12 +1111,13 @@ function Blotter({
   return (
     <section className="dk-panel" data-testid="venue-blotter">
       <Tabs
-        items={['positions', 'orders', 'history']}
+        items={['positions', 'orders', 'history', 'funding']}
         value={tab}
         onChange={(x) => setTab(x as typeof tab)}
         label={t('Positions')}
-        labels={{ positions: t('Positions'), orders: t('Orders'), history: t('History') }}
+        labels={{ positions: t('Positions'), orders: t('Orders'), history: t('History'), funding: t('Funding') }}
       />
+      {tab === 'funding' ? <VenueFunding market={market} owner={owner} venueName={status.venue.displayName} test={status.test} /> : null}
       {tab === 'positions' ? (
         <PositionsTable
           positions={positions}
@@ -1196,7 +1194,7 @@ function Blotter({
             />
           ) : null}
         </>
-      ) : (
+      ) : tab === 'funding' ? null : (
         <>
           <Settlements owner={owner} test={status.test} />
           <History fills={account.fills.data} test={status.test} />

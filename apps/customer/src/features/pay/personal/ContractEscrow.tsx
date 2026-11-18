@@ -6,11 +6,12 @@ import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session/session';
 import { createProtocolApi } from '../../protocol/api';
 import { shortAddress } from '../../protocol/wallet/eip1193';
-import { useWallet, WalletProvider, type SequenceResult } from '../../protocol/wallet/WalletProvider';
+import { useWallet, waitMined, WalletProvider, type SequenceResult } from '../../protocol/wallet/WalletProvider';
 import { PayDetails, PayTime } from '../components';
 import type { PersonalPayApi } from '../pay-api';
 import type { ContractEscrowOffer, Offer, Trade } from '../schemas';
 import { contractEscrowCopy } from './contract-escrow-copy';
+import { attachWhenLocked, DEAL_MINED_TIMEOUT_MS, pendingLocks, type PendingLock } from './contract-escrow-lock';
 
 /**
  * RC-p2p-02 (J-p2p-21): the contract escrow beside the ledger escrow.
@@ -175,6 +176,7 @@ function ContractEscrowInner({
   );
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [pendingLock, setPendingLock] = useState<PendingLock | null>(() => pendingLocks.read(trade.id));
   const seller = userId === trade.sellerId;
   const buyer = userId === trade.buyerId;
   const network = offer.resource.status === 'ready' ? (offer.resource.data.network?.label ?? '') : '';
@@ -199,18 +201,36 @@ function ContractEscrowInner({
     return wallet.sendSequence({ title, steps: built, ...(escrowAddress ? { facts: [{ label: t('fact'), value: escrowAddress }] } : {}) });
   };
 
-  const act = async (work: () => Promise<string | null>) => {
+  /** `work` answers null when done, a reason when nothing changed, or `{ notice }` for an outcome said as it is. */
+  const act = async (work: () => Promise<string | { notice: string } | null>) => {
     if (busy) return;
     setBusy(true);
     setProblem(null);
     try {
       const why = await work();
-      if (why) setProblem(t('failed', { reason: why }));
+      if (typeof why === 'string') setProblem(t('failed', { reason: why }));
+      else if (why) setProblem(why.notice);
     } finally {
       setBusy(false);
       deal.reload();
       reload();
     }
+  };
+
+  const readReceipt = (hash: string) => wallet.read('eth_getTransactionReceipt', [hash]);
+
+  /** Attaches the deal once its lock is mined; a lock not mined yet stays kept for this order until it is. */
+  const attachLock = async (lock: PendingLock) => {
+    const outcome = await attachWhenLocked({
+      readReceipt,
+      lockHash: lock.lockHash,
+      attach: () => pay.attachContractDeal(trade.id, lock.dealId),
+    });
+    if (outcome.kind === 'pending') return { notice: t('lockPending', { dealId: lock.dealId }) };
+    pendingLocks.clear(trade.id);
+    setPendingLock(null);
+    if (outcome.kind === 'reverted') return { notice: t('lockReverted', { dealId: lock.dealId }) };
+    return outcome.kind === 'refused' ? outcome.message : null;
   };
 
   const sync = async () => {
@@ -239,12 +259,11 @@ function ContractEscrowInner({
       const why = failed(opened);
       if (why || opened.status !== 'sent') return why;
       const openHash = opened.hashes[opened.hashes.length - 1]!;
-      type Receipt = { logs?: Array<{ address: string; topics: string[]; data: string }>; status?: string };
-      let receipt = null as Receipt | null;
-      for (let tries = 0; tries < 120 && !receipt?.status; tries++) {
-        receipt = (await wallet.read('eth_getTransactionReceipt', [openHash])) as Receipt | null;
-        if (!receipt?.status) await new Promise((resolve) => setTimeout(resolve, 500));
-      }
+      const opening = await waitMined(readReceipt, openHash, DEAL_MINED_TIMEOUT_MS);
+      if (opening.status === 'reverted') return { notice: t('openReverted') };
+      if (opening.status === 'timeout') return { notice: t('openPending') };
+      type Receipt = { logs?: Array<{ address: string; topics: string[]; data: string }> };
+      const receipt = (await readReceipt(openHash)) as Receipt | null;
       let newDeal: string | null = null;
       for (const log of receipt?.logs ?? []) {
         if (escrowAddress && log.address.toLowerCase() !== escrowAddress.toLowerCase()) continue;
@@ -262,13 +281,11 @@ function ContractEscrowInner({
       if (typeof locked === 'string') return locked;
       const lockWhy = failed(locked);
       if (lockWhy || locked.status !== 'sent') return lockWhy;
-      for (let tries = 0; tries < 120; tries++) {
-        const mined = (await wallet.read('eth_getTransactionReceipt', [locked.hashes[0]])) as { status?: string } | null;
-        if (mined?.status) break;
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      const attached = await pay.attachContractDeal(trade.id, newDeal);
-      return attached.ok ? null : attached.message || attached.code || 'the deal could not be attached';
+      // Kept before the wait, so a reload or a slow chain leaves the seller the deal id to attach.
+      const lock = { dealId: newDeal, lockHash: locked.hashes[0]! };
+      pendingLocks.write(trade.id, lock);
+      setPendingLock(lock);
+      return attachLock(lock);
     });
 
   /** One deal call from the party's wallet, then the order reads the deal again. */
@@ -279,11 +296,9 @@ function ContractEscrowInner({
       if (typeof sent === 'string') return sent;
       const why = failed(sent);
       if (why || sent.status !== 'sent') return why;
-      for (let tries = 0; tries < 120; tries++) {
-        const mined = (await wallet.read('eth_getTransactionReceipt', [sent.hashes[0]])) as { status?: string } | null;
-        if (mined?.status) break;
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
+      const mined = await waitMined(readReceipt, sent.hashes[0]!, DEAL_MINED_TIMEOUT_MS);
+      if (mined.status === 'reverted') return { notice: t('callReverted', { step: label }) };
+      if (mined.status === 'timeout') return { notice: t('callPending', { step: label }) };
       return sync();
     });
 
@@ -351,7 +366,11 @@ function ContractEscrowInner({
           <p role="alert">{t('wrongWallet', { address: shortAddress(wrongWallet) })}</p>
         ) : (
           <div className="actions" data-testid="order-contract-actions">
-            {seller && trade.status === 'created' ? (
+            {seller && trade.status === 'created' && !dealId && pendingLock ? (
+              <Button variant="primary" disabled={busy} onClick={() => void act(() => attachLock(pendingLock))}>
+                {busy ? t('busy') : t('attachLock', { dealId: pendingLock.dealId })}
+              </Button>
+            ) : seller && trade.status === 'created' ? (
               <Button variant="primary" disabled={busy} onClick={() => void fund()}>
                 {busy ? t('busy') : t('fund')}
               </Button>

@@ -48,7 +48,9 @@ import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './f
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
-import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { LeadDesk, parseLeadMinVenueUsdc, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { parseLeadDailyBuyCap, parseLeadPairHolding } from './copy/lead-trading.js';
+import { leadFollowing, leadVenueUsdc } from './copy/lead-conditions.js';
 import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
 import { registerSignalIntake } from './signals/intake-rest.js';
 import { createLiveTierClient } from './signals/live-tier.js';
@@ -187,6 +189,7 @@ import { HOUSE_MM_API_KEY_ID } from './spot/auth-attribution.js';
 import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
+import { FEED_WATCH_INTERVAL_MS, runFeedWatchTick } from './admin/feed-health.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { startFeeTierJobs } from './spot/fee-tier-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
@@ -710,11 +713,22 @@ const copy = new CopyService(ledger, {
       return null;
     }
     const [row] = await sql<
-      Array<{ id: string; user_id: string; side: 'buy' | 'sell'; qty: string; quote_amount: string; price: string; symbol: string }>
+      Array<{
+        id: string;
+        user_id: string;
+        side: 'buy' | 'sell';
+        qty: string;
+        quote_amount: string;
+        price: string;
+        symbol: string;
+        not_lead: boolean;
+      }>
     >`
-      SELECT f.id, f.user_id, f.side, f.qty, f.quote_amount, f.price, m.symbol
+      SELECT f.id, f.user_id, f.side, f.qty, f.quote_amount, f.price, m.symbol, (l.lead IS FALSE) AS not_lead
       FROM trade.fills f
       INNER JOIN trade.markets m ON m.id = f.market_id
+      -- A lead's order marked not a lead trade (the lead switch off, or an iceberg; copy/lead-trading.ts) is never copied.
+      LEFT JOIN trade.copy_lead_orders l ON l.order_id = f.order_id
       WHERE f.id = ${id}
       LIMIT 1
     `;
@@ -728,6 +742,7 @@ const copy = new CopyService(ledger, {
       qty: parseAmount(row.qty),
       notional: parseAmount(row.quote_amount),
       price: parseAmount(row.price),
+      ...(row.not_lead ? { notLead: true } : {}),
     };
   },
 });
@@ -783,6 +798,23 @@ const signalDesk = new SignalDesk({
 });
 registerSignalIntake(app, signalDesk);
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+// The lead desk (CB-copy-12 to 18): applications, missions, the lead account and the lead's own trading on the web.
+const leadDesk = new LeadDesk({
+  sql,
+  approvals: tradeOpsApprovals,
+  directory: leaderDirectory,
+  now: () => new Date(),
+  reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
+  minVenueUsdc: parseLeadMinVenueUsdc(env.TRADE_COPY_LEAD_MIN_VENUE_USDC),
+  following: (userId) => leadFollowing({ follows: copyStore, directory: leaderDirectory }, userId),
+  venueUsdc: (userId) => leadVenueUsdc({ venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore }, userId),
+  missionMinUsdc: parseLeadMinVenueUsdc(env.TRADE_COPY_LEAD_MISSION_MIN_USDC),
+  limits: {
+    dailyBuyCap: parseLeadDailyBuyCap(env.TRADE_COPY_LEAD_DAILY_BUY_CAP),
+    pairHolding: parseLeadPairHolding(env.TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS),
+  },
+  ownerDay: copyOwnerDay,
+});
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -826,13 +858,7 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
-  new LeadDesk({
-    sql,
-    approvals: tradeOpsApprovals,
-    directory: leaderDirectory,
-    now: () => new Date(),
-    reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
-  }),
+  leadDesk,
   grid,
   platformPauses,
   builderFees,
@@ -1107,6 +1133,13 @@ const conditionalJobs = startConditionalOrderJobs({
     if (failure != null) throw failure;
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'futures conditional job tick failed'),
+});
+// J-charts-desk-18 #2: the feed watcher writes the feed event journal. It judges nothing while the owner's delayed
+// boundary is blank (admin/feed-health.ts), so the interval is an operational tick, like svc-notify's alert sweep.
+const feedWatch = createJobHost({ onError: (name, err) => app.log.error({ err, job: name }, 'feed watch tick failed') });
+feedWatch.every('feed-watch', FEED_WATCH_INTERVAL_MS, async () => {
+  const r = await runFeedWatchTick(sql);
+  if (r.drops > 0 || r.reconnects > 0) app.log.info({ ...r }, 'feed watch wrote journal rows');
 });
 const candleJobs = startCandleJobs({
   sql,
@@ -1835,6 +1868,7 @@ registerPrivateRest(app, {
   convert: trade,
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   leadOrderGate: leadOrderGate((userId) => leaderDirectory.leadListing(userId)),
+  leadTrading: leadDesk.trading,
   grid,
   userVenue: userVenueRouter,
   agentAccounts,
@@ -1914,6 +1948,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       mmSeedJobs.stop();
       algoJobs.stop();
       copyMirrorJobs.stopAll();
+      feedWatch.stopAll();
       limitConvertJobs.stopAll();
       gridJobs.stopAll();
       optionsExerciseJobs.stop();

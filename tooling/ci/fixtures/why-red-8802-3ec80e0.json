@@ -1,0 +1,45 @@
+{
+  "stats": {
+    "startTime": "2026-11-17T23:04:08.889Z",
+    "duration": 202227.416015625,
+    "expected": 12,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "suites": [
+    {
+      "title": "J-portfolio-01-venue.pw.mjs",
+      "file": "J-portfolio-01-venue.pw.mjs",
+      "specs": [
+        {
+          "title": "J-portfolio-01 #5 cancels the order: the venue's lock returns to free and the locked list is empty",
+          "ok": false,
+          "file": "J-portfolio-01-venue.pw.mjs",
+          "line": 520,
+          "tests": [
+            {
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "failed",
+                  "retry": 0,
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-portfolio-01-venue.pw.mjs",
+                        "column": 59,
+                        "line": 558
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByTestId('source-venue').locator('tr[data-asset=\"BTC\"]').locator('[data-cell=\"locked\"]')\nExpected pattern: \u001b[32m/^0\\b/\u001b[39m\nReceived string:  \u001b[31m\"0In orders 0Collateral 0Stake 0\"\u001b[39m\nTimeout: 15000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" getByTestId('source-venue').locator('tr[data-asset=\"BTC\"]').locator('[data-cell=\"locked\"]') with timeout 15000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('source-venue').locator('tr[data-asset=\"BTC\"]').locator('[data-cell=\"locked\"]')\u001b[22m\n\u001b[2m    34 × locator resolved to <td data-cell=\"locked\" title=\"Locked by your open orders, as collateral or as stake, as the venue splits it\">…</td>\u001b[22m\n\u001b[2m       - unexpected value \"0In orders 0Collateral 0Stake 0\"\u001b[22m\n\n\n  556 |   expect(units(after.venue.locked)).toBe(0n);\n  557 |   expect(units(after.venue.total)).toBe(units(before.venue.total));\n> 558 |   await expect(after.row.locator('[data-cell=\"locked\"]')).toHaveText(/^0\\b/);\n      |                                                           ^\n  559 |   // The locked list is empty: no order lock, and every part of the split is 0.\n  560 |   await expect(after.row.getByTestId('source-venue-locks')).toHaveCount(0);\n  561 |   const split = await splitShown(after.row);\n    at /home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-portfolio-01-venue.pw.mjs:558:59"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

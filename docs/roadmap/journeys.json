@@ -4723,6 +4723,22 @@
     ]
   },
   {
+    "id": "J-home-ia-12",
+    "title": "I cut my exposure from one risk screen",
+    "module": "home-ia",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 2, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 3, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 4, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 5, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 6, "slices": ["RC-home-ia-03"], "noSlice": false }
+    ]
+  },
+  {
     "id": "J-identity-01",
     "title": "I sign up with my email or phone and get into the app",
     "module": "identity",
@@ -5785,6 +5801,37 @@
     ],
     "parked": true,
     "parkedUntil": "after launch (OWNER 183 (2): white-label platforms)"
+  },
+  {
+    "id": "J-merchant-43",
+    "title": "See every movement on my business balance, newest first",
+    "module": "merchant",
+    "persona": "merchant",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["M-money-out-01"], "noSlice": false },
+      { "n": 2, "slices": ["M-money-out-01"], "noSlice": false },
+      { "n": 3, "slices": ["M-money-out-01"], "noSlice": false },
+      { "n": 4, "slices": ["M-money-out-01"], "noSlice": false, "later": "custody" },
+      { "n": 5, "slices": ["M-money-out-01"], "noSlice": false, "later": "custody" },
+      { "n": 6, "slices": ["M-money-out-01"], "noSlice": false, "later": "custody" }
+    ]
+  },
+  {
+    "id": "J-merchant-44",
+    "title": "See what needs my business in its notifications",
+    "module": "merchant",
+    "persona": "merchant",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 2, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 3, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 4, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 5, "slices": ["M-plat-org-11"], "noSlice": false }
+    ]
   },
   {
     "id": "J-more-catalogue-01",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { intervalText, percentOf } from './VenueFuturesDesk';
+import { percentOf } from './VenueFuturesDesk';
+import { intervalText } from './venue-funding-logic';
 
 // J-derivatives-01 #4: the strip shows the venue's funding rate as a percent, digit for digit, sign kept.
 describe('percentOf', () => {

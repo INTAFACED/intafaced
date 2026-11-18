@@ -775,6 +775,13 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      TRADE_COPY_LEAD_MIN_VENUE_USDC: ${TRADE_COPY_LEAD_MIN_VENUE_USDC:-}
+      # CB-copy-12 the new-trader mission minimum on the applicant's own venue account. Empty = "Not set by the platform".
+      TRADE_COPY_LEAD_MISSION_MIN_USDC: ${TRADE_COPY_LEAD_MISSION_MIN_USDC:-}
+      # CB-copy-16 the lead daily buy cap. Empty = every lead buy refuses.
+      TRADE_COPY_LEAD_DAILY_BUY_CAP: ${TRADE_COPY_LEAD_DAILY_BUY_CAP:-}
+      # CB-copy-16 the lead per-pair holding limits, JSON of pair to decimal. Empty = every lead trade refuses.
+      TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS: ${TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS:-}
       # CB-copy-06 the owner's minimum investment per follow. Empty = every Start copying refuses.
       TRADE_COPY_MIN_INVESTMENT: ${TRADE_COPY_MIN_INVESTMENT:-}
       # CB-copy-06 when a copy day starts, minutes east of UTC. Empty = a follow with a daily cap refuses.

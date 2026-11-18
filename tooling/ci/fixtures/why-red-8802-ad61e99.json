@@ -1,0 +1,45 @@
+{
+  "stats": {
+    "startTime": "2026-11-17T22:48:38.861Z",
+    "duration": 186665.01293945312,
+    "expected": 12,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "suites": [
+    {
+      "title": "J-portfolio-01-venue.pw.mjs",
+      "file": "J-portfolio-01-venue.pw.mjs",
+      "specs": [
+        {
+          "title": "J-portfolio-01 #5 cancels the order: the venue's lock returns to free and the locked list is empty",
+          "ok": false,
+          "file": "J-portfolio-01-venue.pw.mjs",
+          "line": 514,
+          "tests": [
+            {
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "failed",
+                  "retry": 0,
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/venue.mjs",
+                        "column": 23,
+                        "line": 148
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('dialog', { name: 'Check before you sign' })\nExpected: visible\nTimeout: 15000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" getByRole('dialog', { name: 'Check before you sign' }) with timeout 15000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('dialog', { name: 'Check before you sign' })\u001b[22m\n\n\n   at venue.mjs:148\n\n  146 | export async function continueInWallet(page) {\n  147 |   const sheet = page.getByRole('dialog', { name: 'Check before you sign' });\n> 148 |   await expect(sheet).toBeVisible();\n      |                       ^\n  149 |   await sheet.getByRole('button', { name: 'Continue in wallet' }).click();\n  150 |   await expect(sheet).toHaveCount(0);\n  151 | }\n    at continueInWallet (/home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/venue.mjs:148:23)\n    at /home/runner/work/intafaced/intafaced/apps/customer/tests/real-app/J-portfolio-01-venue.pw.mjs:531:9"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -69,8 +69,7 @@ const receiptFields = {
  */
 export function createBusinessCardsRouter(c: BankRouterContext) {
   const { bank, stepUpEnforced, requireStepUp } = c;
-  // Read on each call, never at mount: a router built over a partial service (the preview doors) must not touch it.
-  const cards = () => bank.businessCards;
+  const cards = bank.businessCards;
   const accountInput = z.object({ accountId: z.string().guid() }).strict();
   return router({
     overview: scopedProcedure('bank:read', { module: 'bank' })
@@ -78,7 +77,7 @@ export function createBusinessCardsRouter(c: BankRouterContext) {
       .output(businessExpensesOverviewSchema)
       .query(({ ctx, input }) =>
         guard(async () => {
-          const o = await cards().overview(input.accountId, ctx.principal.userId);
+          const o = await cards.overview(input.accountId, ctx.principal.userId);
           return {
             policy: policyView(o.policy),
             permissions: o.permissions,
@@ -103,7 +102,7 @@ export function createBusinessCardsRouter(c: BankRouterContext) {
           .strict(),
       )
       .output(businessCardSchema)
-      .mutation(({ ctx, input }) => guard(async () => cardView(await cards().issueCard({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => cardView(await cards.issueCard({ ...input, userId: ctx.principal.userId })))),
     /** A purchase on the TEST card network (the `rail.card` stand-in), by the card's holder. Refused off the TEST stack. */
     testPurchase: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -112,32 +111,28 @@ export function createBusinessCardsRouter(c: BankRouterContext) {
           .strict(),
       )
       .output(businessCardPurchaseSchema)
-      .mutation(({ ctx, input }) =>
-        guard(async () => purchaseView(await cards().testPurchase({ ...input, userId: ctx.principal.userId }))),
-      ),
+      .mutation(({ ctx, input }) => guard(async () => purchaseView(await cards.testPurchase({ ...input, userId: ctx.principal.userId })))),
     decideLimitRequest: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ purchaseId: z.string().guid(), approve: z.boolean() }).strict())
       .output(businessCardLimitRequestSchema)
       .mutation(({ ctx, input }) =>
-        guard(async () => requestView(await cards().decideLimitRequest({ ...input, userId: ctx.principal.userId }))),
+        guard(async () => requestView(await cards.decideLimitRequest({ ...input, userId: ctx.principal.userId }))),
       ),
     setPolicy: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ accountId: z.string().guid(), receiptOver: amountString }).strict())
       .output(businessExpensePolicySchema)
-      .mutation(({ ctx, input }) => guard(async () => policyView(await cards().setPolicy({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => policyView(await cards.setPolicy({ ...input, userId: ctx.principal.userId })))),
     attachReceipt: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ purchaseId: z.string().guid(), ...receiptFields }).strict())
       .output(businessCardPurchaseSchema)
-      .mutation(({ ctx, input }) =>
-        guard(async () => purchaseView(await cards().attachReceipt({ ...input, userId: ctx.principal.userId }))),
-      ),
+      .mutation(({ ctx, input }) => guard(async () => purchaseView(await cards.attachReceipt({ ...input, userId: ctx.principal.userId })))),
     /** Every receipt of the business in one ZIP file, base64 on the wire. */
     receiptsZip: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(businessReceiptsZipSchema)
       .query(({ ctx, input }) =>
         guard(async () => {
-          const out = await cards().receiptsZip(input.accountId, ctx.principal.userId);
+          const out = await cards.receiptsZip(input.accountId, ctx.principal.userId);
           return { fileName: out.fileName, count: out.count, zipBase64: out.zip.toString('base64') };
         }),
       ),
@@ -154,7 +149,7 @@ export function createBusinessCardsRouter(c: BankRouterContext) {
           .strict(),
       )
       .output(businessReimbursementSchema)
-      .mutation(({ ctx, input }) => guard(async () => claimView(await cards().submitClaim({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => claimView(await cards.submitClaim({ ...input, userId: ctx.principal.userId })))),
     /** An approver's yes, never the claimant's: one partner move to the member's own account, sent once. */
     approveAndPay: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ claimId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }).strict())
@@ -168,7 +163,7 @@ export function createBusinessCardsRouter(c: BankRouterContext) {
               input.stepUpApprovalId,
             );
           }
-          return claimView(await cards().approveAndPay({ claimId: input.claimId, userId: ctx.principal.userId }));
+          return claimView(await cards.approveAndPay({ claimId: input.claimId, userId: ctx.principal.userId }));
         }),
       ),
   });

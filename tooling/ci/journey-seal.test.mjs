@@ -1947,6 +1947,7 @@ test('#1574: each seal input ends with Start the seal, after every other job, fr
     'ci-review.yml': REVIEWED,
     'real-app-journeys.yml': 'Real-app journeys',
     'customer-money-browser.yml': MONEY,
+    'model-check.yml': 'Model check',
   };
   assert.deepEqual(
     SEAL_INPUTS.map((i) => i.workflow),
@@ -1962,10 +1963,10 @@ test('#1574: each seal input ends with Start the seal, after every other job, fr
         startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs.split(', ').slice(1).join(', ')}]`), f).join(),
         /does not need/,
       );
-    // Planted: a job that is not in the workflow (a removed planner) fails.
+    // Planted: a job that is not in the workflow (a removed planner) fails. model-check.yml has a real `plan` job.
     assert.match(
-      startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs}, plan]`), f).join(),
-      /needs plan, which is not a job here/,
+      startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs}, removed-plan]`), f).join(),
+      /needs removed-plan, which is not a job here/,
     );
     assert.match(
       startJobProblems(
@@ -2125,6 +2126,7 @@ test('#1574 readGoing: the re-check leaves the seal alone while an input on the 
     if (path.includes('/workflows/ci-review.yml/runs'))
       return { workflow_runs: [{ id: 2, head_sha: HEAD, event: 'pull_request_target', status: 'in_progress' }] };
     if (path.includes('/workflows/customer-money-browser.yml/runs')) return { workflow_runs: [] }; // #8708: not touched here
+    if (path.includes('/workflows/model-check.yml/runs')) return { workflow_runs: [] }; // project-state#2962: no run read here
     if (path.includes('/workflows/real-app-journeys.yml/runs')) return { workflow_runs: [] };
     if (path.includes('/runs/2/jobs')) return { jobs: reviewJobs };
     if (path.includes('/files')) return [{ filename: 'docs/a.md' }];
@@ -2168,6 +2170,7 @@ test('project-state #2548: the re-check never leaves the seal for a CI review ru
         ],
       };
     if (path.includes('/workflows/customer-money-browser.yml/runs')) return { workflow_runs: [] }; // #8708: not touched here
+    if (path.includes('/workflows/model-check.yml/runs')) return { workflow_runs: [] }; // project-state#2962: no run read here
     if (path.includes('/workflows/real-app-journeys.yml/runs'))
       return { workflow_runs: [{ id: 3, head_sha: HEAD, event: 'pull_request', status: 'completed' }] };
     if (path.includes('/runs/43789888663/jobs'))
@@ -2528,6 +2531,7 @@ test('#7996: a deferred journeys run counts as going, never as a finished run th
     if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: [done(1)] };
     if (path.includes('/workflows/ci-review.yml/runs')) return { workflow_runs: [done(2, { event: 'pull_request_target' })] };
     if (path.includes('/workflows/customer-money-browser.yml/runs')) return { workflow_runs: [] }; // #8708: not touched here
+    if (path.includes('/workflows/model-check.yml/runs')) return { workflow_runs: [] }; // project-state#2962: no run read here
     if (path.includes('/workflows/real-app-journeys.yml/runs')) return { workflow_runs: journeys };
     if (path.includes('/runs/2/jobs')) return { jobs: [{ name: 'CI review', status: 'completed', conclusion: 'success' }] };
     const m = /\/runs\/(\d+)\/jobs/.exec(path);

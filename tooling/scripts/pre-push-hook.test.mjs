@@ -3,7 +3,8 @@
 // CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR. A push
 // that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it. The lint
 // ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files and refuses a rise; CI's other Doctrine gates
-// (gates.mjs --before-push) run too, and a red one refuses the push. Without the install either refuses, naming the command.
+// (gates.mjs --before-push) run too, and a red one refuses the push, as does a red typecheck of the packages it reaches.
+// Without the install either refuses, naming the command.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -351,6 +352,31 @@ test('no node_modules in the worktree: the push is refused, with how to install 
     assert.equal(r.code, 1, r.out);
     assert.match(r.out, /the Doctrine gates need this worktree's install — push refused\. Install it: pnpm install --frozen-lockfile/);
     assert.doesNotMatch(r.out, /gates step/);
+  } finally {
+    p.done();
+  }
+});
+
+// The typecheck of the packages a push reaches (tooling/scripts/pre-push-typecheck.mjs), planted: it answers `code`.
+const typecheckStep = (code) => ({
+  'tooling/scripts/pre-push-typecheck.mjs': `console.log('typecheck step');\n${code ? "console.error('src/x.ts(1,7): error TS2322');\n" : ''}process.exit(${code});\n`,
+});
+
+test('a red typecheck refuses the push with its compiler line; a green one lets it through; a delete never runs it', () => {
+  const p = plant({ prettier: 'exit 0', base: typecheckStep(1) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /typecheck step/);
+    assert.match(r.out, /error TS2322/);
+    writeFileSync(join(p.work, 'tooling', 'scripts', 'pre-push-typecheck.mjs'), typecheckStep(0)['tooling/scripts/pre-push-typecheck.mjs']);
+    const g = p.push();
+    assert.equal(g.code, 0, g.out);
+    assert.match(g.out, /typecheck step/);
+    writeFileSync(join(p.work, 'tooling', 'scripts', 'pre-push-typecheck.mjs'), typecheckStep(1)['tooling/scripts/pre-push-typecheck.mjs']);
+    const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
+    assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
+    assert.doesNotMatch(`${d.stdout}${d.stderr}`, /typecheck step/);
   } finally {
     p.done();
   }

@@ -1,4 +1,5 @@
 import { expect } from './journey.mjs';
+import { EDGE, tool } from './stack.mjs';
 
 // What a person does on the chart workbench's drawing tools in the running app, shared by the charts-desk journeys. The
 // drawings are kept on this device, so one journey keeps one browser context for all its steps (see its own file).
@@ -113,4 +114,20 @@ export async function centred(page, point) {
     if ((await pointerAt(page, { x: point.x + dx, y: point.y })).time === time) same.push(point.x + dx);
   }
   return { x: (Math.min(...same) + Math.max(...same)) / 2, y: point.y };
+}
+
+/** The owner's chart values svc-trade serves for `symbol` (the two ages, the counts and the data class). */
+export async function ownerValues(symbol = 'BTC/USDT') {
+  const res = await fetch(`${EDGE}/api/v1/charts/owner-values?symbol=${encodeURIComponent(symbol)}`);
+  expect(res.status).toBe(200);
+  return res.json();
+}
+
+/** The TEST market maker's own status line, read only; `status` exits non-zero when the maker is down, which is an answer here. */
+export function makerStatus() {
+  try {
+    return tool('local-test-market.mjs', 'status');
+  } catch (err) {
+    return String(err.stdout ?? '');
+  }
 }

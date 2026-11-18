@@ -52,6 +52,8 @@ import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { subscribeNotificationEvents } from './events.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
+import { AlertOpsReader } from './alerts/ops-health.js';
+import { AlertOwnerValues, parseAccountPlans } from './alerts/owner-values.js';
 import { PostgresAlertStore } from './alerts/store.js';
 import { PostgresWatchRuleStore, WatchRuleService } from './alerts/watch-rules.js';
 import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
@@ -427,6 +429,19 @@ const statusPageDeps = {
   maintenance,
   publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null,
 };
+// The founder console's alert engine read (J-charts-desk-18 #3 #4): counts of this service's own rows.
+alerts.attachOpsReader(new AlertOpsReader(sql));
+// The founder's alert values (J-charts-desk-18 #5 #6): a value never set on the page keeps the deployment's own setting.
+alerts.attachOwnerValues(
+  new AlertOwnerValues(
+    sql,
+    {
+      maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
+      triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
+    },
+    parseAccountPlans(env.BANK_PLANS_JSON),
+  ),
+);
 export const appRouter = createNotifyRouter(
   notify,
   alerts,
