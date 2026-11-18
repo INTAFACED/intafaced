@@ -28,7 +28,7 @@ import { recoverPersonalSignAddress } from '../ramps/wallet-ownership.js';
  */
 
 /** The partner's own account a move to a wallet leaves the main balance into, before it sends it on chain. */
-export const PARTNER_CHAIN_OUT_OWNER = 'partner:chain-out';
+const PARTNER_CHAIN_OUT_OWNER = 'partner:chain-out';
 export function partnerChainOutAccount(assetId: string): PartnerAccountRef {
   return { userId: PARTNER_CHAIN_OUT_OWNER, assetId, spaceId: null };
 }
@@ -157,7 +157,7 @@ export class OwnMoveService {
       await this.sql`
         INSERT INTO bank.own_moves (id, user_id, direction, asset_id, amount, wallet, status)
         VALUES (${moveId}, ${userId}, 'in', ${assetId}, ${formatAmount(amount)}, ${wallet}, 'opening')
-        ON CONFLICT (id) DO NOTHING
+        ON CONFLICT (id) DO NOTHING -- conflict-keys-ok: own_moves_deposit_tx_uq — a new move is inserted with no deposit_tx, so it cannot clash there
       `;
       const kept = await this.row(moveId);
       if (!kept || kept.user_id !== userId || kept.asset_id !== assetId || parseAmount(kept.amount) !== amount || kept.wallet !== wallet) {
