@@ -257,6 +257,14 @@ export const chromium = new Proxy(playwrightChromium, {
   },
 });
 
+/** Closes the founders' console contexts a journey file kept, and forgets its approver sessions. */
+async function closeFounders(kept) {
+  const consoles = [...kept.consoles.values()];
+  kept.consoles.clear();
+  kept.ops.clear();
+  for (const held of consoles) await held.then(({ page }) => page.context().close()).catch(() => {});
+}
+
 /** The step picture's attachment name, as tooling/ci/step-pictures.mjs STEP_PICTURE reads it (a shard imports no judge file). */
 const STEP_PICTURE = 'step-picture';
 
@@ -279,6 +287,56 @@ const extended = base.extend({
   context: async ({ context }, use) => {
     watchSignIns(context);
     await use(context);
+  },
+  // The founders' sessions, signed in once per journey file in this worker and kept for the file's steps
+  // (garden/no-sign-in-in-step refuses a sign-in inside a step). Each founder sign-in sends an authenticator step no earlier
+  // sign-in spent, so a sign-in per step could wait out a whole 30 s window inside the step's own time limit.
+  //   founders.console(key)  founder `key` ('a' or 'b') signed in to the console, in a browser context of its own (its
+  //                          cookies never meet the customer's): { page, founder: { userId, handle } }
+  //   founders.ops()         the two founders' approver sessions on one gates context: { gates, ctx, sessions }
+  // A sign-in that fails is not kept, so the next step signs in afresh and a refusal fails the step that met it.
+  founderSessions: [
+    async ({ browser }, use) => {
+      const kept = { browser, file: null, consoles: new Map(), ops: new Map() };
+      await use(kept);
+      await closeFounders(kept);
+    },
+    { scope: 'worker' },
+  ],
+  founders: async ({ founderSessions: kept }, use, testInfo) => {
+    if (kept.file !== testInfo.file) {
+      await closeFounders(kept);
+      kept.file = testInfo.file;
+    }
+    // One sign-in per key: a sign-in that failed is forgotten, so the next step signs in afresh.
+    const once = (map, key, make) => {
+      if (!map.has(key)) {
+        const held = make();
+        held.catch(() => map.delete(key));
+        map.set(key, held);
+      }
+      return map.get(key);
+    };
+    await use({
+      console: (key = 'a') =>
+        once(kept.consoles, key, async () => {
+          const context = await kept.browser.newContext();
+          try {
+            const page = await context.newPage();
+            const { founderSignIn } = await import('./admin.mjs');
+            return { page, founder: await founderSignIn(page, key) };
+          } catch (error) {
+            await context.close().catch(() => {});
+            throw error;
+          }
+        }),
+      ops: () =>
+        once(kept.ops, 'pair', async () => {
+          const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+          const ctx = await gates.makeContext({ log: () => {}, shareSessions: true });
+          return { gates, ctx, sessions: await gates.approverSessions(ctx) };
+        }),
+    });
   },
   // No journey file leaves the shared world changed for the file after it: its resting orders, algos and bots come down,
   // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).

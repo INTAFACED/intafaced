@@ -1,5 +1,5 @@
 {
-  "failInAddedFiles": ["garden/no-hand-schema", "garden/no-screen-literal", "garden/no-hand-typed-patch"],
+  "failInAddedFiles": ["garden/no-hand-schema", "garden/no-screen-literal", "garden/no-hand-typed-patch", "garden/no-sign-in-in-step"],
   "fixes": {
     "eslint/no-console": "log through the service's structured logger (Fastify's app.log or req.log, an object first, then the message), not console.",
     "eslint/max-params": "take one object of named fields instead of more than three positional parameters (the limit of 3 is ours).",
