@@ -9,7 +9,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compare, ruleOf } from './lint-ratchet.mjs';
+import { compare, ruleOf, suppressionsOf, TEST_FILE } from './lint-ratchet.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(ROOT, 'tooling', 'ci', 'lint-ratchet.mjs');
@@ -218,4 +218,77 @@ test('a rule that replaced a test of added files fails in an added file even whe
   } finally {
     r.done();
   }
+});
+
+// project-state#2963: main's config turns on four built-in rules for service and package source outside tests; each
+// planted new finding in a touched file fails and prints its fix, and an untouched file's old findings do not count.
+const REAL_CONFIG = JSON.parse(readFileSync(join(ROOT, '.oxlintrc.json'), 'utf8'));
+const REAL_STARTS = JSON.parse(readFileSync(join(ROOT, 'tooling', 'lint', 'ratchet.json'), 'utf8'));
+const OLD = 'services/svc-x/src/old.ts';
+const OLD_TEXT =
+  'export function old(a: number, b: number, c: number, d: number) {\n  console.log(a);\n  const m = new Map<number, number>();\n  return (m.get(b)! + c + d) as number;\n}\n';
+for (const [rule, line, fix] of [
+  ['eslint/no-console', 'export function f() {\n  console.log("x");\n}\n', /fix: log through the service's structured logger/u],
+  [
+    'eslint/max-params',
+    'export function f(a: number, b: number, c: number, d: number) {\n  return a + b + c + d;\n}\n',
+    /fix: take one object of named fields/u,
+  ],
+  [
+    'typescript/consistent-type-assertions',
+    'export const f = (v: unknown) => v as string;\n',
+    /fix: don't cast: parse the value at its boundary.*`satisfies T`/u,
+  ],
+  ['typescript/no-non-null-assertion', 'export const f = (m: Map<string, number>) => m.get("a")!;\n', /fix: don't assert with `!`/u],
+]) {
+  test(`${rule}: a new finding in a touched service file fails and names the fix; an untouched file's old ones do not`, skip, () => {
+    const r = repo(REAL_STARTS, REAL_CONFIG, { [OLD]: OLD_TEXT });
+    try {
+      const clean = r.pr({ 'services/svc-x/src/new.ts': 'export const ok = 1;\n' });
+      assert.equal(clean.code, 0, clean.out);
+      const { code, out } = r.pr({ 'services/svc-x/src/new.ts': line });
+      assert.equal(code, 1, out);
+      assert.match(out, new RegExp(`${rule.replace('/', '\\/')} rose from 0 to 1`, 'u'));
+      assert.match(out, fix);
+      const inTest = r.pr({ 'services/svc-x/src/new.ts': 'export const ok = 1;\n', 'services/svc-x/src/new.test.ts': line });
+      assert.equal(inTest.code, 0, `${rule} stays off in tests: ${inTest.out}`);
+    } finally {
+      r.done();
+    }
+  });
+}
+
+test('a new suppression in a touched product file fails like the finding it silences; old ones and test files do not', skip, () => {
+  const silenced = 'services/svc-x/src/s.ts';
+  const r = repo(REAL_STARTS, REAL_CONFIG, { [silenced]: '// oxlint-disable-next-line no-console -- kept\nconsole.log(1);\n' });
+  try {
+    const held = r.pr({ [silenced]: '// oxlint-disable-next-line no-console -- kept\nconsole.log(2);\n' });
+    assert.equal(held.code, 0, held.out);
+    // The past mistake (product suppressions rose 89 to 100, 11 to 18 Nov): a finding silenced instead of fixed.
+    const { code, out } = r.pr({
+      'services/svc-x/src/new.ts': 'export function f() {\n  // oxlint-disable-next-line no-console -- quiet\n  console.log("x");\n}\n',
+    });
+    assert.equal(code, 1, out);
+    assert.match(out, /suppression\/no-console rose from 1 to 2/u);
+    assert.match(out, /services\/svc-x\/src\/new\.ts:2 {2}a suppression silences this rule here/u);
+    assert.match(out, /fix: fix the finding instead of silencing it/u);
+  } finally {
+    r.done();
+  }
+});
+
+test('suppressions: names, lines and the test-file door', () => {
+  assert.deepEqual(
+    suppressionsOf(
+      'a\n// oxlint-disable-next-line react-hooks/exhaustive-deps -- why\n/* eslint-disable @typescript-eslint/no-explicit-any, no-console */\n// eslint-disable-line\n',
+    ),
+    [
+      { rule: 'suppression/react-hooks/exhaustive-deps', line: 2 },
+      { rule: 'suppression/typescript/no-explicit-any', line: 3 },
+      { rule: 'suppression/no-console', line: 3 },
+      { rule: 'suppression/(every rule)', line: 4 },
+    ],
+  );
+  assert.ok(TEST_FILE.test('services/a/src/x.test.ts') && TEST_FILE.test('apps/customer/tests/real-app/j.pw.mjs'));
+  assert.ok(!TEST_FILE.test('services/svc-bank/src/partner/test-partner.ts'), 'a TEST stand-in is product code');
 });
