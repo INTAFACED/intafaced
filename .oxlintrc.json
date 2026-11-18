@@ -34,6 +34,7 @@
     "garden/no-sign-in-in-step": "error",
     "garden/step-picture-before-leaving": "error",
     "garden/asset-id-schema": "error",
+    "garden/restart-through-helper": "error",
     "garden/no-history-comment": "error",
     "garden/no-copied-journey-function": "error",
     "garden/no-class-selector": "error",

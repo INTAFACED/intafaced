@@ -84,7 +84,7 @@ export {
 
 export { useSession } from '../../features/session/session';
 export { createPersonalPayApi, type PersonalPayApi } from '../../features/pay/pay-api';
-export { sendInput, spaceSchema } from '../../features/pay/schemas';
+export { sendInput } from '../../features/pay/schemas';
 export { pendingKey as bankPendingKey, pendingOutcomes } from '../../features/money/pending-outcomes';
 export { AccountDetailsByCurrency } from '../../features/money/AccountDetails';
 export type { ApiClient, ApiResult } from '../../shared/api';

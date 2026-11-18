@@ -4,9 +4,9 @@
  * svc-bank's `spaces.list`, which carries the partner's own figure and time), and the published prices (svc-ops
  * `valuation.prices`). Each is read again every few seconds while the room is open.
  */
+import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { useMemo } from 'react';
 import { VALUATION_PRICES_PROCEDURE, valuationPricesOutputSchema, type ValuationPrices } from '@intafaced/contracts/valuation-prices';
-import { z } from 'zod';
 import { useApi, useSession } from '../../features/session/session';
 import { createProtocolApi } from '../../features/protocol/api';
 import { nativeCurrency } from '../../features/protocol/wallet/transfer';
@@ -14,7 +14,7 @@ import { useWallet } from '../../features/protocol/wallet/WalletProvider';
 import { usePolled } from '../../features/protocol/wallet/use-polled';
 import { useResource } from '../../shared/resource';
 import { useVenueApi } from '../../features/trade/venue/VenueKit';
-import { decimalSchema, formatAmount, parseAmount } from '../../shared/money';
+import { formatAmount, parseAmount } from '../../shared/money';
 import { readWallet, venueRows, type NodeRead, type VenueRow, type WalletRead, type WalletToken } from './where-it-sits';
 import { standing, type PartRead } from './standing';
 
@@ -59,30 +59,13 @@ export function useVenueRead(owner: string) {
   );
 }
 
-/**
- * The part of svc-bank's `spaces.list` row the partner read needs: the asset, the balance and whose figure it is. Kept here
- * rather than reusing Money's full schema, so Home does not load Money's copy catalog with every page (core-imports test).
- */
-const partnerSpaceSchema = z.object({
-  assetId: z.string(),
-  balance: decimalSchema,
-  heldAt: z
-    .object({ label: z.string(), asOf: z.string().datetime({ offset: true }) })
-    .nullable()
-    .optional(),
-});
-
 /** What the partner holds for the person: every space it holds, by asset, with the partner's oldest time among them. */
 export type PartnerRead =
   { state: 'reading' } | { state: 'unread' } | { state: 'none' } | (Extract<PartRead, { state: 'read' }> & { label: string });
 
 export function usePartnerRead(): PartnerRead {
   const { api, userId } = useSession();
-  const read = usePolled(
-    (signal) => api.query('bank', 'spaces.list', { limit: 200 }, z.array(partnerSpaceSchema), { signal }),
-    `standing:partner:${userId}`,
-    READ_EVERY_MS,
-  );
+  const read = usePolled((signal) => api.call(BANK_SPACES_LIST, { limit: 200 }, { signal }), `standing:partner:${userId}`, READ_EVERY_MS);
   // As Assets shows every source: the last answer stays until a newer one, and with none a failed read is unread.
   if (!read.data) return read.failure ? { state: 'unread' } : { state: 'reading' };
   const held = read.data.filter((space) => space.heldAt && /[1-9]/.test(space.balance));
