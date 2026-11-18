@@ -142,6 +142,8 @@ function Room({ owner, status }: { owner: string; status: VenueUp }) {
   const venues = venuesOf(status);
   const primary = venues[0]!;
   const [revision, setRevision] = useState(0);
+  const spaces = useSpendingSpaces(revision);
+  const partner = (spaces.data ?? []).find((s) => s.heldAt)?.heldAt?.label ?? null;
   return (
     <>
       <div className="grid-2" data-revision={revision}>
@@ -150,9 +152,9 @@ function Room({ owner, status }: { owner: string; status: VenueUp }) {
             <VenueAccount key={venue.id ?? 'venue'} owner={owner} venue={venue} test={status.test} revision={revision} />
           ))}
         </section>
-        <SpendingGroup revision={revision} />
+        <SpendingGroup revision={revision} spaces={spaces} />
       </div>
-      <MoveIn owner={owner} venue={primary} onMoved={() => setRevision((n) => n + 1)} />
+      <MoveIn owner={owner} venue={primary} partner={partner} onMoved={() => setRevision((n) => n + 1)} />
     </>
   );
 }
@@ -204,14 +206,15 @@ function VenueAccount({ owner, venue, test, revision }: { owner: string; venue: 
   );
 }
 
-function SpendingGroup({ revision }: { revision: number }) {
+/** The person's bank spaces, each with where the partner holds it: read once for the room, by the spending group and the move. */
+function useSpendingSpaces(revision: number) {
+  const { api, userId } = useSession();
+  return usePolled((signal) => api.call(BANK_SPACES_LIST, { limit: 200 }, { signal }), `spending:${userId}:${revision}`, READ_EVERY_MS);
+}
+
+function SpendingGroup({ revision, spaces }: { revision: number; spaces: ReturnType<typeof useSpendingSpaces> }) {
   const { t } = tradingAccountCopy.useCopy();
   const { api, userId } = useSession();
-  const spaces = usePolled(
-    (signal) => api.call(BANK_SPACES_LIST, { limit: 200 }, { signal }),
-    `spending:${userId}:${revision}`,
-    READ_EVERY_MS,
-  );
   const cards = usePolled(
     async (signal) => {
       const listed = await api.query('bank', 'cards.list', { limit: 50 }, cardRowsSchema, { signal });
@@ -284,7 +287,7 @@ type Stage =
   | { at: 'depositing' | 'crediting'; move: OwnMove }
   | { at: 'done'; move: OwnMove; again: boolean };
 
-function MoveIn({ owner, venue, onMoved }: { owner: string; venue: Venue; onMoved: () => void }) {
+function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venue; partner: string | null; onMoved: () => void }) {
   const { t } = tradingAccountCopy.useCopy();
   const { api, userId } = useSession();
   const wallet = useWallet();
@@ -441,7 +444,7 @@ function MoveIn({ owner, venue, onMoved }: { owner: string; venue: Venue; onMove
     setStage({ at: 'done', move: moved.data, again: true });
   };
 
-  const partnerName = (moves.data ?? [])[0]?.partner ?? null;
+  const partnerName = partner ?? (moves.data ?? [])[0]?.partner ?? null;
   const unfinished = (moves.data ?? []).filter((m) => m.status === 'sent' && !m.depositTx);
   return (
     <section className="dk-panel form-stack" aria-label={t('moveTitle')} data-testid="move-in">
