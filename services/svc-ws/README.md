@@ -504,6 +504,14 @@ JWT-authenticated, push-only. Query `?access_token=` (or `Authorization: Bearer`
 `trade:write`. Disabled (403) when `JWT_ACCESS_SECRET` is unset; missing/invalid identity
 configuration refuses private upgrades with 503. Public depth/tape are unaffected.
 
+**Stream tokens** (identity `POST /api/v1/stream/token`, audience `<JWT_AUDIENCE>.stream`) open this door too, and
+only this door. svc-trade takes the platform audience alone, so on a stream-token seat svc-ws never calls svc-trade
+with the token: the starting open-orders and positions snapshot is named `ws.stream_token_snapshot_unavailable` per
+channel (live updates still flow), a positions subscribe gets `positions.snapshot_unavailable`, and `cod.arm` is
+refused `cod.stream_token_unsupported`, so a dead-man switch is never armed that could not fire. At the token's end
+the seat gets `{ type: "error", code: "ws.token_expired" }` and a 4003 close; a spent token's upgrade is 401
+`{"code":"ws.token_expired"}`.
+
 Both `/private/stream` and `/drop-copy/stream` require identity POST
 `/trpc/accountControls.currentAuthority`, exact plain JSON and body-bound v2 service
 authentication. The response must match the verified JWT's user, session/API key

@@ -398,18 +398,37 @@ function tokenFrom(url: URL, headers: IncomingMessage['headers']): string | null
   return m?.[1] ?? null;
 }
 
+/** Named on a stream-token seat in place of the open orders and positions snapshot, which svc-trade reads only for the platform audience. */
+export const STREAM_TOKEN_SNAPSHOT_UNAVAILABLE = 'ws.stream_token_snapshot_unavailable' as const;
+
 async function hydratePrivateBook(input: {
   hub: PrivateOrderHub;
   book: PrivateBookPort;
   sink: DepthSink;
   userId: string;
   accessToken: string;
+  /** Opened with a stream token: svc-trade will not read with it, so the snapshot is named unavailable, not attempted. */
+  stream: boolean;
   channelSel: PrivateStreamChannel | 'all';
   log: HubLogger;
 }): Promise<void> {
   const { hub, book, sink, userId, accessToken, channelSel, log } = input;
   const wantOrders = channelSel === 'all' || channelSel === 'orders';
   const wantPositions = channelSel === 'all' || channelSel === 'positions';
+  if (input.stream) {
+    // Live updates still flow; only the starting snapshot is missing, and it says so per channel. A refused read here
+    // must not mark the shared hub's engine down for everyone.
+    try {
+      for (const channel of ['orders', 'positions'] as const) {
+        if (channel === 'orders' ? wantOrders : wantPositions) {
+          sink.send(JSON.stringify({ channel, type: 'status', code: STREAM_TOKEN_SNAPSHOT_UNAVAILABLE, userId }));
+        }
+      }
+    } finally {
+      hub.releaseSnapshot(sink);
+    }
+    return;
+  }
   try {
     if (wantOrders) {
       let orders: Awaited<ReturnType<PrivateBookPort['listOpenOrders']>> = [];
@@ -746,7 +765,8 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                   stream: positions,
                   session: { userId: seat.userId, scopes: seat.scopes },
                   nowIso: new Date(now()).toISOString(),
-                  accessToken: seat.token,
+                  // svc-trade reads open positions only for the platform audience: a stream-token seat gets the typed refusal.
+                  ...(seat.stream ? {} : { accessToken: seat.token }),
                   seed: positionsSeed,
                   send: (frame) => sink.send(frame),
                   onDetach: (detach) => {
@@ -764,6 +784,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                   userId: seat.userId,
                   accessToken: seat.token,
                   hasWrite,
+                  ...(seat.stream ? { streamToken: true } : {}),
                   send: sendCod,
                 });
               })
@@ -816,7 +837,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           };
           cod.replayLastFire(userId, replay);
           log.info({ userId }, 'ws-private: client connected');
-          void hydratePrivateBook({ hub, book, sink, userId, accessToken: raw, channelSel, log });
+          void hydratePrivateBook({ hub, book, sink, userId, accessToken: raw, stream, channelSel, log });
         });
       } catch (err) {
         // Only runs for PRIVATE_STREAM_PATH after the early return above.

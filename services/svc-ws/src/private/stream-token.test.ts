@@ -14,6 +14,7 @@ import {
   PRIVATE_CHANNEL_NOT_OPEN,
   PRIVATE_STREAM_PATH,
   PRIVATE_SUBSCRIBE_CHANNELS_REQUIRED,
+  STREAM_TOKEN_SNAPSHOT_UNAVAILABLE,
   privateSubscribeReply,
   TOKEN_EXPIRED_CODE,
   verifyStreamSeatToken,
@@ -60,7 +61,11 @@ describe('private stream with a short-lived stream token', () => {
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  async function boot(authority: CurrentAuthorityPort, liveCredential?: LiveCredentialPort): Promise<void> {
+  async function boot(
+    authority: CurrentAuthorityPort,
+    liveCredential?: LiveCredentialPort,
+    extra: Partial<Parameters<typeof createPrivateWebSocketGateway>[0]> = {},
+  ): Promise<void> {
     const hub = new PrivateOrderHub({ highWaterBytes: 1_000_000, maxLagTicks: 5, maxConnections: 10, maxConnectionsPerUser: 10 });
     server = createServer((_req, res) => {
       res.writeHead(404);
@@ -79,6 +84,7 @@ describe('private stream with a short-lived stream token', () => {
       enabled: () => true,
       tokens,
       ...(liveCredential ? { liveCredential } : {}),
+      ...extra,
     });
   }
 
@@ -88,6 +94,16 @@ describe('private stream with a short-lived stream token', () => {
       { userId: USER, sessionId: SESSION, scopes: ['trade:read'], apiKeyId: KEY, keyEnv: 'live' },
       { ...tokens, audience: streamTokenAudience(tokens.audience), accessTtlSeconds: seconds },
     );
+  }
+
+  /** A stream token with the key's trade:write scope, as a trading key's token carries it. */
+  async function writeStreamToken(seconds: number): Promise<string> {
+    return (
+      await issueAccessToken(
+        { userId: USER, sessionId: SESSION, scopes: ['trade:read', 'trade:write'], apiKeyId: KEY, keyEnv: 'live' },
+        { ...tokens, audience: streamTokenAudience(tokens.audience), accessTtlSeconds: seconds },
+      )
+    ).token;
   }
 
   /** An access token cut from the key for the platform audience (what the edge's exchange makes internally). */
@@ -216,6 +232,40 @@ describe('private stream with a short-lived stream token', () => {
     const live = await subscribed((await streamToken(30)).token, 'sub-s');
     expect(live.ws.readyState).toBe(WebSocket.OPEN);
     live.ws.close();
+  });
+
+  it('a stream-token seat refuses cancel-on-disconnect at arm time and names its snapshot unavailable, never calling svc-trade with the token', async () => {
+    const reads: string[] = [];
+    const cancels: string[] = [];
+    await boot(keyAuthority(), undefined, {
+      codRange: { minTtlMs: 1_000, maxTtlMs: 60_000 },
+      tradeCancel: {
+        async cancelAll(input) {
+          cancels.push(input.accessToken);
+          return { reached: true, status: 200, orders: [] };
+        },
+      },
+      book: {
+        async listOpenOrders(input) {
+          reads.push(input.accessToken);
+          return [];
+        },
+        async listOpenPositions(input) {
+          reads.push(input.accessToken);
+          return [];
+        },
+      },
+    });
+    const seat = await subscribed(await writeStreamToken(30), 'sub-cod');
+    await until(() => seat.frames.some((f) => f.type === 'status' && f.code === STREAM_TOKEN_SNAPSHOT_UNAVAILABLE));
+    seat.ws.send(JSON.stringify({ type: 'cod.arm', commandId: 'c-1', ttlMs: 5_000, scope: 'account' }));
+    await until(() => seat.frames.some((f) => f.type === 'cod.refused'));
+    expect(seat.frames.find((f) => f.type === 'cod.refused')).toMatchObject({ commandId: 'c-1', code: 'cod.stream_token_unsupported' });
+    expect(seat.frames.some((f) => f.type === 'cod.armed')).toBe(false);
+    seat.ws.close();
+    await until(() => seat.closed !== null);
+    expect(cancels).toEqual([]);
+    expect(reads).toEqual([]);
   });
 
   it('a bad token is refused without a code: only a spent one is named', async () => {
