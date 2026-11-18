@@ -1,4 +1,4 @@
-import type { Context } from '@intafaced/contracts';
+import type { Context, OperatorAuthority } from '@intafaced/contracts';
 import { accountOperatorEntitlementSchema, forwardedPrincipalHeaders, serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { OutreachError } from './config.js';
 
@@ -40,6 +40,22 @@ export function createFounderAuthority(options: {
     } catch (error) {
       if (error instanceof OutreachError) throw error;
       throw new OutreachError('ops.crm.authority_unavailable');
+    }
+  };
+}
+
+/**
+ * The same live read, as `operatorProcedure`'s authority: enabled is `operator`, refused is `not_operator`, and an
+ * unset or unreachable identity is `unavailable`.
+ */
+export function operatorAuthorityFrom(founder: FounderAuthority): OperatorAuthority {
+  return async (ctx) => {
+    try {
+      await founder(ctx);
+      return 'operator';
+    } catch (error) {
+      if (error instanceof OutreachError && error.code === 'ops.crm.operator_forbidden') return 'not_operator';
+      return 'unavailable';
     }
   };
 }
