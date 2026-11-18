@@ -46,6 +46,7 @@ async function closeAll(sockets: WebSocket[]): Promise<void> {
         ),
     ),
   );
+  // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- the server's own socket close, which frees the seat, lands a moment after the client's
   await new Promise((resolve) => setTimeout(resolve, 20));
 }
 

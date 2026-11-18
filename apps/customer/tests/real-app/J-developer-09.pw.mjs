@@ -7,7 +7,7 @@ import { ORIGIN, restartWith } from './stack.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
 
 // J-developer-09, in the running app (docs/roadmap/journeys.json): stream live data. One test per step, titled
-// "J-developer-09 #<n>", written by an independent test-writer from the step's own words (OWNER 212); the builder makes
+// "J-developer-09 #<n>", written by an independent test-writer from the step's own words; the builder makes
 // them pass and may not weaken them. The streams are svc-ws on the local stack, reached as a developer's program reaches
 // them: a WebSocket straight to the stream service (port 14523), from this machine's own addresses. The client is a
 // small one written here, so a step can choose not to answer pings, and can leave from 127.0.0.x (CI runs on Linux,
@@ -195,6 +195,7 @@ function policy() {
 }
 
 const refusedWith = (conn, code) => conn.body.includes(code) || (conn.closed?.reason ?? '').includes(code);
+// oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- the steps wait real time on purpose: a gap, a quiet window, a ban time the service counts on its own clock
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test(`${J} #1 reads the stream endpoints and the protocol choice guide: public, private and business endpoints with failover; hosts "not set" if blank; each guide row names its owning module`, async ({
@@ -330,6 +331,7 @@ test(`${J} #3 subscribes with a request id: the ack echoes the id and carries se
     // An unknown message type is ignored: no answer to it, the connection stays open, and the next request is answered.
     const before = conn.frames.length;
     conn.send({ op: 'jd9-no-such-type', id: `${id}-x` });
+    // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proving nothing happens: no answer comes to an unknown message type
     await pause(3_000);
     const answered = conn.frames.slice(before).filter((f) => f.json?.op === 'error' || f.json?.id === `${id}-x`);
     expect(
@@ -389,6 +391,7 @@ test(`${J} #5 reconnects after a gap: a snapshot first, then sequence numbers co
   first.drop();
 
   // The gap, then a new connection.
+  // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- the step's own gap between dropping the stream and reconnecting
   await pause(3_000);
   const again = await open('/stream');
   try {
@@ -446,6 +449,7 @@ test(`${J} #6 opens connections above the per-IP cap: the extra one closes with 
       .toBe(true);
     for (const conn of held) expect(conn.isOpen(), 'connections under the cap stay open').toBe(true);
     for (const conn of [...held, extra]) conn.drop();
+    // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- lets the server see the storm's sockets close before the next storm
     await pause(500);
   };
 
@@ -463,6 +467,7 @@ test(`${J} #6 opens connections above the per-IP cap: the extra one closes with 
   const stillBanned = await connect('/stream', { localAddress: '127.0.0.3' });
   await expect.poll(() => refusedWith(stillBanned, 'ws.ip_banned'), { timeout: 4_000 }).toBe(true);
   stillBanned.drop();
+  // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- waits out the rest of the owner-set ban time, which the service counts on its own clock
   await pause(7_000);
   const back = await open('/stream', { localAddress: '127.0.0.3' });
   back.drop();
