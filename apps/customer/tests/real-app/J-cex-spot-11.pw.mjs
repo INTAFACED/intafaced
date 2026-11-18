@@ -24,7 +24,8 @@ import {
 
 // J-cex-spot-11, in the running app (docs/roadmap/journeys.json): I convert one coin to another in one tap and see it in
 // my history. One test per step, titled "J-cex-spot-11 #<n>", run in order on one TEST account. #9 (very large amounts
-// priced from our own book by the quote desk) is Later: it waits for the custodial layer, and is not built here.
+// priced from our own book by the quote desk) is Later: its desk pricing waits for the custodial layer; today the room
+// routes an amount past the per-conversion limit to the desk, which says it is closed.
 //
 // INTAFACED holds none of this person's money. With svc-trade's user-venue door on for this file (venueForThisFile), a
 // conversion is one order on the person's own account at the stack's TEST venue simulator, signed by the person's
@@ -115,7 +116,9 @@ async function getPrice(page, amount) {
 }
 
 /** The venue's own records for one owner. */
-const orders = async (owner, cloid) => (await venueRecord(owner, '/order-history')).value.filter((o) => o.venueClientOrderId === cloid);
+// The venue's order history is rows of { order, placedAt }; a step reads the orders themselves.
+const orders = async (owner, cloid) =>
+  (await venueRecord(owner, '/order-history')).value.map((r) => r.order).filter((o) => o.venueClientOrderId === cloid);
 const fillsOf = async (owner, cloid) =>
   (await venueRecord(owner, '/fills', { since: since() })).value.filter((f) => f.venueClientOrderId === cloid);
 const openOn = async (owner, symbol) => (await venueRecord(owner, '/open-orders')).value.filter((o) => o.symbol === symbol);
@@ -582,6 +585,29 @@ test(`${J} #8 sets a limit convert at a target rate: a resting venue order at th
   run.write({ accepted: [...s.accepted, { quoteId: null, cloid, step: 8 }] });
 });
 
+test(`${J} #9 converts a very large amount: routed to the quote desk, which says it is closed until its rules are published`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const s = state();
+  const A = s.marketA;
+  const wallet = await openRoom(page, s);
+  const sent = convertCalls(page);
+  await pick(page, 'USDC', A.base);
+  // Market A's TEST limit is 1000 USDC per conversion: 5000 is past it, so the instant card asks no price and points to
+  // the quote desk, which is closed for conversions until its rules are published.
+  await amountBox(page).fill('5000');
+  const routed = card(page).getByRole('note').filter({ hasText: 'Too large for an instant conversion' });
+  await expect(routed).toContainText('Up to 1,000 USDC converts in one go.');
+  await routed.getByRole('link', { name: 'Use the quote desk' }).click();
+  const desk = page.getByRole('region', { name: 'Large conversions at the desk price' });
+  await expect(desk).toBeFocused();
+  await expect(desk).toContainText('The quote desk is closed for conversions until its rules are published.');
+  await expect(card(page).getByRole('button', { name: 'Get a price', exact: true })).toBeDisabled();
+  expect(sent.filter((p) => p === 'convert/quote')).toHaveLength(0);
+  expect(signatures(wallet)).toBe(0);
+});
+
 test(`${J} #10 opens Recent conversions: the conversion with paid and received amounts and time; never the quotes that were not taken; an empty list reads as empty`, async ({
   page,
   browser,
@@ -743,9 +769,17 @@ test(`${J} #13 the developer accepts the same quote id twice through the convert
       path: '/api/v1/venue/convert/submit',
       body: { actionKey: prepared.actionKey, signature: await signedBy(dev, prepared) },
     });
+  // Both signed copies sent at once: the first is sent to the venue; the second either answers with it or is told the
+  // first is still being sent (idempotency.in_progress), and sent again after the first answered it gets the same order.
   const [x, y] = await Promise.all([submit(a.body), submit(b.body)]);
-  expect(x.status, JSON.stringify(x.body).slice(0, 400)).toBe(200);
-  expect(y.status, JSON.stringify(y.body).slice(0, 400)).toBe(200);
+  const [first, second] = x.status === 200 ? [x, y] : [y, x];
+  expect(first.status, JSON.stringify(first.body).slice(0, 400)).toBe(200);
+  if (second.status !== 200) {
+    expect(second.status, JSON.stringify(second.body).slice(0, 400)).toBe(409);
+    expect(second.body.intafacedCode).toBe('idempotency.in_progress');
+  }
+  const again = await submit(b.body);
+  expect(again.status, JSON.stringify(again.body).slice(0, 400)).toBe(200);
   const third = await withKey(dev.key, accept);
   expect(third.body.actionKey).toBe(a.body.actionKey);
 

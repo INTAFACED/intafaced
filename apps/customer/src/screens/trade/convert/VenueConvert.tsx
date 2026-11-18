@@ -37,6 +37,7 @@ import {
 import { DepositDialog } from '../desk/VenueAccountPanel';
 import { convertCopy } from './copy';
 import { venueConvertCopy } from './venue-convert-copy';
+import { OTC_DESK_ID } from './OtcConvert';
 
 type T = ReturnType<typeof venueConvertCopy.useCopy>['t'];
 const POLL_MS = 5_000;
@@ -207,10 +208,13 @@ function VenueCard({
   const balances = account.balances.data;
   const free = balances ? (balances.value.find((b) => b.asset === from)?.free ?? '0') : null;
   const typed = units(amount);
-  const short = typed !== null && typed > 0n && free !== null && typed > parseAmount(free);
+  // Above the per-conversion limit (in the asset being spent) the instant card stops and points to the quote desk.
+  const cap = pair?.maxPerConvert && pair.maxPerConvert.asset === from ? pair.maxPerConvert : null;
+  const tooLarge = typed !== null && cap !== null && typed > parseAmount(cap.amount);
+  const short = !tooLarge && typed !== null && typed > 0n && free !== null && typed > parseAmount(free);
   const min = pair?.minOrderNotional ?? null;
   const tooSmall = !short && side === 'buy' && typed !== null && typed > 0n && min !== null && typed < parseAmount(min);
-  const ready = typed !== null && typed > 0n && !short && !tooSmall && !paused && pair !== null;
+  const ready = typed !== null && typed > 0n && !tooLarge && !short && !tooSmall && !paused && pair !== null;
   const shown = quote.state === 'ready' ? quote.quote : null;
   const stale = shown ? now > Date.parse(shown.freshUntil) : false;
 
@@ -404,6 +408,25 @@ function VenueCard({
         </div>
       </div>
 
+      {tooLarge && cap ? (
+        <div className="cvt-note" role="note" data-testid="cvt-too-large">
+          <p>
+            <strong>{ct('Too large title')}.</strong> {ct('Too large body', { amount: displayAmount(cap.amount), asset: cap.asset })}
+          </p>
+          <a
+            className="text-link"
+            href={`#${OTC_DESK_ID}`}
+            onClick={(event) => {
+              event.preventDefault();
+              const desk = document.getElementById(OTC_DESK_ID);
+              desk?.scrollIntoView({ block: 'start' });
+              desk?.focus();
+            }}
+          >
+            {ct('Use the quote desk')}
+          </a>
+        </div>
+      ) : null}
       {tooSmall ? (
         <p className="cvt-note" role="alert" data-testid="cvt-too-small">
           {t('Too small', { min: displayAmount(min), asset: from })}
