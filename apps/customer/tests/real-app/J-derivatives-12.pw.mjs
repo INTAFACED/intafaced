@@ -6,6 +6,7 @@ import { approverSessions, makeContext } from '../../../../tooling/scripts/local
 import { api, journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import { ledgerView, venueAtBase } from './venue-door.mjs';
 import { openVenueDesk, sameDecimal, TEST_VENUE, TEST_VENUE_B, venueForThisFile, venueRecord } from './venue.mjs';
 
@@ -98,10 +99,18 @@ const order = (s, side, amount, price, reduceOnly, step) => ({
   builderFee: null,
 });
 
-/** The futures desk as the person, with XBIL-PERP picked and the account panel's `tab` open. */
-async function accountTab(page, s, tab) {
+/**
+ * The futures desk as the person, with XBIL-PERP picked and the account panel's `tab` open. `again` reads the desk afresh
+ * on a page that already holds the TEST wallet (after a restart of trade), connecting it again.
+ */
+async function accountTab(page, s, tab, { again = false } = {}) {
   const [a] = await both();
-  await openVenueDesk(page, s.account, DESK, s.walletKey);
+  if (!again) await openVenueDesk(page, s.account, DESK, s.walletKey);
+  else {
+    await page.reload();
+    await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+    await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
+  }
   const pick = page.getByTestId('venue-contract-list').getByRole('button', { name: `${SYMBOL} · ${a.name}`, exact: true });
   await pick.click();
   await expect(pick).toHaveAttribute('aria-pressed', 'true');
@@ -169,6 +178,9 @@ async function startsLine(browser) {
     expect((await record(a, owner, '/liquidation-status', { symbol: SYMBOL })).state).toBe('done');
     expect((await record(a, owner, '/positions')).find((x) => x.symbol === SYMBOL)).toBeUndefined();
     await at(a.base, '/test/set-mark', { symbol: SYMBOL, price: '100' });
+    // Each venue's own next update of the account's tier (the TEST venue's daily update, run now): it counts the
+    // account's 30-day volume and places it.
+    for (const venue of [a, b]) await at(venue.base, '/test/fee-tier-update', { owner });
     run.write({ ledger: await ledgerView(account), builder });
   } finally {
     await page.close();
@@ -228,7 +240,7 @@ test(`${J} #1 opens My Fees: the venue's maker and taker rates and our builder f
   process.env.LOCAL_STACK_USER_VENUE = 'two';
   try {
     restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE_BUILDER_FEE', 'off');
-    const blank = await accountTab(page, s, 'My fees');
+    const blank = await accountTab(page, s, 'My fees', { again: true });
     for (const venue of venues) {
       const cells = section(blank, venue).locator('[data-cell="builder"]');
       await expect(cells.first()).toHaveText('fee schedule not set', { timeout: 20_000 });
@@ -303,7 +315,7 @@ test(`${J} #2 reads VIP levels and special fees: the venue's tiers against the v
   await at(a.base, '/test/switches', { otherFeesUnpublished: true });
   try {
     expect((await record(a, s.owner, '/fee-status')).otherFees).toBeNull();
-    const again = await accountTab(page, s, 'VIP levels and special fees');
+    const again = await accountTab(page, s, 'VIP levels and special fees', { again: true });
     const box = section(again, a);
     await expect(box.getByTestId('venue-other-fees-unpublished')).toHaveText('Settlement and other fees: not published by the venue.', {
       timeout: 20_000,
@@ -477,7 +489,7 @@ test(`${J} #5 opens eligible instruments and the settle currency: the list for t
   process.env.LOCAL_STACK_USER_VENUE = 'two';
   try {
     restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE_ELIGIBILITY', 'off');
-    const blank = await accountTab(page, s, 'Eligible instruments');
+    const blank = await accountTab(page, s, 'Eligible instruments', { again: true });
     for (const venue of venues) {
       const none = section(blank, venue).getByTestId('venue-eligible-none');
       await expect(none).toHaveAttribute('data-code', 'trade.venue_eligibility_level_unset', { timeout: 20_000 });
