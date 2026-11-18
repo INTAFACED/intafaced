@@ -24,6 +24,8 @@ export const payYourselfCopy = defineCopy('home.payYourself', {
   onItsWayNote: 'Not counted in Spendable now until the partner credits it.',
   onItsWayLine: '{amount} USDC: the venue sent it, and {partner} is confirming it, so it is not in your balance.',
   onItsWayHeld: '{amount} USDC: the venue sent it, and {partner} is holding its answer, so it is not in your balance.',
+  onItsWayWalletLine: '{amount} USDC: your wallet sent it, and {partner} is confirming it, so it is not in your balance.',
+  onItsWayWalletHeld: '{amount} USDC: your wallet sent it, and {partner} is holding its answer, so it is not in your balance.',
   payTitle: 'Pay yourself',
   realised: 'Realised from your trading: {amount} USDC, as the venue reports it',
   realisedSince: 'since your last pay yourself',
@@ -95,5 +97,14 @@ export const payYourselfCopy = defineCopy('home.payYourself', {
   friday: 'Friday',
   saturday: 'Saturday',
   sunday: 'Sunday',
+  fromWalletTitle: 'Add to {partner} from your wallet',
+  fromWalletNote:
+    'Send from your own wallet to your own address at {partner}. Your wallet signs and sends it; {partner} credits it after {n} confirmations. INTAFACED holds none of it.',
+  fromWalletAddress: 'Your pay-in address',
+  fromWalletAsset: 'Credited as',
+  fromWalletToken: 'Token to send',
+  fromWalletPartnerFee: 'Partner fee',
+  fromWalletSend: 'Send from your wallet',
+  fromWalletNone: 'Nothing has arrived at this address yet.',
   TEST: 'TEST',
 });
