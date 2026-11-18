@@ -415,10 +415,10 @@ async function saveStrategy(page, name) {
   await page.getByLabel('Max drawdown (service unit unspecified)', { exact: true }).fill('100');
   await page.getByLabel('Max notional (service unit unspecified)', { exact: true }).fill('500');
   await page.getByLabel('Kill threshold (service unit unspecified)', { exact: true }).fill('50');
-  await page.getByLabel('How the strategy trades', { exact: true }).selectOption('signal');
+  await page.getByRole('combobox', { name: /^How the strategy trades/ }).selectOption('signal');
   const builder = page.getByTestId('quant-signal-builder');
   await builder.getByLabel('Symbol', { exact: true }).fill('BTC/USDT');
-  await builder.getByLabel('Bar size', { exact: true }).selectOption('1m');
+  await builder.getByRole('combobox', { name: /^Bar size/ }).selectOption('1m');
   await builder.getByLabel('Fast average (bars)', { exact: true }).fill('1');
   await builder.getByLabel('Slow average (bars)', { exact: true }).fill('2');
   await builder.getByRole('combobox', { name: /^Size each entry by/ }).selectOption('quantity');
