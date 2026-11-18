@@ -373,10 +373,10 @@ const extended = base.extend({
   // when the test calls `await stepPicture()` (or `stepPicture(otherPage)`) at the moment the step's state is on screen,
   // else as the test ended. A test that checks the step's state and then leaves it (clicks the link the step names, closes
   // the menu, goes on to another room) calls it before it leaves, or the end picture shows the page it went on to and the
-  // reader answers NOT SHOWN (project-state #3062; garden/step-picture-before-leaving). The first picture is the step's:
-  // a later call takes none, and one that could not be taken leaves the end picture to try. A full page, since `screenshot: 'on'` alone left the reader the 900-pixel window. A test with
-  // no page of its own (an API-only step, or one on its own browser.newContext() pages and no call) attaches none and keeps
-  // the end pictures. A picture never fails a test.
+  // reader answers NOT SHOWN (garden/step-picture-before-leaving). The first picture taken is the step's: a later call
+  // takes none, and one that could not be taken leaves the end picture to try. A full page, since `screenshot: 'on'` alone
+  // left the reader the 900-pixel window. A test with no page of its own and no call (an API-only step, or one on its own
+  // browser.newContext() pages) attaches none and keeps the end pictures. A picture never fails a test.
   // It takes `context`, so it ends before the test's own context closes; its own time, apart from the test's.
   stepPicture: [
     async ({ context }, use, testInfo) => {
