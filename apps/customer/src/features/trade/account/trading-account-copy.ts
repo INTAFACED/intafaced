@@ -60,11 +60,11 @@ export const tradingAccountCopy = defineCopy('trade.account', {
   moveWalletFailed: 'Your wallet couldn’t sign: {detail}. Nothing was sent.',
   moveBadAmount: 'Enter an amount above zero with at most {decimals} decimals.',
   movesTitle: 'Moves',
-  movesNone: 'No moves yet.',
+  movesNone: 'No moves.',
   hMove: 'Move',
   hPartnerLeg: 'Partner to your wallet',
   hDepositLeg: 'Wallet to venue',
-  legNotYet: 'Not yet',
+  legNotYet: 'Not sent',
   legSent: 'Sent',
   ledgerNote: 'INTAFACED records nothing for these moves: the partner and the venue hold the money and its record.',
 });

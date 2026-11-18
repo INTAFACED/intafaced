@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { PartnerAccountRef, PartnerBank, PartnerCustody } from '../partner/partner-bank.js';
@@ -7,7 +8,7 @@ import { recoverPersonalSignAddress } from '../ramps/wallet-ownership.js';
 /**
  * MOVES BETWEEN A PERSON'S OWN SPENDING AND TRADING ACCOUNTS (J-derivatives-25 #2 #3, BK-ownmove-01).
  *
- * The spending money is the partner bank's (OWNER 226), the trading money the venue's; INTAFACED holds neither. A move in
+ * The spending money is the partner bank's, the trading money the venue's; INTAFACED holds neither. A move in
  * is two legs, each sent once under its own key:
  *
  *   1. The partner bank's transfer out of the person's main balance to the person's own wallet, on chain. svc-bank asks
@@ -54,21 +55,22 @@ export interface OwnMove {
   readonly partnerFee: Amount | null;
 }
 
-interface Row {
-  id: string;
-  user_id: string;
-  direction: 'in';
-  asset_id: string;
-  amount: string;
-  wallet: string;
-  status: 'opening' | 'sent';
-  partner_ref: string | null;
-  delivery_tx: string | null;
-  deposit_tx: string | null;
-  created_at: Date;
-  sent_at: Date | null;
-  deposit_at: Date | null;
-}
+const Row = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  direction: z.literal('in'),
+  asset_id: z.string(),
+  amount: z.string(),
+  wallet: z.string(),
+  status: z.enum(['opening', 'sent']),
+  partner_ref: z.string().nullable(),
+  delivery_tx: z.string().nullable(),
+  deposit_tx: z.string().nullable(),
+  created_at: z.date(),
+  sent_at: z.date().nullable(),
+  deposit_at: z.date().nullable(),
+});
+type Row = z.infer<typeof Row>;
 
 const ADDRESS = /^0x[0-9a-f]{40}$/;
 const TX = /^0x[0-9a-f]{64}$/;
@@ -177,12 +179,14 @@ export class OwnMoveService {
     const tx = (await deliver({ key, to: wallet, assetId, amount: formatAmount(amount) })).toLowerCase();
     if (!TX.test(tx))
       throw new BankError('The partner answered no transfer for this move. Ask again to finish it.', 'bank.partner_reply_lost');
-    const [sent] = await this.sql<Row[]>`
-      UPDATE bank.own_moves SET status = 'sent', partner_ref = ${moved.id}, delivery_tx = ${tx}, sent_at = now()
-      WHERE id = ${moveId} AND status = 'opening'
-      RETURNING *
-    `;
-    return this.view(sent ?? (await this.row(moveId))!, userId, bank);
+    const [sent] = Row.array().parse(
+      await this.sql`
+        UPDATE bank.own_moves SET status = 'sent', partner_ref = ${moved.id}, delivery_tx = ${tx}, sent_at = now()
+        WHERE id = ${moveId} AND status = 'opening'
+        RETURNING *
+      `,
+    );
+    return this.view(sent ?? (await this.kept(moveId)), userId, bank);
   }
 
   /** The wallet's own signed deposit to the venue for a sent move, recorded once; another transfer is a conflict. */
@@ -205,12 +209,14 @@ export class OwnMoveService {
         'bank.own_move_conflict',
       );
     }
-    const [kept] = await this.sql<Row[]>`
-      UPDATE bank.own_moves SET deposit_tx = ${tx}, deposit_at = now()
-      WHERE id = ${moveId} AND deposit_tx IS NULL
-      RETURNING *
-    `;
-    const now = kept ?? (await this.row(moveId))!;
+    const [kept] = Row.array().parse(
+      await this.sql`
+        UPDATE bank.own_moves SET deposit_tx = ${tx}, deposit_at = now()
+        WHERE id = ${moveId} AND deposit_tx IS NULL
+        RETURNING *
+      `,
+    );
+    const now = kept ?? (await this.kept(moveId));
     if (now.deposit_tx !== tx) {
       throw new BankError(
         'This move’s deposit was already sent with another transaction. Nothing more was recorded.',
@@ -229,9 +235,11 @@ export class OwnMoveService {
 
   /** The person's moves, newest first. */
   async list(userId: string, limit: number): Promise<OwnMove[]> {
-    const rows = await this.sql<Row[]>`
-      SELECT * FROM bank.own_moves WHERE user_id = ${userId} ORDER BY created_at DESC, id DESC LIMIT ${limit}
-    `;
+    const rows = Row.array().parse(
+      await this.sql`
+        SELECT * FROM bank.own_moves WHERE user_id = ${userId} ORDER BY created_at DESC, id DESC LIMIT ${limit}
+      `,
+    );
     const bank = this.options.custody.bankFor(userId);
     return rows.map((row) => this.view(row, userId, bank));
   }
@@ -248,8 +256,15 @@ export class OwnMoveService {
   }
 
   private async row(moveId: string): Promise<Row | null> {
-    const [row] = await this.sql<Row[]>`SELECT * FROM bank.own_moves WHERE id = ${moveId}`;
+    const [row] = Row.array().parse(await this.sql`SELECT * FROM bank.own_moves WHERE id = ${moveId}`);
     return row ?? null;
+  }
+
+  /** A row this move just wrote or found: gone would mean the table lost it, which is refused, never guessed at. */
+  private async kept(moveId: string): Promise<Row> {
+    const row = await this.row(moveId);
+    if (!row) throw new BankError('This move’s record could not be read back. Ask again to see it.', 'bank.own_move_not_found');
+    return row;
   }
 
   private view(row: Row, userId: string, bank: PartnerBank | null): OwnMove {
