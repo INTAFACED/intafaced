@@ -3,7 +3,6 @@ import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO,
 import {
   type AgentPermissionReach,
   VenueRefusalError,
-  VenueWireError,
   assertSignatureMatches,
   assertSignerMaySign,
   venueClientOrderId,
@@ -23,7 +22,6 @@ import {
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
-  type UserVenueLockSplit,
   type UserVenueScheduledCancel,
   type UserVenueArrival,
   type UserVenueWithdrawalTerms,
@@ -37,6 +35,13 @@ import {
   type UserVenueLeverageChange,
   type UserVenueIsolatedMargin,
   type UserVenueAccountSummary,
+  type UserVenueAdlRules,
+  type UserVenueDeleverage,
+  type UserVenueInsuranceFund,
+  type UserVenueLiquidation,
+  type UserVenueLiquidationPart,
+  type UserVenueLiquidationStatus,
+  type VenueLiquidationAlert,
   type UserVenueListing,
   type UserVenueMarginAccountRule,
   type UserVenueMarginTier,
@@ -251,7 +256,29 @@ export interface SimMarketConfig {
   readonly marginTiers?: readonly UserVenueMarginTier[];
   /** What the venue publishes it takes as margin on this market, each with its haircut. Unset: no list published. */
   readonly collateral?: readonly UserVenueCollateral[];
+  /**
+   * Perpetuals: set on a market the TEST venue liquidates on (J-derivatives-07), with its published words. When the mark
+   * reaches a position's liquidation price the venue closes half of it at the mark, and the rest at the next mark it sets;
+   * each part pays `feeRate` of its value at the mark, capped at the margin that part leaves, into the TEST insurance fund,
+   * and the fund pays a loss past the part's margin, up to what it holds. Unset: the venue liquidates nothing there.
+   */
+  readonly liquidation?: { readonly feeRate: Amount; readonly priceRule: string; readonly feeRule: string };
 }
+
+/** TEST: the venue's insurance fund at start (J-derivatives-07 #4), in USDC. A TEST figure; it holds nothing anywhere. */
+export const TEST_INSURANCE_FUND_START = '100000';
+
+/** TEST: the auto-deleveraging rules the TEST venue publishes at start, and their version (J-derivatives-07 #5). */
+export const TEST_ADL_RULES: UserVenueAdlRules = {
+  version: 'TEST-adl-1',
+  text:
+    'TEST rule: when a liquidation leaves a loss the insurance fund does not cover, the venue closes positions on the other ' +
+    "side, the most profitable and most leveraged first, at the liquidated position's bankruptcy price, and sends each " +
+    'account a notice. No fee is charged on an auto-deleveraging close.',
+};
+
+/** The public liquidation and auto-deleveraging alerts the simulator keeps, newest last. */
+const ALERTS_KEPT = 500;
 
 /**
  * TEST: how old the TEST venue says its figures may be before they are stale (b2 change 6). A real venue's adapter
@@ -344,10 +371,6 @@ interface AccountState {
   readonly retiredAgents: Set<string>;
   /** Main account only: its balance in each market deployer's own margin account, by the margin account's name. */
   readonly marketMargins: Map<string, { free: Amount; locked: Amount }>;
-  /** TEST only (J-portfolio-01 #4): coins staked on the venue, by asset. Staked coins stay in the balance, as locked. */
-  readonly stakes: Map<string, Amount>;
-  /** TEST only: the stake references already taken, so the same TEST stake is taken once. */
-  readonly stakeRefs: Set<string>;
   /**
    * TEST only (J-campaigns-19 #5): a loss past margin the venue booked as a deficit, by asset. It is kept apart from the
    * balances, which never go below zero, and reported against them: the account's reported balance there may be negative.
@@ -362,6 +385,17 @@ interface AccountState {
    * the volume it counted and when. `null` until the venue's first update: the base tier.
    */
   feeTier: { index: number; volume: Amount; updatedAt: Date } | null;
+  /** Its liquidations, oldest first, each with the parts the venue closed (J-derivatives-07 #2). */
+  readonly liquidations: {
+    liquidationId: string;
+    symbol: string;
+    side: 'long' | 'short';
+    state: 'in_progress' | 'done';
+    parts: UserVenueLiquidationPart[];
+    startedAt: Date;
+  }[];
+  /** Its auto-deleveragings, oldest first, with the venue's notice (J-derivatives-07 #6). */
+  readonly deleverages: UserVenueDeleverage[];
 }
 
 interface OrderState {
@@ -535,6 +569,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly triggers = new Map<string, OrderState[]>();
   /** Set while trigger orders are being fired, so a fill a trigger order makes never fires another from inside it. */
   private firing = false;
+  /** TEST: the venue's insurance fund (J-derivatives-07 #4): what it holds, and whether the venue publishes it. */
+  private insurance: { balance: Amount; published: boolean } = { balance: parseAmount(TEST_INSURANCE_FUND_START), published: true };
+  /** TEST: the auto-deleveraging rules the venue publishes, `null` for none (J-derivatives-07 #5). */
+  private adl: UserVenueAdlRules | null = TEST_ADL_RULES;
+  /** Public liquidation and auto-deleveraging alerts, oldest first, at most `ALERTS_KEPT`, with no account (#7). */
+  private readonly alerts: VenueLiquidationAlert[] = [];
+  private liquidationCounter = 0;
+  private adlCounter = 0;
 
   constructor(options: SimOptions) {
     const id = options.id ?? 'test-venue-sim';
@@ -863,6 +905,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.marks.set(symbol, price);
     // A trigger order judged on the mark fires as soon as the mark crosses it.
     this.runTriggers();
+    // Then the venue liquidates, on a market it liquidates on, what the new mark reaches (J-derivatives-07).
+    this.runLiquidations(symbol);
   }
 
   /** TEST control: the perpetual's TEST index (oracle) price, as the venue publishes it. No venue trigger is judged on it. */
@@ -1303,6 +1347,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     // An action on a sub-account needs the sub-account to exist under this owner. A withdrawal from one is refused
     // `not_offered` below whatever its state, so it keeps that one answer.
     if (account.subAccount !== null && intent.kind !== 'withdraw') this.subAccountOf(account.owner, account.subAccount);
+    this.refuseDuringLiquidation(state, intent);
     switch (intent.kind) {
       case 'place_orders': {
         const most = ordersTakenTogether(this.venue);
@@ -1606,49 +1651,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       .map((asset) => {
         const b = state.balances.get(asset) ?? { free: ZERO, locked: ZERO };
         const free = sub(b.free, state.deficits.get(asset) ?? ZERO);
-        const lockedBy = this.lockSplit(state, asset, b.locked);
-        return { asset, free, locked: b.locked, total: add(free, b.locked), ...(lockedBy ? { lockedBy } : {}) };
+        return { asset, free, locked: b.locked, total: add(free, b.locked) };
       });
     return this.asOf(list);
-  }
-
-  /**
-   * What holds an asset's locked figure on the main balances (J-portfolio-01 #4): the resting orders' locks, the posted
-   * margin of the positions margined in it, and its stake. Orders and positions in a deployer's own margin account lock
-   * there, not here. When the three do not add to the locked figure exactly, the venue reports no split (null).
-   */
-  private lockSplit(state: AccountState, asset: string, locked: Amount): UserVenueLockSplit | null {
-    let inOrders = ZERO;
-    for (const o of state.orders.values())
-      if ((o.order.status === 'open' || o.order.status === 'partially_filled') && o.marginAccount === null && o.order.lockedAsset === asset)
-        inOrders = add(inOrders, o.order.locked);
-    let margin = ZERO;
-    for (const [symbol, p] of state.positions) {
-      if (p.size === ZERO) continue;
-      const market = this.market(symbol);
-      if (!market.marginAccount && market.quoteAsset === asset) margin = add(margin, p.margin);
-    }
-    const staked = state.stakes.get(asset) ?? ZERO;
-    return compare(add(add(inOrders, margin), staked), locked) === 0 ? { inOrders, margin, staked } : null;
-  }
-
-  /**
-   * TEST only (J-portfolio-01 #4): stake `amount` of `asset` on the venue, from free into locked, once per `stakeRef`.
-   * A stand-in for a venue's own staking, which no venue adapter reaches yet; refuses a stake larger than free.
-   */
-  testStake(account: UserVenueAccount, asset: string, amount: Amount, stakeRef: string): boolean {
-    this.up();
-    const state = this.account(account);
-    if (state.stakeRefs.has(stakeRef)) return false;
-    const balance = state.balances.get(asset);
-    if (compare(amount, ZERO) <= 0) throw new VenueWireError('stake amount must be above zero');
-    if (!balance || compare(balance.free, amount) < 0)
-      throw new VenueWireError(`stake of ${formatAmount(amount)} ${asset} is more than free`);
-    balance.free = sub(balance.free, amount);
-    balance.locked = add(balance.locked, amount);
-    state.stakes.set(asset, add(state.stakes.get(asset) ?? ZERO, amount));
-    state.stakeRefs.add(stakeRef);
-    return true;
   }
 
   async openOrders(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrder[]>> {
@@ -1952,6 +1957,128 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     });
   }
 
+  // ── liquidation and its aftermath (J-derivatives-07) ─────────────────────────────────────────────────────────────
+
+  /** The position's liquidation state on `symbol` and the venue's rules for it. A market it liquidates nothing on refuses. */
+  async liquidationStatus(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLiquidationStatus>> {
+    this.up();
+    const rules = this.liquidationRules(symbol);
+    const latest =
+      this.account(account)
+        .liquidations.filter((l) => l.symbol === symbol)
+        .at(-1) ?? null;
+    return this.asOf({
+      symbol,
+      state: latest ? latest.state : 'none',
+      liquidationId: latest ? latest.liquidationId : null,
+      priceRule: rules.priceRule,
+      feeRule: rules.feeRule,
+    });
+  }
+
+  /** The account's liquidations started since `since`, oldest first, each with every part the venue closed. */
+  async liquidations(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueLiquidation[]>> {
+    this.up();
+    return this.asOf(
+      this.account(account)
+        .liquidations.filter((l) => l.startedAt.getTime() >= since.getTime())
+        .map((l) => ({ ...l, parts: [...l.parts] })),
+    );
+  }
+
+  /** The TEST insurance fund, or not published (`/test/insurance-fund`). */
+  async insuranceFund(): Promise<AsOf<MaybeKnown<UserVenueInsuranceFund>>> {
+    this.up();
+    if (!this.insurance.published) return this.asOf({ known: false });
+    return this.asOf({
+      known: true,
+      value: {
+        name: 'TEST venue insurance fund',
+        asset: 'USDC',
+        balance: this.insurance.balance,
+        whereToRead: `On ${this.venue.displayName} itself: its insurance fund read (POST /insurance-fund) shows the same balance.`,
+        rule:
+          'TEST rule: every liquidation fee is paid into the fund, and the fund pays any loss a liquidation leaves beyond ' +
+          "the position's margin, up to what it holds.",
+      },
+    });
+  }
+
+  /** The TEST auto-deleveraging rules and their version, or `null` while the venue publishes none (`/test/adl-rules`). */
+  async adlRules(): Promise<AsOf<UserVenueAdlRules | null>> {
+    this.up();
+    return this.asOf(this.adl);
+  }
+
+  /** The account's auto-deleveragings since `since`, oldest first. */
+  async deleverages(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueDeleverage[]>> {
+    this.up();
+    return this.asOf(this.account(account).deleverages.filter((d) => d.deleveragedAt.getTime() >= since.getTime()));
+  }
+
+  /** The newest `limit` public alerts, newest first, on `symbol` or every market; no account in them. */
+  async liquidationAlerts(symbol: string | null, limit: number): Promise<AsOf<readonly VenueLiquidationAlert[]>> {
+    this.up();
+    if (symbol !== null) this.market(symbol);
+    const n = Math.max(1, Math.min(limit, ALERTS_KEPT));
+    return this.asOf(
+      this.alerts
+        .filter((a) => symbol === null || a.symbol === symbol)
+        .slice(-n)
+        .reverse(),
+    );
+  }
+
+  /** TEST control: the venue publishes its insurance fund, or publishes none (it still runs it). */
+  setInsuranceFundPublished(published: boolean): void {
+    this.insurance.published = published;
+  }
+
+  /** TEST control: the auto-deleveraging rules the venue publishes now (a new version), or none. */
+  setAdlRules(rules: UserVenueAdlRules | null): void {
+    if (rules && (rules.version.trim() === '' || rules.text.trim() === ''))
+      refuse(this.venue.id, 'venue_rejected', 'auto-deleveraging rules need a version and their words');
+    this.adl = rules;
+  }
+
+  /**
+   * TEST control: the venue's auto-deleveraging closes the account's whole position on `symbol` at `price` (the bankruptcy
+   * price of a liquidated position on the other side the insurance fund did not cover), with no fee, cancels its orders
+   * there, and sends the account its notice. The simulator does not choose whom to deleverage: the journey names the account.
+   */
+  deleverage(account: UserVenueAccount, symbol: string, price: Amount): UserVenueDeleverage {
+    const market = this.market(symbol);
+    this.liquidationRules(symbol);
+    if (compare(price, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'a deleveraging price must be above zero');
+    const state = this.account(account);
+    const p = state.positions.get(symbol);
+    if (!p || p.size === ZERO) refuse(this.venue.id, 'venue_rejected', `no open position on ${symbol} to deleverage`);
+    this.cancelAllOn(state, symbol);
+    const usdc = this.lockBalance(state, market.marginAccount?.name ?? null, market.marginAccount?.collateralAsset ?? market.quoteAsset);
+    const size = p.size;
+    const realisedPnl = max(this.pnl(p, price, size), sub(ZERO, p.margin));
+    usdc.locked = sub(usdc.locked, p.margin);
+    usdc.free = add(usdc.free, add(p.margin, realisedPnl));
+    p.margin = ZERO;
+    p.size = ZERO;
+    const at = this.clock();
+    const record: UserVenueDeleverage = {
+      adlId: `adl-${++this.adlCounter}`,
+      symbol,
+      side: p.side,
+      size,
+      price,
+      realisedPnl,
+      notice:
+        `TEST notice: auto-deleveraging closed your ${p.side} of ${formatAmount(size)} ${symbol} at ${formatAmount(price)}, ` +
+        'the bankruptcy price of a liquidated position the insurance fund did not cover. No fee was charged.',
+      deleveragedAt: at,
+    };
+    state.deleverages.push(record);
+    this.alert({ kind: 'deleverage', symbol, side: p.side, size, price, alertedAt: at });
+    return record;
+  }
+
   async agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
     this.up();
     return this.asOf([...this.account(account).agents.values()]);
@@ -2150,12 +2277,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         transfers: new Map(),
         retiredAgents: new Set(),
         marketMargins: new Map(),
-        stakes: new Map(),
-        stakeRefs: new Set(),
         deficits: new Map(),
         settlements: [],
         scheduled: { cancelsAt: null, lastFired: null },
         feeTier: null,
+        liquidations: [],
+        deleverages: [],
       };
       this.accounts.set(key, state);
     }
@@ -3301,6 +3428,120 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const cushion = div(sub(p.margin, maintenance), p.size, 'floor');
     const price = p.side === 'long' ? sub(p.entryPrice, cushion) : add(p.entryPrice, cushion);
     return { known: true, value: max(ZERO, price) };
+  }
+
+  /** The venue's liquidation rules on `symbol`; a market it liquidates nothing on refuses `not_offered`. */
+  private liquidationRules(symbol: string): { feeRate: Amount; priceRule: string; feeRule: string } {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual' || !market.liquidation)
+      refuse(this.venue.id, 'not_offered', `${this.venue.displayName} runs no liquidation on ${symbol} and publishes no rule for one`);
+    return market.liquidation;
+  }
+
+  /** While a position's liquidation is in progress the venue takes no change to it: no order, leverage or margin change. */
+  private refuseDuringLiquidation(state: AccountState, intent: VenueIntent): void {
+    const symbols =
+      intent.kind === 'place_orders'
+        ? intent.orders.map((o) => o.symbol)
+        : intent.kind === 'place_order' ||
+            intent.kind === 'update_leverage' ||
+            intent.kind === 'update_isolated_margin' ||
+            intent.kind === 'amend_order' ||
+            intent.kind === 'replace_order'
+          ? [intent.symbol]
+          : [];
+    for (const symbol of symbols) {
+      const live = state.liquidations.find((l) => l.symbol === symbol && l.state === 'in_progress');
+      if (live)
+        refuse(
+          this.venue.id,
+          'venue_rejected',
+          `${symbol} is being liquidated (${live.liquidationId}): ${this.venue.displayName} takes no order, leverage or margin change on the position until its liquidation is done`,
+        );
+    }
+  }
+
+  /**
+   * The venue's liquidation pass on `symbol` after its mark moved: a liquidation in progress closes the rest of its
+   * position at the new mark; a position the mark has reached the liquidation price of starts one, closing half of it.
+   */
+  private runLiquidations(symbol: string): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual' || !market.liquidation) return;
+    const mark = this.marks.get(symbol);
+    if (mark === undefined) return;
+    for (const state of this.accounts.values()) {
+      const p = state.positions.get(symbol);
+      const live = state.liquidations.find((l) => l.symbol === symbol && l.state === 'in_progress');
+      if (live) {
+        if (p && p.size !== ZERO)
+          live.parts.push(this.liquidatePart(state, market, p, p.size, mark, live.liquidationId, live.parts.length + 1));
+        live.state = 'done';
+        continue;
+      }
+      if (!p || p.size === ZERO) continue;
+      const liq = this.liquidationPrice(market, p);
+      if (!liq.known) continue;
+      const reached = p.side === 'long' ? compare(mark, liq.value) <= 0 : compare(mark, liq.value) >= 0;
+      if (!reached) continue;
+      this.cancelAllOn(state, symbol);
+      const halfLots = div(div(p.size, parseAmount('2'), 'floor'), market.lotSize, 'floor');
+      const half = mul(halfLots - (halfLots % parseAmount('1')), market.lotSize);
+      const whole = half === ZERO || half === p.size;
+      const liquidationId = `liq-${++this.liquidationCounter}`;
+      const record: AccountState['liquidations'][number] = {
+        liquidationId,
+        symbol,
+        side: p.side,
+        state: whole ? 'done' : 'in_progress',
+        parts: [],
+        startedAt: this.clock(),
+      };
+      state.liquidations.push(record);
+      record.parts.push(this.liquidatePart(state, market, p, whole ? p.size : half, mark, liquidationId, 1));
+    }
+  }
+
+  /**
+   * Close `qty` of `p` at `mark` as one liquidation part: the margin it held is released, its result settled (an isolated
+   * loss stops at that margin), and the venue's fee, `feeRate` of the part's value capped at what the part leaves, paid
+   * into the insurance fund. A loss past the margin is paid by the fund, up to what it holds.
+   */
+  private liquidatePart(
+    state: AccountState,
+    market: SimMarketConfig,
+    p: PositionState,
+    qty: Amount,
+    mark: Amount,
+    liquidationId: string,
+    n: number,
+  ): UserVenueLiquidationPart {
+    const rules = market.liquidation!;
+    const asset = market.marginAccount?.collateralAsset ?? market.quoteAsset;
+    const usdc = this.lockBalance(state, market.marginAccount?.name ?? null, asset);
+    const released = qty === p.size ? p.margin : div(mul(p.margin, qty), p.size, QUOTE_ROUND);
+    const back = add(released, this.pnl(p, mark, qty));
+    const fee = min(mul(mul(mark, qty), rules.feeRate, QUOTE_ROUND), max(back, ZERO));
+    this.insurance.balance = add(this.insurance.balance, fee);
+    if (compare(back, ZERO) < 0) this.insurance.balance = sub(this.insurance.balance, min(sub(ZERO, back), this.insurance.balance));
+    usdc.locked = sub(usdc.locked, released);
+    usdc.free = add(usdc.free, max(sub(back, fee), ZERO));
+    p.margin = sub(p.margin, released);
+    p.size = sub(p.size, qty);
+    const at = this.clock();
+    this.alert({ kind: 'liquidation', symbol: market.symbol, side: p.side, size: qty, price: mark, alertedAt: at });
+    return { partId: `${liquidationId}-${n}`, size: qty, price: mark, fee, feeAsset: asset, liquidatedAt: at };
+  }
+
+  /** Cancel every resting and waiting order of the account on `symbol`, its locks released once. */
+  private cancelAllOn(state: AccountState, symbol: string): void {
+    for (const o of [...this.bookOf(symbol), ...(this.triggers.get(symbol) ?? [])])
+      if (o.account === state && isLive(o)) this.release(o, 'canceled', 'position_closed');
+  }
+
+  private alert(a: VenueLiquidationAlert): void {
+    this.alerts.push(a);
+    if (this.alerts.length > ALERTS_KEPT) this.alerts.splice(0, this.alerts.length - ALERTS_KEPT);
   }
 
   /** End an order's remaining lock exactly once. */

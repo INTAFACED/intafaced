@@ -238,4 +238,25 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
     expect([...rates]).toEqual([['0x0301', parseAmount('0.5')]]);
     expect((await store.builderFeeOrders('test-venue-sim', [])).size).toBe(0);
   });
+
+  it("J-cex-spot-18 #1: the signed order a person placed under a venue client id, never another person's or an unsigned one", async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const mine = '11111111-1111-4111-8111-1111111111d1';
+    const theirs = '11111111-1111-4111-8111-1111111111d2';
+    const at = new Date('2026-11-18T00:00:00.000Z');
+    const order = (cloid: string): PreparedVenueAction => ({ ...prepared('400', '60000'), venueClientOrderId: cloid });
+    // Signed and placed by this person.
+    await store.insertOnce(mine, 'order:j18:placed', order('0x0401'), at);
+    await store.signOnce(mine, 'order:j18:placed', { digest: '0xdigest400', signature: '0xs', signedBy: OWNER }, at);
+    // Prepared but never signed: not placed.
+    await store.insertOnce(mine, 'order:j18:unsigned', order('0x0402'), at);
+    // Another person's signed order.
+    await store.insertOnce(theirs, 'order:j18:theirs', order('0x0403'), at);
+    await store.signOnce(theirs, 'order:j18:theirs', { digest: '0xdigest400', signature: '0xs', signedBy: OWNER }, at);
+
+    expect((await store.placedOrder(mine, '0x0401'))?.businessKey).toBe('order:j18:placed');
+    expect(await store.placedOrder(mine, '0x0402')).toBeNull();
+    expect(await store.placedOrder(mine, '0x0403')).toBeNull();
+    expect((await store.placedOrder(theirs, '0x0403'))?.userId).toBe(theirs);
+  });
 });

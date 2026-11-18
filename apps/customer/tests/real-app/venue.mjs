@@ -5,6 +5,7 @@ import { expect } from './journey.mjs';
 import { restartWithSetting, stackUrl, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 
 // What the venue journeys (J-derivatives-01-venue; J-cex-spot-01 had one until its own file covered its venue steps) share: svc-trade's user-venue door switched on
 // for one file and off after it, the stack's LOCAL TEST venue simulator (tooling/scripts/local-test-venue.mjs) reached
@@ -162,6 +163,21 @@ export async function openVenueDesk(page, who, path, privateKey) {
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: 'Connect TEST Wallet' }).click();
   await expect(page.getByTestId('venue-wallet-address')).toHaveText(wallet.address);
+  return wallet;
+}
+
+/**
+ * Signs in, installs the browser TEST wallet with this key on the venue's chain, opens a venue page that is not a desk
+ * (an order, the order history) and connects the wallet when the page asks. Returns the wallet.
+ */
+export async function openVenuePage(page, who, path, privateKey) {
+  const { chainId } = await venueInfo();
+  const wallet = await installTestWallet(page, { chainId, privateKey });
+  await signIn(page, who);
+  await page.goto(path);
+  const address = page.getByTestId('venue-wallet-address');
+  await connectWhenAsked(page, address);
+  await expect(address).toHaveText(wallet.address.toLowerCase());
   return wallet;
 }
 

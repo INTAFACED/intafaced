@@ -71,8 +71,6 @@ export interface VenueBalanceRow {
   free: string;
   locked: string;
   total: string;
-  /** The venue's own split of `locked`: resting orders, posted margin (collateral) and stake. Absent: not reported. */
-  lockedBy?: { inOrders: string; margin: string; staked: string };
 }
 export interface VenueOrderLock {
   venueOrderId: string | null;
@@ -88,8 +86,6 @@ export interface VenueRow extends VenueBalanceRow {
   /** What can be withdrawn: the venue's free figure, which leaves out every lock the venue holds. */
   withdrawable: string;
   orders: Array<{ id: string; symbol: string; side: 'buy' | 'sell'; locked: string }>;
-  /** The venue's split of the lock, or null when the venue reports none: then the parts are "not reported", never guessed. */
-  split: { inOrders: string; collateral: string; stake: string } | null;
 }
 
 const isZero = (decimal: string) => !/[1-9]/.test(decimal);
@@ -98,10 +94,9 @@ const isZero = (decimal: string) => !/[1-9]/.test(decimal);
 export function venueRows(balances: VenueBalanceRow[], orders: VenueOrderLock[]): VenueRow[] {
   return balances
     .filter((row) => !isZero(row.total))
-    .map(({ lockedBy, ...row }) => ({
+    .map((row) => ({
       ...row,
       withdrawable: row.free,
-      split: lockedBy ? { inOrders: lockedBy.inOrders, collateral: lockedBy.margin, stake: lockedBy.staked } : null,
       orders: orders
         .filter((order) => order.lockedAsset === row.asset && !isZero(order.locked))
         .map((order) => ({

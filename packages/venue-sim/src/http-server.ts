@@ -46,10 +46,11 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
  *        /scheduled-cancel {account}                      the account's scheduled cancel (J-cex-spot-07): its time and last firing
+ *        /liquidation-status {account,symbol}, /liquidations {account,since}, /deleverages {account,since}   (J-derivatives-07)
+ *        /insurance-fund {}, /adl-rules {}, /liquidation-alerts {symbol|null,limit}   public, no account
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
- *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
  *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
@@ -88,6 +89,9 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/open-interest-cap {symbol,capSize}         the deployer's cap on a market's open interest (base units, or null)
  *        /test/deployer-halt {symbol}                     the deployer halts the market: orders cancelled, positions settled
  *                                                         at the mark; /test/market-status trading resumes it
+ *        /test/insurance-fund {published}                 the venue publishes its TEST insurance fund, or none (it still runs it)
+ *        /test/adl-rules {version,text} | {published: false}   the auto-deleveraging rules the venue publishes now, or none
+ *        /test/deleverage {account,symbol,price}          the venue's auto-deleveraging closes that account's position at price
  *        /test/split {symbol,ratio}                       a TEST split: orders cancelled, positions settled at the mark, the
  *                                                         market reopened at once with its mark divided by the ratio
  *
@@ -384,10 +388,53 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     // TEST: room for every TEST order on it; J-derivatives-02 #7 lowers it for one step.
     openInterestCap: parseAmount('1000'),
   },
+  {
+    // J-derivatives-07: a TEST perpetual of its own that the TEST venue liquidates on, so moving its mark to a position's
+    // liquidation price (/test/set-mark) reaches no other journey. Only J-derivatives-07 trades it. Priced by its TEST
+    // oracle, so a fill never moves its mark; it tracks nothing outside the simulator.
+    symbol: 'XLIQ-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XLIQ',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
+        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
+        "into the venue's TEST insurance fund.",
+    },
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
-const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP', 'ETH-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
+const LADDER_SYMBOLS: ReadonlySet<string> = new Set([
+  'BTC-USDC',
+  'BTC-PERP',
+  'ETH-PERP',
+  'XAU-PERP',
+  'XSTK-PERP',
+  'XSTD-PERP',
+  'XLIQ-PERP',
+]);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
 /**
@@ -405,6 +452,7 @@ const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'XAU-PERP': { mid: parseAmount('2650'), step: parseAmount('0.5') },
   'XSTK-PERP': { mid: parseAmount('200'), step: parseAmount('0.1') },
   'XSTD-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XLIQ-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
 };
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
@@ -424,6 +472,13 @@ function account(body: Record<string, unknown>): UserVenueAccount {
   const a = body.account as UserVenueAccount | undefined;
   if (!a || typeof a.owner !== 'string' || typeof a.venueId !== 'string') throw new VenueWireError('account is required');
   return { venueId: a.venueId, owner: a.owner.toLowerCase(), subAccount: a.subAccount ?? null };
+}
+
+/** A read's `since`: an ISO time. */
+function sinceOf(body: Record<string, unknown>): Date {
+  const since = body.since;
+  if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
+  return since;
 }
 
 /** A market read's `limit`: a whole number from 1 to 500. */
@@ -795,16 +850,24 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/scheduled-cancel':
       return sim.scheduledCancel(account(body));
+    // J-derivatives-07: a liquidation and its aftermath, as the venue reports them.
+    case '/liquidation-status':
+      return sim.liquidationStatus(account(body), str(body, 'symbol'));
+    case '/liquidations':
+      return sim.liquidations(account(body), sinceOf(body));
+    case '/insurance-fund':
+      return sim.insuranceFund();
+    case '/adl-rules':
+      return sim.adlRules();
+    case '/deleverages':
+      return sim.deleverages(account(body), sinceOf(body));
+    case '/liquidation-alerts':
+      return sim.liquidationAlerts(body.symbol === null || body.symbol === undefined ? null : str(body, 'symbol'), readLimit(body));
     // ── TEST controls ──
     case '/test/deposit': {
       const amount = body.amount;
       if (typeof amount !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
       return { credited: sim.deposit(account(body), str(body, 'asset'), amount as Amount, str(body, 'depositRef')), label: 'TEST' };
-    }
-    case '/test/stake': {
-      const amount = body.amount;
-      if (typeof amount !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
-      return { staked: sim.testStake(account(body), str(body, 'asset'), amount as Amount, str(body, 'stakeRef')), label: 'TEST' };
     }
     case '/test/deficit': {
       const amount = body.amount;
@@ -947,6 +1010,21 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const symbol = str(body, 'symbol');
       sim.setMarketMaxLeverage(symbol, cap);
       return { maxLeverageBps: cap, label: 'TEST' };
+    }
+    case '/test/insurance-fund': {
+      if (typeof body.published !== 'boolean') throw new VenueWireError('published is true or false');
+      sim.setInsuranceFundPublished(body.published);
+      return { fund: (await sim.insuranceFund()).value, label: 'TEST' };
+    }
+    case '/test/adl-rules': {
+      if (body.published === false) sim.setAdlRules(null);
+      else sim.setAdlRules({ version: str(body, 'version'), text: str(body, 'text') });
+      return { rules: (await sim.adlRules()).value, label: 'TEST' };
+    }
+    case '/test/deleverage': {
+      const price = body.price;
+      if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
+      return { deleverage: sim.deleverage(account(body), str(body, 'symbol'), price as Amount), label: 'TEST' };
     }
     case '/test/deployer-halt':
       return { event: sim.settleMarket(str(body, 'symbol'), 'deployer_halt'), label: 'TEST' };

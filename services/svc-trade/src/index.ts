@@ -154,6 +154,7 @@ import {
   staticBandInForce,
   type BandInForce,
 } from './futures/dynamic-price-band.js';
+import { sqlVenueAdlAcks } from './venue/venue-adl-acks.js';
 import { ADL_DISCLOSURE_VERSION, presentAdlDisclosureWire, sqlAdlDisclosureStore } from './futures/adl-disclosure.js';
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { derivativesAccessGate } from './futures/derivatives-access.js';
@@ -806,6 +807,7 @@ export const appRouter = createTradeRouter(
       deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
     },
     venueDesk: { venue: userVenue ? () => userVenue.venue() : null, store: venueListings, notices: venueDelistingNotices },
+    venueOrders: { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
     venueRouting:
       userVenueDoors.length > 0 ? (from, to) => routingReport({ doors: userVenueDoors, store: userVenueStore }, from, to) : null,
     // The builder-fee caps the venue itself publishes, read through the user-venue door (J-cex-spot-17 #3). Off: null.
@@ -1846,6 +1848,7 @@ registerPrivateRest(app, {
   venueSellQuotes,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
+  venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
