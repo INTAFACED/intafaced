@@ -71,6 +71,7 @@ import {
   type VenueFeeRates,
   type VenueFeeTiers,
   type VenueFeeStatus,
+  type VenueOtherFee,
   type VenueBestPrices,
   type VenueMarginMode,
   type VenueRefusalCode,
@@ -334,6 +335,8 @@ export interface SimSwitches {
   /** The trading fees actually charged, and reported on fills, on a market whose fee is not published. */
   unpublishedMakerFeeBps: Amount;
   unpublishedTakerFeeBps: Amount;
+  /** The venue publishes no settlement or other fees beside its trading fees (J-derivatives-12 #2); it still charges them. */
+  otherFeesUnpublished: boolean;
   loseAnswers: number;
 }
 
@@ -651,6 +654,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       unpublishedNetworkFee: parseAmount('0.5'),
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
+      otherFeesUnpublished: false,
       loseAnswers: 0,
       ...options.switches,
     };
@@ -1918,7 +1922,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    */
   async feeStatus(account: UserVenueAccount | null): Promise<AsOf<VenueFeeStatus>> {
     this.up();
-    if (account === null) return this.asOf({ schedule: this.feeSchedule, account: null });
+    const otherFees = this.switches.otherFeesUnpublished ? null : this.otherFees();
+    if (account === null) return this.asOf({ schedule: this.feeSchedule, account: null, otherFees });
     const state = this.account(account);
     const tiers = this.feeSchedule.tiers;
     const tier = tiers ? tiers[state.feeTier?.index ?? 0] : undefined;
@@ -1933,7 +1938,35 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         perpetual: rates('perpetual'),
         tierUpdatedAt: state.feeTier?.updatedAt ?? null,
       },
+      otherFees,
     });
+  }
+
+  /**
+   * The fees the TEST venue charges beside its trading fees (J-derivatives-12 #2), as it charges them: nothing when it
+   * settles positions at a market event (a deployer's halt or a split settles at the price alone), and on each market it
+   * liquidates on, its liquidation fee (`liquidatePart`) in that market's published words.
+   */
+  private otherFees(): VenueOtherFee[] {
+    const fees: VenueOtherFee[] = [
+      {
+        kind: 'settlement',
+        name: 'TEST settlement fee',
+        symbol: null,
+        feeBps: ZERO,
+        rule: 'TEST rule: no fee is charged when the venue settles positions at a market event (a deployer’s halt or a split).',
+      },
+    ];
+    for (const m of this.marketsBySymbol.values())
+      if (m.kind === 'perpetual' && m.liquidation)
+        fees.push({
+          kind: 'liquidation',
+          name: 'TEST liquidation fee',
+          symbol: m.symbol,
+          feeBps: mul(m.liquidation.feeRate, parseAmount('10000')),
+          rule: m.liquidation.feeRule,
+        });
+    return fees;
   }
 
   /** TEST control: the venue's published fee tiers. Each starts above the last; the first starts at zero. */
