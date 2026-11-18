@@ -98,7 +98,7 @@ export function personDoor(J, run, test) {
 }
 
 /** The stack's TEST partner bank's own book, on loopback: read straight from the stand-in, never through our doors. */
-export const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
 
 /** The partner's own figure for the person's main account in `asset`, from its book. */
 export async function partnerMainBalance(userId, asset) {
