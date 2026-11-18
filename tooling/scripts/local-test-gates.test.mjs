@@ -628,6 +628,7 @@ assert.deepEqual(TEST_CHART_COUNTS, {
   drawingCap: 50,
   brushPointCap: 2000,
   delayedBoundarySeconds: 30,
+  staleAgeSeconds: 35,
   renderBudgetMs: 500,
   orderProtectionBps: 500,
   queueFillWindowSeconds: 300,
