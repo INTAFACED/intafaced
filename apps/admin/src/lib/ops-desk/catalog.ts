@@ -1838,6 +1838,10 @@ const academySections: readonly DeskSection[] = [
           text('reference', 'Reference', { detail: true }),
         ],
         emptyText: 'svc-academy records no grants or revokes yet.',
+        filters: {
+          course: { label: 'Course', emptyText: 'svc-academy records no grants or revokes for this course.' },
+          certificate: { label: 'Certificate', emptyText: 'svc-academy records no grants or revokes for this certificate.' },
+        },
         forbiddenText: FORBID_ACADEMY_ADMIN,
         refusals: {
           'academy.grant_audit_list_limit_unset':
@@ -2627,6 +2631,30 @@ export function academySectionDesk(sectionId: string): DeskSpec {
 
 export function allReads(desk: DeskSpec): ReadSpec[] {
   return desk.sections.flatMap((s) => [...s.reads]);
+}
+
+/** A course slug or certificate id as the address may name one; anything else narrows nothing. */
+const FILTER_VALUE = /^[A-Za-z0-9:_-]{1,120}$/;
+
+/**
+ * The desk narrowed by the page's address (`?course=<slug>`): each read that names `filters` gets the first of them the
+ * address holds, in its input, with that filter's empty text. A key the read does not name, or a value of the wrong shape,
+ * narrows nothing. With nothing narrowed the desk is returned as it is.
+ */
+export function narrowDesk(desk: DeskSpec, params: Readonly<Record<string, string | string[] | undefined>>): DeskSpec {
+  const filter: Record<string, string> = {};
+  const sections = desk.sections.map((section) => ({
+    ...section,
+    reads: section.reads.map((spec) => {
+      const key = Object.keys(spec.filters ?? {}).find((k) => typeof params[k] === 'string' && FILTER_VALUE.test(params[k]));
+      if (key === undefined) return spec;
+      const value = params[key] as string;
+      const f = spec.filters![key]!;
+      filter[key] = value;
+      return { ...spec, input: { ...spec.input, [key]: value }, emptyText: f.emptyText, narrowed: { key, value, label: f.label } };
+    }),
+  }));
+  return Object.keys(filter).length === 0 ? desk : { ...desk, sections, filter };
 }
 
 export function readSpecFor(deskId: OpsDeskId, readId: string): ReadSpec | undefined {

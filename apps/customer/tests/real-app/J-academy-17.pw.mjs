@@ -142,19 +142,18 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
     .filter({ hasText: learnerId })
     .filter({ has: own(CERT).or(own(ACCESS_PATH)) });
   await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0)).toContainText('Certificate revoked');
-  await expect(rows.nth(0)).toContainText(CERT);
-  await expect(rows.nth(0)).toContainText(founderA);
-  await expect(rows.nth(0)).toContainText(revokeReason);
-  await expect(rows.nth(1)).toContainText('Certificate issued');
-  await expect(rows.nth(1)).toContainText(CERT);
-  await expect(rows.nth(1)).not.toContainText(founderA);
-  await expect(rows.nth(2)).toContainText('Course access granted');
-  await expect(rows.nth(2)).toContainText(ACCESS_PATH);
-  await expect(rows.nth(2)).toContainText(founderA);
-  await expect(rows.nth(2)).toContainText(accessReason);
+  // Each line cell by cell, in the table's columns: what happened, the learner, the course or certificate, who did it and
+  // why, and how it came about. The certificate the rule issued names no person and no reason: the service records none,
+  // and the page says so with a dash, never an invented actor or reason.
+  const cells = (i) => rows.nth(i).getByRole('cell');
+  const line = async (i, want) => {
+    for (const [col, text] of Object.entries(want)) await expect(cells(i).nth(Number(col))).toHaveText(text);
+  };
+  await line(0, { 1: 'Certificate revoked', 2: learnerId, 3: CERT, 4: founderA, 5: revokeReason, 6: '—' });
+  await line(1, { 1: 'Certificate issued', 2: learnerId, 3: CERT, 4: '—', 5: '—', 6: 'Certificate' });
+  await line(2, { 1: 'Course access granted', 2: learnerId, 3: ACCESS_PATH, 4: founderA, 5: accessReason, 6: 'Granted by staff' });
   // Every line shows its time, and they are newest first: the same lines as the service records them, in its order.
-  for (let i = 0; i < 3; i++) await expect(rows.nth(i)).toContainText(/\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}/);
+  for (let i = 0; i < 3; i++) await expect(cells(i).nth(0)).toHaveText(/^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}/);
   const { ctx, token } = await founders();
   const stored = await ctx.edge.query('academy', 'admin.grantAudit', { certificate: CERT }, token);
   expect(stored.status, stored.text.slice(0, 300)).toBe(200);
@@ -172,10 +171,25 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
     grantAuditPage(true);
   }
 
-  // With none for a course, the audit has no line for it: an empty answer, never an invented row.
-  const none = await ctx.edge.query('academy', 'admin.grantAudit', { course: `${J}-no-such-course` }, token);
+  // With none for a course, the page narrowed to that course shows its empty state and no table: never an invented row.
+  const nothing = `${J.toLowerCase()}-no-such-course`;
+  await page.goto(`${ADMIN}/academy-ops/grants?course=${nothing}`);
+  await expect(audit.getByTestId('read-narrowed')).toHaveText(`Course ${nothing} only, as the page address names it.`, {
+    timeout: 60_000,
+  });
+  await expect(audit.getByTestId('list-empty')).toHaveText('svc-academy records no grants or revokes for this course.');
+  await expect(audit.getByRole('table')).toHaveCount(0);
+  const none = await ctx.edge.query('academy', 'admin.grantAudit', { course: nothing }, token);
   expect(none.status, none.text.slice(0, 300)).toBe(200);
   expect(JSON.parse(none.text).result.data).toEqual({ items: [], nextCursor: null });
+  // The page's refresh keeps the course it is narrowed to.
+  const refreshed = page.waitForResponse(
+    (r) => r.url().includes('/api/academy-ops?') && new URL(r.url()).searchParams.get('course') === nothing && r.ok(),
+  );
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await refreshed;
+  await expect(audit.getByTestId('list-empty')).toHaveText('svc-academy records no grants or revokes for this course.');
+  await expect(audit.getByTestId('read-narrowed')).toBeVisible();
 });
 
 // ─── #2 to #4: the certificate design and the issued list (AC-certificates-03) ───────────────────────────────────────
