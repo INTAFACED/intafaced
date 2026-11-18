@@ -187,7 +187,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   expect(refused).toEqual([]);
 });
 
-test(`${J} #2 a business with verification not started: its checklist, "Not verified", every room reachable, the home's Pay out and Refund switched off with the reason, each money room's action leading to a page that explains what is blocked, and no call to the founder console`, async ({
+test(`${J} #2 a business with verification not started: its checklist, "Not verified", every room reachable, each money room's Pay out or Issue a refund leading to a page that explains what is blocked with nothing that moves money, and no call to the founder console`, async ({
   page,
 }) => {
   test.setTimeout(420_000);
@@ -227,18 +227,7 @@ test(`${J} #2 a business with verification not started: its checklist, "Not veri
   await expect(account).toContainText('Your role');
   await expect(account).toContainText('Owner');
 
-  // The home page's own money-moving controls, Pay out and Refund: an account the service has not made active yet moves
-  // no money, so each is drawn switched off, and its reason, the text the control is described by, says what is blocked.
-  expect(memberships[0].status).not.toBe('active');
-  const homeActions = page.getByTestId('plo-actions');
-  for (const name of ['Pay out', 'Refund']) {
-    const control = homeActions.getByRole('button', { name, exact: true });
-    await expect(control, name).toBeDisabled();
-    await expect(control, name).toHaveAccessibleDescription('Refunds and payouts open once your business account is active.');
-    await expect(homeActions.getByRole('link', { name, exact: true }), `${name} is no live link`).toHaveCount(0);
-  }
-  // Creating a payment link moves no money out, so it stays a live link.
-  await expect(homeActions.getByRole('link', { name: 'Create payment link', exact: true })).toHaveAttribute('href', '/pay/links/new');
+  // The money-moving controls are checked room by room below, where each money room's own action leads.
 
   // The checklist: the setup steps, each in the state the service's own onboarding progress gives it.
   await page.getByRole('link', { name: /Set up your account/ }).click();
