@@ -258,7 +258,14 @@ export const venueCandleSchema = z.object({
 export type VenueCandle = z.infer<typeof venueCandleSchema>;
 export const venueCandlesReadSchema = asOf(z.array(venueCandleSchema)).extend({ test: z.boolean() });
 
-export const venueBalanceSchema = z.object({ asset: z.string(), free: decimalSchema, locked: decimalSchema, total: decimalSchema });
+export const venueBalanceSchema = z.object({
+  asset: z.string(),
+  free: decimalSchema,
+  locked: decimalSchema,
+  total: decimalSchema,
+  /** What holds `locked`, as the venue splits it (J-portfolio-01 #4); absent when the venue reports no split. */
+  lockedBy: z.object({ inOrders: decimalSchema, margin: decimalSchema, staked: decimalSchema }).optional(),
+});
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
 
 export const venueOrderSchema = z.object({

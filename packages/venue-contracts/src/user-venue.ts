@@ -648,6 +648,18 @@ export interface UserVenueBalance {
   readonly locked: Amount;
   /** As the venue reports it, not derived (see account.ts `VenueBalance.total`). */
   readonly total: Amount;
+  /**
+   * What holds the locked figure, as the venue itself splits it (J-portfolio-01 #4): resting orders, posted margin
+   * (collateral) and stake. The three add to `locked` exactly. Optional: a venue that does not split its lock leaves it
+   * out, and the split is shown as not reported, never guessed.
+   */
+  readonly lockedBy?: UserVenueLockSplit;
+}
+
+export interface UserVenueLockSplit {
+  readonly inOrders: Amount;
+  readonly margin: Amount;
+  readonly staked: Amount;
 }
 
 export interface UserVenueFill {
