@@ -171,7 +171,6 @@ export const FACTORY_SCRIPTS = [
   'tooling/scripts/journey-baseline-guard.test.mjs',
   'tooling/scripts/journey-fail-fast-retries.test.mjs',
   'tooling/scripts/journey-freeze-guard.test.mjs',
-  'tooling/scripts/journey-navigation.test.mjs',
   'tooling/scripts/journey-reach.test.mjs',
   'tooling/scripts/journey-world.test.mjs',
   'tooling/scripts/local-founder-seed.test.mjs',

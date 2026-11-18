@@ -871,6 +871,9 @@ test('STACK_HELPERS holds every helper that code outside the journey files names
     .filter((f) => !f.startsWith(`${dir}/`) && !f.startsWith('docs/') && !/\.md$/.test(f) && !/\.(test|spec)\./.test(f))
     // This classifier names helpers only as its own data.
     .filter((f) => !['tooling/ci/journey-reach-map.json', 'tooling/ci/journey-touch.mjs'].includes(f))
+    // A lint rule names a helper only in its message (garden/no-stale-read names navigation.mjs as the fix); the lint
+    // never runs it, so a change to the helper can't break the rule or the stack.
+    .filter((f) => !f.startsWith('tooling/lint/'))
     .filter((f) => !f.startsWith('tooling/ci/') || JOURNEY_CI.includes(f))
     .filter((f) => !/\.(png|jpe?g|webp|gif|ico|woff2?|ttf|pdf|zip|gz|wasm|sha1)$/i.test(f) && statSync(join(ROOT, f)).size < 4e6);
   const texts = outside.map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]);
