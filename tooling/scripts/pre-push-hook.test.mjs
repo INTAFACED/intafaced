@@ -239,7 +239,7 @@ test('a push that raises a lint rule in the files it touches is refused, named, 
 // [private-record], and CI's ratchet, judging by main as it was, refused two comments citing project-state; the push-time
 // run had judged by the worktree's stale origin/main. Replayed: the rule reaches the remote's main after the branch is
 // cut and origin/main is never fetched; the hook fetches main itself and refuses the push, with the line, as CI did.
-test("a rule main gained after the branch was cut refuses the push though origin/main is stale (J-derivatives-04 ea7d4f6c, replayed)", () => {
+test('a rule main gained after the branch was cut refuses the push though origin/main is stale (J-derivatives-04 ea7d4f6c, replayed)', () => {
   const off = JSON.parse(RATCHET['.oxlintrc.json']);
   off.rules['garden/no-history-comment'] = 'off';
   const file = 'apps/customer/tests/real-app/J-x.pw.mjs';
