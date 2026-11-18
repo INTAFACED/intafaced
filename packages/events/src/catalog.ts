@@ -250,6 +250,28 @@ export const deathNoticeConfirmed = defineEvent(
 );
 
 /**
+ * The owner's own freeze (W-security-accounts-03, J-wallet-13 #1). Published by svc-identity from the freeze's own row
+ * after the freeze commits, at least once, with the business key `identity.self_freeze.frozen:<freezeId>`. The freeze
+ * itself ended every session and API key in its transaction; each service that keeps a permission for an agent to act
+ * for the person revokes it on this event and stops that person's scheduled agent orders. A revoked permission stays
+ * revoked after the lift: the person signs a new one. Consumers are idempotent by `freezeId`, and every service that acts
+ * for the person still reads the freeze itself (`GET /internal/self-freeze/:userId`) before it acts, so a late or lost
+ * event never lets an action through. Moves no money.
+ */
+export const selfFreezeApplied = defineEvent(
+  'identity',
+  'self_freeze',
+  'frozen',
+  1,
+  z.object({
+    userId: userIdSchema,
+    freezeId: z.string().guid(),
+    since: z.string().datetime({ offset: true }),
+  }),
+  'The owner froze their own account: every agent permission kept for them is revoked and their scheduled agent orders stop (J-wallet-13).',
+);
+
+/**
  * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status,
  * roles or permissions changed; `deleted`: the staff record was removed. svc-identity publishes it from an outbox row
  * in the same transaction as the change, at least once, with the business key
@@ -2195,6 +2217,7 @@ export const EVENT_CATALOG = {
   securityFactorChanged,
   deathNoticeCreated,
   deathNoticeConfirmed,
+  selfFreezeApplied,
   staffCreated,
   staffUpdated,
   staffDeleted,

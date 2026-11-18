@@ -3,9 +3,8 @@
  * `*_PATH` constant, a `${CONST}/...` template, or each path of a `for (const path of [...])` loop) and the declaration
  * route-inventory.ts holds it to. Comments are dropped first, so a usage example in a comment is not a route.
  *
- * Two tests read it: svc-trade's own published-route-list.test.ts, which runs whenever svc-trade changes, and the
- * customer app's developers-reference.test.ts. Each walks svc-trade's sources itself and hands them here, so both stay
- * rule tests the pre-push hook picks (tooling/scripts/ci-checks.mjs `ruleTest`).
+ * Two checks read it: the published-routes gate (tooling/ci/published-routes.mjs), which .githooks/pre-push runs, and
+ * the customer app's developers-reference.test.ts. Each walks svc-trade's sources itself and hands them here.
  */
 export type DeclaredRoute = { method: string; path: string; access: string; scopes: string[]; file: string };
 

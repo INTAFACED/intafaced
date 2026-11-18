@@ -24,6 +24,7 @@
 // factory at its zero default, so creating a pool refuses with the crypto network notice (rail.crypto).
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { chainRecordPath, RELAY_URL } from '../local-test-chain.mjs';
 
 /**
@@ -66,7 +67,11 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/protocol.json: the representation a
       // wallet signs once before its first signing action. Production stays blank and every signing action refuses
       // (compliance.representation_unset) until counsel's text and the owner's version are set.
-      PROTOCOL_REPRESENTATION_VERSION: 'TEST-1',
+      // `LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION=<TEST-n>` on a restart serves a newer TEST version, so a wallet that
+      // accepted TEST-1 is asked again (J-dex-protocol-01 #8). Only a TEST version is taken.
+      PROTOCOL_REPRESENTATION_VERSION: /^TEST-\d+$/.test(process.env.LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION ?? '')
+        ? process.env.LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION
+        : 'TEST-1',
       PROTOCOL_REPRESENTATION_TEXT:
         "TEST representation, not counsel's wording: I am not located in, or acting for anyone in, a region where this service is not available.",
       // LOCAL TEST swap settings, labelled in the same file: the slippage ceiling, the quote lifetime and the confirmations
@@ -105,6 +110,13 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
             PROTOCOL_EMBEDDED_WALLET_PROVIDER: 'TEST:test',
             PROTOCOL_EMBEDDED_WALLET_TEST_URL: `http://127.0.0.1:${PORTS['test-wallet-provider']}`,
           }),
+      // LOCAL TEST only: `LOCAL_STACK_PROTOCOL_NETWORKS=published` on a restart serves the TEST network registry beside this
+      // file (protocol-test-networks.json: a TEST RPC address, currency and faucet on .invalid hosts) instead of the owner's
+      // deployments/networks.json, so a journey sees what Add to wallet offers once a network is published
+      // (J-dex-protocol-01 #6, #7). svc-protocol refuses to boot with it outside APP_ENV dev or test.
+      ...(process.env.LOCAL_STACK_PROTOCOL_NETWORKS === 'published'
+        ? { PROTOCOL_TEST_NETWORKS_REGISTRY: `TEST:${fileURLToPath(new URL('./protocol-test-networks.json', import.meta.url))}` }
+        : {}),
       PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: '50',
       PROTOCOL_WALLET_GROUPS_MAX: '10',
       // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for
@@ -132,6 +144,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only: the TEST chain's trading venue (seed-test-chain.ts ensureVenueParts), so a wallet's venue deposit
       // and withdraw build against a real SovereignVenue. Production stays blank and refuses protocol.venue_unset.
       ...(chain?.venue ? { PROTOCOL_VENUE_ADDRESS: chain.venue } : {}),
+      // LOCAL TEST only: the TEST chain's P2P escrow (seed-test-chain.ts ensureP2pEscrow), so a contract-escrow P2P order
+      // (J-p2p-21) opens a real SovereignEscrow deal. Production stays blank and refuses protocol.escrow_not_deployed.
+      ...(chain?.p2pEscrow ? { PROTOCOL_P2P_ESCROW_ADDRESS: chain.p2pEscrow } : {}),
       // LOCAL TEST only: the TEST chain's lending market (seed-test-chain.ts ensureLendingParts), so a wallet's lending
       // position is read from a real IsolatedLendingMarket. Production stays blank and refuses protocol.lending_market_unset.
       ...(() => {

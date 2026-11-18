@@ -14,6 +14,7 @@ import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
 import { serviceOfRequest } from './s2s-door.js';
+import { mintStreamToken, parseStreamTokenTtl, StreamTokenError } from './stream-token.js';
 import { readIdentityWatermark } from './restore-watermark.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
@@ -131,6 +132,7 @@ import { withFreezeLink } from './auth/freeze-link.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
+import { relaySelfFreezeEvents } from './auth/self-freeze-events.js';
 import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.js';
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
@@ -242,6 +244,8 @@ assertSigningEncKey(env);
 const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
 // The owner's signing window (DV-auth-01). Blank stays null: every signed request refuses `auth.request_window_unset`.
 const requestSignWindowSeconds = parseRequestSignWindow(env.IDENTITY_REQUEST_SIGN_WINDOW_SECONDS);
+// The owner's stream-token lifetime (J-developer-09 #2). Blank stays null: every mint refuses `identity.stream_token_ttl_unset`.
+const streamTokenTtlSeconds = parseStreamTokenTtl(env.IDENTITY_STREAM_TOKEN_TTL_SECONDS);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -365,17 +369,18 @@ const authKeyRing = new AuthKeyRing(sql, env.JWT_ACCESS_SECRET, parseAuthKeys(en
 await authKeyRing.refresh();
 authKeyRing.start();
 
+const accessTokenConfig = authKeyRing.tokenConfig({
+  secret: env.JWT_ACCESS_SECRET,
+  issuer: env.JWT_ISSUER,
+  audience: env.JWT_AUDIENCE,
+  accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+  refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
+});
 const auth = new AuthService(
   sql,
   bus,
   rank,
-  authKeyRing.tokenConfig({
-    secret: env.JWT_ACCESS_SECRET,
-    issuer: env.JWT_ISSUER,
-    audience: env.JWT_AUDIENCE,
-    accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
-    refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
-  }),
+  accessTokenConfig,
   {
     rpID: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,
@@ -1105,6 +1110,20 @@ registerNavigatorSessionRoutes(app, {
  * Previously unauthenticated (full audit L2-3).
  */
 /**
+ * A short-lived stream token for an API key (J-developer-09 #2). svc-edge forwards `POST /api/v1/stream/token` here
+ * with the key's exchanged principal; the token is cut from that principal and grants no more (`stream-token.ts`).
+ */
+app.post('/api/v1/stream/token', async (req, reply) => {
+  const { principal } = identityRequestContext(req);
+  try {
+    return await mintStreamToken({ principal, ttlSeconds: streamTokenTtlSeconds, tokens: accessTokenConfig });
+  } catch (err) {
+    if (err instanceof StreamTokenError) return reply.code(err.status).send({ error: { code: err.code, message: err.message } });
+    throw err;
+  }
+});
+
+/**
  * The joint-restore position (OPS-ledger-desk-05). A read for svc-ops alone; any other service, or none, is refused.
  */
 app.get('/internal/restore/watermark', async (req, reply) => {
@@ -1450,6 +1469,17 @@ setInterval(() => {
       deathNoticeRelayRunning = false;
     });
 }, 3_000).unref();
+// The owner's own freeze (J-wallet-13 #1): announced from its own row once it commits, at least once; one run at a time.
+let selfFreezeRelayRunning = false;
+setInterval(() => {
+  if (selfFreezeRelayRunning) return;
+  selfFreezeRelayRunning = true;
+  void relaySelfFreezeEvents({ sql, bus, now: () => new Date() })
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.self_freeze_relay_failed'))
+    .finally(() => {
+      selfFreezeRelayRunning = false;
+    });
+}, 1_000).unref();
 // KYC case history (I-kyc-compliance-01): kycSubmitted and kycRejected from their own rows, at least once; one run at a time.
 let kycCaseRelayRunning = false;
 setInterval(() => {

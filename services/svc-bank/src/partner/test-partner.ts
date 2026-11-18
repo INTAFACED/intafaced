@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
@@ -17,30 +16,27 @@ import {
   type PartnerMovesQuery,
 } from './partner-bank.js';
 import type { AccountDetailSet, AccountDetailsPartner } from '../account-details/account-details.js';
-import type {
-  PartnerCredit,
-  PartnerPaidBy,
-  PartnerPurchase,
-  PartnerPurchaseHold,
-  PartnerPurchaseHolds,
-  PartnerPurchaseRelease,
-  PartnerPurchases,
-  PartnerReturn,
-} from './partner-purchases.js';
-import type {
-  PartnerDirectDebitFailure,
-  PartnerDirectDebitRefund,
-  PartnerDirectDebitReport,
-  PartnerDirectDebits,
-  PartnerMandate,
-  PartnerMandateLine,
-} from './partner-direct-debits.js';
+import type { PartnerPurchases } from './partner-purchases.js';
+import type { PartnerDirectDebitRefund, PartnerDirectDebitReport, PartnerDirectDebits } from './partner-direct-debits.js';
 import {
   CLOSURE_PAYOUT_KEY,
   testPartnerCompliance,
   type PartnerCompliance,
   type TestPartnerComplianceDoors,
 } from './partner-compliance.js';
+import {
+  accountKey,
+  accountOf,
+  MAX_MOVES,
+  moveConflict,
+  partnerDown,
+  sameAccount,
+  TEST_PARTNER_LABEL,
+  testPartnerBook,
+} from './test-partner-book.js';
+import { MAX_PEOPLE, testPartnerSwitchBoard, type PartnerFeature, type TestPartnerSwitches } from './test-partner-switches.js';
+import { testPartnerPurchaseDesk } from './test-partner-purchases.js';
+import { testPartnerDirectDebitDesk } from './test-partner-direct-debits.js';
 
 /**
  * THE TEST PARTNER BANK AND THE TEST RAMP, AND THEY ARE TEST FIXTURES (CUSTODY-DELTA §4; OWNER 226).
@@ -60,6 +56,10 @@ import {
  * The switches are per person and live in this process only, so one journey's switch never reaches another's account,
  * and a restart puts every switch back off. They are set through the person's own `testPartner.set` on the TEST stack.
  *
+ * This file only composes the TEST partner: a switch is declared in `test-partner-switches.ts`, what the partner holds is
+ * `test-partner-book.ts`, and each capability's behaviour lives in its own module (`test-partner-purchases.ts`,
+ * `test-partner-direct-debits.ts`, `partner-compliance.ts`). A new capability gets a module of its own.
+ *
  * Chosen (`BANK_TEST_PARTNER=test`) in a process whose raw `APP_ENV` is not exactly `dev` or `test`, or with
  * `NODE_ENV=production`, the service refuses to start, as `svc-pay`'s `rails/posture.ts` refuses sandbox rails. Off (the
  * default) there is no adapter and every switch read is "off": nothing changes.
@@ -71,8 +71,6 @@ function payeesKey(payees: PartnerMoveRequest['payees']): string {
 
 export const TEST_PARTNER_SETTINGS = ['off', 'test'] as const;
 export type TestPartnerSetting = (typeof TEST_PARTNER_SETTINGS)[number];
-
-export const TEST_PARTNER_LABEL = 'TEST partner bank';
 
 /** The reason the TEST partner card declines with under `cardDecline: 'unlisted'`: a code nothing here has words for. */
 export const TEST_PARTNER_UNLISTED_DECLINE = 'test_partner.unlisted_reason';
@@ -87,12 +85,6 @@ export const TEST_PARTNER_STALE_AFTER_MS = 60_000;
 export const TEST_PARTNER_DAILY_SEND = '1000';
 export const TEST_PARTNER_SEND_FEE = '0.5';
 
-/**
- * TEST: how long the TEST partner holds back a purchase paid through it before it can be withdrawn (J-wallet-01 #3), by
- * how it was paid. It holds back the whole purchase. Made up for test stacks; not a partner's terms or an owner decision.
- */
-export const TEST_PURCHASE_HOLD_DAYS: Readonly<Record<PartnerPaidBy, number>> = Object.freeze({ card: 7, bank_pull: 3 });
-
 /** The stand-in merchant a TEST payment at the partner goes to (`testPartner.spend`). It is on no person's list of balances. */
 export const TEST_PARTNER_MERCHANT = 'partner:test-merchant';
 
@@ -106,128 +98,6 @@ export const TEST_PARTNER_SCA_AFTER_DAYS = 90;
 
 /** TEST: how long a TEST partner quote for a move between a person's own accounts stands (J-bank-24 #3). Not a partner's terms. */
 export const TEST_PARTNER_QUOTE_MS = 60_000;
-
-/** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
-export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const;
-export type PartnerFeature = (typeof PARTNER_FEATURES)[number];
-
-export interface TestPartnerSwitches {
-  /** Features the partner does not offer: each refuses `bank.not_offered_by_partner` before anything is written. */
-  readonly notOffered: readonly PartnerFeature[];
-  /** `unknown`: the partner does not say what a move costs; the fee reads "not known", never 0. */
-  readonly fee: 'known' | 'unknown';
-  /** `required`: the partner requires a reserve of us, and does not say how much; it reads "not known", never 0. */
-  readonly reserve: 'none' | 'required';
-  /**
-   * The partner is not answering: every write to a currency account, space, pot or joint account, a send to a person,
-   * and a standing order's create, change or resume refuses `bank.partner_unavailable`, nothing written. Freezing a
-   * shared pot's card, and cancelling or pausing a standing order, stay open (they only protect), and a balance read
-   * gives the last figure the partner gave for that account, with the partner's time for it, or "not known" when it
-   * gave none: never a fresh figure stamped now.
-   */
-  readonly down: boolean;
-  /**
-   * The partner's balance figures (b2 change 6): `live` (the default) reports each with its time now; `stale` reports
-   * each with a time older than the partner's limit (`TEST_PARTNER_STALE_AFTER_MS`); `unknown` reports none, with no
-   * time, so every balance reads "not known", never 0.
-   */
-  readonly figures: 'live' | 'stale' | 'unknown';
-  /** `expired`: the ramp says any quote it gave has expired when it is accepted. */
-  readonly rampQuote: 'live' | 'expired';
-  /** `unknown`: the ramp gives no fee, so no pay amount: the quote reads "not known" and nothing can be asked. */
-  readonly rampFee: 'known' | 'unknown';
-  /**
-   * `off`: this person's money is partner-held (OWNER 226; B3's decision on project-state #1790). Bank balances are the
-   * TEST partner bank's figures and moves are partner instructions; a card authorisation is held, captured, released and
-   * refunded by the TEST partner card (`cards/partner-card-holds.ts`). INTAFACED's ledger posts nothing for either. `on`
-   * (the default) runs the custodial layer exactly as before, for the journeys marked Later.
-   */
-  readonly custody: 'on' | 'off';
-  /** `lost`: the partner makes this person's next move and its answer is lost, once; then it goes back to `answered`. */
-  readonly nextReply: 'answered' | 'lost';
-  /**
-   * `expired`: the TEST partner card reports every hold of this person's that is still open as past its hold time, and
-   * releases it, as a partner does when a merchant never captures. `live` (the default): a hold runs its TEST hold time.
-   */
-  readonly cardHold: 'live' | 'expired';
-  /**
-   * `unlisted`: the TEST partner card declines this person's next holds with a reason code of its own that INTAFACED has
-   * no words for (`TEST_PARTNER_UNLISTED_DECLINE`), as a real partner may send one we have not seen (J-bank-14 #6: an
-   * unknown code shows the raw code). `none` (the default): the partner declines only for its own figures.
-   */
-  readonly cardDecline: 'none' | 'unlisted';
-  /**
-   * `issued`: the partner has issued this person TEST account details, labelled TEST (J-bank-01 #6). `none`, the default,
-   * is a stack with no banking partner for account details: every currency answers `rail.bank` and no number is shown.
-   */
-  readonly accountDetails: 'none' | 'issued';
-  /**
-   * `not_reported`: the partner does not report what it holds back of this person's purchases, so the app reads "not
-   * reported by the partner", never nothing held. `reported` (the default) lists each hold with its release time.
-   */
-  readonly purchaseHolds: 'reported' | 'not_reported';
-  /**
-   * `expired`: the TEST partner reports every purchase hold of this person's that is still open as past its release time,
-   * and releases it, once, as a partner does when the payment can no longer be reversed. `live` (the default): a hold runs
-   * its TEST hold time (`TEST_PURCHASE_HOLD_DAYS`).
-   */
-  readonly purchaseHold: 'live' | 'expired';
-  /**
-   * `held`: the partner holds this person's bank account under a legal hold, so closing it refuses
-   * `bank.closure_legal_hold` and a pending closure's payout waits (J-bank-17 #5). `none` (the default): no hold.
-   */
-  readonly legalHold: 'none' | 'held';
-  /**
-   * `not_accepted`: the partner does not accept our identity case from Verification, so onboarding asks for its own
-   * check (J-bank-17 #1). `accepted` (the default): a person verified with us has the identity step done with our case.
-   */
-  readonly identityCase: 'accepted' | 'not_accepted';
-  /**
-   * `test`: the TEST partner carries this person's instant and ACH payments out (J-bank-24 #4), labelled TEST. `none`, the
-   * default, is a stack with no bank rail: every payment answers `rail.bank` and nothing moves.
-   */
-  readonly bankRail: 'none' | 'test';
-  /**
-   * The name the TEST partner holds this person's account in (J-bank-30), as a banking partner knows its account holder:
-   * labelled TEST, set by the person on the TEST stack. null, the default, is a holder name the partner has not given: the
-   * salary form is refused and every direct deposit to the account is returned, as a name that cannot be matched.
-   */
-  readonly holderName: string | null;
-  /**
-   * `held`: the partner holds back its answer on every USDC pay-in to this person (J-bank-31 #6): a transfer it has seen
-   * stays pending, "on its way", and is not credited or counted as spendable until the switch goes back to `answered`
-   * (the default), when it is credited once.
-   */
-  readonly payIn: 'answered' | 'held';
-  /**
-   * An asset id: the TEST partner reports one open TEST order of this person's reserving that currency (J-bank-01 #3: a
-   * currency with an open order cannot be removed). null, the default, is no open order.
-   */
-  readonly openOrder: string | null;
-}
-
-export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
-  notOffered: Object.freeze([]) as readonly PartnerFeature[],
-  fee: 'known',
-  reserve: 'none',
-  down: false,
-  figures: 'live',
-  rampQuote: 'live',
-  rampFee: 'known',
-  custody: 'on',
-  nextReply: 'answered',
-  cardHold: 'live',
-  cardDecline: 'none',
-  accountDetails: 'none',
-  purchaseHolds: 'reported',
-  purchaseHold: 'live',
-  legalHold: 'none',
-  identityCase: 'accepted',
-  bankRail: 'none',
-  holderName: null,
-  payIn: 'answered',
-  openOrder: null,
-});
 
 /** The partner's reserve as it reports it. An amount it has not told us is null, read as "not known", never 0. */
 export type PartnerReserve = { readonly required: false } | { readonly required: true; readonly amount: null };
@@ -295,112 +165,21 @@ export interface TestPartner {
   receive(account: PartnerAccountRef, key: string, amount: Amount): PartnerMove;
 }
 
-/** The TEST partner's own reason code for a collection on a mandate the person blocked with it. */
-export const TEST_PARTNER_DD_BLOCKED = 'test_partner.dd_mandate_blocked';
-
-/** The prefix of a direct debit collection's partner move key (`direct-debits.ts` collectionPartnerKey). */
-const DD_COLLECTION_KEY = 'bank.dd.collection:';
-
-/** The mandate and collection a direct debit collection's partner key names, or null for any other move. */
-function ddCollectionOf(key: string): { mandateId: string; collectionId: string } | null {
-  if (!key.startsWith(DD_COLLECTION_KEY)) return null;
-  const [mandateId, collectionId, ...rest] = key.slice(DD_COLLECTION_KEY.length).split(':');
-  return mandateId && collectionId && rest.length === 0 ? { mandateId, collectionId } : null;
-}
-
-/**
- * The most people the adapter keeps switches for. The local stack signs up a few hundred per run; past this the oldest
- * person's switches go back to off, so a long-running stack never grows without bound.
- */
-const MAX_PEOPLE = 10_000;
-
-/**
- * The most moves the TEST book keeps. Past it a move refuses `bank.partner_unavailable` (nothing moves) rather than
- * forget one: money state is never evicted. A restart empties the book, as it puts every switch back off.
- */
-const MAX_MOVES = 200_000;
-
-function accountKey(ref: PartnerAccountRef): string {
-  return `${ref.userId}|${ref.assetId}|${ref.spaceId ?? 'main'}`;
-}
-
-function sameAccount(a: PartnerAccountRef, b: PartnerAccountRef): boolean {
-  return accountKey(a) === accountKey(b);
-}
-
-function partnerDown(): BankError {
-  return new BankError('The partner bank is not answering. Nothing was sent or changed.', 'bank.partner_unavailable');
-}
-
-function moveConflict(key: string): BankError {
-  return new BankError(`The partner already holds a different move under ${key}, so this one was not made.`, 'bank.partner_move_conflict');
-}
-
 export function testPartner(): TestPartner {
-  const kept = new Map<string, TestPartnerSwitches>();
-  /** Scaled bigint per partner account. An account the partner holds and nobody has paid into holds 0. */
-  const held = new Map<string, bigint>();
-  const byKey = new Map<string, PartnerMove>();
-  /** Each person's moves, oldest first; a move between two people is on both lists. */
-  const byPerson = new Map<string, PartnerMove[]>();
+  const { switches, set } = testPartnerSwitchBoard();
+  const book = testPartnerBook();
+  const { held, byKey, byPerson } = book;
   const funds = new Map<string, { readonly userId: string; readonly assetId: string; readonly amount: Amount }>();
-  /** Each purchase credited, by person and key: one key is one credit. */
-  const purchased = new Map<string, PartnerCredit & { readonly assetId: string; readonly paidBy: PartnerPaidBy }>();
-  /** Each person's purchase holds still open, and those released, oldest first. */
-  const openHolds = new Map<string, PartnerPurchaseHold[]>();
-  /** Each purchase returned, by person and key: one key is one return. */
-  const returns = new Map<string, PartnerReturn>();
-  const releasedHolds = new Map<string, PartnerPurchaseRelease[]>();
-  /** Each mandate the person blocked with the partner, by person and mandate, with the partner's time for it. */
-  const ddBlocks = new Map<string, Date>();
-  /** Each mandate the partner knows, by person and mandate, with when it first heard of it (J-bank-28 #4). */
-  const ddKnown = new Map<string, { readonly userId: string; readonly mandateId: string; readonly knownAt: Date }>();
-  /** Each collection the partner refused, by person, mandate and collection: one collection is one refusal. */
-  const ddFailures = new Map<string, PartnerDirectDebitFailure>();
-  /** Each refund the partner made, by person, mandate and collection: one collection is refunded once. */
-  const ddRefunds = new Map<string, PartnerDirectDebitRefund>();
-  const knowMandate = (userId: string, mandateId: string) => {
-    const key = `${userId}|${mandateId}`;
-    if (!ddKnown.has(key) && ddKnown.size < MAX_MOVES) ddKnown.set(key, Object.freeze({ userId, mandateId, knownAt: new Date() }));
-  };
-  const ddRefused = (userId: string, mandateId: string, collectionId: string, code: string) => {
-    knowMandate(userId, mandateId);
-    const key = `${userId}|${mandateId}|${collectionId}`;
-    if (!ddFailures.has(key) && ddFailures.size < MAX_MOVES) {
-      ddFailures.set(key, Object.freeze({ userId, mandateId, collectionId, code, at: new Date() }));
-    }
-  };
-  /** A collection's move the partner refuses for want of money is on its record as a refused collection. */
-  const refusedForFunds = (request: PartnerMoveRequest) => {
-    const dd = ddCollectionOf(request.key);
-    if (dd) ddRefused(request.from.userId, dd.mandateId, dd.collectionId, 'bank.partner_insufficient_funds');
-  };
+  const purchaseDesk = testPartnerPurchaseDesk(book, switches);
+  const debitDesk = testPartnerDirectDebitDesk(book, switches);
   /** People whose bank account is closing or closed: no move in or out of it but a closure's payout (J-bank-17 #5). */
   const restricted = new Set<string>();
-  let seq = 0;
-  /**
-   * Unique to this process, so a move reference is never reused after a restart: a note kept in svc-bank's database
-   * against an earlier process's move must never attach to a new move with the same sequence number.
-   */
-  const boot = randomBytes(6).toString('hex');
 
-  const switches = (userId: string) => kept.get(userId) ?? SWITCHES_OFF;
-  const set = (userId: string, change: Partial<TestPartnerSwitches>): TestPartnerSwitches => {
-    const next: TestPartnerSwitches = Object.freeze({
-      ...(kept.get(userId) ?? SWITCHES_OFF),
-      ...change,
-      ...(change.notOffered ? { notOffered: Object.freeze([...new Set(change.notOffered)]) } : {}),
-    });
-    kept.delete(userId);
-    kept.set(userId, next);
-    if (kept.size > MAX_PEOPLE) kept.delete(kept.keys().next().value!);
-    return next;
-  };
   /** The last figure the partner gave for each account, for a read while it is down. Bounded with the switches. */
   const lastGiven = new Map<string, PartnerBalance>();
   /** The partner's answer to a funding it made: what the account now holds, with its time now, whatever `figures` says. */
   const funded = (account: PartnerAccountRef): PartnerBalance =>
-    Object.freeze({ account, amount: held.get(accountKey(account)) ?? 0n, asOf: new Date(), label: TEST_PARTNER_LABEL });
+    Object.freeze({ account, amount: book.amount(account), asOf: new Date(), label: TEST_PARTNER_LABEL });
   const report = (account: PartnerAccountRef): PartnerBalance => {
     const key = accountKey(account);
     const now = switches(account.userId);
@@ -412,60 +191,11 @@ export function testPartner(): TestPartner {
     }
     if (now.figures === 'unknown') return Object.freeze({ account, amount: null, asOf: null, label: TEST_PARTNER_LABEL });
     const asOf = now.figures === 'stale' ? new Date(Date.now() - 2 * TEST_PARTNER_STALE_AFTER_MS) : new Date();
-    const given: PartnerBalance = Object.freeze({ account, amount: held.get(key) ?? 0n, asOf, label: TEST_PARTNER_LABEL });
+    const given: PartnerBalance = Object.freeze({ account, amount: book.amount(account), asOf, label: TEST_PARTNER_LABEL });
     lastGiven.delete(key);
     lastGiven.set(key, given);
     if (lastGiven.size > MAX_PEOPLE * 4) lastGiven.delete(lastGiven.keys().next().value!);
     return given;
-  };
-  /** Releases, once, every open hold of the person's that the partner says is past its release time. */
-  const releaseDue = (userId: string, now: Date) => {
-    const open = openHolds.get(userId) ?? [];
-    const expired = switches(userId).purchaseHold === 'expired';
-    const due = open.filter((h) => expired || h.releaseAt.getTime() <= now.getTime());
-    if (due.length === 0) return;
-    openHolds.set(
-      userId,
-      open.filter((h) => !due.includes(h)),
-    );
-    const done = releasedHolds.get(userId) ?? [];
-    for (const h of due) done.push(Object.freeze({ ...h, releasedAt: now }));
-    releasedHolds.set(userId, done);
-  };
-  /** What the partner still holds back of a person's main balance in one currency. A space holds no purchase. */
-  const heldBack = (account: PartnerAccountRef): bigint => {
-    if (account.spaceId !== null) return 0n;
-    releaseDue(account.userId, new Date());
-    let sum = 0n;
-    for (const h of openHolds.get(account.userId) ?? []) if (h.assetId === account.assetId) sum += h.amount;
-    return sum;
-  };
-  /** A pay-in on the partner's record, listed only to a reader that asks for pay-ins; never under a move key. */
-  const payIn = (account: PartnerAccountRef, key: string, amount: Amount): string => {
-    seq += 1;
-    const id = `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`;
-    const list = byPerson.get(account.userId) ?? [];
-    list.push(
-      Object.freeze({
-        id,
-        key,
-        from: Object.freeze(partnerPayInsAccount(account.assetId)),
-        to: Object.freeze({ ...account }),
-        amount,
-        movedAt: new Date(),
-        label: TEST_PARTNER_LABEL,
-      }),
-    );
-    byPerson.set(account.userId, list);
-    return id;
-  };
-  const remember = (move: PartnerMove) => {
-    byKey.set(move.key, move);
-    for (const userId of new Set([move.from.userId, move.to.userId])) {
-      const list = byPerson.get(userId) ?? [];
-      list.push(move);
-      byPerson.set(userId, list);
-    }
   };
 
   const bank: PartnerBank = {
@@ -475,8 +205,8 @@ export function testPartner(): TestPartner {
     async balances(userId) {
       const out: PartnerBalance[] = [];
       for (const key of held.keys()) {
-        const [owner, assetId, space] = key.split('|') as [string, string, string];
-        if (owner === userId) out.push(report({ userId, assetId, spaceId: space === 'main' ? null : space }));
+        const account = accountOf(key);
+        if (account.userId === userId) out.push(report(account));
       }
       return out;
     },
@@ -516,28 +246,26 @@ export function testPartner(): TestPartner {
         throw new BankError('A partner move stays in one currency; convert first.', 'bank.asset_mismatch');
       }
       if (sameAccount(request.from, request.to)) throw new BankError('A transfer needs two different spaces', 'bank.same_space');
-      const fromKey = accountKey(request.from);
-      const has = held.get(fromKey) ?? 0n;
+      const has = book.amount(request.from);
       if (has < request.amount) {
-        refusedForFunds(request);
+        debitDesk.refusedForFunds(request);
         throw new BankError(
           `The partner reports ${formatAmount(has)} ${request.from.assetId} in this account, less than ${formatAmount(request.amount)}. Nothing was moved.`,
           'bank.partner_insufficient_funds',
         );
       }
       // What the partner still holds back of a purchase stays where it is until its release time (J-wallet-01 #3).
-      const back = heldBack(request.from);
+      const back = purchaseDesk.heldBack(request.from);
       if (back > 0n && has - back < request.amount) {
-        refusedForFunds(request);
+        debitDesk.refusedForFunds(request);
         throw new BankError(
           `The partner holds back ${formatAmount(back)} ${request.from.assetId} of a purchase until its release time, so ${formatAmount(has - back)} can move now, less than ${formatAmount(request.amount)}. Nothing was moved.`,
           'bank.partner_insufficient_funds',
         );
       }
       // One step, nothing awaited: the debit, the credit and the record are made together or not at all.
-      seq += 1;
       const move: PartnerMove = Object.freeze({
-        id: `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`,
+        id: book.nextId('move'),
         key: request.key,
         from: Object.freeze({ ...request.from }),
         to: Object.freeze({ ...request.to }),
@@ -546,9 +274,9 @@ export function testPartner(): TestPartner {
         label: TEST_PARTNER_LABEL,
         ...(request.payees ? { payees: Object.freeze(request.payees.map((p) => Object.freeze({ ...p }))) } : {}),
       });
-      held.set(fromKey, has - request.amount);
-      held.set(accountKey(request.to), (held.get(accountKey(request.to)) ?? 0n) + request.amount);
-      remember(move);
+      book.add(request.from, -request.amount);
+      book.add(request.to, request.amount);
+      book.remember(move);
       if (switches(person).nextReply === 'lost') {
         set(person, { nextReply: 'answered' });
         throw new BankError(
@@ -584,8 +312,7 @@ export function testPartner(): TestPartner {
     // every line after the period, the opening is the closing less the period's lines, and the count is the period's lines.
     async statement(account: PartnerAccountRef, range: { from: Date; to: Date }) {
       if (switches(account.userId).down) throw partnerDown();
-      const key = accountKey(account);
-      let closing = held.get(key) ?? 0n;
+      let closing = book.amount(account);
       let net = 0n;
       let lines = 0;
       for (const move of byPerson.get(account.userId) ?? []) {
@@ -644,11 +371,11 @@ export function testPartner(): TestPartner {
         throw new BankError('A partner move stays in one currency; convert first.', 'bank.asset_mismatch');
       }
       if (sameAccount(request.from, request.to)) throw new BankError('A transfer needs two different spaces', 'bank.same_space');
-      seq += 1;
+      const quoteId = book.nextId('quote');
       const quotedAt = new Date();
       const fee = switches(request.from.userId).fee === 'known' ? 0n : null;
       return Object.freeze({
-        quoteId: `test-partner-quote-${boot}-${String(seq).padStart(12, '0')}`,
+        quoteId,
         from: Object.freeze({ ...request.from }),
         to: Object.freeze({ ...request.to }),
         amount: request.amount,
@@ -685,9 +412,8 @@ export function testPartner(): TestPartner {
         }
         if (payments.size >= MAX_MOVES) throw partnerDown();
         await bank.move({ key: request.key, from: request.from, to: partnerPayoutsAccount(request.from.assetId), amount: request.amount });
-        seq += 1;
         const made: PartnerPayment = Object.freeze({
-          id: `test-partner-payment-${boot}-${String(seq).padStart(12, '0')}`,
+          id: book.nextId('payment'),
           key: request.key,
           from: Object.freeze({ ...request.from }),
           method: request.method,
@@ -724,49 +450,6 @@ export function testPartner(): TestPartner {
     return done;
   };
 
-  const mandate = (userId: string, mandateId: string): PartnerMandate => {
-    const blockedAt = ddBlocks.get(`${userId}|${mandateId}`) ?? null;
-    return Object.freeze({
-      mandateId,
-      blocked: blockedAt !== null,
-      blockedAt,
-      refusalCode: blockedAt ? TEST_PARTNER_DD_BLOCKED : null,
-      label: TEST_PARTNER_LABEL,
-    });
-  };
-  const directDebits: PartnerDirectDebits = {
-    label: TEST_PARTNER_LABEL,
-    async block(userId, mandateId) {
-      const key = `${userId}|${mandateId}`;
-      if (!ddBlocks.has(key)) {
-        if (switches(userId).down) throw partnerDown();
-        if (ddBlocks.size >= MAX_MOVES) throw partnerDown();
-        ddBlocks.set(key, new Date());
-      }
-      knowMandate(userId, mandateId);
-      return mandate(userId, mandateId);
-    },
-    async unblock(userId, mandateId) {
-      const key = `${userId}|${mandateId}`;
-      if (ddBlocks.has(key)) {
-        if (switches(userId).down) throw partnerDown();
-        ddBlocks.delete(key);
-      }
-      return mandate(userId, mandateId);
-    },
-    async mandate(userId, mandateId, forCollection) {
-      if (switches(userId).down) throw partnerDown();
-      knowMandate(userId, mandateId);
-      const answer = mandate(userId, mandateId);
-      if (forCollection !== undefined && answer.blocked) ddRefused(userId, mandateId, forCollection, answer.refusalCode!);
-      return answer;
-    },
-    async setUp(userId, mandateId) {
-      if (switches(userId).down) throw partnerDown();
-      knowMandate(userId, mandateId);
-    },
-  };
-
   const compliance = testPartnerCompliance({
     label: TEST_PARTNER_LABEL,
     bank,
@@ -783,70 +466,16 @@ export function testPartner(): TestPartner {
     switches,
     set,
     bank,
-    directDebits,
-    directDebitReport() {
-      const mandates: PartnerMandateLine[] = [...ddKnown.values()].map((m) => {
-        const blockedAt = ddBlocks.get(`${m.userId}|${m.mandateId}`) ?? null;
-        return Object.freeze({ ...m, state: blockedAt ? 'blocked' : 'active', blockedAt });
-      });
-      return Object.freeze({
-        label: TEST_PARTNER_LABEL,
-        asOf: new Date(),
-        mandates,
-        failures: [...ddFailures.values()],
-        refunds: [...ddRefunds.values()],
-      });
-    },
-    refundDirectDebit(userId, mandateId, collectionId) {
-      const key = `${userId}|${mandateId}|${collectionId}`;
-      const done = ddRefunds.get(key);
-      if (done) return done;
-      const collected = byKey.get(`${DD_COLLECTION_KEY}${mandateId}:${collectionId}`);
-      if (!collected || collected.from.userId !== userId) {
-        throw new BankError('The partner collected nothing on that debit, so there is nothing to refund.', 'bank.dd_refund_not_collected');
-      }
-      if (ddRefunds.size >= MAX_MOVES) throw partnerDown();
-      // The partner's own move back, keyed so a retry is the same refund; it shares the move book's checks and record.
-      const moved = byKey.get(`bank.dd.refund:${mandateId}:${collectionId}`);
-      const back =
-        moved ??
-        (() => {
-          seq += 1;
-          const move: PartnerMove = Object.freeze({
-            id: `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`,
-            key: `bank.dd.refund:${mandateId}:${collectionId}`,
-            from: collected.to,
-            to: collected.from,
-            amount: collected.amount,
-            movedAt: new Date(),
-            label: TEST_PARTNER_LABEL,
-          });
-          const fromKey = accountKey(move.from);
-          held.set(fromKey, (held.get(fromKey) ?? 0n) - move.amount);
-          held.set(accountKey(move.to), (held.get(accountKey(move.to)) ?? 0n) + move.amount);
-          remember(move);
-          return move;
-        })();
-      const refund: PartnerDirectDebitRefund = Object.freeze({
-        userId,
-        mandateId,
-        collectionId,
-        assetId: back.to.assetId,
-        amount: back.amount,
-        moveId: back.id,
-        refundedAt: back.movedAt,
-      });
-      ddRefunds.set(key, refund);
-      return refund;
-    },
+    directDebits: debitDesk.directDebits,
+    directDebitReport: debitDesk.report,
+    refundDirectDebit: debitDesk.refund,
     compliance,
     settlePayment,
     record(userId) {
       const accounts: { account: PartnerAccountRef; amount: Amount }[] = [];
       for (const [key, amount] of held) {
-        const [owner, assetId, space] = key.split('|') as [string, string, string];
-        if (owner === userId)
-          accounts.push(Object.freeze({ account: Object.freeze({ userId, assetId, spaceId: space === 'main' ? null : space }), amount }));
+        const account = accountOf(key);
+        if (account.userId === userId) accounts.push(Object.freeze({ account: Object.freeze(account), amount }));
       }
       return Object.freeze({ accounts: Object.freeze(accounts), moves: Object.freeze([...(byPerson.get(userId) ?? [])]) });
     },
@@ -867,10 +496,10 @@ export function testPartner(): TestPartner {
       }
       if (byKey.size >= MAX_MOVES) throw partnerDown();
       if (amount <= 0n) throw new BankError('A payment in needs an amount above zero.', 'bank.partner_amount_invalid');
-      // One step, nothing awaited: the credit and its record are made together or not at all.
-      seq += 1;
+      // One step, nothing awaited: the credit and its record are made together or not at all. The pay-ins account is the
+      // outside world's, so nothing is taken from it.
       const move: PartnerMove = Object.freeze({
-        id: `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`,
+        id: book.nextId('move'),
         key,
         from: Object.freeze(partnerPayInsAccount(account.assetId)),
         to: Object.freeze({ ...account }),
@@ -878,8 +507,8 @@ export function testPartner(): TestPartner {
         movedAt: new Date(),
         label: TEST_PARTNER_LABEL,
       });
-      held.set(accountKey(account), (held.get(accountKey(account)) ?? 0n) + amount);
-      remember(move);
+      book.add(account, amount);
+      book.remember(move);
       return move;
     },
     fund(userId, funding) {
@@ -902,111 +531,12 @@ export function testPartner(): TestPartner {
       }
       if (funding.amount <= 0n) throw new BankError('TEST funding needs an amount above zero.', 'bank.partner_amount_invalid');
       funds.set(fundKey, { userId, assetId: funding.assetId, amount: funding.amount });
-      held.set(accountKey(account), (held.get(accountKey(account)) ?? 0n) + funding.amount);
-      // On the partner's record as a pay-in, listed only to a reader that asks for pay-ins. Not under a move key: nobody
-      // instructed it, so it can never answer `moveByKey` or conflict with a move.
-      payIn(account, `pay-in:${fundKey}`, funding.amount);
+      // Credited and on the partner's record as a pay-in, listed only to a reader that asks for pay-ins. Not under a move
+      // key: nobody instructed it, so it can never answer `moveByKey` or conflict with a move.
+      book.payIn(account, `pay-in:${fundKey}`, funding.amount);
       return funded(account);
     },
-    purchases: {
-      label: TEST_PARTNER_LABEL,
-      async credit(userId: string, purchase: PartnerPurchase): Promise<PartnerCredit> {
-        // Per person, like a funding: one person's purchase key never collides with another's.
-        const creditKey = `${userId}|${purchase.key}`;
-        const prior = purchased.get(creditKey);
-        if (prior) {
-          if (prior.assetId !== purchase.assetId || prior.amount !== purchase.amount || prior.paidBy !== purchase.paidBy) {
-            throw moveConflict(purchase.key);
-          }
-          return { id: prior.id, key: prior.key, amount: prior.amount, hold: prior.hold };
-        }
-        if (switches(userId).down) throw partnerDown();
-        if (purchase.amount <= 0n) throw new BankError('A purchase needs an amount above zero.', 'bank.partner_amount_invalid');
-        const account: PartnerAccountRef = { userId, assetId: purchase.assetId, spaceId: null };
-        // One step, nothing awaited: the credit, its record and its hold are made together or not at all.
-        held.set(accountKey(account), (held.get(accountKey(account)) ?? 0n) + purchase.amount);
-        const id = payIn(account, `pay-in:purchase:${creditKey}`, purchase.amount);
-        const at = new Date();
-        const hold: PartnerPurchaseHold = Object.freeze({
-          id: `test-partner-hold-${boot}-${String(seq).padStart(12, '0')}`,
-          purchaseKey: purchase.key,
-          assetId: purchase.assetId,
-          amount: purchase.amount,
-          paidBy: purchase.paidBy,
-          releaseAt: new Date(at.getTime() + TEST_PURCHASE_HOLD_DAYS[purchase.paidBy] * 86_400_000),
-        });
-        openHolds.set(userId, [...(openHolds.get(userId) ?? []), hold]);
-        const credited = Object.freeze({
-          id,
-          key: purchase.key,
-          amount: purchase.amount,
-          hold,
-          assetId: purchase.assetId,
-          paidBy: purchase.paidBy,
-        });
-        purchased.set(creditKey, credited);
-        return { id, key: purchase.key, amount: purchase.amount, hold };
-      },
-      async returned(userId: string, purchase: PartnerPurchase): Promise<PartnerReturn> {
-        const creditKey = `${userId}|${purchase.key}`;
-        const credited = purchased.get(creditKey);
-        if (!credited || credited.assetId !== purchase.assetId || credited.amount !== purchase.amount) {
-          throw moveConflict(purchase.key);
-        }
-        const prior = returns.get(creditKey);
-        if (prior) return prior;
-        if (switches(userId).down) throw partnerDown();
-        const account: PartnerAccountRef = { userId, assetId: purchase.assetId, spaceId: null };
-        const has = held.get(accountKey(account)) ?? 0n;
-        if (has < purchase.amount) {
-          throw new BankError(
-            `The partner reports ${formatAmount(has)} ${purchase.assetId}, less than the ${formatAmount(purchase.amount)} sent back. Nothing was taken.`,
-            'bank.partner_insufficient_funds',
-          );
-        }
-        // One step, nothing awaited: the amount leaves the balance, the purchase's hold goes, and the return is kept.
-        held.set(accountKey(account), has - purchase.amount);
-        openHolds.set(
-          userId,
-          (openHolds.get(userId) ?? []).filter((h) => h.purchaseKey !== purchase.key),
-        );
-        seq += 1;
-        const id = `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`;
-        const at = new Date();
-        // On the partner's record as the pay-in going back to where it came from, listed with the pay-ins; never under a
-        // move key, as nobody instructed it.
-        const list = byPerson.get(userId) ?? [];
-        list.push(
-          Object.freeze({
-            id,
-            key: `pay-in:return:${creditKey}`,
-            from: Object.freeze({ ...account }),
-            to: Object.freeze(partnerPayInsAccount(purchase.assetId)),
-            amount: purchase.amount,
-            movedAt: at,
-            label: TEST_PARTNER_LABEL,
-          }),
-        );
-        byPerson.set(userId, list);
-        const back: PartnerReturn = Object.freeze({ id, key: purchase.key, amount: purchase.amount, returnedAt: at });
-        returns.set(creditKey, back);
-        return back;
-      },
-      async holds(userId: string): Promise<PartnerPurchaseHolds> {
-        const now = switches(userId);
-        if (now.down) throw partnerDown();
-        if (now.purchaseHolds === 'not_reported') return Object.freeze({ label: TEST_PARTNER_LABEL, reported: false as const });
-        const at = new Date();
-        releaseDue(userId, at);
-        return Object.freeze({
-          label: TEST_PARTNER_LABEL,
-          reported: true as const,
-          asOf: at,
-          holds: Object.freeze([...(openHolds.get(userId) ?? [])]),
-          released: Object.freeze([...(releasedHolds.get(userId) ?? [])]),
-        });
-      },
-    },
+    purchases: purchaseDesk.purchases,
   };
 }
 

@@ -182,6 +182,11 @@ export const ENFORCED = {
     note: 'enumerates via `git ls-files`, which fails hard outside a repo. Refuses, but by throw — no zero-file branch of its own.',
   },
 
+  'published-routes': {
+    kind: 'guard',
+    must: /PUBLISHED ROUTES FAILED — services\/svc-trade\/src\/route-declarations\.test-harness\.ts is missing/,
+    note: 'with svc-trade gone it cannot read a route and refuses by name, rather than matching an empty list to nothing.',
+  },
   killswitch: {
     kind: 'guard',
     must: /kill-switch reachability/,

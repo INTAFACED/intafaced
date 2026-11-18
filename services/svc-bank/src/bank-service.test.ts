@@ -143,10 +143,10 @@ type MoneyColumnGuardResult = {
 const ILLEGAL_MONEY_DATA_TYPES = new Set(['double precision', 'real', 'money']);
 
 /**
- * Columns the schema guard treats as money, judged against the allowlist.
- * Legal money is `numeric(38,18)` and named on the allowlist. `double precision`,
- * `real`, and `money` fail even when named there. `numeric(38)` at any other
- * scale fails even when named there.
+ * Columns the schema guard treats as money, judged against the declared ones
+ * (`moneyColumnReasons`). Legal money is `numeric(38,18)` and declared. `double precision`,
+ * `real`, and `money` fail even when declared. `numeric(38)` at any other
+ * scale fails even when declared.
  */
 function moneyColumnGuard(columns: readonly BankSchemaColumn[], allowlist: Readonly<Record<string, string>>): MoneyColumnGuardResult {
   const illegalType = columns.filter((column) => ILLEGAL_MONEY_DATA_TYPES.has(column.data_type)).map(bankColumnRef);
@@ -168,6 +168,28 @@ function moneyColumnGuard(columns: readonly BankSchemaColumn[], allowlist: Reado
   };
 }
 
+/** One column comment in the bank schema, from `pg_description`. */
+type BankColumnComment = { table_name: string; column_name: string; description: string | null };
+
+/** The comment that declares a money column, written in the migration beside the column. */
+const MONEY_REASON = /^money: (\S.*)$/s;
+
+/** The declared money columns and their reasons: every column comment that starts `money: ` and says something. */
+function moneyColumnReasons(comments: readonly BankColumnComment[]): Record<string, string> {
+  const reasons: Record<string, string> = {};
+  for (const comment of comments) {
+    const reason = MONEY_REASON.exec(comment.description ?? '')?.[1];
+    if (reason) reasons[bankColumnRef(comment)] = reason;
+  }
+  return reasons;
+}
+
+/** The line that declares one undeclared money column, for the failure to print. */
+function moneyReasonLine(ref: string): string {
+  const [table, column] = ref.split('.');
+  return `COMMENT ON COLUMN "bank"."${table}"."${column}" IS 'money: a POLICY | GOAL | INSTRUCTION | RECORD … (why it is not a balance)';`;
+}
+
 function moneyScaleFixtureRow(
   column_name: string,
   data_type: string,
@@ -180,7 +202,7 @@ function moneyScaleFixtureRow(
 /** In-memory column rows. Nothing here is created in the bank schema. */
 function moneyScaleFixtureReport(): Record<string, { ok: boolean; illegalType: string[]; wrongScale: string[] }> {
   const allowlist: Record<string, string> = {
-    'fixture.kept': 'an allowlisted numeric(38,18) column',
+    'fixture.kept': 'a declared numeric(38,18) column',
   };
   const kept = moneyScaleFixtureRow('kept', 'numeric', 38, 18);
   const judge = (columns: readonly BankSchemaColumn[]) => {
@@ -197,9 +219,8 @@ function moneyScaleFixtureReport(): Record<string, { ok: boolean; illegalType: s
 }
 
 describe('svc-bank money PG-hard', () => {
-  // 0002 is in the list so THE SCHEMA GUARD BELOW SEES THE LOAN TABLES: what
-  // this file owns is the money-column allowlist, and a guard that cannot see
-  // half the schema is not guarding it.
+  // Every migration is applied so THE SCHEMA GUARD BELOW SEES THE WHOLE SCHEMA:
+  // a guard that cannot see half the schema is not guarding it.
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase;
   let sql: TestDatabase['sql'];
@@ -2940,7 +2961,7 @@ describe('svc-bank money PG-hard', () => {
      * Every check above proves the service currently agrees with the ledger.
      * This one proves it CANNOT quietly stop: it reads the live schema and
      * fails on any column whose name suggests an accumulating figure, and on
-     * any money-typed column that is not on an explicit, reasoned allowlist.
+     * any money-typed column whose migration does not state why it is not a balance.
      *
      * The point is that adding `spaces.balance` — the single most tempting
      * change anyone will ever propose to this service — turns a green build
@@ -2993,204 +3014,42 @@ describe('svc-bank money PG-hard', () => {
       ).toEqual([]);
 
       /**
-       * Every money-typed column, with the reason it is not a balance. A new
-       * numeric(38,18) column fails here until someone writes down which of the
-       * three legitimate kinds it is: a policy limit, a goal, an instruction, or
-       * a record of one completed event. double precision, real, money, and an
-       * allowlisted numeric(38) whose scale is not 18 fail as well.
+       * Every money-typed column, with the reason it is not a balance, written
+       * beside the column in the migration that adds it:
+       *
+       *   COMMENT ON COLUMN "bank"."<table>"."<column>" IS 'money: a RECORD of …';
+       *
+       * A new numeric(38,18) column fails here until that migration says which
+       * of the legitimate kinds it is: a policy limit, a goal, an instruction, or
+       * a record of one completed event. double precision, real, money, and a
+       * declared numeric(38) whose scale is not 18 fail as well. The reasons of
+       * the columns made before this read are in
+       * drizzle/20261118060816_money_column_reasons.sql.
        */
-      const MONEY_COLUMNS: Record<string, string> = {
-        'spaces.goal_target': 'a savings TARGET the user set — never written by a money path',
-        'scheduled_transfers.amount':
-          'the INSTRUCTION; a customer edit replaces it under a new revision, and the run posts the amount it locked',
-        'schedule_revisions.amount': 'a RECORD of one replaced instruction; written once when an edit lands',
-        'transfer_executions.amount': 'a RECORD of one completed firing; written once',
-        'dd_collections.amount': 'a RECORD of what a creditor presented for one direct debit collection; written once',
-        'personal_transfers.amount': 'a RECORD of one completed personal send; written once',
-        'received_holds.amount':
-          'the INSTRUCTION one hold on received funds was placed for; written once, never summed: the held money is the ledger pot pay:recv:<transferId>',
-        'personal_send_reviews.amount':
-          'the INSTRUCTION of one send held for review; written once, never summed, and nothing is reserved against it',
-        'personal_transfer_terms.per_transfer_limit': 'a POLICY ceiling on one send; no money path writes it',
-        'personal_transfer_terms.daily_limit': 'a POLICY ceiling on one UTC day; no money path writes it',
-        'personal_transfer_terms.fee': 'a published POLICY fee, not a collected balance',
-        'limit_increase_requests.requested': 'the limit a customer ASKED for; a request, never a balance',
-        'limit_increase_requests.granted': 'a POLICY ceiling compliance granted one customer; no money path writes it',
-        'personal_requests.amount': 'the amount asked for, an instruction until paid',
-        'earn_pools.min_deposit': 'a POLICY floor on a single deposit',
-        'earn_positions.principal': 'the deposit RECORD; interest is paid to available, never added here',
-        'interest_accruals.paid_amount': 'a RECORD of one day; summing the table is the lifetime figure',
-        'earn_renewals.principal': 'a RECORD of the amount one renewed term holds; written once, nothing posts with it',
+      const note = (column_name: string, description: string | null): BankColumnComment => ({
+        table_name: 'fixture',
+        column_name,
+        description,
+      });
+      expect(
+        moneyColumnReasons([
+          note('kept', 'money: a RECORD of one event'),
+          note('plain', 'a doc comment'),
+          note('blank', 'money: '),
+          note('none', null),
+        ]),
+      ).toEqual({ 'fixture.kept': 'a RECORD of one event' });
 
-        // ── Loans (§8.1) ─────────────────────────────────────────────────────
-        //
-        // Note what is NOT in this list, because it is the whole design: there is
-        // no `loans.outstanding_principal`. A loan's debt is the number that
-        // decides whether someone's collateral is sold, and a mutable money
-        // column that a nightly job adds to is a figure nothing can contradict.
-        // It is derived instead, in bigint, from the write-once rows below —
-        // `LoanService.outstanding()`. The FORBIDDEN list above already fails the
-        // build on /outstanding/ by name; this is the positive half of the same
-        // rule.
-        'loan_products.min_principal': 'a POLICY floor on a single draw; no money path writes it',
-        'loans.principal': 'the amount DRAWN at open; recorded once, never revised — interest lives in its own table',
-        'loans.opening_collateral':
-          'the opening PLEDGE amount at open — a TERM for id-reuse compares, write-once; live holdings are ledger + collateral events',
-        'loans.last_mark_price': 'a PRICE, not a holding — what one unit of collateral was worth at the last accepted mark',
-        'loan_collateral_events.amount': 'a RECORD of one completed lock or release; written once with its ledger tx id',
-        'loan_reserve_fundings.amount': 'a RECORD of one successful reserve fund post; the independent half of reconcileReserve (B-02)',
-        'loan_interest_accruals.principal_basis': 'the debt one day was computed against; a SNAPSHOT so that day is re-derivable',
-        'loan_interest_accruals.interest_amount': "a RECORD of one day's charge; summing the table is the lifetime figure",
-        'loan_repayments.interest_amount': 'a RECORD of one completed repayment; written once',
-        'loan_repayments.principal_amount': 'a RECORD of one completed repayment; written once',
-        'loan_adjustments.amount':
-          'a RECORD of one approved interest correction, signed; written once and never edited (append-only trigger)',
-        'loan_margin_calls.cure_collateral_amount':
-          'a FIGURE quoted at one instant; the next mark writes a new row rather than revising this one',
-        'loan_liquidations.mark_price': 'the PRICE one rung executed at, for the dispute nobody wants to have',
-        'loan_liquidations.collateral_sold': 'a RECORD of one completed rung; written once',
-        'loan_liquidations.proceeds': 'a RECORD of one completed rung; the four allocations below must sum to it',
-        'loan_liquidations.principal_repaid': 'a RECORD of one completed rung; written once',
-        'loan_liquidations.interest_repaid': 'a RECORD of one completed rung; written once',
-        'loan_liquidations.penalty': 'a RECORD of one completed rung; written once',
-        'loan_liquidations.surplus_returned': 'a RECORD of what went back to the borrower; written once',
-        'loan_liquidations.shortfall': 'a RECORD of bad debt crystallised on a closing rung; written once',
-
-        // ── Cards (§8.1, ledger half) ────────────────────────────────────────
-        //
-        // Note what is NOT in this list, because it is the same design as the
-        // loans block: there is no `cards.spendable` and no
-        // `cards.remaining_daily_limit`. What a card may spend is the user's
-        // ledger balance less whatever is held against open authorisations, and
-        // BOTH halves are ledger reads — each authorisation holds into its own
-        // `withdraw:<authId>` account, so "what is currently held on this card"
-        // is a sum svc-ledger already knows. A mirror of it here would be a
-        // second source of truth for the number that decides whether somebody's
-        // payment goes through at a till.
-        'cards.per_authorization_limit':
-          'a POLICY ceiling on ONE authorisation; it does not fall as the card is used and no money path writes it',
-        'cards.daily_limit': 'a POLICY ceiling for a UTC day; NULL means no ceiling; spend is summed from authorisation records',
-        'cards.monthly_limit': 'a POLICY ceiling for a UTC month; NULL means no ceiling; not a running total',
-        'cards.cash_limit': 'a POLICY ceiling for ATM cash in a UTC day; NULL means no ceiling; not a remaining balance',
-        'card_authorizations.amount': 'a RECORD of one authorisation request, in the funding asset; written once',
-        'card_settlements.amount': 'a RECORD of one completed capture or reversal; written once with its ledger tx id',
-        'card_partner_refunds.amount':
-          'the INSTRUCTION of one merchant refund sent to the card partner (OWNER 226); written once, the money is the partner’s and nothing posts with it',
-        'card_programme_funding_requests.amount':
-          'the INSTRUCTION one programme funding request sent the card partner; written once, nothing posts with it (the partner moves the money)',
-        'card_programme_funding_requests.threshold': 'a POLICY: the auto reload trigger sent to the card partner; no money path writes it',
-        'card_disputes.amount': 'a RECORD of what one cardholder disputed on one settled capture; written once, nothing posts with it',
-        'card_disputes.credit_amount':
-          "a RECORD of the provisional credit the card partner reports it gave its cardholder; the partner's money, nothing posts with it",
-        'card_cashback.amount': 'a RECORD of one reward; summing the table is the lifetime figure',
-        'card_cashback.spend':
-          "a RECORD of what one partner-held capture spent, the base its wallet cashback was worked out on; the partner's money, nothing posts with it",
-
-        // ── JIT conversion (§18) ─────────────────────────────────────────────
-        //
-        // A frozen QUOTE, not a rate table and not a second book. Note what is
-        // NOT here: no `cards.rate`, no `bank.rates`, nothing a future spend
-        // could be priced off. Every figure below is a record of what one feed
-        // said at one named instant, written once beside the decision it
-        // produced — and a deployment with no rate adapter cannot write one at
-        // all, because there is no FX source in this platform to invent one from.
-        'card_conversions.settlement_amount': 'a RECORD of what the merchant charged, in their currency; written once',
-        'card_conversions.funding_amount': 'a RECORD of what that converted to, and what the hold moved; written once',
-        'card_conversions.rate':
-          'the RATE one authorisation was quoted at, frozen so a capture cannot re-quote; written once and never revised',
-
-        // ── Ramps (§8.1 / D-S-09, crypto ledger half) ────────────────────────
-        //
-        // No `ramp_*.balance` and no running capacity. Amount columns are
-        // records of one completed (or claimed) movement; the ledger is the
-        // only place "how much is available" is answered.
-        'ramp_onramps.amount': 'a RECORD of one on-ramp credit; written once with its ledger tx id',
-        'ramp_offramps.amount': 'a RECORD of one off-ramp instruction; written once with hold+settle tx ids',
-        'ramp_onramp_quotes.amount': 'the crypto AMOUNT the customer asked to buy on one quote; not a balance',
-        'ramp_onramp_quotes.pay_amount': 'the pay amount the rate source published for that quote; written once',
-        'ramp_onramp_quotes.fee': 'the fee the rate source published for that quote; not a tariff this service computed',
-        'ramp_onramp_quotes.rate': 'the rate the source published for that quote; frozen on the row',
-        'customer_onramps.amount': 'a copy of the quote amount on one partner instruction; this row does not credit the ledger',
-        'customer_onramps.pay_amount': 'the pay amount copied onto that instruction; written once',
-        'customer_onramps.fee': 'the fee copied onto that instruction; written once',
-        'customer_onramps.rate': 'the rate copied onto that instruction; written once',
-        'add_money_requests.amount':
-          'the amount the customer asked to add on one request; kept refused or opened, never credited from here',
-        'add_money_requests.credited_amount':
-          "a RECORD of what one paid request credited (the quote's receive amount); written once with its ledger tx id",
-        'cash_out_requests.amount':
-          'the amount the customer asked to cash out on one request; refused, or held, settled or given back under its own key',
-        'cash_out_requests.fee': "the partner's fee for that one payout, copied once from its price; never charged from here",
-        'cash_out_requests.receive_amount': 'what the partner said arrives for that one payout, copied once; not a balance',
-        'cash_out_requests.returned_amount': 'a RECORD of what came back on one returned payout; credited once with its ledger tx id',
-        'rail_send_intents.amount':
-          'the amount the customer asked to send over a bank rail on one intent; kept refused, never held or posted from here',
-        // ── The bank API (J-bank-24): the partner's figures and the caller's instructions, never a balance ──
-        'api_move_quotes.amount': "the partner's QUOTE: what one move between the person's own accounts would move; written once",
-        'api_move_quotes.fee': "the partner's QUOTE of what it takes for that move; null when it does not say; written once",
-        'api_move_quotes.receives': "the partner's QUOTE of what arrives; null when the fee is not known; written once",
-        'api_payments.amount':
-          'the INSTRUCTION of one payment out through the API; the partner holds and moves the money, nothing posts here',
-
-        // ── Auto-invest (§31:805 F-plane) ────────────────────────────────────
-        // Rules are instructions; runs are write-once records. No running balance.
-        'auto_invest_rules.threshold': 'a POLICY keep-amount for a threshold sweep; instruction, not a holding',
-        'auto_invest_rules.amount': 'a POLICY spend for a DCA schedule, or round-up granularity; instruction, not a holding',
-        'auto_invest_runs.amount': 'a RECORD of one run (settled or rejected); written once',
-        'income_sorter_runs.credit_amount': 'a RECORD of one posted payment from another person, as the ledger booked it; written once',
-        'income_sorter_run_legs.amount': 'an INSTRUCTION fixed when the run is made: one split of that payment; written once',
-        'business_accounts.spend_threshold': 'a POLICY dual-control floor; instruction, not a holding',
-        'business_control_requests.spend_threshold':
-          'the PROPOSED floor on one dual-control request; written once, applied by copying it onto the account',
-        'business_approvals.amount': 'a RECORD of one proposed/approved transfer; written once',
-        'business_payroll_lines.amount': 'a RECORD of one payroll line; written once with the run',
-        'business_departments.budget': 'a POLICY budget the owner set for one department; never written by a money path',
-        'business_payment_rules.over_amount': 'a POLICY threshold above which a payment needs approvals; instruction, not a holding',
-        'business_payments.amount': 'an INSTRUCTION: one payment proposed to the partner bank; written once when proposed',
-        // Bill pay (J-bank-20): the partner holds the business's money; these are a document's figure, policies and instructions.
-        'business_bills.amount': 'a RECORD of what one bill says it asks for, reviewed by a person; never a holding',
-        'business_bill_vendors.cap': 'a POLICY: the most a pre-approved vendor’s bill may be and still skip approvers',
-        'business_bill_limits.per_payment': 'a POLICY Bill Pay limit the business set; blank refuses every payment',
-        'business_bill_limits.daily': 'a POLICY Bill Pay limit the business set; blank refuses every payment',
-        'business_bill_limits.monthly': 'a POLICY Bill Pay limit the business set; blank refuses every payment',
-        'business_bill_payments.amount': 'an INSTRUCTION: one bill payment sent to the partner bank under its key; written once',
-        'business_bill_splits.amount': 'a RECORD: one category line beside the partner’s one payment; written once with it',
-        // Bulk payments, contractors and crypto payroll (J-bank-21): the partner or the business's own wallet holds the money.
-        'business_bulk_runs.amount': 'an INSTRUCTION: one bulk run sent to the partner bank under its run key; written once at import',
-        'business_bulk_runs.threshold': 'a POLICY: the business’s own threshold as it stood when the run was confirmed',
-        'business_bulk_lines.amount': 'a RECORD: one recipient line beside the partner’s one instruction; written once at import',
-        'business_contractor_invoices.amount': 'a RECORD of what one contractor invoice asks for; never a holding',
-        'business_contractor_batches.amount':
-          'an INSTRUCTION: one contractor batch for the partner’s payout rail under its key; written once',
-        'business_contractor_batch_lines.amount': 'a RECORD: one invoice line beside the batch’s one instruction; written once with it',
-        'business_crypto_payroll_members.amount': 'a POLICY: what one member of a recurring crypto payroll is paid each run',
-        'business_crypto_payroll_runs.amount':
-          'a RECORD of what the business’s own wallet signed for one month; INTAFACED holds none of it',
-        'business_crypto_payslips.amount': 'a RECORD: one payslip of a run the business’s own wallet signed; never a holding',
-        // Business cards and expenses (J-bank-22): the partner holds the business's and the member's money.
-        'business_cards.per_purchase_limit': 'a POLICY: the most one purchase on a business card may be; over it the card declines',
-        'business_card_purchases.amount':
-          'an INSTRUCTION: one card capture sent to the partner bank under its purchase key; a declined one moves nothing',
-        'business_card_purchases.receipt_over': 'a POLICY: the business’s receipt rule as it stood when the purchase was captured',
-        'business_card_limit_requests.amount': 'a RECORD of the declined purchase an over-limit request asks the admins about',
-        'business_expense_policies.receipt_over': 'a POLICY the business set: a captured purchase over it needs a receipt',
-        'business_reimbursements.amount': 'an INSTRUCTION: one reimbursement sent to the partner bank under its claim key; written once',
-        'business_reimbursements.member_before': 'a RECORD of the member’s balance as the partner reported it just before the move',
-        'business_reimbursements.member_after': 'a RECORD of the member’s balance as the partner reported it just after the move',
-        'dormancy_notices.fee': 'a RECORD of the fee one notice named; the debit, if any, is the partner move it names',
-        'budgets.target':
-          'a POLICY: the monthly target the person chose for one spend category; spend is folded from the partner record or the ledger',
-        'recovery_sweeps.amount':
-          'the PLAN of one recovery sweep round for one account, written before it posts; the ledger holds the balance',
-        // Salary by direct deposit (J-bank-30): the partner bank holds the money; the ledger posts nothing.
-        'salary_credits.amount': 'a RECORD of one payroll network credit as the network sent it; the money is the partner move it names',
-        'salary_split_legs.amount': 'an INSTRUCTION: one split leg sent to the partner bank under its key, fixed when the credit arrived',
-        // Pay yourself (J-bank-31): the venue and the partner hold the money; the ledger posts nothing.
-        'pay_yourself_moves.amount':
-          'an INSTRUCTION: one venue withdrawal the person prepared or signed under its move key; the venue and the partner record the money',
-        'pay_yourself_rules.cap': 'a POLICY limit the person set: the most one weekly move may prepare',
-      };
-
+      const MONEY_COLUMNS = moneyColumnReasons(
+        await sql<BankColumnComment[]>`
+          SELECT c.relname AS table_name, a.attname AS column_name, d.description
+            FROM pg_catalog.pg_description d
+            JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.classoid = 'pg_catalog.pg_class'::regclass
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
+           WHERE n.nspname = 'bank' AND d.objsubid > 0
+        `,
+      );
       const guard = moneyColumnGuard(columns, MONEY_COLUMNS);
       expect(
         guard.illegalType,
@@ -3203,13 +3062,15 @@ describe('svc-bank money PG-hard', () => {
       expect(
         guard.undeclared,
         `Every money column in svc-bank must be a policy limit, a goal, an instruction, or a record of a ` +
-          `completed event — never a running figure. Undeclared: ${guard.undeclared.join(', ')}`,
+          `completed event — never a running figure. Undeclared: ${guard.undeclared.join(', ')}. In the migration ` +
+          `that adds each, write why it is not a balance: ${guard.undeclared.map(moneyReasonLine).join(' ')}`,
       ).toEqual([]);
 
-      // And the allowlist must not rot: a declared column that no longer exists
-      // means the reasoning above is stale. A declared numeric(38) whose scale
-      // is not 18 is absent from the exact set, so it fails here too.
-      expect(guard.missing).toEqual([]);
+      // And a reason must not outlive its money: a \`money:\` comment on a column
+      // that is not numeric(38,18) (its type changed) is stale reasoning. A
+      // declared numeric(38) whose scale is not 18 is absent from the exact set,
+      // so it fails here too.
+      expect(guard.missing, `A \`money:\` comment on a column that is not numeric(38,18): ${guard.missing.join(', ')}`).toEqual([]);
     });
 
     it('never writes to a money column after the row is created', async () => {

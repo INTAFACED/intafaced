@@ -46,6 +46,7 @@ import {
   totalsOf,
 } from './positions-math';
 import { positionsCopy } from './positions-copy';
+import { LiquidationAftermath, LiquidationPanel } from './LiquidationPanels';
 
 /**
  * The positions room (`/trade/positions`, J-derivatives-05): the person's futures positions on every connected venue with
@@ -214,6 +215,7 @@ function Room({ owner, status, path }: { owner: string; status: VenueUp; path: s
         test={status.test}
         builder={status.builder}
       />
+      <LiquidationAftermath owner={owner} venues={venues.filter((v) => v.down === null)} />
       <Modes venues={venues} />
       {addressed ? <AddressedSubAccount owner={owner} id={addressed} venue={venues[0]!} /> : null}
       {venues
@@ -340,6 +342,8 @@ function AllPositions({
   const headers = useHeaders();
   const [open, setOpen] = useState<{ kind: 'detail' | 'leverage' | 'margin'; key: string } | null>(null);
   const openRow = open ? (rows.find((r) => rowKey(r) === open.key) ?? null) : null;
+  // The liquidation panel names its venue and market, not a row: it stays open when the venue closes the position.
+  const [liquidation, setLiquidation] = useState<{ venue: Venue; symbol: string } | null>(null);
   return (
     <section className="dk-panel form-stack" aria-label={t('allTitle')} data-testid="positions-all">
       <h2 className="dk-tab-title">
@@ -374,7 +378,10 @@ function AllPositions({
                   <Button variant="secondary" onClick={() => setOpen({ kind: 'margin', key: rowKey(row) })}>
                     {t('adjustMargin')}
                   </Button>
-                ) : null}
+                ) : null}{' '}
+                <Button variant="secondary" onClick={() => setLiquidation({ venue: row.venue, symbol: row.position.symbol })}>
+                  {t('liquidationButton')}
+                </Button>
               </td>
             </tr>
           ))}
@@ -396,6 +403,15 @@ function AllPositions({
       ) : null}
       {open?.kind === 'margin' && openRow ? (
         <IsolatedMargin key={open.key} row={openRow} owner={owner} run={run} onDone={onDone} onClose={() => setOpen(null)} />
+      ) : null}
+      {liquidation ? (
+        <LiquidationPanel
+          key={`liquidation:${liquidation.venue.id}:${liquidation.symbol}`}
+          owner={owner}
+          venue={liquidation.venue}
+          symbol={liquidation.symbol}
+          onClose={() => setLiquidation(null)}
+        />
       ) : null}
       <CloseAll rows={rows} marketOf={marketOf} owner={owner} run={run} onDone={onDone} builder={builder} />
     </section>

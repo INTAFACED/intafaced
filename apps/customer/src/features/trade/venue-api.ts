@@ -143,7 +143,24 @@ export const venueMarketSchema = z.object({
   // The contract strip's figures, each the venue's own or "not published" (J-derivatives-01 #4).
   contractSize: maybeKnown(decimalSchema),
   mark: maybeKnown(decimalSchema),
-  funding: maybeKnown(z.object({ rate: signedDecimalSchema, intervalSeconds: z.number().int().positive(), nextFundingAt: isoTime })),
+  funding: maybeKnown(
+    z.object({
+      rate: signedDecimalSchema,
+      intervalSeconds: z.number().int().positive(),
+      nextFundingAt: isoTime,
+      // What the venue built the rate from, as it publishes them (J-derivatives-08 #1); absent from an older door: not published.
+      inputs: maybeKnown(
+        z.object({
+          premium: signedDecimalSchema,
+          interestRate: signedDecimalSchema,
+          rateCap: decimalSchema,
+          markPrice: decimalSchema,
+          indexPrice: decimalSchema,
+          rule: maybeKnown(z.string()),
+        }),
+      ).optional(),
+    }),
+  ),
   // The prices the venue judges its trigger orders on, and its published index (J-derivatives-03). Absent: none.
   triggerSources: z.array(z.enum(['mark', 'last'])).optional(),
   index: maybeKnown(decimalSchema).optional(),
@@ -205,6 +222,23 @@ export const venueStatementJobSchema = z.object({
 });
 export type VenueStatementJob = z.infer<typeof venueStatementJobSchema>;
 
+/**
+ * One funding payment on one of the owner's positions, as the venue booked it when it closed a period (J-derivatives-08
+ * #3 #4 #5): positive `amount` received, negative paid, in `asset`.
+ */
+const venueFundingPaymentSchema = z.object({
+  paymentId: z.string(),
+  symbol: z.string(),
+  side: z.enum(['long', 'short']),
+  size: decimalSchema,
+  markPrice: decimalSchema,
+  rate: signedDecimalSchema,
+  amount: signedDecimalSchema,
+  asset: z.string(),
+  periodAt: isoTime,
+});
+export type VenueFundingPayment = z.infer<typeof venueFundingPaymentSchema>;
+
 /** One of the owner's settlements in a deployer's halt or a split, as the venue records it (J-derivatives-27 #9 #10). */
 export const venueSettlementSchema = z.object({
   symbol: z.string(),
@@ -258,7 +292,14 @@ export const venueCandleSchema = z.object({
 export type VenueCandle = z.infer<typeof venueCandleSchema>;
 export const venueCandlesReadSchema = asOf(z.array(venueCandleSchema)).extend({ test: z.boolean() });
 
-export const venueBalanceSchema = z.object({ asset: z.string(), free: decimalSchema, locked: decimalSchema, total: decimalSchema });
+export const venueBalanceSchema = z.object({
+  asset: z.string(),
+  free: decimalSchema,
+  locked: decimalSchema,
+  total: decimalSchema,
+  /** What holds `locked`, as the venue splits it (J-portfolio-01 #4); absent when the venue reports no split. */
+  lockedBy: z.object({ inOrders: decimalSchema, margin: decimalSchema, staked: decimalSchema }).optional(),
+});
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
 
 export const venueOrderSchema = z.object({
@@ -407,6 +448,75 @@ const venueAccountSummarySchema = z.object({
   marginRatio: maybeKnown(decimalSchema),
 });
 export type VenueAccountSummary = z.infer<typeof venueAccountSummarySchema>;
+
+// ── J-derivatives-07: a liquidation and its aftermath, each the venue's own figure ────────────────────────────────
+
+/** One part of a liquidation the venue carried out, with its own id, size, price and fee. */
+const venueLiquidationPartSchema = z.object({
+  partId: z.string(),
+  size: decimalSchema,
+  price: decimalSchema,
+  fee: decimalSchema,
+  feeAsset: z.string(),
+  liquidatedAt: isoTime,
+});
+/** One liquidation of one position, every part listed (J-derivatives-07 #2). */
+const venueLiquidationSchema = z.object({
+  liquidationId: z.string(),
+  symbol: z.string(),
+  side: z.enum(['long', 'short']),
+  state: z.enum(['in_progress', 'done']),
+  parts: z.array(venueLiquidationPartSchema),
+  startedAt: isoTime,
+});
+export type VenueLiquidation = z.infer<typeof venueLiquidationSchema>;
+/** A position's liquidation state on one market and the venue's price and fee rules (J-derivatives-07 #1 #3). */
+const venueLiquidationStatusSchema = z.object({
+  symbol: z.string(),
+  state: z.enum(['none', 'in_progress', 'done']),
+  liquidationId: z.string().nullable(),
+  priceRule: z.string(),
+  feeRule: z.string().nullable(),
+});
+export type VenueLiquidationStatus = z.infer<typeof venueLiquidationStatusSchema>;
+/** The venue's insurance fund, or not published (J-derivatives-07 #4). */
+const venueInsuranceFundSchema = asOf(
+  maybeKnown(z.object({ name: z.string(), asset: z.string(), balance: decimalSchema, whereToRead: z.string(), rule: z.string() })),
+).extend({ venueName: z.string() });
+export type VenueInsuranceFund = z.infer<typeof venueInsuranceFundSchema>;
+/** The venue's auto-deleveraging rules and this person's acknowledged version (J-derivatives-07 #5). */
+const venueAdlDisclosureSchema = z.object({
+  venueId: z.string(),
+  venueName: z.string(),
+  asOf: isoTime,
+  rules: z.object({ version: z.string(), text: z.string() }).nullable(),
+  acknowledged: z.boolean(),
+  acknowledgedVersion: z.string().nullable(),
+  acknowledgedAt: isoTime.nullable(),
+});
+export type VenueAdlDisclosure = z.infer<typeof venueAdlDisclosureSchema>;
+/** One auto-deleveraging of the person's position, with the venue's notice (J-derivatives-07 #6). */
+const venueDeleverageSchema = z.object({
+  adlId: z.string(),
+  symbol: z.string(),
+  side: z.enum(['long', 'short']),
+  size: decimalSchema,
+  price: decimalSchema,
+  realisedPnl: signedDecimalSchema,
+  notice: z.string(),
+  deleveragedAt: isoTime,
+});
+export type VenueDeleverage = z.infer<typeof venueDeleverageSchema>;
+/** One public liquidation or auto-deleveraging alert: no account in it (J-derivatives-07 #7). */
+const venueLiquidationAlertSchema = z.object({
+  kind: z.enum(['liquidation', 'deleverage']),
+  symbol: z.string(),
+  side: z.enum(['long', 'short']),
+  size: decimalSchema,
+  price: decimalSchema,
+  alertedAt: isoTime,
+});
+export type VenueLiquidationAlert = z.infer<typeof venueLiquidationAlertSchema>;
 
 export const venueWithdrawalSchema = z.object({
   nonce: z.string(),
@@ -1062,12 +1172,39 @@ export function venueApi(api: ApiClient) {
     /** The account's equity, free, used margin, maintenance and margin ratio as the venue reports them (J-derivatives-06 #1). */
     accountSummary: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/account-summary', asOf(venueAccountSummarySchema), { owner, venueId }, signal),
+    /** The position's liquidation state on one market and the venue's rules (J-derivatives-07 #1 #3). */
+    liquidation: (owner: string, q: { symbol: string; venueId?: string }, signal?: AbortSignal) =>
+      read('/liquidation', asOf(venueLiquidationStatusSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),
+    /** Each liquidation the venue reports on the account, every part listed (J-derivatives-07 #2). */
+    liquidations: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/liquidations', asOf(z.array(venueLiquidationSchema)), { owner, venueId }, signal),
+    /** Each auto-deleveraging of the account's positions, with the venue's notice (J-derivatives-07 #6). */
+    deleverages: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/deleverages', asOf(z.array(venueDeleverageSchema)), { owner, venueId }, signal),
+    /** The venue's insurance fund, or not published; signed in or not (J-derivatives-07 #4). */
+    insuranceFund: (signal?: AbortSignal, venueId?: string) => read('/insurance-fund', venueInsuranceFundSchema, { venueId }, signal),
+    /** The venue's public liquidation and auto-deleveraging alerts, newest first (J-derivatives-07 #7). */
+    liquidationAlerts: (q: { symbol?: string; limit?: number; venueId?: string }, signal?: AbortSignal) =>
+      read(
+        '/liquidation-alerts',
+        asOf(z.array(venueLiquidationAlertSchema)),
+        { symbol: q.symbol, limit: q.limit === undefined ? undefined : String(q.limit), venueId: q.venueId },
+        signal,
+      ),
+    /** The venue's auto-deleveraging rules and whether this person acknowledged their version (J-derivatives-07 #5). */
+    adlDisclosure: (signal?: AbortSignal, venueId?: string) => read('/adl-disclosure', venueAdlDisclosureSchema, { venueId }, signal),
+    /** "I have read this": stores the version read; a version the venue replaced is refused. */
+    acknowledgeAdl: (version: string, venueId?: string) =>
+      write('/adl-disclosure/ack', venueAdlDisclosureSchema, { version, ...(venueId ? { venueId } : {}) }),
     /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
     marketMargin: (owner: string, symbol: string, signal?: AbortSignal) =>
       read('/market-margin', asOf(venueMarketMarginSchema), { owner, symbol }, signal),
     /** The owner's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
     settlements: (owner: string, since: string, signal?: AbortSignal) =>
       read('/settlements', asOf(z.array(venueSettlementSchema)), { owner, since }, signal),
+    /** The funding the venue charged or paid on the owner's positions since `since` (J-derivatives-08 #3 #4 #5). */
+    fundingPayments: (owner: string, since: string, signal?: AbortSignal) =>
+      read('/funding-payments', asOf(z.array(venueFundingPaymentSchema)), { owner, since }, signal),
     /** The venue's scheduled cancel on the owner's account: when it cancels, and when it last did (J-cex-spot-07). */
     scheduledCancel: (owner: string, signal?: AbortSignal) =>
       read('/scheduled-cancel', asOf(venueScheduledCancelSchema), { owner }, signal),

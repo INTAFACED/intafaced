@@ -209,6 +209,20 @@ attempt limit reloading open orders and positions from the venue, or `ended` wit
 `trade.quant_live_runs`, `trade.quant_live_run_orders` (unique per action key; the next `seq` is taken under the run's
 row lock) and `trade.quant_live_run_events`.
 
+### The owner's own freeze (J-wallet-13)
+
+On identity's `selfFreezeApplied` (`src/self-freeze-events.ts`, idempotent by `identity.self_freeze.frozen:<freezeId>`),
+svc-trade revokes every agent permission it keeps for the person at once: each live run is stopped (`account_frozen`,
+open orders cancelled once, position kept) and its permission revoked, a run still signing ends; each assistant
+connection ends as the person's own revoke does it, and each open agent account's venue agent key is dropped (its
+`revoke_agent` prepared for the wallet); each own-agent allowance is revoked (one still unsigned is abandoned). Nothing
+is restored on the lift: the person signs a new permission. While frozen, each door that makes or changes one reads the
+freeze from identity and refuses 423 `trade.account_frozen_self` with the freeze reason (agent account create, fund,
+cap, limits and their signatures; assistant connect and order; allowance grant, its signature and an agent's order);
+a run's permission signature refuses `quant.account_frozen`. A freeze that can't be read refuses 503
+`trade.freeze_unavailable` (`quant.freeze_unavailable`). Identity's admission refusal `identity.account_frozen_self`
+reaches the caller as its own code (`TradingControlError`, 403 `PermissionDenied`).
+
 ### Our builder fee in the ledger (D-venue-07, J-derivatives-17)
 
 The one money the door's orders move for us. With the door on, the builder-fee poster (`src/builder-fee/builder-fee-poster.ts`,

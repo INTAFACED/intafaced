@@ -115,6 +115,7 @@ export * from './protocol-dex-orders.js';
 export * from './protocol-address-risk.js';
 export * from './protocol-sessions.js';
 export * from './protocol-wallet-tx.js';
+export * from './protocol-escrow.js';
 export * from './protocol-venue-wallet.js';
 export * from './protocol-venue-funds.js';
 export * from './outcome-markets.js';

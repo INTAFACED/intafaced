@@ -61,6 +61,8 @@ import { VenueMarketsAdmin } from './venue-markets.js';
 import type { VenueListingStore } from '../venue/venue-listing-store.js';
 import { NO_VENUE_DELISTING_NOTICES, type VenueDelistingNotices } from '../venue/venue-listing.js';
 import type { UserVenue } from '@intafaced/venue-contracts';
+import type { PreparedActionStore } from '../venue/prepared-action-store.js';
+import { readVenueOrder, venueOrderReadWire } from './venue-order-read.js';
 import { SeedConfigAdmin } from './seed-config.js';
 import { MakerProgrammeAdmin } from './maker-programme.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
@@ -147,6 +149,11 @@ export interface TradeOpsDeps {
   readonly venueMarkets?: () => Promise<VenueMarketsRead | null>;
   /** Our users' routed volume and builder fees by venue for a period (J-derivatives-28 #6). Absent: the door is off. */
   readonly venueRouting?: ((from: Date, to: Date) => Promise<VenueRoutingReport>) | null;
+  /**
+   * The support desk's read of a customer's routed order (J-cex-spot-18 #1): the user-venue door's venue (null: the door
+   * is off, and the read refuses `trade.user_venue_off`) and our record of the orders customers placed through it.
+   */
+  readonly venueOrders?: { readonly venue: (() => Promise<UserVenue>) | null; readonly store: PreparedActionStore };
   readonly now?: () => Date;
 }
 
@@ -361,6 +368,56 @@ export class TradeOpsAdmin {
         qty: fill.qty,
         quoteAmount: fill.quote_amount,
         feeAmount: fill.fee_amount,
+      })),
+    };
+  }
+
+  /**
+   * One customer's routed order, read from the venue by the customer's own address (J-cex-spot-18 #1 #2), audited as
+   * `venue_orders.get` (venue-order-read.ts).
+   */
+  async getVenueOrder(principal: Principal, input: { accountId: string; venueClientOrderId: string }): Promise<Record<string, unknown>> {
+    requireOperator(principal);
+    const wired = this.deps.venueOrders;
+    if (!wired) throw new TradeOpsError('trade.user_venue_off', 'the user-venue door is off: routed orders cannot be read from the venue');
+    const read = await readVenueOrder(
+      {
+        audit: (row, at) => writeOperatorAudit(this.deps.sql, row, at),
+        venue: wired.venue,
+        store: wired.store,
+        now: () => nowOf(this.deps),
+      },
+      principal,
+      input,
+    );
+    return venueOrderReadWire(read);
+  }
+
+  /**
+   * The customer's own access list (J-cex-spot-18 #5, row d115: every read logged where the customer sees it): the
+   * operator audit rows that name the signed-in person's account, newest first. Each row says what was done, by which
+   * operator and when; an operator's written reason is internal and is not shown. `limit` is required (1–200).
+   */
+  async staffAccessOf(
+    principal: Principal,
+    input: { limit: number },
+  ): Promise<{ rows: Array<{ id: string; kind: string; operatorId: string; objectId: string; occurredAt: string }> }> {
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 200) {
+      throw new TradeOpsError('staff_access_limit_unset', 'limit is required (1–200); this list does not invent a page size');
+    }
+    const rows = await this.deps.sql<Array<{ id: string; kind: string; operator_id: string; object_id: string; occurred_at: Date }>>`
+      SELECT id, kind, operator_id, object_id, occurred_at
+        FROM trade.operator_audit
+       WHERE account_id = ${principal.userId}
+       ORDER BY occurred_at DESC, id DESC
+       LIMIT ${input.limit}`;
+    return {
+      rows: rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        operatorId: row.operator_id,
+        objectId: row.object_id,
+        occurredAt: row.occurred_at.toISOString(),
       })),
     };
   }

@@ -86,6 +86,7 @@ import { bridgeRoutesLoader } from './bridge/routes.js';
 import { createVenueFundsRouter } from './venue/router.js';
 import { createLendingRouter } from './lending/position.js';
 import { createWalletTxRouters } from './wallet-tx/router.js';
+import { createEscrowRouter } from './escrow/router.js';
 import type { ReplacementSetting } from './wallet-tx/replacement.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
 import { createSwapV2Procedures, type SwapV2Setting } from './amm/swap-v2.js';
@@ -498,6 +499,11 @@ export interface ProtocolRouterDeps {
   feeRelay?: () => FeeRelaySetting | null;
   /** `PROTOCOL_CLAIM_ESCROW_ADDRESS` (D-swap-12). Null, zero or absent: claim links refuse `protocol.claim_escrow_unset`. */
   claimEscrow?: () => Address | null;
+  /**
+   * The sovereign P2P escrow (RC-p2p-01): `PROTOCOL_P2P_ESCROW_ADDRESS` and whether the configured chain is a mainnet.
+   * Absent: not deployed (`protocol.escrow_not_deployed`), and treated as mainnet (`audit.external`) until told otherwise.
+   */
+  p2pEscrow?: () => { escrow: Address | null; mainnet: boolean };
   /** `PROTOCOL_VENUE_ADDRESS` (D-bridge-chain-04). Null, zero or absent: venue funds refuse `protocol.venue_unset`. */
   venue?: () => Address | null;
   /**
@@ -1394,6 +1400,13 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       chain: () => chain.client,
       claimEscrow: () => deps.claimEscrow?.() ?? null,
       replacement: () => deps.replacement?.() ?? { bumpBps: null, ceilingWei: null },
+      toTrpcError,
+    }),
+
+    // ── Sovereign P2P escrow (RC-p2p-01): src/escrow/ ──
+    escrow: createEscrowRouter({
+      chain: () => chain.client,
+      setting: () => ({ chainId: chain.config.chainId, ...(deps.p2pEscrow?.() ?? { escrow: null, mainnet: true }) }),
       toTrpcError,
     }),
 

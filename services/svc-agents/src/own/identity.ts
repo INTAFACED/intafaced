@@ -3,6 +3,7 @@ import type { Sql } from 'postgres';
 import type { OwnAgentIssuedToken, OwnAgentToken, OwnAgentTokenCaller } from '@intafaced/contracts';
 import { OwnAgentRefusal } from './catalog.js';
 import type { OwnAccountDirectory } from './publishing.js';
+import { assertNotSelfFrozen, type OwnSelfFreezeRead } from './self-freeze.js';
 
 /**
  * Each own agent's identity (AG-identity-01; J-agents-03 #5): a token of its own, issued to its owner, scoped to the
@@ -78,9 +79,10 @@ export class OwnIdentityStore {
     scopes: readonly string[],
     lifetimeMinutes: number,
     accounts: OwnAccountDirectory | null,
+    freeze: OwnSelfFreezeRead | null | undefined,
   ): Promise<OwnAgentIssuedToken> {
     const minutes = tokenLifetime(lifetimeMinutes);
-    await assertOwnerActive(ownerId, accounts);
+    await assertOwnerActive(ownerId, accounts, freeze);
     const secret = `${TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
     const issuedAt = this.now();
     const expiresAt = new Date(issuedAt.getTime() + minutes * 60_000);
@@ -117,7 +119,11 @@ export class OwnIdentityStore {
    * A call the agent makes with its own token: who it acts as, or the refusal. Unknown, revoked and expired tokens are
    * refused by name; then the owner's account is read from identity, and a frozen, closed or unread owner refuses.
    */
-  async call(secret: string, accounts: OwnAccountDirectory | null): Promise<OwnAgentTokenCaller> {
+  async call(
+    secret: string,
+    accounts: OwnAccountDirectory | null,
+    freeze: OwnSelfFreezeRead | null | undefined,
+  ): Promise<OwnAgentTokenCaller> {
     if (!secret.startsWith(TOKEN_PREFIX)) throw new OwnAgentRefusal('agents.identity.token_unknown');
     const rows = await this.sql<Row[]>`
       SELECT ${this.sql.unsafe(COLUMNS)} FROM agents.own_agent_tokens WHERE token_hash = ${hashOf(secret)}
@@ -127,18 +133,25 @@ export class OwnIdentityStore {
     const token = view(row, this.now());
     if (token.state === 'revoked') throw new OwnAgentRefusal('agents.identity.token_revoked');
     if (token.state === 'expired') throw new OwnAgentRefusal('agents.identity.token_expired');
-    await assertOwnerActive(token.ownerId, accounts);
+    await assertOwnerActive(token.ownerId, accounts, freeze);
     return { agentId: token.agentId, ownerId: token.ownerId, scopes: token.scopes, expiresAt: token.expiresAt };
   }
 }
 
 /**
  * The owner's account read from identity: a frozen, closed or unread owner refuses by name. A call checks it on every
- * use, and issuing checks it too, so a frozen or closed owner cannot mint a token for later.
+ * use, and issuing checks it too, so a frozen or closed owner cannot mint a token for later. Then the owner's own freeze
+ * (J-wallet-13), a separate read: while it is on, `agents.identity.owner_frozen_self`; unreadable counts as frozen
+ * (`agents.identity.owner_freeze_unread`).
  */
-export async function assertOwnerActive(ownerId: string, accounts: OwnAccountDirectory | null): Promise<void> {
+export async function assertOwnerActive(
+  ownerId: string,
+  accounts: OwnAccountDirectory | null,
+  freeze: OwnSelfFreezeRead | null | undefined,
+): Promise<void> {
   const read = accounts ? await accounts.readAccount(ownerId) : ({ status: 'unread' } as const);
   if (read.status !== 'ok') throw new OwnAgentRefusal('agents.identity.owner_unread');
   if (read.account.status === 'frozen') throw new OwnAgentRefusal('agents.identity.owner_frozen');
   if (read.account.status !== 'active') throw new OwnAgentRefusal('agents.identity.owner_inactive');
+  await assertNotSelfFrozen(ownerId, freeze);
 }

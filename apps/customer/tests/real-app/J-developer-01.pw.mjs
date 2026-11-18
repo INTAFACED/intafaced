@@ -36,7 +36,7 @@ const FLOOR = {
     Authentication: null,
     'REST conventions': null,
     'API reference': null,
-    'WebSocket streams': 'DV-websocket-01',
+    'WebSocket streams': null,
     'Rate limits': null,
     Errors: null,
     'Order types': null,

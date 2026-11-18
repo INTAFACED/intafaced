@@ -43,11 +43,14 @@ import { registerTrackRecord } from './signals/track-record.js';
 import { leadOrderGate, registerLeadCheck } from './copy/lead-api.js';
 import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
+import { subscribeSelfFreeze } from './self-freeze-events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
-import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { LeadDesk, parseLeadMinVenueUsdc, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { parseLeadDailyBuyCap, parseLeadPairHolding } from './copy/lead-trading.js';
+import { leadFollowing, leadVenueUsdc } from './copy/lead-conditions.js';
 import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
 import { registerSignalIntake } from './signals/intake-rest.js';
 import { createLiveTierClient } from './signals/live-tier.js';
@@ -136,6 +139,7 @@ import {
   parseDeveloperHosts,
   parseRegionalRule,
   parseBotPolicy,
+  parseDeveloperStreamHosts,
   registerDeveloperPortalRest,
 } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
@@ -152,6 +156,7 @@ import {
   staticBandInForce,
   type BandInForce,
 } from './futures/dynamic-price-band.js';
+import { sqlVenueAdlAcks } from './venue/venue-adl-acks.js';
 import { ADL_DISCLOSURE_VERSION, presentAdlDisclosureWire, sqlAdlDisclosureStore } from './futures/adl-disclosure.js';
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { derivativesAccessGate } from './futures/derivatives-access.js';
@@ -708,11 +713,22 @@ const copy = new CopyService(ledger, {
       return null;
     }
     const [row] = await sql<
-      Array<{ id: string; user_id: string; side: 'buy' | 'sell'; qty: string; quote_amount: string; price: string; symbol: string }>
+      Array<{
+        id: string;
+        user_id: string;
+        side: 'buy' | 'sell';
+        qty: string;
+        quote_amount: string;
+        price: string;
+        symbol: string;
+        not_lead: boolean;
+      }>
     >`
-      SELECT f.id, f.user_id, f.side, f.qty, f.quote_amount, f.price, m.symbol
+      SELECT f.id, f.user_id, f.side, f.qty, f.quote_amount, f.price, m.symbol, (l.lead IS FALSE) AS not_lead
       FROM trade.fills f
       INNER JOIN trade.markets m ON m.id = f.market_id
+      -- A lead's order marked not a lead trade (the lead switch off, or an iceberg; copy/lead-trading.ts) is never copied.
+      LEFT JOIN trade.copy_lead_orders l ON l.order_id = f.order_id
       WHERE f.id = ${id}
       LIMIT 1
     `;
@@ -726,6 +742,7 @@ const copy = new CopyService(ledger, {
       qty: parseAmount(row.qty),
       notional: parseAmount(row.quote_amount),
       price: parseAmount(row.price),
+      ...(row.not_lead ? { notLead: true } : {}),
     };
   },
 });
@@ -781,6 +798,23 @@ const signalDesk = new SignalDesk({
 });
 registerSignalIntake(app, signalDesk);
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+// The lead desk (CB-copy-12 to 18): applications, missions, the lead account and the lead's own trading on the web.
+const leadDesk = new LeadDesk({
+  sql,
+  approvals: tradeOpsApprovals,
+  directory: leaderDirectory,
+  now: () => new Date(),
+  reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
+  minVenueUsdc: parseLeadMinVenueUsdc(env.TRADE_COPY_LEAD_MIN_VENUE_USDC),
+  following: (userId) => leadFollowing({ follows: copyStore, directory: leaderDirectory }, userId),
+  venueUsdc: (userId) => leadVenueUsdc({ venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore }, userId),
+  missionMinUsdc: parseLeadMinVenueUsdc(env.TRADE_COPY_LEAD_MISSION_MIN_USDC),
+  limits: {
+    dailyBuyCap: parseLeadDailyBuyCap(env.TRADE_COPY_LEAD_DAILY_BUY_CAP),
+    pairHolding: parseLeadPairHolding(env.TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS),
+  },
+  ownerDay: copyOwnerDay,
+});
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -805,6 +839,7 @@ export const appRouter = createTradeRouter(
       deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
     },
     venueDesk: { venue: userVenue ? () => userVenue.venue() : null, store: venueListings, notices: venueDelistingNotices },
+    venueOrders: { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
     venueRouting:
       userVenueDoors.length > 0 ? (from, to) => routingReport({ doors: userVenueDoors, store: userVenueStore }, from, to) : null,
     // The builder-fee caps the venue itself publishes, read through the user-venue door (J-cex-spot-17 #3). Off: null.
@@ -823,13 +858,7 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
-  new LeadDesk({
-    sql,
-    approvals: tradeOpsApprovals,
-    directory: leaderDirectory,
-    now: () => new Date(),
-    reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
-  }),
+  leadDesk,
   grid,
   platformPauses,
   builderFees,
@@ -988,6 +1017,9 @@ const positions = new PositionService(sql, ledger, {
 const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: positions.matchedFills };
 const stopTriggers = sqlStopTrigger(sql);
 const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills, stopTriggers);
+// The owner's own freeze (J-wallet-13 #1): every agent permission kept here for them is revoked at once, and their live
+// runs stop, on identity's event (src/self-freeze-events.ts). Each door still reads the freeze itself before it acts.
+subscriptions.push(await subscribeSelfFreeze(bus, { liveRuns, agentOrders, ownAgentTrading }));
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 builderFeeWiring.scheduleJobs(futuresJobs.host);
@@ -1589,6 +1621,7 @@ registerDeveloperPortalRest(app, {
   dataTerms: parseDataTerms(env.TRADE_DEVELOPER_DATA_TERMS),
   regionalRule: parseRegionalRule(env.TRADE_DEVELOPER_REGIONAL_RULE),
   botPolicy: parseBotPolicy(env.TRADE_DEVELOPER_BOT_POLICY),
+  streamHosts: parseDeveloperStreamHosts(env.TRADE_DEVELOPER_STREAM_HOSTS),
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -1835,6 +1868,7 @@ registerPrivateRest(app, {
   convert: trade,
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   leadOrderGate: leadOrderGate((userId) => leaderDirectory.leadListing(userId)),
+  leadTrading: leadDesk.trading,
   grid,
   userVenue: userVenueRouter,
   agentAccounts,
@@ -1848,6 +1882,7 @@ registerPrivateRest(app, {
   venueSellQuotes,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
+  venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

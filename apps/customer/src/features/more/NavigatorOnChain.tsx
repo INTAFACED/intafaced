@@ -12,7 +12,7 @@ import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { useApi } from '../session/session';
 import { createProtocolApi, type ProtocolApi, type RepresentationStatus } from '../protocol/api';
-import { REGION_BLOCKED_CODE } from '../protocol/region';
+import { isRegionBlocked } from '../protocol/region';
 import { WALLET_SECTIONS } from '../protocol/routes';
 import { formatUnits } from '../protocol/swap/swap-math';
 import { isFactoryUnset } from '../protocol/wallet/AccountsPanel';
@@ -322,7 +322,7 @@ function OnChainControls({
       if (!gate.ok)
         return setProblem(
           t(
-            gate.code === REGION_BLOCKED_CODE
+            isRegionBlocked(gate.code)
               ? 'refused_region'
               : gate.code === 'compliance.representation_unset'
                 ? 'refused_representation_unset'

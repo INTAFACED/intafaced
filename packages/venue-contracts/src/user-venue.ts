@@ -648,6 +648,18 @@ export interface UserVenueBalance {
   readonly locked: Amount;
   /** As the venue reports it, not derived (see account.ts `VenueBalance.total`). */
   readonly total: Amount;
+  /**
+   * What holds the locked figure, as the venue itself splits it (J-portfolio-01 #4): resting orders, posted margin
+   * (collateral) and stake. The three add to `locked` exactly. Optional: a venue that does not split its lock leaves it
+   * out, and the split is shown as not reported, never guessed.
+   */
+  readonly lockedBy?: UserVenueLockSplit;
+}
+
+export interface UserVenueLockSplit {
+  readonly inOrders: Amount;
+  readonly margin: Amount;
+  readonly staked: Amount;
 }
 
 export interface UserVenueFill {
@@ -775,6 +787,92 @@ export interface UserVenueAccountSummary {
   readonly usedMargin: Amount;
   readonly maintenanceMargin: Amount;
   readonly marginRatio: MaybeKnown<Amount>;
+}
+
+// ── Liquidation and its aftermath, as the venue reports them (J-derivatives-07) ─────────────────────────────────────
+// The venue liquidates, charges its fee and runs its insurance fund and auto-deleveraging: every figure below is the
+// venue's own, with the venue's ids, and the app computes none of them. INTAFACED runs no fund, and our ledger posts
+// nothing for a liquidation (the launch money model).
+
+/** Where a position's liquidation stands on the venue: none, in progress (parts closed, more to come) or done. */
+export type VenueLiquidationState = 'none' | 'in_progress' | 'done';
+
+/** One part of a liquidation the venue carried out: it closed `size` of the position at `price` and charged `fee`. */
+export interface UserVenueLiquidationPart {
+  /** The venue's own id for this part. */
+  readonly partId: string;
+  readonly size: Amount;
+  readonly price: Amount;
+  /** The venue's liquidation fee on this part, as the venue charged it. */
+  readonly fee: Amount;
+  readonly feeAsset: string;
+  readonly liquidatedAt: Date;
+}
+
+/** One liquidation of one position, as the venue reports it, with every part it closed (a partial one lists each). */
+export interface UserVenueLiquidation {
+  /** The venue's own id for the liquidation. */
+  readonly liquidationId: string;
+  readonly symbol: string;
+  /** The side of the position the venue liquidated. */
+  readonly side: 'long' | 'short';
+  readonly state: Exclude<VenueLiquidationState, 'none'>;
+  readonly parts: readonly UserVenueLiquidationPart[];
+  readonly startedAt: Date;
+}
+
+/**
+ * A position's liquidation state on one perpetual and the venue's rules for it, in the venue's own words: how it prices
+ * a liquidation (`priceRule`) and what fee it charges (`feeRule`, `null` where it publishes none). `liquidationId` names
+ * the venue's latest liquidation there, `null` when there has been none.
+ */
+export interface UserVenueLiquidationStatus {
+  readonly symbol: string;
+  readonly state: VenueLiquidationState;
+  readonly liquidationId: string | null;
+  readonly priceRule: string;
+  readonly feeRule: string | null;
+}
+
+/** The venue's own insurance fund or vault: its name, what it holds, where to read it and its rule, as it publishes them. */
+export interface UserVenueInsuranceFund {
+  readonly name: string;
+  readonly asset: string;
+  readonly balance: Amount;
+  /** Where a person reads the fund on the venue itself, in the venue's words or as its address. */
+  readonly whereToRead: string;
+  readonly rule: string;
+}
+
+/** The venue's auto-deleveraging rules, as it publishes them, with the version a person acknowledges. */
+export interface UserVenueAdlRules {
+  readonly version: string;
+  readonly text: string;
+}
+
+/** One auto-deleveraging of the account's position, as the venue reports it: the close, and the venue's notice. */
+export interface UserVenueDeleverage {
+  /** The venue's own id for it. */
+  readonly adlId: string;
+  readonly symbol: string;
+  /** The side of the account's position the venue closed. */
+  readonly side: 'long' | 'short';
+  readonly size: Amount;
+  readonly price: Amount;
+  readonly realisedPnl: Amount;
+  /** The venue's notice to the account, as written. */
+  readonly notice: string;
+  readonly deleveragedAt: Date;
+}
+
+/** One public liquidation or auto-deleveraging alert: the market, side, size and price, and no account identity. */
+export interface VenueLiquidationAlert {
+  readonly kind: 'liquidation' | 'deleverage';
+  readonly symbol: string;
+  readonly side: 'long' | 'short';
+  readonly size: Amount;
+  readonly price: Amount;
+  readonly alertedAt: Date;
 }
 
 /**
@@ -1079,6 +1177,50 @@ export interface UserVenueFunding {
   readonly rate: Amount;
   readonly intervalSeconds: number;
   readonly nextFundingAt: Date;
+  /**
+   * What the venue built the rate from, as it publishes them (J-derivatives-08 #1), or `known: false` where it publishes
+   * none. Optional on the wire for venues that report none: read as not published.
+   */
+  readonly inputs?: MaybeKnown<UserVenueFundingInputs>;
+}
+
+/**
+ * The parts of a perpetual's funding rate, each the venue's own figure: its premium (a signed scaled fraction, how far the
+ * mark sits from the index), its interest component (a signed scaled fraction per interval), the cap it holds the rate
+ * within (either way), and the mark and index prices the premium was taken from. Never recomputed by us.
+ */
+export interface UserVenueFundingInputs {
+  readonly premium: Amount;
+  readonly interestRate: Amount;
+  readonly rateCap: Amount;
+  readonly markPrice: Amount;
+  readonly indexPrice: Amount;
+  /** The venue's own published rule for the rate, in its words, or `known: false`. */
+  readonly rule: MaybeKnown<string>;
+}
+
+/**
+ * One funding payment on one of the account's positions, as the venue booked it when it closed a funding period
+ * (J-derivatives-08 #3 #4 #5): the period it closed (`periodAt`), the position's side and size then, the mark it charged
+ * against, the period's signed rate and the signed amount (positive: the account received it; negative: it paid it), in
+ * the venue's settle asset. The venue's figures, never recomputed by us; our ledger holds none of it.
+ */
+export interface UserVenueFundingPayment {
+  readonly paymentId: string;
+  readonly symbol: string;
+  readonly side: 'long' | 'short';
+  readonly size: Amount;
+  readonly markPrice: Amount;
+  readonly rate: Amount;
+  readonly amount: Amount;
+  readonly asset: string;
+  readonly periodAt: Date;
+}
+
+/** One sample of a perpetual's mark or index price as the venue published it (J-derivatives-08 #6). */
+export interface VenuePriceSample {
+  readonly sampledAt: Date;
+  readonly price: Amount;
 }
 
 export interface UserVenueMarket {
@@ -1185,6 +1327,11 @@ export interface VenueFundingRow {
   readonly fundingAt: Date;
   /** A signed scaled fraction of notional per interval (as `UserVenueFunding.rate`), never a percent. */
   readonly rate: Amount;
+  /**
+   * The period's premium as the venue published it (J-derivatives-08 #6), or `null` where it publishes none. Optional on
+   * the wire for venues that report none.
+   */
+  readonly premium?: Amount | null;
 }
 
 /**
@@ -1502,6 +1649,19 @@ export interface UserVenue {
   fundingHistory?(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>>;
 
   /**
+   * The mark or index price this venue published for the perpetual `symbol` since `since`, oldest first, no account
+   * (J-derivatives-08 #6). `known: false` with the venue's reason where it publishes no such series (an index it does not
+   * publish), never a series of ours. Optional: absent, the door refuses `not_offered`.
+   */
+  priceHistory?(
+    symbol: string,
+    kind: 'mark' | 'index',
+    since: Date,
+  ): Promise<
+    AsOf<{ readonly known: true; readonly value: readonly VenuePriceSample[] } | { readonly known: false; readonly reason: string }>
+  >;
+
+  /**
    * The newest `limit` public prints on `symbol`, newest first, no account (J-cex-spot-01 #5: the desk's tape). Refuses
    * `unknown_market` for a symbol it does not list. Optional: a venue (or an adapter) that does not read its prints leaves
    * it out, and the desk then shows the tape refused by name.
@@ -1592,6 +1752,11 @@ export interface UserVenue {
   marketMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>>;
   /** The account's settlements in market events (a deployer's halt, a split) since `since`, oldest first. Absent: not read. */
   settlements?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>>;
+  /**
+   * The funding the venue charged or paid on the account's positions since `since`, one payment per position per period
+   * it closed, oldest first (J-derivatives-08 #3 #4 #5). Absent: not read, and the door refuses `not_offered`.
+   */
+  fundingPayments?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFundingPayment[]>>;
 
   /**
    * The venue's scheduled cancel for this account (J-cex-spot-07), as the venue records it. Present only on a venue whose
@@ -1644,6 +1809,25 @@ export interface UserVenue {
   isolatedMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueIsolatedMargin>>;
   /** The account's margin summary as the venue reports it (J-derivatives-06 #1). Optional: absent, not read. */
   accountSummary?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>>;
+
+  /**
+   * The account's position's liquidation state on `symbol` and the venue's price and fee rules (J-derivatives-07 #1 #3).
+   * Optional: a venue (or an adapter) that reads none leaves it out, and the door refuses `not_offered`.
+   */
+  liquidationStatus?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLiquidationStatus>>;
+  /** The account's liquidations the venue reports since `since`, oldest first, each with its parts (J-derivatives-07 #2). */
+  liquidations?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueLiquidation[]>>;
+  /** The venue's insurance fund, or `known: false` where it publishes none, never a zero (J-derivatives-07 #4). */
+  insuranceFund?(): Promise<AsOf<MaybeKnown<UserVenueInsuranceFund>>>;
+  /** The venue's auto-deleveraging rules and their version, or `null` where it publishes none (J-derivatives-07 #5). */
+  adlRules?(): Promise<AsOf<UserVenueAdlRules | null>>;
+  /** The account's auto-deleveragings since `since`, oldest first, with the venue's notice (J-derivatives-07 #6). */
+  deleverages?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueDeleverage[]>>;
+  /**
+   * The newest `limit` public liquidation and auto-deleveraging alerts, newest first, on `symbol` or on every market when
+   * `null`, with no account identity (J-derivatives-07 #7). Optional, as the reads above.
+   */
+  liquidationAlerts?(symbol: string | null, limit: number): Promise<AsOf<readonly VenueLiquidationAlert[]>>;
 }
 
 /**

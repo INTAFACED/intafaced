@@ -1,7 +1,8 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError, type BankErrorCode } from '../errors.js';
 import { assertPostingEnabled, type NoteRefusal, type PostingFreeze } from '../partner/partner-bank.js';
-import { TEST_PARTNER_UNLISTED_DECLINE, type TestPartnerSwitches } from '../partner/test-partner.js';
+import { TEST_PARTNER_UNLISTED_DECLINE } from '../partner/test-partner.js';
+import { type TestPartnerSwitches } from '../partner/test-partner-switches.js';
 import { fundingFor } from './conversion.js';
 import type { CardCustodyMode, CardPartnerTerms } from './partner-terms.js';
 

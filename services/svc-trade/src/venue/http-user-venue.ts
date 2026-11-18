@@ -21,10 +21,18 @@ import {
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
   type UserVenueFill,
+  type UserVenueFundingPayment,
+  type VenuePriceSample,
   type UserVenueLeverage,
   type UserVenueLeverageChange,
   type UserVenueIsolatedMargin,
   type UserVenueAccountSummary,
+  type UserVenueAdlRules,
+  type UserVenueDeleverage,
+  type UserVenueInsuranceFund,
+  type UserVenueLiquidation,
+  type UserVenueLiquidationStatus,
+  type VenueLiquidationAlert,
   type UserVenueMarketMargin,
   type UserVenueSettlement,
   type UserVenueMarket,
@@ -253,6 +261,15 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/funding-history', { symbol, since });
   }
 
+  /** The perpetual's mark or index as the venue published it since `since`, or not known with its reason (J-derivatives-08 #6). */
+  priceHistory(
+    symbol: string,
+    kind: 'mark' | 'index',
+    since: Date,
+  ): Promise<AsOf<{ known: true; value: readonly VenuePriceSample[] } | { known: false; reason: string }>> {
+    return this.read('/price-history', { symbol, kind, since });
+  }
+
   trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
     return this.read('/trades', { symbol, limit });
   }
@@ -373,6 +390,36 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/account-summary', { account });
   }
 
+  /** The position's liquidation state on `symbol` and the venue's price and fee rules (J-derivatives-07 #1 #3). */
+  liquidationStatus(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLiquidationStatus>> {
+    return this.read('/liquidation-status', { account, symbol });
+  }
+
+  /** The account's liquidations since `since`, each with its parts (J-derivatives-07 #2). */
+  liquidations(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueLiquidation[]>> {
+    return this.read('/liquidations', { account, since });
+  }
+
+  /** The venue's insurance fund, or not published (J-derivatives-07 #4). */
+  insuranceFund(): Promise<AsOf<MaybeKnown<UserVenueInsuranceFund>>> {
+    return this.read('/insurance-fund', {});
+  }
+
+  /** The venue's auto-deleveraging rules and their version, or none (J-derivatives-07 #5). */
+  adlRules(): Promise<AsOf<UserVenueAdlRules | null>> {
+    return this.read('/adl-rules', {});
+  }
+
+  /** The account's auto-deleveragings since `since`, with the venue's notice (J-derivatives-07 #6). */
+  deleverages(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueDeleverage[]>> {
+    return this.read('/deleverages', { account, since });
+  }
+
+  /** The newest public liquidation and auto-deleveraging alerts, with no account in them (J-derivatives-07 #7). */
+  liquidationAlerts(symbol: string | null, limit: number): Promise<AsOf<readonly VenueLiquidationAlert[]>> {
+    return this.read('/liquidation-alerts', { symbol, limit });
+  }
+
   /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
   marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
     return this.read('/market-margin', { account, symbol });
@@ -386,6 +433,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   /** The account's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
   settlements(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>> {
     return this.read('/settlements', { account, since });
+  }
+
+  /** The funding the venue charged or paid on the account's positions since `since` (J-derivatives-08 #3 #4 #5). */
+  fundingPayments(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFundingPayment[]>> {
+    return this.read('/funding-payments', { account, since });
   }
 
   // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──

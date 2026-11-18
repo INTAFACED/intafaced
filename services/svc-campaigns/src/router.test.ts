@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import type { CampaignService } from './campaigns.js';
@@ -227,5 +229,27 @@ describe('campaigns router', () => {
     expect(parseTgeSchedule('   ')).toBeNull();
     expect(() => parseTgeSchedule('soon')).toThrow(/CAMPAIGNS_TGE_SCHEDULE_JSON/);
     expect(() => parseTgeSchedule('{"claimOpensAt":"2026-12-01"}')).toThrow(/CAMPAIGNS_TGE_SCHEDULE_JSON/);
+  });
+});
+
+/**
+ * `router.ts` composes only, so a change to one feature never edits the file every other feature shares. A procedure
+ * written there is refused with the place it belongs.
+ */
+function proceduresWrittenIn(source: string): string[] {
+  return source
+    .split('\n')
+    .map((line, i) => ({ line, at: i + 1 }))
+    .filter(({ line }) => /\b(scopedProcedure|opsProcedure|publicProcedure|serviceProcedureFor)\b|\.(query|mutation)\(/.test(line))
+    .map(({ line, at }) => `router.ts:${at}: ${line.trim()}`);
+}
+
+describe('router.ts', () => {
+  it("defines no procedure: each feature's procedures live in its own routes/<feature>.ts", () => {
+    const source = readFileSync(fileURLToPath(new URL('./router.ts', import.meta.url)), 'utf8');
+    expect(
+      proceduresWrittenIn(source),
+      'Write the procedure in services/svc-campaigns/src/routes/<feature>.ts and spread that file into createCampaignsRouter',
+    ).toEqual([]);
   });
 });

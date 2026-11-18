@@ -50,7 +50,15 @@ export function agentAccountReply(reply: FastifyReply, err: unknown) {
   if (err instanceof AgentAccountError) {
     return reply.code(err.status).send({
       code:
-        err.status === 404 ? 'NotFound' : err.status === 400 ? 'BadRequest' : err.status === 503 ? 'ExchangeNotAvailable' : 'InvalidOrder',
+        err.status === 404
+          ? 'NotFound'
+          : err.status === 400
+            ? 'BadRequest'
+            : err.status === 503
+              ? 'ExchangeNotAvailable'
+              : err.status === 423
+                ? 'AccountSuspended'
+                : 'InvalidOrder',
       message: err.message,
       intafacedCode: err.code,
       ...err.detail,

@@ -17,6 +17,7 @@ import { createAgentsRouter } from '../router.js';
 import { AgentRuntime, RefusedError } from '../runtime.js';
 import { UserSpendStore } from '../spend/store.js';
 import { OWN_RUN_TASK } from './routes.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 
 /**
  * Usage by agent, day and task (J-agents-02 #7), through the service's own routes on real Postgres and a ledger that
@@ -107,7 +108,15 @@ if (!available) {
       spend: new UserSpendStore(sql),
       funds: { available: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount },
     });
-    return createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'USDT', sql });
+    return createAgentsRouter({
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+      runtime,
+      gateway,
+      meter,
+      feeAssetId: 'USDT',
+      sql,
+    });
   }
 
   const units = (amount: string) => parseAmount(amount);

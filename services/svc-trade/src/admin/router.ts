@@ -122,13 +122,14 @@ function fail(error: unknown): never {
     // A malformed venue symbol (trade.venue_symbol_invalid) is BAD_REQUEST; only a well-formed unknown one is NOT_FOUND.
     const code =
       error.code === 'order_not_found' ||
+      error.code === 'venue_order_not_found' ||
       error.code === 'position_not_found' ||
       error.code === 'export_not_found' ||
       error.code === 'market_not_found' ||
       error.code === 'vip_application_not_found' ||
       error.code === 'trade.venue_market_unknown'
         ? 'NOT_FOUND'
-        : error.code === 'trade.user_venue_off' || error.code === 'approval_unavailable'
+        : error.code === 'trade.user_venue_off' || error.code === 'approval_unavailable' || error.code === 'trade.venue.venue_down'
           ? 'SERVICE_UNAVAILABLE'
           : 'BAD_REQUEST';
     throw new TRPCError({ code, message: error.message, cause: error });
@@ -171,6 +172,10 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       get: operator
         .input(z.object({ orderId: id }).strict())
         .query(({ ctx, input }) => ready().getOrder(ctx.principal, input.orderId).catch(fail)),
+      /** J-cex-spot-18 #1: one customer's routed order, read from the venue by the customer's own address; audited. */
+      venueGet: operator
+        .input(z.object({ accountId: z.string().trim().min(1).max(128), venueClientOrderId: z.string().trim().min(1).max(66) }).strict())
+        .query(({ ctx, input }) => ready().getVenueOrder(ctx.principal, input).catch(fail)),
       list: operator
         .input(
           z.object({
