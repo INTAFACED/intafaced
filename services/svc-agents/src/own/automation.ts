@@ -6,6 +6,7 @@ import {
   type OwnAgentCadence,
   type OwnAgentSchedule,
   type OwnAgentTrigger,
+  asAssetId,
 } from '@intafaced/contracts';
 import { SUBJECT_PREFIX } from '@intafaced/events';
 import { formatAmount, MoneyError, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -153,7 +154,7 @@ const autoRunView = (row: AutoRunRow, assetId: string): OwnAgentAutoRun => ({
   runs: row.runs,
   wakes: row.wakes,
   cost: row.cost === null ? null : formatAmount(parseAmount(row.cost)),
-  assetId,
+  assetId: asAssetId(assetId),
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
 });

@@ -2,6 +2,7 @@ import type { OwnAgentTestGuard, OwnAgentValuePayload } from '@intafaced/contrac
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { OwnAgentRefusal } from './catalog.js';
 import { testEngineReply } from './evaluations.js';
+import { asAssetId } from '@intafaced/contracts';
 
 /**
  * HOSTILE CONTENT AND OUTPUT GUARDS ON A TEST RUN OF A PERSON'S OWN AGENT (AG-guardrails-03; J-agents-10 #1, #2, #3).
@@ -59,7 +60,7 @@ export function valueInstruction(text: string): OwnAgentValuePayload | null {
   }
   const destination = found[3]!.trim().replace(/\s+/g, ' ');
   if (!destination) return null;
-  return { amount, assetId: found[2]!.toUpperCase(), destination };
+  return { amount, assetId: asAssetId(found[2]!.toUpperCase()), destination };
 }
 
 /** Whether two payloads are the same amount, asset and destination. */

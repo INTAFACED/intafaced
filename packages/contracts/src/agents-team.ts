@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { AGENTS_TEAM_BUSINESS_ROLES } from './agents-team-membership.js';
 
 /**
@@ -21,7 +22,7 @@ export const agentsTeamGrantSchema = z.object({
 });
 
 export const agentsTeamPoolSchema = z.object({
-  assetId: z.string(),
+  assetId: assetIdSchema,
   limit: z.string(),
   allocated: z.string(),
   version: z.number().int().positive(),
@@ -30,7 +31,7 @@ export const agentsTeamPoolSchema = z.object({
 export const agentsTeamProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   limit: z.string(),
   /** Current members the limit applies to; a person who left the business is not listed. */
   memberUserIds: z.array(z.string()),
@@ -78,7 +79,7 @@ export const agentsTeamRunSessionSchema = z.object({ sessionId: z.string(), agen
 export const agentsTeamRunResultSchema = z.object({
   text: z.string(),
   cost: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
 });
@@ -108,7 +109,7 @@ export const agentsTeamHeldActionResultSchema = z.object({ action: agentsTeamHel
  */
 export const agentsTeamUsageSchema = z.object({
   businessId: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   members: z.array(
     z.object({
       userId: z.string(),

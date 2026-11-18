@@ -8,6 +8,7 @@ import { decodeCursor, encodeCursor, requireLimit, toPage } from '../merchant-op
 import { assertPermission, type MerchantCaller } from '../merchant-ops/roles.js';
 import { storeNotFound } from '../stores/stores.js';
 import { assertWriter, isUnique, productNotFound, UUID } from './products.js';
+import { asAssetId } from '@intafaced/contracts';
 
 /**
  * Prices on catalogue products (M-catalogue-02, J-merchant-03 step 3; replacing them, M-adv-payments-core-20, step 4).
@@ -53,7 +54,7 @@ const view = (row: PriceRow): MerchantPrice => ({
   productId: row.product_id,
   billing: row.billing,
   kind: row.kind,
-  assetId: row.asset_id,
+  assetId: asAssetId(row.asset_id),
   amount: optionalMoney(row.amount),
   minAmount: optionalMoney(row.min_amount),
   maxAmount: optionalMoney(row.max_amount),
@@ -333,7 +334,7 @@ export class ProductPrices {
     if (row.product_status !== 'active') throw new MerchantOpsError('pay.product_archived', 'precondition');
     if (row.status !== 'active') throw new MerchantOpsError('pay.price_archived', 'precondition');
     if (input.storeId && input.channel) await this.soldAt(caller, row.product_id, input.storeId, input.channel);
-    const answer = (amount: string): PriceQuote => ({ priceId: row.id, assetId: row.asset_id, amount, billing: row.billing });
+    const answer = (amount: string): PriceQuote => ({ priceId: row.id, assetId: asAssetId(row.asset_id), amount, billing: row.billing });
     if (row.kind === 'fixed') {
       if (input.amount !== undefined) throw new MerchantOpsError('pay.price_amount_not_chosen', 'bad_request');
       return answer(money(row.amount));

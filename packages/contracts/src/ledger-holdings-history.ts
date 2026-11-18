@@ -20,6 +20,7 @@
  */
 
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /** The window or bucket as asked cannot be answered (from in the future, or not an ISO time). */
 export const LEDGER_HOLDINGS_HISTORY_WINDOW_INVALID = 'ledger.holdings_history_window_invalid' as const;
@@ -48,13 +49,13 @@ export const ledgerHoldingsHistoryInputSchema = z
 export type LedgerHoldingsHistoryInput = z.infer<typeof ledgerHoldingsHistoryInputSchema>;
 
 export const ledgerHoldingSchema = z.object({
-  assetId: z.string().min(1),
+  assetId: assetIdSchema.min(1),
   /** Decimal string. */
   amount: z.string().regex(decimal),
 });
 
 export const ledgerMovementSchema = z.object({
-  assetId: z.string().min(1),
+  assetId: assetIdSchema.min(1),
   module: z.string(),
   reason: z.string(),
   /** ISO start of the bucket (UTC, aligned to `bucketSeconds`). */

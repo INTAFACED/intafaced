@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * svc-pay `withdrawal.tierLimits` (D-148, I-kyc-compliance-04): the owner's withdrawal limits for every KYC tier, as
@@ -13,7 +14,7 @@ export const payWithdrawalTierLimitsOutputSchema = z.object({
   limits: z.array(
     z.object({
       tier: z.string().min(1).max(32),
-      assetId: z.string().min(1).max(16),
+      assetId: assetIdSchema.min(1).max(16),
       perTx: payTierLimitAmountSchema,
       rolling24h: payTierLimitAmountSchema,
     }),

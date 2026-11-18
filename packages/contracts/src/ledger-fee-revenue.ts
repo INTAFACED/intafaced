@@ -18,6 +18,7 @@
  */
 
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 export const LEDGER_FEE_REVENUE_WINDOW_INVALID = 'ledger.fee_revenue_window_invalid' as const;
 
@@ -34,7 +35,7 @@ export type LedgerFeeRevenueInput = z.infer<typeof ledgerFeeRevenueInputSchema>;
 export const ledgerFeeRevenueAssetSchema = z.object({
   /** The venue that charged the fee for us (our builder fee), or null for a fee of our own that no venue pays. */
   venueId: z.string().min(1).nullable(),
-  assetId: z.string().min(1),
+  assetId: assetIdSchema.min(1),
   /** Sum of debits to house fee accounts: fees earned, not yet cash. Decimal string. */
   earned: z.string().regex(decimal),
   /** Sum of credits from house fee accounts. Decimal string. */

@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { OwnAgent, OwnAgentAutoRun, OwnAgentSchedule, OwnAgentSchedules, OwnAgentTrigger } from '@intafaced/contracts/agents-own';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -24,7 +25,7 @@ const RUN: OwnAgentAutoRun = {
   runs: 1,
   wakes: 2,
   cost: '0.0001',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   createdAt: '2026-11-13T21:00:00.000Z',
   updatedAt: '2026-11-13T21:00:01.000Z',
 };

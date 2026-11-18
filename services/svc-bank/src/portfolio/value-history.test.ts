@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { Principal } from '@intafaced/auth';
 import {
   bankHoldingsChangeSchema,
@@ -28,7 +29,7 @@ const BOBS_SPACE = '55555555-5555-4555-8555-555555555555';
 const CLOSED = '66666666-6666-4666-8666-666666666666';
 
 const move = (d: number, assetId: string, module: string, reason: string, inflow: string, outflow: string, fee = '0'): LedgerMovement => ({
-  assetId,
+  assetId: asAssetId(assetId),
   module,
   reason,
   bucketStart: day(d).toISOString(),
@@ -40,7 +41,7 @@ const history = (holdings: Record<string, string>, movements: LedgerMovement[]):
   asOf: day(10).toISOString(),
   from: day(1).toISOString(),
   bucketSeconds: 86_400,
-  holdings: Object.entries(holdings).map(([assetId, amount]) => ({ assetId, amount })),
+  holdings: Object.entries(holdings).map(([assetId, amount]) => ({ assetId: asAssetId(assetId), amount })),
   movements,
 });
 
@@ -89,7 +90,8 @@ describe('valueOverTime: what the holdings were worth at each moment', () => {
     });
     // The SOL arrived during day 3, so the day-3 moment (its start) holds none; from day 4 on it is held with no price.
     expect(out.points.slice(0, 3).map((p) => p.valueUsd)).toEqual(['0', '0', '1000']);
-    for (const p of out.points.slice(3)) expect(p).toMatchObject({ valueUsd: null, missing: [{ assetId: 'SOL', reason: 'no_price' }] });
+    for (const p of out.points.slice(3))
+      expect(p).toMatchObject({ valueUsd: null, missing: [{ assetId: asAssetId('SOL'), reason: 'no_price' }] });
     // A day before BTC's first candle is missing too, while a day holding only dollar coins needs no price.
     const late = valueOverTime({ histories: [MAIN, SAVINGS], interval: '1d', samples, live: false, closes: new Map([['BTC', daily(4)]]) });
     expect(late.points.map((p) => p.valueUsd)).toEqual(['0', '0', '1000', null, '800']);
@@ -117,7 +119,7 @@ describe('holdingsChange: what rose and fell in amount over a range (J-portfolio
     // 400, and 400 USDT at 1.
     expect(out.rows).toEqual([
       {
-        assetId: 'BTC',
+        assetId: asAssetId('BTC'),
         startAmount: '0',
         endAmount: '1',
         change: '1',
@@ -127,7 +129,7 @@ describe('holdingsChange: what rose and fell in amount over a range (J-portfolio
         endValueUsd: '400',
       },
       {
-        assetId: 'USDT',
+        assetId: asAssetId('USDT'),
         startAmount: '0',
         endAmount: '400',
         change: '400',
@@ -233,7 +235,7 @@ describe('valueOverTime: the change-in-value bridge', () => {
       depositsUsd: null,
       marketMoveUsd: null,
       closingUsd: null,
-      missing: [{ assetId: 'BTC', reason: 'no_price' }],
+      missing: [{ assetId: asAssetId('BTC'), reason: 'no_price' }],
     });
   });
 });
@@ -256,7 +258,7 @@ describe('the grid', () => {
 const space = (id: string, userId: string): SpaceRecord => ({
   id,
   userId,
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   kind: 'named',
   name: 'Savings',
   goalTarget: null,

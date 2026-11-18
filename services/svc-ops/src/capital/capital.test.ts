@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import postgres from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import { createTestDatabase } from '@intafaced/db';
@@ -97,11 +98,11 @@ const LEDGER_AT = '2026-11-09T05:59:00.000Z';
 const OWN: LedgerOwnFunds = {
   asOf: LEDGER_AT,
   accounts: [
-    { ownerType: 'house', ownerId: 'market-maker', assetId: 'USDT', kind: 'available', purpose: '', balance: '100' },
-    { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available', purpose: '', balance: '0.5' },
-    { ownerType: 'house', ownerId: 'market-maker', assetId: 'BTC', kind: 'available', purpose: '', balance: '2' },
+    { ownerType: 'house', ownerId: 'market-maker', assetId: asAssetId('USDT'), kind: 'available', purpose: '', balance: '100' },
+    { ownerType: 'house', ownerId: 'fees:trade', assetId: asAssetId('USDT'), kind: 'available', purpose: '', balance: '0.5' },
+    { ownerType: 'house', ownerId: 'market-maker', assetId: asAssetId('BTC'), kind: 'available', purpose: '', balance: '2' },
   ],
-  places: [{ kind: 'partner_reserve', placeId: 'bank', assetId: 'USD', held: '25' }],
+  places: [{ kind: 'partner_reserve', placeId: 'bank', assetId: asAssetId('USD'), held: '25' }],
 };
 const RESERVES: BankPartnerReserves = {
   asOf: LEDGER_AT,
@@ -161,8 +162,8 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
       status: 'read',
       asOf: LEDGER_AT,
       assets: [
-        { assetId: 'BTC', amount: '2', accounts: 1 },
-        { assetId: 'USDT', amount: '100.5', accounts: 2 },
+        { assetId: asAssetId('BTC'), amount: '2', accounts: 1 },
+        { assetId: asAssetId('USDT'), amount: '100.5', accounts: 2 },
       ],
       accounts: OWN.accounts,
     });
@@ -176,7 +177,7 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
         {
           kind: 'partner_reserve',
           placeId: 'bank',
-          assetId: 'USD',
+          assetId: asAssetId('USD'),
           held: '25',
           outside: {
             status: 'unknown',
@@ -211,10 +212,10 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
       if (setting === 'test') {
         expect(out.venues.venues.map((v) => [v.balance, v.minimum])).toEqual([
           [
-            { status: 'read', assetId: 'USDC', amount: '125.5', asOf: at.toISOString() },
-            { status: 'published', assetId: 'USDC', amount: '100' },
+            { status: 'read', assetId: asAssetId('USDC'), amount: '125.5', asOf: at.toISOString() },
+            { status: 'published', assetId: asAssetId('USDC'), amount: '100' },
           ],
-          [{ status: 'read', assetId: 'USDC', amount: '0.25', asOf: at.toISOString() }, { status: 'not_published' }],
+          [{ status: 'read', assetId: asAssetId('USDC'), amount: '0.25', asOf: at.toISOString() }, { status: 'not_published' }],
         ]);
       } else {
         for (const v of out.venues.venues) {
@@ -230,8 +231,18 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
   it('a blank threshold is ops.capital.threshold_unset and not monitored, never ok, and opens no alert', async () => {
     const snap = await (await (await build()).caller()).capital.snapshot();
     expect(snap.buffers).toEqual([
-      { assetId: 'BTC', buffer: '2', threshold: { status: 'unset', code: 'ops.capital.threshold_unset' }, state: 'not_monitored' },
-      { assetId: 'USDT', buffer: '100.5', threshold: { status: 'unset', code: 'ops.capital.threshold_unset' }, state: 'not_monitored' },
+      {
+        assetId: asAssetId('BTC'),
+        buffer: '2',
+        threshold: { status: 'unset', code: 'ops.capital.threshold_unset' },
+        state: 'not_monitored',
+      },
+      {
+        assetId: asAssetId('USDT'),
+        buffer: '100.5',
+        threshold: { status: 'unset', code: 'ops.capital.threshold_unset' },
+        state: 'not_monitored',
+      },
     ]);
     expect(snap.alerts).toEqual([]);
   });
@@ -240,7 +251,7 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
     const b = build();
     const c = await b.caller();
     const set = await c.capital.setThreshold(threshold(b.ids, 'USDT', '150', 'TEST treasury on-call', 'capital-threshold-test-1'));
-    expect(set).toEqual({ assetId: 'USDT', minimum: '150', contact: 'TEST treasury on-call', version: 1, outcome: 'set' });
+    expect(set).toEqual({ assetId: asAssetId('USDT'), minimum: '150', contact: 'TEST treasury on-call', version: 1, outcome: 'set' });
     await c.capital.setThreshold(threshold(b.ids, 'BTC', '1', 'TEST treasury on-call', 'capital-threshold-test-2'));
     const first = await c.capital.snapshot();
     expect(first.buffers.find((x) => x.assetId === 'USDT')).toMatchObject({ state: 'below_minimum', buffer: '100.5' });
@@ -248,7 +259,7 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
     expect(first.alerts).toEqual([
       {
         key: 'capital-breach:USDT:2026-10-24',
-        assetId: 'USDT',
+        assetId: asAssetId('USDT'),
         period: '2026-10-24',
         buffer: '100.5',
         minimum: '150',
@@ -274,10 +285,16 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
     const snap = await c.capital.snapshot();
     expect(snap.ownFunds).toEqual({ status: 'unknown', code: 'ops.capital.source_unavailable', message: 'svc-ledger: did not answer.' });
     expect(snap.places).toEqual({ status: 'unknown', code: 'ops.capital.source_unavailable', message: 'svc-ledger: did not answer.' });
-    expect(snap.buffers).toEqual([expect.objectContaining({ assetId: 'USDT', buffer: null, state: 'unknown' })]);
+    expect(snap.buffers).toEqual([expect.objectContaining({ assetId: asAssetId('USDT'), buffer: null, state: 'unknown' })]);
     expect(snap.alerts).toEqual([]);
     await expect(
-      c.capital.scenario({ kind: 'counterparty_default', counterparty: 'TEST venue', assetId: 'USDT', exposure: '40', lossShare: '0.5' }),
+      c.capital.scenario({
+        kind: 'counterparty_default',
+        counterparty: 'TEST venue',
+        assetId: asAssetId('USDT'),
+        exposure: '40',
+        lossShare: '0.5',
+      }),
     ).rejects.toThrow(/ops\.capital\.source_unavailable/);
   });
 
@@ -291,12 +308,12 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
     const s = await c.capital.scenario({
       kind: 'counterparty_default',
       counterparty: 'TEST venue',
-      assetId: 'USDT',
+      assetId: asAssetId('USDT'),
       exposure: '40',
       lossShare: '0.25',
     });
     expect(s).toMatchObject({ loss: '10', ownFundsBefore: '100.5', ownFundsAfter: '90.5', stateAfter: 'not_monitored' });
-    await expect(c.capital.scenario({ kind: 'counterparty_default', assetId: 'USDT', exposure: '40' })).rejects.toThrow(
+    await expect(c.capital.scenario({ kind: 'counterparty_default', assetId: asAssetId('USDT'), exposure: '40' })).rejects.toThrow(
       /ops\.capital\.scenario_input_missing — No scenario was run: enter the counterparty, loss share \(0 to 1\)/,
     );
   });

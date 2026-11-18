@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { Sql } from 'postgres';
 import { createEdgeContext } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
@@ -42,8 +43,8 @@ const registry = memoryWithdrawNetworks([
     updatedAt: '2026-10-23T00:00:00.000Z',
   },
 ]);
-const entry = { userId: USER, assetId: 'USDT', network: 'ethereum', ref: ADDRESS, label: 'TEST send wallet' };
-const ask = { userId: USER, assetId: 'USDT', network: 'ethereum', ref: ADDRESS };
+const entry = { userId: USER, assetId: asAssetId('USDT'), network: 'ethereum', ref: ADDRESS, label: 'TEST send wallet' };
+const ask = { userId: USER, assetId: asAssetId('USDT'), network: 'ethereum', ref: ADDRESS };
 
 function book(clock: { now: Date }, hours = '24') {
   const lock = memorySecurityLock();
@@ -85,7 +86,7 @@ describe('whether money may be sent to an address on a network now', () => {
       destinationId: saved.destinationId,
       coolingOffEndsAt: null,
     });
-    await expect(service.sendableDestination({ ...ask, ref: ADDRESS.toLowerCase(), assetId: 'usdt' })).resolves.toMatchObject({
+    await expect(service.sendableDestination({ ...ask, ref: ADDRESS.toLowerCase(), assetId: asAssetId('usdt') })).resolves.toMatchObject({
       state: 'ready',
       destinationId: saved.destinationId,
     });
@@ -104,7 +105,7 @@ describe('whether money may be sent to an address on a network now', () => {
     const { service } = await readyEntry();
     const notSaved = { state: 'not_saved', destinationId: null, coolingOffEndsAt: null };
     await expect(service.sendableDestination({ ...ask, ref: '0x000000000000000000000000000000000000dEaD' })).resolves.toEqual(notSaved);
-    await expect(service.sendableDestination({ ...ask, assetId: 'ETH' })).resolves.toEqual(notSaved);
+    await expect(service.sendableDestination({ ...ask, assetId: asAssetId('ETH') })).resolves.toEqual(notSaved);
     await expect(service.sendableDestination({ ...ask, userId: OTHER })).resolves.toEqual(notSaved);
   });
 

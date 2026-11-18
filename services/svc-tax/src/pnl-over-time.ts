@@ -3,6 +3,7 @@ import { PNL_BREAKDOWN_MAX_DAYS, type PnlOverTime, type PnlSeriesInterval } from
 import { PAR_ASSETS, type LotBook } from './lot-book.js';
 import { SERIES_TIMEFRAME_MS, type CloseSeries } from './prices.js';
 import { TaxError, TAX_PNL_BREAKDOWN_MISMATCH, TAX_PNL_RANGE_INVALID } from './codes.js';
+import { asAssetId, type AssetId } from '@intafaced/contracts';
 
 /**
  * PROFIT AND LOSS OVER TIME (J-portfolio-05 #4-#5), worked out from the finished lot book, never stored.
@@ -80,7 +81,7 @@ function dayKey(at: Date, utcOffsetMinutes: number): string {
 }
 
 interface Missing {
-  readonly assetId: string;
+  readonly assetId: AssetId;
   readonly reason: 'no_price' | 'cost_unknown';
 }
 
@@ -300,19 +301,19 @@ export function pnlOverTime(input: PnlInputs): PnlOverTime {
       const p = positions.get(assetId) ?? { qty: 0n, cost: 0n };
       let unrealized: Amount | null = 0n;
       if (timeline.isUnknown(assetId)) {
-        out.set(assetId, { realized: null, unrealized: null, missing: { assetId, reason: 'cost_unknown' } });
+        out.set(assetId, { realized: null, unrealized: null, missing: { assetId: asAssetId(assetId), reason: 'cost_unknown' } });
         continue;
       }
-      let missing: Missing | null = r === null ? { assetId, reason: 'cost_unknown' } : null;
+      let missing: Missing | null = r === null ? { assetId: asAssetId(assetId), reason: 'cost_unknown' } : null;
       if (p.qty !== 0n) {
         const series = input.closes.get(assetId) ?? null;
         const price = series === null ? null : closeAt(series, interval, time, live);
         if (p.cost === null) {
           unrealized = null;
-          missing = { assetId, reason: 'cost_unknown' };
+          missing = { assetId: asAssetId(assetId), reason: 'cost_unknown' };
         } else if (price === null) {
           unrealized = null;
-          missing = missing ?? { assetId, reason: 'no_price' };
+          missing = missing ?? { assetId: asAssetId(assetId), reason: 'no_price' };
         } else unrealized = mul(p.qty, price) - p.cost;
       }
       out.set(assetId, { realized: r, unrealized, missing });

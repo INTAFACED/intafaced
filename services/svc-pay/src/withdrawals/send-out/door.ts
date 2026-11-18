@@ -1,5 +1,10 @@
 import type { Sql } from 'postgres';
-import { bankSendDestinationInputSchema, type BankSendDestinationPort, type BankSendDestinationState } from '@intafaced/contracts';
+import {
+  bankSendDestinationInputSchema,
+  type BankSendDestinationPort,
+  type BankSendDestinationState,
+  asAssetId,
+} from '@intafaced/contracts';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayError, type PayErrorCode } from '../../payment-service.js';
 import { WithdrawalQuoteError } from '../quotes/errors.js';
@@ -112,7 +117,7 @@ export class SendOutDoor {
 
   /** Check 3: svc-bank's address book says the address is saved on this network and may be sent to now. */
   async assertDestination(ask: SendOutAsk): Promise<void> {
-    const question = { userId: ask.userId, assetId: ask.assetId, network: ask.networkId ?? '', ref: ask.destination.ref };
+    const question = { userId: ask.userId, assetId: asAssetId(ask.assetId), network: ask.networkId ?? '', ref: ask.destination.ref };
     // An asset, network or address the address book cannot hold is not in it: refused as not saved, never as "try again".
     const answer = bankSendDestinationInputSchema.safeParse(question).success
       ? await this.deps.destinations.check(question)

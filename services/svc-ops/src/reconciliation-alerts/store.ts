@@ -35,6 +35,7 @@ import { consumeFounderApproval, type ApprovalConsumer } from '../operator-desks
 import { alertTargets, repeatNotice, sameFrozenFigures, type AlertTarget, type NoticeOutcome } from './decide.js';
 import { queueAlertEvent } from './events.js';
 import type { CorrectiveTxPort } from './transactions-client.js';
+import { asAssetId } from '@intafaced/contracts';
 
 const SOURCE = 'ledger.reconciliation_evaluations';
 /** The actor the timeline names for what the feed did; a person is always their own user id. */
@@ -839,7 +840,7 @@ export class ReconciliationAlertStore {
       team: teamOf(row.cause),
       error: row.cause === 'error' && row.error_code ? { code: row.error_code, phase: row.error_phase } : null,
       controlId: row.control_id,
-      assetId: row.asset_id,
+      assetId: row.asset_id === null ? null : asAssetId(row.asset_id),
       periodStart: iso(row.period_start),
       periodEnd: iso(row.period_end),
       severity: row.severity,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createPayRouter } from '../router.js';
@@ -41,7 +42,7 @@ function signed(scopes: string[]) {
 // TEST figures, illustrative only.
 const VIEW = {
   tier: 'basic',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   base: { perTx: '10', rolling24h: '15' },
   override: null,
   perTx: '10',
@@ -63,7 +64,7 @@ describe('withdrawal.limits', () => {
       asked.push([userId, assetId]);
       return VIEW;
     });
-    await expect(caller.withdrawal.limits({ assetId: 'USDT' })).resolves.toEqual(VIEW);
+    await expect(caller.withdrawal.limits({ assetId: asAssetId('USDT') })).resolves.toEqual(VIEW);
     expect(asked).toEqual([[USER, 'USDT']]);
   });
 
@@ -71,7 +72,7 @@ describe('withdrawal.limits', () => {
     const caller = api(async () => {
       throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMIT_UNSET, 'refused');
     });
-    await expect(caller.withdrawal.limits({ assetId: 'USDT' })).rejects.toMatchObject({
+    await expect(caller.withdrawal.limits({ assetId: asAssetId('USDT') })).rejects.toMatchObject({
       code: 'FORBIDDEN',
       message: GUARD_WITHDRAWAL_LIMIT_UNSET,
     });
@@ -79,7 +80,7 @@ describe('withdrawal.limits', () => {
 
   it('needs a read scope: a merchant scope reads nothing', async () => {
     const caller = api(async () => VIEW, ['pay:read']);
-    await expect(caller.withdrawal.limits({ assetId: 'USDT' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller.withdrawal.limits({ assetId: asAssetId('USDT') })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });
 

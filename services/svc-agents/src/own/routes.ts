@@ -74,6 +74,7 @@ import {
   scopedProcedure,
   serviceProcedureFor,
   TRPCError,
+  asAssetId,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
@@ -1763,7 +1764,7 @@ export function ownRouter(
             requestId: null,
             refusalCode: row.refusal_code,
             cost: formatAmount(parseAmount(row.cost)),
-            assetId: feeAssetId,
+            assetId: asAssetId(feeAssetId),
             occurredAt: row.occurred_at.toISOString(),
             // A refusal's words name what it was refused on (a funds refusal: the method, figure, source and as-of time).
             messageParams: row.status === 'refused' ? messageParamsOf(row.user_message_params) : {},
@@ -1781,7 +1782,7 @@ export function ownRouter(
             requestId: request.id,
             refusalCode: null,
             cost: '0',
-            assetId: feeAssetId,
+            assetId: asAssetId(feeAssetId),
             occurredAt: request.createdAt,
             messageParams: {},
           }));

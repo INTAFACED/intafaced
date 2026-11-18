@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /** The classes of data a tool touches; the first use of each by an agent asks the person's consent (AG-guardrails-01). */
 export const OWN_AGENT_DATA_CLASSES = ['own_data', 'market_data', 'draft_write', 'live_write'] as const;
@@ -77,7 +78,7 @@ export const ownAgentLimitsSchema = z.object({
   effectivePerSession: z.string().nullable(),
   /** The owner's overage grace: how much usage may stay unpaid and runs still start. Null is blank: none at all. */
   overageGrace: z.string().nullable(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
 });
 export type OwnAgentLimits = z.infer<typeof ownAgentLimitsSchema>;
 
@@ -90,7 +91,7 @@ export type OwnAgentSession = z.infer<typeof ownAgentSessionSchema>;
 export const ownAgentRunResultSchema = z.object({
   text: z.string(),
   cost: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   inputTokens: z.number().int(),
   outputTokens: z.number().int(),
 });
@@ -107,7 +108,7 @@ const ownAgentRunRowBase = {
   task: z.string().nullable(),
   refusalCode: z.string().nullable(),
   cost: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   occurredAt: z.string(),
   /**
    * The words' parameters of a refused run, as its action row keeps them (the method, figure, source and as-of time of
@@ -180,7 +181,7 @@ export const ownAgentUsageWindowSchema = z.object({
   state: z.enum(['open', 'unpaid', 'settled']),
   amount: z.string().nullable(),
   chargeKey: z.string().nullable(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   openedAt: z.string(),
 });
 export type OwnAgentUsageWindow = z.infer<typeof ownAgentUsageWindowSchema>;
@@ -197,7 +198,7 @@ export const ownAgentUsageDaySchema = z.object({
   task: z.string(),
   amount: z.string(),
   windows: z.number().int().positive(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
 });
 export type OwnAgentUsageDay = z.infer<typeof ownAgentUsageDaySchema>;
 
@@ -537,7 +538,7 @@ export type OwnAgentTestLogRow = z.infer<typeof ownAgentTestLogRowSchema>;
 export const ownAgentValuePayloadSchema = z.object({
   /** Canonical decimal string, never a number. */
   amount: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
-  assetId: z.string().min(1).max(12),
+  assetId: assetIdSchema.min(1).max(12),
   destination: z.string().min(1).max(120),
 });
 export type OwnAgentValuePayload = z.infer<typeof ownAgentValuePayloadSchema>;
@@ -644,7 +645,7 @@ const testRunBase = {
   /** Always `test`: a test run is never a live run. */
   mode: z.literal('test'),
   cost: z.literal('0'),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   label: z.literal('TEST'),
   createdAt: z.string(),
 };
@@ -753,7 +754,7 @@ export const ownAgentAnalyticsSchema = z.object({
   /** Null when test runs are left out. */
   testRuns: z.number().int().nonnegative().nullable(),
   cost: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
 });
 export type OwnAgentAnalytics = z.infer<typeof ownAgentAnalyticsSchema>;
 
@@ -990,7 +991,7 @@ export const ownAgentAutoRunSchema = z.object({
   /** How many workers woke for this occurrence. */
   wakes: z.number().int().min(1),
   cost: z.string().nullable(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });

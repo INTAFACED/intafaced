@@ -13,6 +13,7 @@ import { TeamError } from './errors.js';
 import { TEAM_RUN_KEY_PREFIX } from './hold.js';
 import type { TeamMembershipPort } from './membership.js';
 import { lockBusiness, MANAGERS, readTeam, requireRole, effectiveRoles, stale, TeamStore, type Team } from './store.js';
+import { asAssetId } from '@intafaced/contracts';
 
 /**
  * A business team's runs, held actions and usage (AG-governance-01, AG-usage-03). Each call reads the team from
@@ -313,7 +314,7 @@ export class TeamRuns {
     });
     return {
       businessId: team.businessId,
-      assetId: this.feeAssetId,
+      assetId: asAssetId(this.feeAssetId),
       members,
       sealedTotal: formatAmount(businessTotal),
       // A window with nothing billable posts nothing and is owed by no one; it is left out here as it charged nothing.

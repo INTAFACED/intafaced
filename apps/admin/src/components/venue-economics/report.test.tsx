@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { OpsVenueEconomics } from '@intafaced/contracts';
 import { VenueEconomicsReport } from './report';
 
@@ -99,8 +100,8 @@ describe('venue economics report', () => {
   const fees = {
     status: 'ok' as const,
     assets: [
-      { venueId: null, assetId: 'USD', earned: '120.5', returned: '0.5', net: '120', collected: null },
-      { venueId: 'test-venue', assetId: 'USDC', earned: '7.25', returned: '0', net: '7.25', collected: '3' },
+      { venueId: null, assetId: asAssetId('USD'), earned: '120.5', returned: '0.5', net: '120', collected: null },
+      { venueId: 'test-venue', assetId: asAssetId('USDC'), earned: '7.25', returned: '0', net: '7.25', collected: '3' },
     ],
   };
 

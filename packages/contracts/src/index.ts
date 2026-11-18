@@ -16,6 +16,7 @@ export * from './service-auth-http.js';
 export * from './raw-body.js';
 export * from './identity.js';
 export * from './academy-cert-perks.js';
+export * from './asset-id.js';
 export * from './instruments.js';
 export * from './blueprint.js';
 export * from './example-router.js';

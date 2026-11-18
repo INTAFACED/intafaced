@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * The business's own receiving wallet (J-merchant-04, launch money model): `merchantReceivingWallet.*` on svc-pay.
@@ -58,7 +59,7 @@ export const receivingWalletSavedSchema = z.object({ wallet: receivingWalletSche
 export const outsideFundsGetInputSchema = z.object({}).strict();
 export const outsideFundsRowSchema = z
   .object({
-    assetId: z.string(),
+    assetId: assetIdSchema,
     /** Where the money is: the business's own wallet, or the acquiring partner. */
     holder: z.enum(['own_wallet', 'partner']),
     /** Who reported the figures: the chain for the business's own wallet, the partner for a partner payment. */

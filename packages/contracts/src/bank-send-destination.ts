@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import type { ServiceName } from './service-keys.js';
 
 /**
@@ -30,7 +31,7 @@ export const bankSendDestinationInputSchema = z
   .object({
     /** The person sending. Bank user ids are opaque text. */
     userId: z.string().min(1).max(128),
-    assetId: z.string().regex(/^[A-Za-z0-9]{1,16}$/),
+    assetId: assetIdSchema.regex(/^[A-Za-z0-9]{1,16}$/),
     /** The network chosen for the send, as the address book names networks. */
     network: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,31}$/),
     /** The address the money goes to, as the person sent it. */

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * Saved views on the payments list and role-gated viewing of payment details (M-adv-payments-core-01, J-merchant-05
@@ -31,7 +32,7 @@ export const paymentViewFiltersSchema = z
   .object({
     status: statusSchema.optional(),
     search: z.string().trim().min(1).max(200).optional(),
-    assetId: z.string().trim().min(1).max(32).optional(),
+    assetId: assetIdSchema.trim().min(1).max(32).optional(),
     date: z.enum(['today', '7d', '30d']).optional(),
   })
   .strict();

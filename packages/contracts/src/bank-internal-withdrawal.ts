@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import type { ServiceName } from './service-keys.js';
 
 /**
@@ -45,7 +46,7 @@ export const bankInternalWithdrawalInputSchema = z
     fromUserId: z.string().min(1).max(128),
     /** The owner of the platform address it was sent to. */
     toUserId: z.string().min(1).max(128),
-    assetId: z.string().regex(/^[A-Za-z0-9]{1,16}$/),
+    assetId: assetIdSchema.regex(/^[A-Za-z0-9]{1,16}$/),
     amount: decimal,
   })
   .strict()

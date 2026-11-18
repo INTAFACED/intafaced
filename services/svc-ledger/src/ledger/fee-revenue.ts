@@ -1,5 +1,5 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
-import { LEDGER_FEE_REVENUE_WINDOW_INVALID, ledgerFeeRevenueInputSchema, type LedgerFeeRevenue } from '@intafaced/contracts';
+import { LEDGER_FEE_REVENUE_WINDOW_INVALID, ledgerFeeRevenueInputSchema, type LedgerFeeRevenue, asAssetId } from '@intafaced/contracts';
 import { LedgerError } from '@intafaced/ledger-client';
 import type { HistoryRange } from './history.js';
 
@@ -57,7 +57,7 @@ export function serializeFeeRevenue(range: HistoryRange, rows: readonly FeeReven
     to: range.to.toISOString(),
     assets: rows.map((r) => ({
       venueId: r.venueId,
-      assetId: r.assetId,
+      assetId: asAssetId(r.assetId),
       earned: formatAmount(r.earned),
       returned: formatAmount(r.returned),
       net: formatAmount(r.earned - r.returned),

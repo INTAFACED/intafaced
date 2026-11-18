@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { saleChannelSchema } from './merchant-stores.js';
 
 /**
@@ -179,7 +180,7 @@ export const priceSchema = z
     productId: z.string().guid(),
     billing: priceBillingSchema,
     kind: priceKindSchema,
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount: z.string().nullable(),
     minAmount: z.string().nullable(),
     maxAmount: z.string().nullable(),
@@ -248,7 +249,7 @@ export const priceQuoteInputSchema = z
 export const priceQuoteSchema = z
   .object({
     priceId: z.string().guid(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount: z.string(),
     billing: priceBillingSchema,
   })

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * svc-agents' routing table desk (`routes.desk`, `routes.propose`, `routes.withdraw`, `routes.confirm`; J-agents-20):
@@ -38,7 +39,7 @@ export const routeDeskRowSchema = z.object({
   outputPerMillion: z.string().nullable(),
   /** A confirmed rate that takes effect at the start of the next usage window. */
   nextRate: z.object({ inputPerMillion: z.string().nullable(), outputPerMillion: z.string().nullable(), from: z.string() }).nullable(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   engine: z.enum(['sandbox', 'live', 'unknown']),
   metered: z.boolean(),
   pending: routeChangeSchema.nullable(),

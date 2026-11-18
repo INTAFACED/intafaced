@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * svc-bank `businessBooks.*` (J-bank-23; BK-bexp-03, BK-bexp-04, BK-bexp-05): a business keeps its books in order.
@@ -50,7 +51,7 @@ export const businessBookLineSchema = z.object({
 });
 
 export const businessBooksOverviewSchema = z.object({
-  account: z.object({ id: z.string().guid(), name: z.string(), assetId: z.string() }),
+  account: z.object({ id: z.string().guid(), name: z.string(), assetId: assetIdSchema }),
   permissions: z.array(z.string()),
   connection: businessAccountingConnectionSchema.nullable(),
   rules: z.array(businessCodingRuleSchema),
