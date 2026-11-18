@@ -18,6 +18,7 @@ import { historyCommentRules } from './history-comment-rule.js';
 import { journeyCopyRules } from './journey-copy-rule.js';
 import { repeatRules } from './repeat-rules.js';
 import { staleReadRules } from './stale-read-rule.js';
+import { stepPictureRules } from './step-picture-rule.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
@@ -212,5 +213,6 @@ export default {
     ...journeyCopyRules,
     ...repeatRules,
     ...staleReadRules,
+    ...stepPictureRules,
   },
 };
