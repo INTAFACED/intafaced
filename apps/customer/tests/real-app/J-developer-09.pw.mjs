@@ -3,13 +3,13 @@ import net from 'node:net';
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ORIGIN, restartWith } from './stack.mjs';
+import { ORIGIN, STACK_PORTS, restartWith } from './stack.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
 
 // J-developer-09, in the running app (docs/roadmap/journeys.json): stream live data. One test per step, titled
 // "J-developer-09 #<n>", written by an independent test-writer from the step's own words; the builder makes
 // them pass and may not weaken them. The streams are svc-ws on the local stack, reached as a developer's program reaches
-// them: a WebSocket straight to the stream service (port 14523), from this machine's own addresses. The client is a
+// them: a WebSocket straight to the stream service (its stack port), from this machine's own addresses. The client is a
 // small one written here, so a step can choose not to answer pings, and can leave from 127.0.0.x (CI runs on Linux,
 // where every 127.x address is the machine's own) so the per-IP cap in #6 counts only this test's connections.
 //
@@ -30,7 +30,8 @@ import { keyHolder, makeKey, withKey } from './developer.mjs';
 //   LOCAL_STACK_WS_IP_BAN_SECONDS ("off" is blank), and while it is blank /policy says perIp.ban "unset" and the
 //   endpoints page says "No ban time is set, so no address is banned."
 const J = 'J-developer-09';
-const WS_PORT = 14523;
+// The stream service's port on this checkout's own stack slot (14523 on slot 0, as CI runs).
+const WS_PORT = STACK_PORTS.ws;
 const MARKET = 'BTC/USDT';
 // A part main does not have yet fails at its first look, not after the default wait.
 const UNBUILT = { timeout: 10_000 };
