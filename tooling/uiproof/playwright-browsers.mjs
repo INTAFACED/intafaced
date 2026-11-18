@@ -50,7 +50,7 @@ function revisions(names, prefix) {
 const chromiumRevisions = (names) => revisions(names, 'chromium-');
 
 /** Playwright's download folders on this machine's kind: PLAYWRIGHT_BROWSERS_PATH, then the macOS and Linux defaults. */
-export function playwrightCaches({ env = process.env, home = env.HOME || homedir() } = {}) {
+function playwrightCaches({ env = process.env, home = env.HOME || homedir() } = {}) {
   const forced = typeof env.PLAYWRIGHT_BROWSERS_PATH === 'string' ? env.PLAYWRIGHT_BROWSERS_PATH.trim() : '';
   return [...(forced ? [forced] : []), ...CACHE_RELATIVE.map((relative) => join(home, relative))];
 }
