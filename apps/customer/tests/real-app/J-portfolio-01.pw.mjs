@@ -512,6 +512,9 @@ test(`${J} #7 reads best and worst movers: the coins that moved most today, from
   await expect(movers(page)).toContainText('BTC');
   await expect(movers(page)).toContainText('ETH');
   await expect(movers(page)).toContainText('Not profit and loss.');
+  // The screen the step ends on shows the list whole, as the person reads it.
+  await movers(page).scrollIntoViewIfNeeded();
+  await expect(movers(page)).toBeInViewport({ ratio: 1 });
 });
 
 function usdSigned(units) {
