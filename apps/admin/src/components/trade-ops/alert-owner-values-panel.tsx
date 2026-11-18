@@ -135,7 +135,7 @@ export function AlertOwnerValuesPanel({ initial }: { initial: AlertOwnerValuesVi
       </PageSection>
       <PageSection title="Alert settings history">
         {view.history.length === 0 ? (
-          <p className="text-sm text-fg-2">Nothing has been changed on this page yet.</p>
+          <p className="text-sm text-fg-2">Nothing has been changed on this page.</p>
         ) : (
           <table className="w-full text-sm" aria-label="Alert settings changes">
             <thead>

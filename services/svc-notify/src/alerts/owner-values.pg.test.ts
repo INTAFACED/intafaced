@@ -32,7 +32,7 @@ afterAll(async () => {
   await sql.end();
 });
 
-const founder = { sub: '00000000-0000-4000-8000-000000000001', scopes: ['admin:read', 'admin:write'] } as unknown as Principal;
+const founder = { sub: '00000000-0000-4000-8000-000000000001', scopes: ['admin:read', 'admin:write'] } as Principal;
 const values = new AlertOwnerValues(
   sql,
   { maxActivePrice: 20, triggerLogDays: 7 },

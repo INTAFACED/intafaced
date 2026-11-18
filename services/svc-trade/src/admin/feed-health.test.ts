@@ -82,7 +82,7 @@ describe('FeedHealthDesk scopes', () => {
     }) as never,
     now: () => new Date(),
   });
-  const customer = { sub: 'u', scopes: ['trade:read'] } as unknown as Principal;
+  const customer = { sub: 'u', scopes: ['trade:read'] } as Principal;
 
   it('refuses a caller without admin:read before reading anything', async () => {
     await expect(desk.list(customer)).rejects.toThrow();

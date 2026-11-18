@@ -38,7 +38,7 @@ export function FeedsTable({ rows, link = true }: { rows: readonly FeedRow[]; li
               {row.ageSeconds === null ? '—' : `${row.ageSeconds} s`}
             </td>
             <td className="py-1 pr-4 tabular-nums" data-field="last-tick" data-at={row.lastTickAt ?? undefined}>
-              {row.lastTickAt === null ? 'No tick yet' : utcSecond(row.lastTickAt)}
+              {row.lastTickAt === null ? 'No tick' : utcSecond(row.lastTickAt)}
             </td>
           </tr>
         ))}

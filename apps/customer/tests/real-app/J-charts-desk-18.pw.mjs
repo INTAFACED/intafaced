@@ -4,6 +4,8 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signUp } from './desk.mjs';
 import { EDGE, api, bestPrices, signOutBrowser, tool } from './stack.mjs';
+import { makerStatus, ownerValues } from './charts-desk.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-charts-desk-18 "I watch the health of market feeds, chart usage and the alert engine, and set the module's owner
 // values", in the founder console (apps/admin) against the running stack. One test per step, titled "J-charts-desk-18 #<n>".
@@ -29,22 +31,6 @@ const SETTINGS = `${ADMIN}/trade-ops/charts/settings`;
 const PLAN = 'standard';
 const PLAN_LABEL = 'Price alert quota, TEST Standard';
 
-/** The TEST market maker's own status line; `status` exits non-zero when the maker is down, which is an answer here. */
-function maker(cmd) {
-  try {
-    return tool('local-test-market.mjs', cmd);
-  } catch (err) {
-    return String(err.stdout ?? '');
-  }
-}
-
-/** The owner's chart values svc-trade serves for `symbol` (`staleAgeSeconds` and `delayedBoundarySeconds` are the two ages). */
-async function ownerValues(symbol = BTC) {
-  const res = await fetch(`${EDGE}/api/v1/charts/owner-values?symbol=${encodeURIComponent(symbol)}`);
-  expect(res.status).toBe(200);
-  return res.json();
-}
-
 /** A market's id on the stack, as svc-trade lists it: alerts are kept by market id, never by symbol. */
 async function marketIdOf(symbol) {
   const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
@@ -62,11 +48,11 @@ async function newestTrade(symbol) {
   return tape.length > 0 ? tape[0].timestamp : null;
 }
 
-const feedRow = (page, symbol) => page.getByRole('table', { name: 'Candle streams' }).locator(`tr[data-symbol="${symbol}"]`);
+const feedRow = (page, symbol) => page.getByRole('table', { name: 'Candle streams', exact: true }).locator(`tr[data-symbol="${symbol}"]`);
 
 async function openFeeds(page) {
   await page.goto(`${ADMIN}/trade-ops/feeds`);
-  await expect(page.getByRole('heading', { name: 'Market feeds' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Market feeds', exact: true })).toBeVisible();
 }
 
 test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes`, () => {
@@ -78,7 +64,7 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
   test.beforeAll(() => {
     // Stopping cancels every resting maker order and starting funds it again: each may take up to the tool's 120 s.
     test.setTimeout(300_000);
-    makerWasRunning = /^test market: (ok|STALE)/.test(maker('status'));
+    makerWasRunning = /^test market: (ok|STALE)/.test(makerStatus());
     tool('local-test-market.mjs', 'stop');
     tool('local-test-market.mjs', 'start', '--markets', BTC);
   });
@@ -129,8 +115,11 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
     await expect(page.getByTestId('feed-boundary')).toContainText(`older than ${boundary} s (the owner's stale age`);
 
     await row.getByRole('link', { name: ETH }).click();
-    await expect(page.getByRole('heading', { name: `${ETH} feed` })).toBeVisible();
-    const gaps = page.getByRole('region', { name: 'Candle gaps' }).getByRole('table', { name: 'Candle gaps list' }).locator('tbody tr');
+    await expect(page.getByRole('heading', { name: `${ETH} feed`, exact: true })).toBeVisible();
+    const gaps = page
+      .getByRole('region', { name: 'Candle gaps', exact: true })
+      .getByRole('table', { name: 'Candle gaps list', exact: true })
+      .locator('tbody tr');
     // The newest gap starts at the first minute after the last tick's own minute: no candle was traded since.
     const firstEmpty = new Date((Math.floor(lastTick / MINUTE) + 1) * MINUTE).toISOString();
     await expect(gaps.first()).toHaveAttribute('data-from', firstEmpty);
@@ -145,7 +134,7 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
     await founderSignIn(page, 'a');
     const journalOf = async () => {
       await page.goto(`${ADMIN}/trade-ops/feeds/${encodeURIComponent(ETH)}`);
-      return page.getByRole('region', { name: 'Feed event journal' });
+      return page.getByRole('region', { name: 'Feed event journal', exact: true });
     };
     // The drop: dated when the stream passed the stale age, from the system, with the reason.
     const dropAt = new Date(lastTick + boundary * 1000).toISOString();
@@ -215,11 +204,11 @@ async function createAlert(client, targetPrice, direction = 'above') {
   return res.body.result.data;
 }
 
-const metric = (page, key) => page.getByRole('table', { name: 'Charts module metrics' }).locator(`tr[data-metric="${key}"]`);
+const metric = (page, key) => page.getByRole('table', { name: 'Charts module metrics', exact: true }).locator(`tr[data-metric="${key}"]`);
 
 async function openAlertsOnMetrics(page) {
   await page.goto(`${ADMIN}/trade-ops/charts/metrics`);
-  await expect(page.getByRole('heading', { name: 'Charts metrics' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Charts metrics', exact: true })).toBeVisible();
   const row = metric(page, 'alerts');
   await expect(row).toHaveAttribute('data-served', 'true');
   return Number(await row.locator('[data-field=count]').getAttribute('data-open'));
@@ -266,7 +255,7 @@ test(`${J} #4 opens alert engine and delivery health: evaluation lag, firings, d
 
   const firingsNow = async () => {
     await desk.goto(`${ADMIN}/trade-ops/alerts`);
-    await expect(desk.getByRole('heading', { name: 'Alert engine' })).toBeVisible();
+    await expect(desk.getByRole('heading', { name: 'Alert engine', exact: true })).toBeVisible();
     return Number(await desk.locator('[data-field=firings]').getAttribute('data-count'));
   };
   const before = await firingsNow();
@@ -296,7 +285,7 @@ test(`${J} #4 opens alert engine and delivery health: evaluation lag, firings, d
 
   // Deliveries and failures per channel: each channel's row adds up, and every channel the person's own alert was
   // delivered on is on the desk with at least that many.
-  const table = desk.getByRole('table', { name: 'Alert deliveries by channel' });
+  const table = desk.getByRole('table', { name: 'Alert deliveries by channel', exact: true });
   await expect(table).toBeVisible();
   const rows = await table.locator('tbody tr').evaluateAll((trs) =>
     trs.map((tr) => {
@@ -337,7 +326,7 @@ test(`${J} #4 opens alert engine and delivery health: evaluation lag, firings, d
 
 async function openSettings(page) {
   await page.goto(SETTINGS);
-  await expect(page.getByRole('heading', { name: 'Charts settings' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Charts settings', exact: true })).toBeVisible();
 }
 
 /** Types `value` (blank clears) into the row whose input is labelled `<label>: new value`, saves it with `reason`. */
@@ -346,7 +335,7 @@ async function saveValue(page, label, value, reason) {
   await input.fill(value);
   await page.getByRole('row').filter({ has: input }).getByRole('button', { name: 'Save', exact: true }).click();
   const dialog = page.getByRole('alertdialog');
-  await dialog.getByLabel('Reason (kept in the audit)').fill(reason);
+  await dialog.getByLabel('Reason (kept in the audit)', { exact: true }).fill(reason);
   await dialog.getByRole('button', { name: 'Save value', exact: true }).click();
   await expect(dialog.locator('[data-outcome=ok]')).toBeVisible();
 }
@@ -356,7 +345,7 @@ const chartValues = () => ownerValues(BTC);
 
 const alertRow = (page, key, plan) =>
   page
-    .getByRole('table', { name: 'Alert owner values' })
+    .getByRole('table', { name: 'Alert owner values', exact: true })
     .locator(plan ? `tr[data-key="${key}"][data-plan="${plan}"]` : `tr[data-key="${key}"]`);
 
 test(`${J} #5 opens the module's settings page: compare cap, alert quotas, retention and the delayed and stale ages each not set or set; a blank compare cap refuses the customer add with the cap-unset error`, async ({
@@ -382,7 +371,7 @@ test(`${J} #5 opens the module's settings page: compare cap, alert quotas, reten
   // "Not set", with where it comes from.
   await expect(page.getByTestId('alert-plans')).toHaveAttribute('data-default-plan', PLAN);
   const plans = await page
-    .getByRole('table', { name: 'Alert owner values' })
+    .getByRole('table', { name: 'Alert owner values', exact: true })
     .locator('tr[data-key="priceQuota"]')
     .evaluateAll((rows) => rows.map((r) => r.getAttribute('data-plan')));
   expect(plans).toContain(PLAN);
@@ -407,23 +396,24 @@ test(`${J} #5 opens the module's settings page: compare cap, alert quotas, reten
 
     const context = await browser.newContext();
     const chart = await context.newPage();
-    await chart.goto('/charts/BTC-USDT');
-    const tools = chart.getByRole('group', { name: 'Compare and share' }).first();
+    // The chart reads the owner values as it opens; Add pressed before that answer says "Reading the compare limit": wait
+    // for the chart's own read of the blank cap, then press once.
+    const read = await answerAfterNavigation(
+      chart,
+      (r) => r.url().includes('/api/v1/charts/owner-values'),
+      () => chart.goto('/charts/BTC-USDT'),
+    );
+    expect((await read.json()).compareCap).toBeNull();
+    const tools = chart.getByRole('group', { name: 'Compare and share', exact: true }).first();
     const picker = tools.getByRole('combobox', { name: /Compare with/ });
     // The picker lists the other markets once the market list has loaded: wait for one before reading it.
     await expect(picker.locator('option').first()).toBeAttached({ timeout: 30_000 });
     const first = (await picker.locator('option').allTextContents())[0];
     await picker.selectOption(first);
-    // Pressed before the chart has read the owner values, Add says "Reading the compare limit. Try again in a moment.":
-    // a person tries again, and so does this test, until the chart answers from the value it read.
-    await expect(async () => {
-      await tools.getByRole('button', { name: 'Add', exact: true }).click();
-      await expect(chart.getByTestId('compare-note')).toContainText('compare limit, which is not set. Nothing was added.', {
-        timeout: 2_000,
-      });
-    }).toPass({ timeout: 60_000 });
+    await tools.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(chart.getByTestId('compare-note')).toContainText('compare limit, which is not set. Nothing was added.');
     await expect(chart.getByTestId('compare-note')).toHaveAttribute('data-code', 'trade.chart.owner_value_unset');
-    await expect(tools.getByRole('list', { name: 'Compared markets' }).getByRole('listitem')).toHaveCount(0);
+    await expect(tools.getByRole('list', { name: 'Compared markets', exact: true }).getByRole('listitem')).toHaveCount(0);
     await context.close();
   } finally {
     await openSettings(page);
@@ -464,7 +454,7 @@ test(`${J} #6 sets an alert quota for a plan and saves: the change is recorded w
     await expect(alertRow(desk, 'priceQuota', PLAN).locator('[data-field=current]')).toHaveText(String(quota));
     await expect(alertRow(desk, 'priceQuota', PLAN)).toHaveAttribute('data-source', 'page');
     // Recorded with who and when: the newest change names the founder, the time, the old and new value and the reason.
-    const change = desk.getByRole('table', { name: 'Alert settings changes' }).locator('tbody tr').first();
+    const change = desk.getByRole('table', { name: 'Alert settings changes', exact: true }).locator('tbody tr').first();
     await expect(change).toHaveAttribute('data-plan', PLAN);
     await expect(change.locator('[data-field=who]')).toHaveText(founder.userId);
     const at = Date.parse(await change.locator('[data-field=at]').getAttribute('data-at'));

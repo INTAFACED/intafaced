@@ -55,7 +55,7 @@ export const FEED_STATE_LABEL: Readonly<Record<FeedState, string>> = {
   live: 'live',
   delayed: 'delayed',
   stale: 'stale',
-  no_ticks: 'no ticks yet',
+  no_ticks: 'no ticks',
   threshold_not_set: 'threshold not set',
 };
 

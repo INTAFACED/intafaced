@@ -5,8 +5,8 @@ import { AlertOwnerValues, parseAccountPlans, planOf } from './owner-values.js';
 const noDb = (() => {
   throw new Error('no database read before the checks pass');
 }) as never;
-const founder = { sub: '00000000-0000-4000-8000-000000000001', scopes: ['admin:read', 'admin:write'] } as unknown as Principal;
-const support = { sub: '00000000-0000-4000-8000-000000000002', scopes: ['admin:read'] } as unknown as Principal;
+const founder = { sub: '00000000-0000-4000-8000-000000000001', scopes: ['admin:read', 'admin:write'] } as Principal;
+const support = { sub: '00000000-0000-4000-8000-000000000002', scopes: ['admin:read'] } as Principal;
 const TABLE = JSON.stringify({
   defaultPlanId: 'standard',
   plans: [
