@@ -4,6 +4,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { BankError } from '../errors.js';
 import type { PartnerAccountRef, PartnerBank, PartnerCustody } from '../partner/partner-bank.js';
 import { recoverPersonalSignAddress } from '../ramps/wallet-ownership.js';
+import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 
 /**
  * MOVES BETWEEN A PERSON'S OWN SPENDING AND TRADING ACCOUNTS (J-derivatives-25 #2 #3, BK-ownmove-01).
@@ -99,13 +100,19 @@ export interface OwnMoveServiceOptions {
   readonly screenWallet: (address: string) => void;
   /** The partner's fee for its leg, or null when it does not say. */
   readonly partnerFee: (userId: string) => Amount | null;
+  /** The owner's self-freeze and the security lock, asked of identity. Unset: every move refuses `bank.security_lock_unset`. */
+  readonly securityLock?: SecurityLockPort;
 }
 
 export class OwnMoveService {
+  private readonly securityLock: SecurityLockPort;
+
   constructor(
     private readonly sql: Sql,
     private readonly options: OwnMoveServiceOptions,
-  ) {}
+  ) {
+    this.securityLock = options.securityLock ?? unconfiguredSecurityLock();
+  }
 
   /** Move from spending into trading: the partner's send to the person's own wallet, under the move's own key. */
   async toWallet(
@@ -137,6 +144,9 @@ export class OwnMoveService {
         'bank.own_move_rail_unset',
       );
     }
+
+    // A frozen or locked account sends nothing out, a move asked again included: read before anything is kept or moved.
+    await assertSecurityLockOpen(this.securityLock, userId, 'a move to your wallet');
 
     const prior = await this.row(moveId);
     if (prior) {

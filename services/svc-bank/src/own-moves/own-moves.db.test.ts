@@ -81,7 +81,13 @@ describe('own moves: spending to trading (J-derivatives-25 #2 #3)', () => {
   });
 
   /** The TEST partner holding ADA's money, and a partner send to a wallet that counts every send per key. */
-  function wired(options: { deliver?: 'ok' | 'fails-once' | 'none'; sanctions?: ReturnType<typeof memorySanctions> } = {}) {
+  function wired(
+    options: {
+      deliver?: 'ok' | 'fails-once' | 'none';
+      sanctions?: ReturnType<typeof memorySanctions>;
+      hold?: { locked?: boolean; selfFrozen?: boolean } | 'unset';
+    } = {},
+  ) {
     const tp = testPartnerBank();
     tp.set(ADA, { custody: 'off' });
     tp.set(BOB, { custody: 'off' });
@@ -107,7 +113,20 @@ describe('own moves: spending to trading (J-derivatives-25 #2 #3)', () => {
     );
     const sanctions = options.sanctions ?? memorySanctions([{ network: '*', address: '0x00000000000000000000000000000000005a1c7d' }]);
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      ramps: { sanctions },
+      ramps: {
+        sanctions,
+        ...(options.hold === 'unset'
+          ? {}
+          : {
+              securityLock: {
+                read: async () => ({
+                  locked: options.hold?.locked ?? false,
+                  unlocksAt: null,
+                  selfFrozen: options.hold?.selfFrozen ?? false,
+                }),
+              },
+            }),
+      },
       onrampPartner: partner,
       testPartner: tp,
       postingFreeze: { postingEnabled: async () => true, read: async () => ({ postingEnabled: true, cause: null }) },
@@ -222,6 +241,22 @@ describe('own moves: spending to trading (J-derivatives-25 #2 #3)', () => {
     expect(await bank.ownMoves.toWallet(ADA, input)).toMatchObject({ status: 'sent' });
     expect(sends).toHaveLength(1);
     expect(await balance()).toBe(parseAmount('750'));
+  });
+
+  it('a frozen or locked account, or one whose lock cannot be read, is refused by name: nothing kept, moved or sent', async () => {
+    for (const [hold, code] of [
+      [{ selfFrozen: true }, 'bank.account_frozen_self'],
+      [{ locked: true }, 'bank.security_locked'],
+      ['unset', 'bank.security_lock_unset'],
+    ] as const) {
+      const { bank, sends, balance } = wired({ hold });
+      const err = await refusal(bank.ownMoves.toWallet(ADA, ask('100')));
+      expect(err.code).toBe(code);
+      expect(await balance()).toBe(parseAmount('1000'));
+      expect(sends).toHaveLength(0);
+      expect(await bank.ownMoves.list(ADA, 10)).toEqual([]);
+    }
+    expect(ledger.journal()).toHaveLength(0);
   });
 
   it('with no partner send to a wallet, refuses by name and keeps nothing', async () => {
