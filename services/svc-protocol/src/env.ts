@@ -362,6 +362,13 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: z.string().default(''),
 
     /**
+     * LOCAL TEST only: `TEST:<absolute path>` of a TEST network registry `networks.list` serves instead of the owner's
+     * `deployments/networks.json` (J-dex-protocol-01 #6, #7). Blank serves the owner's file; a TEST value refuses to boot
+     * outside APP_ENV dev or test (`networksRegistryPathFromSetting`).
+     */
+    PROTOCOL_TEST_NETWORKS_REGISTRY: z.string().default(''),
+
+    /**
      * Gas tracker percentiles and history length (D-explorer-01). No default.
      * Blank or malformed refuses `protocol.gasPrice` with `protocol.gas_percentiles_unset`.
      * TEST fixtures may pass `10,50,90` and a block count; this schema does not.

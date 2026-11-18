@@ -50,7 +50,8 @@ export default defineConfig({
     // Every test that opens a page leaves a picture of what the app showed as it ended, passed or failed (project-state
     // d88: "proof kept for every pass"): `<outputDir>/<file>-<title, from "J-<module>-NN-<step>">/test-finished-1.png`,
     // one per page. A test with no page (an API-only step) leaves none. Pixels only: a password field draws dots and no
-    // screen shows a session token, while a trace would carry both, so CI keeps passing `--trace off`.
+    // screen shows a session token, while a trace would carry both, so CI keeps passing `--trace off`. These are the window
+    // of every page open in the worker; the step's own picture, the whole of the test's own page, is journey.mjs `stepPicture`.
     screenshot: 'on',
     trace: 'retain-on-failure',
     launchOptions: process.env.JOURNEY_CHROMIUM ? { executablePath: process.env.JOURNEY_CHROMIUM } : {},

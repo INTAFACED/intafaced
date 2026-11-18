@@ -57,6 +57,17 @@ describe('Web3 shell', () => {
     answers.chain = { status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'x', code: 'edge.upstream_unavailable' } };
     expect(page('/dex')).toContain('Network unreachable · The Protocol service did not answer');
   });
+  it('treats a region svc-protocol does not serve (denied.region_blocked) as a blocked region too', () => {
+    answers.chain = { status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: 'denied.region_blocked' } };
+    const html = renderToStaticMarkup(
+      <Web3Shell path="/wallet">
+        <PermitForm />
+      </Web3Shell>,
+    );
+    expect(html).toContain('data-notice="region" data-code="denied.region_blocked"');
+    expect(html).toContain('This service is not available in your region.');
+    expect(html).not.toContain('Review and sign');
+  });
   it('names a blocked region in words and offers no signing action while the edge refuses it', () => {
     answers.chain = { status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: 'edge.geo_blocked' } };
     const html = renderToStaticMarkup(

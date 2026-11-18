@@ -265,6 +265,7 @@ const SKIP_WORDS: Record<string, string> = {
   per_contract_cap: 'It would have gone past your most per contract',
   daily_cap: 'It would have gone past your most per day; copying resumes the next day',
   position_closed: 'Nothing you copied was left open to close',
+  not_lead_order: 'The leader marked that order as not a lead trade, so it is not copied',
   refused: 'The copy was refused',
 };
 /** The words for a skip reason id; an id this screen does not know reads as a plain refusal, never as the id. */

@@ -26,7 +26,10 @@ import {
   writeOperatorAudit,
   type ApprovalBook,
 } from '../admin/common.js';
+import { compare, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { CopyError } from './errors.js';
+import type { CopyOwnerDay } from './follow-rules.js';
+import { LeadTrading, type LeadLimits } from './lead-trading.js';
 import type { LeaderDirectory } from './leader-directory.js';
 
 export const COPY_LEAD_APPROVE_ACTION = 'trade.copy_lead_approve' as const;
@@ -105,6 +108,89 @@ export interface LeadDeskDeps {
    * `trade.copy_lead_reapply_wait_unset`. Blank never means no wait.
    */
   readonly reapplyWaitSeconds?: number | null;
+  /**
+   * The least USDC the applicant's own venue account must hold, as the venue reports it
+   * (TRADE_COPY_LEAD_MIN_VENUE_USDC). Null or omitted: unset, and every application refuses
+   * `trade.copy_lead_balance_threshold_unset`.
+   */
+  readonly minVenueUsdc?: Amount | null;
+  /** The leader this person follows now, or null (svc-trade's own follows and leader directory). */
+  readonly following: (userId: string) => Promise<LeadFollowing | null>;
+  /** The person's own venue account's USDC, as the venue reports it. Throws when the venue does not answer. */
+  readonly venueUsdc: (userId: string) => Promise<LeadVenueRead>;
+  /**
+   * The owner's new-trader mission minimum: the USDC the applicant's own venue account must hold to complete the
+   * funding mission (TRADE_COPY_LEAD_MISSION_MIN_USDC, CB-copy-12). Null or omitted: "Not set by the platform", and the
+   * mission never counts as done.
+   */
+  readonly missionMinUsdc?: Amount | null;
+  /** The owner's lead limits (CB-copy-16); omitted: every limit unset. */
+  readonly limits?: LeadLimits;
+  /** When the owner day starts, for the lead daily buy cap; omitted: unset. */
+  readonly ownerDay?: CopyOwnerDay;
+}
+
+/** The lead account an approved lead reads (CB-copy-18): its listing ref, state and leading instrument list. */
+export interface MyLeadAccount {
+  readonly leaderRef: string;
+  readonly applicationId: string;
+  readonly displayName: string;
+  readonly state: string;
+  readonly instruments: readonly string[];
+}
+
+/** One new-trader mission and how far it has come (CB-copy-12). */
+export interface LeadMission {
+  readonly id: 'apply' | 'fund' | 'listed';
+  readonly done: boolean;
+  /** What counts: the owner's minimum and the venue's figure, or "Not set by the platform"; never invented. */
+  readonly detail: string;
+}
+
+export interface LeadMissionsView {
+  readonly missions: readonly LeadMission[];
+  readonly done: number;
+  readonly total: number;
+}
+
+/**
+ * The applicant's own venue account, as the venue reports it (J-copy-bots-otc-04 #1): the door is off, no account was
+ * signed for by the person's own wallet, or the USDC of the richest such account with the venue's as-of time. A venue
+ * that does not answer throws, and the desk refuses by `trade.copy_lead_venue_unreadable`.
+ */
+export type LeadVenueRead =
+  | { readonly state: 'off' }
+  | { readonly state: 'none' }
+  | { readonly state: 'read'; readonly owner: string; readonly test: boolean; readonly usdc: Amount; readonly asOf: Date };
+
+/** The leader the applicant follows now (any follow not left), by its public listing. */
+export interface LeadFollowing {
+  readonly leaderRef: string | null;
+  readonly displayName: string;
+}
+
+/** What applying to lead is measured by, read for the room before anyone submits (CB-copy-12). */
+export interface LeadEligibility {
+  readonly following: LeadFollowing | null;
+  /** The owner's least venue USDC to lead, a decimal string; null while unset. */
+  readonly threshold: string | null;
+  readonly venue:
+    | { readonly state: 'off' | 'none' | 'unreadable' }
+    | { readonly state: 'read'; readonly owner: string; readonly test: boolean; readonly usdc: string; readonly asOf: string };
+}
+
+/** The owner's least venue USDC from its env value: blank is unset (null); anything but a decimal above zero throws. */
+export function parseLeadMinVenueUsdc(raw: string | undefined): Amount | null {
+  const value = (raw ?? '').trim();
+  if (!value) return null;
+  let amount: Amount;
+  try {
+    amount = parseAmount(value);
+  } catch {
+    throw new Error('TRADE_COPY_LEAD_MIN_VENUE_USDC must be a decimal amount above zero, or blank');
+  }
+  if (amount <= 0n) throw new Error('TRADE_COPY_LEAD_MIN_VENUE_USDC must be a decimal amount above zero, or blank');
+  return amount;
 }
 
 /** The largest wait the owner may set: one year. */
@@ -210,10 +296,91 @@ const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 export class LeadDesk {
   private readonly waitSeconds: number | null;
+  private tradingDesk: LeadTrading | undefined;
 
   constructor(private readonly deps: LeadDeskDeps) {
     const wait = deps.reapplyWaitSeconds ?? null;
     this.waitSeconds = wait === null ? null : checkedReapplyWait(wait);
+  }
+
+  /** The lead's own trading on the web: lead orders, their views and copiers (lead-trading.ts). */
+  get trading(): LeadTrading {
+    this.tradingDesk ??= new LeadTrading({
+      sql: this.deps.sql,
+      now: this.deps.now,
+      listing: (userId) => this.deps.directory.leadListing(userId),
+      minVenueUsdc: this.deps.minVenueUsdc ?? null,
+      venueUsdc: this.deps.venueUsdc,
+      limits: this.deps.limits ?? { dailyBuyCap: null, pairHolding: null },
+      ownerDay: this.deps.ownerDay ?? { published: false },
+    });
+    return this.tradingDesk;
+  }
+
+  /** The caller's lead account once approved, or null: never a listing the caller does not own. */
+  async myLead(principal: Principal): Promise<MyLeadAccount | null> {
+    const [row] = await this.deps.sql<ApplicationRow[]>`
+      SELECT * FROM trade.copy_lead_applications
+       WHERE user_id = ${principal.userId} AND status = 'approved' AND leader_ref IS NOT NULL
+       ORDER BY decided_at DESC NULLS LAST, id DESC LIMIT 1`;
+    if (!row?.leader_ref) return null;
+    const listing = await this.deps.directory.leadListing(principal.userId);
+    return {
+      leaderRef: row.leader_ref,
+      applicationId: row.id,
+      displayName: row.display_name,
+      state: listing?.state ?? 'unlisted',
+      instruments: listing ? [...listing.assets] : [],
+    };
+  }
+
+  /**
+   * The new-trader missions (CB-copy-12): apply, hold the owner's mission minimum on your own venue account as the venue
+   * reports it, and be approved. A blank minimum reads "Not set by the platform" and that mission is never done.
+   */
+  async missions(principal: Principal): Promise<LeadMissionsView> {
+    const application = await this.mine(principal);
+    const min = this.deps.missionMinUsdc ?? null;
+    let fund: LeadMission;
+    if (min === null) {
+      fund = { id: 'fund', done: false, detail: 'Not set by the platform' };
+    } else {
+      let read: LeadVenueRead | null;
+      try {
+        read = await this.deps.venueUsdc(principal.userId);
+      } catch {
+        read = null;
+      }
+      fund =
+        read?.state === 'read'
+          ? {
+              id: 'fund',
+              done: compare(read.usdc, min) >= 0,
+              detail: `${formatAmount(read.usdc)} of ${formatAmount(min)} USDC on your venue account${read.test ? ' (TEST)' : ''}`,
+            }
+          : {
+              id: 'fund',
+              done: false,
+              detail:
+                read === null
+                  ? 'Your venue account could not be read'
+                  : `No venue account of your own yet; ${formatAmount(min)} USDC needed`,
+            };
+    }
+    const missions: LeadMission[] = [
+      {
+        id: 'apply',
+        done: application !== null,
+        detail: application ? `Application ${application.state.replace('_', ' ')}` : 'Not applied yet',
+      },
+      fund,
+      {
+        id: 'listed',
+        done: application?.state === 'approved',
+        detail: application?.state === 'approved' ? 'Approved by the founders' : 'Waiting for the founders',
+      },
+    ];
+    return { missions, done: missions.filter((m) => m.done).length, total: missions.length };
   }
 
   /** The applicant's newest application, or null. */
@@ -231,6 +398,13 @@ export class LeadDesk {
   async apply(principal: Principal, input: { displayName: string }): Promise<MyLeadApplication> {
     const displayName = displayNameOf(input.displayName);
     const userId = principal.userId;
+    // A new application must meet the lead conditions first; an open or approved one answers below as it always did,
+    // so the same submit again returns the same row even while the venue is down. The venue is read outside the
+    // transaction: no lock is held across a call to the outside.
+    const [before] = await this.deps.sql<Array<{ status: LeadApplicationStatus }>>`
+      SELECT status FROM trade.copy_lead_applications WHERE user_id = ${userId} ORDER BY created_at DESC, id DESC LIMIT 1`;
+    const fresh = !before || before.status === 'rejected';
+    if (fresh) await this.refuseUnlessEligible(userId);
     return this.deps.sql.begin(async (tx) => {
       // One applicant at a time per person: the lock key is the person, so two submits cannot both insert.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`copy-lead-apply:${userId}`}))`;
@@ -256,12 +430,65 @@ export class LeadDesk {
           throw new CopyError(`You may apply again after ${opens.toISOString()}`, 'trade.copy_lead_reapply_wait');
         }
       }
+      // Another submit decided the state between the check above and this lock: measure this one now.
+      if (!fresh) await this.refuseUnlessEligible(userId);
       const [row] = await tx<ApplicationRow[]>`
         INSERT INTO trade.copy_lead_applications (id, user_id, display_name, status, created_at, updated_at)
         VALUES (${randomUUID()}, ${userId}, ${displayName}, 'pending', ${now.toISOString()}, ${now.toISOString()})
         RETURNING *`;
       return mine(row!, this.waitSeconds);
     });
+  }
+
+  /** What applying to lead is measured by for this person now: whom they follow, the threshold and their venue USDC. */
+  async eligibility(principal: Principal): Promise<LeadEligibility> {
+    const userId = principal.userId;
+    const following = await this.deps.following(userId);
+    const threshold = this.deps.minVenueUsdc ?? null;
+    let venue: LeadEligibility['venue'];
+    try {
+      const read = await this.deps.venueUsdc(userId);
+      venue =
+        read.state === 'read'
+          ? { state: 'read', owner: read.owner, test: read.test, usdc: formatAmount(read.usdc), asOf: read.asOf.toISOString() }
+          : { state: read.state };
+    } catch {
+      venue = { state: 'unreadable' };
+    }
+    return { following, threshold: threshold === null ? null : formatAmount(threshold), venue };
+  }
+
+  /**
+   * The lead conditions, in the order the room names them: not following anyone, the owner's threshold set, an own
+   * venue account read, and its USDC at or above the threshold.
+   */
+  private async refuseUnlessEligible(userId: string): Promise<void> {
+    const following = await this.deps.following(userId);
+    if (following) {
+      throw new CopyError(
+        `You are following ${following.displayName}. Leave that leader before you apply to lead`,
+        'trade.copy_lead_following',
+      );
+    }
+    const threshold = this.deps.minVenueUsdc ?? null;
+    if (threshold === null) {
+      throw new CopyError('The least venue balance to lead is not set by the platform', 'trade.copy_lead_balance_threshold_unset');
+    }
+    let read: LeadVenueRead;
+    try {
+      read = await this.deps.venueUsdc(userId);
+    } catch {
+      throw new CopyError('Your venue account could not be read', 'trade.copy_lead_venue_unreadable');
+    }
+    if (read.state !== 'read') {
+      throw new CopyError('Connect the wallet whose venue account you will lead from', 'trade.copy_lead_venue_account_missing');
+    }
+    if (compare(read.usdc, threshold) < 0) {
+      throw new CopyError(
+        `Your venue account holds ${formatAmount(read.usdc)} USDC, under the ${formatAmount(threshold)} USDC needed to lead`,
+        'trade.copy_lead_balance_below',
+      );
+    }
   }
 
   /** Open applications oldest first, with the criteria in force (null: unset). */

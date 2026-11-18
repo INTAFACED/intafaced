@@ -116,15 +116,34 @@ export const TEST_SPOT_LISTINGS = Object.freeze([
     /** Days from the seed to the end of the opening window. */
     openingWindowInDays: 30,
   }),
+  // J-copy-bots-otc-04 #5 to #8: the lead's own book, on two assets the ledger already holds (a made-up base asset has
+  // no ledger row, so it can be neither funded nor reserved). Unquoted and named by no other journey, so a lead's post-only
+  // buy rests on an empty book and only that journey's TEST taker fills it (`LEAD_TEST_SPOT`); no other file's orders
+  // stand in front of it, and the shared market maker keeps running.
+  Object.freeze({
+    symbol: 'USDC/USDT',
+    baseAsset: 'USDC',
+    quoteAsset: 'USDT',
+    displayName: 'TEST lead book: USD Coin in Tether (lead trading journey only)',
+    tickSize: '0.0001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '1',
+    makerBps: '10',
+    takerBps: '20',
+  }),
 ]);
 
 /** TEST listings the market maker never quotes, so their book holds only what a journey rests on it (J-copy-bots-otc-23
  * step 7 needs a book with one side empty and a known size on the other). Every other listing is quoted. */
-export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'IFC/BTC', 'TNEW/USDT', 'TOLD/USDT', 'TSES/USD', 'TWIN/USDC']);
+export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'IFC/BTC', 'TNEW/USDT', 'TOLD/USDT', 'TSES/USD', 'TWIN/USDC', 'USDC/USDT']);
 
 /** The open TEST market whose public tape stays empty: unquoted, and named only by the charts journeys that read it as a
  * market with no trades (their shared `untradedMarket` helper). No journey trades it. */
 export const UNTRADED_TEST_SPOT = 'IFC/BTC';
+
+/** The unquoted TEST market only J-copy-bots-otc-04 trades: the lead's own book for its lead orders. */
+export const LEAD_TEST_SPOT = 'USDC/USDT';
 
 /** The url back, or a refusal when its database is not obviously local or test. */
 export function localTestDatabaseUrl(url, env = process.env) {

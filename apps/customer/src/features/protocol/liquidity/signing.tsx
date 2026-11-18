@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useApi } from '../../session/session';
 import { createProtocolApi } from '../api';
-import { REGION_BLOCKED_CODE } from '../region';
+import { isRegionBlocked } from '../region';
 import { RepresentationPanel } from '../wallet/RepresentationPanel';
 import { useWallet, waitMined, type Sequence } from '../wallet/WalletProvider';
 import { createLiquidityApi } from './liquidity-api';
@@ -39,7 +39,7 @@ export function useLiquiditySigning(t: LiquidityTranslate) {
     if (!wallet.address) return t('noWallet');
     const status = await protocol.representationStatus(wallet.address);
     if (!status.ok)
-      return status.code === REGION_BLOCKED_CODE
+      return isRegionBlocked(status.code)
         ? t('regionBlocked')
         : status.code === 'compliance.representation_unset'
           ? t('representationUnset')

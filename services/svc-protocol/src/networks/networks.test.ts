@@ -3,7 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { ProtocolChain } from '../chain/client.js';
 import { createEdgeContext } from '@intafaced/contracts';
 import { createProtocolRouter, type ProtocolRouterDeps } from '../router.js';
-import { deploymentsFor, loadNetworkRegistry, loadRouterVersions, parseNetworkRegistry, routerVersionIsSunset } from './registry.js';
+import {
+  deploymentsFor,
+  loadNetworkRegistry,
+  loadRouterVersions,
+  networksRegistryPath,
+  networksRegistryPathFromSetting,
+  parseNetworkRegistry,
+  routerVersionIsSunset,
+} from './registry.js';
+import { fileURLToPath } from 'node:url';
 
 const edgeContext = createEdgeContext({ secret: 'a-networks-test-edge-secret-of-enough-length', serviceName: 'svc-protocol' });
 const bare = {
@@ -258,5 +267,30 @@ describe('networks.list credential guard', () => {
   it('serves a clean public RPC URL through networks.list', async () => {
     const api = caller({ loadNetworks: () => withRpc('https://sepolia.base.org')() });
     expect((await api.networks.list()).networks[0]!.rpcUrls).toEqual(['https://sepolia.base.org']);
+  });
+});
+
+describe('PROTOCOL_TEST_NETWORKS_REGISTRY', () => {
+  const testFile = fileURLToPath(new URL('../../../../tooling/scripts/local-stack-services/protocol-test-networks.json', import.meta.url));
+
+  it('serves the owner file when blank', () => {
+    expect(networksRegistryPathFromSetting('', 'production')).toBe(networksRegistryPath);
+    expect(networksRegistryPathFromSetting(undefined, undefined)).toBe(networksRegistryPath);
+  });
+
+  it('serves the TEST registry on the local test stack, and it can be added to a wallet', () => {
+    const path = networksRegistryPathFromSetting(`TEST:${testFile}`, 'test');
+    expect(path).toBe(testFile);
+    const base = loadNetworkRegistry(path).find((n) => n.chainId === 84532)!;
+    expect(base.rpcUrls).not.toBeNull();
+    expect(base.nativeCurrency).not.toBeNull();
+    expect(base.faucets?.length).toBeGreaterThan(0);
+  });
+
+  it('refuses to boot on a TEST registry outside dev or test, or on a value that is not TEST:<absolute path>', () => {
+    for (const appEnv of ['production', 'staging', undefined])
+      expect(() => networksRegistryPathFromSetting(`TEST:${testFile}`, appEnv)).toThrow(/Refusing to boot/);
+    expect(() => networksRegistryPathFromSetting(testFile, 'test')).toThrow(/TEST:<absolute path>/);
+    expect(() => networksRegistryPathFromSetting('TEST:relative.json', 'test')).toThrow(/TEST:<absolute path>/);
   });
 });
