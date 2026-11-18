@@ -7,13 +7,16 @@
  * run on the signed-in reviewer CLI (the job's own binary name, on PATH), never in CI.
  *
  *   node tooling/ci/brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>]
- *        [--words <project-state clone>] [--out <dir>]
+ *        [--runs <n>] [--words <project-state clone>] [--out <dir>]
  *
  * `--drop <text>` scores the brief with the one line holding <text> removed: a case set that scores the same without a
  * line doesn't test it. A change to a brief shows its score before and after in its pull request.
+ *
+ * `--runs <n>` (default 2) asks each case n times: one answer per case is too noisy to rank two briefs. A case scores
+ * the mean of its runs, and a control passes only when every run passes.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -75,6 +78,12 @@ export function scoreRead(c, v) {
   return { score: right ? 1 : 0, got: r.verdict, findings: [r.note] };
 }
 
+/** One case's runs to one result: the mean score, and every run's answer. A control passes only if every run does. */
+export function mergeRuns(runs) {
+  const score = runs.reduce((n, r) => n + r.score, 0) / runs.length;
+  return { score, got: runs.map((r) => r.got).join(' | '), runs };
+}
+
 /** Totals: bad cases' score and the controls that passed. */
 export function totals(results) {
   const bad = results.filter((r) => r.kind === 'bad');
@@ -89,7 +98,8 @@ export function totals(results) {
 
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 
-/** The tree at `sha`, exported (no .git), for the judge's Read, Grep and Glob. */
+/** The tree at `sha`, exported (no .git), for the judge's Read, Grep and Glob. Each is about 200 MB: the caller removes
+ * it once its case is asked, so at most `--jobs` copies exist at a time (project-state#2968: kept copies filled the disk). */
 function exportTree(sha, dir) {
   mkdirSync(dir, { recursive: true });
   execFileSync('sh', ['-c', 'git -C "$1" archive "$2" | tar -x -C "$3"', 'sh', ROOT, sha, dir]);
@@ -154,10 +164,14 @@ async function runReview(c, brief, call, work) {
   if (Buffer.byteLength(diff) > MAX_DIFF_BYTES)
     throw new Error(`${c.id}: the diff is over ${MAX_DIFF_BYTES} bytes; pick a case the job reviews in one call`);
   const repo = join(work, 'repo');
-  exportTree(base, repo);
-  const prompt = buildPrompt({ brief, diff, pr: c.pr, head });
-  const text = await ask(call, { repo, prompt, schema: VERDICT_SCHEMA, question: REVIEW_ASK, out: join(work, 'answer.json') });
-  return scoreReview(c, readReviewAnswer(text));
+  try {
+    exportTree(base, repo);
+    const prompt = buildPrompt({ brief, diff, pr: c.pr, head });
+    const text = await ask(call, { repo, prompt, schema: VERDICT_SCHEMA, question: REVIEW_ASK, out: join(work, 'answer.json') });
+    return scoreReview(c, readReviewAnswer(text));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 }
 
 function wordsAt(clone, sha) {
@@ -182,11 +196,15 @@ async function runRead(c, brief, call, work, clone) {
   if (!got.applicable) return { score: 0, got: `no read built (${got.why})` };
   const repo = join(work, 'repo');
   const pics = join(work, 'pictures');
-  exportTree(head, repo);
-  mkdirSync(pics, { recursive: true });
-  const out = join(work, 'answer.json');
-  await ask(call, { repo, extraDir: pics, prompt: got.prompt, schema: READ_SCHEMA, question: READ_ASK, out });
-  return scoreRead(c, readReadAnswer(out, got.required));
+  try {
+    exportTree(head, repo);
+    mkdirSync(pics, { recursive: true });
+    const out = join(work, 'answer.json');
+    await ask(call, { repo, extraDir: pics, prompt: got.prompt, schema: READ_SCHEMA, question: READ_ASK, out });
+    return scoreRead(c, readReadAnswer(out, got.required));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 }
 
 async function main() {
@@ -194,7 +212,7 @@ async function main() {
   const arg = (n, d) => (rest.includes(n) ? rest[rest.indexOf(n) + 1] : d);
   if (!JUDGES[judge]) {
     console.error(
-      'usage: brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>] [--words <project-state clone>] [--out <dir>]',
+      'usage: brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>] [--runs <n>] [--words <project-state clone>] [--out <dir>]',
     );
     process.exit(2);
   }
@@ -206,14 +224,17 @@ async function main() {
   const clone = arg('--words', join(process.env.HOME ?? '', 'code/project-state'));
   const out = arg('--out', mkdtempSync(join(tmpdir(), `brief-cases-${judge}-`)));
   const jobs = Number(arg('--jobs', '4'));
+  const runs = Number(arg('--runs', '2'));
+  if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a whole number of at least 1, not ${arg('--runs')}`);
   console.log(
-    `${judge}: ${cases.length} cases on ${call.model} at ${call.effort}${arg('--drop') ? `, without the line holding "${arg('--drop')}"` : ''}; answers in ${out}`,
+    `${judge}: ${cases.length} cases, ${runs} runs each, on ${call.model} at ${call.effort}${arg('--drop') ? `, without the line holding "${arg('--drop')}"` : ''}; answers in ${out}`,
   );
-  const results = [];
-  const queue = [...cases];
+  const answers = new Map(cases.map((c) => [c.id, []]));
+  const queue = cases.flatMap((c) => Array.from({ length: runs }, (_, n) => ({ c, n })));
   const worker = async () => {
-    for (let c = queue.shift(); c; c = queue.shift()) {
-      const work = join(out, c.id);
+    for (let q = queue.shift(); q; q = queue.shift()) {
+      const { c, n } = q;
+      const work = join(out, c.id, `run-${n + 1}`);
       mkdirSync(work, { recursive: true });
       let r;
       try {
@@ -221,11 +242,13 @@ async function main() {
       } catch (e) {
         r = { score: 0, got: `error: ${e.message}` };
       }
-      results.push({ id: c.id, kind: c.kind, ...r });
-      console.log(`${c.kind.padEnd(7)} ${c.id.padEnd(24)} ${String(r.score).padEnd(3)} ${r.got}`);
+      answers.get(c.id).push(r);
+      console.log(`${c.kind.padEnd(7)} ${c.id.padEnd(24)} run ${n + 1} ${String(r.score).padEnd(3)} ${r.got}`);
     }
   };
   await Promise.all(Array.from({ length: jobs }, worker));
+  const results = cases.map((c) => ({ id: c.id, kind: c.kind, ...mergeRuns(answers.get(c.id)) }));
+  for (const r of results) console.log(`${r.kind.padEnd(7)} ${r.id.padEnd(24)} mean ${r.score}`);
   writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 1));
   const t = totals(results);
   console.log(`score: bad ${t.bad} of ${t.badOf}; controls passed ${t.controls} of ${t.controlsOf}`);
