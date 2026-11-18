@@ -334,7 +334,7 @@ const FIRE_COPY: Record<
 export const ALERT_SWEEP_INTERVAL_MS = 60_000;
 
 /** The founder console's alert engine read is not wired in this process. */
-export const NOTIFY_ALERT_OPS_UNWIRED = 'notify.alert_ops_unwired' as const;
+const NOTIFY_ALERT_OPS_UNWIRED = 'notify.alert_ops_unwired' as const;
 
 /**
  * What the deployment is able to say about whether a watch can fire.

@@ -57,13 +57,13 @@ export const ALERT_OWNER_KEYS = ['priceQuota', 'triggerLogDays'] as const;
 export type AlertOwnerKey = (typeof ALERT_OWNER_KEYS)[number];
 
 /** Schema bounds for a set value; they bound what may be stored, they are not defaults. */
-export const ALERT_OWNER_BOUNDS: Readonly<Record<AlertOwnerKey, number>> = { priceQuota: 10_000, triggerLogDays: 3_650 };
+const ALERT_OWNER_BOUNDS: Readonly<Record<AlertOwnerKey, number>> = { priceQuota: 10_000, triggerLogDays: 3_650 };
 
 export const NOTIFY_OWNER_VALUE_STALE = 'notify.owner_value_stale' as const;
-export const NOTIFY_OWNER_VALUE_INVALID = 'notify.owner_value_invalid' as const;
-export const NOTIFY_OWNER_VALUE_REASON_REQUIRED = 'notify.owner_value_reason_required' as const;
+const NOTIFY_OWNER_VALUE_INVALID = 'notify.owner_value_invalid' as const;
+const NOTIFY_OWNER_VALUE_REASON_REQUIRED = 'notify.owner_value_reason_required' as const;
 export const NOTIFY_OWNER_VALUE_FORBIDDEN = 'notify.owner_value_forbidden' as const;
-export const OWNER_REASON_MIN = 12;
+const OWNER_REASON_MIN = 12;
 const HISTORY_LIMIT = 50;
 
 export class AlertOwnerValueError extends Error {

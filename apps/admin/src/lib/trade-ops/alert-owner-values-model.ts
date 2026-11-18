@@ -106,7 +106,7 @@ export const valueText = (v: number | null): string => (v === null ? 'Not set' :
 export const sourceText = (v: OwnerValueView): string =>
   v.source === 'page' ? 'Set on this page' : 'Deployment setting (never set on this page)';
 /** A plan's name from the owner's table, or its id when the table no longer lists it (an old history row). */
-export const planName = (plans: AccountPlans | null, plan: AlertPlan | null): string =>
+const planName = (plans: AccountPlans | null, plan: AlertPlan | null): string =>
   plans?.plans.find((p) => p.id === plan)?.name ?? plan ?? '';
 export const keyLabel = (plans: AccountPlans | null, key: AlertOwnerKey, plan: AlertPlan | null): string =>
   key === 'priceQuota' ? `Price alert quota, ${planName(plans, plan)}` : 'Trigger log retention (days)';

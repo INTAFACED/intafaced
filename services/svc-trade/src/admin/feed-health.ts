@@ -23,13 +23,13 @@ import type { Principal } from '@intafaced/auth';
 import { requireOperator, TradeOpsError } from './common.js';
 import { readChartScalars } from './chart-owner-values.js';
 
-export const FEED_STATES = ['live', 'delayed', 'stale', 'no_ticks', 'threshold_not_set'] as const;
+const FEED_STATES = ['live', 'delayed', 'stale', 'no_ticks', 'threshold_not_set'] as const;
 export type FeedState = (typeof FEED_STATES)[number];
 
 /** The gap window a caller may ask for, in minutes. The page shows its own value in the field; this is a schema bound. */
 export const FEED_GAP_WINDOW_MAX_MINUTES = 1_440;
 /** Most gap runs and journal rows one read returns, newest first. A bound on the answer, not a business value. */
-export const FEED_LIST_MAX = 200;
+const FEED_LIST_MAX = 200;
 const MAX_MARKETS = 500;
 const BUCKET_MS = 60_000;
 
@@ -40,7 +40,7 @@ const BUCKET_MS = 60_000;
  */
 export const FEED_WATCH_INTERVAL_MS = 5_000;
 
-export const FEED_SYMBOL_UNKNOWN = 'trade.feed.symbol_unknown' as const;
+const FEED_SYMBOL_UNKNOWN = 'trade.feed.symbol_unknown' as const;
 
 export interface FeedRow {
   readonly symbol: string;

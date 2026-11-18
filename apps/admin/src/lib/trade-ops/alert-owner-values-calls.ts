@@ -18,7 +18,7 @@ export interface AlertOwnerValueWrite {
 }
 
 /** The business key of one write: the same change sent twice is written once. */
-export function alertOwnerClientRequestId(input: AlertOwnerValueWrite): string {
+function alertOwnerClientRequestId(input: AlertOwnerValueWrite): string {
   const digest = createHash('sha256')
     .update(JSON.stringify([input.key, input.plan, input.value, input.expectedVersion, input.reason]))
     .digest('hex');

@@ -24,7 +24,7 @@ export interface AlertSweepFailure {
   readonly message: string;
 }
 
-export const DELIVERY_STATUSES = ['pending', 'accepted', 'refused', 'failed', 'abandoned'] as const;
+const DELIVERY_STATUSES = ['pending', 'accepted', 'refused', 'failed', 'abandoned'] as const;
 export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
 
 export interface ChannelDeliveries {
