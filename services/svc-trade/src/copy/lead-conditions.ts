@@ -14,7 +14,7 @@ import type { LeaderDirectory } from './leader-directory.js';
 import type { LeadFollowing, LeadVenueRead } from './lead-applications.js';
 
 /** The asset a lead's venue balance is measured in. */
-export const LEAD_BALANCE_ASSET = 'USDC';
+const LEAD_BALANCE_ASSET = 'USDC';
 
 /** The first leader this person follows and has not left, by its listing; null when they follow no one. */
 export async function leadFollowing(

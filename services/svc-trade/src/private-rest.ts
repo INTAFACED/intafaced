@@ -1376,7 +1376,7 @@ function presentReplaceOutcome(outcome: ReplaceOrderOutcome, originalSymbol: str
  * The lead switch a listed lead's order carries (`lead: true` or `false`, J-copy-bots-otc-04): undefined when the body
  * has none, so every other order is untouched. Anything but a boolean reads as no switch.
  */
-export function readLeadSwitch(body: unknown): boolean | undefined {
+function readLeadSwitch(body: unknown): boolean | undefined {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return undefined;
   const lead = (body as Record<string, unknown>).lead;
   return typeof lead === 'boolean' ? lead : undefined;

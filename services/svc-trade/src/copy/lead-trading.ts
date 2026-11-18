@@ -132,7 +132,7 @@ export interface LeadCopierView {
   readonly since: string;
 }
 
-export const LEAD_TRADES_PAGE = 50;
+const LEAD_TRADES_PAGE = 50;
 const ONGOING = ['pending', 'open'] as const;
 
 const STATUS_TEXT: Record<string, LeadCopierView['status']> = {

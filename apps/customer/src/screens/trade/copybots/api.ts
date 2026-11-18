@@ -385,7 +385,7 @@ export const myLeadSchema = z
 export type MyLead = z.infer<typeof myLeadSchema>;
 
 /** The new-trader missions (CB-copy-12): each with what counts, as the service read it. */
-export const leadMissionsSchema = z.object({
+const leadMissionsSchema = z.object({
   missions: z.array(z.object({ id: z.enum(['apply', 'fund', 'listed']), done: z.boolean(), detail: z.string() })),
   done: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),
@@ -405,7 +405,7 @@ const leadTradeSchema = z.object({
 export type LeadTrade = z.infer<typeof leadTradeSchema>;
 
 /** The lead's own lead trades (CB-copy-15): the counts are the service's, never the page's rows. */
-export const leadTradesSchema = z.object({
+const leadTradesSchema = z.object({
   ongoing: z.array(leadTradeSchema),
   history: z.array(leadTradeSchema),
   counts: z.object({ ongoing: z.number().int().nonnegative(), history: z.number().int().nonnegative() }),
@@ -413,7 +413,7 @@ export const leadTradesSchema = z.object({
 export type LeadTrades = z.infer<typeof leadTradesSchema>;
 
 /** One copier of the lead: the follow's short id, its state and start. No follower's name, balance or profit. */
-export const leadCopiersSchema = z.array(
+const leadCopiersSchema = z.array(
   z.object({ followRef: z.string(), status: z.enum(['Active', 'Paused', 'Stopping', 'Close only', 'Stopped']), since: z.string() }),
 );
 export type LeadCopier = z.infer<typeof leadCopiersSchema>[number];

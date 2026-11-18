@@ -15,7 +15,7 @@ function testValue(name) {
  * with its hosts set; the profile leaves regional out, so by default those rows read "host not set".
  */
 /** The least venue balance to lead on a restart: `blank` leaves it blank, a decimal sets it, unset is the TEST value. */
-export function leadBalance(raw, testDefault) {
+function leadBalance(raw, testDefault) {
   if (raw === 'blank') return '';
   if (raw && /^\d+(\.\d+)?$/.test(raw)) return raw;
   return testDefault;
