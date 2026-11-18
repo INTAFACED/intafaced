@@ -386,6 +386,12 @@ export function listingStatusOf(market: Pick<Market, 'status' | 'delistsAt'>): L
   }
 }
 
+/** The end of a market's opening window as ISO, while it is still ahead of `nowMs`; null otherwise. */
+export function openingWindowEndsAtOf(market: Pick<Market, 'openingWindowEndsAt'>, nowMs: number): string | null {
+  const ends = market.openingWindowEndsAt;
+  return ends instanceof Date && !Number.isNaN(ends.getTime()) && ends.getTime() > nowMs ? ends.toISOString() : null;
+}
+
 /** Listing status vs kill-switch. Paper options are orderable; live options are not. */
 export function orderableForListedMarket(market: Market, futuresOrderable: boolean, nowMs: number = Date.now()): boolean {
   if (market.status !== 'active') return false;
@@ -484,6 +490,11 @@ export function presentCcxtMarket(
     listing: listingStatusOf(market),
     /** The date a delisting market leaves the board, or null when none is set. */
     delistsAt: market.status === 'delisted' && market.delistsAt instanceof Date ? market.delistsAt.toISOString() : (null as string | null),
+    /**
+     * When a new listing's opening window ends (J-cex-spot-14 #7): until then only limit orders are taken, and a market
+     * or stop order refuses `trade.opening_window`. Null when the market has no window or its window has ended.
+     */
+    openingWindowEndsAt: openingWindowEndsAtOf(market, nowMs),
     /**
      * TRUE = the order path will accept a new order/open here (subject to
      * session, paper, risk). FALSE = listed but refused — futures kill-switch
@@ -1236,6 +1247,7 @@ export function fakeMarket(partial: {
   schedule?: Market['schedule'];
   assetClass?: Market['assetClass'];
   delistsAt?: Date | null;
+  openingWindowEndsAt?: Date | null;
 }): Market {
   return {
     id: partial.id ?? '00000000-0000-4000-8000-000000000001',
@@ -1256,6 +1268,7 @@ export function fakeMarket(partial: {
     schedule: partial.schedule ?? 'crypto-24x7',
     paper: partial.paper ?? false,
     ...(partial.delistsAt !== undefined ? { delistsAt: partial.delistsAt } : {}),
+    ...(partial.openingWindowEndsAt !== undefined ? { openingWindowEndsAt: partial.openingWindowEndsAt } : {}),
   };
 }
 

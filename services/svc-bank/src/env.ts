@@ -19,7 +19,7 @@ import { DD_SCHEME_SETTINGS } from './direct-debits/scheme.js';
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
 // Every procedure here resolves `ctx.principal.userId` into somebody's spaces
 // and transfers; an unsigned principal header would let a caller name any of
-// them (docs/decisions/mount-boundary.md).
+// them.
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)

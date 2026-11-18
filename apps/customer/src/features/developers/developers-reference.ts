@@ -993,7 +993,8 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     path: '/api/v1/venue/orders/by-client-id',
     product: 'accounts',
     access: 'private',
-    summary: 'One venue order by its client order id: how an answer that was not definite is read back',
+    summary:
+      'One venue order by your own client id (clientOrderKey) or the venue client order id: its state, and how an answer that was not definite is read back',
   },
   {
     name: 'venueOrderHistory',
@@ -1042,6 +1043,30 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'Your leverage and margin mode on one venue perpetual, or none set',
+  },
+  {
+    name: 'venueLeverageChange',
+    method: 'GET',
+    path: '/api/v1/venue/leverage-change',
+    product: 'accounts',
+    access: 'private',
+    summary: "What a leverage change would do to your open position's margin, by the venue's own rule, before anything is signed",
+  },
+  {
+    name: 'venueIsolatedMargin',
+    method: 'GET',
+    path: '/api/v1/venue/isolated-margin',
+    product: 'accounts',
+    access: 'private',
+    summary: "Your open isolated position's margin on one venue perpetual and the venue's limit for removing it",
+  },
+  {
+    name: 'venueAccountSummary',
+    method: 'GET',
+    path: '/api/v1/venue/account-summary',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your equity, free collateral, used margin, maintenance and margin ratio as the venue reports them',
   },
   {
     name: 'venueMarketMargin',

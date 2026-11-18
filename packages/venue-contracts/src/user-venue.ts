@@ -335,6 +335,23 @@ export interface MarketMarginTransferIntent {
 }
 
 /**
+ * Add margin to, or remove margin from, the account's open isolated position on one perpetual (J-derivatives-06 #2 #3),
+ * one signed venue action (Hyperliquid: `updateIsolatedMargin`). `add` moves free collateral into the position's margin;
+ * `remove` moves it back, and the venue refuses a removal that would take the margin below its own limit for the
+ * position (`isolatedMargin().minimumMargin`), in words. Nothing leaves the venue and the ledger posts nothing. An agent
+ * may sign it (the auto top-up). Stored under its business key (`margin:<owner>:<symbol>:<draft>`).
+ */
+export interface UpdateIsolatedMarginIntent {
+  readonly kind: 'update_isolated_margin';
+  readonly symbol: string;
+  readonly direction: 'add' | 'remove';
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this change: a retry re-sends the same bytes, and the venue applies it once. */
+  readonly changeKey: string;
+}
+
+/**
  * Several orders the venue takes in one signed action, applied in the order given (Hyperliquid: one `order` action with
  * several `orders`, grouping `na`, read 2026-11-15): the wallet signs once, and each order keeps its own client order key,
  * so each is placed at most once and read back by its own client id. Offered only on a venue whose descriptor declares
@@ -365,7 +382,8 @@ export type VenueIntent =
   | RevokeAgentIntent
   | CreateSubAccountIntent
   | SubAccountTransferIntent
-  | MarketMarginTransferIntent;
+  | MarketMarginTransferIntent
+  | UpdateIsolatedMarginIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -630,6 +648,18 @@ export interface UserVenueBalance {
   readonly locked: Amount;
   /** As the venue reports it, not derived (see account.ts `VenueBalance.total`). */
   readonly total: Amount;
+  /**
+   * What holds the locked figure, as the venue itself splits it (J-portfolio-01 #4): resting orders, posted margin
+   * (collateral) and stake. The three add to `locked` exactly. Optional: a venue that does not split its lock leaves it
+   * out, and the split is shown as not reported, never guessed.
+   */
+  readonly lockedBy?: UserVenueLockSplit;
+}
+
+export interface UserVenueLockSplit {
+  readonly inOrders: Amount;
+  readonly margin: Amount;
+  readonly staked: Amount;
 }
 
 export interface UserVenueFill {
@@ -718,6 +748,63 @@ export interface UserVenuePosition {
   readonly leverageBps: number;
   /** `known: false` where the venue publishes none — never read as "far away". */
   readonly liquidationPrice: MaybeKnown<Amount>;
+  /**
+   * The margin the venue requires to keep this position open (J-derivatives-05 #2: the margin ratio is this over the
+   * position's margin and its unrealised result). Absent or `known: false` where the venue publishes none.
+   */
+  readonly maintenanceMargin?: MaybeKnown<Amount>;
+}
+
+/**
+ * One isolated position's margin as the venue holds it, and how far it may be lowered (J-derivatives-06 #3), read before
+ * anything is signed: `minimumMargin` is the venue's own limit for the position now, `removable` what a removal may
+ * take (margin less that limit, never below zero), and `free` what an addition may draw on.
+ */
+export interface UserVenueIsolatedMargin {
+  readonly symbol: string;
+  readonly side: 'long' | 'short';
+  readonly size: Amount;
+  readonly margin: Amount;
+  readonly minimumMargin: Amount;
+  readonly removable: Amount;
+  readonly free: Amount;
+  readonly asset: string;
+  readonly liquidationPrice: MaybeKnown<Amount>;
+  /** The venue's words for its removal limit, shown as written. */
+  readonly rule: string;
+}
+
+/**
+ * The account's margin as the venue reports it (J-derivatives-06 #1): equity (collateral and unrealised result), free
+ * collateral, the margin its positions use, their maintenance requirement, and the margin ratio (maintenance over equity,
+ * a fraction), each an exact decimal in the collateral asset. `marginRatio` is `known: false` where equity is not above
+ * zero.
+ */
+export interface UserVenueAccountSummary {
+  readonly asset: string;
+  readonly equity: Amount;
+  readonly free: Amount;
+  readonly usedMargin: Amount;
+  readonly maintenanceMargin: Amount;
+  readonly marginRatio: MaybeKnown<Amount>;
+}
+
+/**
+ * What a leverage change on one market would do to the account's open position there, by the venue's own margin rule,
+ * with nothing signed (J-derivatives-05 #4): the margin it holds now and after, and the difference, posted from free
+ * (positive) or released to free (negative). With no position open, every margin figure is zero.
+ */
+export interface UserVenueLeverageChange {
+  readonly symbol: string;
+  readonly leverageBps: number;
+  readonly marginMode: VenueMarginMode;
+  /** The venue's published cap on `symbol`, in basis points of 1x; `null` where it publishes none. */
+  readonly maxLeverageBps: number | null;
+  readonly positionSize: Amount;
+  readonly marginNow: Amount;
+  readonly marginAfter: Amount;
+  /** `marginAfter - marginNow`: positive is posted from free, negative released to free. */
+  readonly difference: Amount;
 }
 
 /**
@@ -1342,6 +1429,20 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * cancel time (`minLeadMs`). A venue that declares none offers no scheduled cancel, and the app says so.
    */
   readonly scheduledCancel?: { readonly minLeadMs: number };
+  /**
+   * The position modes this venue offers (J-derivatives-05 #3): `one_way` holds one net position per contract, `hedge` a
+   * long and a short side by side. A venue that declares none is read as one-way only (`positionModesOf`): a mode nobody
+   * declared is never offered.
+   */
+  readonly positionModes?: readonly VenuePositionMode[];
+}
+
+/** How a venue holds positions on one contract: one net position, or a long and a short side by side. */
+export type VenuePositionMode = 'one_way' | 'hedge';
+
+/** The position modes `venue` offers: what it declares, or one-way only when it declares none. */
+export function positionModesOf(venue: UserVenueDescriptor): readonly VenuePositionMode[] {
+  return venue.positionModes && venue.positionModes.length > 0 ? venue.positionModes : ['one_way'];
 }
 
 /** The venue's scheduled cancel as it records it for one account: when it cancels, and what it last did. */
@@ -1535,6 +1636,26 @@ export interface UserVenue {
    * that is not definite is read back by.
    */
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>>;
+
+  /**
+   * What `update_leverage` to `leverageBps` in `marginMode` would do to the open position on `symbol` (J-derivatives-05 #4),
+   * read before anything is signed. Refuses what `prepare` refuses on its face (above the cap, a mode not offered).
+   * Optional: a venue that reads none leaves it out, and the app says the venue states no margin difference.
+   */
+  leverageChange?(
+    account: UserVenueAccount,
+    symbol: string,
+    leverageBps: number,
+    marginMode: VenueMarginMode,
+  ): Promise<AsOf<UserVenueLeverageChange>>;
+
+  /**
+   * The open isolated position's margin on `symbol` and the venue's limit for removing it (J-derivatives-06 #2 #3).
+   * Refuses `venue_rejected` with no isolated position open there. Optional: a venue that reads none leaves it out.
+   */
+  isolatedMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueIsolatedMargin>>;
+  /** The account's margin summary as the venue reports it (J-derivatives-06 #1). Optional: absent, not read. */
+  accountSummary?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>>;
 }
 
 /**
@@ -1638,6 +1759,19 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
     assertBusinessKey(venueId, intent.moveKey, 'move key');
   }
   if (intent.kind === 'create_sub_account') assertBusinessKey(venueId, intent.subAccountKey, 'sub-account key');
+  if (intent.kind === 'update_isolated_margin') {
+    if (intent.direction !== 'add' && intent.direction !== 'remove') {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `margin direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a margin change must be positive' });
+    }
+    assertBusinessKey(venueId, intent.changeKey, 'change key');
+  }
 }
 
 /**

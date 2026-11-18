@@ -219,7 +219,7 @@ registerProcessHooks(
 /**
  * svc-identity — one account, one verification, one rank (§4.1).
  *
- * Graph W1-C: mount tRPC; verify edge-signed principal (mount-boundary #48).
+ * Graph W1-C: mount tRPC; verify edge-signed principal.
  * Blueprint cascade: subscribe to blueprintCreated/Deleted so profiles.blueprint_id
  * tracks svc-blueprint without writing across service tables (§2 / §7.2).
  * XP: subscribe to xpEarned, so awards published by svc-p2p and svc-trade reach

@@ -12,6 +12,7 @@ import { BotsRoom } from '../../screens/trade/copybots/BotsRoom';
 import { CopyRoom } from '../../screens/trade/copybots/CopyRoom';
 import { CalendarRoom, NewsRoom } from './news/NewsRooms';
 import { RiskControl } from './risk/RiskControl';
+import { PositionsRoom } from './positions/PositionsRoom';
 import { OrderDetailRoom } from './orders/OrderDetailRoom';
 import { OrderHistoryRoom } from './orders/OrderHistoryRoom';
 import { LeadApplyRoom } from './lead-apply/LeadApplyRoom';
@@ -55,6 +56,7 @@ export function TradeRoutes({ path }: { path: string }) {
   if (pathname === '/trade/news') return <NewsRoom />;
   if (pathname === '/trade/calendar') return <CalendarRoom />;
   if (pathname === '/trade/risk') return <RiskControl />;
+  if (pathname === '/trade/positions') return <PositionsRoom path={path} />;
   if (pathname === '/trade/screener') return <ScreenerRoom />;
   if (pathname === '/copy/lead/apply') return <LeadApplyRoom />;
   const analytics = /^\/trade\/analytics\/([^/]+)$/.exec(pathname);

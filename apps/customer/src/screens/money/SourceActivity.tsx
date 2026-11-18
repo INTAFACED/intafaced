@@ -14,7 +14,16 @@ import { usePreferences } from '../../shared/preferences';
 import { Amount, Button, fmtAmount, StateBlock, useActivity } from './deps';
 import { stamp } from './time';
 import type { ActivityFilters } from './activity-filter';
-import { keepLine, oneList, partnerLines, unanswerable, venueLines, walletLines, type SourceLine } from './activity-sources';
+import {
+  keepLine,
+  oneList,
+  partnerLines,
+  unanswerable,
+  venueLines,
+  walletLines,
+  type SourceKind,
+  type SourceLine,
+} from './activity-sources';
 import { sourcesCopy } from './activity-sources-copy';
 
 type T = ReturnType<typeof sourcesCopy.useCopy>['t'];
@@ -44,16 +53,19 @@ export function SourceActivity({
   filters,
   asset,
   hidden,
+  source = null,
 }: {
   status: VenueUp;
   filters: ActivityFilters;
   asset: string | null;
   hidden: boolean;
+  /** One source's lines only (J-portfolio-01 #6: the records behind one figure), or every source's. */
+  source?: SourceKind | null;
 }) {
   const chainId = status.chainId ?? APP_CHAIN_ID;
   return (
     <WalletProvider chainId={chainId} scope="activity">
-      <Sources status={status} chainId={chainId} filters={filters} asset={asset} hidden={hidden} />
+      <Sources status={status} chainId={chainId} filters={filters} asset={asset} hidden={hidden} source={source} />
     </WalletProvider>
   );
 }
@@ -72,12 +84,14 @@ function Sources({
   filters,
   asset,
   hidden,
+  source,
 }: {
   status: VenueUp;
   chainId: number;
   filters: ActivityFilters;
   asset: string | null;
   hidden: boolean;
+  source: SourceKind | null;
 }) {
   const { t } = sourcesCopy.useCopy();
   const { timeZone } = usePreferences();
@@ -138,31 +152,39 @@ function Sources({
           : { state: 'off' };
 
   const blocked = unanswerable(filters);
+  const parts = { wallet: walletPart, venue: venuePart, partner: partnerPart } as const;
+  const asked = source ? [parts[source]] : [walletPart, venuePart, partnerPart];
   const all = oneList(
-    [walletPart, venuePart, partnerPart].flatMap((part) => (part.state === 'read' ? part.lines : [])),
+    asked.flatMap((part) => (part.state === 'read' ? part.lines : [])),
     filters.sort,
   );
   const shown = all.filter((line) => keepLine(line, filters, timeZone, asset, titleOf(line, t)));
   const narrowed = asset !== null || filters.q.trim() !== '' || filters.dir !== 'all' || filters.from !== '' || filters.to !== '';
-  const anyReading = [walletPart, venuePart, partnerPart].some((part) => part.state === 'reading');
+  const anyReading = asked.some((part) => part.state === 'reading');
 
   return (
     <div data-testid="activity-by-source" data-user={userId ?? ''} className="form-stack">
       <p className="money-caption">{t('Lede')}</p>
       <WalletBar />
       <div className="money-sources">
-        <SourceNote
-          kind="wallet"
-          part={walletPart}
-          words={{ reading: t('Wallet reading'), unread: t('Wallet unread'), off: t('Wallet not connected') }}
-        />
-        <SourceNote
-          kind="venue"
-          part={venuePart}
-          test={status.test}
-          words={{ reading: t('Venue reading'), unread: t('Venue unread', { name: venueName }), off: null }}
-        />
-        <SourceNote kind="partner" part={partnerPart} words={{ reading: t('Partner reading'), unread: t('Partner unread'), off: null }} />
+        {!source || source === 'wallet' ? (
+          <SourceNote
+            kind="wallet"
+            part={walletPart}
+            words={{ reading: t('Wallet reading'), unread: t('Wallet unread'), off: t('Wallet not connected') }}
+          />
+        ) : null}
+        {!source || source === 'venue' ? (
+          <SourceNote
+            kind="venue"
+            part={venuePart}
+            test={status.test}
+            words={{ reading: t('Venue reading'), unread: t('Venue unread', { name: venueName }), off: null }}
+          />
+        ) : null}
+        {!source || source === 'partner' ? (
+          <SourceNote kind="partner" part={partnerPart} words={{ reading: t('Partner reading'), unread: t('Partner unread'), off: null }} />
+        ) : null}
       </div>
       {blocked.length > 0 ? (
         <StateBlock

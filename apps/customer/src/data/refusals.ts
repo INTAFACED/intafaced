@@ -107,6 +107,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Market orders are paused here',
     body: 'This market is taking limit orders only right now. Place a limit order instead. Nothing was held.',
   },
+  openingWindow: {
+    title: 'This market is in its opening window',
+    body: 'A newly listed market takes limit orders only until its opening window ends. Place a limit order instead. Nothing was held.',
+  },
   optionUnsupported: { title: "That option isn't offered", body: "This order option isn't offered on spot orders. Nothing was held." },
   requestExpired: {
     title: 'That request expired',

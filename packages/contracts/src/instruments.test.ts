@@ -400,3 +400,19 @@ describe('instrument money fields refuse JS numbers', () => {
     expect(instrumentSchema.safeParse(base).success).toBe(true);
   });
 });
+
+// J-cex-spot-14 #6: the TEST session schedule is shut but for one minute a week, and always names its next opening.
+describe('TEST_SUNDAY_MINUTE', () => {
+  const schedule = TRADING_SCHEDULES['test-sunday-minute'];
+  it('is open only Sunday 00:00 to 00:01 UTC', () => {
+    expect(isScheduleOpen(schedule, new Date('2026-11-22T00:00:30.000Z'))).toBe(true); // a Sunday
+    expect(isScheduleOpen(schedule, new Date('2026-11-22T00:01:00.000Z'))).toBe(false);
+    expect(isScheduleOpen(schedule, new Date('2026-11-21T23:59:59.000Z'))).toBe(false);
+    expect(isScheduleOpen(schedule, new Date('2026-11-18T12:00:00.000Z'))).toBe(false); // a Wednesday
+  });
+  it('names the next Sunday 00:00 UTC as its opening', () => {
+    const next = nextScheduleTransition(schedule, new Date('2026-11-18T12:00:00.000Z'));
+    expect(next?.open).toBe(true);
+    expect(next?.at.toISOString().slice(0, 16)).toBe('2026-11-22T00:00');
+  });
+});
