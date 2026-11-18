@@ -205,8 +205,8 @@ test(`${J} #1 reads the stream endpoints and the protocol choice guide: public, 
 }) => {
   test.setTimeout(240_000);
   await page.goto('/developers/websocket');
-  await expect(page.getByRole('heading', { name: 'WebSocket streams', level: 1 })).toBeVisible(UNBUILT);
-  const endpoints = page.getByRole('table', { name: 'Stream endpoints' });
+  await expect(page.getByRole('heading', { name: 'WebSocket streams', level: 1, exact: true })).toBeVisible(UNBUILT);
+  const endpoints = page.getByRole('table', { name: 'Stream endpoints', exact: true });
   const row = (name) => endpoints.locator(`tbody tr[data-endpoint="${name}"]`);
   const hosts = (name) => row(name).getByRole('listitem');
 
@@ -226,7 +226,7 @@ test(`${J} #1 reads the stream endpoints and the protocol choice guide: public, 
   }
 
   // Each row of the protocol choice guide names the module that owns it.
-  const guide = page.getByRole('table', { name: 'Choosing a protocol' }).locator('tbody tr');
+  const guide = page.getByRole('table', { name: 'Choosing a protocol', exact: true }).locator('tbody tr');
   expect(await guide.count()).toBeGreaterThan(0);
   for (const guideRow of await guide.all()) {
     const owner = guideRow.locator('[data-module]');
