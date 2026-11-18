@@ -436,8 +436,11 @@ test(`${J} #3 connects a TEST wallet holding TEST USDC and deposits TEST 100 USD
   await continueInWallet(page);
   await expect.poll(() => wallet.sends.length, { timeout: 30_000 }).toBe(sent + 1);
   expect(wallet.requests.length, 'nothing else is signed for the deposit').toBe(signed);
+  // The wallet keeps the send as it is asked, and its hash once the node has taken it.
+  await expect
+    .poll(() => wallet.sends.at(-1).hash ?? null, { message: 'the wallet sent the deposit as a chain transfer', timeout: 30_000 })
+    .toMatch(/^0x[0-9a-f]{64}$/);
   const hash = wallet.sends.at(-1).hash;
-  expect(hash, 'the wallet sent the deposit as a chain transfer').toMatch(/^0x[0-9a-f]{64}$/);
   await paidFee(hash);
   expect(await chainBalance(TOKEN_USD.address, owner), 'the wallet moved exactly the deposit').toBe(
     walletBefore - toUnits(DEPOSIT) / 10n ** 12n,
