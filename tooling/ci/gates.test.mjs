@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { GATES, NOT_GATES, gatesToRun, changedSinceMain, gatesBeforePush, LEFT_TO_CI_BEFORE_PUSH } from './gates.mjs';
+import { GATES, NOT_GATES, gateAnnotation, gatesToRun, changedSinceMain, gatesBeforePush, LEFT_TO_CI_BEFORE_PUSH } from './gates.mjs';
 
 const ids = (gates) => gates.map((g) => g.id);
 const allButTooling = ids(GATES).filter((id) => id !== 'tooling-tests');
@@ -131,8 +131,11 @@ function stubRoot(stub) {
     mkdirSync(dirname(join(dir, gate.script)), { recursive: true });
     writeFileSync(join(dir, gate.script), stub(gate.id));
   }
-  const run = (...args) => spawnSync(process.execPath, ['tooling/ci/gates.mjs', ...args], { cwd: dir, encoding: 'utf8' });
-  return { run, done: () => rmSync(dir, { recursive: true, force: true }) };
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'GITHUB_ACTIONS'));
+  const run = (...args) => spawnSync(process.execPath, ['tooling/ci/gates.mjs', ...args], { cwd: dir, encoding: 'utf8', env });
+  const onActions = (...args) =>
+    spawnSync(process.execPath, ['tooling/ci/gates.mjs', ...args], { cwd: dir, encoding: 'utf8', env: { ...env, GITHUB_ACTIONS: 'true' } });
+  return { run, onActions, done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 test('--before-push refuses on a red gate with its own message, reports in the list order, and never runs a gate left to CI', () => {
@@ -164,4 +167,25 @@ test('--before-push refuses on a red gate with its own message, reports in the l
   } finally {
     r.done();
   }
+});
+
+// J-cex-spot-10's red Doctrine gates run (17 Nov) carried no annotation of its own, only the exit code and a runner
+// notice, so a reader of annotations could say "a gate" and never which: each red gate now annotates by its id.
+test('on GitHub Actions each red gate is an error annotation titled by its id; a green gate and a laptop run make none', () => {
+  const r = stubRoot((id) => (id === 'lint-ratchet' ? "console.error('rose');\nprocess.exitCode = 1;\n" : "console.log('clean');\n"));
+  try {
+    const ci = r.onActions();
+    assert.equal(ci.status, 1, `${ci.stdout}${ci.stderr}`);
+    const lines = ci.stdout.split('\n').filter((l) => l.startsWith('::error'));
+    const ratchet = GATES.find((g) => g.id === 'lint-ratchet');
+    assert.deepEqual(lines, [`::error title=lint-ratchet::Doctrine gate lint-ratchet failed: ${ratchet.doctrine}`]);
+    assert.equal(lines[0], gateAnnotation(ratchet));
+    assert.doesNotMatch(r.run().stdout, /::error/);
+  } finally {
+    r.done();
+  }
+});
+
+test("a gate annotation escapes what would end GitHub's title or message early", () => {
+  assert.equal(gateAnnotation({ id: 'a:b,c', doctrine: '100% \n x' }), '::error title=a%3Ab%2Cc::Doctrine gate a:b,c failed: 100%25 %0A x');
 });

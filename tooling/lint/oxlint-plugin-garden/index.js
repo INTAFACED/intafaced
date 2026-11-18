@@ -13,6 +13,7 @@ import { madeUpPrincipalRules } from './made-up-principal-rule.js';
 import { exactLocatorRules } from './exact-locator-rule.js';
 import { retryActionRules } from './retry-action-rule.js';
 import { signInRetryRules } from './sign-in-retry-rule.js';
+import { signInInStepRules } from './sign-in-in-step-rule.js';
 import { historyCommentRules } from './history-comment-rule.js';
 import { journeyCopyRules } from './journey-copy-rule.js';
 import { repeatRules } from './repeat-rules.js';
@@ -206,6 +207,7 @@ export default {
     ...exactLocatorRules,
     ...retryActionRules,
     ...signInRetryRules,
+    ...signInInStepRules,
     ...historyCommentRules,
     ...journeyCopyRules,
     ...repeatRules,
