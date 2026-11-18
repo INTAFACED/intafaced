@@ -479,3 +479,7 @@ extended.afterAll = (...args) => {
 };
 
 export const test = extended;
+
+// DIAG ps-3158: throwaway branch, never merged
+import { patchExact } from './exact-diag.mjs';
+extended.beforeEach(async ({ page }) => patchExact(page));
