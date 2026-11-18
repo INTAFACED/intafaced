@@ -11,9 +11,7 @@ import {
   type Context,
 } from '@intafaced/contracts';
 import { loanServicingPreviewProcedures } from './loan-servicing-preview.js';
-import { createBankRouter } from '../router.js';
-
-type BankServices = Parameters<typeof createBankRouter>[0];
+import { untouchedBankRouter } from '../router/untouched-bank.js';
 
 const authConfig = {
   secret: 'a-bank-loan-servicing-preview-test-secret-xx',
@@ -31,13 +29,6 @@ async function ctx(scopes: string[]): Promise<Context> {
   );
   return { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: 'req-loan-preview' };
 }
-
-/** A BankServices whose every touch throws: proves the preview doors read and write nothing. */
-const untouchable = new Proxy({} as BankServices, {
-  get() {
-    throw new Error('the preview door touched bank services');
-  },
-});
 
 async function caller(scopes = ['bank:read', 'bank:write'], policy: Parameters<typeof loanServicingPreviewProcedures>[0] = null) {
   return router(loanServicingPreviewProcedures(policy)).createCaller(await ctx(scopes));
@@ -92,7 +83,7 @@ describe('loan servicing previews (BK-loan-09)', () => {
   });
 
   it('is mounted under loans and touches no bank service', async () => {
-    const bankRouter = createBankRouter(untouchable);
+    const bankRouter = untouchedBankRouter('the preview door');
     const c = bankRouter.createCaller(await ctx(['bank:read', 'bank:write'])) as {
       loans: { repayFromExternalBank(i: { loanId: string }): Promise<unknown>; missedPaymentPolicy(): Promise<unknown> };
     };
@@ -134,9 +125,8 @@ describe('loan servicing previews (BK-loan-09)', () => {
   });
 
   it('runs all four procedures against the throwing services proxy', async () => {
-    const c = createBankRouter(untouchable).createCaller(await ctx(['bank:read', 'bank:write'])) as unknown as {
+    const c = untouchedBankRouter('the preview door').createCaller(await ctx(['bank:read', 'bank:write'])) as {
       loans: {
-        originationFeeBps: '0';
         changeRepaymentDate(i: { loanId: string; date: string }): Promise<unknown>;
         payExtra(i: { loanId: string; amount: string }): Promise<unknown>;
         repayFromExternalBank(i: { loanId: string }): Promise<unknown>;
@@ -163,7 +153,7 @@ describe('loan servicing previews (BK-loan-09)', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ loanId: LOAN, amount: '10.5' }),
       }),
-      router: createBankRouter(untouchable),
+      router: untouchedBankRouter('the preview door'),
       createContext: () => ctx(['bank:read', 'bank:write']),
     });
     expect(res.status).toBe(412);
