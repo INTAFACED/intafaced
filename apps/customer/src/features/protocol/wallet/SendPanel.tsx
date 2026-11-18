@@ -78,13 +78,8 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   const [ticked, setTicked] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
   const asked = useRef(0);
-  const mounted = useRef(true);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
+  /** The send whose fee is being read; another send or an edit of the form ends that read. */
+  const feeFor = useRef<string | null>(null);
 
   /** Reads the sent transfer's receipt from the chain through the wallet, and shows the fee it paid or "not known". */
   const readFee = async (hash: string) => {
@@ -92,9 +87,9 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
       (h) => wallet.read('eth_getTransactionReceipt', [h]),
       hash,
       FEE_WAIT_MS,
-      () => !mounted.current,
+      () => feeFor.current !== hash,
     );
-    if (!mounted.current) return;
+    if (feeFor.current !== hash) return;
     let fee: SentFee = { kind: 'unknown' };
     if (mined.status !== 'timeout') {
       const units = receiptFee(await wallet.read('eth_getTransactionReceipt', [hash]).catch(() => null));
@@ -119,6 +114,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
     set(event.target.value);
     setReviewing(false);
     setProblem(null);
+    feeFor.current = null;
     setOutcome({ kind: 'idle' });
   };
 
@@ -166,6 +162,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
         label: `${amount.trim()} ${chosen?.label ?? ''} → ${destination.address}`,
       });
       setOutcome({ kind: 'sent', hash: result.hash, fee: { kind: 'waiting' } });
+      feeFor.current = result.hash;
       void readFee(result.hash);
     } else if (result.status === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
     else if (result.status === 'failed') setOutcome({ kind: 'refused', message: result.message });
