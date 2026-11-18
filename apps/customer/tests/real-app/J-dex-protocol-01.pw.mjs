@@ -42,7 +42,7 @@ test(`${J} #1 /dex signed out shows the Web3 shell, the testnet chip, the Not IN
   await expect(networkChip(page)).toHaveText('Base Sepolia test network · Testnet only');
   await expect(page.locator('[data-chip="label"]')).toHaveText('Not INTACHAIN · not audited');
   await expect(walletChip(page)).toHaveText('No wallet connected');
-  await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Log in', exact: true })).toBeVisible();
   const nav = page.locator('header nav[data-testid="tb-nav"] a');
   await expect(nav).toHaveText(['Swap', 'Pools', 'Positions', 'Wallet', 'Explorer', 'Protocol']);
   await expect(page.locator('main h1')).toHaveText('DEX');
@@ -61,10 +61,10 @@ test(`${J} #2 a block with no data keeps its layout and names the indexer; a mal
   await expect(page.locator('main')).toContainText('This block could not be read: indexer.chain_unreachable');
   // The full layout: the block's details panel with its retry, and its transactions table with every header and the
   // sentence saying when its rows come.
-  await expect(page.getByRole('heading', { name: 'Block details' })).toBeVisible();
-  const details = page.locator('main section', { has: page.getByRole('heading', { name: 'Block details' }) });
-  await expect(details.getByRole('button', { name: 'Try again' })).toBeVisible();
-  const txs = page.getByRole('region', { name: 'Transactions in this block' }).getByRole('table');
+  await expect(page.getByRole('heading', { name: 'Block details', exact: true })).toBeVisible();
+  const details = page.locator('main section', { has: page.getByRole('heading', { name: 'Block details', exact: true }) });
+  await expect(details.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
+  const txs = page.getByRole('region', { name: 'Transactions in this block', exact: true }).getByRole('table');
   await expect(txs.getByRole('columnheader')).toHaveText(['Hash', 'From', 'To', 'Status']);
   await expect(txs).toContainText('Its transactions are listed once the block can be read.');
 
@@ -80,7 +80,7 @@ test(`${J} #2 a block with no data keeps its layout and names the indexer; a mal
   const unclaimed = page.locator('main [data-code="protocol.not_found"]');
   await expect(unclaimed).toHaveText(/(^|\W)There is no page at this address on this network\.$/);
   await expect(page.locator('main h1')).toHaveText('Not found on this network');
-  await expect(page.locator('main').getByRole('button', { name: 'Back to DEX' })).toBeVisible();
+  await expect(page.locator('main').getByRole('button', { name: 'Back to DEX', exact: true })).toBeVisible();
 });
 
 test(`${J} #3 Swap while the node is unreachable lists its blockers in order, chain unreachable first as a crypto network notice`, async ({
@@ -88,7 +88,7 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
 }) => {
   await page.goto('/dex');
   const swap = page.locator('main [data-action="swap"]');
-  const button = swap.getByRole('button', { name: 'Swap' });
+  const button = swap.getByRole('button', { name: 'Swap', exact: true });
   await expect(button).toBeDisabled();
   // The disabled Swap names its first blocker: its title is the chain-unreachable sentence, and the one notice beside it
   // (drawn only for the first blocker) is the crypto network notice.
@@ -127,9 +127,9 @@ test(`${J} #4 Connect wallet lists the browser wallet by its own name; connectin
     announce();
   });
   await page.goto('/wallet');
-  await expect(page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Connect TEST Other Wallet' })).toBeVisible();
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await expect(page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connect TEST Other Wallet', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
   await expect(page.locator('[data-wallet-address]')).toHaveText(wallet.address);
   await expect(page.locator('[data-wallet-network="ok"]')).toHaveText('Base Sepolia test network. Testnet only.');
   await expect(walletChip(page)).toHaveText(`${TEST_WALLET.name} · ${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`);
@@ -142,7 +142,7 @@ test(`${J} #5 a wallet switched to Ethereum mainnet reads "Wrong network" with a
   const wallet = await installTestWallet(page, { chainId: 84532 });
   const short = `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`;
   await page.goto('/wallet');
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
   await expect(walletChip(page)).toHaveText(`${TEST_WALLET.name} · ${short}`);
 
   await wallet.setChain(1);
@@ -150,10 +150,10 @@ test(`${J} #5 a wallet switched to Ethereum mainnet reads "Wrong network" with a
   await expect(page.locator('[data-wallet-network="chain_mismatch"]')).toHaveText(
     'This wallet is on another network. Switch it to Base Sepolia test network to continue.',
   );
-  await page.getByRole('button', { name: 'Switch network' }).click();
+  await page.getByRole('button', { name: 'Switch network', exact: true }).click();
   await expect(walletChip(page)).toHaveText(`${TEST_WALLET.name} · ${short}`);
   await expect(page.locator('[data-wallet-network="ok"]')).toHaveText('Base Sepolia test network. Testnet only.');
-  await expect(page.getByRole('button', { name: 'Switch network' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Switch network', exact: true })).toHaveCount(0);
   await expect(networkChip(page)).toHaveText('Base Sepolia test network · Testnet only');
 });
 
@@ -197,7 +197,7 @@ test(`${J} #6 the network card shows the name and chain id, "RPC: Not published"
   await expect(fact(page, 'Chain id')).toHaveText('84532');
   await expect(fact(page, 'RPC address')).toHaveText('Not published');
   // A wallet is installed, so the only thing keeping the button off is the unpublished network entry.
-  await expect(card.getByRole('button', { name: 'Add to wallet' })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Add to wallet', exact: true })).toBeDisabled();
   await expect(card).toContainText(
     'Blocked: the owner has not published this network name, RPC address and currency (protocol.network_params_unset)',
   );
@@ -210,7 +210,7 @@ test(`${J} #6 the network card shows the name and chain id, "RPC: Not published"
     await expect(fact(page, 'Chain id')).toHaveText('84532');
     await expect(fact(page, 'RPC address')).toHaveText(PUBLISHED.rpcUrls[0]);
     await expect(fact(page, 'Native currency (decimals)')).toHaveText('ETH (18)');
-    const add = card.getByRole('button', { name: 'Add to wallet' });
+    const add = card.getByRole('button', { name: 'Add to wallet', exact: true });
     await expect(add).toBeEnabled();
     await expect(card).not.toContainText('protocol.network_params_unset');
     await add.click();
@@ -225,20 +225,20 @@ test(`${J} #7 faucets for the test network and the supported chains and routers 
   test.setTimeout(300_000);
   // While the owner has published no faucet, the list says so instead of inventing one.
   await page.goto('/chain');
-  await expect(page.getByRole('heading', { name: 'Faucets' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Faucets', exact: true })).toBeVisible();
   await expect(page.locator('main [data-list="faucets"]')).toHaveText('None listed.');
 
   await withPublishedNetworks(async () => {
     await page.goto('/chain');
-    await expect(page.getByRole('heading', { name: 'Faucets' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Faucets', exact: true })).toBeVisible();
     await expect(page.locator('main')).toContainText('Third-party faucets only. This platform holds no key to send test funds.');
     // The test network's published faucet, as a link to its own address.
-    const faucet = page.locator('main').getByRole('link', { name: FAUCET.name });
+    const faucet = page.locator('main').getByRole('link', { name: FAUCET.name, exact: true });
     await expect(faucet).toHaveAttribute('href', FAUCET.url);
     await expect(page.locator('main [data-list="faucets"]')).toHaveCount(0);
 
     await page.goto('/dex/venue');
-    const table = page.getByRole('region', { name: 'Supported networks' }).getByRole('table');
+    const table = page.getByRole('region', { name: 'Supported networks', exact: true }).getByRole('table');
     const row = (chain) => table.locator('tr').filter({ hasText: chain });
     // Each supported chain, and the router recorded for it with its version.
     const base = row('Base Sepolia test network (84532)');
@@ -273,10 +273,10 @@ async function acceptRepresentation(page) {
   const panel = page.locator('[data-panel="representation"]');
   await expect(panel).toHaveAttribute('data-version', 'TEST-1');
   await panel.getByLabel('I have read this and it is true for me.').check();
-  await panel.getByRole('button', { name: 'Accept and sign' }).click();
+  await panel.getByRole('button', { name: 'Accept and sign', exact: true }).click();
   const sheet = page.locator('[data-sheet="sign"]');
   await expect(sheet).toContainText('TEST representation');
-  await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+  await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
 }
 
 /** What svc-protocol reports for this wallet's representation, through Edge. */
@@ -322,7 +322,7 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
     await regionPage.getByRole('button', { name: 'Approvals', exact: true }).click();
     await expect(regionPage.locator('main')).toContainText('no signing action is offered');
     await expect(regionPage.locator('[data-form="permit"]')).toHaveCount(0);
-    await expect(regionPage.getByRole('button', { name: 'Review and sign' })).toHaveCount(0);
+    await expect(regionPage.getByRole('button', { name: 'Review and sign', exact: true })).toHaveCount(0);
     await expect(regionPage.locator('[data-panel="representation"]')).toHaveCount(0);
     expect(blocked.requests).toHaveLength(0);
   } finally {
@@ -334,17 +334,17 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
   // The allowed-region run.
   const wallet = await installTestWallet(page, { chainId: 84532, tokens: [TEST_TOKEN] });
   await page.goto('/wallet');
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
   await expect(page.locator('[data-wallet-address]')).toHaveText(wallet.address);
   await page.getByRole('button', { name: 'Approvals', exact: true }).click();
   const form = page.locator('[data-form="permit"]');
   await fillPermit(form);
-  await form.getByRole('button', { name: 'Review and sign' }).click();
+  await form.getByRole('button', { name: 'Review and sign', exact: true }).click();
 
   // No sheet and no wallet prompt for the action until the representation is accepted.
   const panel = page.locator('[data-panel="representation"]');
   await expect(panel.locator('[data-representation-text]')).toContainText('TEST representation');
-  await expect(panel.getByRole('button', { name: 'Accept and sign' })).toBeDisabled();
+  await expect(panel.getByRole('button', { name: 'Accept and sign', exact: true })).toBeDisabled();
   expect(wallet.requests).toHaveLength(0);
   const before = Date.now();
   await acceptRepresentation(page);
@@ -353,25 +353,25 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
   const status = await representationStatus(page, wallet.address);
   expect(status).toMatchObject({ version: 'TEST-1', accepted: true });
   expect(Date.parse(status.acceptedAt)).toBeGreaterThanOrEqual(before - 5_000);
-  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Cancel', exact: true }).click();
 
   // Once per version: the next signing action from this wallet goes straight to its sheet.
-  await form.getByRole('button', { name: 'Review and sign' }).click();
+  await form.getByRole('button', { name: 'Review and sign', exact: true }).click();
   await expect(page.locator('[data-sheet="sign"] dt', { hasText: /^Token$/ })).toBeVisible();
   await expect(panel).toHaveCount(0);
   expect(wallet.requests.filter((r) => r.method === 'personal_sign')).toHaveLength(1);
-  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Cancel', exact: true }).click();
 
   // A new version asks again: the stack serves TEST-2, and the same wallet's next signing action needs it accepted first.
   restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION', 'TEST-2');
   try {
     expect(await representationStatus(page, wallet.address)).toMatchObject({ version: 'TEST-2', accepted: false });
-    await form.getByRole('button', { name: 'Review and sign' }).click();
+    await form.getByRole('button', { name: 'Review and sign', exact: true }).click();
     await expect(panel).toHaveAttribute('data-version', 'TEST-2');
     await expect(page.locator('[data-sheet="sign"]')).toHaveCount(0);
     await panel.getByLabel('I have read this and it is true for me.').check();
-    await panel.getByRole('button', { name: 'Accept and sign' }).click();
-    await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet' }).click();
+    await panel.getByRole('button', { name: 'Accept and sign', exact: true }).click();
+    await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Continue in wallet', exact: true }).click();
     await expect(page.locator('[data-sheet="sign"] dt', { hasText: /^Token$/ })).toBeVisible();
     expect(wallet.requests.filter((r) => r.method === 'personal_sign')).toHaveLength(2);
     const again = await representationStatus(page, wallet.address);
@@ -387,14 +387,14 @@ test(`${J} #9 a typed-data request shows token, amount, spender and expiry befor
 }) => {
   const wallet = await installTestWallet(page, { chainId: 84532, tokens: [TEST_TOKEN] });
   await page.goto('/wallet');
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
   await expect(page.locator('[data-wallet-address]')).toHaveText(wallet.address);
   await page.getByRole('button', { name: 'Approvals', exact: true }).click();
 
   const form = page.locator('[data-form="permit"]');
   await fillPermit(form);
   const before = Math.floor(Date.now() / 1000);
-  await form.getByRole('button', { name: 'Review and sign' }).click();
+  await form.getByRole('button', { name: 'Review and sign', exact: true }).click();
   await acceptRepresentation(page);
 
   // The sheet comes first: only the representation has reached the wallet so far.
@@ -410,7 +410,7 @@ test(`${J} #9 a typed-data request shows token, amount, spender and expiry befor
   expect(expiry).toBeLessThanOrEqual(before + 30 * 60 + 120);
 
   wallet.rejectNext();
-  await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+  await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
   await expect(page.locator('[data-permit-result="rejected"]')).toHaveText('Rejected. Nothing was signed. Your details are kept below.');
   expect(wallet.requests.map((r) => r.method)).toEqual(['personal_sign', 'eth_signTypedData_v4']);
   await expect(form.getByLabel('Token contract')).toHaveValue(TEST_TOKEN.address);
@@ -419,8 +419,8 @@ test(`${J} #9 a typed-data request shows token, amount, spender and expiry befor
   await expect(form.getByLabel('Expires in (minutes)')).toHaveValue('30');
 
   // The same form signs on the next try, and the signature stays on the page.
-  await form.getByRole('button', { name: 'Review and sign' }).click();
-  await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+  await form.getByRole('button', { name: 'Review and sign', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
   await expect(page.locator('[data-permit-signature]')).toHaveText(/^0x[0-9a-f]{130}$/);
   // Accepted once: the second signing action does not ask for the representation again.
   await expect(page.locator('[data-panel="representation"]')).toHaveCount(0);
