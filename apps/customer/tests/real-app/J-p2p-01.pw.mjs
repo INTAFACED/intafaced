@@ -1,7 +1,7 @@
 // World: restart, freeze, gates
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, fund, journeyState, restartWithSetting, tool, toUnits } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, restartService, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import {
@@ -220,7 +220,7 @@ test('J-p2p-01 #2 the ad board shows each ad’s price, limits, method and maker
   // Each row: its price, its limits, its method and its maker, exactly as the service lists the ad.
   const { handle } = await buyer.query('reputation.get', { userId: maker });
   expect(handle, 'the seller has no public handle for the board to name').toBeTruthy();
-  const exact = (row, where) => row.locator(`${where} [data-exact-amount]`);
+  const exact = (row, where) => row.getByTestId(where).locator('[data-exact-amount]');
   const shown = async (row, where, n = 0) => toUnits(await exact(row, where).nth(n).getAttribute('data-exact-amount'));
   for (const [id, price, min] of [
     [cheap, '0.90', '30'],
@@ -228,12 +228,12 @@ test('J-p2p-01 #2 the ad board shows each ad’s price, limits, method and maker
     [dear, '0.95', '10'],
   ]) {
     const row = page.locator(`li[data-offer-id="${id}"]`);
-    await expect(exact(row, '.p2p-offer-quantities')).not.toHaveCount(0);
-    expect(await shown(row, '.p2p-offer-price')).toBe(toUnits(price));
-    expect(await shown(row, '.p2p-offer-quantities', 0)).toBe(toUnits(min));
-    expect(await shown(row, '.p2p-offer-quantities', 1)).toBe(toUnits(AD.max));
-    await expect(row.locator('.p2p-offer-maker')).toContainText(METHOD);
-    await expect(row.locator('.p2p-offer-maker')).toContainText(`@${handle}`);
+    await expect(exact(row, 'p2p-offer-limits')).not.toHaveCount(0);
+    expect(await shown(row, 'p2p-offer-price')).toBe(toUnits(price));
+    expect(await shown(row, 'p2p-offer-limits', 0)).toBe(toUnits(min));
+    expect(await shown(row, 'p2p-offer-limits', 1)).toBe(toUnits(AD.max));
+    await expect(row.getByTestId('p2p-offer-methods')).toHaveText(METHOD);
+    await expect(row.getByTestId('p2p-offer-trader')).toHaveText(`@${handle}`);
   }
   await expect(page.getByText('That is every open offer for these filters.')).toBeVisible();
 
@@ -254,14 +254,14 @@ test('J-p2p-01 #2 the ad board shows each ad’s price, limits, method and maker
 
   // A floating ad posts only while a reference prices its pair (P-ads-merchant-03), and this stack, like production,
   // publishes none. With the stack's labelled TEST reference switched on, the seller lists one; then the reference stops.
-  restartWithSetting('p2p', 'LOCAL_STACK_P2P_REFERENCE_FEED', 'on');
+  await restartService('p2p', { LOCAL_STACK_P2P_REFERENCE_FEED: 'on' });
   let floating;
   try {
     floating = (await s.mutate('offers.create', adInput('float-listed', { priceType: 'float', price: '1.01' }))).id;
     const priced = (await buyer.query('offers.page', { makerId: maker, limit: 10 })).offers.find((o) => o.id === floating);
     expect(toUnits(priced?.referencePrice ?? '0')).toBe(toUnits('0.92'));
   } finally {
-    restartWithSetting('p2p', 'LOCAL_STACK_P2P_REFERENCE_FEED', null);
+    await restartService('p2p', { LOCAL_STACK_P2P_REFERENCE_FEED: null });
   }
   try {
     // With no reference, the ad stays listed, last, and the service says it has no reference price.
