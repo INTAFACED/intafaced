@@ -3,7 +3,6 @@ import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@in
 import { installPreTradeCredit } from './futures/pretrade-credit.js';
 import { installPositionMode } from './futures/position-mode.js';
 import { installCollateralHaircut } from './futures/collateral-haircut.js';
-import { installOverload } from './futures/overload.js';
 
 /** CARD F5 — index.ts loads this client at boot; mill wraps place/open before hold/lock. */
 installPreTradeCredit();
@@ -11,8 +10,6 @@ installPreTradeCredit();
 installPositionMode();
 /** CARD F8 — owner haircuts; yield/staked refuse; posted margin is not a loan. */
 installCollateralHaircut();
-/** Overload refuses new risk. Reduce-only and close-position stay. Unset switch is off. */
-installOverload();
 
 /**
  * HTTP client for svc-ledger: the one shared client (`createHttpLedgerClient`), signed per attempt over the exact
