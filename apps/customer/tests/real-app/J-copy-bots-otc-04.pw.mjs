@@ -7,7 +7,6 @@ import { EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, signOutBr
 import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrdersLoaded, followOnScreen, leadVenueAccount, listLeader, mineOf, openFollow } from './copy.mjs';
 import { testDeposit, venueForThisFile } from './venue.mjs';
-import { agePast } from './test-age.mjs';
 import { LEAD_TEST_SPOT } from '../../../../tooling/scripts/seed-spot-test-listing.mjs';
 
 // J-copy-bots-otc-04, in the running app (docs/roadmap/journeys.json): become a lead trader and place my first lead trade.
@@ -236,11 +235,18 @@ test(`${J} #2 submits a valid application: submitted, the same submit again retu
   await expect(page.getByText(reason)).toBeVisible();
   await expect(page.getByTestId('reapply-after')).toHaveAttribute('datetime', decided.reapplyAfter);
   await expect(page.getByRole('button', { name: 'Apply to lead', exact: true })).toHaveCount(0);
-  // After the wait (the rejection aged past it through svc-trade's TEST age door), the room offers the application
-  // again and a new one is submitted.
-  await agePast('trade', 'lead-application', first.applicationId, decided.reapplyAfter);
-  await page.reload();
-  await expect(page.getByText('The waiting period has ended')).toBeVisible();
+  // A decided application is final (svc-trade's table refuses any change to it), so the owner's TEST wait (60 s) runs on
+  // the real clock: the room is read until it says the wait has ended, never longer than the wait and a margin.
+  const left = Math.max(0, Date.parse(decided.reapplyAfter) - Date.now());
+  await expect
+    .poll(
+      async () => {
+        await page.reload();
+        return page.getByText('The waiting period has ended').isVisible();
+      },
+      { timeout: left + 60_000, intervals: [5_000], message: 'the room never said the wait had ended' },
+    )
+    .toBe(true);
   const resubmit = await applyOnScreen(page, displayName);
   expect(resubmit.status, JSON.stringify(resubmit.body).slice(0, 300)).toBe(200);
   const second = resubmit.body.result.data;

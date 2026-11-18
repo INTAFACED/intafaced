@@ -23,26 +23,5 @@ export function ageOtcQuote(sql: Sql): TestAgeSubject {
   };
 }
 
-/**
- * A rejected lead application, made `ms` earlier (J-copy-bots-otc-04 #2): its creation, last change and decision all move
- * back together, so the owner's wait before applying again has passed as if the time had gone by. Only a rejected one is
- * aged; an open or approved application is never moved.
- */
-export function ageLeadApplication(sql: Sql): TestAgeSubject {
-  return async (id, ms) => {
-    const rows = await sql<{ created_at: Date; decided_at: Date | null }[]>`
-      UPDATE trade.copy_lead_applications
-      SET created_at = created_at - make_interval(secs => ${ms / 1000}),
-          updated_at = updated_at - make_interval(secs => ${ms / 1000}),
-          decided_at = decided_at - make_interval(secs => ${ms / 1000})
-      WHERE id::text = ${id} AND status = 'rejected'
-      RETURNING created_at, decided_at
-    `;
-    const row = rows[0];
-    if (!row) return null;
-    return { createdAt: iso(row.created_at), decidedAt: iso(row.decided_at) };
-  };
-}
-
 /** The door's route is service-kit's, one for every service; svc-trade names only what it ages. */
 export { TEST_AGE_PATH, registerTestAgeDoor } from '@intafaced/service-kit';

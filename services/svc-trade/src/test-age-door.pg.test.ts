@@ -10,7 +10,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { acceptOtcQuote, buildOtcQuote, type OtcQuote } from './otc/rfq.js';
-import { ageLeadApplication, ageOtcQuote } from './test-age-door.js';
+import { ageOtcQuote } from './test-age-door.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', 'drizzle');
@@ -106,39 +106,5 @@ describe('the TEST age door ages one OTC quote, in PostgreSQL', () => {
 
   it('a quote that does not exist is not found', async () => {
     expect(await ageOtcQuote(db.sql)('q-none', 60_000)).toBeNull();
-  });
-});
-
-describe('the TEST age door ages one rejected lead application, in PostgreSQL', () => {
-  let db: TestDatabase;
-  const REJECTED = '22222222-2222-4222-8222-222222222222';
-  const OPEN = '33333333-3333-4333-8333-333333333333';
-
-  beforeAll(async () => {
-    db = await createTestDatabase({ service: 'trade', url: testDatabaseUrl(), migrations });
-  });
-  afterAll(async () => {
-    await db?.drop();
-  });
-  beforeEach(async () => {
-    await db.sql`TRUNCATE trade.copy_lead_applications`;
-    await db.sql`
-      INSERT INTO trade.copy_lead_applications (id, user_id, display_name, status, reason, created_at, updated_at, decided_at)
-      VALUES (${REJECTED}, ${ALICE}, 'TEST lead', 'rejected', 'TEST reason', ${T0}, ${T0}, ${new Date(T0.getTime() + 5_000)}),
-             (${OPEN}, 'bob', 'TEST other', 'pending', NULL, ${T0}, ${T0}, NULL)`;
-  });
-
-  it('a rejected application: created and decided that much earlier, so the wait measured from the decision has passed', async () => {
-    expect(await ageLeadApplication(db.sql)(REJECTED, 60_000)).toEqual({
-      createdAt: '2026-11-17T09:59:00.000Z',
-      decidedAt: '2026-11-17T09:59:05.000Z',
-    });
-    const [other] = await db.sql<{ created_at: Date }[]>`SELECT created_at FROM trade.copy_lead_applications WHERE id = ${OPEN}`;
-    expect(other?.created_at.toISOString()).toBe(T0.toISOString());
-  });
-
-  it('an open application, or one that does not exist, is never aged', async () => {
-    expect(await ageLeadApplication(db.sql)(OPEN, 60_000)).toBeNull();
-    expect(await ageLeadApplication(db.sql)('44444444-4444-4444-8444-444444444444', 60_000)).toBeNull();
   });
 });
