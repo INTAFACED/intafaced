@@ -177,13 +177,15 @@ test(`${J} #2 moves TEST 600 USDC from spending into trading, with step-up: the 
   await expect(confirm.getByLabel('Authenticator code', { exact: true })).toBeEnabled({ timeout: 15_000 });
   await confirm.getByLabel('Authenticator code', { exact: true }).fill(await codeFor());
   const asked = wallet.requests.length;
+  const sent = wallet.sends.length;
   await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
   // The wallet proves it is the person's (one message), then signs its own deposit (one transaction).
   await continueInWallet(page);
   await continueInWallet(page);
   const result = move.getByTestId('move-result');
   await expect(result).toBeVisible({ timeout: 120_000 });
-  expect(wallet.requests.length - asked, 'the wallet is asked twice: the proof, then its own deposit').toBe(2);
+  expect(wallet.requests.length - asked, 'the wallet signs one proof that it is the person’s').toBe(1);
+  expect(wallet.sends.length - sent, 'then sends its own deposit, once').toBe(1);
 
   const kept = (await bankGet('ownMoves.list', { limit: 10 }))[0];
   expect(kept).toMatchObject({ amount: MOVE_IN, assetId: 'USDC', wallet: owner, status: 'sent', partner: PARTNER_BANK });
@@ -215,11 +217,13 @@ test(`${J} #2 moves TEST 600 USDC from spending into trading, with step-up: the 
   await expect.poll(async () => sameDecimal((await venueBalance(owner, 'USDC')).total, MOVE_IN), { timeout: 60_000 }).toBe(true);
   // The same move again, from the room: the bank answers the first move, the wallet is not asked, and nothing more moves.
   const askedBefore = wallet.requests.length;
+  const sentBefore = wallet.sends.length;
   await result.getByRole('button', { name: 'Send this move again', exact: true }).click();
   await expect(result.getByTestId('move-again-note')).toHaveText('Already sent: nothing more was sent. This is the first result.');
   await expect(result.locator('[data-leg="partner"] [data-tx]')).toHaveAttribute('data-tx', kept.deliveryTx);
   await expect(result.locator('[data-leg="deposit"] [data-tx]')).toHaveAttribute('data-tx', kept.depositTx);
   expect(wallet.requests.length).toBe(askedBefore);
+  expect(wallet.sends.length).toBe(sentBefore);
   expect(await bankGet('ownMoves.list', { limit: 10 })).toEqual([kept]);
   expect((await partnerMoves(userId)).length - movesBefore).toBe(1);
   expect(sameDecimal(await partnerMain(userId), spendingNow)).toBe(true);
