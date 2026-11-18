@@ -28,6 +28,7 @@
     "garden/no-either-state-match": "error",
     "garden/no-made-up-principal": "error",
     "garden/exact-locator": "error",
+    "garden/no-stale-read": "error",
     "garden/no-action-in-retry": "error",
     "garden/no-sign-in-retry": "error",
     "garden/no-history-comment": "error",
