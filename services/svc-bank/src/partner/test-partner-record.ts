@@ -2,7 +2,8 @@ import { formatAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { PartnerAccountRef, PartnerMove } from './partner-bank.js';
 import type { PartnerDirectDebitRefund } from './partner-direct-debits.js';
-import { TEST_PARTNER_LABEL, type TestPartner } from './test-partner.js';
+import { type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_LABEL } from './test-partner-book.js';
 
 /**
  * LOCAL TEST: the TEST partner bank's own book, read straight from the stand-in on loopback (J-bank-03 #4/#5).

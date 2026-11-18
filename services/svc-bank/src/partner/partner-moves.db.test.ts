@@ -17,7 +17,8 @@ import { MemoryLedger, bankTransferKey, parseAmount, recipes } from '@intafaced/
 import { createBankServices, memoryRecipientState, type BankServiceOptions } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
-import { TEST_PARTNER_LABEL, TEST_PARTNER_STALE_AFTER_MS, testPartner, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_STALE_AFTER_MS, testPartner, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_LABEL } from './test-partner-book.js';
 import { TEST_PARTNER_ID } from './partner-stops.js';
 import type { FreezeReading } from './partner-bank.js';
 
