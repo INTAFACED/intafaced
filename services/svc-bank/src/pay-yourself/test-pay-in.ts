@@ -204,7 +204,8 @@ export function testPayInRail(options: {
           const userId = owners.get(to);
           if (!userId) continue;
           const units = BigInt(log.data);
-          if (units <= 0n) continue;
+          const sender = log.topics[1];
+          if (units <= 0n || !sender) continue;
           const logIndex = Number(BigInt(log.logIndex));
           const txHash = log.transactionHash.toLowerCase();
           const key = `bank.pay-in:usdc:${options.chainId}:${txHash}:${logIndex}`;
@@ -215,7 +216,7 @@ export function testPayInRail(options: {
             txHash,
             logIndex,
             amount: unitsToAmount(units, decimals),
-            from: `0x${log.topics[1]!.slice(-40)}`.toLowerCase(),
+            from: `0x${sender.slice(-40)}`.toLowerCase(),
             block: BigInt(log.blockNumber),
             seenAt: clock(),
             availableAt: null,
