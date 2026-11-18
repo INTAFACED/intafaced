@@ -5,8 +5,12 @@
  * code. J-charts-desk-14 (#8569) merged with eight FAITHFUL reads while its chart had zero height; the picture of its own
  * step showed the empty chart to a reader who was not told about it.
  *
- * Playwright saves one picture per test (`screenshot: 'on'` in the journeys config) and lists it in the shard's
- * report.json; real-app-journeys.yml uploads both in each `real-app-journeys-shard-<n>` artifact.
+ * Each test that has a page of its own attaches the whole of that page as it ended, named STEP_PICTURE (the
+ * `stepPicture` fixture in apps/customer/tests/real-app/journey.mjs); that picture is the step's. Playwright also saves the
+ * window of every page still open in the worker (`screenshot: 'on'` in the journeys config): a test with no step picture
+ * keeps the last of those. project-state #2952: of the NOT SHOWN pictures sampled, most had the step's rows below the
+ * window's edge, and some were a page an earlier file left open. real-app-journeys.yml uploads the pictures and the shard's
+ * report.json in each `real-app-journeys-shard-<n>` artifact.
  *
  *   node tooling/ci/step-pictures.mjs wait <read dir> <pictures dir>     in the Proof read job: waits for the head's
  *        journeys runs (GH_TOKEN, GITHUB_REPOSITORY, HEAD_SHA; WAIT_MINUTES, default 50) and unpacks their shards
@@ -21,6 +25,8 @@ import { pathToFileURL } from 'node:url';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 
 export const WORKFLOW = 'real-app-journeys.yml';
+/** The name of the whole-page picture of a test's own page (journey.mjs `stepPicture`). */
+export const STEP_PICTURE = 'step-picture';
 export const SHARD = /^real-app-journeys-shard-/;
 const STEP = /^(J-[a-z0-9]+(?:-[a-z0-9]+)*-\d+) ?#(\d+)\b/;
 const norm = (s) => String(s).replace(/\s+/g, '');
@@ -50,7 +56,7 @@ function reports(dir) {
 
 /**
  * Each step's picture in the shards unpacked under `dir` (one folder per run attempt, then per artifact): the image the
- * step's test's last try attached, from the newest run that has one. Returns Map<step id without spaces, { file, run }>,
+ * step's test's last try attached (its STEP_PICTURE, else the last), from the newest run that has one. Returns Map<step id without spaces, { file, run }>,
  * `file` an absolute path that exists. Pure apart from reading `dir`.
  */
 export function picturesIn(dir) {
@@ -77,7 +83,8 @@ export function picturesIn(dir) {
       const step = `${m[1]}#${m[2]}`;
       if (out.has(step)) continue;
       const last = (sp.tests ?? []).flatMap((t) => t.results ?? []).at(-1);
-      const img = (last?.attachments ?? []).filter((a) => a?.contentType === 'image/png' && a.path).at(-1);
+      const pngs = (last?.attachments ?? []).filter((a) => a?.contentType === 'image/png' && a.path);
+      const img = pngs.find((a) => a.name === STEP_PICTURE) ?? pngs.at(-1);
       if (!img) continue;
       // The artifact keeps each file under its absolute path less the leading slash. The pull request's own run wrote the
       // shard and its report.json, so a picture counts only as a plain file inside its own artifact's folder: never a
