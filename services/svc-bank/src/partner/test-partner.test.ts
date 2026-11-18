@@ -7,7 +7,6 @@ import { AccountDetailsService } from '../account-details/account-details.js';
 import type { BankServices } from '../bank-service.js';
 import { createBankRouter } from '../router.js';
 import {
-  SWITCHES_OFF,
   TestPartnerRefusedError,
   assertPartnerOffers,
   assertRampFeeKnown,
@@ -18,6 +17,7 @@ import {
   testPartnerAccountDetails,
   testPartnerFor,
 } from './test-partner.js';
+import { SWITCHES_OFF } from './test-partner-switches.js';
 
 const ADA = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';

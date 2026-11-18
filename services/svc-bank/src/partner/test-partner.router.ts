@@ -7,45 +7,13 @@ import { amountString, partnerFiguresOutput } from '../router/shared.js';
 import type { BankServices } from '../bank-service.js';
 import { NO_PARTNER_BANK_CODE, partnerPayoutsAccount } from './partner-bank.js';
 import { businessPartnerAccount } from '../business/business-team.js';
-import { PARTNER_FEATURES, TEST_PARTNER_MERCHANT, partnerReserve, type TestPartner, type TestPartnerSwitches } from './test-partner.js';
+import { TEST_PARTNER_MERCHANT, partnerReserve, type TestPartner } from './test-partner.js';
+import { testPartnerSwitches, type TestPartnerSwitches } from './test-partner-switches.js';
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
 
-const switches = z
-  .object({
-    notOffered: z.array(z.enum(PARTNER_FEATURES)).max(PARTNER_FEATURES.length),
-    fee: z.enum(['known', 'unknown']),
-    reserve: z.enum(['none', 'required']),
-    down: z.boolean(),
-    figures: z.enum(['live', 'stale', 'unknown']),
-    rampQuote: z.enum(['live', 'expired']),
-    rampFee: z.enum(['known', 'unknown']),
-    custody: z.enum(['on', 'off']),
-    nextReply: z.enum(['answered', 'lost']),
-    cardHold: z.enum(['live', 'expired']),
-    cardDecline: z.enum(['none', 'unlisted']),
-    accountDetails: z.enum(['none', 'issued']),
-    purchaseHolds: z.enum(['reported', 'not_reported']),
-    purchaseHold: z.enum(['live', 'expired']),
-    legalHold: z.enum(['none', 'held']),
-    identityCase: z.enum(['accepted', 'not_accepted']),
-    bankRail: z.enum(['none', 'test']),
-    /** The TEST account holder name (J-bank-30): it must say TEST, so it never reads as a real person's account. */
-    holderName: z
-      .string()
-      .trim()
-      .regex(/^TEST \P{Cc}{1,120}$/u)
-      .nullable(),
-    payIn: z.enum(['answered', 'held']),
-    /** The asset the TEST partner reports one open TEST order in (J-bank-01 #3), or null for none. */
-    openOrder: z
-      .string()
-      .regex(/^[A-Z0-9]{2,16}$/)
-      .nullable(),
-  })
-  .strict();
-
-const view = switches.extend({
+/** The switches as `test-partner-switches.ts` declares them, with what the partner reports alongside. */
+const view = testPartnerSwitches.extend({
   label: z.string(),
   /** The reserve the partner requires of us as it reports it; an amount it has not given is null ("not known"). */
   partnerReserve: z.union([
@@ -84,7 +52,7 @@ export function createTestPartnerRouter(
         }),
       ),
     set: scopedProcedure('bank:write', { module: 'bank' })
-      .input(switches.partial())
+      .input(testPartnerSwitches.partial())
       .output(view)
       .mutation(({ ctx, input }) =>
         guard(async () => {
