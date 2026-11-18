@@ -1,5 +1,5 @@
 /**
- * The lead limits against real Postgres (J-copy-bots-otc-04 #7; the CI review's finding on #8821): the holding and the
+ * The lead limits against real Postgres (J-copy-bots-otc-04 #7): the holding and the
  * daily buy cap count only lead orders that exist in `trade.orders`, a live buy whole, a finished buy as filled, and a
  * sell only as filled. A row whose place was refused, a cancelled buy and a sell that never ran count for nothing.
  * TEST figures only.
