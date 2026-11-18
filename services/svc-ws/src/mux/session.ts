@@ -125,11 +125,13 @@ type Result = ResultBase &
   ({ readonly ok: true; readonly note?: string } | { readonly ok: false; readonly code: MuxErrorCode; readonly message: string });
 
 /**
- * The server's two clocks on an answer: when the operation's frame arrived (`serverTimeIn`) and when its answer left
- * (`serverTimeOut`). ISO 8601 UTC strings, so the only JSON numbers on this door stay the integer sequences.
+ * The server's two clocks on an answer: when the operation's frame arrived (`receivedAt`) and when its answer left
+ * (`sentAt`), as integer epoch milliseconds (DV-websocket-01, J-developer-09 #3). Integers, like the sequences: no
+ * amount is ever a JSON number on this door.
  */
-export function serverTimes(receivedAtMs: number, sentAtMs: number): { serverTimeIn: string; serverTimeOut: string } {
-  return { serverTimeIn: new Date(receivedAtMs).toISOString(), serverTimeOut: new Date(Math.max(receivedAtMs, sentAtMs)).toISOString() };
+export function serverTimes(receivedAtMs: number, sentAtMs: number): { receivedAt: number; sentAt: number } {
+  const receivedAt = Math.trunc(receivedAtMs);
+  return { receivedAt, sentAt: Math.max(receivedAt, Math.trunc(sentAtMs)) };
 }
 
 export class MuxSession {
@@ -209,14 +211,14 @@ export class MuxSession {
     // network latency from server time (DV-websocket-01).
     const receivedAt = this.#clock();
     const parsed = parseOp(text);
-    const cost = parsed.ok ? parsed.channels.length : 1;
+    const cost = parsed.ok === true ? parsed.channels.length : 1;
     const budget = this.#takeBudget(cost);
     if (budget === 'over_channel_count') {
       const rate = this.#deps.maxOpsPerSecond;
       this.#sendError(
         'bad_request',
         `an operation of ${cost} channels costs ${cost}, above the published budget of ${rate} operations a second`,
-        parsed.id,
+        parsed.ok === 'ignored' ? undefined : parsed.id,
         receivedAt,
       );
       this.#closeSocket(CLOSE_POLICY, resolveWsCopy(WS_COPY.muxRateLimited));
@@ -226,6 +228,7 @@ export class MuxSession {
       this.#closeSocket(CLOSE_POLICY, resolveWsCopy(WS_COPY.muxRateLimited));
       return;
     }
+    if (parsed.ok === 'ignored') return;
     if (!parsed.ok) {
       this.#sendError(parsed.code, parsed.message, parsed.id, receivedAt);
       return;

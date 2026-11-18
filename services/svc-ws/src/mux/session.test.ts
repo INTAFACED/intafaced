@@ -302,7 +302,7 @@ describe('multiplexing — one connection, many channels', () => {
   it('answers malformed frames with a typed error and keeps the connection', async () => {
     await r.send('{nope');
     await r.send({ op: 'subscribe' });
-    await r.send({ op: 'launch', channels: [{}] });
+    await r.send({ channels: [{}] });
     expect(r.socket.errors().map((e) => e.code)).toEqual(['bad_json', 'bad_request', 'bad_request']);
     r.session.onBinary();
     expect(r.socket.errors().at(-1)).toMatchObject({ code: 'bad_request' });
@@ -630,8 +630,30 @@ describe('idle multiplexed sessions', () => {
   });
 });
 
+describe('unknown message types (DV-websocket-01, J-developer-09 #3)', () => {
+  it('are ignored: no answer, the connection stays open, and the next request is answered', async () => {
+    await r.send({ op: 'launch', id: 'x-1', channels: [{}] });
+    await r.send({ op: 'hello' });
+    expect(r.socket.frames).toEqual([]);
+    expect(r.socket.closed).toBeNull();
+    await r.send({ op: 'subscribe', id: 'after', channels: [{ ch: 'ticker' }] });
+    expect(r.socket.acks()).toEqual([expect.objectContaining({ op: 'ack', id: 'after' })]);
+  });
+
+  it('still cost one operation each, so a flood of them is closed like any other', async () => {
+    const tight = rig({ maxOpsPerSecond: 2 });
+    tight.session.start();
+    tight.session.onMessage(JSON.stringify({ op: 'noise' }));
+    tight.session.onMessage(JSON.stringify({ op: 'noise' }));
+    expect(tight.socket.closed).toBeNull();
+    tight.session.onMessage(JSON.stringify({ op: 'noise' }));
+    expect(tight.socket.closed).toMatchObject({ code: 1008 });
+    expect(tight.socket.frames).toEqual([]);
+  });
+});
+
 describe('server times on answers (DV-websocket-01, J-developer-09 #3)', () => {
-  it('an ack echoes the request id and carries when the frame arrived and when the answer left, as ISO strings', async () => {
+  it('an ack echoes the request id and carries when the frame arrived and when the answer left, in epoch ms', async () => {
     const slow = rig({
       resolver: {
         async resolve(input) {
@@ -647,8 +669,8 @@ describe('server times on answers (DV-websocket-01, J-developer-09 #3)', () => {
     await slow.send({ op: 'subscribe', id: 'req-7', channels: [{ ch: 'book', market: BTC }] });
     const [ack] = slow.socket.acks();
     expect(ack).toMatchObject({ op: 'ack', for: 'subscribe', id: 'req-7' });
-    expect(ack.serverTimeIn).toBe(new Date(arrived).toISOString());
-    expect(ack.serverTimeOut).toBe(new Date(arrived + 250).toISOString());
+    expect(ack.receivedAt).toBe(arrived);
+    expect(ack.sentAt).toBe(arrived + 250);
   });
 
   it('a refused frame carries the server times too, so a client can time every answer', async () => {
@@ -659,16 +681,17 @@ describe('server times on answers (DV-websocket-01, J-developer-09 #3)', () => {
         op: 'error',
         code: 'bad_request',
         id: 'bad-1',
-        serverTimeIn: new Date(at).toISOString(),
-        serverTimeOut: new Date(at).toISOString(),
+        receivedAt: at,
+        sentAt: at,
       }),
     ]);
   });
 
-  it('no JSON number but integer sequences: the times are strings', async () => {
+  it('the times are integers, never fractions', async () => {
+    r.clock.now += 0.75;
     await r.send({ op: 'subscribe', id: 'n', channels: [{ ch: 'ticker' }] });
     const [ack] = r.socket.acks();
-    expect(typeof ack.serverTimeIn).toBe('string');
-    expect(typeof ack.serverTimeOut).toBe('string');
+    expect(Number.isInteger(ack.receivedAt)).toBe(true);
+    expect(Number.isInteger(ack.sentAt)).toBe(true);
   });
 });

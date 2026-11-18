@@ -28,6 +28,7 @@ import { HttpPrivateBookPort } from './private/book.js';
 import { leaseRangeFromEnv } from './private/cod.js';
 import { HttpTradeCancelPort } from './private/cod-cancel.js';
 import { NewConnectionWindow } from './new-connection-window.js';
+import { PerIpGuard } from './per-ip.js';
 import { createWebSocketGateway } from './ws/gateway.js';
 import { SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
 import { customerOriginsFromEnv } from './customer-origin.js';
@@ -451,7 +452,15 @@ const poller = new DepthPoller(
   app.log,
 );
 
+// The per-IP cap and storm ban on the public doors, published on GET /policy (DV-limits-03, J-developer-09 #6).
+const perIp = new PerIpGuard({
+  maxConnections: env.WS_PER_IP_MAX_CONNECTIONS,
+  stormsBeforeBan: env.WS_PER_IP_STORMS_BEFORE_BAN,
+  banSeconds: env.WS_PER_IP_BAN_SECONDS,
+});
+
 registerRoutes(app, {
+  perIpPolicy: () => perIp.view(),
   hub,
   l3Hub,
   tradeHub,
@@ -519,6 +528,7 @@ const gateway = createWebSocketGateway({
   log: app.log,
   enabled: isEnabled,
   admitNewConnection: () => newConnections.admit(),
+  admitAddress: (address) => perIp.admit(address),
   sbeConsumers,
   sbe,
 });

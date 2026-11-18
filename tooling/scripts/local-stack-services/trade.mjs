@@ -238,7 +238,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // (J-developer-01 #2, #3, #6). `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off`, `LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE=off`
     // or `LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS=off` on a start or restart leaves that setting blank, so its refusal can be
     // seen too; `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=regional` adds TEST regional hosts (developerHosts).
-    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off' ? {} : { TRADE_DEVELOPER_HOSTS: developerHosts() }),
+    // The same switch blanks the stream endpoint hosts (J-developer-09 #1), so the WebSocket page reads "host not set" too.
+    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off'
+      ? {}
+      : { TRADE_DEVELOPER_HOSTS: developerHosts(), TRADE_DEVELOPER_STREAM_HOSTS: testValue('TRADE_DEVELOPER_STREAM_HOSTS') }),
     ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE === 'off'
       ? {}
       : { TRADE_DEVELOPER_REGIONAL_RULE: testValue('TRADE_DEVELOPER_REGIONAL_RULE') }),

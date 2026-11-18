@@ -7,9 +7,10 @@
  *   GET /developer-portal/data-terms  (through the edge: /api/trade/developer-portal/data-terms)
  *   GET /developer-portal/regional-rule (through the edge: /api/trade/developer-portal/regional-rule)
  *   GET /developer-portal/bot-policy  (through the edge: /api/trade/developer-portal/bot-policy; J-cex-spot-15 #3)
+ *   GET /developer-portal/stream-hosts (through the edge: /api/trade/developer-portal/stream-hosts; J-developer-09 #1)
  *
  * Plain JSON, signed-out readable. Blank setting → 503 with its one code (`trade.developer_hosts_unset`,
- * `trade.developer_data_terms_unset`, `trade.developer_regional_rule_unset`, `trade.developer_bot_policy_unset`). A published hosts or data terms setting
+ * `trade.developer_data_terms_unset`, `trade.developer_regional_rule_unset`, `trade.developer_bot_policy_unset`, `trade.developer_stream_hosts_unset`). A published hosts or data terms setting
  * answers every row, with `null` where the owner left that host or product out; a published rule answers its text. A malformed setting stops the service at boot instead of serving a guess.
  */
 import type { FastifyInstance } from 'fastify';
@@ -19,9 +20,13 @@ export const DEVELOPER_HOSTS_PATH = '/developer-portal/hosts';
 export const DEVELOPER_DATA_TERMS_PATH = '/developer-portal/data-terms';
 export const DEVELOPER_REGIONAL_RULE_PATH = '/developer-portal/regional-rule';
 export const DEVELOPER_BOT_POLICY_PATH = '/developer-portal/bot-policy';
+export const DEVELOPER_STREAM_HOSTS_PATH = '/developer-portal/stream-hosts';
 
 export const DEVELOPER_PROTOCOLS = ['rest', 'websocket', 'fix'] as const;
 export const DEVELOPER_ENVIRONMENTS = ['production', 'sandbox', 'regional'] as const;
+/** The stream endpoints the WebSocket page lists, each with a primary host and the one a client fails over to. */
+export const STREAM_ENDPOINTS = ['public', 'private', 'business'] as const;
+export const STREAM_HOST_ROLES = ['primary', 'failover'] as const;
 export const DATA_PRODUCTS = ['ticker', 'depth_l1', 'depth_l2', 'candles', 'trades', 'index'] as const;
 export const DATA_TERMS = ['entitlement', 'redistribution', 'retention', 'privacy', 'commercial'] as const;
 
@@ -29,6 +34,7 @@ export const DEVELOPER_HOSTS_UNSET = 'trade.developer_hosts_unset';
 export const DEVELOPER_DATA_TERMS_UNSET = 'trade.developer_data_terms_unset';
 export const DEVELOPER_REGIONAL_RULE_UNSET = 'trade.developer_regional_rule_unset';
 export const DEVELOPER_BOT_POLICY_UNSET = 'trade.developer_bot_policy_unset';
+export const DEVELOPER_STREAM_HOSTS_UNSET = 'trade.developer_stream_hosts_unset';
 const REGIONAL_RULE_MAX = 1000;
 const BOT_POLICY_MAX = 4000;
 
@@ -45,6 +51,9 @@ const hostText = z
 const hostsSchema = z
   .partialRecord(z.enum(DEVELOPER_PROTOCOLS), z.partialRecord(z.enum(DEVELOPER_ENVIRONMENTS), hostText))
   .refine((value) => Object.values(value).some((environments) => Object.keys(environments ?? {}).length > 0), 'names no host');
+const streamHostsSchema = z
+  .partialRecord(z.enum(STREAM_ENDPOINTS), z.partialRecord(z.enum(STREAM_HOST_ROLES), hostText))
+  .refine((value) => Object.values(value).some((roles) => Object.keys(roles ?? {}).length > 0), 'names no host');
 const termText = z.string().trim().min(1).max(500);
 const productTerms = z
   .object({ entitlement: termText, redistribution: termText, retention: termText, privacy: termText, commercial: termText })
@@ -56,6 +65,11 @@ const termsSchema = z
 export type DeveloperHostRow = {
   protocol: (typeof DEVELOPER_PROTOCOLS)[number];
   environment: (typeof DEVELOPER_ENVIRONMENTS)[number];
+  host: string | null;
+};
+export type StreamHostRow = {
+  endpoint: (typeof STREAM_ENDPOINTS)[number];
+  role: (typeof STREAM_HOST_ROLES)[number];
   host: string | null;
 };
 export type DataTermsRow = {
@@ -82,6 +96,18 @@ export function parseDeveloperHosts(raw: string): DeveloperHostRow[] | null {
   if (!hosts) return null;
   return DEVELOPER_PROTOCOLS.flatMap((protocol) =>
     DEVELOPER_ENVIRONMENTS.map((environment) => ({ protocol, environment, host: hosts[protocol]?.[environment] ?? null })),
+  );
+}
+
+/**
+ * `TRADE_DEVELOPER_STREAM_HOSTS`: blank → null; else one row per stream endpoint and role (primary, failover), in that
+ * order, with `null` where the owner left that host out. A host is a bare name (and port); the page writes wss:// before it.
+ */
+export function parseDeveloperStreamHosts(raw: string): StreamHostRow[] | null {
+  const hosts = parseJsonSetting('TRADE_DEVELOPER_STREAM_HOSTS', raw, streamHostsSchema);
+  if (!hosts) return null;
+  return STREAM_ENDPOINTS.flatMap((endpoint) =>
+    STREAM_HOST_ROLES.map((role) => ({ endpoint, role, host: hosts[endpoint]?.[role] ?? null })),
   );
 }
 
@@ -121,6 +147,8 @@ export interface DeveloperPortalDeps {
   regionalRule: string | null;
   /** The owner's bot policy; null until published. Optional so a caller that predates it serves the refusal. */
   botPolicy?: string | null;
+  /** The owner's stream endpoint hosts; null until published. Optional so a caller that predates it serves the refusal. */
+  streamHosts?: StreamHostRow[] | null;
 }
 
 export function registerDeveloperPortalRest(app: FastifyInstance, deps: DeveloperPortalDeps): void {
@@ -148,5 +176,12 @@ export function registerDeveloperPortalRest(app: FastifyInstance, deps: Develope
       return reply.code(503).send({ code: DEVELOPER_BOT_POLICY_UNSET, message: 'The bot policy is not published yet.' });
     }
     return reply.code(200).send({ policy });
+  });
+  app.get(DEVELOPER_STREAM_HOSTS_PATH, async (_req, reply) => {
+    const hosts = deps.streamHosts ?? null;
+    if (hosts === null) {
+      return reply.code(503).send({ code: DEVELOPER_STREAM_HOSTS_UNSET, message: 'The stream endpoint hosts are not published yet.' });
+    }
+    return reply.code(200).send({ endpoints: hosts });
   });
 }

@@ -519,6 +519,29 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: ws multiplexed door TEST values come from the ws profile');
 }
 
+// The ws process carries the per-IP cap and storm ban from the ws profile (J-developer-09 #6), and
+// LOCAL_STACK_WS_IP_BAN_SECONDS=off blanks only the ban time, so a journey can show the ban refusing to enable.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const names = ['WS_PER_IP_MAX_CONNECTIONS', 'WS_PER_IP_STORMS_BEFORE_BAN', 'WS_PER_IP_BAN_SECONDS'];
+  const ws = localTestServiceEnvs().find((service) => service.name === 'ws');
+  for (const name of names) {
+    assert.equal(profile[name]?.service, 'ws', `${name} is not in the ws profile`);
+    assert.equal(ws.env[name], profile[name].value, `ws env ${name} differs from the ws profile`);
+  }
+  process.env.LOCAL_STACK_WS_IP_BAN_SECONDS = 'off';
+  try {
+    const blank = localTestServiceEnvs().find((service) => service.name === 'ws');
+    assert.equal(blank.env.WS_PER_IP_BAN_SECONDS, '', 'the off switch must leave WS_PER_IP_BAN_SECONDS blank');
+    assert.equal(blank.env.WS_PER_IP_MAX_CONNECTIONS, profile.WS_PER_IP_MAX_CONNECTIONS.value);
+  } finally {
+    delete process.env.LOCAL_STACK_WS_IP_BAN_SECONDS;
+  }
+  console.log('local-test-stack: ws per-IP cap and ban TEST values come from the ws profile; the ban time can be blanked');
+}
+
 // The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
 // journey meets the rule instead of the unset refusal.
 {

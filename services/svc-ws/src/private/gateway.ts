@@ -1,7 +1,8 @@
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { verifyAccessToken, type TokenConfig } from '@intafaced/auth';
+import { AuthError, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
+import { streamTokenAudience } from '@intafaced/contracts/stream-token';
 import type { CurrentAuthorityInput } from '@intafaced/contracts';
 import type { CurrentAuthorityPort } from './authority.js';
 import { PrivateAuthorityLease } from './authority-lease.js';
@@ -43,6 +44,65 @@ export const POSITIONS_SNAPSHOT_UNAVAILABLE = 'positions.snapshot_unavailable' a
 
 /** Application close: access token `exp` elapsed (HTTP 401 is upgrade-only). */
 export const CLOSE_UNAUTHORIZED = 4003;
+
+/**
+ * The typed code a client branches on when its access token's lifetime has passed (J-developer-09 #2): an error frame
+ * on the open stream before the 4003 close, and the body of the 401 that refuses a new connection with the spent
+ * token. The close reason stays the copy key `ws.close.token_expired`.
+ */
+export const TOKEN_EXPIRED_CODE = 'ws.token_expired' as const;
+
+/** How long a stream told its token expired has to read the frame and the close before the socket is cut. */
+const EXPIRED_CLOSE_GRACE_MS = 1_000;
+
+/** Refused `{ op: 'subscribe', channels }`: the channel is not one this connection was opened for. */
+export const PRIVATE_CHANNEL_NOT_OPEN = 'ws.private_channel_not_open' as const;
+/** Refused `{ op: 'subscribe', channels }`: no channel named. */
+export const PRIVATE_SUBSCRIBE_CHANNELS_REQUIRED = 'ws.subscribe_channels_required' as const;
+
+/**
+ * The private door's answer to `{ op: 'subscribe', id, channels: [{ ch }] }`, or null when the text is not that op.
+ *
+ * The channel is chosen on the upgrade URL (`?channel=`, or all three), so a subscribe op adds nothing: it is
+ * acknowledged when every channel it names is one this connection already carries, and refused by a typed code when
+ * one is not. It never widens what the connection streams. `{ op: 'subscribe', channel: 'positions' }` (no
+ * `channels` array) stays the positions journal's own op.
+ */
+export function privateSubscribeReply(
+  text: string,
+  open: readonly PrivateStreamChannel[],
+  times: { readonly receivedAt: number; readonly sentAt: number },
+): string | null {
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return null;
+  const rec = body as Record<string, unknown>;
+  if (rec.op !== 'subscribe' || !Array.isArray(rec.channels)) return null;
+  const id =
+    (typeof rec.id === 'string' && rec.id.length <= 128) || (typeof rec.id === 'number' && Number.isSafeInteger(rec.id)) ? rec.id : null;
+  const named = rec.channels.map((entry) =>
+    entry !== null && typeof entry === 'object' && typeof (entry as { ch?: unknown }).ch === 'string' ? (entry as { ch: string }).ch : null,
+  );
+  if (named.length === 0) {
+    return JSON.stringify({ op: 'error', for: 'subscribe', id, code: PRIVATE_SUBSCRIBE_CHANNELS_REQUIRED });
+  }
+  const notOpen = named.filter((ch) => ch === null || !(open as readonly string[]).includes(ch));
+  if (notOpen.length > 0) {
+    return JSON.stringify({ op: 'error', for: 'subscribe', id, code: PRIVATE_CHANNEL_NOT_OPEN, open: [...open] });
+  }
+  return JSON.stringify({
+    op: 'ack',
+    for: 'subscribe',
+    id,
+    channels: named.map((ch) => ({ ch })),
+    receivedAt: times.receivedAt,
+    sentAt: times.sentAt,
+  });
+}
 
 /** `setTimeout` delay is a 32-bit signed int; longer waits fire immediately. */
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -150,9 +210,55 @@ function closeUnauthorized(socket: WebSocket): void {
   }
 }
 
+/**
+ * The token's lifetime passed: say so by the typed code, then close 4003. The frame goes straight to the socket — the
+ * seat's lease is already over, so the sink would drop it. The socket is cut after a short grace if the client never
+ * answers the close.
+ */
+function closeExpired(socket: WebSocket): void {
+  if (socket.readyState === socket.OPEN) {
+    try {
+      socket.send(JSON.stringify({ type: 'error', code: TOKEN_EXPIRED_CODE }));
+    } catch {
+      /* ignore */
+    }
+  }
+  closeUnauthorized(socket);
+  const cut = setTimeout(() => {
+    try {
+      socket.terminate();
+    } catch {
+      /* ignore */
+    }
+  }, EXPIRED_CLOSE_GRACE_MS);
+  cut.unref?.();
+}
+
+const isTokenExpired = (err: unknown): boolean => err instanceof AuthError && err.code === 'token.expired';
+
+/**
+ * Verify a private-stream token: a platform access token, or a stream token (`POST /api/v1/stream/token`), which is
+ * minted for the stream audience and opens no other door. `stream` says which one it was, so a re-check uses the same
+ * audience. A spent platform token is reported as spent and never tried as a stream token.
+ */
+export async function verifyStreamSeatToken(raw: string, tokens: TokenConfig): Promise<{ principal: Principal; stream: boolean }> {
+  try {
+    return { principal: await verifyAccessToken(raw, tokens), stream: false };
+  } catch (err) {
+    if (isTokenExpired(err)) throw err;
+    try {
+      return { principal: await verifyAccessToken(raw, { ...tokens, audience: streamTokenAudience(tokens.audience) }), stream: true };
+    } catch (streamErr) {
+      throw isTokenExpired(streamErr) ? streamErr : err;
+    }
+  }
+}
+
 type PrivateSeat = {
   lease: PrivateAuthorityLease;
   token: string;
+  /** Opened with a stream token (the stream audience), which only a signed request could mint. */
+  stream: boolean;
   expiresAtMs: number;
   userId: string;
   hasWrite: boolean;
@@ -172,6 +278,7 @@ function liveCredentialInput(seat: PrivateSeat) {
     callerIp: seat.callerIp,
     requestOrigin: seat.requestOrigin,
     accountId: seat.accountId,
+    ...(seat.stream ? { signedMint: true } : {}),
   };
 }
 
@@ -267,9 +374,19 @@ export function sinkFor(
   };
 }
 
-function reject(socket: Duplex, status: number, message: string): void {
-  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\n\r\n`);
-  socket.destroy();
+function reject(socket: Duplex, status: number, message: string, code?: string): void {
+  if (!code) {
+    socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\n\r\n`);
+    socket.destroy();
+    return;
+  }
+  // A named refusal carries its code in the body; end() flushes it before the socket closes.
+  const body = JSON.stringify({ code });
+  socket.end(
+    `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+  );
+  const cut = setTimeout(() => socket.destroy(), 1_000);
+  cut.unref?.();
 }
 
 function tokenFrom(url: URL, headers: IncomingMessage['headers']): string | null {
@@ -400,7 +517,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     const delay = Math.max(0, Math.min(expiresAtMs - Date.now(), MAX_TIMEOUT_MS));
     const timer = setTimeout(() => {
       expiryTimers.delete(timer);
-      closeUnauthorized(ws);
+      closeExpired(ws);
     }, delay);
     timer.unref?.();
     expiryTimers.add(timer);
@@ -469,8 +586,11 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         let scopes: string[];
         let apiKeyId: string | undefined;
         let subject: CurrentAuthorityInput;
+        let stream: boolean;
         try {
-          const principal = await verifyAccessToken(raw, tokens);
+          const verified = await verifyStreamSeatToken(raw, tokens);
+          const principal = verified.principal;
+          stream = verified.stream;
           if (!principal.userId) {
             reject(socket, 401, 'Unauthorized');
             return;
@@ -490,15 +610,16 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
             credential: apiKeyId ? { kind: 'api_key', apiKeyId } : { kind: 'session', sessionId },
             ...(principal.sub_account ? { subAccountId: principal.sub_account } : {}),
           };
-        } catch {
-          reject(socket, 401, 'Unauthorized');
+        } catch (err) {
+          // A spent token is named, so a client knows to fetch a fresh one rather than suspect its credential.
+          reject(socket, 401, 'Unauthorized', isTokenExpired(err) ? TOKEN_EXPIRED_CODE : undefined);
           return;
         }
 
         const callerIp = callerIpFromUpgrade(req);
         const requestOrigin = requestOriginFromUpgrade(req);
         const accountId = requestAccountIdFromUpgrade(req);
-        const policy = { userId, sessionId, apiKeyId, callerIp, requestOrigin, accountId };
+        const policy = { userId, sessionId, apiKeyId, callerIp, requestOrigin, accountId, ...(stream ? { signedMint: true } : {}) };
         let lease: PrivateAuthorityLease;
         try {
           lease = await PrivateAuthorityLease.acquire({
@@ -530,6 +651,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           const seat: PrivateSeat = {
             lease,
             token: raw,
+            stream,
             expiresAtMs,
             userId,
             hasWrite,
@@ -586,7 +708,9 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           let inbound: Promise<void> = Promise.resolve();
           let inboundClosed = false;
           let detachPositions: (() => void) | null = null;
+          const openChannels: readonly PrivateStreamChannel[] = attachChannel === null ? PRIVATE_CHANNELS : [attachChannel];
           ws.on('message', (data) => {
+            const receivedAt = now();
             const text = messageText(data);
             if (text === null) return;
             inbound = inbound
@@ -594,15 +718,16 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                 if (inboundClosed || !lease.isCurrent()) return;
                 let hasWrite = seat.hasWrite;
                 try {
-                  const principal = await verifyAccessToken(seat.token, tokens);
+                  const { principal } = await verifyStreamSeatToken(seat.token, tokens);
                   hasWrite = principal.scopes.includes('trade:write');
                   seat.hasWrite = hasWrite;
                   seat.scopes = [...principal.scopes];
                   seat.expiresAtMs = principal.expiresAt.getTime();
-                } catch {
+                } catch (err) {
                   // Break F1: graceful close() fires 'close' later; stop queued frames now.
                   inboundClosed = true;
-                  closeUnauthorized(ws);
+                  if (isTokenExpired(err)) closeExpired(ws);
+                  else closeUnauthorized(ws);
                   return;
                 }
                 if (liveCredential) {
@@ -630,6 +755,11 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                   },
                 });
                 if (positionsHandled) return;
+                const subscribeReply = privateSubscribeReply(text, openChannels, { receivedAt, sentAt: now() });
+                if (subscribeReply !== null) {
+                  sink.send(subscribeReply);
+                  return;
+                }
                 cod.handleText(ws, text, {
                   userId: seat.userId,
                   accessToken: seat.token,
@@ -657,6 +787,11 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
 
           lease.start(() => {
             cod.drop(ws);
+            // The lease ends at the token's own `exp` too: that end is named, the others (revoked, denied) are not.
+            if (Date.now() >= seat.expiresAtMs) {
+              closeExpired(ws);
+              return;
+            }
             closeUnauthorized(ws);
             ws.terminate();
           });
@@ -725,12 +860,12 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         );
       }
       if (seat && tokens) {
-        void verifyAccessToken(seat.token, tokens).then(
-          (principal) => {
+        void verifyStreamSeatToken(seat.token, tokens).then(
+          ({ principal }) => {
             if (ws.readyState !== ws.OPEN) return;
             seat.expiresAtMs = principal.expiresAt.getTime();
           },
-          () => closeUnauthorized(ws),
+          (err: unknown) => (isTokenExpired(err) ? closeExpired(ws) : closeUnauthorized(ws)),
         );
       }
       if (!alive.has(ws)) {

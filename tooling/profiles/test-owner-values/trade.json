@@ -151,6 +151,11 @@
       "value": "{\"rest\":{\"production\":\"api.local-test.test\",\"sandbox\":\"api.sandbox.local-test.test\"},\"websocket\":{\"production\":\"ws.local-test.test\",\"sandbox\":\"ws.sandbox.local-test.test\"},\"fix\":{\"production\":\"fix.local-test.test:9878\",\"sandbox\":\"fix.sandbox.local-test.test:9878\"}}",
       "note": "LOCAL TEST ONLY, not an owner decision: production and sandbox hosts under the reserved .test domain; regional is left out so its rows read host not set (J-developer-01 #2, #3)."
     },
+    "TRADE_DEVELOPER_STREAM_HOSTS": {
+      "service": "trade",
+      "value": "{\"public\":{\"primary\":\"stream.local-test.test\",\"failover\":\"stream-failover.local-test.test\"},\"private\":{\"primary\":\"private-stream.local-test.test\",\"failover\":\"private-stream-failover.local-test.test\"},\"business\":{\"primary\":\"business-stream.local-test.test\",\"failover\":\"business-stream-failover.local-test.test\"}}",
+      "note": "LOCAL TEST ONLY, not an owner decision: a primary and a failover host for the public, private and business stream endpoints, under the reserved .test domain (J-developer-09 #1)."
+    },
     "TRADE_DEVELOPER_REGIONAL_RULE": {
       "service": "trade",
       "value": "TEST: a regional host serves only accounts registered in its region; every other account uses the production host.",

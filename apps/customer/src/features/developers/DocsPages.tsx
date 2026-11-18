@@ -25,6 +25,19 @@ import {
   type Product,
 } from './developers-reference';
 import { readSigningPolicy } from './developers-signing';
+import {
+  PROTOCOL_GUIDE,
+  STREAM_ENDPOINTS,
+  STREAM_ENDPOINT_PATH,
+  STREAM_HOST_ROLES,
+  pingView,
+  policyView,
+  readStreamHosts,
+  readStreamPolicy,
+  readStreamTiming,
+  streamHostsView,
+  type PerIpPolicy,
+} from './developers-streams';
 import '../public/public-pages.css';
 import './developers-docs.css';
 
@@ -560,5 +573,150 @@ export function DataTermsPage({ title }: { title: string }) {
         )}
       </section>
     </Page>
+  );
+}
+
+/**
+ * /developers/websocket (J-developer-09): the stream endpoints with their primary and failover hosts as svc-trade
+ * publishes them, the protocol choice guide, and svc-ws's own keepalive interval and per-address policy, read live.
+ */
+export function WebSocketPage({ title }: { title: string }) {
+  const { t } = docsCopy.useCopy();
+  const { t: live } = liveCopy.useCopy();
+  const { api } = useSession();
+  const hosts = useRead((signal) => readStreamHosts(api, signal), [api]);
+  const timing = useRead((signal) => readStreamTiming(signal), []);
+  const policy = useRead((signal) => readStreamPolicy(signal), []);
+  const view = streamHostsView(hosts.read);
+  const ping = pingView(timing.read);
+  const perIp = policyView(policy.read);
+  return (
+    <Page id="websocket" title={title} lead={t('wsLead')}>
+      <section className="pub-card" aria-labelledby="dev-ws-endpoints">
+        <h2 id="dev-ws-endpoints">{t('wsEndpointsTitle')}</h2>
+        {view.kind === 'loading' ? (
+          <StateBlock kind="loading" rows={3} rowHeight={48} label={live('loading')} />
+        ) : view.kind === 'failed' ? (
+          <StateBlock kind="error" title={live('loadFailed')} onRetry={hosts.reload} retryLabel={live('tryAgain')} />
+        ) : (
+          <>
+            {view.unsetCode ? (
+              <p className="pub-notice" role="status" data-testid="developers-websocket-hosts-unset" data-code={view.unsetCode}>
+                {t('wsHostsUnpublished')}
+              </p>
+            ) : null}
+            <div className="table-scroll">
+              <table className="pub-table dev-text-table">
+                <caption className="sr-only">{t('wsEndpointsTable')}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{t('colEndpoint')}</th>
+                    <th scope="col">{t('colPath')}</th>
+                    <th scope="col">{t('colHosts')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {STREAM_ENDPOINTS.map((endpoint) => (
+                    <tr key={endpoint} data-endpoint={endpoint}>
+                      <th scope="row">{t(`wsEndpoint_${endpoint}`)}</th>
+                      <td>
+                        <code>{STREAM_ENDPOINT_PATH[endpoint]}</code>
+                      </td>
+                      <td>
+                        <ul aria-label={t(`wsEndpoint_${endpoint}`)}>
+                          {STREAM_HOST_ROLES.map((role) => {
+                            const cell = view.host(endpoint, role);
+                            return (
+                              <li key={role} data-role={role} data-host-state={cell.state}>
+                                {t(`wsRole_${role}`)}: {cell.state === 'set' ? <code>{cell.url}</code> : t('wsHostUnset')}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+        <p>{t('wsFailover')}</p>
+      </section>
+      <section className="pub-card" aria-labelledby="dev-ws-messages">
+        <h2 id="dev-ws-messages">{t('wsMessagesTitle')}</h2>
+        <p>
+          {t('wsUnknown')} {t('wsUnknownMore')}
+        </p>
+      </section>
+      <section className="pub-card" aria-labelledby="dev-ws-keepalive">
+        <h2 id="dev-ws-keepalive">{t('wsKeepaliveTitle')}</h2>
+        {ping.kind === 'loading' ? (
+          <StateBlock kind="loading" rows={1} rowHeight={24} label={live('loading')} />
+        ) : ping.kind === 'failed' ? (
+          <StateBlock kind="error" title={t('wsPingFailed')} onRetry={timing.reload} retryLabel={live('tryAgain')} />
+        ) : ping.kind === 'unset' ? (
+          <p data-testid="developers-websocket-ping-interval" data-ping-state="unset">
+            {t('wsPingUnset')}
+          </p>
+        ) : (
+          <p data-testid="developers-websocket-ping-interval" data-ping-state="set" data-seconds={ping.seconds}>
+            {t('wsPing', { seconds: ping.seconds })}
+          </p>
+        )}
+      </section>
+      <section className="pub-card" aria-labelledby="dev-ws-limits">
+        <h2 id="dev-ws-limits">{t('wsLimitsTitle')}</h2>
+        {perIp.kind === 'loading' ? (
+          <StateBlock kind="loading" rows={2} rowHeight={24} label={live('loading')} />
+        ) : perIp.kind === 'failed' ? (
+          <StateBlock kind="error" title={t('wsPolicyFailed')} onRetry={policy.reload} retryLabel={live('tryAgain')} />
+        ) : perIp.kind === 'unpublished' ? (
+          <p role="status" data-testid="developers-websocket-policy" data-policy-state="unpublished">
+            {t('wsPolicyUnpublished')}
+          </p>
+        ) : (
+          <PerIpRules perIp={perIp.perIp} t={t} />
+        )}
+      </section>
+      <section className="pub-card" aria-labelledby="dev-ws-guide">
+        <h2 id="dev-ws-guide">{t('wsGuideTable')}</h2>
+        <div className="table-scroll">
+          <table className="pub-table dev-text-table" aria-labelledby="dev-ws-guide">
+            <thead>
+              <tr>
+                <th scope="col">{t('colProtocolName')}</th>
+                <th scope="col">{t('colUseFor')}</th>
+                <th scope="col">{t('colOwner')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PROTOCOL_GUIDE.map(({ protocol, module }) => (
+                <tr key={protocol} data-protocol={protocol}>
+                  <th scope="row">{t(`guide_${protocol}`)}</th>
+                  <td>{t(`guide_${protocol}_use`)}</td>
+                  <td data-module={module}>{t('ownedBy', { module })}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </Page>
+  );
+}
+
+/** The cap and the ban as svc-ws publishes them; a blank ban time says no address is banned. */
+function PerIpRules({ perIp, t }: { perIp: PerIpPolicy; t: Copy }) {
+  const banned = perIp.ban === 'set' && perIp.banSeconds !== null && perIp.stormsBeforeBan !== null;
+  return (
+    <div data-testid="developers-websocket-policy" data-policy-state="published">
+      <p data-cap-state={perIp.maxConnections === null ? 'unset' : 'set'}>
+        {perIp.maxConnections === null ? t('wsCapUnset') : t('wsCap', { n: perIp.maxConnections })}
+      </p>
+      <p data-ban-state={banned ? 'set' : 'unset'}>
+        {banned ? t('wsBan', { storms: perIp.stormsBeforeBan!, seconds: perIp.banSeconds! }) : t('wsBanUnset')}
+      </p>
+    </div>
   );
 }

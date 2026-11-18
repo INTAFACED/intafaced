@@ -75,6 +75,16 @@ describe('route resolution', () => {
     expect(book?.path).toBe('/api/v1/orderbook/BTC%2FUSDT');
   });
 
+  it('sends only the stream-token path to identity, at the same path, as part of trade (J-developer-09 #2)', () => {
+    const token = resolve('/api/v1/stream/token');
+    expect(token?.upstream.envVar).toBe('IDENTITY_URL');
+    expect(token?.upstream.module).toBe('trade');
+    expect(token?.path).toBe('/api/v1/stream/token');
+    // Its neighbours stay on trade.
+    expect(resolve('/api/v1/stream')?.upstream.envVar).toBe('TRADE_URL');
+    expect(resolve('/api/v1/stream/tokens')?.upstream.envVar).toBe('TRADE_URL');
+  });
+
   it('does not let /api/v1 steal /api/trade (longer prefix wins)', () => {
     const r = resolve('/api/trade/trpc/markets.list');
     expect(r?.upstream.prefix).toBe('/api/trade');
