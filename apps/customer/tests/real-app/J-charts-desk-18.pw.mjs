@@ -180,6 +180,9 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
     const reconnectAt = Date.parse(await reconnect.getAttribute('data-at'));
     expect(reconnectAt).toBeGreaterThan(lastTick);
     expect(reconnectAt).toBeLessThanOrEqual(await newestTrade(ETH));
+    await expect(reconnect.locator('[data-field=time]')).toHaveText(
+      `${new Date(reconnectAt).toISOString().slice(0, 19).replace('T', ' ')} UTC`,
+    );
     await expect(reconnect.locator('[data-field=actor]')).toHaveText('system');
     await expect(reconnect.locator('[data-field=reason]')).toContainText('Candle ticks resumed after');
     const kinds = await journal.locator('tbody tr').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-kind')));
@@ -352,7 +355,19 @@ test(`${J} #5 opens the module's settings page: compare cap, alert quotas, reten
   page,
   browser,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
+  // What svc-notify serves a customer on the default plan: the price-alert quota, and the trigger log retention or its
+  // unset refusal. The page's figures are checked against these.
+  const shopper = await browser.newContext();
+  const { client } = await customer(await shopper.newPage(), 'cd18s');
+  await shopper.close();
+  const quotaRes = await client.get('/api/notify/trpc/notify.alertQuota');
+  expect(quotaRes.status, JSON.stringify(quotaRes.body).slice(0, 300)).toBe(200);
+  const servedQuota = quotaRes.body.result.data.max;
+  const triggersRes = await client.get(`/api/notify/trpc/notify.alertTriggers?input=${encodeURIComponent(JSON.stringify({ limit: 1 }))}`);
+  const servedRetention = triggersRes.status === 200 ? triggersRes.body.result.data.retentionDays : null;
+  if (servedRetention === null) expect(JSON.stringify(triggersRes.body)).toContain('alert_trigger_log_retention_unset');
+
   await founderSignIn(page, 'a');
   await openSettings(page);
   // Compare cap and the owner's two ages: what svc-trade serves is what the page shows, a number or "Not set".
@@ -382,7 +397,13 @@ test(`${J} #5 opens the module's settings page: compare cap, alert quotas, reten
       /^(Set on this page, .+ UTC by .+|Deployment setting \(never set on this page\))$/,
     );
   }
-  await expect(alertRow(page, 'triggerLogDays').locator('[data-field=current]')).toHaveText(/^(\d+|Not set)$/);
+  // The default plan's quota and the retention are the values the customer is served.
+  await expect(alertRow(page, 'priceQuota', PLAN).locator('[data-field=current]')).toHaveText(
+    servedQuota === null ? 'Not set' : String(servedQuota),
+  );
+  await expect(alertRow(page, 'triggerLogDays').locator('[data-field=current]')).toHaveText(
+    servedRetention === null ? 'Not set' : String(servedRetention),
+  );
 
   // A blank compare cap: the customer's compare add refuses with the cap-unset error, and nothing is added.
   expect(Number.isInteger(cap), `the stack sets a compare cap to put back (${cap})`).toBe(true);
