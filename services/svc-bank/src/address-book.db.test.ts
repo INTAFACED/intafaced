@@ -234,8 +234,8 @@ describe.each(stores)('address book: %s', (_name, make) => {
 });
 
 describe('address book: postgres only', () => {
-  // #8903: the legacy upsert's target is (user_id, kind), so a racing loser clashed on the label index instead and came
-  // back as "label taken" for its own label. Many rounds, since one race is not certain to interleave.
+  // The legacy upsert's target is (user_id, kind), so a racing loser clashes on the label index instead; it must still
+  // get the winner's row, never "label taken" for its own label. Many rounds, since one race is not certain to interleave.
   it('two first persists racing with the same label both return the one legacy row', async () => {
     const store = new UserWithdrawDestinationStore(db.sql, { addressBookCap: () => '5' });
     for (let round = 0; round < 40; round++) {

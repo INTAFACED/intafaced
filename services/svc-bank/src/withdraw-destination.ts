@@ -511,7 +511,8 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
     const dest = assertPersistableWithdrawDestination(input);
     const label = input.label === undefined ? null : assertDestinationLabel(input.label);
     const keepLabel = input.label === undefined;
-    const upsert = () => this.sql<DestinationRow[]>`
+    const upsert = async () => {
+      const rows = await this.sql<DestinationRow[]>`
         INSERT INTO bank.user_withdraw_destinations (user_id, kind, ref, label, origin)
         VALUES (${input.userId}, ${dest.kind}, ${dest.ref}, ${label}, 'legacy')
         ON CONFLICT (user_id, kind) WHERE origin = 'legacy'
@@ -521,17 +522,21 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
           updated_at = now()
         RETURNING ${this.sql.unsafe(COLUMNS)}
       `;
+      const row = rows[0];
+      if (!row) throw new Error('withdraw destination upsert returned no row');
+      return toDestination(row);
+    };
     try {
-      return toDestination((await upsert())[0]!);
+      return await upsert();
     } catch (err) {
       if (!isUniqueViolation(err, LABEL_INDEX)) throw err;
     }
     // Two first persists for one customer and kind with the same label race: the loser's row clashes on the label
-    // index, which the conflict target does not absorb (#8903). Postgres raises that only once the winner committed, so
-    // one more upsert finds the winner's legacy row and updates it, as a call made after it would. If the label still
+    // index, which the conflict target does not absorb. Postgres raises that only once the winner committed, so one
+    // more upsert finds the winner's legacy row and updates it, as a call made after it would. If the label still
     // clashes, another of the customer's entries holds it.
     try {
-      return toDestination((await upsert())[0]!);
+      return await upsert();
     } catch (err) {
       if (isUniqueViolation(err, LABEL_INDEX)) throw LABEL_TAKEN();
       throw err;
