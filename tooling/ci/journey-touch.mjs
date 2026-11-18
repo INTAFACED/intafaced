@@ -26,10 +26,12 @@
  *     check on other journeys. Four named pull requests that ran their own journey alone each broke another one on
  *     main and were reverted: #8113 J-campaigns-01, #8153 J-cex-spot-17, #8542 J-copy-bots-otc-03, #8139
  *     J-identity-04; the map makes each of them full, journey-touch.test.mjs "replay, 4 real pull requests".) The map's
- *     `full` journeys, which no recorded run speaks for, are still not added to a named run (reachSelect `unrecorded`):
- *     from 9 to 14 Nov they turned 10 failed pull request runs red and only one of those was the pull request's fault,
- *     while they took a named run from 1 shard and about 10 minutes to 8 shards and 24 to 26; project-state#2332. Main's
- *     full run holds them. A map that is switched off, stale or unreadable makes the change full; only with no map
+ *     `full` journeys, which no recorded run speaks for, run with a named pull request too, as with any other: no record
+ *     says they miss what it changed. (Until 18 Nov 2026 they were left out of a named run to save shards, and
+ *     #8802 ran 327 files without J-wallet-01, on that list, and turned main red, #8812; #8495 broke J-agents-12, also on
+ *     it; intafaced #8851, journey-touch.test.mjs "replay, 5 named pull requests". Of the last 20 named pull requests
+ *     before this change, 15 ran full anyway, 3 nearly-full picks become full, and one of 1 file becomes 35 files in 10
+ *     shards.) A map that is switched off, stale or unreadable makes the change full; only with no map
  *     input at all (`reach` null: a call without --reach, or a seal io that reads no main runs or journey files) do the
  *     named journeys alone run, as before. Every other full path above still makes it full. Main runs every journey after every merge and is the
  *     backstop (OWNER 249 (3): "a PR runs only the journeys it touches, the full suite runs on main after a merge, a red
@@ -448,7 +450,7 @@ function kindOf(p) {
  * paths run only the journeys whose recorded reach touches them, when every other path allows it and the map can speak
  * for each of them; anything else is full. Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names],
  * reach?: [lines] }. `named`: what namedInputs gives for a pull request that names a journey, or null; with it, product
- * paths run the named journeys besides what the map selects for them (never its always-run list), or the named
+ * paths run the named journeys besides what the map selects for them (its always-run list included), or the named
  * journeys alone when `reach` is null, and `named` says why. With
  * it, a service's own stack file adds the journeys that use it, when nothing else is full (`stack` lists those paths,
  * `importers` those journeys); otherwise it is full like any other.
@@ -483,7 +485,6 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
       subscribes: reach.subscribes,
       head: reach.head ?? null,
       ...(reach.mode ? { mode: reach.mode } : {}),
-      unrecorded: !named,
     });
     if (sel.mode === 'files') {
       for (const f of sel.files) files.add(f);
