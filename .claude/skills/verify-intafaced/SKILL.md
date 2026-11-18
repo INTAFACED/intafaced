@@ -82,7 +82,7 @@ The tests reach the app as a person does: they sign up through the app's own for
 - Some files hand a TEST person or account from test to test: a serial file, or one using `journeyState`. There a later step acts as the person an earlier test made, so a drive of one step runs that file's tests from the first up to the step. The drive says so.
 - A journey that reads past trades refuses on a stack without the TEST chart history and names the launch that writes it.
 
-**One page, for a look the journey tests do not take** (a layout, one element's size, a room before its test exists):
+**One page, for a look the journey tests do not take** (a layout, one element's size, a room before its test exists, the live names before a test asserts an element or label that can vary):
 
 ```sh
 pnpm local:stack verify look /predict
