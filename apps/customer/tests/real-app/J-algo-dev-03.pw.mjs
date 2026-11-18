@@ -194,25 +194,12 @@ test(`${J} #3 edits, saves and writes release notes on two versions, then compar
   await expect(code.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
 });
 
-/**
- * The stack's TEST founders, signed in once for this worker on one gates context (`shareSessions`, as
- * J-more-catalogue-02 keeps its own) and reused by every operator door below. Each sign-in spends a fresh authenticator
- * step per founder, so a sign-in per call waited out a new 30 s window on each call after the first: #4's two publishes
- * and its withdraw and restore of every template took 50 s of its 90 s, and past 90 s when other journeys had spent the
- * founders' steps (#8420). Every sign-in still sends a real, unused step.
- */
-let founderCtx;
-async function founderOps() {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  founderCtx ??= await gates.makeContext({ log: () => {}, shareSessions: true });
-  return { ctx: founderCtx, founders: await gates.approverSessions(founderCtx) };
-}
-
 /** A TEST starter template through the operator's publish door, as the founder console calls it. */
-async function publishTemplate(input) {
-  const { ctx, founders } = await founderOps();
+/** `founders` is the journey's founders fixture (journey.mjs), whose approver sessions sign in once for this file. */
+async function publishTemplate(founders, input) {
+  const { ctx, sessions } = await founders.ops();
   // The operator write scope, as svc-trade's admin doors take it; a plain founder session is an ordinary user.
-  const res = await ctx.edge.mutate('quant', 'ops.template.publish', input, await founders.a.tradeOpsToken());
+  const res = await ctx.edge.mutate('quant', 'ops.template.publish', input, await sessions.a.tradeOpsToken());
   if (!res.json?.result?.data?.version) throw new Error(`template publish refused: ${res.status} ${res.text.slice(0, 300)}`);
   return res.json.result.data;
 }
@@ -233,14 +220,15 @@ const SOURCE_TEMPLATE = {
 
 test(`${J} #4 opens a built-in template version and its source: readable and not editable; with no template published the list says none is published`, async ({
   page,
+  founders,
 }, testInfo) => {
   // Two TEST versions, one key each, so a second run replays them instead of stacking more.
-  const first = await publishTemplate({
+  const first = await publishTemplate(founders, {
     ...SOURCE_TEMPLATE,
     releaseNote: 'LOCAL TEST first version.',
     idempotencyKey: 'journey:J-algo-dev-03:test-source-view:v1',
   });
-  const second = await publishTemplate({
+  const second = await publishTemplate(founders, {
     ...SOURCE_TEMPLATE,
     rules: { ...SOURCE_TEMPLATE.rules, signal: { ...SOURCE_TEMPLATE.rules.signal, average: 'ema' } },
     releaseNote: 'LOCAL TEST uses an exponential average.',
@@ -292,13 +280,13 @@ test(`${J} #4 opens a built-in template version and its source: readable and not
   // One key per attempt: a retry withdraws again rather than replaying this attempt's withdraw after its restore.
   const attempt = `${process.env.JOURNEY_RUN_ID ?? Date.now()}:${testInfo.retry}`;
   try {
-    for (const id of ids) await setTemplateListed(id, false, attempt);
+    for (const id of ids) await setTemplateListed(founders, id, false, attempt);
     const none = (await responseAfterNavigation(page, templateList)).res.body.result.data;
     expect(none).toEqual({ templates: [], nextCursor: null });
     await expect(templates).toContainText('No template is published.');
     await expect(templates.getByRole('button', { name: /^View the source of / })).toHaveCount(0);
   } finally {
-    for (const id of ids) await setTemplateListed(id, true, attempt);
+    for (const id of ids) await setTemplateListed(founders, id, true, attempt);
   }
   await page.reload();
   await expect(templates.getByRole('button', { name: `View the source of ${SOURCE_TEMPLATE.name}` })).toBeVisible();
@@ -306,15 +294,15 @@ test(`${J} #4 opens a built-in template version and its source: readable and not
 });
 
 /** Withdraws a starter template from the list or restores it, through the operator's door, as the founder console calls it. */
-async function setTemplateListed(id, listed, attempt) {
-  const { ctx, founders } = await founderOps();
+async function setTemplateListed(founders, id, listed, attempt) {
+  const { ctx, sessions } = await founders.ops();
   const input = {
     id,
     listed,
     reason: `LOCAL TEST ${J} #4 ${listed ? 'restores' : 'withdraws'} the starter templates`,
     idempotencyKey: `journey:${J}:listing:${id}:${listed ? 'restore' : 'withdraw'}:${attempt}`.slice(0, 128),
   };
-  const res = await ctx.edge.mutate('quant', 'ops.template.listing', input, await founders.a.tradeOpsToken());
+  const res = await ctx.edge.mutate('quant', 'ops.template.listing', input, await sessions.a.tradeOpsToken());
   if (res.json?.result?.data?.listed !== listed) throw new Error(`template listing refused: ${res.status} ${res.text.slice(0, 300)}`);
 }
 
@@ -368,9 +356,9 @@ async function storedRuns(page, strategyId) {
 }
 
 /** The operator's quota door (AL-limits-01), as the founder console calls it, with the stack's TEST founder. */
-async function quotaDoor() {
-  const { ctx, founders } = await founderOps();
-  const token = await founders.a.tradeOpsToken();
+async function quotaDoor(founders) {
+  const { ctx, sessions } = await founders.ops();
+  const token = await sessions.a.tradeOpsToken();
   const data = (res, what) => {
     const got = res.json?.result?.data;
     if (!got) throw new Error(`${what} refused: ${res.status} ${res.text.slice(0, 300)}`);
@@ -465,6 +453,7 @@ async function startPaper(page) {
 
 test(`${J} #6 starts a fourth concurrent run when the plan allows three: a refusal naming the resource with its used and allowed counts; zero refuses every create; unset reads "not set"`, async ({
   page,
+  founders,
 }) => {
   test.setTimeout(10 * 60_000);
   // A second TEST developer with one saved strategy: its paper runs are stored runs too, so the first developer's counts
@@ -476,7 +465,7 @@ test(`${J} #6 starts a fourth concurrent run when the plan allows three: a refus
   await page.goto('/quant/strategies');
   const strategyId = await page.getByTestId('quant-strategy-row').first().getAttribute('data-id');
   expect(strategyId).toBeTruthy();
-  const door = await quotaDoor();
+  const door = await quotaDoor(founders);
   const userId = await userIdOf(second);
   const three = planName('three concurrent runs');
   await door.plan(three, { ...ROOMY, concurrent_runs: '3' });
@@ -542,7 +531,10 @@ test(`${J} #6 starts a fourth concurrent run when the plan allows three: a refus
   await expect(paper.getByTestId('quant-paper-run')).toHaveCount(3);
 });
 
-test(`${J} #7 opens the usage view: counts for strategies, runs, storage and collaborators against the plan`, async ({ page }) => {
+test(`${J} #7 opens the usage view: counts for strategies, runs, storage and collaborators against the plan`, async ({
+  page,
+  founders,
+}) => {
   const { strategyId } = run.read();
   if (!strategyId) throw new Error(`${J} #1 listed no strategy, so this step has nothing to count`);
   await signIn(page, developer());
@@ -571,7 +563,7 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   await expect(plan).toHaveAttribute('data-profile', profile);
   await expect(plan).toHaveAttribute('data-source', assigned ? 'assigned' : 'default');
   await expect(plan).toContainText(`Plan: ${profile} (${assigned ? 'set for this account' : 'the default plan'})`);
-  const stored = Object.fromEntries((await (await quotaDoor()).profile(profile)).limits.map((row) => [row.resource, row.limit]));
+  const stored = Object.fromEntries((await (await quotaDoor(founders)).profile(profile)).limits.map((row) => [row.resource, row.limit]));
 
   const row = (resource) => usage.locator(`[data-resource="${resource}"]`);
   const expected = { strategies: String(saved), runs: String(ran), collaborators: '0' };
@@ -626,9 +618,10 @@ async function quantDb(read) {
 
 test(`${J} #8 chooses a plan with more data freshness or execution priority: the plan page shows what each tier changes; with no tier published it says so`, async ({
   page,
+  founders,
 }) => {
   await signIn(page, developer());
-  const door = await quotaDoor();
+  const door = await quotaDoor(founders);
   const tiers = page.getByTestId('quant-plan-tiers');
   const empty = tiers.getByTestId('quant-plan-tiers-empty');
 
@@ -712,13 +705,14 @@ async function startBacktest(page, slippage) {
 
 test(`${J} #9 starts a fourth run when the plan allows three stored runs: a refusal naming stored runs with 3 used of 3 allowed; the stored runs are unchanged`, async ({
   page,
+  founders,
 }) => {
   test.setTimeout(10 * 60_000);
   const { strategyId } = run.read();
   if (!strategyId) throw new Error(`${J} #1 listed no strategy, so this step has nothing to run`);
   // The operator puts this developer on a TEST plan that allows three stored runs and is roomy for everything else.
   const profile = planName('three stored runs');
-  const door = await quotaDoor();
+  const door = await quotaDoor(founders);
   await door.plan(profile, { ...ROOMY, runs: '3' });
   await door.assign(await userIdOf(developer()), profile);
   await signIn(page, developer());
