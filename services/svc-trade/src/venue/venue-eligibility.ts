@@ -15,11 +15,11 @@ import type { VenueGatedBlocker } from './venue-gated-list.js';
  * A reduce-only order, a cancel and a withdrawal are never checked: they only take risk off the venue.
  */
 
-export const VENUE_ELIGIBILITY_LEVELS = ['basic', 'full', 'institutional'] as const;
+const VENUE_ELIGIBILITY_LEVELS = ['basic', 'full', 'institutional'] as const;
 export type VenueEligibilityLevel = (typeof VENUE_ELIGIBILITY_LEVELS)[number];
 
 export const VENUE_ELIGIBILITY_LEVEL_UNSET = 'trade.venue_eligibility_level_unset' as const;
-export const VENUE_ELIGIBILITY_LEVEL_INSUFFICIENT = 'trade.venue_eligibility_level_insufficient' as const;
+const VENUE_ELIGIBILITY_LEVEL_INSUFFICIENT = 'trade.venue_eligibility_level_insufficient' as const;
 
 /** Why an account is not eligible: one of the two codes, with words a person reads. */
 export interface VenueEligibilityBlocker extends VenueGatedBlocker {
