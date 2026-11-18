@@ -115,7 +115,6 @@ function VenueConvert({ status, asked }: { status: VenueUp; asked: { from: strin
     card = (
       <section data-testid="cvt-card" className="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
         <p>{t('Connect to convert')}</p>
-        <WalletBar />
       </section>
     );
   else if (!pairs)
@@ -135,6 +134,7 @@ function VenueConvert({ status, asked }: { status: VenueUp; asked: { from: strin
   }
   return (
     <>
+      <WalletBar />
       {card}
       {owner ? <VenueRecent owner={owner} test={status.test} /> : null}
     </>
