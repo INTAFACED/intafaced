@@ -322,30 +322,12 @@
       "why": "id = recoveryClaimId(owner, noticeId) is a deterministic hash (recovery-claims.ts:151). open() inserts on this.sql with no lock (recovery-claims.ts:229-234). Two concurrent opens by the heir (double click or retry) carry the same owner_user_id and id, and the loser raises 23505 recovery_claims_pkey instead of reading the claim."
     },
     {
-      "file": "services/svc-bank/src/rules/scheduled-notices.ts",
-      "table": "reminder_rules",
-      "target": "(user_id)",
-      "constraint": "reminder_rules_key_uq",
-      "verdict": "race",
-      "issue": 8901,
-      "why": "rule_key = `reminder:${userId}` is built from the target user_id (scheduled-notices.ts:182). Two concurrent first writes at expectedRevision 0 (a retry with the same clientRequestId, or two tabs) can both pass the user_id pre-check. The loser raises 23505 reminder_rules_key_uq instead of the read-back or bank.reminder_revision_conflict."
-    },
-    {
       "file": "services/svc-bank/src/spaces/bills-pot.ts",
       "table": "bills_pots",
       "target": "(user_id, asset_id)",
       "constraint": "bills_pots_space_uq",
       "verdict": "safe",
       "why": "The upsert runs under the space's row lock (ownPotForUpdate: SELECT … FOR UPDATE, space-service.ts:762). A space has exactly one user and one asset, so a clash on space_id implies the same (user_id, asset_id), which the DO UPDATE target absorbs."
-    },
-    {
-      "file": "services/svc-bank/src/transfers/limit-requests.ts",
-      "table": "limit_increase_requests",
-      "target": "(id)",
-      "constraint": "limit_increase_requests_open_uq",
-      "verdict": "race",
-      "issue": 8902,
-      "why": "Two concurrent requests with the same requestId (a retry) carry the same (user, asset, kind) while it is open. With no lock (limit-requests.ts:107), the loser raises 23505 on limit_increase_requests_open_uq, and the catch maps it to bank.limit_request_open instead of the replay this id should get."
     },
     {
       "file": "services/svc-bank/src/transfers/personal-pay.ts",
@@ -362,15 +344,6 @@
       "constraint": "user_withdraw_destinations_book_idx",
       "verdict": "safe",
       "why": "This insert always writes origin='legacy' (withdraw-destination.ts:514), and the book index is WHERE origin='customer', so its rows never enter that index."
-    },
-    {
-      "file": "services/svc-bank/src/withdraw-destination.ts",
-      "table": "user_withdraw_destinations",
-      "target": "(user_id, kind) WHERE origin='legacy'",
-      "constraint": "user_withdraw_destinations_label_idx",
-      "verdict": "race",
-      "issue": 8903,
-      "why": "Two concurrent first persist() calls for the same user and kind with the same label can both pass the legacy-slot pre-check. The loser clashes on (user_id, lower(label)), and the catch maps that to LABEL_TAKEN (withdraw-destination.ts:526) instead of returning the winner's row. A persist without a label is unaffected: label is NULL."
     },
     {
       "file": "services/svc-blueprint/src/blueprint-service.ts",

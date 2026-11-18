@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * svc-bank's card programme desk (`ops.cardProgramme*`, J-bank-26): what the service answers, in one place, so the admin
@@ -72,7 +73,7 @@ export const bankCardProgrammeCardRefSchema = z.object({
   id: z.string(),
   panTail: z.string(),
   status: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   test: z.boolean(),
 });
 
@@ -99,7 +100,7 @@ export const bankCardDecisionSchema = z.object({
   id: z.string(),
   cardId: z.string(),
   panTail: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: decimal,
   channel: z.string(),
   merchantCategory: z.string().nullable(),
@@ -114,7 +115,7 @@ export const bankCardProgrammeReportSchema = z.object({
   day: z.string(),
   asOf: when,
   test: z.boolean(),
-  assets: z.array(z.object({ assetId: z.string(), approved: count, approvedVolume: decimal, declined: count })),
+  assets: z.array(z.object({ assetId: assetIdSchema, approved: count, approvedVolume: decimal, declined: count })),
   totals: z.object({ approved: count, declined: count }),
 });
 
@@ -144,7 +145,7 @@ export const bankCardAuthorizationDetailSchema = z.object({
   cardId: z.string(),
   authorizationRef: z.string(),
   panTail: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: decimal,
   channel: z.string(),
   merchantCategory: z.string().nullable(),
@@ -163,7 +164,7 @@ export type BankCardAuthorizationDetail = z.infer<typeof bankCardAuthorizationDe
 
 /** One asset's card funds for a cardholder: held plus captured in the app beside the partner's own figure (null: not known). */
 export const bankCardholderFundsSchema = z.object({
-  assetId: z.string(),
+  assetId: assetIdSchema,
   appHeld: decimal,
   appCaptured: decimal,
   appFigure: decimal,
@@ -188,7 +189,7 @@ export const bankCardProgrammeFiguresSchema = z.object({
   test: z.boolean(),
   rows: z.array(
     z.object({
-      assetId: z.string(),
+      assetId: assetIdSchema,
       // svc-bank sends an unknown as the words "not known" (ops.cardProgrammeFunding), never 0 or a blank.
       partnerFigure: knownOrNot,
       partnerState: z.enum(['known', 'stale', 'unknown']),

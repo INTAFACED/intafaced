@@ -384,6 +384,19 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
   },
 
   {
+    // A move in to the trading account (J-derivatives-25 #2): the partner sends this amount to the person's own wallet.
+    scope: 'bank.step_up.ownMoves.toWallet',
+    purpose: 'ownMoves.toWallet',
+    clientFields: ['moveId', 'assetId', 'amount', 'wallet'],
+    amountField: 'amount',
+    targetField: 'wallet',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
+    fixed: {},
+    shapes: { moveId: (v) => UUID_RE.test(v), wallet: (v) => /^0x[0-9a-f]{40}$/.test(v) },
+  },
+  {
     scope: 'bank.step_up.ramps.offramp',
     purpose: 'ramps.offramp',
     clientFields: ['offrampId', 'assetId', 'amount', 'kind', 'destinationRef', 'clientRef'],

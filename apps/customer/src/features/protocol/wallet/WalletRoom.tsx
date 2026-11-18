@@ -155,7 +155,11 @@ export function WalletRoom({
     section === 'overview' ? (
       overview
     ) : section === 'send' ? (
-      <SendPanel to={query.get('to') ?? ''} token={query.get('token') ?? ''} />
+      // A link that opens Send filled in (Home's pay-in route) may land here before any wallet is connected.
+      <>
+        {connectPanel}
+        <SendPanel to={query.get('to') ?? ''} token={query.get('token') ?? ''} />
+      </>
     ) : section === 'receive' ? (
       <ReceivePanel />
     ) : section === 'scan' ? (

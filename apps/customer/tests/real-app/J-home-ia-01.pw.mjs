@@ -1,7 +1,7 @@
 // World: book, restart
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, fund, ORIGIN, restartWithSetting, toUnits } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, ORIGIN, restartWithSetting, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -353,28 +353,55 @@ test(`${J} #9 with nothing to do, the list says nothing needs you`, async ({ bro
   await context.close();
 });
 
-test(`${J} #8 with the margin warning level blank, an open loan adds no margin item to the list`, async ({ browser }) => {
+test(`${J} #8 with the margin warning level blank, a loan as close to its margin call as a new loan may go adds no margin item to the list`, async ({
+  browser,
+}) => {
   test.setTimeout(300_000);
   const { who: fresh, page, context } = await approvedPerson(browser, 'hmm');
   const { work, settled } = needsYou(page);
-  // An open loan while the owner's margin warning level is blank (svc-bank home/work-items.ts: no value yet, so only a
-  // loan already in a margin call would be listed, and this one is not): no margin item and no error. The loan is the
-  // bank's TEST product from the stack's content seed.
-  expect(fund(fresh.email, 'BTC', '0.01').tx).toBeTruthy();
   const client = await api(fresh);
+  // The bank's TEST loan product from the stack's content seed, with the bands it publishes to borrowers.
   const products = await client.get(`/api/bank/trpc/loans.products?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
   expect(products.status, JSON.stringify(products.body).slice(0, 300)).toBe(200);
   const product = products.body.result.data.find((row) => row.collateralAssetId === 'BTC' && row.debtAssetId === 'USDT');
   expect(product, 'the TEST content seed publishes a BTC-backed USDT loan product').toBeTruthy();
+  // The level blank, established: the margin warning level is an owner value svc-bank has no value for (no setting holds
+  // it: services/svc-bank/src/home/work-items.ts), so the bank publishes only its call and liquidation bands, no warning.
+  expect(Object.keys(product).filter((key) => /warn/i.test(key))).toEqual([]);
+  expect(product.maxLtvBps).toBeLessThan(product.marginCallLtvBps);
+
+  // A loan opened near the product's maximum loan-to-value: the bank's own quote for 100 USDT names the smallest pledge
+  // it accepts, so the loan starts about as close to its margin call band as a new loan may. Any warning level below the
+  // call band would list it; with the level blank, only a loan already in a call is listed, and this one is not.
+  const quoted = await client.get(
+    `/api/bank/trpc/loans.quote?input=${encodeURIComponent(JSON.stringify({ productId: product.id, principal: '100' }))}`,
+  );
+  expect(quoted.status, JSON.stringify(quoted.body).slice(0, 300)).toBe(200);
+  const quote = quoted.body.result.data;
+  expect(quote.maxLtvBps).toBe(product.maxLtvBps);
+  // Two percent over the smallest pledge, so a tick of the TEST maker's BTC price between the quote and the open does not
+  // refuse the loan; it still starts within a few points of the maximum. Rounded up to a whole satoshi.
+  const sat = 10n ** 10n;
+  const pledge = fromUnits((((toUnits(quote.requiredCollateral) * 102n) / 100n + sat - 1n) / sat) * sat);
+  expect(fund(fresh.email, 'BTC', pledge).tx).toBeTruthy();
   const opened = await client.post('/api/bank/trpc/loans.open', {
     // The loan's id is its business key, named by this step and person, so a retried step meets the same loan.
     loanId: businessUuid(`${J}-8-loan:${fresh.handle}`),
     productId: product.id,
-    collateralAmount: '0.01',
+    collateralAmount: pledge,
     principal: '100',
   });
   expect(opened.status, JSON.stringify(opened.body).slice(0, 300)).toBe(200);
-  expect(opened.body.result.data.status).toBe('active');
+  const loan = opened.body.result.data;
+  expect(loan.status).toBe('active');
+  // The server's loan-to-value: past the healthy start of the band, short of the call.
+  expect(loan.ltvBps).toBeGreaterThan(product.maxLtvBps - 500);
+  expect(loan.ltvBps).toBeLessThan(product.marginCallLtvBps);
+
+  // The bank's own answer for this person holds no margin item and no refusal, and Home's list shows none and no error.
+  const bankItems = await client.get('/api/bank/trpc/workItems.list');
+  expect(bankItems.status, JSON.stringify(bankItems.body).slice(0, 300)).toBe(200);
+  expect(bankItems.body.result.data.items.filter((item) => item.kind === 'margin_health')).toEqual([]);
   await page.goto('/');
   await settled();
   await expect(work.locator('[data-kind="margin_health"]')).toHaveCount(0);

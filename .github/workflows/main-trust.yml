@@ -31,6 +31,9 @@ name: Main trust
 # head; a red of its own stays red, and a refusal from GitHub stops it and opens one issue. (Failure it prevents: main's
 # run was green at 23:50 UTC on 11 Nov and the open pull requests stayed red until a person re-ran six of them.)
 #
+# After each Real-app journeys run on main (`spent`): an open automatic revert whose failing steps main's run passed
+# outright with the culprit still in is closed (tooling/ci/journeys-revert.mjs spent).
+#
 # After each Real-app journeys run on main (`held`): an open, armed pull request red only on steps main was red on and is
 # no longer red on gets its branch updated from main, once per main recovery, so it runs again on its own and merges if it
 # is otherwise green; a red of its own stays red.
@@ -88,7 +91,7 @@ jobs:
       actions: write # re-run failed jobs once, read runs and their journey reports, start the journeys revert
       checks: read # a job's annotations: a cancel by the job time limit counts as red
       issues: write # open, comment on and close the break issues
-      pull-requests: read # whether a pull request whose journeys run is red only on main's inputs is open on that head
+      pull-requests: write # read whether a pull request is open on a head; close an automatic revert main no longer needs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -116,6 +119,15 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: node tooling/ci/journeys-revert.mjs trigger
+      # Main passed an open automatic revert's failing steps outright with its culprit still in: the revert would undo a
+      # change that is not the cause, so it closes (journeys-revert.mjs spent; project-state #2997: #8817 stayed armed
+      # after main went green at 02:42 UTC on 18 Nov until a person closed it).
+      - name: Close an automatic revert main no longer needs
+        if: ${{ !cancelled() && github.event.workflow_run.name == 'Real-app journeys' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: node tooling/ci/journeys-revert.mjs spent
       # Main's report is back (or was never gone): re-run the open pull requests' journeys runs that are red only because
       # their verdict couldn't read main's inputs (tooling/ci/journeys-revive.mjs prTick), so they follow main within minutes.
       - name: Re-run pull requests red only on main's inputs
@@ -201,7 +213,7 @@ jobs:
       contents: read
       actions: write # read runs, their jobs' logs and their journey reports, re-run failed jobs
       issues: write # name a run still without a report after its last try, or a refusal
-      pull-requests: read # whether a pull request whose journeys run is red only on main's inputs is open on that head
+      pull-requests: write # read whether a pull request is open on a head; close an automatic revert main no longer needs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

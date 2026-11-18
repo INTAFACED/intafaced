@@ -3,6 +3,7 @@
 // touched files gain a finding, in CI and before a push; tooling/lint/ratchet.json names the few rules that only print.
 import { copyRules } from './copy-rules.js';
 import { absentRules } from './absent-rule.js';
+import { assetIdRules } from './asset-id-rule.js';
 import { moneyRules } from './money-rules.js';
 import { sharedMarketRules } from './shared-market-rule.js';
 import { useSharedHelper } from './duplicate-rules.js';
@@ -202,6 +203,7 @@ export default {
     'no-wait-for-timeout': noWaitForTimeout,
     ...copyRules,
     ...absentRules,
+    ...assetIdRules,
     ...moneyRules,
     ...sharedMarketRules,
     ...potetoRules,

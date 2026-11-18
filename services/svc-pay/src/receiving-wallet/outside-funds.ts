@@ -3,6 +3,7 @@ import type { OutsideFunds } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { iso } from '../merchant-ops/money.js';
 import type { MerchantCaller } from '../merchant-ops/roles.js';
+import { asAssetId } from '@intafaced/contracts';
 
 /**
  * A business's money held outside our book, per asset and holder (J-merchant-04: "the merchant sees it as clearing, then
@@ -83,7 +84,7 @@ export async function outsideFundsOf(sql: Sql, caller: MerchantCaller): Promise<
     rows: [...by.values()]
       .sort((a, b) => a.currency.localeCompare(b.currency) || a.custody.localeCompare(b.custody))
       .map((v) => ({
-        assetId: v.currency,
+        assetId: asAssetId(v.currency),
         holder: v.custody === 'merchant_wallet' ? ('own_wallet' as const) : ('partner' as const),
         source: v.custody === 'merchant_wallet' ? ('chain' as const) : ('partner' as const),
         clearing: formatAmount(v.clearing),

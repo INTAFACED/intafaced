@@ -14,6 +14,7 @@ import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.j
 import { createSupportHttpApp } from './http-app.js';
 import { SqlContactBook } from './contact-channels.js';
 import { SqlAttachmentSettingsBook } from './attachment-settings.js';
+import { SqlResponseTargetBook } from './response-targets.js';
 import { SqlSurveyBook } from './survey-settings.js';
 import { SqlHelpCentreBook } from './help-centre.js';
 import { RequestForms, SqlFormsStore } from './request-forms.js';
@@ -276,6 +277,7 @@ const links = new TicketLinks(
   env.PAY_URL ? createPayOwnershipClient(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null,
 );
 support.useRecoveryLinks(() => links.recoveryTickets());
+support.useResponseTargets(new SqlResponseTargetBook(sql));
 const appRouter = createSupportRouter(
   support,
   loop,

@@ -306,17 +306,40 @@ async function setTemplateListed(founders, id, listed, attempt) {
   if (res.json?.result?.data?.listed !== listed) throw new Error(`template listing refused: ${res.status} ${res.text.slice(0, 300)}`);
 }
 
+/**
+ * Every version row on the strategy's own page, newest first, each as the page shows it: number, name, saved minute and
+ * release note. `count` is how many the page must list before they are read.
+ */
+async function versionRows(page, strategyId, count) {
+  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
+  const versions = page.getByTestId('quant-versions');
+  await expect(versions).toHaveAttribute('data-strategy-id', strategyId);
+  const rows = versions.getByTestId('quant-version-row');
+  await expect(rows).toHaveCount(count);
+  return rows.evaluateAll((trs) =>
+    trs.map((tr) => ({
+      version: tr.getAttribute('data-version'),
+      cells: [...tr.querySelectorAll('td')].slice(1, 5).map((td) => td.textContent.trim()),
+    })),
+  );
+}
+
 test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves out with its versions and returns with the same versions`, async ({
   page,
 }) => {
   const { strategyId } = run.read();
   if (!strategyId) throw new Error(`${J} #1 listed no strategy, so this step has nothing to delete`);
   await signIn(page, developer());
+  // The versions it has now (#3 adds two, each with its note), read from its own page, so the restore is checked against them.
   await page.goto('/quant/strategies');
-  const room = page.getByTestId('quant-strategies');
-  // The versions it has now (#3 adds two), so the restore is checked against them.
   const version = await rowOf(page, strategyId).getAttribute('data-version');
   expect(version).toMatch(/^[1-9]\d*$/);
+  const before = await versionRows(page, strategyId, Number(version));
+  expect(before.map((row) => row.version)).toEqual(Array.from({ length: Number(version) }, (_, i) => String(Number(version) - i)));
+  expect(before.map((row) => row.cells[3])).toEqual(['TEST slowest exit', 'TEST slower exit', 'No note']);
+
+  await page.goto('/quant/strategies');
+  const room = page.getByTestId('quant-strategies');
   await rowOf(page, strategyId)
     .getByRole('button', { name: `Delete ${RENAMED}` })
     .click();
@@ -335,6 +358,14 @@ test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves
   await expect(binned).toContainText(RENAMED);
   await expect(binned).toContainText(FOLDER);
 
+  // Its versions moved out with it: its own page gets the service's not-found answer and lists no version.
+  const studioGet = (r) => r.url().includes('/api/quant/trpc/studio.get');
+  const gone = await answerAfterNavigation(page, studioGet, () => page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`));
+  expect(gone.status()).toBe(404);
+  expect(await gone.text()).toContain('strategy not found');
+  await expect(page.getByTestId('quant-version-row')).toHaveCount(0);
+  await page.goto('/quant/strategies?tab=bin');
+
   // Restored, it is back in the list with the same version, name and folder, and the bin is empty.
   await binned.getByRole('button', { name: `Restore ${RENAMED}` }).click();
   await expect(page.getByTestId('quant-strategies-note')).toHaveText(`${RENAMED} is back with every version, up to version ${version}.`);
@@ -344,6 +375,8 @@ test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves
   await expect(back.getByTestId('quant-strategy-name')).toHaveText(RENAMED);
   await expect(back).toHaveAttribute('data-version', version ?? '');
   await expect(back).toHaveAttribute('data-folder', FOLDER);
+  // The same versions: every one, each with its number, name, saved minute and note as before the delete.
+  expect(await versionRows(page, strategyId, before.length)).toEqual(before);
 });
 
 /** The ids of the strategy's stored runs, as its page lists them: #3 ran one, so the list has loaded once a row shows. */

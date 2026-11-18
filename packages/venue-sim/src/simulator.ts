@@ -39,6 +39,7 @@ import {
   type UserVenueLeverageChange,
   type UserVenueIsolatedMargin,
   type UserVenueAccountSummary,
+  type UserVenueCrossMargin,
   type UserVenueAdlRules,
   type UserVenueDeleverage,
   type UserVenueInsuranceFund,
@@ -291,6 +292,21 @@ export const TEST_ADL_RULES: UserVenueAdlRules = {
     "side, the most profitable and most leveraged first, at the liquidated position's bankruptcy price, and sends each " +
     'account a notice. No fee is charged on an auto-deleveraging close.',
 };
+
+/**
+ * TEST: cross margin on the TEST venue (J-derivatives-26). A market that offers `cross` and liquidates (`liquidation`)
+ * takes cross positions on the account's main balance in its quote asset. They share one equity: the collateral free
+ * there plus each cross position's margin and its result at the mark. The venue calls for margin while that equity is
+ * below their maintenance requirement, and liquidates every cross position of the account at its mark once equity falls
+ * to `CROSS_LIQUIDATION_SHARE` of it. A loss past the account's equity is the insurance fund's, up to what it holds: the
+ * account ends at zero, never below.
+ */
+export const CROSS_LIQUIDATION_SHARE = parseAmount('0.5');
+export const CROSS_RULE =
+  'TEST rule: cross positions share the account’s equity (its free collateral plus each cross position’s margin and result ' +
+  'at the mark). The venue calls for margin while equity is below their maintenance requirement, and closes every cross ' +
+  'position at its mark once equity falls to half of it; a loss past the account’s equity is paid by the insurance fund, ' +
+  'so the account ends at zero and never below.';
 
 /** The public liquidation and auto-deleveraging alerts the simulator keeps, newest last. */
 const ALERTS_KEPT = 500;
@@ -2164,7 +2180,97 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       usedMargin: used,
       maintenanceMargin: maintenance,
       marginRatio: compare(equity, ZERO) > 0 ? { known: true, value: div(maintenance, equity, 'ceil') } : { known: false },
+      cross: this.crossMarginOf(state),
     });
+  }
+
+  /** The account's cross margin as the venue judges it, or `null` with no cross position open (J-derivatives-26). */
+  private crossMarginOf(state: AccountState): UserVenueCrossMargin | null {
+    const c = this.crossOf(state);
+    if (!c) return null;
+    return {
+      state: compare(c.equity, c.maintenance) < 0 ? 'margin_call' : 'healthy',
+      equity: c.equity,
+      maintenanceMargin: c.maintenance,
+      marginRatio: compare(c.equity, ZERO) > 0 ? { known: true, value: div(c.maintenance, c.equity, 'ceil') } : { known: false },
+      liquidationEquity: mul(c.maintenance, CROSS_LIQUIDATION_SHARE),
+      rule: CROSS_RULE,
+    };
+  }
+
+  /** The account's open cross positions and their shared equity and maintenance, at each market's mark; `null` with none. */
+  private crossOf(state: AccountState): {
+    asset: string;
+    usdc: { free: Amount; locked: Amount };
+    open: { market: SimMarketConfig; p: PositionState; mark: Amount }[];
+    unrealised: Amount;
+    equity: Amount;
+    maintenance: Amount;
+  } | null {
+    const open: { market: SimMarketConfig; p: PositionState; mark: Amount }[] = [];
+    for (const [symbol, p] of state.positions)
+      if (p.size !== ZERO && p.marginMode === 'cross')
+        open.push({ market: this.market(symbol), p, mark: this.marks.get(symbol) ?? p.entryPrice });
+    const asset = open[0]?.market.quoteAsset;
+    if (asset === undefined) return null;
+    const usdc = this.balance(state, asset);
+    let unrealised = ZERO;
+    let margin = ZERO;
+    let maintenance = ZERO;
+    for (const { market, p, mark } of open) {
+      unrealised = add(unrealised, this.pnl(p, mark, p.size));
+      margin = add(margin, p.margin);
+      const m = this.maintenanceOf(market, p);
+      if (m.known) maintenance = add(maintenance, m.value);
+    }
+    return { asset, usdc, open, unrealised, equity: add(add(usdc.free, margin), unrealised), maintenance };
+  }
+
+  /** What a cross loss at the mark already takes from the account's free `asset`: zero or less. */
+  private crossLoss(state: AccountState, asset: string): Amount {
+    const c = this.crossOf(state);
+    if (!c || c.asset !== asset) return ZERO;
+    return min(c.unrealised, ZERO);
+  }
+
+  /**
+   * The venue's cross liquidation pass (J-derivatives-26): an account whose cross equity has fallen to its liquidation
+   * level has every cross position closed at its mark, once, each as one liquidation with one part. Each part's fee,
+   * `feeRate` of its value at the mark capped at what the account has left, is paid into the insurance fund, and a loss
+   * past the account's equity is the fund's, up to what it holds: the account's collateral ends at zero, never below.
+   */
+  private runCrossLiquidations(): void {
+    for (const state of this.accounts.values()) {
+      const c = this.crossOf(state);
+      if (!c || compare(c.equity, mul(c.maintenance, CROSS_LIQUIDATION_SHARE)) > 0) continue;
+      for (const { market } of c.open) this.cancelAllOn(state, market.symbol);
+      const usdc = c.usdc;
+      let left = usdc.free;
+      for (const { market, p, mark } of c.open) {
+        const qty = p.size;
+        left = add(left, add(p.margin, this.pnl(p, mark, qty)));
+        // A cross market liquidates (`runLiquidations` runs only there), so its fee rate is published.
+        const fee = min(mul(mul(mark, qty), market.liquidation?.feeRate ?? ZERO, QUOTE_ROUND), max(left, ZERO));
+        left = sub(left, fee);
+        this.insurance.balance = add(this.insurance.balance, fee);
+        usdc.locked = sub(usdc.locked, p.margin);
+        p.margin = ZERO;
+        p.size = ZERO;
+        const at = this.clock();
+        const liquidationId = `liq-${++this.liquidationCounter}`;
+        state.liquidations.push({
+          liquidationId,
+          symbol: market.symbol,
+          side: p.side,
+          state: 'done',
+          parts: [{ partId: `${liquidationId}-1`, size: qty, price: mark, fee, feeAsset: market.quoteAsset, liquidatedAt: at }],
+          startedAt: at,
+        });
+        this.alert({ kind: 'liquidation', symbol: market.symbol, side: p.side, size: qty, price: mark, alertedAt: at });
+      }
+      if (compare(left, ZERO) < 0) this.insurance.balance = sub(this.insurance.balance, min(sub(ZERO, left), this.insurance.balance));
+      usdc.free = max(left, ZERO);
+    }
   }
 
   // ── liquidation and its aftermath (J-derivatives-07) ─────────────────────────────────────────────────────────────
@@ -2933,7 +3039,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         const fee = this.switches.withdrawalFee.known ? this.switches.withdrawalFee.value : this.switches.unpublishedWithdrawalFee;
         const balance = this.balance(state, intent.asset);
         const needed = add(intent.amount, fee);
-        if (compare(balance.free, needed) < 0)
+        if (compare(add(balance.free, this.crossLoss(state, intent.asset)), needed) < 0)
           return refused('insufficient_balance', `free ${intent.asset} does not cover the withdrawal and its fee`);
         balance.free = sub(balance.free, needed);
         this.withdrawalFeeCharged.set(`${state.key}#${prepared.nonce}`, fee);
@@ -3157,7 +3263,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     // A market with its deployer's own margin account locks there, never on the main account.
     const marginAccount = perp && market.marginAccount ? market.marginAccount.name : null;
     const balance = this.lockBalance(state, marginAccount, lockAsset);
-    if (compare(balance.free, lockAmount) < 0)
+    // A cross opening order can't spend what a cross loss at the mark already takes (J-derivatives-26).
+    const crossLoss = perp && !marginAccount && !intent.reduceOnly ? this.crossLoss(state, lockAsset) : ZERO;
+    if (compare(add(balance.free, crossLoss), lockAmount) < 0)
       return refused(
         'insufficient_balance',
         `free ${lockAsset}${marginAccount ? ` in ${marginAccount}` : ''} does not cover ${perp ? 'the margin and fees' : 'what'} this order locks`,
@@ -3695,11 +3803,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     p.margin = sub(p.margin, released);
     p.size = sub(p.size, closeQty);
     usdc.locked = sub(usdc.locked, released);
-    const realised = max(pnl, sub(ZERO, released));
+    // Isolated: the loss stops at the margin released. Cross: it may reach the account's free collateral too, never past it.
+    const realised = max(pnl, sub(ZERO, p.marginMode === 'cross' ? add(released, usdc.free) : released));
     const feeFromLock = min(fees, lockForQty);
     const feeLeft = sub(fees, feeFromLock);
     const back = add(released, realised);
-    const feeFromBack = min(feeLeft, back);
+    // A cross close's loss may take more than its margin back (`back` below zero): no fee is taken from that.
+    const feeFromBack = min(feeLeft, max(back, ZERO));
     usdc.free = add(usdc.free, add(sub(lockForQty, feeFromLock), sub(back, feeFromBack)));
     return { realisedPnl: realised, uncharged: sub(feeLeft, feeFromBack) };
   }
@@ -3728,6 +3838,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * reports the venue's figure.
    */
   private liquidationPrice(market: SimMarketConfig, p: PositionState): MaybeKnown<Amount> {
+    // A cross position has no liquidation price of its own: the account's cross equity is judged (`crossMarginOf`).
+    if (p.marginMode === 'cross') return { known: false };
     const notional = mul(p.entryPrice, p.size);
     const rate = market.marginTiers?.length ? tierOf(market.marginTiers, notional).maintenanceRate : market.maintenanceMarginRate;
     if (rate === undefined) return { known: false };
@@ -3777,6 +3889,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (market.kind !== 'perpetual' || !market.liquidation) return;
     const mark = this.marks.get(symbol);
     if (mark === undefined) return;
+    if (market.marginModes.includes('cross')) this.runCrossLiquidations();
     for (const state of this.accounts.values()) {
       const p = state.positions.get(symbol);
       const live = state.liquidations.find((l) => l.symbol === symbol && l.state === 'in_progress');

@@ -132,6 +132,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/trade/bots/signals/publish': { template: 'flow' },
   '/trade/risk': { template: 'monitor' },
   '/trade/positions': { template: 'monitor' },
+  '/trade/account': { template: 'monitor' },
   '/trade/orders': { template: 'record-list' },
   '/trade/orders/:id': { template: 'record-list' },
   '/trade/news': { template: 'reading' },

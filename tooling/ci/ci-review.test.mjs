@@ -44,6 +44,8 @@ import {
   COMPARE_FILES_CAP,
   failStreak,
   findingsInLog,
+  clearedLines,
+  whereTheyFall,
   premiseLines,
   readStreak,
 } from './ci-review.mjs';
@@ -1879,4 +1881,45 @@ test('readStreak reads the branch through GitHub and the logs only from the thir
   assert.equal(at2.length, 2);
   assert.ok(!asked.some((p) => p.includes('/logs')), 'no log read below the third FAIL');
   assert.deepEqual(await readStreak({ repo: 'o/r', number: 7, ref: 'b', head: hex('9'), get }), [], 'a replay at a head with no FAIL');
+});
+
+// A verdict says what it checked and cleared (ci-review.mjs VERDICT_SCHEMA `cleared`; pstack blast-radius L36). The
+// failure it replaces: a PASS printed "## CI review: PASS on <head>" and nothing else, so no one could tell what it read.
+test('the schema asks for what was cleared; the answer carries it; the log prints it apart from the findings', () => {
+  assert.ok(VERDICT_SCHEMA.required.includes('cleared'));
+  assert.equal(VERDICT_SCHEMA.properties.cleared.minItems, 1);
+  const ok = (answer) => JSON.stringify({ is_error: false, subtype: 'success', structured_output: answer });
+  const pass = readAnswer(ok({ verdict: 'PASS', findings: [], cleared: ['svc-ledger callers of postEntry: none changed'] }));
+  assert.equal(pass.verdict, 'PASS');
+  assert.deepEqual(pass.cleared, ['svc-ledger callers of postEntry: none changed']);
+  // Told, never judged: an answer without it keeps its verdict.
+  const bare = readAnswer(ok({ verdict: 'PASS', findings: [] }));
+  assert.equal(bare.verdict, 'PASS');
+  assert.deepEqual(bare.cleared, []);
+  assert.deepEqual(clearedLines([]), []);
+  const log = ['## CI review: FAIL on abc', '', '- a.ts:1: item 4: broken', ...clearedLines(['b.ts callers: - fine'])].join('\n');
+  assert.match(log, /### Checked and cleared\n\n {2}\* b\.ts callers: - fine/);
+  assert.deepEqual(findingsInLog(log), ['a.ts:1: item 4: broken'], 'a cleared line is never read back as a finding');
+});
+
+// Where a streak falls (whereTheyFall; pstack principle-attack-the-premise L12). The failure it replaces: the third
+// FAIL listed each head's findings and asked what they share, never which files, steps and heads they land on.
+test('the third FAIL says which files, steps and heads the findings fall on', () => {
+  const streak = [
+    { sha: hex('3'), findings: ['a.ts:4: item 4: J-cex-spot-01 #2 breaks', 'no place at all'] },
+    { sha: hex('2'), findings: ['a.ts:9: item 4: still broken'] },
+    { sha: hex('1'), findings: ['b.mjs:1: item 3: weaker'] },
+  ];
+  assert.deepEqual(whereTheyFall(streak), [
+    'Where they fall, of 3 heads:',
+    `  * a.ts: 2 (${hex('3').slice(0, 10)}, ${hex('2').slice(0, 10)})`,
+    `  * b.mjs: 1 (${hex('1').slice(0, 10)})`,
+    `  * J-cex-spot-01 #2: 1 (${hex('3').slice(0, 10)})`,
+    '  * 1 finding(s) name no file or step',
+    '',
+  ]);
+  assert.deepEqual(whereTheyFall([{ sha: hex('1'), findings: ['nowhere'] }]), []);
+  const out = premiseLines(streak).join('\n');
+  assert.match(out, /where they fall, not only how many there are: which steps, files and heads/);
+  assert.match(out, /Where they fall, of 3 heads:/);
 });

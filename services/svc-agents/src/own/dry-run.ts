@@ -17,6 +17,7 @@ import { effectiveRequirement, OwnConsentStore, OwnRuleStore, stricter, type Pol
 import { readOwnCaps } from './limits.js';
 import { decideApproval, guardedEngineRun } from './content-guard.js';
 import { decideMemory, runMemoryOf, OwnMemoryStore, withheldAsk, type MemoryDecision } from './memory.js';
+import { asAssetId } from '@intafaced/contracts';
 
 /**
  * DRY RUNS OF A PERSON'S OWN AGENT (AG-spend-04; J-agents-04 #3).
@@ -109,7 +110,7 @@ const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => {
     requestId: row.request_id,
     mode: 'test' as const,
     cost: '0' as const,
-    assetId,
+    assetId: asAssetId(assetId),
     label: 'TEST' as const,
     createdAt: row.created_at.toISOString(),
   };
@@ -483,6 +484,6 @@ export async function ownAgentAnalytics(
     failed: live.failed,
     testRuns,
     cost: formatAmount(parseAmount(live.cost)),
-    assetId: input.assetId,
+    assetId: asAssetId(input.assetId),
   };
 }
