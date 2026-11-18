@@ -227,7 +227,9 @@ test(`${J} #1 opens a customer's alerts and layouts from /support: alerts with h
     targetPrice: target,
   });
   expect(created.status, JSON.stringify(created.body).slice(0, 300)).toBe(200);
-  const alert = created.body.result.data;
+  // notify.createAlert answers { alert, evaluation }.
+  const { alert } = created.body.result.data;
+  expect(alert?.id, JSON.stringify(created.body).slice(0, 300)).toMatch(/^[0-9a-f-]{36}$/);
   // The sweep runs every minute: the firing is in the customer's own trigger log within two passes.
   await expect.poll(async () => (await ownTriggers(client, alert.id)).length, { timeout: 150_000, intervals: [5_000] }).toBeGreaterThan(0);
   const [fired] = await ownTriggers(client, alert.id);
