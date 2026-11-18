@@ -12,9 +12,6 @@ import { whereCopy } from './where-it-sits-copy';
 import { useStanding, type PartnerRead } from './standing-data';
 import type { ValuedPart } from './standing';
 import { StandingTotal, dollars } from './StandingTotal';
-import { Button, isHiddenPath, navigate } from './deps';
-import { buyHref } from './links';
-import { balanceEntriesHref } from './balance-entries-model';
 
 type T = ReturnType<typeof whereCopy.useCopy>['t'];
 
@@ -68,11 +65,8 @@ function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; c
             hidden={hideBalances}
             testId="assets-total"
           />
-          <QuickActions t={t} />
         </Panel>
-      ) : (
-        <QuickActions t={t} />
-      )}
+      ) : null}
       <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} t={t} />
       <VenueSource status={status} read={venue} valued={part('venue')} t={t} />
       {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} />}
@@ -94,73 +88,11 @@ function AsOf({ iso }: { iso: string }) {
   );
 }
 
-/** Where the person goes from the total (J-portfolio-01 #1): each a real room on the launch model, none a dead end. */
-const ACTIONS = [
-  { id: 'Trade', href: () => buyHref(null, null, false, 'pro') },
-  { id: 'Fund venue', href: () => (isHiddenPath('/wallet/venue') ? null : '/wallet/venue') },
-  { id: 'Activity', href: () => (isHiddenPath('/money/activity') ? null : '/money/activity') },
-] as const;
-
-function QuickActions({ t }: { t: T }) {
-  const live = ACTIONS.flatMap((action) => {
-    const href = action.href();
-    return href ? [{ id: action.id, href }] : [];
-  });
-  return (
-    <nav data-testid="assets-actions" className="money-actions" aria-label={t('Actions')}>
-      {live.map((action, index) => (
-        <Button
-          key={action.id}
-          variant={index === 0 ? 'primary' : 'secondary'}
-          size={40}
-          nativeButton={false}
-          render={<a href={action.href} />}
-        >
-          {t(action.id)}
-        </Button>
-      ))}
-    </nav>
-  );
+/** The value cell of `asset` in a valued part: dollars to the cent at the published price, or "No price published". */
+function valueOf(valued: ValuedPart | undefined, asset: string, t: T): string {
+  const value = valued?.rows.find((row) => row.asset === asset)?.valueUsd ?? null;
+  return value === null ? t('No price published') : dollars(value);
 }
-
-/**
- * The price, value, share and source cells of `asset` in a valued part (J-portfolio-01 #1): the published price, dollars
- * to the cent, its share of the total, and the source that reports it, with a link to the records behind the figure.
- * An asset with no published price shows "No price published" for its price and value and no share, never a zero.
- */
-function ValueCells({ valued, asset, source, t }: { valued: ValuedPart | undefined; asset: string; source: string; t: T }) {
-  const row = valued?.rows.find((r) => r.asset === asset);
-  const href = valued ? `${balanceEntriesHref(asset)}?source=${valued.id}` : null;
-  return (
-    <>
-      <td data-cell="price">{row?.priceUsd ? dollars(row.priceUsd) : t('No price published')}</td>
-      <td data-cell="value">{row?.valueUsd ? dollars(row.valueUsd) : t('No price published')}</td>
-      <td data-cell="share">{row?.share ? t('Share of total', { share: row.share }) : '—'}</td>
-      <td data-cell="source" data-source={valued?.id ?? ''}>
-        {source}
-        {href ? (
-          <>
-            {' · '}
-            <a
-              data-testid="source-entries-link"
-              href={href}
-              aria-label={t('Entries link label', { asset, source })}
-              onClick={(event) => {
-                if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-                event.preventDefault();
-                navigate(href);
-              }}
-            >
-              {t('Entries link')}
-            </a>
-          </>
-        ) : null}
-      </td>
-    </>
-  );
-}
-
-const VALUE_HEADERS = ['Price', 'Value', 'Share', 'Source'] as const;
 
 type Polled<D> = { data: D | null; failure: { message?: string } | null };
 
@@ -199,15 +131,12 @@ function WalletSource({
             {data.rows.length === 0 ? (
               <p className="muted">{t('Wallet empty')}</p>
             ) : (
-              <DataTable
-                label={t('Wallet network totals', { network })}
-                headers={[t('Asset'), t('Amount'), ...VALUE_HEADERS.map((h) => t(h))]}
-              >
+              <DataTable label={t('Wallet network totals', { network })} headers={[t('Asset'), t('Amount'), t('Value')]}>
                 {data.rows.map((row) => (
                   <tr key={row.symbol} data-asset={row.symbol} data-token={row.token ?? 'native'}>
                     <td>{row.symbol}</td>
                     <td data-cell="amount">{displayAmount(row.amount)}</td>
-                    <ValueCells valued={valued} asset={row.symbol} source={t('Source wallet', { network, block: data.block })} t={t} />
+                    <td data-cell="value">{valueOf(valued, row.symbol, t)}</td>
                   </tr>
                 ))}
               </DataTable>
@@ -257,7 +186,7 @@ function VenueSource({
         ) : (
           <DataTable
             label={t('Venue title', { venue: status.venue.displayName })}
-            headers={[t('Asset'), t('Free'), t('Locked'), t('Total'), t('Can withdraw'), ...VALUE_HEADERS.map((h) => t(h))]}
+            headers={[t('Asset'), t('Free'), t('Locked'), t('Total'), t('Can withdraw'), t('Value')]}
           >
             {data.rows.map((row) => (
               <tr key={row.asset} data-asset={row.asset}>
@@ -265,23 +194,6 @@ function VenueSource({
                 <td data-cell="free">{displayAmount(row.free)}</td>
                 <td data-cell="locked" title={t('Locked note')}>
                   {displayAmount(row.locked)}
-                  {row.split ? (
-                    <ul data-testid="source-venue-split" className="muted">
-                      <li data-part="in-orders" data-amount={row.split.inOrders}>
-                        {t('In orders', { amount: displayAmount(row.split.inOrders) })}
-                      </li>
-                      <li data-part="collateral" data-amount={row.split.collateral}>
-                        {t('Collateral', { amount: displayAmount(row.split.collateral) })}
-                      </li>
-                      <li data-part="stake" data-amount={row.split.stake}>
-                        {t('Stake', { amount: displayAmount(row.split.stake) })}
-                      </li>
-                    </ul>
-                  ) : /[1-9]/.test(row.locked) ? (
-                    <p data-testid="source-venue-split-unknown" className="muted">
-                      {t('Split not reported')}
-                    </p>
-                  ) : null}
                   {row.orders.length > 0 ? (
                     <ul data-testid="source-venue-locks">
                       {row.orders.map((order) => (
@@ -300,7 +212,7 @@ function VenueSource({
                 </td>
                 <td data-cell="total">{displayAmount(row.total)}</td>
                 <td data-cell="withdrawable">{displayAmount(row.withdrawable)}</td>
-                <ValueCells valued={valued} asset={row.asset} source={t('Source venue', { venue: status.venue.displayName })} t={t} />
+                <td data-cell="value">{valueOf(valued, row.asset, t)}</td>
               </tr>
             ))}
           </DataTable>
@@ -324,12 +236,12 @@ function PartnerSource({ read, valued, t }: { read: Exclude<PartnerRead, { state
         ) : read.state === 'unread' ? (
           <p role="alert">{t('Partner read failed')}</p>
         ) : (
-          <DataTable label={title} headers={[t('Asset'), t('Amount'), ...VALUE_HEADERS.map((h) => t(h))]}>
+          <DataTable label={title} headers={[t('Asset'), t('Amount'), t('Value')]}>
             {read.rows.map((row) => (
               <tr key={row.asset} data-asset={row.asset}>
                 <td>{row.asset}</td>
                 <td data-cell="amount">{displayAmount(row.amount)}</td>
-                <ValueCells valued={valued} asset={row.asset} source={t('Source partner', { partner: read.label })} t={t} />
+                <td data-cell="value">{valueOf(valued, row.asset, t)}</td>
               </tr>
             ))}
           </DataTable>
