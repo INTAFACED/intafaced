@@ -11,6 +11,7 @@ import {
   WAIT_MINUTES,
   candidates,
   decide,
+  githubIo,
   heldOnly,
   heldTick,
   isRefusal,
@@ -719,4 +720,34 @@ test('a pull request that conflicts with main is not sent to GitHub, and a 422 s
     message: 'expected head sha didn’t match current head ref.',
   });
   assert.match((await heldTick({ repo: REPO, now: H_NOW, io: moved.io }))[0], /its head moved since it was read \(422\)/);
+});
+
+test("18 Nov replayed: a run's jobs come in pages of 50, so the attempt GitHub answers 502 at per_page=100 is read whole", async () => {
+  // Run 44350969050 attempt 2: 71 jobs; GitHub gave 502 on every try at per_page=100 and the jobs at 50, and that one
+  // 502 stopped Main trust's revive for every pull request and main (factory red project-state#2548).
+  const all = Array.from({ length: 71 }, (_, i) => ({ id: i + 1, name: `shard ${i + 1}` }));
+  const asked = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    asked.push(u.pathname + u.search);
+    const per = Number(u.searchParams.get('per_page'));
+    if (per >= 100) return new Response('{"message":"Server Error"}', { status: 502 });
+    const page = Number(u.searchParams.get('page') ?? 1);
+    const jobs = all.slice((page - 1) * per, page * per);
+    return new Response(JSON.stringify({ total_count: all.length, jobs }), { status: 200 });
+  };
+  try {
+    const jobs = await githubIo(REPO).jobs({ id: 44350969050, run_attempt: 2 });
+    assert.deepEqual(
+      jobs.map((j) => j.id),
+      all.map((j) => j.id),
+    );
+    assert.deepEqual(asked, [
+      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=50&page=1',
+      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=50&page=2',
+    ]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

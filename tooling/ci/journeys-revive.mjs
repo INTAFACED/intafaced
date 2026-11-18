@@ -452,6 +452,19 @@ async function gh(method, path, body, raw = false) {
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
+// A run's jobs in pages of JOBS_PAGE. GitHub answered 502 on every try for the 71 jobs of run 44350969050's attempt 2
+// at per_page=100 and 200 at 50 (18 Nov 2026), and that one 502 stopped every tick of Main trust for every pull request,
+// main's dead runs among them (factory red project-state#2548). Pages also keep a run of more than one page whole.
+export const JOBS_PAGE = 50;
+export async function runJobs(getPage) {
+  const out = [];
+  for (let page = 1; ; page++) {
+    const { json } = await getPage(page);
+    out.push(...(json?.jobs ?? []));
+    if ((json?.jobs ?? []).length < JOBS_PAGE || out.length >= (json?.total_count ?? 0)) return out;
+  }
+}
+
 /** A refused request (gh above): it stops the tick. */
 export const isRefusal = (e) => /^GitHub (403|429) on /.test(e?.message ?? '');
 
@@ -486,8 +499,10 @@ export function githubIo(repo) {
     pull: async (n) => (await gh('GET', `/repos/${repo}/pulls/${n}`)).json,
     headRuns: async (sha) =>
       (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?head_sha=${sha}&per_page=100`)).json.workflow_runs,
-    jobs: async (run) =>
-      (await gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=100`)).json.jobs,
+    jobs: (run) =>
+      runJobs((page) =>
+        gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=${JOBS_PAGE}&page=${page}`),
+      ),
     // GET /rate_limit spends no budget.
     budget: async () => (await gh('GET', '/rate_limit')).json.resources.core,
     jobLog: async (job) => (await gh('GET', `/repos/${repo}/actions/jobs/${job.id}/logs`, undefined, true)).text,
