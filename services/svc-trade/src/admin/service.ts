@@ -377,7 +377,12 @@ export class TradeOpsAdmin {
     const wired = this.deps.venueOrders;
     if (!wired) throw new TradeOpsError('trade.user_venue_off', 'the user-venue door is off: routed orders cannot be read from the venue');
     const read = await readVenueOrder(
-      { sql: this.deps.sql, venue: wired.venue, store: wired.store, now: () => nowOf(this.deps) },
+      {
+        audit: (row, at) => writeOperatorAudit(this.deps.sql, row, at),
+        venue: wired.venue,
+        store: wired.store,
+        now: () => nowOf(this.deps),
+      },
       principal,
       input,
     );

@@ -26,9 +26,8 @@ import {
   type UserVenueOrder,
   type VenueRefusal,
 } from '@intafaced/venue-contracts';
-import type { Sql } from 'postgres';
 import type { PreparedActionStore, StoredVenueAction } from '../venue/prepared-action-store.js';
-import { TradeOpsError, requireOperator, writeOperatorAudit } from './common.js';
+import { TradeOpsError, requireOperator, type AuditWrite } from './common.js';
 
 export const VENUE_ORDER_READ_KIND = 'venue_orders.get';
 
@@ -39,7 +38,8 @@ const CLOID = /^0x[0-9a-f]{32}$/;
 const FILLS_LEAD_MS = 60_000;
 
 export interface VenueOrderReadDeps {
-  readonly sql: Sql;
+  /** Writes one append-only operator audit row at `at` and returns its id (`writeOperatorAudit` on trade's database). */
+  readonly audit: (row: AuditWrite, at: Date) => Promise<string>;
   /** The user-venue door's venue; null when the door is off. */
   readonly venue: (() => Promise<UserVenue>) | null;
   readonly store: PreparedActionStore;
@@ -111,8 +111,7 @@ export async function readVenueOrder(
   if (!row) throw new TradeOpsError('venue_order_not_found', `this customer placed no routed order ${cloid} through INTAFACED`);
   const p = row.prepared;
   const account: UserVenueAccount = { venueId: p.venueId, owner: p.account.owner.toLowerCase(), subAccount: p.account.subAccount ?? null };
-  const auditId = await writeOperatorAudit(
-    deps.sql,
+  const auditId = await deps.audit(
     {
       kind: VENUE_ORDER_READ_KIND,
       operatorId: principal.userId,

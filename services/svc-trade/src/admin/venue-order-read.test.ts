@@ -2,22 +2,21 @@ import http from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import type { Sql } from 'postgres';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import type { Principal } from '@intafaced/auth';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { venueClientOrderId, type PlaceUserOrderIntent, type UserVenue } from '@intafaced/venue-contracts';
 import { HttpUserVenue } from '../venue/http-user-venue.js';
 import { InMemoryPreparedActionStore } from '../venue/prepared-action-store.js';
-import { TradeOpsError } from './common.js';
+import { TradeOpsError, type AuditWrite } from './common.js';
 import { readVenueOrder, rejectOf, venueOrderReadWire } from './venue-order-read.js';
 
 // J-cex-spot-18 #1 #2 #5: the support desk reads a customer's routed order from the venue by the customer's own address,
 // and every read that found it writes one audit row naming the operator and the customer.
 const CUSTOMER = '22222222-2222-4222-8222-2222222222a1';
 const OTHER = '22222222-2222-4222-8222-2222222222b2';
-const AGENT = { userId: 'operator-b', sid: 's-op', scopes: ['admin:read'] } as unknown as Principal;
-const NOBODY = { userId: 'customer-x', sid: 's-c', scopes: ['trade:read'] } as unknown as Principal;
+const AGENT = { userId: 'operator-b', sid: 's-op', scopes: ['admin:read'] } as Principal;
+const NOBODY = { userId: 'customer-x', sid: 's-c', scopes: ['trade:read'] } as Principal;
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade operator venue order read')));
 const owner = key.address.toLowerCase();
 
@@ -31,18 +30,14 @@ beforeAll(async () => {
 });
 afterAll(async () => new Promise<void>((r) => server.close(() => r())));
 
-/** A stand-in for postgres that keeps each audit row the read writes. */
+/** An audit writer that keeps each row the read writes. */
 function auditSql() {
-  const rows: unknown[][] = [];
-  const sql = Object.assign(
-    (_strings: TemplateStringsArray, ...values: unknown[]) => {
-      // writeOperatorAudit nests an empty fragment (its ON CONFLICT part); only the INSERT carries values.
-      if (values.length > 0) rows.push(values);
-      return Promise.resolve([]);
-    },
-    { json: (v: unknown) => v },
-  );
-  return { sql: sql as unknown as Sql, rows };
+  const rows: AuditWrite[] = [];
+  const audit = async (row: AuditWrite) => {
+    rows.push(row);
+    return `audit-${rows.length}`;
+  };
+  return { audit, rows };
 }
 
 /** The customer places one order from their own venue account through our door's store: prepared, signed, sent. */
@@ -76,8 +71,8 @@ describe('readVenueOrder (J-cex-spot-18 #1)', () => {
     sim.deposit({ venueId: sim.venue.id, owner, subAccount: null }, 'USDC', parseAmount('1000'), 'chain:j18-read:1');
     const store = new InMemoryPreparedActionStore();
     const { cloid } = await placeThroughDoor(store, CUSTOMER, bid(`order:${owner}:BTC-USDC:j18-rest`, '50000'));
-    const { sql, rows } = auditSql();
-    const read = await readVenueOrder({ sql, venue: async () => venue, store, now: () => new Date() }, AGENT, {
+    const { audit, rows } = auditSql();
+    const read = await readVenueOrder({ audit, venue: async () => venue, store, now: () => new Date() }, AGENT, {
       accountId: CUSTOMER,
       venueClientOrderId: cloid.toUpperCase().replace('0X', '0x'),
     });
@@ -86,7 +81,7 @@ describe('readVenueOrder (J-cex-spot-18 #1)', () => {
     expect(read.fills).toEqual([]);
     // One audit row: kind, the operator, the customer, the order.
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.slice(1, 5)).toEqual(['venue_orders.get', 'operator-b', CUSTOMER, cloid]);
+    expect(rows[0]).toMatchObject({ kind: 'venue_orders.get', operatorId: 'operator-b', accountId: CUSTOMER, objectId: cloid });
     // On the wire every amount is a decimal string.
     expect(venueOrderReadWire(read)).toMatchObject({ order: { price: '50000', amount: '0.001' } });
   });
@@ -94,8 +89,8 @@ describe('readVenueOrder (J-cex-spot-18 #1)', () => {
   it("another person's order under the same id is never this customer's; a wrong id or no account refuses by name", async () => {
     const store = new InMemoryPreparedActionStore();
     const { cloid } = await placeThroughDoor(store, CUSTOMER, bid(`order:${owner}:BTC-USDC:j18-theirs`, '50001'));
-    const { sql, rows } = auditSql();
-    const deps = { sql, venue: async () => venue, store, now: () => new Date() };
+    const { audit, rows } = auditSql();
+    const deps = { audit, venue: async () => venue, store, now: () => new Date() };
     const code = (p: Promise<unknown>) =>
       p.then(
         () => 'answered',
@@ -111,9 +106,9 @@ describe('readVenueOrder (J-cex-spot-18 #1)', () => {
   });
 
   it('with the door off the read refuses trade.user_venue_off: the blocker, never an empty order', async () => {
-    const { sql, rows } = auditSql();
+    const { audit, rows } = auditSql();
     await expect(
-      readVenueOrder({ sql, venue: null, store: new InMemoryPreparedActionStore(), now: () => new Date() }, AGENT, {
+      readVenueOrder({ audit, venue: null, store: new InMemoryPreparedActionStore(), now: () => new Date() }, AGENT, {
         accountId: CUSTOMER,
         venueClientOrderId: `0x${'a'.repeat(32)}`,
       }),
@@ -126,8 +121,8 @@ describe('readVenueOrder (J-cex-spot-18 #1)', () => {
     // More than the account holds: the venue refuses the order.
     const { cloid, outcome } = await placeThroughDoor(store, CUSTOMER, bid(`order:${owner}:BTC-USDC:j18-refused`, '60000', '1000'));
     expect(outcome).toMatchObject({ definite: true, accepted: false });
-    const { sql } = auditSql();
-    const read = await readVenueOrder({ sql, venue: async () => venue, store, now: () => new Date() }, AGENT, {
+    const { audit } = auditSql();
+    const read = await readVenueOrder({ audit, venue: async () => venue, store, now: () => new Date() }, AGENT, {
       accountId: CUSTOMER,
       venueClientOrderId: cloid,
     });
