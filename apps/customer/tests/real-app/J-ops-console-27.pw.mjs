@@ -757,9 +757,16 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
     .poll(async () => sameDecimal(await amountOf(venueRow.locator('[data-part-amount]')), venueNow.free), { timeout: 30_000 })
     .toBe(true);
   keepShown(6, 'trading on the venue on Home, from the venue', await amountOf(venueRow.locator('[data-part-amount]')), venueNow.free);
-  // Never one INTAFACED balance: Home's estimated total names no figure for what the sources hold, and "Spendable now" is
-  // only its parts added as they are shown, each part named by its own source.
-  await expect(page.getByTestId('home-total')).toContainText('No total');
+  // Never one INTAFACED balance: Home's estimated value is made only of the three outside sources, each named with its own
+  // source, with no part of INTAFACED's own; and "Spendable now" is only its parts added as they are shown, each part named
+  // by its own source.
+  const standingParts = page.getByTestId('home-standing').getByTestId('standing-part');
+  expect((await standingParts.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-part')))).sort()).toEqual([
+    'partner',
+    'venue',
+    'wallet',
+  ]);
+  for (const row of await standingParts.all()) await expect(row.getByTestId('standing-part-source')).not.toBeEmpty();
   const parts = page.getByTestId('spendable-now').locator('li[data-spendable]');
   expect((await parts.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-spendable')))).sort()).toEqual([
     'partner',
