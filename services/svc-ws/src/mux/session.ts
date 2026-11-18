@@ -129,7 +129,7 @@ type Result = ResultBase &
  * (`sentAt`), as integer epoch milliseconds (DV-websocket-01, J-developer-09 #3). Integers, like the sequences: no
  * amount is ever a JSON number on this door.
  */
-export function serverTimes(receivedAtMs: number, sentAtMs: number): { receivedAt: number; sentAt: number } {
+function serverTimes(receivedAtMs: number, sentAtMs: number): { receivedAt: number; sentAt: number } {
   const receivedAt = Math.trunc(receivedAtMs);
   return { receivedAt, sentAt: Math.max(receivedAt, Math.trunc(sentAtMs)) };
 }

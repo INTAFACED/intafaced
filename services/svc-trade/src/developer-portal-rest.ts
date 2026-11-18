@@ -25,8 +25,8 @@ export const DEVELOPER_STREAM_HOSTS_PATH = '/developer-portal/stream-hosts';
 export const DEVELOPER_PROTOCOLS = ['rest', 'websocket', 'fix'] as const;
 export const DEVELOPER_ENVIRONMENTS = ['production', 'sandbox', 'regional'] as const;
 /** The stream endpoints the WebSocket page lists, each with a primary host and the one a client fails over to. */
-export const STREAM_ENDPOINTS = ['public', 'private', 'business'] as const;
-export const STREAM_HOST_ROLES = ['primary', 'failover'] as const;
+const STREAM_ENDPOINTS = ['public', 'private', 'business'] as const;
+const STREAM_HOST_ROLES = ['primary', 'failover'] as const;
 export const DATA_PRODUCTS = ['ticker', 'depth_l1', 'depth_l2', 'candles', 'trades', 'index'] as const;
 export const DATA_TERMS = ['entitlement', 'redistribution', 'retention', 'privacy', 'commercial'] as const;
 
@@ -34,7 +34,7 @@ export const DEVELOPER_HOSTS_UNSET = 'trade.developer_hosts_unset';
 export const DEVELOPER_DATA_TERMS_UNSET = 'trade.developer_data_terms_unset';
 export const DEVELOPER_REGIONAL_RULE_UNSET = 'trade.developer_regional_rule_unset';
 export const DEVELOPER_BOT_POLICY_UNSET = 'trade.developer_bot_policy_unset';
-export const DEVELOPER_STREAM_HOSTS_UNSET = 'trade.developer_stream_hosts_unset';
+const DEVELOPER_STREAM_HOSTS_UNSET = 'trade.developer_stream_hosts_unset';
 const REGIONAL_RULE_MAX = 1000;
 const BOT_POLICY_MAX = 4000;
 

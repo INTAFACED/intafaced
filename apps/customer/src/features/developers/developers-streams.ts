@@ -22,7 +22,7 @@ export const STREAM_ENDPOINT_PATH: Readonly<Record<StreamEndpoint, string>> = {
   business: '/drop-copy/stream',
 };
 
-export const DEVELOPER_STREAM_HOSTS_UNSET = 'trade.developer_stream_hosts_unset';
+const DEVELOPER_STREAM_HOSTS_UNSET = 'trade.developer_stream_hosts_unset';
 
 const streamHostsSchema = z.object({
   endpoints: z.array(z.object({ endpoint: z.enum(STREAM_ENDPOINTS), role: z.enum(STREAM_HOST_ROLES), host: z.string().min(1).nullable() })),

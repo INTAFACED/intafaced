@@ -18,7 +18,7 @@ import { streamTokenAudience, streamTokenSchema, type StreamTokenReply } from '@
  * `identity.stream_token_ttl_unset`; it is never guessed.
  */
 
-export const STREAM_TOKEN_TTL_MAX_SECONDS = 3600;
+const STREAM_TOKEN_TTL_MAX_SECONDS = 3600;
 
 export type StreamTokenCode =
   | 'identity.stream_token_ttl_unset'
