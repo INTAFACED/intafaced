@@ -27,7 +27,9 @@ const J = 'J-cex-spot-18';
 const SYMBOL = 'BTC/USDT';
 const AMOUNT = '0.001';
 const RUN = Date.now().toString(36);
-const run = journeyState(J);
+// One state per run: the TEST venue keeps its accounts in memory, so a customer an earlier run made has no venue order
+// after a stack restart. Within a run, a retried test acts as the same customer.
+const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? RUN}`);
 
 test.describe.configure({ mode: 'serial' });
 venueForThisFile(test);
