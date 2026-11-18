@@ -6,7 +6,7 @@ import ActivityDetail from './ActivityDetail';
 import Pnl from './Pnl';
 import Portfolio from './Portfolio';
 import { WhereItSits } from './WhereItSits';
-import { SourceEntries } from './SourceEntries';
+import { SourceEntries, asksForSourceRecords } from './SourceEntries';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 
 /** Money tab (UI-SPEC 5.3 and 5.4): the portfolio at `/money`, the activity list at `/money/activity`, profit and loss at `/money/pnl`, one transaction at `/money/activity/:id`, the entries behind one coin's balance at `/money/balance/:asset`. */
@@ -31,11 +31,13 @@ function MoneyHome() {
 }
 
 /**
- * `/money/balance/:asset`, what makes one figure. With the user-venue door on, the records of the place that holds it
- * (J-portfolio-01 #6); with it off, our ledger's entries for the coin (the custodial branch).
+ * `/money/balance/:asset`, what makes one figure. With the user-venue door on and a source named in the link (every
+ * Assets row names one), the records of the place that holds it (J-portfolio-01 #6); otherwise, our ledger's entries
+ * for the coin (the custodial branch, and the asset list's history link for a retired coin, J-wallet-01 #5).
  */
 function Entries({ rawAsset, search }: { rawAsset: string; search: string }) {
   const venue = useVenueMode();
-  if (venue.mode === 'on' && venue.status.available) return <SourceEntries status={venue.status} rawAsset={rawAsset} search={search} />;
+  if (venue.mode === 'on' && venue.status.available && asksForSourceRecords(search))
+    return <SourceEntries status={venue.status} rawAsset={rawAsset} search={search} />;
   return <BalanceEntries rawAsset={rawAsset} search={search} />;
 }

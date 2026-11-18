@@ -10,10 +10,20 @@ import { whereCopy } from './where-it-sits-copy';
 
 const SOURCES: readonly SourceKind[] = ['wallet', 'venue', 'partner'];
 
-/** `?source=wallet|venue|partner` from the link on one Assets row; anything else is every source. */
+/** `?source=wallet|venue|partner` from the link on one Assets row; `all` (the "Every source" switch) is every source. */
 function sourceFromSearch(search: string): SourceKind | null {
   const value = new URLSearchParams(search).get('source');
   return SOURCES.includes(value as SourceKind) ? (value as SourceKind) : null;
+}
+
+/**
+ * Whether `/money/balance/:asset` asks for the sources' own records: only a link that names a source (`?source=` one of
+ * wallet, venue, partner or all) does, which every Assets row and this page's own switch carry. A link with none, like
+ * the asset list's "history" link for a retired asset, asks for what our ledger recorded for the coin.
+ */
+export function asksForSourceRecords(search: string): boolean {
+  const value = new URLSearchParams(search).get('source');
+  return value === 'all' || SOURCES.includes(value as SourceKind);
 }
 
 function Link({ href, current, children }: { href: string; current: boolean; children: React.ReactNode }) {
@@ -63,7 +73,7 @@ export function SourceEntries({ status, rawAsset, search }: { status: VenueUp; r
         <p className="money-detail__note">{t('Records intro')}</p>
       </header>
       <div className="money-alloc__switch" role="group" aria-label={t('Source')}>
-        <Link href={balanceEntriesHref(asset)} current={source === null}>
+        <Link href={`${balanceEntriesHref(asset)}?source=all`} current={source === null}>
           {t('Records all sources')}
         </Link>
         {SOURCES.map((kind) => (
