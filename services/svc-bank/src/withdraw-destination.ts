@@ -494,6 +494,8 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
 
 const COLUMNS = `destination_id, kind, ref, label, asset_id, network, tag, origin, state, created_at, updated_at, lookalike_of, lookalike_confirmed_at, approved_at, approved_by`;
 
+const LABEL_INDEX = 'user_withdraw_destinations_label_idx';
+
 function isUniqueViolation(err: unknown, constraintSuffix: string): boolean {
   const e = err as { code?: string; constraint_name?: string } | null;
   return e?.code === '23505' && (e.constraint_name ?? '').endsWith(constraintSuffix);
@@ -509,8 +511,7 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
     const dest = assertPersistableWithdrawDestination(input);
     const label = input.label === undefined ? null : assertDestinationLabel(input.label);
     const keepLabel = input.label === undefined;
-    try {
-      const rows = await this.sql<DestinationRow[]>`
+    const upsert = () => this.sql<DestinationRow[]>`
         INSERT INTO bank.user_withdraw_destinations (user_id, kind, ref, label, origin)
         VALUES (${input.userId}, ${dest.kind}, ${dest.ref}, ${label}, 'legacy')
         ON CONFLICT (user_id, kind) WHERE origin = 'legacy'
@@ -520,9 +521,19 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
           updated_at = now()
         RETURNING ${this.sql.unsafe(COLUMNS)}
       `;
-      return toDestination(rows[0]!);
+    try {
+      return toDestination((await upsert())[0]!);
     } catch (err) {
-      if (isUniqueViolation(err, 'label_idx')) throw LABEL_TAKEN();
+      if (!isUniqueViolation(err, LABEL_INDEX)) throw err;
+    }
+    // Two first persists for one customer and kind with the same label race: the loser's row clashes on the label
+    // index, which the conflict target does not absorb (#8903). Postgres raises that only once the winner committed, so
+    // one more upsert finds the winner's legacy row and updates it, as a call made after it would. If the label still
+    // clashes, another of the customer's entries holds it.
+    try {
+      return toDestination((await upsert())[0]!);
+    } catch (err) {
+      if (isUniqueViolation(err, LABEL_INDEX)) throw LABEL_TAKEN();
       throw err;
     }
   }

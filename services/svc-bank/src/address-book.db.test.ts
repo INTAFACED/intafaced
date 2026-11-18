@@ -234,6 +234,35 @@ describe.each(stores)('address book: %s', (_name, make) => {
 });
 
 describe('address book: postgres only', () => {
+  // #8903: the legacy upsert's target is (user_id, kind), so a racing loser clashed on the label index instead and came
+  // back as "label taken" for its own label. Many rounds, since one race is not certain to interleave.
+  it('two first persists racing with the same label both return the one legacy row', async () => {
+    const store = new UserWithdrawDestinationStore(db.sql, { addressBookCap: () => '5' });
+    for (let round = 0; round < 40; round++) {
+      const u = fresh();
+      const results = await Promise.allSettled(
+        Array.from({ length: 6 }, () => store.persist({ userId: u, kind: 'bank', ref: IBAN, label: 'Payroll' })),
+      );
+      const failed = results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason);
+      expect(failed).toEqual([]);
+      const ids = new Set(results.map((r) => (r as PromiseFulfilledResult<{ destinationId: string }>).value.destinationId));
+      expect(ids.size).toBe(1);
+      const rows = await store.list(u);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ origin: 'legacy', kind: 'bank', ref: IBAN, label: 'Payroll' });
+    }
+  });
+
+  it('a persist whose label another entry holds is still refused after the race retry', async () => {
+    const store = new UserWithdrawDestinationStore(db.sql, { addressBookCap: () => '5' });
+    const u = fresh();
+    await store.save({ userId: u, assetId: 'USDT', network: 'erc20', ref: ADDR_A, label: 'Taken' });
+    await expect(store.persist({ userId: u, kind: 'bank', ref: IBAN, label: 'taken' })).rejects.toMatchObject({
+      code: 'bank.destination_label_taken',
+    });
+    expect((await store.list(u)).map((r) => r.origin)).toEqual(['customer']);
+  });
+
   it('lets two racing saves pass the cap only once', async () => {
     const store = new UserWithdrawDestinationStore(db.sql, { addressBookCap: () => '1' });
     const u = fresh();
