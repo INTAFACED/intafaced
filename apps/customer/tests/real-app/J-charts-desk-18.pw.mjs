@@ -425,6 +425,13 @@ test(`${J} #5 opens the module's settings page: compare cap, alert quotas, reten
       () => chart.goto('/charts/BTC-USDT'),
     );
     expect((await read.json()).compareCap).toBeNull();
+    // The refusal is shown on a drawn chart: wait for its candles.
+    await expect
+      .poll(async () => Number(await chart.getByTestId('cw').getByTestId('wc-host').first().getAttribute('data-bars')), {
+        message: 'the chart draws its candles',
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0);
     const tools = chart.getByRole('group', { name: 'Compare and share', exact: true }).first();
     const picker = tools.getByRole('combobox', { name: /Compare with/ });
     // The picker lists the other markets once the market list has loaded: wait for one before reading it.
