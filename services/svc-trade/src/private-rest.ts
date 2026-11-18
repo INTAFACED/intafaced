@@ -3135,10 +3135,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (leadSwitch !== undefined) {
       try {
         if (!deps.leadTrading) throw new CopyError('lead trading is not mounted', 'trade.copy_unavailable');
-        if (!input.marketId || !input.clientOrderId)
-          throw new CopyError('a lead trade needs its market and client order id', 'trade.copy_unavailable');
+        // A web order names its market by symbol; the order id is keyed by the market's id, as the stop path keys it.
+        const marketId = input.marketId ?? icebergMarketId ?? (await deps.marketBySymbol(parsed.data.symbol))?.id;
+        if (!marketId) throw new TradeError(`market ${parsed.data.symbol} not found`, 'trade.market_not_found');
+        if (!input.clientOrderId) throw new CopyError('a lead trade needs its client order id', 'trade.copy_unavailable');
         const ask = {
-          orderId: orderIdFor(principal.userId, input.marketId, input.clientOrderId),
+          orderId: orderIdFor(principal.userId, marketId, input.clientOrderId),
           symbol: parsed.data.symbol,
           side: parsed.data.side,
           price: parsed.data.price ? parseAmount(parsed.data.price) : null,

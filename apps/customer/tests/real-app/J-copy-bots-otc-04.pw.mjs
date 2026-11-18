@@ -449,8 +449,8 @@ test(`${J} #6 places an iceberg order: not a lead trade; the toggle is forced of
   await form.getByLabel(`Display size (${BOOK.split('/')[0]})`).fill('10');
   await form.getByLabel('Limit price').fill(ask);
   const sent = page.waitForResponse((res) => res.url().includes('/api/v1/orders') && res.request().method() === 'POST');
-  await form.getByRole('button', { name: /Review/ }).click();
-  await page.getByRole('dialog').getByRole('button', { name: /Place/ }).click();
+  await form.getByRole('button', { name: 'Review iceberg', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Place iceberg', exact: true }).click();
   const answer = await sent;
   expect(answer.status(), (await answer.text()).slice(0, 300)).toBeLessThan(300);
   expect(answer.request().postDataJSON()).toMatchObject({ lead: false, displayQty: '10' });
