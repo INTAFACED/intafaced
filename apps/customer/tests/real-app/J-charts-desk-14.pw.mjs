@@ -1156,15 +1156,16 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   await pressRowCancel(page, instantPrice, atInstantRow.length);
   for (let i = 0; i < atInstantRow.length; i++) await continueInWallet(page);
   await expect(cancelReview).toHaveCount(0);
-  await expect.poll(async () => (await venueByClientId(owner, instantId)).status, { timeout: 20_000 }).toBe('canceled');
-  await page.waitForTimeout(1_000);
+  // Every order at the row is cancelled: the page sends one cancel per order, in turn, so all of them are in by then.
+  await expect
+    .poll(async () => (await Promise.all(atInstantRow.map((id) => venueByClientId(owner, id)))).map((o) => o.status), { timeout: 30_000 })
+    .toEqual(atInstantRow.map(() => 'canceled'));
   const instantCancels = await answers.since(cancelsBefore);
   expect(instantCancels.map((a) => a.intent?.kind).every((k) => k === 'cancel_order' || k === 'cancel_orders')).toBe(true);
   expect(instantCancels).toHaveLength(atInstantRow.length);
   const namingInstant = instantCancels.filter((a) => a.id === instantId);
   expect(namingInstant).toHaveLength(1);
   expect(namingInstant[0].intent.clientOrderKey).toBe(instantIntent.clientOrderKey);
-  for (const id of atInstantRow) expect((await venueByClientId(owner, id)).status).toBe('canceled');
   signed += atInstantRow.length;
   expect(signatures(w)).toBe(signed);
 
