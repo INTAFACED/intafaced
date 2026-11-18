@@ -16,6 +16,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
     // `LOCAL_STACK_P2P_KEY_STORE=off` on a start or restart leaves it out, as production is until the owner switches a key
     // store on, so the add control's owner-decision notice can be seen (J-p2p-04 #3).
     ...(process.env.LOCAL_STACK_P2P_KEY_STORE === 'off' ? {} : { LOCAL_TEST_KMS: '1', LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms') }),
+    // No market reference feed by default, as in production: a floating ad is refused at post. `LOCAL_STACK_P2P_REFERENCE_FEED=on`
+    // on a start or restart gives USDT / EUR a labelled TEST reference (fiat per coin, not a market price), so a floating
+    // ad can be listed and then seen without its feed after a restart without it (J-p2p-01 #2).
+    ...(process.env.LOCAL_STACK_P2P_REFERENCE_FEED === 'on'
+      ? { LOCAL_TEST_P2P_REFERENCE_PRICES: JSON.stringify({ 'USDT/EUR': '0.92' }) }
+      : {}),
     P2P_FEE_BPS: '0',
     P2P_ESCROW_DEADLINE_SECONDS: '120',
     // 180, not the 900 a person would get: the order-history journey waits for a real payment timeout.
