@@ -205,7 +205,7 @@ const noHandRow = {
       },
       'Program:exit'() {
         for (const [name, id] of declared)
-          if (/Row$/u.test(name) && typedWith.has(name))
+          if (name.endsWith('Row') && typedWith.has(name))
             context.report({ node: id, message: `[row-type] \`${name}\` types a database row by hand: ${parseFix}` });
       },
     };
