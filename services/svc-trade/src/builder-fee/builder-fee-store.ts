@@ -80,6 +80,11 @@ export interface BuilderFeeStore {
   /** A poster run on `venueId` stopped. */
   markStopped(stop: BuilderFeeStop, at: Date): Promise<void>;
   runState(venueId: string): Promise<BuilderFeeRunState>;
+  /**
+   * J-derivatives-12 #4: the builder fees recorded on one venue account's fills of `userId`'s own orders since `since`,
+   * oldest first, each with the ledger transaction it posted (null until posted). A read for that person only.
+   */
+  ofUser(userId: string, account: UserVenueAccount, since: Date): Promise<LoggedBuilderFee[]>;
 }
 
 const NO_RUNS: BuilderFeeRunState = { lastCompleteAt: null, lastStopAt: null, lastStop: null };
@@ -121,6 +126,18 @@ export class InMemoryBuilderFeeStore implements BuilderFeeStore {
 
   async runState(venueId: string): Promise<BuilderFeeRunState> {
     return this.runs.get(venueId) ?? NO_RUNS;
+  }
+
+  async ofUser(userId: string, account: UserVenueAccount, since: Date): Promise<LoggedBuilderFee[]> {
+    return [...this.rows.values()]
+      .filter(
+        (r) =>
+          r.userId === userId &&
+          r.venueId === account.venueId &&
+          builderFeeVenueAccount(r.account) === builderFeeVenueAccount(account) &&
+          r.filledAt >= since,
+      )
+      .sort((a, b) => a.filledAt.getTime() - b.filledAt.getTime() || a.fillId.localeCompare(b.fillId));
   }
 
   async inPeriod(venueId: string, from: Date, to: Date): Promise<LoggedBuilderFee[]> {
@@ -213,17 +230,31 @@ export class SqlBuilderFeeStore implements BuilderFeeStore {
       FROM trade.venue_builder_fees
       WHERE venue_id = ${venueId} AND filled_at >= ${from} AND filled_at < ${to}
       ORDER BY filled_at, fill_id, venue_account`;
-    return rows.map((r) => ({
-      venueId: r.venue_id,
-      fillId: r.fill_id,
-      userId: r.user_id,
-      account: { venueId: r.venue_id, owner: r.owner, subAccount: r.sub_account },
-      assetId: r.asset_id,
-      amount: parseAmount(r.amount),
-      filledAt: r.filled_at,
-      status: r.status,
-      refusalCode: r.refusal_code,
-      ledgerTxId: r.ledger_tx_id,
-    }));
+    return rows.map(fromRow);
   }
+
+  async ofUser(userId: string, account: UserVenueAccount, since: Date): Promise<LoggedBuilderFee[]> {
+    const rows = await this.sql<Row[]>`
+      SELECT venue_id, fill_id, user_id, owner, sub_account, asset_id, amount, filled_at, status, refusal_code, ledger_tx_id
+      FROM trade.venue_builder_fees
+      WHERE user_id = ${userId} AND venue_id = ${account.venueId} AND venue_account = ${builderFeeVenueAccount(account)}
+        AND filled_at >= ${since}
+      ORDER BY filled_at, fill_id`;
+    return rows.map(fromRow);
+  }
+}
+
+function fromRow(r: Row): LoggedBuilderFee {
+  return {
+    venueId: r.venue_id,
+    fillId: r.fill_id,
+    userId: r.user_id,
+    account: { venueId: r.venue_id, owner: r.owner, subAccount: r.sub_account },
+    assetId: r.asset_id,
+    amount: parseAmount(r.amount),
+    filledAt: r.filled_at,
+    status: r.status,
+    refusalCode: r.refusal_code,
+    ledgerTxId: r.ledger_tx_id,
+  };
 }
