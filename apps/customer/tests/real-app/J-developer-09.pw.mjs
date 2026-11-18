@@ -431,6 +431,13 @@ test(`${J} #6 opens connections above the per-IP cap: the extra one closes with 
   page,
 }) => {
   test.setTimeout(420_000);
+  // The storms leave from 127.0.0.3 to 127.0.0.5, which Linux (CI) has and macOS does not: there this step fails by name.
+  const reachable = await new Promise((resolve) => {
+    const probe = net.connect({ host: '127.0.0.1', port: WS_PORT, localAddress: '127.0.0.3' });
+    probe.once('connect', () => (probe.destroy(), resolve(true)));
+    probe.once('error', (error) => resolve(error.code !== 'EADDRNOTAVAIL'));
+  });
+  if (!reachable) throw new Error(`BLOCKED this machine has no 127.0.0.3 to storm from; ${J} #6 runs on Linux, as CI does`);
   const read = await policy();
   expect(read.status).toBe(200);
   const perIp = read.body?.perIp;
