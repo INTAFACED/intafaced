@@ -16,16 +16,24 @@ sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -
 
 mkdir -p "$cache"
 if [ ! -f "$jar" ] || [ "$(sha256 "$jar")" != "$TLA_SHA256" ]; then
-  curl -fsSL -o "$jar.part" "https://github.com/tlaplus/tlaplus/releases/download/$TLA_VERSION/tla2tools.jar"
+  curl -fsSL -o "$jar.part" "https://github.com/tlaplus/tlaplus/releases/download/$TLA_VERSION/tla2tools.jar" ||
+    { echo "COULD NOT CHECK: tla2tools.jar $TLA_VERSION did not download" >&2; exit 3; }
   got="$(sha256 "$jar.part")"
-  if [ "$got" != "$TLA_SHA256" ]; then echo "tla2tools.jar $TLA_VERSION has sha256 $got, expected $TLA_SHA256" >&2; exit 2; fi
+  if [ "$got" != "$TLA_SHA256" ]; then echo "tla2tools.jar $TLA_VERSION has sha256 $got, expected $TLA_SHA256; COULD NOT CHECK" >&2; exit 3; fi
   mv "$jar.part" "$jar"
 fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failed=0
+couldnt=0
 ALL="NeverPaidTwice ReversedOnce SignedOnce"
+
+# The whole counterexample of a run that broke a rule, from the line that names the break to the end; a run that
+# names none prints its last 80 lines.
+trace() {
+  if grep -qE 'is violated|Deadlock reached' "$1"; then sed -nE '/is violated|Deadlock reached/,$p' "$1"; else tail -n 80 "$1"; fi
+}
 
 # run <name> <canLose> <fixed> <invariants> <expect: "pass", "deadlock" or the invariant that must be violated> [<sed expression>]
 # TLC's deadlock check is on unless DEADLOCK=FALSE: a state with no step out other than `Done` fails.
@@ -41,6 +49,9 @@ run() {
   printf 'CONSTANTS CanLose = %s  Fixed = %s\nSPECIFICATION Spec\nINVARIANTS %s\nCHECK_DEADLOCK %s\n' "$lose" "$fixed" "$invariants" "${DEADLOCK:-TRUE}" > "$d/PayoutQuery.cfg"
   local status=0
   ( cd "$d" && "$java" -XX:+UseSerialGC -Xmx1g -cp "$jar" tlc2.TLC -workers 1 -config PayoutQuery.cfg PayoutQuery.tla > out.txt 2>&1 ) || status=$?
+  # TLC's exit: 0 no error, 11 to 13 a broken rule (deadlock, invariant, temporal property); anything else (a parse
+  # error, out of memory, no Java) means it could not check, which is no verdict on the code (pstack statechart run.ts).
+  case "$status" in 0 | 11 | 12 | 13) ;; *) echo "COULD NOT CHECK $name: TLC exit $status"; tail -n 40 "$d/out.txt"; couldnt=1; return ;; esac
   local states; states="$(grep -Eo '[0-9,]+ distinct states found' "$d/out.txt" | tail -1 || true)"
   if [ "$expect" = deadlock ]; then
     if grep -q 'Deadlock reached' "$d/out.txt"; then echo "ok   $name: deadlock reached, the open finding #8828, $states"
@@ -48,7 +59,7 @@ run() {
     else echo "FAIL $name: expected the dead end of #8828 (exit $status); if #8828 is fixed, expect pass here and drop DEADLOCK=FALSE below"; grep -E 'violated|No error|Error' "$d/out.txt" | head -5; failed=1; fi
   elif [ "$expect" = pass ]; then
     if [ "$status" -eq 0 ] && grep -q 'No error has been found' "$d/out.txt"; then echo "ok   $name: no error, $states"
-    else echo "FAIL $name: expected no error (exit $status)"; sed -n '1,80p' "$d/out.txt"; failed=1; fi
+    else echo "FAIL $name: expected no error (exit $status)"; trace "$d/out.txt"; failed=1; fi
   else
     if grep -q "Invariant $expect is violated" "$d/out.txt"; then echo "ok   $name: $expect violated as it should be, $states"
       if [ -n "${SHOW_TRACE:-}" ]; then sed -n "/is violated/,\$p" "$d/out.txt"; fi
@@ -79,4 +90,6 @@ DEADLOCK=FALSE run broken-reverse-unkeyed FALSE FALSE "$ALL" ReversedOnce 's/IF 
 # 3. A retry that finds a pending claim signs again instead of stalling: a second, different transaction is signed.
 DEADLOCK=FALSE run broken-resign-on-pending FALSE FALSE "$ALL" SignedOnce 's/ELSE \(ppc. = "end" \/\\ UNCHANGED claimed\)( +)\\\* claim stalled/ELSE (ppc\x27 = "sign" \/\\ UNCHANGED claimed)\1\\* claim stalled/'
 
+# A broken rule fails (1); a run that could not check, with no rule broken, exits 3: the workflow reads it as judge down.
+if [ "$failed" -eq 0 ] && [ "$couldnt" -eq 1 ]; then exit 3; fi
 exit "$failed"

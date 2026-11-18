@@ -22,7 +22,7 @@ import {
   missingTitle,
   reviewJob,
 } from './review-marker.mjs';
-import { inputsGoing, readGoing, sealNow, CI_JOBS_NAME } from './journey-seal.mjs';
+import { inputsGoing, isModelDown, readGoing, sealNow, CI_JOBS_NAME } from './journey-seal.mjs';
 import {
   CATCH_UP_CAP,
   JOBS_READ_CAP,
@@ -585,4 +585,41 @@ test('11 Nov replayed: the catch-up drains every head without a verdict through 
   ]);
   assert.equal(reviewed.size, 16);
   assert.ok(JOBS_READ_CAP >= 60 + 16, 'every open head and its edited run can be read');
+});
+
+test('project-state#2962: a Model check that could not check holds the seal as a down judge, for every change', () => {
+  const runsOf = { 'model-check.yml': [{ id: 7, head_sha: HEAD, event: 'pull_request', status: 'completed', judgeDown: true }] };
+  for (const needJudge of [false, true])
+    assert.deepEqual(inputsGoing({ sha: HEAD, runsOf, needJourneys: false, needJudge }), [
+      'the Model check run 7 (judge down: a model could not be checked, no verdict; re-run it once the cause in its log is gone)',
+    ]);
+  runsOf['model-check.yml'][0].judgeDown = false;
+  assert.deepEqual(inputsGoing({ sha: HEAD, runsOf, needJourneys: false }), []);
+  const s = (name, conclusion) => ({ name, conclusion });
+  const job = (steps) => ({ name: 'Model check', status: 'completed', conclusion: 'success', steps });
+  assert.equal(isModelDown(job([s('Judge down', 'success'), s('Verdict', 'skipped')])), true);
+  assert.equal(isModelDown(job([s('Judge down', 'skipped'), s('Verdict', 'success')])), false);
+  assert.equal(isModelDown({ ...job([s('Judge down', 'success')]), name: 'OneHold model' }), false);
+});
+
+test('project-state#2962: readGoing reads the newest finished Model check run on the head and marks it down', async () => {
+  const get = async (p) => {
+    if (p.includes('/actions/workflows/model-check.yml/runs'))
+      return {
+        workflow_runs: [
+          { id: 30, head_sha: HEAD, event: 'pull_request', status: 'completed' },
+          { id: 31, head_sha: HEAD, event: 'pull_request', status: 'completed' },
+        ],
+      };
+    if (p.includes('/actions/runs/31/jobs'))
+      return {
+        jobs: [{ name: 'Model check', status: 'completed', conclusion: 'success', steps: [{ name: 'Judge down', conclusion: 'success' }] }],
+      };
+    if (p.includes('/jobs')) return { jobs: [] };
+    if (p.includes('/runs?')) return { workflow_runs: [] };
+    throw new Error(`unexpected ${p}`);
+  };
+  assert.deepEqual(await readGoing({ get, repo: 'o/r', sha: HEAD, pulls: [] }), [
+    'the Model check run 31 (judge down: a model could not be checked, no verdict; re-run it once the cause in its log is gone)',
+  ]);
 });

@@ -1622,7 +1622,22 @@ export const SEAL_INPUTS = [
   // Runs only when the pull request touches its paths (#8708); with no run on the head nothing waits for it, and
   // ci-jobs-seal.mjs moneyVerdict fails the seal when its paths were touched and no green run is there.
   { workflow: 'customer-money-browser.yml', event: 'pull_request', what: 'the money browser checks' },
+  // Runs on every pull request; its `Model check` job checks the TLA+ models when the change touches what they cover
+  // (project-state#2962), and ci-jobs-seal.mjs modelVerdict requires its pass. A run that could not check (MODEL_DOWN_STEP)
+  // counts as still going, so the seal waits as for a down judge, never red on the change.
+  { workflow: 'model-check.yml', event: 'pull_request', what: 'the Model check', down: true },
 ];
+
+/** model-check.yml's verdict job, and its step that runs, instead of the Verdict step, when TLC could not check. */
+export const MODEL_JOB = 'Model check';
+export const MODEL_DOWN_STEP = 'Judge down';
+export const MODEL_VERDICT_STEP = 'Verdict';
+/** Whether a model-check.yml `Model check` job ended without a verdict because a model could not be checked. Pure. */
+export const isModelDown = (job) =>
+  job?.name === MODEL_JOB &&
+  job?.status === 'completed' &&
+  (job.steps ?? []).some((s) => s?.name === MODEL_DOWN_STEP && s?.conclusion === 'success') &&
+  !(job.steps ?? []).some((s) => s?.name === MODEL_VERDICT_STEP && ['success', 'failure'].includes(s?.conclusion));
 
 /**
  * The job each seal input ends with (ci.yml, ci-review.yml, real-app-journeys.yml): it needs every other job of its
@@ -1675,7 +1690,7 @@ export async function settleRuns(runs, jobsOf) {
  */
 export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false, unstarted = true }) {
   const out = [];
-  for (const { workflow, event, what, journeys, judge } of SEAL_INPUTS) {
+  for (const { workflow, event, what, journeys, judge, down } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
     for (const r of runsOf?.[workflow] ?? []) {
       if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
@@ -1685,6 +1700,8 @@ export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false, unst
         out.push(`${what} run ${r.id} (deferred behind main's journeys; it is re-run once main's shards are queued)`);
       else if (judge && needJudge && r?.judgeDown === true)
         out.push(`${what} run ${r.id} (judge down: no verdict; it re-runs when the judge is back)`);
+      else if (down && r?.judgeDown === true)
+        out.push(`${what} run ${r.id} (judge down: a model could not be checked, no verdict; re-run it once the cause in its log is gone)`);
     }
   }
   return out;
@@ -1914,7 +1931,7 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
 
 /** The seals a re-check re-runs: after CI finished (`finished` = 'CI'), only the default branch's (see recheck). */
 export const sealsToRecheck = (finished) =>
-  SEAL_WORKFLOWS.filter((w) => !['CI', REVIEWED, MONEY].includes(finished) || w.workflow !== CI_WORKFLOW);
+  SEAL_WORKFLOWS.filter((w) => !['CI', REVIEWED, MONEY, MODEL_JOB].includes(finished) || w.workflow !== CI_WORKFLOW);
 
 /** `finished` after the money browser checks' run on the head ended (#8708): like CI, every armed pull request there is re-sealed. */
 export const MONEY = 'Money browser checks';
@@ -2039,6 +2056,16 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
       run.judgeDown = isJudgeDown(job);
       break;
     }
+  }
+  // The Model check's newest finished run on the head: one that could not check (isModelDown) is no verdict.
+  for (const { workflow, event } of SEAL_INPUTS.filter((i) => i.down)) {
+    const newest = runsOf[workflow]
+      .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
+      .sort((a, b) => b.id - a.id)[0];
+    if (!newest) continue;
+    const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
+    newest.judgeDown = jobs.some(isModelDown);
   }
   return inputsGoing({ sha, runsOf, needJourneys, needJudge, unstarted });
 }
