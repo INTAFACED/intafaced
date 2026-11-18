@@ -160,17 +160,18 @@ async function ledgerRead(path) {
 const builderFeeTrace = async (owner, fillId) =>
   ledgerRead(`/operator/trace?businessKey=${encodeURIComponent(`builder-fee:${(await venueInfo()).id}:${owner}:${fillId}`)}`);
 
-/** Svc-trade restarted with Convert on or off; the door stays on, as this file needs it. */
-function restartConvert(on) {
+/** Svc-trade restarted with one setting (null: the stack's own value); the door stays on, as this file needs it. */
+function restartTrade(envKey, value) {
   const before = process.env.LOCAL_STACK_USER_VENUE;
   process.env.LOCAL_STACK_USER_VENUE = 'on';
   try {
-    restartWithSetting('trade', 'LOCAL_STACK_TRADE_CONVERT', on ? null : 'off');
+    restartWithSetting('trade', envKey, value);
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = before;
   }
 }
+const restartConvert = (on) => restartTrade('LOCAL_STACK_TRADE_CONVERT', on ? null : 'off');
 
 /** One TEST order of another trader, signed on the TEST venue directly. */
 async function traderOrder(name, symbol, { side, price, amount, timeInForce }) {
@@ -591,6 +592,16 @@ test(`${J} #9 converts a very large amount: routed to the quote desk, which says
   test.setTimeout(240_000);
   const s = state();
   const A = s.marketA;
+  // The quote desk with no published rules: its TEST size bounds are taken away for this step, then put back.
+  restartTrade('LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', 'off');
+  try {
+    await nineAtTheDesk(page, s, A);
+  } finally {
+    restartTrade('LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', null);
+  }
+});
+
+async function nineAtTheDesk(page, s, A) {
   const wallet = await openRoom(page, s);
   const sent = convertCalls(page);
   await pick(page, 'USDC', A.base);
@@ -606,7 +617,7 @@ test(`${J} #9 converts a very large amount: routed to the quote desk, which says
   await expect(card(page).getByRole('button', { name: 'Get a price', exact: true })).toBeDisabled();
   expect(sent.filter((p) => p === 'convert/quote')).toHaveLength(0);
   expect(signatures(wallet)).toBe(0);
-});
+}
 
 test(`${J} #10 opens Recent conversions: the conversion with paid and received amounts and time; never the quotes that were not taken; an empty list reads as empty`, async ({
   page,
