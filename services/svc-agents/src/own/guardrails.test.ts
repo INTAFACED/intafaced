@@ -19,6 +19,7 @@ import type { SupportDeskPort } from '../support-agent/desk-port.js';
 import { parseTierLaws } from '../tier-laws.js';
 import { checkRule, parsePolicyBaseline, type PolicyBaseline } from './guardrails.js';
 import { OWN_RUN_TASK } from './routes.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 
 /**
  * A person's own agent's standing rules, consents and approval requests (AG-guardrails-01, AG-guardrails-02; J-agents-05
@@ -177,6 +178,9 @@ if (!available) {
       funds: { available: async () => 100n * 10n ** 18n },
     });
     const router = createAgentsRouter({
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+
       runtime,
       gateway,
       meter,

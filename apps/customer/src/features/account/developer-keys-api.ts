@@ -259,6 +259,8 @@ const REFUSALS = new Set<string>([
   'identity.developer_role_read_only',
   'identity.developer_role_none',
   'identity.delegated_refused',
+  // The owner's own freeze (J-wallet-13 #2).
+  'identity.account_frozen_self',
   'auth.passkey_missing',
   'auth.passkey_verify_unavailable',
 ]);

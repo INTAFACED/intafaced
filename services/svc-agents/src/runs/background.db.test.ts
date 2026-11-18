@@ -17,6 +17,7 @@ import { MockModelProvider } from '../providers/mock.js';
 import { createAgentsRouter, type AgentsRouterDeps } from '../router.js';
 import { AgentRuntime, type ThinkInput } from '../runtime.js';
 import { advanceSessionRuns, publishCompletedRuns, stepRequestId } from './background.js';
+import { MemorySelfFreezeRead } from '../own/self-freeze.js';
 
 /**
  * A session's background runs on real Postgres, through the agents router, with the real runtime and meter
@@ -167,6 +168,7 @@ if (!available) {
     feeAssetId: 'IFC',
     sql,
     sessionRuns: SETTINGS,
+    selfFreeze: new MemorySelfFreezeRead(),
     ...overrides,
   });
   const as = (userId: string, overrides: Partial<AgentsRouterDeps> = {}) =>

@@ -4,6 +4,7 @@ import type { AgentsRouterDeps } from '../router.js';
 import type { RunRouteKit } from './routes.js';
 import { RUN_NOTICES, sessionRunSchema, sessionRunStopSchema } from '@intafaced/contracts/agents-runs';
 import { SessionRunConflict, SessionRunStore } from './background.js';
+import { selfFreezeGate } from '../own/self-freeze.js';
 
 /**
  * The background run routes (AG-sessions-04, AG-control-01; J-agents-06): start a run on one of the caller's open
@@ -59,6 +60,8 @@ export function backgroundRunRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
           }
           const session = await ownedSession(input.sessionId, ctx.principal.userId);
           if (session.status !== 'open') throw new TRPCError({ code: 'CONFLICT', message: 'agents.refused.session_closed' });
+          // No agent runs for the person while their own freeze is on, or cannot be read (J-wallet-13).
+          await selfFreezeGate(ctx.principal.userId, deps.selfFreeze);
           deps.gateway.routeFor(input.task);
           return store().start({
             userId: ctx.principal.userId,
@@ -87,7 +90,15 @@ export function backgroundRunRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
     resume: executeProcedure()
       .input(byId)
       .output(sessionRunSchema)
-      .mutation(({ ctx, input }) => guard(() => typed(async () => found(await store().resume(input.runId, ctx.principal.userId))))),
+      .mutation(({ ctx, input }) =>
+        guard(() =>
+          typed(async () => {
+            // A run the freeze paused stays paused until the person resumes it after the lift (J-wallet-13).
+            await selfFreezeGate(ctx.principal.userId, deps.selfFreeze);
+            return found(await store().resume(input.runId, ctx.principal.userId));
+          }),
+        ),
+      ),
 
     /** One more request to the run; while it is paused, refused `agents.run.paused`. */
     askMore: executeProcedure()

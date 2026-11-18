@@ -3730,7 +3730,6 @@
   "services/svc-trade/src/venue/agent-desk.ts#AGENT_DESK_READ_LIMIT",
   "services/svc-trade/src/venue/agent-orders.ts#AGENT_KEY_TRADE_SCOPES",
   "services/svc-trade/src/venue/agent-orders.ts#agentRevokeCancelKey",
-  "services/svc-trade/src/venue/agent-orders.ts#agentRevokeKey",
   "services/svc-trade/src/venue/agent-orders.ts#orderOriginOf",
   "services/svc-trade/src/venue/fee-saver-client.ts#FEE_SAVER_PATH",
   "services/svc-trade/src/venue/http-user-venue.ts#classifyFetchFailure",
