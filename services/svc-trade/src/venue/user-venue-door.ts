@@ -1059,12 +1059,7 @@ export class UserVenueDoor {
     await eachOrder(intent, async (order) => {
       if (order.reduceOnly || (await this.marketKind(venue, order.symbol)) !== 'perpetual') return;
       const blocker = venueEligibilityBlocker(level, tradeTier(principal));
-      if (blocker)
-        throw new UserVenueDoorError(
-          blocker.message,
-          blocker.code as UserVenueDoorCode,
-          blocker.code === VENUE_ELIGIBILITY_LEVEL_UNSET ? 422 : 403,
-        );
+      if (blocker) throw new UserVenueDoorError(blocker.message, blocker.code, blocker.code === VENUE_ELIGIBILITY_LEVEL_UNSET ? 422 : 403);
     });
   }
 

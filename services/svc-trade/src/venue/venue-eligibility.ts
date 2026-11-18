@@ -21,25 +21,33 @@ export type VenueEligibilityLevel = (typeof VENUE_ELIGIBILITY_LEVELS)[number];
 export const VENUE_ELIGIBILITY_LEVEL_UNSET = 'trade.venue_eligibility_level_unset' as const;
 export const VENUE_ELIGIBILITY_LEVEL_INSUFFICIENT = 'trade.venue_eligibility_level_insufficient' as const;
 
+/** Why an account is not eligible: one of the two codes, with words a person reads. */
+export interface VenueEligibilityBlocker extends VenueGatedBlocker {
+  readonly code: typeof VENUE_ELIGIBILITY_LEVEL_UNSET | typeof VENUE_ELIGIBILITY_LEVEL_INSUFFICIENT;
+}
+
+const isLevel = (v: string): v is VenueEligibilityLevel => VENUE_ELIGIBILITY_LEVELS.some((l) => l === v);
+const TIER_RANK: ReadonlyMap<string, number> = new Map(Object.entries(TIER_ORDER));
+
 /** The owner value: blank is `null`; anything but a level name is refused at boot, never read as blank or as a level. */
 export function parseVenueEligibilityLevel(raw: string | undefined): VenueEligibilityLevel | null {
   const v = (raw ?? '').trim();
   if (v === '') return null;
-  if (!(VENUE_ELIGIBILITY_LEVELS as readonly string[]).includes(v))
+  if (!isLevel(v))
     throw new Error(
       `TRADE_USER_VENUE_ELIGIBILITY_LEVEL must be blank or one of ${VENUE_ELIGIBILITY_LEVELS.join(', ')}, got ${JSON.stringify(v)}`,
     );
-  return v as VenueEligibilityLevel;
+  return v;
 }
 
 /** Why this account is not eligible for the venue's perpetuals, or null when it is. `tier` is its trading level. */
-export function venueEligibilityBlocker(level: VenueEligibilityLevel | null, tier: string | null): VenueGatedBlocker | null {
+export function venueEligibilityBlocker(level: VenueEligibilityLevel | null, tier: string | null): VenueEligibilityBlocker | null {
   if (level === null)
     return {
       code: VENUE_ELIGIBILITY_LEVEL_UNSET,
       message: 'The eligibility level for perpetuals is not set, so no perpetual is open to any account',
     };
-  const rank = tier !== null && Object.hasOwn(TIER_ORDER, tier) ? TIER_ORDER[tier as keyof typeof TIER_ORDER] : -1;
+  const rank = (tier === null ? undefined : TIER_RANK.get(tier)) ?? -1;
   if (rank >= TIER_ORDER[level]) return null;
   return {
     code: VENUE_ELIGIBILITY_LEVEL_INSUFFICIENT,
