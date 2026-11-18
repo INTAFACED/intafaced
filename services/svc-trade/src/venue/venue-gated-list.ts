@@ -29,6 +29,8 @@ export interface VenueGatedInput {
   readonly markets: readonly ListedVenueMarket[];
   /** The region and level gate for this account, or null when it may trade. Applies to every contract. */
   readonly account: VenueGatedBlocker | null;
+  /** Why this account is not eligible for the venue's perpetuals (venue-eligibility.ts), or null/absent when it is. */
+  readonly eligibility?: VenueGatedBlocker | null;
   /** Whether our builder fee is published for this contract (a perp order always carries it). */
   readonly builderFeePublished: (symbol: string) => boolean;
   readonly venueName: string;
@@ -67,7 +69,7 @@ export function venueGatedList(input: VenueGatedInput): VenueGatedContract[] {
       const fee: VenueGatedBlocker | null = input.builderFeePublished(m.symbol)
         ? null
         : { code: 'trade.venue.builder_fee_not_published', message: 'Our builder fee is not published, so no order is prepared' };
-      const blockers = [input.account, fee, ...listingBlockers(m), venueStateBlocker(m, input.venueName)].filter(
+      const blockers = [input.account, input.eligibility ?? null, fee, ...listingBlockers(m), venueStateBlocker(m, input.venueName)].filter(
         (b): b is VenueGatedBlocker => b !== null,
       );
       const first = blockers[0] ?? null;

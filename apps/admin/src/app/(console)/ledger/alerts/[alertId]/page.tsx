@@ -2,15 +2,15 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
-import { AlertDetail } from '@/components/recon-alerts/room';
+import { AlertDetail, AlertFeed } from '@/components/recon-alerts/room';
 import { UUID } from '@/lib/recon-alerts/model';
-import { readAlertDetail } from '@/lib/recon-alerts/read';
+import { readAlertDetail, readAlertFeed } from '@/lib/recon-alerts/read';
 import { alertWritesParked, evidenceHash } from '@/lib/recon-alerts/treasury';
 import '@/components/desk.css';
 
 /**
  * One reconciliation alert: its evidence, acknowledgement, snoozes, notices and timeline (OPS-reconciliation-03), and its resolve
- * and two-founder accept (OPS-reconciliation-04). The evidence hash is computed here from svc-ops's own answer.
+ * and two-founder accept (OPS-reconciliation-04), and what svc-notify received of its transitions. The evidence hash is computed here from svc-ops's own answer.
  */
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +19,8 @@ export default async function ReconciliationAlertPage({ params }: { params: Prom
   const founder = await requireFounderPage();
   const { alertId } = await params;
   if (!UUID.test(alertId)) notFound();
-  const part = await readAlertDetail(founder, alertId.toLowerCase());
+  const id = alertId.toLowerCase();
+  const [part, feed] = await Promise.all([readAlertDetail(founder, id), readAlertFeed(founder, id)]);
   return (
     <main className="dk-stack" data-testid="recon-alert-page">
       <p>
@@ -33,6 +34,7 @@ export default async function ReconciliationAlertPage({ params }: { params: Prom
           writes: alertWritesParked(founder),
         }}
       />
+      <AlertFeed part={feed} />
     </main>
   );
 }

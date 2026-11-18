@@ -11,7 +11,7 @@ import { env } from '../env.js';
 import type { JobHost } from '../futures/job-host.js';
 import { SqlPreparedActionStore } from '../venue/prepared-action-store.js';
 import { parseBuilderFee, type UserVenueDoor } from '../venue/user-venue-door.js';
-import type { UserVenue } from '@intafaced/venue-contracts';
+import type { UserVenue, UserVenueAccount } from '@intafaced/venue-contracts';
 import { collectBuilderFees, type BuilderFeeClaimReader } from './builder-fee-collect.js';
 import { SqlOwnFundsSweepStore } from './own-funds-sweep-store.js';
 import { sweepOwnFunds, type OwnFundsSweepDeps } from './own-funds-sweep.js';
@@ -33,6 +33,8 @@ export function wireBuilderFees(deps: {
   const builderFeeStore = new SqlBuilderFeeStore(sql);
   const venueActions = new SqlPreparedActionStore(sql);
   const builderFees = {
+    /** One person's builder fees on one venue account, with each fee's ledger transaction (J-derivatives-12 #4). */
+    ofUser: (userId: string, account: UserVenueAccount, since: Date) => builderFeeStore.ofUser(userId, account, since),
     recon: (from: Date, to: Date) =>
       builderFeeRecon(
         {
