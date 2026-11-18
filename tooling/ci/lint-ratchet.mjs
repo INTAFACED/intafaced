@@ -21,8 +21,9 @@
  * Usage:
  *   node tooling/ci/lint-ratchet.mjs                    merge base with main .. HEAD
  *   node tooling/ci/lint-ratchet.mjs --base <ref> --head <ref> [--rules-ref <ref>] [--json]
- * On GitHub Actions main is fetched fresh from the repository's URL into refs/lint-ratchet/main, never read from
- * origin/main, which code the change ran earlier in the job could move.
+ * Main is fetched fresh first (mainRef): on GitHub Actions from the repository's URL into refs/lint-ratchet/main, never
+ * read from origin/main, which code the change ran earlier in the job could move; on the Mac from `origin`, so the push-time
+ * run judges with the rules CI will.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -200,13 +201,22 @@ export function table({ rows }, nFiles) {
   return lines.join('\n');
 }
 
+/**
+ * Main as it is now, the rules a change is judged by, fetched fresh on CI and on the Mac alike: a branch cut before main
+ * gained a rule otherwise passed the push-time run on a stale origin/main and failed CI's minutes later. On the Mac it is
+ * fetched from `origin` and read by its fetched commit (FETCH_HEAD is this worktree's own, so builders pushing at once on
+ * one repository never share a ref); a repository with no `origin` remote has only its own origin/main. null: the fetch
+ * failed, and nothing is judged with rules that may be old.
+ */
 function mainRef() {
   if (process.env.GITHUB_ACTIONS && process.env.GITHUB_REPOSITORY) {
     const url = `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${process.env.GITHUB_REPOSITORY}`;
     if (gitOr(['fetch', '--no-tags', '--quiet', url, '+refs/heads/main:refs/lint-ratchet/main']) === null) return null;
     return 'refs/lint-ratchet/main';
   }
-  return 'origin/main';
+  if (gitOr(['remote', 'get-url', 'origin']) === null) return 'origin/main';
+  if (gitOr(['fetch', '--no-tags', '--quiet', 'origin', 'main']) === null) return null;
+  return gitOr(['rev-parse', '--verify', 'FETCH_HEAD^{commit}'])?.trim() ?? null;
 }
 
 export function run(argv = process.argv.slice(2)) {
