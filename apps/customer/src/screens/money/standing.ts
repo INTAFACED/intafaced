@@ -39,12 +39,8 @@ export interface PartInput {
 }
 
 export interface ValuedRow extends SourceRow {
-  /** The published USD price the row is valued at, as published, or null when the asset has none. */
-  priceUsd: string | null;
   /** Full-precision USD value, or null when the asset has no published price. */
   valueUsd: string | null;
-  /** The row's share of the total, in percent to 2 places (rounded half up), or null when it or the total is not valued. */
-  share: string | null;
 }
 
 export interface ValuedPart {
@@ -75,7 +71,6 @@ export interface Standing {
 }
 
 const CENT: Amount = 10n ** 16n;
-const HUNDRED: Amount = 100n * 10n ** 18n;
 const SATOSHI: Amount = 10n ** 10n;
 
 /** Rounds a scaled amount half up to a step (10^16 is a cent, 10^10 is 8 places). Amounts here are never negative. */
@@ -106,21 +101,16 @@ export function standing(parts: PartInput[], prices: ValuationPrices | null, uni
         const price = priceOf.get(row.asset);
         if (price === undefined) {
           if (!unpriced.includes(row.asset)) unpriced.push(row.asset);
-          return { ...row, priceUsd: null, valueUsd: null, share: null };
+          return { ...row, valueUsd: null };
         }
         const value = mul(parseAmount(row.amount), price);
         values.push(value);
-        return { ...row, priceUsd: formatAmount(price), valueUsd: formatAmount(value), share: null };
+        return { ...row, valueUsd: formatAmount(value) };
       });
     priced.push(...values);
     return { ...base, asOf: part.read.asOf, rows, valueUsd: values.length > 0 ? formatAmount(sum(values)) : null };
   });
   const total = priced.length > 0 ? sum(priced) : null;
-  // Each valued row's share of the total, from full-precision figures: value × 100 / total, rounded once to 0.01.
-  if (total !== null && total > 0n)
-    for (const part of valued)
-      for (const row of part.rows)
-        if (row.valueUsd !== null) row.share = fixed(roundTo(div(mul(parseAmount(row.valueUsd), HUNDRED), total, 'floor'), CENT), 2);
   const btcPrice = priceOf.get('BTC');
   const btc =
     unit !== 'BTC'

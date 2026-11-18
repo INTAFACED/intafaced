@@ -3,7 +3,6 @@ import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO,
 import {
   type AgentPermissionReach,
   VenueRefusalError,
-  VenueWireError,
   assertSignatureMatches,
   assertSignerMaySign,
   venueClientOrderId,
@@ -23,7 +22,6 @@ import {
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
-  type UserVenueLockSplit,
   type UserVenueScheduledCancel,
   type UserVenueArrival,
   type UserVenueWithdrawalTerms,
@@ -344,10 +342,6 @@ interface AccountState {
   readonly retiredAgents: Set<string>;
   /** Main account only: its balance in each market deployer's own margin account, by the margin account's name. */
   readonly marketMargins: Map<string, { free: Amount; locked: Amount }>;
-  /** TEST only (J-portfolio-01 #4): coins staked on the venue, by asset. Staked coins stay in the balance, as locked. */
-  readonly stakes: Map<string, Amount>;
-  /** TEST only: the stake references already taken, so the same TEST stake is taken once. */
-  readonly stakeRefs: Set<string>;
   /**
    * TEST only (J-campaigns-19 #5): a loss past margin the venue booked as a deficit, by asset. It is kept apart from the
    * balances, which never go below zero, and reported against them: the account's reported balance there may be negative.
@@ -1606,49 +1600,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       .map((asset) => {
         const b = state.balances.get(asset) ?? { free: ZERO, locked: ZERO };
         const free = sub(b.free, state.deficits.get(asset) ?? ZERO);
-        const lockedBy = this.lockSplit(state, asset, b.locked);
-        return { asset, free, locked: b.locked, total: add(free, b.locked), ...(lockedBy ? { lockedBy } : {}) };
+        return { asset, free, locked: b.locked, total: add(free, b.locked) };
       });
     return this.asOf(list);
-  }
-
-  /**
-   * What holds an asset's locked figure on the main balances (J-portfolio-01 #4): the resting orders' locks, the posted
-   * margin of the positions margined in it, and its stake. Orders and positions in a deployer's own margin account lock
-   * there, not here. When the three do not add to the locked figure exactly, the venue reports no split (null).
-   */
-  private lockSplit(state: AccountState, asset: string, locked: Amount): UserVenueLockSplit | null {
-    let inOrders = ZERO;
-    for (const o of state.orders.values())
-      if ((o.order.status === 'open' || o.order.status === 'partially_filled') && o.marginAccount === null && o.order.lockedAsset === asset)
-        inOrders = add(inOrders, o.order.locked);
-    let margin = ZERO;
-    for (const [symbol, p] of state.positions) {
-      if (p.size === ZERO) continue;
-      const market = this.market(symbol);
-      if (!market.marginAccount && market.quoteAsset === asset) margin = add(margin, p.margin);
-    }
-    const staked = state.stakes.get(asset) ?? ZERO;
-    return compare(add(add(inOrders, margin), staked), locked) === 0 ? { inOrders, margin, staked } : null;
-  }
-
-  /**
-   * TEST only (J-portfolio-01 #4): stake `amount` of `asset` on the venue, from free into locked, once per `stakeRef`.
-   * A stand-in for a venue's own staking, which no venue adapter reaches yet; refuses a stake larger than free.
-   */
-  testStake(account: UserVenueAccount, asset: string, amount: Amount, stakeRef: string): boolean {
-    this.up();
-    const state = this.account(account);
-    if (state.stakeRefs.has(stakeRef)) return false;
-    const balance = state.balances.get(asset);
-    if (compare(amount, ZERO) <= 0) throw new VenueWireError('stake amount must be above zero');
-    if (!balance || compare(balance.free, amount) < 0)
-      throw new VenueWireError(`stake of ${formatAmount(amount)} ${asset} is more than free`);
-    balance.free = sub(balance.free, amount);
-    balance.locked = add(balance.locked, amount);
-    state.stakes.set(asset, add(state.stakes.get(asset) ?? ZERO, amount));
-    state.stakeRefs.add(stakeRef);
-    return true;
   }
 
   async openOrders(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrder[]>> {
@@ -2150,8 +2104,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         transfers: new Map(),
         retiredAgents: new Set(),
         marketMargins: new Map(),
-        stakes: new Map(),
-        stakeRefs: new Set(),
         deficits: new Map(),
         settlements: [],
         scheduled: { cancelsAt: null, lastFired: null },
