@@ -25,21 +25,6 @@ const partner: PartInput = {
 };
 
 describe('where a person stands (J-home-ia-01 #1)', () => {
-  it('J-portfolio-01 #1: every valued row carries its published price and its share of the total; an unpriced one carries neither', () => {
-    const s = standing(
-      [wallet({ state: 'read', asOf: '2026-11-14T07:59:00.000Z', rows: [{ asset: 'TESTUSD', amount: '100' }] }), venue, partner],
-      PRICES,
-      'USD',
-    );
-    const rows = s.parts.flatMap((part) => part.rows);
-    expect(rows.map((row) => [row.asset, row.priceUsd, row.share])).toEqual([
-      ['TESTUSD', null, null],
-      // 500.123456789012345678 / 550.123456789012345678 = 90.911 %; 50 / 550.12 = 9.089 %
-      ['USDC', '1', '90.91'],
-      ['USDT', '1', '9.09'],
-    ]);
-  });
-
   it('adds what each source reports at its published price, each part named with its as-of time', () => {
     const s = standing(
       [

@@ -13,6 +13,7 @@ import { Dividends } from './Dividends';
 import { OAuthConsent } from './OAuthConsent';
 import { ApiKeys } from './ApiKeys';
 import { Compromised } from './Compromised';
+import { StaffAccess } from './StaffAccess';
 import { ApiKeyCreate } from './ApiKeyCreate';
 import { ApiKeyDetail, keyIdFromPath } from './ApiKeyDetail';
 import './account.css';
@@ -31,6 +32,7 @@ function AccountRooms({ path }: { path: string }) {
   if (clean === '/oauth/authorize') return <OAuthConsent />;
   if (clean === '/uc/safe') return <Security />;
   if (clean === '/uc/safe/compromised') return <Compromised />;
+  if (clean === '/uc/safe/staff-access') return <StaffAccess />;
   if (clean === '/uc/safe/api-keys') return <ApiKeys />;
   if (clean === '/uc/safe/api-keys/new') return <ApiKeyCreate />;
   const keyId = keyIdFromPath(path);

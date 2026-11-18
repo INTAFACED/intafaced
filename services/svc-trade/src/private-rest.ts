@@ -99,6 +99,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
 import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
+import type { VenueAdlAcks } from './venue/venue-adl-acks.js';
 import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
 import type { AgentActivity } from './venue/agent-order-calls.js';
 import type { OwnAgentRebalance } from './venue/own-agent-rebalance.js';
@@ -248,6 +249,8 @@ export interface PrivateRestDeps {
   venueSellQuotes?: VenueSellQuotes | null;
   /** The statement export on the venue's own records (J-cex-spot-07 #5). Absent: its routes answer 503. */
   venueStatements?: VenueStatements | null;
+  /** Each person's acknowledged version of a venue's auto-deleveraging rules (J-derivatives-07 #5). */
+  venueAdlAcks?: VenueAdlAcks | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -1471,6 +1474,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     spreadLimitBps: deps.userVenueSpreadLimitBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
     venueStatements: deps.venueStatements ?? null,
+    venueAdlAcks: deps.venueAdlAcks ?? null,
     agentKeyConfined,
   });
   attachAgentAccountRoutes(

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Chip } from '@/components/chip';
 import { shortId } from '@/lib/desk/desk-model';
-import { orderIdsIn } from '@/lib/trade-ops/order-read';
+import { orderIdsIn, venueOrderIdsIn } from '@/lib/trade-ops/order-read';
 import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, postClaimNext, type ClaimReply } from '@/lib/support/browser';
 import { claimGate, DESK_COMMENTS_READ, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
 import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';
@@ -151,11 +151,17 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
         <strong>What the customer wrote</strong>
         <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{t.body}</p>
       </div>
-      {orderIdsIn(t.subject, t.body).length > 0 ? (
+      {orderIdsIn(t.subject, t.body).length + venueOrderIdsIn(t.subject, t.body).length > 0 ? (
         <nav aria-label="Orders the customer named" className="dk-row">
           {/* J-cex-spot-18 #1: each order id the customer wrote opens that order in Trade ops, read and audited there. */}
           {orderIdsIn(t.subject, t.body).map((orderId) => (
             <a key={orderId} className="adm-btn" href={`/trade-ops/orders/${orderId}`}>
+              Open order {orderId}
+            </a>
+          ))}
+          {/* A routed order is read from the venue by this customer's own address, so the link names the customer. */}
+          {venueOrderIdsIn(t.subject, t.body).map((orderId) => (
+            <a key={orderId} className="adm-btn" href={`/trade-ops/orders/${orderId}?account=${encodeURIComponent(t.userId)}`}>
               Open order {orderId}
             </a>
           ))}

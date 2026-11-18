@@ -83,12 +83,11 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'equity',
   'usedMargin',
   'marginRatio',
+  // UserVenueInsuranceFund (J-derivatives-07 #4)
+  'balance',
   // VenueFeeTier and VenueAccountFees (J-cex-spot-10 #2 #6)
   'fromVolume',
   'volume',
-  // UserVenueLockSplit (J-portfolio-01 #4); `margin` is above
-  'inOrders',
-  'staked',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -111,6 +110,8 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'takerFeeBps',
   'maintenanceMargin',
   'marginRatio',
+  // An agent desk's balance is a known-or-not object on the wire (svc-trade agent-desk.ts), never decoded as money here.
+  'balance',
   'volume',
   'value',
 ]);
@@ -168,6 +169,11 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'requestedAt',
   // VenueAccountFees (J-cex-spot-10 #6)
   'tierUpdatedAt',
+  // UserVenueLiquidation, UserVenueDeleverage and VenueLiquidationAlert (J-derivatives-07)
+  'liquidatedAt',
+  'startedAt',
+  'deleveragedAt',
+  'alertedAt',
 ]);
 
 /**
