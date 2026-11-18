@@ -29,6 +29,12 @@ const schema = serviceEnvSchema
       /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
       TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
       /**
+       * J-derivatives-12 #5, NO DEFAULT: the verification level (`basic`, `full` or `institutional`) an account needs for the
+       * venue's perpetuals (src/venue/venue-eligibility.ts). Blank: the eligible list is empty with
+       * `trade.venue_eligibility_level_unset` named, and every new perpetual position refuses with it.
+       */
+      TRADE_USER_VENUE_ELIGIBILITY_LEVEL: z.string().default(''),
+      /**
        * J-agents-21 agent account, NO DEFAULT: the most any person's agent-account cap may be, a decimal in
        * TRADE_AGENT_ACCOUNT_ASSET. Blank refuses every create `agents.account_ceiling_unset` (src/venue/agent-account.ts).
        */

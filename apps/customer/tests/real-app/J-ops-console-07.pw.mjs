@@ -456,6 +456,61 @@ function deliverRunFailedTwice(key) {
   return JSON.parse(r.stdout.trim().split('\n').pop());
 }
 
+/**
+ * Delivers one reconciliation alert transition to the bus twice, under the business key svc-ops published it with and two
+ * distinct stream message ids, so the stream keeps both, and waits until svc-notify's durable consumer has acknowledged both.
+ */
+function deliverTransitionTwice(entry) {
+  const code = `
+    import { connect } from 'nats';
+    import { buildEnvelope, encodeEnvelope } from './dist/index.js';
+    const e = JSON.parse(process.env.ENTRY);
+    const env = buildEnvelope(
+      'coreOpsReconciliationAlertUpdated',
+      { alertId: e.alertId, sequence: e.sequence, transition: e.kind, state: e.state, actor: e.actor, changedAt: e.occurredAt },
+      'ops',
+      { idempotencyKey: e.eventKey },
+    );
+    const nc = await connect({ servers: process.env.NATS_URL });
+    const js = nc.jetstream();
+    const acks = [];
+    for (const n of [1, 2]) acks.push(await js.publish(env.subject, encodeEnvelope(env), { msgID: env.idempotencyKey + ':redelivery:' + process.env.TAG + ':' + n }));
+    const jsm = await nc.jetstreamManager();
+    const seqs = acks.map((a) => a.seq);
+    let info;
+    for (let i = 0; i < 60; i++) {
+      info = await jsm.consumers.info(acks[0].stream, 'notify-recon-alert-updated');
+      if (info.ack_floor.stream_seq >= Math.max(...seqs) && info.num_ack_pending === 0) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    console.log(JSON.stringify({ seqs, duplicate: acks.some((a) => a.duplicate), ackFloor: info.ack_floor.stream_seq, ackPending: info.num_ack_pending }));
+    await nc.drain();`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(ROOT, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, ENTRY: JSON.stringify(entry), TAG: tag },
+    encoding: 'utf8',
+    timeout: 90_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the alert transition twice failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').pop());
+}
+
+/** svc-notify's record of one alert's transitions, as the alert page shows it: [{eventKey, kind, sequence}]. */
+async function feedOf(page, alertId) {
+  await openAlert(page, alertId);
+  const feed = page.getByTestId('alert-feed');
+  await expect(feed).toBeVisible({ timeout: 30_000 });
+  return feed.getByTestId('alert-feed-entry').evaluateAll((els) =>
+    els.map((el) => ({
+      eventKey: el.getAttribute('data-event-key'),
+      kind: el.getAttribute('data-kind'),
+      sequence: Number(el.getAttribute('data-sequence')),
+      state: el.getAttribute('data-state'),
+      actor: el.getAttribute('data-actor'),
+    })),
+  );
+}
+
 test.describe.serial('J-ops-console-07 reconcile the books', () => {
   test('J-ops-console-07 #1 a control activated with a blank tolerance is refused with ops.control_policy_unset and stays draft', async ({
     browser,
@@ -1447,6 +1502,56 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         await lifecycle(id, 'retire', 'Retired').catch(() => undefined);
     }
   });
+
+  // The receiver of svc-ops' alert transitions is svc-notify: it keeps one feed row per business key. The fixed alert's real
+  // transitions (#7 to #10) arrived there in order; its reopen, delivered twice more, changes nothing.
+  test('J-ops-console-07 #10 a transition event received twice applies once', async ({ browser, stepPicture }) => {
+    test.setTimeout(300_000);
+    if (!state.fixAlertId) throw new Error('#10’s transition check reads the alert #9 resolved and #10 reopened, and #9 did not finish');
+    const { a } = await founders(browser);
+    let before;
+    await expect
+      .poll(
+        async () => {
+          before = await feedOf(a, state.fixAlertId);
+          return before.map((e) => e.kind);
+        },
+        { message: 'svc-notify receives the alert’s transitions from svc-ops', timeout: 90_000, intervals: [3_000] },
+      )
+      .toEqual(expect.arrayContaining(['opened', 'resolved', 'reopened']));
+    await expect(a.getByTestId('alert-feed')).toHaveAttribute('data-bus', 'attached');
+    const keys = before.map((e) => e.eventKey);
+    expect(new Set(keys).size, 'one row per business key').toBe(keys.length);
+    for (const e of before) expect(e.eventKey).toBe(`ops:reconciliation-alert:${state.fixAlertId}:${e.sequence}`);
+    expect(
+      before.map((e) => e.sequence),
+      'in sequence order',
+    ).toEqual(before.map((e) => e.sequence).sort((x, y) => x - y));
+
+    const reopen = before.find((e) => e.kind === 'reopened');
+    const row = a.locator(`[data-testid="alert-feed-entry"][data-event-key="${reopen.eventKey}"]`);
+    const shown = (await row.textContent()) ?? '';
+    const delivered = deliverTransitionTwice({
+      alertId: state.fixAlertId,
+      sequence: reopen.sequence,
+      eventKey: reopen.eventKey,
+      kind: 'reopened',
+      state: reopen.state,
+      actor: reopen.actor,
+      occurredAt: new Date().toISOString(),
+    });
+    expect(delivered.seqs, 'the stream kept both deliveries').toHaveLength(2);
+    expect(delivered.duplicate, 'neither delivery was dropped by the stream as a duplicate').toBe(false);
+    // svc-notify's durable consumer acknowledged both: each was read and handled, not left in flight.
+    expect(delivered.ackPending, JSON.stringify(delivered)).toBe(0);
+    expect(delivered.ackFloor, JSON.stringify(delivered)).toBeGreaterThanOrEqual(Math.max(...delivered.seqs));
+
+    const after = await feedOf(a, state.fixAlertId);
+    expect(after, 'both deliveries applied as the one reopen already there').toEqual(before);
+    await expect(a.locator(`[data-testid="alert-feed-entry"][data-event-key="${reopen.eventKey}"]`)).toHaveCount(1);
+    await expect(a.locator(`[data-testid="alert-feed-entry"][data-event-key="${reopen.eventKey}"]`)).toHaveText(shown);
+    await stepPicture(a);
+  });
 });
 
 // The clause this stack cannot prove: the corrective transaction linked at #9 must be a reversal. A ledger reversal is booked
@@ -1456,14 +1561,5 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 test('J-ops-console-07 #9 the fix links a corrective reversal booked in the ledger', async () => {
   throw new Error(
     'Blocked: no reversal can be booked on this stack. J-ops-console-05 (OPS-ledger-desk-02) is not built, so #9 resolved with a TEST deposit, not a reversal.',
-  );
-});
-
-// The other clause this stack cannot prove: svc-ops publishes each alert transition under its business key, but no service
-// consumes the core-ops reconciliation_alert subjects yet, so "a transition event received twice applies once" has no
-// receiver to show it. #10 shows svc-ops' own consumer of the ledger's run-failed event applying a double delivery once.
-test('J-ops-console-07 #10 a transition event received twice applies once', async () => {
-  throw new Error(
-    'Blocked: no consumer of intafaced.core-ops.reconciliation_alert.* exists on this stack, so no receiver can be shown applying a transition event once.',
   );
 });

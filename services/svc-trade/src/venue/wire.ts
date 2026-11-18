@@ -29,6 +29,7 @@ import {
   TestListingSeed,
 } from './venue-listing.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue-router.js';
+import { parseVenueEligibilityLevel } from './venue-eligibility.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue-sell-quotes.js';
 
 export function wireUserVenue(deps: {
@@ -54,6 +55,7 @@ export function wireUserVenue(deps: {
   // the sweep below, and the door (cancels included) keeps working.
   // J-derivatives-28: the primary venue, then each venue of TRADE_USER_VENUE_URLS (comma-separated), one door each, all
   // behind one router. Every door shares the store, the builder fee and the listing gate; each seeds its own TEST listings.
+  const eligibilityLevel = parseVenueEligibilityLevel(env.TRADE_USER_VENUE_ELIGIBILITY_LEVEL);
   const userVenueUrls = userVenueUrl ? [userVenueUrl, ...parseUserVenueUrls(env.TRADE_USER_VENUE_URLS)] : [];
   const userVenueStore = new SqlPreparedActionStore(sql);
   const testListingSeeds = userVenueUrls.map(
@@ -90,6 +92,8 @@ export function wireUserVenue(deps: {
         ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
         // J-cex-spot-07: the owner's published dead-man timeouts arm the venue's own scheduled cancel.
         scheduledCancelTimeouts: env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
+        // J-derivatives-12 #5: the owner's eligibility level for the venue's perpetuals; blank refuses every new position.
+        eligibility: { level: eligibilityLevel },
         // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
         builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
         now: () => new Date(),
