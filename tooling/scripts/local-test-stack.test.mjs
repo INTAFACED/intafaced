@@ -519,6 +519,29 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: ws multiplexed door TEST values come from the ws profile');
 }
 
+// The ws process carries the per-IP cap and storm ban from the ws profile (J-developer-09 #6), and
+// LOCAL_STACK_WS_IP_BAN_SECONDS=off blanks only the ban time, so a journey can show the ban refusing to enable.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const names = ['WS_PER_IP_MAX_CONNECTIONS', 'WS_PER_IP_STORMS_BEFORE_BAN', 'WS_PER_IP_BAN_SECONDS'];
+  const ws = localTestServiceEnvs().find((service) => service.name === 'ws');
+  for (const name of names) {
+    assert.equal(profile[name]?.service, 'ws', `${name} is not in the ws profile`);
+    assert.equal(ws.env[name], profile[name].value, `ws env ${name} differs from the ws profile`);
+  }
+  process.env.LOCAL_STACK_WS_IP_BAN_SECONDS = 'off';
+  try {
+    const blank = localTestServiceEnvs().find((service) => service.name === 'ws');
+    assert.equal(blank.env.WS_PER_IP_BAN_SECONDS, '', 'the off switch must leave WS_PER_IP_BAN_SECONDS blank');
+    assert.equal(blank.env.WS_PER_IP_MAX_CONNECTIONS, profile.WS_PER_IP_MAX_CONNECTIONS.value);
+  } finally {
+    delete process.env.LOCAL_STACK_WS_IP_BAN_SECONDS;
+  }
+  console.log('local-test-stack: ws per-IP cap and ban TEST values come from the ws profile; the ban time can be blanked');
+}
+
 // The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
 // journey meets the rule instead of the unset refusal.
 {
@@ -566,6 +589,40 @@ const script = resolve(here, 'local-test-stack.mjs');
     else process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = before;
   }
   console.log('local-test-stack: the copy country list blank switch blanks only TRADE_COPY_JURISDICTION_LAW');
+}
+
+// LOCAL_STACK_TRADE_COPY_LEAD_BALANCE=blank leaves only the TEST least venue balance to lead blank, so
+// J-copy-bots-otc-04 #1 can restart trade to show an application refused naming the threshold.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const before = process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE;
+  try {
+    delete process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE;
+    const set = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(set.TRADE_COPY_LEAD_MIN_VENUE_USDC, profile.TRADE_COPY_LEAD_MIN_VENUE_USDC.value);
+    process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = 'blank';
+    const blank = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(blank.TRADE_COPY_LEAD_MIN_VENUE_USDC, '', 'the blank switch must leave the least venue balance to lead blank');
+    assert.deepEqual(
+      { ...blank, TRADE_COPY_LEAD_MIN_VENUE_USDC: set.TRADE_COPY_LEAD_MIN_VENUE_USDC },
+      set,
+      'the blank switch must change nothing else in trade',
+    );
+    // A decimal sets the least venue balance (the lead equity minimum too), so J-copy-bots-otc-04 #7 can refuse a lead.
+    process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = '1000000';
+    const raised = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(raised.TRADE_COPY_LEAD_MIN_VENUE_USDC, '1000000', 'a decimal switch must set the least venue balance to lead');
+    assert.deepEqual({ ...raised, TRADE_COPY_LEAD_MIN_VENUE_USDC: set.TRADE_COPY_LEAD_MIN_VENUE_USDC }, set, 'and change nothing else');
+    process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = 'lots';
+    const junk = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(junk.TRADE_COPY_LEAD_MIN_VENUE_USDC, set.TRADE_COPY_LEAD_MIN_VENUE_USDC, 'anything else keeps the TEST value');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE;
+    else process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = before;
+  }
+  console.log('local-test-stack: the lead balance blank switch blanks only TRADE_COPY_LEAD_MIN_VENUE_USDC');
 }
 
 // The agents process routes the TEST Coach task on the stand-in engine at the profile's TEST route, verbatim, and

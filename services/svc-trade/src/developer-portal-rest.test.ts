@@ -9,7 +9,9 @@ import {
   DEVELOPER_DATA_TERMS_PATH,
   DEVELOPER_HOSTS_PATH,
   DEVELOPER_REGIONAL_RULE_PATH,
+  DEVELOPER_STREAM_HOSTS_PATH,
   parseBotPolicy,
+  parseDeveloperStreamHosts,
   parseDataTerms,
   parseDeveloperHosts,
   parseRegionalRule,
@@ -107,5 +109,47 @@ describe('developer portal values', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ policy: 'TEST: bots may trade spot.' });
     expect(() => parseBotPolicy('x'.repeat(4001))).toThrow(/TRADE_DEVELOPER_BOT_POLICY is malformed/);
+  });
+
+  it('the stream hosts refuse until published, then answer every endpoint and role with null where left out; malformed stops boot', async () => {
+    const read = async (raw: string) => {
+      const app = Fastify();
+      registerDeveloperPortalRest(app, { hosts: null, dataTerms: null, regionalRule: null, streamHosts: parseDeveloperStreamHosts(raw) });
+      const res = await app.inject({ method: 'GET', url: DEVELOPER_STREAM_HOSTS_PATH });
+      await app.close();
+      return res;
+    };
+    for (const raw of ['', '   ']) {
+      const res = await read(raw);
+      expect(res.statusCode).toBe(503);
+      expect(res.json().code).toBe('trade.developer_stream_hosts_unset');
+    }
+    const res = await read(
+      JSON.stringify({
+        public: { primary: 'stream.example.test', failover: 'stream-b.example.test:8443' },
+        business: { primary: 'biz.example.test' },
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      endpoints: [
+        { endpoint: 'public', role: 'primary', host: 'stream.example.test' },
+        { endpoint: 'public', role: 'failover', host: 'stream-b.example.test:8443' },
+        { endpoint: 'private', role: 'primary', host: null },
+        { endpoint: 'private', role: 'failover', host: null },
+        { endpoint: 'business', role: 'primary', host: 'biz.example.test' },
+        { endpoint: 'business', role: 'failover', host: null },
+      ],
+    });
+    for (const raw of [
+      '{',
+      '{}',
+      '{"public":{}}',
+      '{"public":{"primary":"wss://stream.example.test"}}',
+      '{"public":{"backup":"a.test"}}',
+      '{"desk":{"primary":"a.test"}}',
+    ]) {
+      expect(() => parseDeveloperStreamHosts(raw), raw).toThrow(/TRADE_DEVELOPER_STREAM_HOSTS is/);
+    }
   });
 });

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Model-checks CashOutLock.tla: the code (with its fix for #8597) keeps every rule, the lock held or lost; the code
-# before the fix breaks the promise with the lock lost; each deliberately broken variant fails on the rule it breaks. Exit 0 only when all of that holds. Needs Java 11+ (`java` on PATH, or $JAVA).
+# before the fix breaks the promise with the lock lost; each deliberately broken variant fails on the rule it breaks. TLC's deadlock check is on: a state with no step out
+# other than `Done` (every driver finished) fails. Exit 0 only when all of that holds. Needs Java 11+ (`java` on PATH, or $JAVA).
 # The TLA+ tools are pinned to v1.7.4 by URL and SHA-256 and cached in ${TLA_CACHE:-~/.cache/intafaced-tla}.
 set -euo pipefail
 
@@ -37,7 +38,7 @@ run() {
   else
     cp "$here/CashOutLock.tla" "$d/CashOutLock.tla"
   fi
-  printf 'CONSTANTS Procs = {"call", "redrive"}  CanLose = %s  Fixed = %s\nSPECIFICATION Spec\nINVARIANTS %s\nCHECK_DEADLOCK FALSE\n' \
+  printf 'CONSTANTS Procs = {"call", "redrive"}  CanLose = %s  Fixed = %s\nSPECIFICATION Spec\nINVARIANTS %s\n' \
     "$lose" "$fixed" "$invariants" > "$d/CashOutLock.cfg"
   local status=0
   ( cd "$d" && "$java" -XX:+UseSerialGC -Xmx1g -cp "$jar" tlc2.TLC -workers 1 -config CashOutLock.cfg CashOutLock.tla > out.txt 2>&1 ) || status=$?

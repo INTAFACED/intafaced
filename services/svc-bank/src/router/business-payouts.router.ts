@@ -86,23 +86,22 @@ const contractorFields = {
  */
 export function createBusinessPayoutsRouter(c: BankRouterContext) {
   const { bank, stepUpEnforced, requireStepUp } = c;
-  // Read on each call, never at mount: a router built over a partial service (the preview doors) must not touch it.
-  const payouts = () => bank.businessPayouts;
+  const payouts = bank.businessPayouts;
   const accountInput = z.object({ accountId: z.string().guid() }).strict();
   return router({
     runs: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessBulkRunSchema))
-      .query(({ ctx, input }) => guard(async () => (await payouts().runs(input.accountId, ctx.principal.userId)).map(bulkRunView))),
+      .query(({ ctx, input }) => guard(async () => (await payouts.runs(input.accountId, ctx.principal.userId)).map(bulkRunView))),
     run: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ runId: z.string().guid() }).strict())
       .output(businessBulkRunSchema)
-      .query(({ ctx, input }) => guard(async () => bulkRunView(await payouts().run(input.runId, ctx.principal.userId)))),
+      .query(({ ctx, input }) => guard(async () => bulkRunView(await payouts.run(input.runId, ctx.principal.userId)))),
     /** Imports a CSV as a draft run with its validation report. Nothing is held or sent. */
     importRun: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ accountId: z.string().guid(), runId: z.string().guid(), csv: z.string().min(1).max(MAX_BULK_FILE_BYTES) }).strict())
       .output(businessBulkRunSchema)
-      .mutation(({ ctx, input }) => guard(async () => bulkRunView(await payouts().importRun({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => bulkRunView(await payouts.importRun({ ...input, userId: ctx.principal.userId })))),
     /** The funding step and the confirmation: at or above the business's threshold it waits for an approver. */
     confirmRun: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ runId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }).strict())
@@ -116,25 +115,23 @@ export function createBusinessPayoutsRouter(c: BankRouterContext) {
               input.stepUpApprovalId,
             );
           }
-          return bulkRunView(await payouts().confirmRun({ runId: input.runId, userId: ctx.principal.userId }));
+          return bulkRunView(await payouts.confirmRun({ runId: input.runId, userId: ctx.principal.userId }));
         }),
       ),
     approveRun: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ runId: z.string().guid() }).strict())
       .output(businessBulkRunSchema)
-      .mutation(({ ctx, input }) => guard(async () => bulkRunView(await payouts().approveRun({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => bulkRunView(await payouts.approveRun({ ...input, userId: ctx.principal.userId })))),
 
     contractors: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessContractorSchema))
-      .query(({ ctx, input }) =>
-        guard(async () => (await payouts().contractors(input.accountId, ctx.principal.userId)).map(contractorView)),
-      ),
+      .query(({ ctx, input }) => guard(async () => (await payouts.contractors(input.accountId, ctx.principal.userId)).map(contractorView))),
     addContractor: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ accountId: z.string().guid(), contractorId: z.string().guid(), ...contractorFields }).strict())
       .output(businessContractorSchema)
       .mutation(({ ctx, input }) =>
-        guard(async () => contractorView(await payouts().addContractor({ ...input, userId: ctx.principal.userId }))),
+        guard(async () => contractorView(await payouts.addContractor({ ...input, userId: ctx.principal.userId }))),
       ),
     addInvoice: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -151,26 +148,26 @@ export function createBusinessPayoutsRouter(c: BankRouterContext) {
       .output(businessContractorSchema)
       .mutation(({ ctx, input }) =>
         guard(async () =>
-          contractorView(await payouts().addInvoice({ ...input, amount: parseAmount(input.amount), userId: ctx.principal.userId })),
+          contractorView(await payouts.addInvoice({ ...input, amount: parseAmount(input.amount), userId: ctx.principal.userId })),
         ),
       ),
     createInvite: scopedProcedure('bank:write', { module: 'bank' })
       .input(accountInput)
       .output(businessContractorInviteSchema)
-      .mutation(({ ctx, input }) => guard(() => payouts().createInvite({ ...input, userId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) => guard(() => payouts.createInvite({ ...input, userId: ctx.principal.userId }))),
     inviteInfo: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ token: z.string().min(16).max(128) }).strict())
       .output(businessContractorInviteInfoSchema)
-      .query(({ input }) => guard(() => payouts().inviteInfo(input.token))),
+      .query(({ input }) => guard(() => payouts.inviteInfo(input.token))),
     /** The contractor adds themselves through a one-use link, with their own payout IBAN and wallet. */
     joinAsContractor: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ token: z.string().min(16).max(128), ...contractorFields }).strict())
       .output(businessContractorJoinedSchema)
-      .mutation(({ ctx, input }) => guard(() => payouts().joinAsContractor({ ...input, userId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) => guard(() => payouts.joinAsContractor({ ...input, userId: ctx.principal.userId }))),
     batches: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessContractorBatchSchema))
-      .query(({ ctx, input }) => guard(async () => (await payouts().batches(input.accountId, ctx.principal.userId)).map(batchView))),
+      .query(({ ctx, input }) => guard(async () => (await payouts.batches(input.accountId, ctx.principal.userId)).map(batchView))),
     /** Pays a batch of open invoices: the intent row first, then the business's approval rules, then the payout rail. */
     payBatch: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -194,37 +191,35 @@ export function createBusinessPayoutsRouter(c: BankRouterContext) {
               stepUpApprovalId,
             );
           }
-          return batchView(await payouts().payBatch({ ...rest, userId: ctx.principal.userId }));
+          return batchView(await payouts.payBatch({ ...rest, userId: ctx.principal.userId }));
         }),
       ),
     approveBatch: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ batchId: z.string().guid() }).strict())
       .output(businessContractorBatchSchema)
-      .mutation(({ ctx, input }) => guard(async () => batchView(await payouts().approveBatch({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => batchView(await payouts.approveBatch({ ...input, userId: ctx.principal.userId })))),
 
     wallet: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(businessPayrollWalletSchema.nullable())
       .query(({ ctx, input }) =>
         guard(async () => {
-          const w = await payouts().wallet(input.accountId, ctx.principal.userId);
+          const w = await payouts.wallet(input.accountId, ctx.principal.userId);
           return w ? walletView(w) : null;
         }),
       ),
     walletOffer: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ accountId: z.string().guid(), address }).strict())
       .output(businessPayrollWalletOfferSchema)
-      .mutation(({ ctx, input }) => guard(() => payouts().walletOffer({ ...input, userId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) => guard(() => payouts.walletOffer({ ...input, userId: ctx.principal.userId }))),
     connectWallet: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ offerId: z.string().guid(), signature }).strict())
       .output(businessPayrollWalletSchema)
-      .mutation(({ ctx, input }) =>
-        guard(async () => walletView(await payouts().connectWallet({ ...input, userId: ctx.principal.userId }))),
-      ),
+      .mutation(({ ctx, input }) => guard(async () => walletView(await payouts.connectWallet({ ...input, userId: ctx.principal.userId })))),
     payrolls: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessCryptoPayrollSchema))
-      .query(({ ctx, input }) => guard(async () => (await payouts().payrolls(input.accountId, ctx.principal.userId)).map(payrollView))),
+      .query(({ ctx, input }) => guard(async () => (await payouts.payrolls(input.accountId, ctx.principal.userId)).map(payrollView))),
     createPayroll: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z
@@ -244,7 +239,7 @@ export function createBusinessPayoutsRouter(c: BankRouterContext) {
       .mutation(({ ctx, input }) =>
         guard(async () =>
           payrollView(
-            await payouts().createPayroll({
+            await payouts.createPayroll({
               ...input,
               members: input.members.map((m) => ({ contractorId: m.contractorId, amount: parseAmount(m.amount) })),
               userId: ctx.principal.userId,
@@ -256,11 +251,11 @@ export function createBusinessPayoutsRouter(c: BankRouterContext) {
     prepareRun: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ payrollId: z.string().guid(), period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) }).strict())
       .output(businessCryptoPayrollSchema)
-      .mutation(({ ctx, input }) => guard(async () => payrollView(await payouts().prepareRun({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => payrollView(await payouts.prepareRun({ ...input, userId: ctx.principal.userId })))),
     /** The business's own wallet's signature over the run's message. */
     signRun: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ runId: z.string().guid(), signature }).strict())
       .output(businessCryptoPayrollSchema)
-      .mutation(({ ctx, input }) => guard(async () => payrollView(await payouts().signRun({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => payrollView(await payouts.signRun({ ...input, userId: ctx.principal.userId })))),
   });
 }

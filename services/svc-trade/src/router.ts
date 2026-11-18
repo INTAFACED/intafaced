@@ -2083,8 +2083,27 @@ export function createTradeRouter(
         .input(z.object({ displayName: z.string().max(200) }))
         .mutation(({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input))),
 
+      /** What applying to lead is measured by for the caller: whom they follow, the threshold and their venue USDC. */
+      leadEligibility: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
+        lead((desk) => desk.eligibility(ctx.principal)),
+      ),
+
       /** The caller's newest lead application, or null. */
       myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
+
+      /** The caller's lead account once approved, or null (CB-copy-18, J-copy-bots-otc-04 #4). */
+      myLead: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.myLead(ctx.principal))),
+
+      /** The caller's new-trader missions and how far each has come (CB-copy-12, J-copy-bots-otc-04 #3). */
+      leadMissions: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.missions(ctx.principal))),
+
+      /** The caller's own lead trades, ongoing and history, with counts (CB-copy-15, J-copy-bots-otc-04 #8). */
+      leadTrades: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.trading.trades(ctx.principal))),
+
+      /** The caller's copiers and each one's state (CB-copy-15, J-copy-bots-otc-04 #8). */
+      leadCopiers: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
+        lead((desk) => desk.trading.copiers(ctx.principal)),
+      ),
 
       /** The scopes the platform has paused now (CB-ops-03): leads by listing ref, bot types and symbols. */
       platformPauses: scopedProcedure('trade:read', { module: 'trade' }).query(() => pauses((desk) => desk.publicPauses())),

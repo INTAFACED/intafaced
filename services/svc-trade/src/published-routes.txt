@@ -100,6 +100,7 @@ GET /api/v1/venue/fee-tier private trade:read
 GET /api/v1/venue/fees public trade:read
 GET /api/v1/venue/fills private trade:read
 GET /api/v1/venue/funding-history public trade:read
+GET /api/v1/venue/funding-payments private trade:read
 GET /api/v1/venue/gated-list private trade:read
 GET /api/v1/venue/insurance-fund public trade:read
 GET /api/v1/venue/isolated-margin private trade:read
@@ -121,6 +122,7 @@ GET /api/v1/venue/own-agents/:agentId/allowances private trade:read
 GET /api/v1/venue/own-agents/:agentId/orders private trade:read
 GET /api/v1/venue/own-agents/:agentId/rebalances private trade:read
 GET /api/v1/venue/positions private trade:read
+GET /api/v1/venue/price-history public trade:read
 GET /api/v1/venue/protection-agent private trade:read
 GET /api/v1/venue/protections private trade:read
 GET /api/v1/venue/scheduled-cancel private trade:read

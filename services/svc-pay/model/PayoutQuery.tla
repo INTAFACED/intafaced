@@ -91,8 +91,12 @@ RQuery == /\ rpc = "query"
           /\ rpc' = "done" /\ Free("reconciler")
           /\ UNCHANGED <<signed, signs, sent, hashed, dispatched, ppc, restarts>>
 
+\* The end: both have stopped and the held money has its answer: sent (hashed), given back (failed), or never held. It
+\* changes nothing, so the deadlock check fails any other state with no step out: a payout frozen with its hold stuck.
+Done == /\ ppc \in {"idle", "dead"} /\ rpc \in {"idle", "done"} /\ (hashed \/ failed \/ ~dispatched) /\ UNCHANGED vars
+
 Next == \/ LoseLock \/ PLock \/ PMark \/ PClaim \/ PSign \/ PPutSigned \/ PBroadcast \/ PPut \/ PEnd \/ PCrash
-        \/ RLock \/ RQuery
+        \/ RLock \/ RQuery \/ Done
 Spec == Init /\ [][Next]_vars
 
 \* ---- the rules ----

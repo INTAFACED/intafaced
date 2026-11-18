@@ -126,6 +126,15 @@ export const GATES = [
     why: 'a suite pointed at the shared database is how someone else’s main goes red',
   },
   {
+    id: 'published-routes',
+    script: 'tooling/ci/published-routes.mjs',
+    doctrine: 'the developer portal publishes every route svc-trade serves',
+    why:
+      'services/svc-trade/src/published-routes.txt must be the /api/v1 routes svc-trade registers, with their access and ' +
+      "scopes; the customer app's developers-reference test holds REST_REFERENCE to it. As a unit test it was first seen " +
+      'red after the push (#8518, #8571; project-state#3005); as a gate it runs before the push, in under a second.',
+  },
+  {
     id: 'killswitch',
     script: 'tooling/ci/killswitch-reachability.mjs',
     doctrine: '§14.6',

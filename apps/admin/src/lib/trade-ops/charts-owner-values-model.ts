@@ -13,6 +13,7 @@ export const CHART_SCALAR_KEYS = [
   'drawingCap',
   'brushPointCap',
   'delayedBoundarySeconds',
+  'staleAgeSeconds',
   'renderBudgetMs',
   'orderProtectionBps',
   'queueFillWindowSeconds',
@@ -35,6 +36,11 @@ export const CHART_SCALARS: readonly ChartScalarInfo[] = [
     key: 'delayedBoundarySeconds',
     label: 'Delayed boundary (seconds)',
     meaning: 'Age of the newest candle after which a stream reads "delayed".',
+  },
+  {
+    key: 'staleAgeSeconds',
+    label: 'Stale age (seconds)',
+    meaning: 'Age of the newest candle after which a stream reads "stale" and the feed watcher journals a drop.',
   },
   {
     key: 'renderBudgetMs',

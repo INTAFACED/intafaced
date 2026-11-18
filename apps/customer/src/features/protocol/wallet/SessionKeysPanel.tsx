@@ -5,7 +5,7 @@ import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session/session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
-import { REGION_BLOCKED_CODE } from '../region';
+import { isRegionBlocked } from '../region';
 import { formatUnits } from '../swap/swap-math';
 import { walletCopy } from './copy';
 import { RepresentationPanel } from './RepresentationPanel';
@@ -186,7 +186,7 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
       setPending(null);
       return setProblem(
         t(
-          gate.code === REGION_BLOCKED_CODE
+          isRegionBlocked(gate.code)
             ? 'refused_region'
             : gate.code === 'compliance.representation_unset'
               ? 'refused_representation_unset'

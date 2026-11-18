@@ -15,7 +15,7 @@ import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session/session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { networkLabel } from '../blockers';
-import { REGION_BLOCKED_CODE, useRegionBlocked } from '../region';
+import { isRegionBlocked, useRegionBlocked } from '../region';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { RepresentationPanel } from '../wallet/RepresentationPanel';
 import { shortContract, tokenLabel, toBaseUnits } from '../wallet/transfer';
@@ -765,7 +765,7 @@ export function SwapForm() {
       const gate = await api.representationStatus(wallet.address);
       if (!gate.ok)
         return setProblem(
-          gate.code === REGION_BLOCKED_CODE
+          isRegionBlocked(gate.code)
             ? t('regionBlocked')
             : gate.code === 'compliance.representation_unset'
               ? t('representationUnset')
@@ -832,7 +832,7 @@ export function SwapForm() {
       // A refusal names its blocker; only an unexplained failure reads as a passing one.
       const code = prices.resource.failure.code;
       if (code === PRICE_SETTINGS_UNSET) return t('priceSettingsUnset');
-      if (code === REGION_BLOCKED_CODE) return t('regionBlocked');
+      if (isRegionBlocked(code)) return t('regionBlocked');
       if (code === 'protocol.amm_factory_unset') return t('priceFactoryUnset');
       return t('priceUnread');
     }

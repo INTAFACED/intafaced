@@ -5,6 +5,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
+  annualisedFundingRate,
   OWNER_ONLY_INTENTS,
   VenueRefusalError,
   hasSubAccountReads,
@@ -1099,10 +1100,42 @@ export class UserVenueDoor {
     if (!venue.fundingHistory)
       throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: `this venue publishes no funding history` });
     const read = await venue.fundingHistory(perp.symbol, since);
+    const intervalSeconds = perp.funding.known ? perp.funding.value.intervalSeconds : null;
     return {
       ...read,
+      // J-derivatives-08 #6: each row's rate a year at the venue's interval, as `annualisedFundingRate` counts it (null
+      // when the venue publishes no interval), beside the venue's premium (null where it publishes none).
+      value: read.value.map((row) => ({
+        ...row,
+        premium: row.premium ?? null,
+        annualisedRate: annualised(row.rate, intervalSeconds),
+      })),
       symbol: perp.symbol,
       intervalSeconds: perp.funding.known ? perp.funding.value.intervalSeconds : null,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
+  /**
+   * The mark or index price the venue published since `since` on a perpetual we list (J-derivatives-08 #6). An index the
+   * venue does not publish answers `series: null` with the venue's reason, never a series of ours. Refuses `not_offered`
+   * for a market we do not list as a perpetual, or a venue (or adapter) that reads no price history.
+   */
+  async priceHistory(symbol: string, kind: 'mark' | 'index', since: Date) {
+    const venue = await this.venue();
+    const perp = (await this.markets()).value.find((m) => m.kind === 'perpetual' && m.symbol === symbol);
+    if (!perp)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: `${symbol} is not a perpetual we list` });
+    if (!venue.priceHistory)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no price history' });
+    const read = await venue.priceHistory(perp.symbol, kind, since);
+    return {
+      venueId: read.venueId,
+      asOf: read.asOf,
+      symbol: perp.symbol,
+      kind,
+      series: read.value.known ? read.value.value : null,
+      reason: read.value.known ? null : read.value.reason,
       test: isTestVenue(venue.venue),
     };
   }
@@ -1806,5 +1839,15 @@ export class UserVenueDoor {
     }
     if (accepted) return { ...base, state: 'accepted', order: accepted.order, asOf: accepted.asOf };
     return { ...base, state: 'unknown', reason: 'not_on_venue_yet', order: null, asOf: read.asOf };
+  }
+}
+
+/** A per-interval funding rate a year at `intervalSeconds`, or `null` when the venue publishes no interval that annualises. */
+function annualised(rate: Amount, intervalSeconds: number | null): Amount | null {
+  if (intervalSeconds === null) return null;
+  try {
+    return annualisedFundingRate({ rate, intervalSeconds });
+  } catch {
+    return null;
   }
 }

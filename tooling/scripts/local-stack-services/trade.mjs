@@ -14,6 +14,13 @@ function testValue(name) {
  * named from its production host under the reserved .test domain, so J-developer-01 #3 can see the redundant endpoint
  * with its hosts set; the profile leaves regional out, so by default those rows read "host not set".
  */
+/** The least venue balance to lead on a restart: `blank` leaves it blank, a decimal sets it, unset is the TEST value. */
+function leadBalance(raw, testDefault) {
+  if (raw === 'blank') return '';
+  if (raw && /^\d+(\.\d+)?$/.test(raw)) return raw;
+  return testDefault;
+}
+
 function developerHosts() {
   const hosts = JSON.parse(testValue('TRADE_DEVELOPER_HOSTS'));
   if (process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'regional') {
@@ -173,6 +180,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
     TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: testValue('TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS'),
+    // `LOCAL_STACK_TRADE_COPY_LEAD_BALANCE=blank` on a restart leaves the least venue balance to lead blank, so
+    // J-copy-bots-otc-04 #1 sees every application refused naming the threshold; a decimal there sets it instead, so
+    // J-copy-bots-otc-04 #7 sees a lead under the equity minimum refused. Unset: the TEST value.
+    TRADE_COPY_LEAD_MIN_VENUE_USDC: leadBalance(
+      process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE,
+      testValue('TRADE_COPY_LEAD_MIN_VENUE_USDC'),
+    ),
+    TRADE_COPY_LEAD_MISSION_MIN_USDC: testValue('TRADE_COPY_LEAD_MISSION_MIN_USDC'),
+    TRADE_COPY_LEAD_DAILY_BUY_CAP: testValue('TRADE_COPY_LEAD_DAILY_BUY_CAP'),
+    TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS: testValue('TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS'),
     // `LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT=off` on a restart leaves the minimum blank, so J-copy-bots-otc-02 #2 sees
     // every follow refused with `trade.copy_min_not_set`.
     TRADE_COPY_MIN_INVESTMENT: process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT === 'off' ? '' : testValue('TRADE_COPY_MIN_INVESTMENT'),
@@ -238,7 +255,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // (J-developer-01 #2, #3, #6). `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=off`, `LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE=off`
     // or `LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS=off` on a start or restart leaves that setting blank, so its refusal can be
     // seen too; `LOCAL_STACK_TRADE_DEVELOPER_HOSTS=regional` adds TEST regional hosts (developerHosts).
-    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off' ? {} : { TRADE_DEVELOPER_HOSTS: developerHosts() }),
+    // The same switch blanks the stream endpoint hosts (J-developer-09 #1), so the WebSocket page reads "host not set" too.
+    ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS === 'off'
+      ? {}
+      : { TRADE_DEVELOPER_HOSTS: developerHosts(), TRADE_DEVELOPER_STREAM_HOSTS: testValue('TRADE_DEVELOPER_STREAM_HOSTS') }),
     ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_REGIONAL_RULE === 'off'
       ? {}
       : { TRADE_DEVELOPER_REGIONAL_RULE: testValue('TRADE_DEVELOPER_REGIONAL_RULE') }),
@@ -258,9 +278,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // venue/venue-listing.ts): the two BTC markets, J-derivatives-03's TEST perpetual ETH-PERP (its trigger orders),
           // J-derivatives-21's TEST gold perpetual XAU-PERP and J-derivatives-27's TEST stock perpetuals XSTK-PERP and
           // XSTD-PERP, J-derivatives-02's TEST perpetual XRSK-PERP (its margin tiers, collateral and open-interest cap), and
-          // J-derivatives-07's TEST perpetual XLIQ-PERP (the one the TEST venue liquidates on).
+          // J-derivatives-07's TEST perpetual XLIQ-PERP (the one the TEST venue liquidates on), and J-derivatives-08's TEST
+          // perpetual XFND-PERP (the one whose funding the TEST venue builds and settles).
           // ETH-USDC is left unlisted, for two operators to review.
-          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP',
+          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP',
           TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
           TRADE_USER_VENUE_BUILDER_FEE_BPS:
             process.env.LOCAL_STACK_USER_VENUE_BUILDER_FEE === 'off' ? '' : testValue('TRADE_USER_VENUE_BUILDER_FEE_BPS'),

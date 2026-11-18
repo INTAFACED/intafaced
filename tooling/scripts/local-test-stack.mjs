@@ -329,6 +329,7 @@ const SECRET_NAMES = [
   'tradeAdmission',
   'payAdmission',
   'edgeAuthority',
+  'wsAuthority', // svc-ws's read key for identity's current authority on the private stream (IDENTITY_WS_AUTHORITY_SECRET on identity, IDENTITY_OWNERSHIP_SECRET on svc-ws); distinct from the edge's
   'payCryptoWebhook',
   'payCardWebhook',
   'payBankTransferWebhook', // pay's TEST bank webhook key (J-merchant-04 step 6); the `bank-transfer` command signs with it

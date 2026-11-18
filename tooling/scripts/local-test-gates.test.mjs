@@ -26,6 +26,8 @@ import {
   SET_FRAUD_LISTING_ACTION,
   TEST_FRAUD_LIST,
   founderSignIns,
+  founderSession,
+  tradeAudit,
   termsProposal,
   TEST_TRANSFER_TERMS,
   TEST_ASSET_ROWS,
@@ -67,7 +69,7 @@ import {
   isCancelOf,
   TRADE_CANCELS,
 } from './local-test-gates.mjs';
-import { draftFounderVault } from './local-test-founders.mjs';
+import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
 
@@ -550,6 +552,56 @@ assert.equal(refusalText({ json: null, text: 'plain' }), 'plain');
   vault.founders[1].totpConfirmed = false;
   assert.deepEqual(founderSignIns(vault), [], 'a founder without a confirmed second factor cannot sign in');
 }
+// trade-audit reads as founder a alone: one login, one TOTP step, and founder b's step untouched, so a journey that has
+// founder b in the console (J-cex-spot-18 #5) never waits on the 30 s TOTP clock for b because of an audit read.
+{
+  const stateDir = mkdtempSync(join(tmpdir(), 'gates-audit-'));
+  const vault = draftFounderVault();
+  vault.founders.forEach((f, i) => Object.assign(f, { userId: `user-${i}`, totpSecret: `SECRET${i}`, totpConfirmed: true }));
+  writeFileSync(join(stateDir, FOUNDER_VAULT_NAME), JSON.stringify(vault));
+  writeFileSync(join(stateDir, FOUNDER_STEPS_NAME), JSON.stringify({ a: 10, b: 20 }));
+  const logins = [];
+  const queries = [];
+  const ctx = {
+    paths: { stateDir },
+    sessionCache: {},
+    clock: () => 20 * 30_000,
+    sleep: async () => assert.fail('a fresh step was free: nothing waits on the clock'),
+    log: () => {},
+    totp: { totp: (secret, { at }) => `${secret}@${at.getTime() / 30_000}` },
+    secrets: { jwt: 'jwt' },
+    tokens: { issueAccessToken: async (claims) => ({ token: `minted:${claims.userId}:${claims.scopes.join(',')}` }) },
+    edge: {
+      mutate: async (_svc, proc, input) => {
+        logins.push([proc, input.identifier, input.totpCode]);
+        const sid = Buffer.from(JSON.stringify({ sid: 'sess-a' })).toString('base64url');
+        return { status: 200, json: { result: { data: { userId: 'user-0', accessToken: `h.${sid}.s` } } } };
+      },
+      query: async (svc, proc, input, token) => {
+        queries.push([svc, proc, input.cursor, token]);
+        const page = input.cursor ? { rows: [{ id: 'r2' }], nextCursor: null } : { rows: [{ id: 'r1' }], nextCursor: 'c1' };
+        return { status: 200, json: { result: { data: page } } };
+      },
+    },
+  };
+  const rows = await tradeAudit(ctx, { kind: 'venue_orders.get', account: 'cust-1' });
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    ['r1', 'r2'],
+    'every page, oldest first',
+  );
+  assert.deepEqual(logins, [['auth.login', vault.founders[0].email, 'SECRET0@20']], 'founder a alone signs in, once');
+  assert.ok(
+    queries.every(
+      ([svc, proc, , token]) => svc === 'trade' && proc === 'admin.audit.feed' && token === 'minted:user-0:admin:read,admin:write',
+    ),
+  );
+  assert.deepEqual(JSON.parse(readFileSync(join(stateDir, FOUNDER_STEPS_NAME), 'utf8')), { a: 20, b: 20 }, "founder b's step is untouched");
+  await tradeAudit(ctx, { kind: 'venue_orders.get', account: 'cust-1' });
+  assert.equal(logins.length, 1, 'within one command the sign-in is kept');
+  assert.equal(await founderSession(ctx, 'a'), await founderSession(ctx, 'a'));
+  rmSync(stateDir, { recursive: true, force: true });
+}
 // verify submits founders' requests; populate (which approves only its friend) does not.
 {
   const src = readFileSync(script, 'utf8');
@@ -576,6 +628,7 @@ assert.deepEqual(TEST_CHART_COUNTS, {
   drawingCap: 50,
   brushPointCap: 2000,
   delayedBoundarySeconds: 30,
+  staleAgeSeconds: 35,
   renderBudgetMs: 500,
   orderProtectionBps: 500,
   queueFillWindowSeconds: 300,

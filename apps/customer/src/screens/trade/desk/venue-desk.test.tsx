@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { OrdersTable } from '../../../features/trade/venue/VenueKit';
 import type { AsOf, OrderIntent, VenueMarket, VenueOrder, VenuePreview, VenueUp } from '../../../features/trade/venue-api';
-import { VenueReviewRows, VenueVerifyDesk, WithdrawalLine } from './VenueSpotDesk';
+import { VenueReviewRows } from './VenueReviewRows';
+import { VenueVerifyDesk } from './VenueVerifyDesk';
+import { WithdrawalLine } from './VenueAccountPanel';
 import {
   HeldDraft,
   amountForValue,

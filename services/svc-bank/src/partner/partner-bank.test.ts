@@ -18,7 +18,8 @@ import {
   reportedAmount,
   type PartnerAccountRef,
 } from './partner-bank.js';
-import { TEST_PARTNER_LABEL, TEST_PARTNER_STALE_AFTER_MS, testPartner, testPartnerCustody } from './test-partner.js';
+import { TEST_PARTNER_STALE_AFTER_MS, testPartner, testPartnerCustody } from './test-partner.js';
+import { TEST_PARTNER_LABEL } from './test-partner-book.js';
 import { stopGuardedCustody } from './partner-stops.js';
 
 const ADA = 'ada-0001';
