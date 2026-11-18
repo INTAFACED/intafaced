@@ -34,15 +34,15 @@ The same on the real payer with a real Postgres: `src/reward-payer.pg.test.ts`, 
 
 ## What it covers
 
-| Model step                              | Code (`services/svc-campaigns/src/reward-payer.ts`)                                                                |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `StartDue`                              | `payDue`: `due()`, `head()`, the `reward_payments` insert `ON CONFLICT (reward_key) DO NOTHING`                    |
-| `SendRefused`, `SendTaken`, `WriteHash` | `payDue`: `chain.send`, its `catch { continue; }`, the `chain_tx ... WHERE chain_tx IS NULL` update                |
-| `StartSettle`                           | `settleOpen`: the snapshot of `sending` and `sent` rows                                                            |
-| `Find`                                  | `settle`: the claimed hashes, `chain.find`, `LOST_PAYMENT_AFTER_MS`, `unconfirmed`, the `chain_tx` update (UNIQUE) |
-| `Receipt`                               | `settle`: `chain.receipt`, `fail` on a revert, the `state = 'sent'` update                                         |
-| `Book`, `Mark`                          | `book`: `rewardPayOut` under `campaigns:reward-paid:<chainTx>`, then `booked` and `paid`                           |
-| `Crash`, `Tick`, `Land`                 | a process dying, time passing since `sent_at`, the chain mining, reverting or dropping                             |
+| Model step                              | Code (`services/svc-campaigns/src/reward-payer.ts`)                                                                                            |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StartDue`                              | `payDue`: `due()`, `head()`, the `reward_payments` insert `ON CONFLICT (reward_key) DO NOTHING`                                                |
+| `SendRefused`, `SendTaken`, `WriteHash` | `payDue`: `chain.send`, its `catch { continue; }`, the `chain_tx ... WHERE chain_tx IS NULL` update                                            |
+| `StartSettle`                           | `settleOpen`: the snapshot of `sending` and `sent` rows                                                                                        |
+| `Find`                                  | `settle`: the claimed hashes, `chain.find`, `LOST_PAYMENT_AFTER_MS`, `unconfirmed`, the `chain_tx` update (UNIQUE)                             |
+| `Receipt`                               | `settle`: `chain.receipt`, `fail` on a revert, the `state = 'sent'` update                                                                     |
+| `Book`, `Mark`                          | `book`: `rewardPayOut` under `campaigns:reward-paid:<chainTx>` (`packages/ledger-client/src/recipes/reward-owed.ts`), then `booked` and `paid` |
+| `Crash`, `Tick`, `Land`                 | a process dying, time passing since `sent_at`, the chain mining, reverting or dropping                                                         |
 
 Not covered: the posting freeze and wallet-balance waits before a send (they send nothing), the ledger refusing a booking (it leaves the payment `sent` and is retried under the same key), a wallet changed after the claim, the network fee, and transfers of different amounts.
 

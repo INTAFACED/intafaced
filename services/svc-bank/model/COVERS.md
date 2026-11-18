@@ -48,15 +48,16 @@ The same on the real service with a real Postgres: `src/holds/received-holds.db.
 
 ## What it covers
 
-| Model step                           | Code (`services/svc-bank/src/holds/received-holds.ts`)                                   |
-| ------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `Start`                              | `placeFor` (`find`) and `sweep` (the pass's `SELECT`): the row as the placer read it     |
-| `Attempt`, `Timeout`, `Land`, `Lose` | `place`: the `attempted_at` update, `ledger.post(payReceivedHold)`, its answer or none   |
-| `Attempt` (`fix: claim`)             | `place`: `UPDATE ... attempted_at ... RETURNING`, nothing posted with no row back        |
-| `Decide`                             | `place`: `getTxByKey`, the short-refusal lapse (`markLapsed`), `refused_at`, `markHeld`  |
-| `Heal`                               | `sweep`'s second step: lapsed rows within `2 * POST_IN_FLIGHT_BOUND_SECONDS`, `markHeld` |
-| `Claim`, `Finish`                    | `decideHold` and the release date in `advance`; `finish`                                 |
-| `Spend`, `Receive`, `Tick`           | the recipient's other payments, and time against `POST_IN_FLIGHT_BOUND_SECONDS`          |
+| Model step                           | Code (`services/svc-bank/src/holds/received-holds.ts`)                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `Start`                              | `placeFor` (`find`) and `sweep` (the pass's `SELECT`): the row as the placer read it                   |
+| `Attempt`, `Timeout`, `Land`, `Lose` | `place`: the `attempted_at` update, `ledger.post(payReceivedHold)`, its answer or none                 |
+| `Attempt` (`fix: claim`)             | `place`: `UPDATE ... attempted_at ... RETURNING`, nothing posted with no row back                      |
+| `Decide`                             | `place`: `getTxByKey`, the short-refusal lapse (`markLapsed`), `refused_at`, `markHeld`                |
+| `Heal`                               | `sweep`'s second step: lapsed rows within `2 * POST_IN_FLIGHT_BOUND_SECONDS`, `markHeld`               |
+| `Claim`, `Finish`                    | `decideHold` and the release date in `advance`; `finish`                                               |
+| `Decide`'s key                       | `pay.recv.hold:<holdId>` (`packages/ledger-client/src/recipes/pay-received-hold.ts` `payReceivedHold`) |
+| `Spend`, `Receive`, `Tick`           | the recipient's other payments, and time against `POST_IN_FLIGHT_BOUND_SECONDS`                        |
 
 Not covered: the send itself and the "never arrived" lapse (the model starts with the send posted), the release date's own timing, the timer's singleton lock (one timer pass at a time is assumed), and a placer paused between its claim and its post for longer than the in-flight bound (the model sends the request at the claim, as the code's bound assumes).
 
