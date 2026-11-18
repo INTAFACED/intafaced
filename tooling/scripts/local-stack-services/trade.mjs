@@ -116,6 +116,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     TRADE_MM_SEED_STATE_PATH: path.join(P.data, 'mm-seed-last-run.json'),
     // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
     TRADE_CONVERT_QUOTE_TTL_MS: '15000',
+    // How long a venue Convert price may be accepted before a fresh one must be (J-cex-spot-11 #4); the venue holds no
+    // price. The labelled TEST value; venue convert quotes refuse trade.convert_window_unset without it.
+    TRADE_CONVERT_ACCEPT_WINDOW_MS: testValue('TRADE_CONVERT_ACCEPT_WINDOW_MS'),
     // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in
     // seconds, as retail exchanges publish them (OKX accepts 10 to 120). Without them arming refuses
     // trade.cancel_all_after_unset. The sweep runs every second here so a journey does not wait on the 5 s default.

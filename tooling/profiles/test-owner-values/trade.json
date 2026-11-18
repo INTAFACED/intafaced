@@ -270,6 +270,11 @@
       "service": "trade",
       "value": "basic",
       "note": "LOCAL TEST ONLY, not an owner decision: basic, the level the venue door already asks of a new order, as the verification level an account needs for the TEST venue's perpetuals (J-derivatives-12 #5). Blank, the eligible list is empty with trade.venue_eligibility_level_unset and every new perpetual position refuses; LOCAL_STACK_USER_VENUE_ELIGIBILITY=off leaves it blank."
+    },
+    "TRADE_CONVERT_ACCEPT_WINDOW_MS": {
+      "service": "trade",
+      "value": "15000",
+      "note": "How long a venue Convert price may be accepted before a fresh one must be (J-cex-spot-11 #4); the venue holds no price."
     }
   }
 }

@@ -1275,6 +1275,58 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
       'The venue’s own price for selling an amount on your venue account now: what fills, its average price and fees, or "not known". Sends nothing',
   },
   {
+    name: 'venueConvertPairs',
+    method: 'GET',
+    path: '/api/v1/venue/convert/pairs',
+    product: 'accounts',
+    summary:
+      'What can be converted on your venue account now: each pair with its per-conversion limit or none set, the coins not offered, and whether Convert is paused',
+  },
+  {
+    name: 'venueConvertRoute',
+    method: 'GET',
+    path: '/api/v1/venue/convert/route',
+    product: 'accounts',
+    summary: 'How one asset converts to another on the venue: the market joining them, or why none does. Prices nothing',
+  },
+  {
+    name: 'venueConvertQuote',
+    method: 'POST',
+    path: '/api/v1/venue/convert/quote',
+    product: 'accounts',
+    summary:
+      'A price for a conversion: the venue’s best price, the slippage limit, the most it can cost and the fees as the venue previews them. Holds no price and locks nothing',
+  },
+  {
+    name: 'venueConvertAccept',
+    method: 'POST',
+    path: '/api/v1/venue/convert/accept',
+    product: 'accounts',
+    summary:
+      'Accept a quote: its one venue order prepared for your wallet to sign. The same quote id twice is the same order; a price past its window is refused',
+  },
+  {
+    name: 'venueConvertLimit',
+    method: 'POST',
+    path: '/api/v1/venue/convert/limit',
+    product: 'accounts',
+    summary: 'A limit convert: one venue order resting at your target rate, prepared for your wallet to sign',
+  },
+  {
+    name: 'venueConvertSubmit',
+    method: 'POST',
+    path: '/api/v1/venue/convert/submit',
+    product: 'accounts',
+    summary: 'Send a signed conversion to the venue once; a lost answer is read back by its client id, never sent as a second order',
+  },
+  {
+    name: 'venueConvertHistory',
+    method: 'GET',
+    path: '/api/v1/venue/convert/history',
+    product: 'accounts',
+    summary: 'Your accepted conversions as the venue records them: paid and received amounts, fees and time',
+  },
+  {
     name: 'venuePrepare',
     method: 'POST',
     path: '/api/v1/venue/prepare',
