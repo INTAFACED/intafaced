@@ -1,9 +1,11 @@
 // The parts of brief-cases.mjs that need no model: how it reads the job's calls, drops a line and scores an answer, and
 // that each case file is one the runner can run.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { dropLine, JUDGES, jobCall, mergeRuns, scoreRead, scoreReview, totals } from './brief-cases.mjs';
+import { dropLine, JUDGES, jobCall, mergeRuns, scoreRead, scoreReview, totals, treeCache } from './brief-cases.mjs';
 
 const workflow = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
 
@@ -76,6 +78,25 @@ test('a case asked twice scores the mean of its runs, and a control passes only 
   assert.equal(flaky.got, 'PASS | FAIL');
   assert.deepEqual(totals([{ kind: 'control', ...flaky }]), { bad: 0, badOf: 0, controls: 0, controlsOf: 1 });
   assert.deepEqual(totals([{ kind: 'control', ...mergeRuns([{ score: 1 }, { score: 1 }]) }]).controls, 1);
+});
+
+test('every case and run of one commit shares one tree, extracted once, and a tree already there is reused', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'brief-cases-test-'));
+  const extracted = [];
+  const extract = async (sha, to) => {
+    extracted.push(sha);
+    mkdirSync(to, { recursive: true });
+    writeFileSync(join(to, 'f'), sha);
+  };
+  const at = treeCache(dir, extract);
+  const [a, b, c] = await Promise.all([at('aaa'), at('aaa'), at('bbb')]);
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  assert.deepEqual(extracted.sort(), ['aaa', 'bbb']);
+  assert.equal(readFileSync(join(a, 'f'), 'utf8'), 'aaa');
+  assert.ok(!existsSync(`${a}.part-${process.pid}`));
+  assert.equal(await treeCache(dir, extract)('aaa'), a);
+  assert.equal(extracted.length, 2);
 });
 
 test('each case file has bad cases and controls, unique ids, full shas, and no copied step words', () => {

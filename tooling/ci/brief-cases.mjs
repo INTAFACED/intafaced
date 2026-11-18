@@ -7,19 +7,23 @@
  * run on the signed-in reviewer CLI (the job's own binary name, on PATH), never in CI.
  *
  *   node tooling/ci/brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>]
- *        [--runs <n>] [--words <project-state clone>] [--out <dir>]
+ *        [--runs <n>] [--trees <dir>] [--words <project-state clone>] [--out <dir>]
  *
  * `--drop <text>` scores the brief with the one line holding <text> removed: a case set that scores the same without a
  * line doesn't test it. A change to a brief shows its score before and after in its pull request.
  *
  * `--runs <n>` (default 2) asks each case n times: one answer per case is too noisy to rank two briefs. A case scores
  * the mean of its runs, and a control passes only when every run passes.
+ *
+ * `--trees <dir>` keeps the exported trees there, to be reused by the next brief scored; without it they go in the
+ * answers folder and are removed when the run ends.
  */
-import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import { buildPrompt, readAnswer as readReviewAnswer, REVIEW_ASK, MAX_DIFF_BYTES, VERDICT_SCHEMA } from './ci-review.mjs';
 import { buildReads, readAnswer as readReadAnswer, READ_SCHEMA } from './step-read.mjs';
 import { gitSource, parseStepWords } from './test-judge.mjs';
@@ -98,11 +102,37 @@ export function totals(results) {
 
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 
-/** The tree at `sha`, exported (no .git), for the judge's Read, Grep and Glob. Each is about 200 MB: the caller removes
- * it once its case is asked, so at most `--jobs` copies exist at a time (project-state#2968: kept copies filled the disk). */
-function exportTree(sha, dir) {
+/** The tree at `sha`, exported (no .git) into `dir`, for the judge's Read, Grep and Glob. */
+async function exportTree(sha, dir) {
   mkdirSync(dir, { recursive: true });
-  execFileSync('sh', ['-c', 'git -C "$1" archive "$2" | tar -x -C "$3"', 'sh', ROOT, sha, dir]);
+  await promisify(execFile)('sh', ['-c', 'git -C "$1" archive "$2" | tar -x -C "$3"', 'sh', ROOT, sha, dir]);
+}
+
+/**
+ * One exported tree per commit under `dir`, shared by every case and run that names it: the judge only reads it (its
+ * answer is written beside its run, never in the tree). A tree is about 200 MB and its extraction is the scorer's main
+ * cost, so a copy per case and run filled the disk and the processor (project-state#2968). `at(sha)` extracts once
+ * (two callers for one commit wait on the same extraction), into a side folder renamed into place, so a half-written
+ * tree is never read; a tree already in `dir` is reused.
+ */
+export function treeCache(dir, extract = exportTree) {
+  const trees = new Map();
+  return (sha) => {
+    if (!trees.has(sha))
+      trees.set(
+        sha,
+        (async () => {
+          const final = join(dir, sha);
+          if (existsSync(final)) return final;
+          const part = `${final}.part-${process.pid}`;
+          rmSync(part, { recursive: true, force: true });
+          await extract(sha, part);
+          renameSync(part, final);
+          return final;
+        })(),
+      );
+    return trees.get(sha);
+  };
 }
 
 function ask(call, { repo, extraDir, prompt, schema, question, out }) {
@@ -156,22 +186,17 @@ function ask(call, { repo, extraDir, prompt, schema, question, out }) {
   });
 }
 
-async function runReview(c, brief, call, work) {
+async function runReview(c, brief, call, work, treeAt) {
   const head = git('rev-parse', c.head).trim();
   const base = git('rev-parse', c.base).trim();
   // The diff as the job's local replay makes it (rename detection on, no .gitattributes), from the merge base.
   const { diff } = await gitSource(ROOT, head).diff(base, head);
   if (Buffer.byteLength(diff) > MAX_DIFF_BYTES)
     throw new Error(`${c.id}: the diff is over ${MAX_DIFF_BYTES} bytes; pick a case the job reviews in one call`);
-  const repo = join(work, 'repo');
-  try {
-    exportTree(base, repo);
-    const prompt = buildPrompt({ brief, diff, pr: c.pr, head });
-    const text = await ask(call, { repo, prompt, schema: VERDICT_SCHEMA, question: REVIEW_ASK, out: join(work, 'answer.json') });
-    return scoreReview(c, readReviewAnswer(text));
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
+  const repo = await treeAt(base);
+  const prompt = buildPrompt({ brief, diff, pr: c.pr, head });
+  const text = await ask(call, { repo, prompt, schema: VERDICT_SCHEMA, question: REVIEW_ASK, out: join(work, 'answer.json') });
+  return scoreReview(c, readReviewAnswer(text));
 }
 
 function wordsAt(clone, sha) {
@@ -182,7 +207,7 @@ function wordsAt(clone, sha) {
   return { words, ref: sha };
 }
 
-async function runRead(c, brief, call, work, clone) {
+async function runRead(c, brief, call, work, clone, treeAt) {
   const head = git('rev-parse', c.head).trim();
   const got = await buildReads({
     src: gitSource(ROOT, head),
@@ -194,17 +219,12 @@ async function runRead(c, brief, call, work, clone) {
     loadWords: async () => wordsAt(clone, c.words),
   });
   if (!got.applicable) return { score: 0, got: `no read built (${got.why})` };
-  const repo = join(work, 'repo');
+  const repo = await treeAt(head);
   const pics = join(work, 'pictures');
-  try {
-    exportTree(head, repo);
-    mkdirSync(pics, { recursive: true });
-    const out = join(work, 'answer.json');
-    await ask(call, { repo, extraDir: pics, prompt: got.prompt, schema: READ_SCHEMA, question: READ_ASK, out });
-    return scoreRead(c, readReadAnswer(out, got.required));
-  } finally {
-    rmSync(repo, { recursive: true, force: true });
-  }
+  mkdirSync(pics, { recursive: true });
+  const out = join(work, 'answer.json');
+  await ask(call, { repo, extraDir: pics, prompt: got.prompt, schema: READ_SCHEMA, question: READ_ASK, out });
+  return scoreRead(c, readReadAnswer(out, got.required));
 }
 
 async function main() {
@@ -212,7 +232,7 @@ async function main() {
   const arg = (n, d) => (rest.includes(n) ? rest[rest.indexOf(n) + 1] : d);
   if (!JUDGES[judge]) {
     console.error(
-      'usage: brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>] [--runs <n>] [--words <project-state clone>] [--out <dir>]',
+      'usage: brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>] [--runs <n>] [--trees <dir>] [--words <project-state clone>] [--out <dir>]',
     );
     process.exit(2);
   }
@@ -229,6 +249,10 @@ async function main() {
   console.log(
     `${judge}: ${cases.length} cases, ${runs} runs each, on ${call.model} at ${call.effort}${arg('--drop') ? `, without the line holding "${arg('--drop')}"` : ''}; answers in ${out}`,
   );
+  const keep = arg('--trees');
+  const trees = keep ?? join(out, 'trees');
+  mkdirSync(trees, { recursive: true });
+  const treeAt = treeCache(trees);
   const answers = new Map(cases.map((c) => [c.id, []]));
   const queue = cases.flatMap((c) => Array.from({ length: runs }, (_, n) => ({ c, n })));
   const worker = async () => {
@@ -238,7 +262,7 @@ async function main() {
       mkdirSync(work, { recursive: true });
       let r;
       try {
-        r = judge === 'review' ? await runReview(c, brief, call, work) : await runRead(c, brief, call, work, clone);
+        r = judge === 'review' ? await runReview(c, brief, call, work, treeAt) : await runRead(c, brief, call, work, clone, treeAt);
       } catch (e) {
         r = { score: 0, got: `error: ${e.message}` };
       }
@@ -246,7 +270,11 @@ async function main() {
       console.log(`${c.kind.padEnd(7)} ${c.id.padEnd(24)} run ${n + 1} ${String(r.score).padEnd(3)} ${r.got}`);
     }
   };
-  await Promise.all(Array.from({ length: jobs }, worker));
+  try {
+    await Promise.all(Array.from({ length: jobs }, worker));
+  } finally {
+    if (!keep) rmSync(trees, { recursive: true, force: true });
+  }
   const results = cases.map((c) => ({ id: c.id, kind: c.kind, ...mergeRuns(answers.get(c.id)) }));
   for (const r of results) console.log(`${r.kind.padEnd(7)} ${r.id.padEnd(24)} mean ${r.score}`);
   writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 1));
