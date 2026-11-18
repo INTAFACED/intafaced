@@ -51,4 +51,8 @@ Against the code at commit `4ebebd61dd` (intafaced #8563, on `main` at `c0d0e611
 
 ## Extending it
 
-A new closer is a new name in `Closers` and a `LeftOf` entry for the remainder it passes. A new rule is a new invariant in the `INVARIANTS` line of `check.sh`, together with a broken variant shown failing on it. Do not weaken a rule or the model until it passes: a violation is a finding, and its trace is the order of events for a failing test.
+A new closer is a new name in `Closers` and a `LeftOf` entry for the remainder it passes. A new rule is a new invariant in the `INVARIANTS` line of `check.sh`, together with a broken variant shown failing on it. A violation's trace is the order of events for a failing test.
+
+## Changing it
+
+Run `check.sh` once before you change a covered function or the model, and keep the result: a pass then only says the old description still holds. Update the model from the code, never from what makes it pass; when the code breaks a rule, that is a finding. A rule changes only when the promise changes on purpose: the PR gives the old wording, the new wording and the evidence in the change (a doc comment, a test or the commit message). Keep the bounds unless the change makes them wrong, and name any bound you reduce in the PR. The model's update goes in the same PR as the code change. The method in full: [`create-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/create-formal-verification-skill/SKILL.md) and [`maintain-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/maintain-formal-verification-skill/SKILL.md).
