@@ -87,6 +87,7 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
 
 test(`${J} #1 opens Withdraw and picks asset and network: the default network with its tag rule, minimum, maximum and step from the catalogue, and a changed network checks the address again`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   await signInWithCode(page);
@@ -131,6 +132,13 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
     expect(figure(shown[1]), `${rule} is the catalogue's TEST ${want} USDT`).toBe(figure(want));
   }
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
+  // The step's picture, taken from the top of the page with nothing focused: a whole-page picture taken while scrolled
+  // draws the sticky header over the network rules (run 44386780554's picture, read BROKEN).
+  await page.evaluate(() => {
+    document.activeElement?.blur?.();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture();
   // A tag on a network without tags is refused by svc-pay itself, by name, with a real quote and a fresh step-up: never
   // dropped and sent without it. Then nothing is held and nothing is recorded.
   const quoteRef = `${J}-tag-quote-${Date.now()}`;
