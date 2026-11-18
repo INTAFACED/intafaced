@@ -245,6 +245,31 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     subject: 'intafaced.trade.venue_delisting.created',
     effect: 'One audience-all dated inbox notice when a venue market delisting is scheduled, once per notice key',
   },
+  {
+    event: 'coreOpsReconciliationAlertOpened',
+    durable: 'notify-recon-alert-opened',
+    subject: 'intafaced.core-ops.reconciliation_alert.opened',
+    effect: 'One reconciliation alert feed row when an alert is opened, once per business key (no inbox row, no out-of-app send)',
+  },
+  {
+    event: 'coreOpsReconciliationAlertUpdated',
+    durable: 'notify-recon-alert-updated',
+    subject: 'intafaced.core-ops.reconciliation_alert.updated',
+    effect:
+      'One reconciliation alert feed row when an alert is acknowledged, snoozed, unsnoozed or reopened, once per business key (no inbox row, no out-of-app send)',
+  },
+  {
+    event: 'coreOpsReconciliationAlertResolved',
+    durable: 'notify-recon-alert-resolved',
+    subject: 'intafaced.core-ops.reconciliation_alert.resolved',
+    effect: 'One reconciliation alert feed row when an alert is resolved, once per business key (no inbox row, no out-of-app send)',
+  },
+  {
+    event: 'coreOpsReconciliationAlertAccepted',
+    durable: 'notify-recon-alert-accepted',
+    subject: 'intafaced.core-ops.reconciliation_alert.accepted',
+    effect: 'One reconciliation alert feed row when an alert is accepted, once per business key (no inbox row, no out-of-app send)',
+  },
 ] as const;
 
 /** Catalog subjects we deliberately do not fan out (and why). */

@@ -8,6 +8,10 @@ import {
   payDepositCreditPosted,
   bankScheduledReminder,
   bankScheduledFailed,
+  coreOpsReconciliationAlertAccepted,
+  coreOpsReconciliationAlertOpened,
+  coreOpsReconciliationAlertResolved,
+  coreOpsReconciliationAlertUpdated,
   copySkipped,
   copyStopped,
   agentUsageAlertCrossed,
@@ -44,6 +48,8 @@ import {
 import type { MessageKey } from '@intafaced/i18n';
 import { noticeFreezeChange } from './freeze-notice.js';
 import { noticeVenueDelisting } from './venue-delisting-notice.js';
+import * as reconFeed from './reconciliation-alert-feed/feed.js';
+import { MemoryReconAlertFeedStore, type ReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
 import { DEPOSIT_CREDITED_BODY_KEY, DEPOSIT_CREDITED_KIND, DEPOSIT_CREDITED_TITLE_KEY } from './deposit-credit-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
 import type { Severity } from './store.js';
@@ -266,6 +272,9 @@ export interface SubscribeOptions {
   readonly positionNotify?: PositionNotifyPolicy;
   readonly orderNotify?: OrderTerminalNotifyPolicy;
   readonly agentActionCompletedNotify?: AgentActionCompletedNotifyPolicy;
+  /** Where reconciliation alert transitions are kept; production passes the Postgres store, tests a memory one. */
+  readonly reconAlertFeed?: ReconAlertFeedStore;
+  readonly now?: () => Date;
 }
 
 /**
@@ -1234,6 +1243,55 @@ export async function subscribeNotificationEvents(
         }),
       );
     }),
+  );
+
+  // Reconciliation alert transitions from svc-ops (OPS-reconciliation-04): one feed row per business key, so a transition
+  // delivered twice is applied once. Ids, states and times only; no customer inbox row and no out-of-app send.
+  const feed = options.reconAlertFeed ?? new MemoryReconAlertFeedStore();
+  const now = options.now ?? (() => new Date());
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertOpened',
+      coreOpsReconciliationAlertOpened.subject,
+      'notify-recon-alert-opened',
+      async (p, env) => {
+        await feed.record(reconFeed.opened(p, env.idempotencyKey), now());
+      },
+    ),
+  );
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertUpdated',
+      coreOpsReconciliationAlertUpdated.subject,
+      'notify-recon-alert-updated',
+      async (p, env) => {
+        await feed.record(reconFeed.updated(p, env.idempotencyKey), now());
+      },
+    ),
+  );
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertResolved',
+      coreOpsReconciliationAlertResolved.subject,
+      'notify-recon-alert-resolved',
+      async (p, env) => {
+        await feed.record(reconFeed.resolved(p, env.idempotencyKey), now());
+      },
+    ),
+  );
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertAccepted',
+      coreOpsReconciliationAlertAccepted.subject,
+      'notify-recon-alert-accepted',
+      async (p, env) => {
+        await feed.record(reconFeed.accepted(p, env.idempotencyKey), now());
+      },
+    ),
   );
 
   // Class B growth pin: attach count must match the deliberate matrix.
