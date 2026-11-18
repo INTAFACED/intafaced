@@ -1,6 +1,6 @@
 // World: gates, restart
 import { test, expect } from './journey.mjs';
-import { restartWith, restartWithSetting, tool } from './stack.mjs';
+import { restartWith as stackRestartWith, restartWithSetting as stackRestartWithSetting, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-01, in the running app (docs/roadmap/journeys.json): open the Web3 side, read the honest labels and
@@ -30,6 +30,19 @@ test.beforeAll(() => {
 test.afterAll(() => {
   tool('local-test-chain.mjs', 'gate', 'open');
 });
+
+// A stack start refuses while the TEST chain's gate is shut, so each restart here opens it for the restart alone and shuts
+// it again before the step reads anything: svc-protocol still sees no node.
+function withGateOpenForRestart(restart) {
+  tool('local-test-chain.mjs', 'gate', 'open');
+  try {
+    restart();
+  } finally {
+    tool('local-test-chain.mjs', 'gate', 'closed');
+  }
+}
+const restartWith = (...args) => withGateOpenForRestart(() => stackRestartWith(...args));
+const restartWithSetting = (...args) => withGateOpenForRestart(() => stackRestartWithSetting(...args));
 
 const networkChip = (page) => page.locator('[data-chip="network"]');
 const walletChip = (page) => page.locator('[data-chip="wallet"]');
