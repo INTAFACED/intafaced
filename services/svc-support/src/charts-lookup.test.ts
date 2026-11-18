@@ -212,7 +212,7 @@ describe('a support agent looks up a ticket owner’s alerts and layouts (J-char
 });
 
 describe('the charts clients read only the account asked about', () => {
-  const ok = (body: unknown) => vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+  const ok = (body: unknown) => vi.fn<typeof fetch>(async () => new Response(JSON.stringify(body), { status: 200 }));
   const secret = 'x'.repeat(40);
 
   it('notify: no address or secret is unwired; an answer about another account or a non-200 is plane_dark', async () => {
@@ -232,7 +232,7 @@ describe('the charts clients read only the account asked about', () => {
     const down = createNotifyChartsClient({
       notifyUrl: 'http://notify.test',
       secret,
-      fetcher: vi.fn(async () => new Response('{}', { status: 503 })) as unknown as typeof fetch,
+      fetcher: vi.fn<typeof fetch>(async () => new Response('{}', { status: 503 })),
     });
     expect(await down.alertsOf(USER)).toEqual({ status: 'unread', reason: 'plane_dark' });
   });
@@ -245,9 +245,7 @@ describe('the charts clients read only the account asked about', () => {
     const fetcher = ok(layoutsRead);
     const read = createIdentityLayoutsClient({ identityUrl: 'http://identity.test', secret, fetcher });
     expect(await read.layoutsOf(USER)).toEqual({ status: 'read', data: layoutsRead });
-    expect(String((fetcher as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![0])).toBe(
-      `http://identity.test/internal/desk-layouts/${USER}`,
-    );
+    expect(String(fetcher.mock.calls[0]?.[0])).toBe(`http://identity.test/internal/desk-layouts/${USER}`);
     const bad = createIdentityLayoutsClient({
       identityUrl: 'http://identity.test',
       secret,

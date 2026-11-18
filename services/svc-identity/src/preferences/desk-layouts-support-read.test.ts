@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
+import type { SavedDeskLayout } from '@intafaced/contracts/desk-layouts-preferences';
 import type { Sql } from 'postgres';
 import {
   retainRawBody,
@@ -14,16 +15,17 @@ import { deskLayoutsFor, registerSupportDeskLayoutsRoute } from './desk-layouts-
 
 const SECRET = 'd'.repeat(32);
 const USER = '11111111-1111-4111-8111-111111111111';
-const LAYOUT = {
+const LAYOUT: SavedDeskLayout = {
   id: 'scalp',
   name: 'TEST scalp',
   symbol: 'BTC/USDT',
   interval: '1m',
   desk: { v: 1, preset: 'classic', order: ['markets', 'chart', 'book', 'trades'], widths: {} },
   savedAt: '2026-11-18T10:00:00.000Z',
-} as const;
+};
 
 /** A tagged-template stand-in that answers every query with `rows`. */
+// oxlint-disable-next-line garden/no-double-cast -- a tagged-template stand-in: no real handle exists in a unit test
 const sqlAnswering = (rows: unknown[]) => (async () => rows) as unknown as Sql;
 
 async function app(read: (userId: string) => Promise<SupportDeskLayoutsRead>) {

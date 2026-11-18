@@ -697,8 +697,9 @@ export function createSupportRouter(
       .output(supportChartsLookupSchema)
       .query(async ({ ctx, input }) => {
         try {
-          requireSupportOps(ctx.principal!);
-          return await support.readChartsLookup({ operatorId: ctx.principal!.userId, ticketId: input.ticketId });
+          const principal = principalOf(ctx.principal);
+          requireSupportOps(principal);
+          return await support.readChartsLookup({ operatorId: principal.userId, ticketId: input.ticketId });
         } catch (err) {
           mapError(err);
         }

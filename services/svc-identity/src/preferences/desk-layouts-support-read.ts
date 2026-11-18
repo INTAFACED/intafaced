@@ -7,6 +7,7 @@
  * longer the shape is a 500, which svc-support reads as unread rather than as "none".
  */
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import type { Sql } from 'postgres';
 import {
   SUPPORT_CHARTS_READERS,
@@ -19,11 +20,13 @@ import { DESK_LAYOUTS_NAMESPACE, parseDeskLayoutsShape } from './desk-layouts.js
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const PreferenceValueRow = z.object({ value: z.unknown() });
+
 /** The stored layouts, or none. Throws when the stored value is not the shape. */
 export async function deskLayoutsFor(sql: Sql, userId: string): Promise<SupportDeskLayoutsRead> {
-  const [row] = await sql<Array<{ value: unknown }>>`
-    SELECT value FROM user_preferences WHERE user_id = ${userId} AND namespace = ${DESK_LAYOUTS_NAMESPACE}
-  `;
+  const [row] = PreferenceValueRow.array().parse(
+    await sql`SELECT value FROM user_preferences WHERE user_id = ${userId} AND namespace = ${DESK_LAYOUTS_NAMESPACE}`,
+  );
   if (!row || row.value === null) return { userId, layouts: [], active: null };
   const value = parseDeskLayoutsShape(row.value);
   return { userId, layouts: value.layouts, active: value.active };
@@ -43,7 +46,7 @@ export function registerSupportDeskLayoutsRoute(
     if (service === null) {
       return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
     }
-    if (!(SUPPORT_CHARTS_READERS as readonly string[]).includes(service)) {
+    if (!SUPPORT_CHARTS_READERS.some((reader) => reader === service)) {
       return reply.code(403).send({ error: 'this service may not read desk layouts', code: 'identity.desk_layouts_reader_refused' });
     }
     if (!UUID.test(req.params.userId)) {
