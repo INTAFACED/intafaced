@@ -68,7 +68,7 @@ export interface ResponseTargetBook {
 const blank = (): ResponseTargetPolicy => ({ firstReplyMinutes: null, active: false, revision: 0, updatedAt: null });
 
 /** The policy a change leaves, or the refusal it meets. Pure: both books apply it under their own lock. */
-export function applyResponseTargetChange(prior: ResponseTargetPolicy, change: ResponseTargetChange): ResponseTargetPolicy | null {
+function applyResponseTargetChange(prior: ResponseTargetPolicy, change: ResponseTargetChange): ResponseTargetPolicy | null {
   const firstReplyMinutes = change.firstReplyMinutes === undefined ? prior.firstReplyMinutes : change.firstReplyMinutes;
   const active = change.active === undefined ? prior.active : change.active;
   if (active && firstReplyMinutes === null) throw new ResponseTargetError(SLA_TARGETS_UNSET);
@@ -77,17 +77,17 @@ export function applyResponseTargetChange(prior: ResponseTargetPolicy, change: R
 }
 
 /** The business key of the change made from `revision`. */
-export const responseTargetKey = (revision: number): string => `support.sla_policy:r${revision}`;
+const responseTargetKey = (revision: number): string => `support.sla_policy:r${revision}`;
 
 /** What identifies one change: the fields it sets and the reason. The actor and the time are not part of it. */
-export function responseTargetFingerprint(change: ResponseTargetChange): string {
+function responseTargetFingerprint(change: ResponseTargetChange): string {
   return createHash('sha256')
     .update(JSON.stringify([change.firstReplyMinutes ?? 'unchanged', change.active ?? 'unchanged', change.reason]))
     .digest('hex');
 }
 
 /** The clock a request created at `createdAt` starts under an active policy, or null when none starts. */
-export function clockFor(ticketId: string, createdAt: string, policy: ResponseTargetPolicy): ResponseClock | null {
+function clockFor(ticketId: string, createdAt: string, policy: ResponseTargetPolicy): ResponseClock | null {
   if (!policy.active || policy.firstReplyMinutes === null) return null;
   const started = Date.parse(createdAt);
   if (!Number.isFinite(started)) return null;
