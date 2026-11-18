@@ -21,7 +21,8 @@ export async function userIdOf(who) {
 }
 
 /** Lists `who` as a copy leader in `marketMode`, as the TEST founder. Returns the public leader ref. */
-export async function listLeader(who, displayName, { marketMode = 'spot', tenureStart, assets = ['BTC/USDT'] } = {}) {
+/** `published`: the figures the listing discloses (publishedReturn, maximumDrawdown, its window), as the founder enters them. */
+export async function listLeader(who, displayName, { marketMode = 'spot', tenureStart, assets = ['BTC/USDT'], published = {} } = {}) {
   const ctx = await makeContext({ log: () => {} });
   const founders = await approverSessions(ctx);
   const res = await ctx.edge.mutate(
@@ -36,6 +37,7 @@ export async function listLeader(who, displayName, { marketMode = 'spot', tenure
       state: 'listed',
       assets,
       ...(tenureStart ? { tenureStart } : {}),
+      ...published,
     },
     founders.a.token,
   );

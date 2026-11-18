@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   BONUS_APPLIES_TO,
   CAMPAIGN_TYPES,
   CUSTOMER_CAMPAIGN_STATES,
+  DIVIDEND_OWNER_QUESTION,
+  DRAW_USER_TYPES,
   PARKED_CAMPAIGN_TYPES,
   type Campaign,
   type CampaignAction,
@@ -23,11 +25,19 @@ import {
   VOUCHER_LIST_LIMIT,
   type VoucherWindow,
   type CampaignLimits,
+  type CampaignReferral,
+  type CampaignCompetition,
+  type CampaignDraw,
+  type CampaignDistribution,
+  type CampaignPool,
+  type CampaignTrialPass,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
   type RewardLock,
   EARNING_TRIGGERS,
+  type EarningEvaluateInput,
+  type EarningEvaluation,
   type EarningRule,
   type EarningTrigger,
   type RuleGroup,
@@ -36,10 +46,11 @@ import {
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import { formatAmount, parseAmount as parseAmount18 } from '@intafaced/ledger-client';
-import { CampaignsError } from './codes.js';
+import { CampaignsError, codeHashOf, lastFourOf, maskedCode } from './codes.js';
 import { parseWindowTime } from './drops.js';
 import type { ParticipantSource } from './participants.js';
 import { parseFormula } from './formula.js';
+import { evaluateEarning } from './points.js';
 import { checkRule, evaluateRule, tryRule, type RuleLimits } from './rules.js';
 
 /**
@@ -101,6 +112,18 @@ type CampaignRow = {
   vouchers: VoucherWindow | null;
   /** The campaign's limits (CM-eligibility-rules-03); null while blank. */
   limits: CampaignLimits | null;
+  /** A referral campaign's programme (CM-referral-02); null for any other campaign. */
+  referral: CampaignReferral | null;
+  /** A competition's terms (CM-promotions-events-01); null for any other campaign. */
+  competition: CampaignCompetition | null;
+  /** A draw's terms (CM-promotions-events-02); null for any other campaign. */
+  draw: CampaignDraw | null;
+  /** A distribution's terms (CM-airdrop-campaigns-01); null for any other campaign. */
+  distribution: CampaignDistribution | null;
+  /** A reward pool's terms (CM-airdrop-campaigns-02); null for any other campaign. */
+  pool: CampaignPool | null;
+  /** A trial pass's terms (CM-vip-tiers-01); null for any other campaign. */
+  trial_pass: CampaignTrialPass | null;
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -140,7 +163,9 @@ type ParticipationRow = { participation_key: string; campaign_id: string; revisi
 type VoucherRow = {
   id: string;
   campaign_id: string;
-  code: string;
+  /** Null for a code made in a batch or imported (J-campaigns-17): only its hash and last four are stored. */
+  code: string | null;
+  code_last4: string;
   issue_key: string;
   revision: number;
   face_asset: string;
@@ -157,7 +182,7 @@ type VoucherRow = {
 const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   id: v.id,
   campaignId: v.campaign_id,
-  code: v.code,
+  code: v.code ?? maskedCode(v.code_last4),
   revision: v.revision,
   face: { asset: v.face_asset, amount: decimalOf(v.face_amount) },
   kind: v.kind,
@@ -255,10 +280,14 @@ const isParked = (type: CampaignType) => (PARKED_CAMPAIGN_TYPES as readonly stri
 export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate['missing'] {
   const missing: CampaignGate['missing'] = [];
   if (isParked(row.type)) missing.push({ code: 'owner.decision', field: 'type' });
+  // A dividend waits for the owner's decision (OWNER 87); an airdrop of our own pool does not.
+  if (row.type === 'distribution' && row.distribution?.kind === 'dividend') missing.push({ code: 'owner.decision', field: 'dividend' });
   // A fee-saver coupon campaign moves no value (ENGINE VC-9): it has no reward pot to draw and no reward to pay, so neither
   // is asked for; its terms are its vouchers' discount and orders, which the definition cannot leave blank.
   const feeSaver = row.type === 'voucher' && Boolean(row.vouchers?.feeSaver);
-  if (!feeSaver && (!row.budget_asset || row.budget_limit === null)) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
+  // A trial pass moves no value either: it grants a fee tier for a span, so it has no budget.
+  if (!feeSaver && row.type !== 'trial_pass' && (!row.budget_asset || row.budget_limit === null))
+    missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
   else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
     missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
@@ -270,10 +299,43 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   }
   // A welcome campaign gives a reward per task, each of which may be blank ("not set"; that task's claim refuses).
   const welcome = row.type === 'welcome';
-  if (!welcome && !feeSaver && (!row.reward_asset || row.reward_amount === null)) {
+  // A referral campaign gives each side its own reward (CM-referral-03): the referrer always, the invitee when double sided.
+  const referral = row.type === 'referral';
+  // A competition pays its prize table from its pool, the campaign's budget, in the budget's asset.
+  const competition = row.type === 'competition';
+  // A draw pays its prize table from the campaign's budget, in the budget's asset.
+  const draw = row.type === 'draw';
+  // A distribution and a reward pool pay shares of their pool, the campaign's budget, in the budget's asset.
+  const distribution = row.type === 'distribution';
+  const pool = row.type === 'pool';
+  // A trial pass grants a fee tier for a span: it pays nothing, so it asks for no reward or budget.
+  const trialPass = row.type === 'trial_pass';
+  if (
+    !welcome &&
+    !feeSaver &&
+    !referral &&
+    !competition &&
+    !draw &&
+    !distribution &&
+    !pool &&
+    !trialPass &&
+    (!row.reward_asset || row.reward_amount === null)
+  ) {
     missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   }
-  const rewardAssets = welcome ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : [])) : [row.reward_asset];
+  if (referral) missing.push(...referralGaps(row.referral));
+  if (competition) missing.push(...competitionGaps(row.competition, row.budget_limit));
+  if (draw) missing.push(...drawGaps(row.draw, row.budget_limit));
+  if (distribution) missing.push(...distributionGaps(row.distribution, row.starts_at, row.ends_at));
+  if (pool) missing.push(...poolGaps(row.pool, row.budget_limit));
+  if (trialPass) missing.push(...trialPassGaps(row.trial_pass));
+  const rewardAssets = welcome
+    ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : []))
+    : referral
+      ? [row.referral?.rewards.referrer?.asset, row.referral?.rewards.referee?.asset].filter(Boolean)
+      : competition || draw || distribution || pool || trialPass
+        ? []
+        : [row.reward_asset];
   if (row.budget_asset && rewardAssets.some((a) => a && a !== row.budget_asset)) {
     missing.push({ code: 'campaigns.budget_asset_mismatch', field: 'budget' });
   }
@@ -295,13 +357,35 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   return missing;
 }
 
+/** What a referral programme still lacks before it can go live: each blank criterion, and each reward a side needs. */
+function referralGaps(p: CampaignReferral | null): CampaignGate['missing'] {
+  if (!p) return [{ code: 'campaigns.criteria_unset', field: 'referralCriteria' }];
+  const c = p.criteria;
+  const out: CampaignGate['missing'] = [];
+  const blank = (
+    [
+      ['verification', c.verification],
+      ['criteriaAsset', c.asset],
+      ['depositMin', c.depositMin],
+      ['tradeVolumeMin', c.tradeVolumeMin],
+      ['qualifyWindow', c.windowSeconds],
+    ] as const
+  ).filter(([, v]) => v === null);
+  for (const [field] of blank) out.push({ code: 'campaigns.criteria_unset', field });
+  if (!p.rewards.referrer) out.push({ code: 'campaigns.reward_unset', field: 'referrerReward' });
+  if (p.sides === 'double' && !p.rewards.referee) out.push({ code: 'campaigns.reward_unset', field: 'refereeReward' });
+  return out;
+}
+
 function refuseGate(missing: CampaignGate['missing']): void {
   const first = missing[0];
   if (!first) return;
   const names = missing.map((m) => m.field).join(', ');
   const message =
     first.code === 'owner.decision'
-      ? 'This campaign type waits for an owner decision'
+      ? first.field === 'dividend'
+        ? DIVIDEND_OWNER_QUESTION
+        : 'This campaign type waits for an owner decision'
       : `The campaign cannot go live until these are set: ${names}`;
   throw new CampaignsError(first.code, message);
 }
@@ -339,6 +423,12 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     tasks: r.tasks,
     vouchers: r.vouchers,
     limits: r.limits,
+    referral: r.referral,
+    competition: r.competition,
+    draw: r.draw,
+    distribution: r.distribution,
+    pool: r.pool,
+    trialPass: r.trial_pass,
     earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
@@ -375,6 +465,12 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     ...(d.earning.length > 0 ? { earning: d.earning } : {}),
     ...(d.vouchers ? { vouchers: d.vouchers } : {}),
     ...(d.limits ? { limits: d.limits } : {}),
+    ...(d.referral ? { referral: d.referral } : {}),
+    ...(d.competition ? { competition: d.competition } : {}),
+    ...(d.draw ? { draw: d.draw } : {}),
+    ...(d.distribution ? { distribution: d.distribution } : {}),
+    ...(d.pool ? { pool: d.pool } : {}),
+    ...(d.trialPass ? { trialPass: d.trialPass } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -402,6 +498,12 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     earning: d.earning,
     vouchers: d.vouchers,
     limits: d.limits,
+    referral: d.referral,
+    competition: d.competition,
+    draw: d.draw,
+    distribution: d.distribution,
+    pool: d.pool,
+    trial_pass: d.trialPass,
   };
 }
 
@@ -426,6 +528,12 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     earning: r.earning,
     vouchers: r.vouchers,
     limits: r.limits,
+    referral: r.referral,
+    competition: r.competition,
+    draw: r.draw,
+    distribution: r.distribution,
+    pool: r.pool,
+    trialPass: r.trial_pass,
   });
 }
 
@@ -460,6 +568,11 @@ function toView(
     budget: c.budget,
     reward: c.reward,
     tasks: c.tasks,
+    competition: c.competition,
+    draw: c.draw,
+    distribution: c.distribution,
+    pool: c.pool,
+    trialPass: c.trialPass,
     mine,
     eligibility,
   };
@@ -532,6 +645,12 @@ type Definition = {
   earning: EarningRule[];
   vouchers: VoucherWindow | null;
   limits: CampaignLimits | null;
+  referral: CampaignReferral | null;
+  competition: CampaignCompetition | null;
+  draw: CampaignDraw | null;
+  distribution: CampaignDistribution | null;
+  pool: CampaignPool | null;
+  trialPass: CampaignTrialPass | null;
 };
 
 /**
@@ -597,6 +716,205 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     earning: parseEarning(input.earning ?? []),
     vouchers: input.vouchers ? parseVoucherWindow(type as CampaignType, input.vouchers) : null,
     limits: input.limits ? limitsOf(input.limits) : null,
+    referral: input.referral ? parseReferral(type as CampaignType, input.referral) : null,
+    competition: input.competition ? parseCompetition(type as CampaignType, input.competition) : null,
+    draw: input.draw ? parseDraw(type as CampaignType, input.draw) : null,
+    distribution: input.distribution ? parseDistribution(type as CampaignType, input.distribution) : null,
+    pool: input.pool ? parsePool(type as CampaignType, input.pool) : null,
+    trialPass: input.trialPass ? parseTrialPass(type as CampaignType, input.trialPass) : null,
+  };
+}
+
+/**
+ * A competition's terms (CM-promotions-events-01), stored the same way every time. Blanks stay blank for the gate to
+ * name. Only a `competition` campaign has them; each place has one prize and each milestone tier a higher volume than
+ * the one before.
+ */
+function parseCompetition(type: CampaignType, input: CampaignCompetition): CampaignCompetition {
+  if (type !== 'competition') {
+    throw new CampaignsError('campaigns.competition_invalid', 'Only a competition campaign has competition terms');
+  }
+  const prizes = [...input.prizes].sort((a, b) => a.rank - b.rank);
+  prizes.forEach((p, i) => {
+    if (p.rank !== i + 1) throw new CampaignsError('campaigns.competition_invalid', 'The prize table names each place once, from first');
+    if (parseAmount18(p.amount) <= 0n) throw new CampaignsError('campaigns.competition_invalid', 'Every prize is above zero');
+  });
+  for (let i = 0; i < input.milestones.length; i += 1) {
+    const m = input.milestones[i]!;
+    if (parseAmount18(m.amount) <= 0n || parseAmount18(m.volume) <= 0n) {
+      throw new CampaignsError('campaigns.competition_invalid', 'A milestone has a volume and a prize above zero');
+    }
+    if (i > 0 && parseAmount18(m.volume) <= parseAmount18(input.milestones[i - 1]!.volume)) {
+      throw new CampaignsError('campaigns.competition_invalid', 'Each milestone tier needs more volume than the one before');
+    }
+  }
+  return {
+    basis: input.basis,
+    volumeAsset: input.volumeAsset,
+    threshold: input.threshold === null ? null : decimalOf(input.threshold),
+    seats: input.seats,
+    prizes: prizes.map((p) => ({ rank: p.rank, amount: decimalOf(p.amount) })),
+    milestones: input.milestones.map((m) => ({ volume: decimalOf(m.volume), amount: decimalOf(m.amount) })),
+  };
+}
+
+/**
+ * What a competition still lacks before it can go live: ranking by returns waits for the owner, each blank term, a prize
+ * table, and a pool that covers every prize it could pay (each place, and every seat reaching every milestone).
+ */
+function competitionGaps(c: CampaignCompetition | null, poolLimit: string | null): CampaignGate['missing'] {
+  if (!c) return [{ code: 'campaigns.competition_unset', field: 'competition' }];
+  const out: CampaignGate['missing'] = [];
+  if (c.basis === 'returns') out.push({ code: 'owner.decision', field: 'rankingBasis' });
+  if (c.volumeAsset === null) out.push({ code: 'campaigns.competition_unset', field: 'volumeAsset' });
+  if (c.threshold === null) out.push({ code: 'campaigns.competition_unset', field: 'threshold' });
+  if (c.seats === null) out.push({ code: 'campaigns.competition_unset', field: 'seats' });
+  if (c.prizes.length === 0) out.push({ code: 'campaigns.reward_unset', field: 'prizes' });
+  if (c.seats !== null && poolLimit !== null) {
+    const places = c.prizes.reduce((n, p) => n + parseAmount18(p.amount), 0n);
+    const milestones = c.milestones.reduce((n, m) => n + parseAmount18(m.amount), 0n) * BigInt(c.seats);
+    if (places + milestones > parseAmount18(poolLimit)) out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
+  }
+  return out;
+}
+
+/**
+ * A draw's terms (CM-promotions-events-02), stored the same way every time. Blanks stay blank for the gate to name. Only
+ * a `draw` campaign has them; each place has one prize above zero, and each user type one cap.
+ */
+function parseDraw(type: CampaignType, input: CampaignDraw): CampaignDraw {
+  if (type !== 'draw') throw new CampaignsError('campaigns.draw_invalid', 'Only a draw campaign has draw terms');
+  const prizes = [...input.prizes].sort((a, b) => a.rank - b.rank);
+  prizes.forEach((p, i) => {
+    if (p.rank !== i + 1) throw new CampaignsError('campaigns.draw_invalid', 'The prize table names each place once, from first');
+    if (parseAmount18(p.amount) <= 0n) throw new CampaignsError('campaigns.draw_invalid', 'Every prize is above zero');
+  });
+  if (new Set(input.caps.map((c) => c.userType)).size !== input.caps.length) {
+    throw new CampaignsError('campaigns.draw_invalid', 'Each user type has one cap');
+  }
+  return {
+    chancesPerFill: input.chancesPerFill,
+    caps: input.caps.map((c) => ({ userType: c.userType, cap: c.cap })),
+    prizes: prizes.map((p) => ({ rank: p.rank, amount: decimalOf(p.amount) })),
+  };
+}
+
+/**
+ * What a draw still lacks before it can go live: chances per fill, a cap for every user type, a prize table, and a budget
+ * that covers every prize. Running it is a separate door that waits for the owner (OWNER 87).
+ */
+function drawGaps(d: CampaignDraw | null, poolLimit: string | null): CampaignGate['missing'] {
+  if (!d) return [{ code: 'campaigns.draw_unset', field: 'draw' }];
+  const out: CampaignGate['missing'] = [];
+  if (d.chancesPerFill === null) out.push({ code: 'campaigns.draw_unset', field: 'chancesPerFill' });
+  for (const userType of DRAW_USER_TYPES) {
+    const cap = d.caps.find((c) => c.userType === userType);
+    if (!cap || cap.cap === null) out.push({ code: 'campaigns.draw_unset', field: `cap.${userType}` });
+  }
+  if (d.prizes.length === 0) out.push({ code: 'campaigns.reward_unset', field: 'prizes' });
+  if (poolLimit !== null && d.prizes.reduce((n, p) => n + parseAmount18(p.amount), 0n) > parseAmount18(poolLimit)) {
+    out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
+  }
+  return out;
+}
+
+/**
+ * A distribution's terms (CM-airdrop-campaigns-01), stored the same way every time. Blanks stay blank for the gate to
+ * name. Only a `distribution` campaign has them.
+ */
+function parseDistribution(type: CampaignType, input: CampaignDistribution): CampaignDistribution {
+  if (type !== 'distribution') {
+    throw new CampaignsError('campaigns.distribution_invalid', 'Only a distribution campaign has distribution terms');
+  }
+  const snapshotAt = input.snapshotAt ? parseWindowTime(input.snapshotAt, 'The snapshot time').toISOString() : null;
+  return { kind: input.kind, snapshotAt, equityAsset: input.equityAsset };
+}
+
+/**
+ * What a distribution still lacks before it can go live: its snapshot time, inside the campaign's time frame, and the
+ * asset equity is read in. A dividend is refused `owner.decision` by the gate itself.
+ */
+function distributionGaps(d: CampaignDistribution | null, startsAt: Date | null, endsAt: Date | null): CampaignGate['missing'] {
+  if (!d) return [{ code: 'campaigns.distribution_unset', field: 'distribution' }];
+  const out: CampaignGate['missing'] = [];
+  if (!d.snapshotAt) out.push({ code: 'campaigns.distribution_unset', field: 'snapshotAt' });
+  else if ((startsAt && new Date(d.snapshotAt) < startsAt) || (endsAt && new Date(d.snapshotAt) > endsAt)) {
+    out.push({ code: 'campaigns.distribution_invalid', field: 'snapshotAt' });
+  }
+  if (!d.equityAsset) out.push({ code: 'campaigns.distribution_unset', field: 'equityAsset' });
+  return out;
+}
+
+/** A trial pass's terms (CM-vip-tiers-01), stored the same way every time. Only a `trial_pass` campaign has them. */
+function parseTrialPass(type: CampaignType, input: CampaignTrialPass): CampaignTrialPass {
+  if (type !== 'trial_pass') throw new CampaignsError('campaigns.trial_pass_invalid', 'Only a trial pass campaign has trial pass terms');
+  return { tierId: input.tierId?.trim() || null, seconds: input.seconds ?? null };
+}
+
+/** What a trial pass still lacks before it can go live: the tier it grants and for how long. */
+function trialPassGaps(t: CampaignTrialPass | null): CampaignGate['missing'] {
+  if (!t) return [{ code: 'campaigns.trial_pass_unset', field: 'trialPass' }];
+  const missing: CampaignGate['missing'] = [];
+  if (!t.tierId) missing.push({ code: 'campaigns.trial_pass_unset', field: 'trialPass.tierId' });
+  if (t.seconds === null) missing.push({ code: 'campaigns.trial_pass_unset', field: 'trialPass.seconds' });
+  return missing;
+}
+
+/** A reward pool's terms (CM-airdrop-campaigns-02), stored the same way every time. Only a `pool` campaign has them. */
+function parsePool(type: CampaignType, input: CampaignPool): CampaignPool {
+  if (type !== 'pool') throw new CampaignsError('campaigns.pool_invalid', 'Only a pool campaign has pool terms');
+  const amount = (raw: string | null) => (raw === null ? null : decimalOf(raw));
+  if (input.dailySlice !== null && parseAmount18(input.dailySlice) <= 0n) {
+    throw new CampaignsError('campaigns.pool_invalid', 'The daily slice is above zero');
+  }
+  if (input.perUserCap !== null && parseAmount18(input.perUserCap) <= 0n) {
+    throw new CampaignsError('campaigns.pool_invalid', 'The per-user cap is above zero');
+  }
+  return {
+    activityAsset: input.activityAsset,
+    dailySlice: amount(input.dailySlice),
+    perUserCap: amount(input.perUserCap),
+    minBalance: amount(input.minBalance),
+    daySeconds: input.daySeconds,
+  };
+}
+
+/** What a reward pool still lacks before it can go live: every term, and a budget that covers at least one day's slice. */
+function poolGaps(p: CampaignPool | null, poolLimit: string | null): CampaignGate['missing'] {
+  if (!p) return [{ code: 'campaigns.pool_unset', field: 'pool' }];
+  const out: CampaignGate['missing'] = [];
+  for (const field of ['activityAsset', 'dailySlice', 'perUserCap', 'minBalance', 'daySeconds'] as const) {
+    if (p[field] === null) out.push({ code: 'campaigns.pool_unset', field });
+  }
+  if (poolLimit !== null && p.dailySlice !== null && parseAmount18(p.dailySlice) > parseAmount18(poolLimit)) {
+    out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
+  }
+  return out;
+}
+
+/**
+ * A referral programme (CM-referral-02), stored the same way every time. Blanks stay blank for the gate to name. Only a
+ * `referral` campaign has one; a single-sided programme rewards the referrer only, so it names no invitee reward.
+ */
+function parseReferral(type: CampaignType, input: CampaignReferral): CampaignReferral {
+  if (type !== 'referral') throw new CampaignsError('campaigns.referral_invalid', 'Only a referral campaign has a referral programme');
+  if (input.sides === 'single' && input.rewards.referee) {
+    throw new CampaignsError('campaigns.referral_invalid', 'A single-sided programme rewards the referrer only');
+  }
+  const c = input.criteria;
+  return {
+    sides: input.sides,
+    criteria: {
+      verification: c.verification,
+      asset: c.asset,
+      depositMin: c.depositMin === null ? null : decimalOf(c.depositMin),
+      tradeVolumeMin: c.tradeVolumeMin === null ? null : decimalOf(c.tradeVolumeMin),
+      windowSeconds: c.windowSeconds,
+    },
+    rewards: {
+      referrer: input.rewards.referrer ? { asset: input.rewards.referrer.asset, amount: decimalOf(input.rewards.referrer.amount) } : null,
+      referee: input.rewards.referee ? { asset: input.rewards.referee.asset, amount: decimalOf(input.rewards.referee.amount) } : null,
+    },
   };
 }
 
@@ -639,7 +957,14 @@ function parseEarning(rules: readonly EarningRule[]): EarningRule[] {
     if (seen.has(name.toLowerCase())) throw new CampaignsError('campaigns.earning_rule_name_taken', `Two earning rules are named ${name}`);
     seen.add(name.toLowerCase());
     parseFormula(r.formula, trigger.names);
-    return { name, trigger: r.trigger, minAmount: r.minAmount ?? null, formula: r.formula.trim() };
+    // An incentive is stored as before (no field), so a rule saved before effects existed reads the same.
+    return {
+      name,
+      trigger: r.trigger,
+      minAmount: r.minAmount ?? null,
+      formula: r.formula.trim(),
+      ...(r.effect === 'points' ? { effect: 'points' as const } : {}),
+    };
   });
 }
 
@@ -704,8 +1029,17 @@ function parseWelcome(input: CampaignTasks): CampaignTasks {
 function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
   if (type === 'welcome') return parseWelcome(input);
   if (type !== 'task') throw new CampaignsError('campaigns.tasks_invalid', 'Only a task campaign has steps');
-  if (input.steps.some((s) => s.event !== 'trade.fill' || s.reward) || (input.welcomeWindowSeconds ?? null) !== null) {
-    throw new CampaignsError('campaigns.tasks_invalid', 'A task campaign counts spot fills, with one reward for the campaign');
+  const counted = (s: CampaignTasks['steps'][number]) => s.event === 'trade.fill' || s.event === 'pay.deposit';
+  if (input.steps.some((s) => !counted(s) || s.reward) || (input.welcomeWindowSeconds ?? null) !== null) {
+    throw new CampaignsError(
+      'campaigns.tasks_invalid',
+      'A task campaign counts spot fills and venue deposits, with one reward for the campaign',
+    );
+  }
+  // A deposit step (J-campaigns-02 #1) is the first USDC deposit the venue credited from a connected wallet: one event, on
+  // no market or side, never a streak.
+  if (input.steps.some((s) => s.event === 'pay.deposit' && (s.count !== 1 || s.market || s.side || s.streakDays))) {
+    throw new CampaignsError('campaigns.tasks_invalid', 'A deposit step is one venue deposit, on no market or side, never a streak');
   }
   if (input.steps.some((s) => s.streakDays && s.count !== 1)) {
     throw new CampaignsError('campaigns.tasks_invalid', 'A streak step counts one event a day: its count is 1');
@@ -771,6 +1105,12 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     canonical(r.earning) === canonical(d.earning) &&
     canonical(r.vouchers) === canonical(d.vouchers) &&
     canonical(r.limits) === canonical(d.limits) &&
+    canonical(r.referral) === canonical(d.referral) &&
+    canonical(r.competition) === canonical(d.competition) &&
+    canonical(r.draw) === canonical(d.draw) &&
+    canonical(r.distribution) === canonical(d.distribution) &&
+    canonical(r.pool) === canonical(d.pool) &&
+    canonical(r.trial_pass) === canonical(d.trialPass) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -826,11 +1166,14 @@ export class CampaignService {
         await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, competition, draw, distribution, pool, trial_pass, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
             ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
-            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null}, ${input.actor})
+            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+            ${d.referral ? tx.json(d.referral) : null}, ${d.competition ? tx.json(d.competition) : null},
+            ${d.draw ? tx.json(d.draw) : null}, ${d.distribution ? tx.json(d.distribution) : null},
+            ${d.pool ? tx.json(d.pool) : null}, ${d.trialPass ? tx.json(d.trialPass) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -874,6 +1217,12 @@ export class CampaignService {
             tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
             earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+            referral = ${d.referral ? tx.json(d.referral) : null},
+            competition = ${d.competition ? tx.json(d.competition) : null},
+            draw = ${d.draw ? tx.json(d.draw) : null},
+            distribution = ${d.distribution ? tx.json(d.distribution) : null},
+            pool = ${d.pool ? tx.json(d.pool) : null},
+            trial_pass = ${d.trialPass ? tx.json(d.trialPass) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -888,7 +1237,7 @@ export class CampaignService {
 
   /** Writes the open change of a live campaign at the next revision; an edit sent for approval goes back to draft. */
   private async change(
-    tx: Sql,
+    tx: Queryable,
     row: CampaignRow,
     d: Definition,
     input: { id: string; revision: number; actor: string },
@@ -917,7 +1266,7 @@ export class CampaignService {
    * What a change must still meet when it is written and again when it goes live, since rewards draw and names are taken
    * in between: its budget is not below what the campaign's rewards already draw, and no other campaign has its name.
    */
-  private async checkChange(tx: Sql, row: CampaignRow, d: Definition): Promise<void> {
+  private async checkChange(tx: Queryable, row: CampaignRow, d: Definition): Promise<void> {
     const [drawn] = await tx<{ budget_drawn: string }[]>`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${row.id}`;
     if (d.budgetLimit && parseAmount18(d.budgetLimit) < parseAmount18(drawn?.budget_drawn ?? '0')) {
       throw new CampaignsError('campaigns.budget_below_drawn', `Rewards already draw ${decimalOf(drawn!.budget_drawn)} of this budget`);
@@ -931,7 +1280,7 @@ export class CampaignService {
    * A move of an open change: `submit` asks for approval of it (the gate reads the change), `approve` by a second person
    * puts it live as the campaign's revision and keeps the revision it replaced in the history. Nothing else moves a change.
    */
-  private async moveChange(tx: Sql, row: CampaignRow, open: ChangeRow, action: CampaignAction, actor: string): Promise<Campaign> {
+  private async moveChange(tx: Queryable, row: CampaignRow, open: ChangeRow, action: CampaignAction, actor: string): Promise<Campaign> {
     const timeZone = this.timeZone();
     const now = this.now();
     const d = parseDefinition(open.definition, timeZone);
@@ -981,6 +1330,12 @@ export class CampaignService {
         tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
         earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+            referral = ${d.referral ? tx.json(d.referral) : null},
+            competition = ${d.competition ? tx.json(d.competition) : null},
+            draw = ${d.draw ? tx.json(d.draw) : null},
+            distribution = ${d.distribution ? tx.json(d.distribution) : null},
+            pool = ${d.pool ? tx.json(d.pool) : null},
+            trial_pass = ${d.trialPass ? tx.json(d.trialPass) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;
@@ -1121,7 +1476,7 @@ export class CampaignService {
   }
 
   /** A campaign's rule is a copy of one library revision, checked against the library and the limits when it is saved. */
-  private async checkCampaignRule(tx: Sql, d: Definition): Promise<void> {
+  private async checkCampaignRule(tx: Queryable, d: Definition): Promise<void> {
     const rule = d.participation?.rule;
     if (!rule) return;
     checkRule(rule.tree, this.ruleLimits());
@@ -1149,49 +1504,22 @@ export class CampaignService {
     const code = input.code.trim().toUpperCase();
     const key = voucherKeyOf(input.campaignId, code);
     return transaction(this.sql, async (tx) => {
-      const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`;
-      if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
       const [had] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
       if (had) return toVoucher(had);
-      if (row.type !== 'voucher') throw new CampaignsError('campaigns.not_voucher', 'Only a voucher campaign issues vouchers');
-      const now = this.now();
-      const state = effectiveState(row, now);
-      // An approved campaign that was never activated stays `approved` past its end, so the end time is read as well.
-      const ended = row.ends_at !== null && row.ends_at <= now;
-      if (ended || !REVISABLE.includes(state)) {
-        throw new CampaignsError(
-          'campaign.invalid_transition',
-          `A campaign that is ${ended ? 'ended' : state} issues no voucher: it must be approved and not ended`,
-        );
+      const { row, face, feeSaver } = await this.voucherTerms(tx, input.campaignId);
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:code:${codeHashOf(code)}`}))`;
+      const [elsewhere] = await tx<{ id: string; campaign_id: string }[]>`
+        SELECT id, campaign_id FROM campaigns.vouchers WHERE code_hash = ${codeHashOf(code)} LIMIT 1`;
+      if (elsewhere && elsewhere.campaign_id !== row.id) {
+        throw new CampaignsError('campaigns.voucher_code_taken', 'Another campaign already issued this code');
       }
-      const feeSaver = row.vouchers?.feeSaver ?? null;
-      if (!feeSaver && (!row.reward_asset || row.reward_amount === null)) {
-        throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
-      }
-      // A fee-saver's face is its orders; it keeps the discount of the revision it was issued under, as a cash voucher
-      // keeps its reward.
-      const face = feeSaver
-        ? { asset: 'ORDERS', amount: String(feeSaver.orders) }
-        : { asset: row.reward_asset!, amount: row.reward_amount! };
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:code:${code}`}))`;
-      const [elsewhere] = await tx<{ id: string }[]>`
-        SELECT id FROM campaigns.vouchers WHERE code = ${code} AND campaign_id <> ${row.id} LIMIT 1`;
-      if (elsewhere) throw new CampaignsError('campaigns.voucher_code_taken', 'Another campaign already issued this code');
-      // A campaign approved before revisions were recorded has no row for its live revision yet; it is recorded here from the
-      // campaign's own approval, as the first approval records it, so the voucher can name it.
-      if (row.approved_by && row.submitted_by && row.approved_revision === row.revision) {
-        await tx`
-          INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
-          VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by},
-            ${row.approved_by})
-          ON CONFLICT (campaign_id, revision) DO NOTHING`;
-      }
+      if (elsewhere) throw new CampaignsError('campaigns.voucher_code_taken', 'This campaign already holds this code in a batch');
       const [made] = await tx<VoucherRow[]>`
-        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, kind, fee_discount_bps,
-          issued_by, claim_by, use_by)
-        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${face.asset}, ${face.amount},
-          ${feeSaver ? 'fee_saver' : 'cash'}, ${feeSaver?.discountBps ?? null}, ${input.actor}, ${row.vouchers?.claimBy ?? null},
-          ${row.vouchers?.useBy ?? null})
+        INSERT INTO campaigns.vouchers (id, campaign_id, code, code_hash, code_last4, issue_key, revision, face_asset, face_amount,
+          kind, fee_discount_bps, issued_by, claim_by, use_by)
+        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${codeHashOf(code)}, ${lastFourOf(code)}, ${key}, ${row.revision},
+          ${face.asset}, ${face.amount}, ${feeSaver ? 'fee_saver' : 'cash'}, ${feeSaver?.discountBps ?? null}, ${input.actor},
+          ${row.vouchers?.claimBy ?? null}, ${row.vouchers?.useBy ?? null})
         ON CONFLICT (issue_key) DO NOTHING
         RETURNING *`;
       if (!made) {
@@ -1203,6 +1531,46 @@ export class CampaignService {
     });
   }
 
+  /**
+   * What a voucher issued now under a campaign's live revision carries (J-campaigns-16 #9, J-campaigns-17 #3): the
+   * campaign row (read under a share lock, so an approval of the next revision waits and a voucher never mixes two
+   * revisions), its face value and fee-saver terms. Refuses a campaign that is not a voucher campaign, not approved or
+   * ended, or has no reward. A campaign approved before revisions were recorded gets its live revision's row here.
+   */
+  async voucherTerms(
+    tx: Queryable,
+    campaignId: string,
+  ): Promise<{ row: CampaignRow; face: { asset: string; amount: string }; feeSaver: { discountBps: number; orders: number } | null }> {
+    const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${campaignId} FOR SHARE`;
+    if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    if (row.type !== 'voucher') throw new CampaignsError('campaigns.not_voucher', 'Only a voucher campaign issues vouchers');
+    const now = this.now();
+    const state = effectiveState(row, now);
+    // An approved campaign that was never activated stays `approved` past its end, so the end time is read as well.
+    const ended = row.ends_at !== null && row.ends_at <= now;
+    if (ended || !REVISABLE.includes(state)) {
+      throw new CampaignsError(
+        'campaign.invalid_transition',
+        `A campaign that is ${ended ? 'ended' : state} issues no voucher: it must be approved and not ended`,
+      );
+    }
+    const feeSaver = row.vouchers?.feeSaver ?? null;
+    if (!feeSaver && (!row.reward_asset || row.reward_amount === null)) {
+      throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
+    }
+    // A fee-saver's face is its orders; it keeps the discount of the revision it was issued under, as a cash voucher
+    // keeps its reward.
+    const face = feeSaver ? { asset: 'ORDERS', amount: String(feeSaver.orders) } : { asset: row.reward_asset!, amount: row.reward_amount! };
+    if (row.approved_by && row.submitted_by && row.approved_revision === row.revision) {
+      await tx`
+        INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
+        VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by},
+          ${row.approved_by})
+        ON CONFLICT (campaign_id, revision) DO NOTHING`;
+    }
+    return { row, face, feeSaver };
+  }
+
   /** A campaign's newest 500 vouchers, newest first, each with the revision it keeps. */
   async listVouchers(input: { campaignId: string }): Promise<CampaignVoucher[]> {
     const [row] = await this.sql<{ id: string }[]>`SELECT id FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
@@ -1210,6 +1578,21 @@ export class CampaignService {
     const rows = await this.sql<VoucherRow[]>`
       SELECT * FROM campaigns.vouchers WHERE campaign_id = ${input.campaignId} ORDER BY created_at DESC, id DESC LIMIT ${VOUCHER_LIST_LIMIT}`;
     return rows.map(toVoucher);
+  }
+
+  /**
+   * Evaluates a campaign's earning rules on one TEST event (CM-rewards-hub-05, J-campaigns-15 #5): the rules of the edit
+   * waiting beside it when there is one, else its stored revision. Writes nothing; a points rule refuses for itself only.
+   */
+  async evaluateEarning(input: EarningEvaluateInput): Promise<EarningEvaluation> {
+    const campaign = await this.getForOps({ id: input.id });
+    const rules = campaign.pendingChange ? parseEarning(campaign.pendingChange.definition.earning ?? []) : campaign.earning;
+    const asset = campaign.pendingChange ? (campaign.pendingChange.definition.reward?.asset ?? null) : (campaign.reward?.asset ?? null);
+    return {
+      campaignId: campaign.id,
+      trigger: input.trigger,
+      results: evaluateEarning(rules, asset, input.trigger, input.values),
+    };
   }
 
   /** One campaign as operators see it, at any age; the list is the newest 200. */
@@ -1385,6 +1768,21 @@ export class CampaignService {
       const outside = outsideWindow(row, now, timeZone);
       if (outside === 'day') throw new CampaignsError('campaign.outside_window', 'This campaign does not run today');
       if (outside === 'hour') throw new CampaignsError('campaign.outside_window', 'This campaign does not run at this hour');
+      // A competition has seats (J-campaigns-11 #2): joins for one competition take its seats one at a time, so two joins
+      // for the last seat give it to one and refuse the other `campaigns.seats_full`. The caller's own entry, made by a
+      // press that held the lock first, comes back as their participation, never as a refusal.
+      let seat: number | null = null;
+      if (row.type === 'competition') {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`campaigns:competition-seats:${row.id}`}))`;
+        const [mineNow] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
+        if (mineNow) return { participation: toParticipation(mineNow), created: false };
+        const seats = row.competition?.seats ?? null;
+        if (seats === null) throw new CampaignsError('campaigns.competition_unset', 'This competition has no seat count set');
+        const [taken] = await tx<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM campaigns.competition_entries WHERE campaign_id = ${row.id}`;
+        if (taken!.n >= seats) throw new CampaignsError('campaigns.seats_full', 'Every seat in this competition is taken');
+        seat = taken!.n + 1;
+      }
       const [made] = await tx<ParticipationRow[]>`
         INSERT INTO campaigns.participations (participation_key, campaign_id, account_id, revision)
         VALUES (${key}, ${input.campaignId}, ${input.accountId}, ${row.revision})
@@ -1393,6 +1791,11 @@ export class CampaignService {
       if (!made) {
         const [first] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
         return { participation: toParticipation(first!), created: false };
+      }
+      if (seat !== null) {
+        await tx`
+          INSERT INTO campaigns.competition_entries (campaign_id, account_id, seat, joined_at)
+          VALUES (${row.id}, ${input.accountId}, ${seat}, ${made.created_at})`;
       }
       await audit(tx, input.accountId, 'campaign.join', input.campaignId, { participationKey: key, revision: row.revision });
       return { participation: toParticipation(made), created: true };
@@ -1428,7 +1831,7 @@ export class CampaignService {
     return rows.map(toParticipation);
   }
 
-  private async lock(tx: Sql, id: string, revision: number): Promise<CampaignRow> {
+  private async lock(tx: Queryable, id: string, revision: number): Promise<CampaignRow> {
     const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${id} FOR UPDATE`;
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
     if (row.revision !== revision) {
@@ -1438,6 +1841,6 @@ export class CampaignService {
   }
 }
 
-async function audit(tx: Sql, actor: string, action: string, target: string, detail: Record<string, unknown>): Promise<void> {
+async function audit(tx: Queryable, actor: string, action: string, target: string, detail: Record<string, unknown>): Promise<void> {
   await tx`INSERT INTO campaigns.audit_log (actor, action, target, detail) VALUES (${actor}, ${action}, ${target}, ${tx.json(detail as postgres.JSONValue)})`;
 }

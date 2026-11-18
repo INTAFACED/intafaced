@@ -90,6 +90,14 @@ export type CopyErrorCode =
   | 'trade.copy_lead_venue_account_missing'
   | 'trade.copy_lead_venue_unreadable'
   | 'trade.copy_lead_balance_below'
+  | 'trade.copy_mode_owner_decision'
+  | 'trade.copy_mode_locked'
+  | 'trade.copy_smart_sync_unavailable'
+  | 'trade.copy_min_not_set'
+  | 'trade.copy_below_min_investment'
+  | 'trade.copy_day_not_set'
+  | 'trade.copy_market_cap_reached'
+  | 'trade.copy_daily_cap_reached'
   | 'trade.copy_venue_account_not_open';
 
 /**

@@ -34,7 +34,7 @@ function mockSql() {
     },
     { calls },
   );
-  return fn as unknown as import('postgres').Sql & { calls: unknown[][] };
+  return fn as import('postgres').Sql & { calls: unknown[][] };
 }
 
 describe('sqlFundingPeriodStore', () => {

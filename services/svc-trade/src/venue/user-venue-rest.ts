@@ -7,10 +7,15 @@
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/funding-history?base=BTC&since=<ISO>  public: the funding the venue published on our listed
  *                                                      perpetual on that asset (a chart's funding study, J-charts-desk-04 #6)
+ *   GET  /api/v1/venue/book?symbol=BTC-USDC&depth=20    the venue's own book on a market we list (J-cex-spot-01 #5)
+ *   GET  /api/v1/venue/trades?symbol=BTC-USDC&limit=50  the venue's newest prints there, newest first
+ *   GET  /api/v1/venue/candles?symbol=BTC-USDC&interval=15m&limit=240   candles of the venue's prints, oldest first
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
- *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
+ *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=|clientOrderKey=   the venue's order, by its venue client id or
+ *                                                      by the caller's own client id (the key it placed it under)
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
+ *   GET  /api/v1/venue/withdrawal-terms?owner=&asset=   the venue's published withdrawal fee, network fee and arrival time (J-bank-31 #3)
  *   GET  /api/v1/venue/deposits?owner=                 the on-chain deposits the venue has seen: confirming, credited or not (J-dex-protocol-05 #2)
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
@@ -21,6 +26,10 @@
  *   POST /api/v1/venue/route-preview { owner, intent }       the venue chosen for the order, and why (#2, #4)
  *   GET  /api/v1/venue/orders?owner=&cursor=&limit=      this person's orders on the account, oldest first, a page at a time
  *   GET  /api/v1/venue/orders/by-key?idempotencyKey=|actionKey=   one order by its key: accepted, unknown, refused, not_sent
+ *   GET  /api/v1/venue/orders/history?owner=&side=&status=&symbol=&from=&to=&limit=&before=   the account's orders as the
+ *                                                      venue keeps them, newest first, a page at a time (J-cex-spot-06 #1)
+ *   GET  /api/v1/venue/orders/record?owner=&clientOrderId=   our record of one order: the amendments the venue accepted
+ *                                                      (#10) and our builder fee on it with any discount (#5)
  *   GET  /api/v1/venue/session?owner=0x…               this sign-in's trading session, read against the venue's agents
  *   POST /api/v1/venue/session/start { owner, agentAddress }   the owner's one approval for a fresh session key (prepared)
  *   POST /api/v1/venue/session/end   { owner }                 the owner's revoke of this sign-in's session key (prepared)
@@ -58,6 +67,9 @@ import {
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
+  type VenueCandleInterval,
+  VENUE_CANDLE_INTERVALS,
+  venueClientOrderId,
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
@@ -65,6 +77,8 @@ import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './u
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
 import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
+import { StatementError } from '../statements/statement-export.js';
+import type { VenueStatements } from './venue-statements.js';
 
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
@@ -78,6 +92,8 @@ export interface UserVenueRestDeps {
    * (`trade.slippage_cap_unset`). Never a default.
    */
   slippageCapBps?: number | null;
+  /** The owner's spread limit for a spot market order (TRADE_MARKET_SPREAD_LIMIT_BPS), or null when blank, as `best-prices` answers it. */
+  spreadLimitBps?: number | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
   sellQuotes?: VenueSellQuotes | null;
   /**
@@ -86,6 +102,8 @@ export interface UserVenueRestDeps {
    * 403 `auth.scope_denied` (no move, withdraw or read of another account). Absent: no key is confined.
    */
   agentKeyConfined?: (principal: Principal) => Promise<boolean>;
+  /** The statement export on the venue's own records (J-cex-spot-07 #5); absent, its routes answer 503 `trade.statements_unmounted`. */
+  venueStatements?: VenueStatements | null;
 }
 
 /** The refusal a connected agent key gets on any venue route but the assistant's own (J-agents-21 #9). */
@@ -122,7 +140,12 @@ export async function refusedAgentKey(reply: FastifyReply, principal: Principal,
 type Query = {
   owner?: string;
   subAccount?: string;
+  /** J-derivatives-05 #4: a leverage change's leverage (basis points of 1x) and margin mode. */
+  leverageBps?: string;
+  marginMode?: string;
   clientOrderId?: string;
+  /** J-cex-spot-15 #5: the caller's own client id, the business key its order was placed under. */
+  clientOrderKey?: string;
   since?: string;
   symbol?: string;
   cursor?: string;
@@ -131,6 +154,7 @@ type Query = {
   actionKey?: string;
   venueId?: string;
   side?: string;
+  asset?: string;
 };
 
 /** The request's Idempotency-Key header, or undefined when it has none. */
@@ -274,7 +298,12 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no book' });
       const best = await venue.bestPrices(req.query.symbol);
       const cap = deps.slippageCapBps ?? null;
-      return { ...best, slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) } };
+      const spread = deps.spreadLimitBps ?? null;
+      return {
+        ...best,
+        slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) },
+        spreadLimitBps: spread === null ? { known: false } : { known: true, value: String(spread) },
+      };
     });
   });
 
@@ -286,6 +315,42 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       const since = new Date(req.query.since ?? '');
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       return d.fundingHistory(base, since);
+    });
+  });
+
+  // J-cex-spot-10 #2: the public fee page, signed in or not: the venue's tiers and rates, its builder-fee cap and ours.
+  app.get<{ Querystring: Query }>('/api/v1/venue/fees', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.publicFees(), req.query.venueId);
+  });
+
+  // J-cex-spot-01 #5: the venue's public book, prints and candles on a market we list, as the spot desk draws them. Gated
+  // as `markets` and `best-prices` are: venue market data is for a person the trade jurisdiction admits.
+  const whole = (raw: string | undefined, name: string, most: number, fallback: number) => {
+    if (raw === undefined) return fallback;
+    const n = /^\d{1,3}$/.test(raw) ? Number(raw) : NaN;
+    if (!(n >= 1 && n <= most)) throw new VenueWireError(`${name} is a whole number from 1 to ${most}`);
+    return n;
+  };
+  const symbolOf = (raw: string | undefined) => {
+    if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(raw)) throw new VenueWireError('symbol is the venue market, as BTC-USDC');
+    return raw;
+  };
+  type MarketQuery = Query & { depth?: string; limit?: string; interval?: string };
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/book', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => d.marketBook(symbolOf(req.query.symbol), whole(req.query.depth, 'depth', 50, 20)));
+  });
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/trades', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => d.marketTrades(symbolOf(req.query.symbol), whole(req.query.limit, 'limit', 500, 50)));
+  });
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/candles', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => {
+      const interval = req.query.interval ?? '';
+      if (!Object.hasOwn(VENUE_CANDLE_INTERVALS, interval))
+        throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
+      return d.marketCandles(symbolOf(req.query.symbol), interval as VenueCandleInterval, whole(req.query.limit, 'limit', 500, 240));
     });
   });
 
@@ -318,9 +383,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.subAccounts(a);
     },
+    // J-cex-spot-15 #5: a bot looks its order up by its own client id (`clientOrderKey`, the business key it placed the
+    // order under), or by the venue's client order id; the venue answers with the order's own state.
     '/api/v1/venue/orders/by-client-id': async (d, q, a) => {
-      if (!q.clientOrderId) throw new VenueWireError('clientOrderId is required');
-      return (await d.venue()).orderByClientId(a, q.clientOrderId);
+      if (q.clientOrderId && q.clientOrderKey) throw new VenueWireError('send clientOrderId or clientOrderKey, not both');
+      const id = q.clientOrderKey ? venueClientOrderId(a.venueId, q.clientOrderKey) : q.clientOrderId;
+      if (!id) throw new VenueWireError('clientOrderId or clientOrderKey is required');
+      return (await d.venue()).orderByClientId(a, id);
     },
     '/api/v1/venue/fills': async (d, q, a) => {
       const since = new Date(q.since ?? '');
@@ -334,9 +403,58 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit list' });
       return venue.deposits(a);
     },
+    // J-bank-31 #3: the venue's published withdrawal terms for an asset, read before anything is signed; a venue that
+    // publishes none refuses not_offered, and the review shows every term as not known.
+    '/api/v1/venue/withdrawal-terms': async (d, q) => {
+      if (!q.asset || !/^[A-Z0-9]{2,12}$/.test(q.asset)) throw new VenueWireError('asset is required');
+      const venue = await d.venue();
+      if (!venue.withdrawalTerms)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no withdrawal terms' });
+      return venue.withdrawalTerms(q.asset);
+    },
     '/api/v1/venue/leverage': async (d, q, a) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
+    },
+    // J-derivatives-05 #4: what a leverage change would do to the open position's margin, by the venue's own rule, read
+    // before anything is signed; a venue that reads none refuses not_offered, and the app says it states no difference.
+    '/api/v1/venue/leverage-change': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const bps = Number(q.leverageBps);
+      if (!Number.isInteger(bps) || bps < 1) throw new VenueWireError('leverageBps is a whole number of basis points of 1x');
+      if (q.marginMode !== 'cross' && q.marginMode !== 'isolated') throw new VenueWireError('marginMode is cross or isolated');
+      const venue = await d.venue();
+      if (!venue.leverageChange)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} states no margin difference for a leverage change`,
+        });
+      return venue.leverageChange(a, q.symbol, bps, q.marginMode);
+    },
+    // J-derivatives-06 #2 #3: an open isolated position's margin and the venue's own limit for removing it, read before
+    // anything is signed; a venue that reads none refuses not_offered.
+    '/api/v1/venue/isolated-margin': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.isolatedMargin)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reads no isolated position margin`,
+        });
+      return venue.isolatedMargin(a, q.symbol);
+    },
+    // J-derivatives-06 #1: the account's equity, free, used margin, maintenance and margin ratio as the venue reports them.
+    '/api/v1/venue/account-summary': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.accountSummary)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no account margin summary`,
+        });
+      return venue.accountSummary(a);
     },
     // J-derivatives-27 #7: the person's balance in the margin account a market's deployer keeps for it, on the main
     // account; a venue that reads none refuses not_offered.
@@ -364,6 +482,19 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.settlements(a, since);
     },
+    // J-cex-spot-07: the venue's own scheduled cancel for this account; a venue that offers none refuses not_offered.
+    '/api/v1/venue/scheduled-cancel': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.venue.scheduledCancel || !venue.scheduledCancel)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} offers no scheduled cancel`,
+        });
+      return venue.scheduledCancel(a);
+    },
+    // J-cex-spot-10 #6: the account's own fee tier, volume and rates as the venue reports them.
+    '/api/v1/venue/fee-tier': async (d, _q, a) => d.accountFees(a),
     '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
       const status = await d.status();
       const builder = 'builder' in status ? status.builder : null;
@@ -385,21 +516,80 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/orders/by-client-id',
     '/api/v1/venue/fills',
     '/api/v1/venue/deposits',
+    '/api/v1/venue/withdrawal-terms',
     '/api/v1/venue/leverage',
+    '/api/v1/venue/leverage-change',
+    '/api/v1/venue/isolated-margin',
+    '/api/v1/venue/account-summary',
     '/api/v1/venue/market-margin',
     '/api/v1/venue/settlements',
+    '/api/v1/venue/scheduled-cancel',
     '/api/v1/venue/builder-fee-approval',
+    '/api/v1/venue/fee-tier',
   ]) {
     const read = accountReads[path]!;
     app.get<{ Querystring: Query }>(path, privateRead, async (req, reply) => {
       if (!(await admit(req, reply, 'trade:read'))) return;
       return answer(
         reply,
-        async (d) => read(d, req.query, await d.account(req.query.owner ?? '', req.query.subAccount ?? null)),
+        async (d) => read(d, req.query, await d.readableAccount(req.query.owner ?? '', req.query.subAccount ?? null)),
         req.query.venueId,
       );
     });
   }
+
+  // J-cex-spot-07 #5: a statement of the venue account's orders, trades and money movements for a range, from the venue's
+  // own records. `POST` creates the job for its request key once and builds it once; the file is read by the job's id.
+  const statementRefused = (reply: FastifyReply, err: unknown) => {
+    if (err instanceof StatementError) {
+      const code =
+        err.status === 404 ? 'NotFound' : err.status === 409 ? 'InvalidOrder' : err.status === 429 ? 'RateLimitExceeded' : 'BadRequest';
+      return reply.code(err.status).send({ code, message: err.message, intafacedCode: err.code });
+    }
+    return venueRefusalReply(reply, err);
+  };
+  const statementsUnmounted = (reply: FastifyReply) =>
+    reply.code(503).send({
+      code: 'ExchangeNotAvailable',
+      message: 'venue statement export is not mounted',
+      intafacedCode: 'trade.statements_unmounted',
+    });
+  app.post('/api/v1/venue/statements', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    const statements = deps.venueStatements ?? null;
+    if (!statements) return statementsUnmounted(reply);
+    try {
+      if (!router)
+        throw new UserVenueDoorError(
+          'the user-venue door is off on this deployment (TRADE_USER_VENUE_URL unset)',
+          'trade.user_venue_off',
+          404,
+        );
+      const b = (req.body ?? {}) as { owner?: unknown; venueId?: unknown; from?: unknown; to?: unknown; requestKey?: unknown };
+      const d = await router.door(typeof b.venueId === 'string' ? b.venueId : null);
+      const job = await statements.request(principal, { from: b.from, to: b.to, requestKey: b.requestKey }, async () => {
+        const account = await d.account(typeof b.owner === 'string' ? b.owner : '');
+        return { venue: await d.venue(), account, withdrawalNonces: await d.withdrawalNonces(principal, account) };
+      });
+      return reply.code(200).send(job);
+    } catch (err) {
+      return statementRefused(reply, err);
+    }
+  });
+  app.get<{ Params: { id: string } }>('/api/v1/venue/statements/:id/file', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    const statements = deps.venueStatements ?? null;
+    if (!statements) return statementsUnmounted(reply);
+    try {
+      const file = await statements.file(principal, req.params.id);
+      // JSON, for a browser client that reads JSON only and saves the bytes itself. A statement is personal: no cache.
+      return reply.code(200).header('cache-control', 'private, no-store').send(file);
+    } catch (err) {
+      return statementRefused(reply, err);
+    }
+  });
 
   app.get<{ Params: { nonce: string }; Querystring: Query }>('/api/v1/venue/withdrawals/:nonce', privateRead, async (req, reply) => {
     if (!(await admit(req, reply, 'trade:read'))) return;
@@ -540,6 +730,26 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (d) => d.orders(principal, req.query.owner ?? '', req.query.cursor, req.query.limit), req.query.venueId);
+  });
+
+  // J-cex-spot-06 #1 #7: the account's order history as the venue keeps it, filtered and paged; #10: our record of one order.
+  app.get<{ Querystring: Query & Record<string, string | undefined> }>('/api/v1/venue/orders/history', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(
+      reply,
+      async (d) => d.orderHistory(await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query),
+      req.query.venueId,
+    );
+  });
+  app.get<{ Querystring: Query }>('/api/v1/venue/orders/record', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(
+      reply,
+      async (d) =>
+        d.orderRecord(principal, await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query.clientOrderId ?? ''),
+      req.query.venueId,
+    );
   });
 
   // Read on the venue the order was prepared for (venue-router.ts doorOfAction).

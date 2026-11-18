@@ -62,16 +62,21 @@ export async function confirmLocalFounderEmails({ STATE, marker, edgeUrl, say })
 }
 
 /**
- * `LOCAL_STACK_IDENTITY_SCREENING=unset` on a start or restart runs identity alone with no blocked list at all, as a build
- * is before the owner sets one: the caller's list is left out (never replaced by a value of this script's), the unsigned
- * rows are kept out, and the fail-closed refusal stays on, so sign-up's "the list is not set" can be seen (J-identity-01
- * #9). It only ever makes identity stricter.
+ * `LOCAL_STACK_IDENTITY_SCREENING` on a start or restart picks identity's blocked-countries list. It only ever leaves the
+ * caller's list out; it never writes a list of its own.
+ * - `unset`: no list at all, as a build is before the owner sets one: the unsigned rows are kept out and the fail-closed
+ *   refusal stays on, so sign-up's and sign-in's "the list is not set" can be seen (J-identity-01 #9, J-identity-22 #1).
+ * - `rows`: the TEST copy of Hyperliquid's restricted list, the unsigned config rows (`SANCTIONED_LIST_ROWS`, read on a
+ *   dev stack only) (J-identity-22 #2).
  */
 function screeningSwitch(env) {
-  if (process.env.LOCAL_STACK_IDENTITY_SCREENING !== 'unset') return env;
-  const out = { ...env, INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off', INTAFACED_SCREENING_FAIL_CLOSED: 'on' };
+  const mode = process.env.LOCAL_STACK_IDENTITY_SCREENING;
+  if (mode !== 'unset' && mode !== 'rows') return env;
+  const out = { ...env };
   delete out.INTAFACED_SANCTIONS_REGIONS;
   delete out.INTAFACED_SANCTIONS_LIST_SOURCE;
+  if (mode === 'unset') return { ...out, INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off', INTAFACED_SCREENING_FAIL_CLOSED: 'on' };
+  delete out.INTAFACED_UNSIGNED_SANCTIONS_ROWS;
   return out;
 }
 
@@ -211,6 +216,10 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
           IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
         }),
     IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: testValue('IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS'),
+    // The owner's least number of step-up extras (J-bank-18 #4): a TEST value. `LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN=off`
+    // on a restart leaves it blank, as production is, so setting extras refuses identity.extra_controls_unset.
+    IDENTITY_EXTRA_CONTROLS_MIN:
+      process.env.LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN === 'off' ? '' : testValue('IDENTITY_EXTRA_CONTROLS_MIN'),
     // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
     // for, so a journey can see the lock still holding with its end time.
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
@@ -286,6 +295,12 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     // Blank refuses every key call at the edge (edge.limits_unset) and every limit request (identity.rate_limits_unset);
     // `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a start or restart leaves it blank so those can be seen.
     ...(process.env.LOCAL_STACK_IDENTITY_RATE_LIMITS === 'off' ? {} : { IDENTITY_API_RATE_LIMITS: testValue('IDENTITY_API_RATE_LIMITS') }),
+    // LOCAL TEST longest rotation overlap (J-developer-07 #1), labelled in the same profile, never an owner decision. Blank
+    // refuses a rotation with an overlap above 0; `LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX=off` on a restart leaves it
+    // blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX === 'off'
+      ? {}
+      : { IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS: testValue('IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS') }),
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),

@@ -50,9 +50,8 @@ WORKDIR /app
 # "Cannot find module '@intafaced/contracts'" during `pnpm build` — which reads
 # like a broken import rather than a missing COPY.
 #
-# `tooling/ci/workspace-sync.mjs` compares this list against pnpm-workspace.yaml
-# and fails the build when they diverge. That check exists because this went
-# wrong three times in one day: twice in compose, once here.
+# A missing entry fails the image build, which the journeys stack runs on main
+# after every merge.
 FROM base AS deps
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
@@ -63,6 +62,7 @@ COPY apps/invitation/package.json            apps/invitation/
 COPY apps/mobile/package.json                apps/mobile/
 
 COPY packages/academy-ambassadors-pay/package.json packages/academy-ambassadors-pay/
+COPY packages/assistant-mcp/package.json     packages/assistant-mcp/
 COPY packages/auth/package.json              packages/auth/
 COPY packages/config/package.json            packages/config/
 COPY packages/connect-data-lake/package.json packages/connect-data-lake/

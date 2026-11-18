@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { MemoryFreezeRead } from '../quant/live-run/ports.js';
 import Fastify from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
@@ -102,6 +103,7 @@ describe("a person's own agent trading their venue sub-account under an allowanc
   let trading: OwnAgentTrading;
   let actions: InMemoryPreparedActionStore;
   let store: InMemoryAllowanceStore;
+  let freeze: MemoryFreezeRead;
   let policy: FixedOwnAgentPolicy;
   let submitFault: 'none' | 'lost_after_send' = 'none';
   let subA: UserVenueAccount;
@@ -148,7 +150,8 @@ describe("a person's own agent trading their venue sub-account under an allowanc
     });
     store = new InMemoryAllowanceStore();
     if (p) policy = p;
-    trading = new OwnAgentTrading({ door, store, policy: p, values: VALUES, now: () => new Date() });
+    freeze = new MemoryFreezeRead();
+    trading = new OwnAgentTrading({ door, store, policy: p, values: VALUES, freeze, now: () => new Date() });
   }
 
   let runs = 0;
@@ -256,7 +259,7 @@ describe("a person's own agent trading their venue sub-account under an allowanc
     attachOwnAgentTradingRoutes(app, trading, {
       requirePrincipal: () => person,
       requireTradeJurisdiction: () => true,
-    } as unknown as Parameters<typeof attachOwnAgentTradingRoutes>[2]);
+    } as Parameters<typeof attachOwnAgentTradingRoutes>[2]);
     await app.ready();
     try {
       const url = `/api/v1/venue/own-agents/${AGENT}`;
@@ -404,8 +407,9 @@ describe("a person's own agent trading their venue sub-account under an allowanc
   it('#7: revoking ends admission at once, then asks the wallet to sign the venue revoke; an order already sent is read back', async () => {
     const v = await active();
     const first = await trading.place(person, AGENT, buy(uuid('0e')));
+    expect((await trading.list(person, AGENT))[0]).toMatchObject({ status: 'active', agentKeyHeld: true });
     const revoked = await trading.revoke(person, AGENT, v.allowanceId);
-    expect(revoked).toMatchObject({ status: 'revoked', permissionOnVenue: true });
+    expect(revoked).toMatchObject({ status: 'revoked', permissionOnVenue: true, agentKeyHeld: false });
     expect(revoked.next).toMatchObject({ step: 'revoke_agent', actionKey: allowanceRevokeKey(v.allowanceId) });
     // The next admission refuses before anything is prepared, even while the venue still lists the permission.
     const sentBefore = (await agentKeys()).length;
@@ -413,9 +417,88 @@ describe("a person's own agent trading their venue sub-account under an allowanc
     expect((await refusedAs(trading.preview(person, AGENT, buy(uuid('0e'))))).code).toBe('agents.allowance_revoked');
     expect((await agentKeys()).length).toBe(sentBefore);
     const done = await trading.submit(person, AGENT, v.allowanceId, revoked.next!.actionKey, await sign(revoked.next!.prepared));
-    expect(done).toMatchObject({ status: 'revoked', permissionOnVenue: false, next: null });
+    expect(done).toMatchObject({ status: 'revoked', permissionOnVenue: false, agentKeyHeld: false, next: null });
     expect((await sim.agents(subA)).value.map((x) => x.address.toLowerCase())).not.toContain(v.agentAddress);
     const orders = await trading.orders(person, AGENT);
     expect(orders.map((o) => [o.orderId, o.state])).toEqual([[first.orderId, 'accepted']]);
+  });
+  // ── J-wallet-13: the owner's own freeze ─────────────────────────────────────────────────────────────────────────
+
+  it('J-wallet-13 #1: the event revokes every live allowance of that person at once, none of another, and twice is one revoke', async () => {
+    const v = await active();
+    await trading.place(person, AGENT, buy(uuid('0e')));
+    // A second agent's allowance still waiting for the wallet: it is abandoned, never made live.
+    const AGENT2 = '22222222-2222-4222-8222-2222222222f3';
+    const waiting = await trading.grant(person, AGENT2, {
+      allowanceId: uuid('a12'),
+      owner,
+      subAccount: subA.subAccount,
+      amount: '5',
+      period: 'week',
+    });
+    expect(waiting.status).toBe('signing');
+    // Another person's active allowance, untouched.
+    const OTHER = '11111111-1111-4111-8111-1111111111f9';
+    const theirId = uuid('a13');
+    await store.insertOnce({
+      ...(await store.find(USER, v.allowanceId))!,
+      userId: OTHER,
+      allowanceId: theirId,
+      status: 'signing',
+      agentAddress: '0x00000000000000000000000000000000000000c1',
+    });
+    await store.activate(OTHER, theirId, new Date());
+
+    freeze.frozenUsers.add(USER);
+    expect(await trading.applySelfFreeze(USER)).toEqual({ allowances: 2 });
+    expect((await store.find(USER, v.allowanceId))?.status).toBe('revoked');
+    expect((await store.find(USER, waiting.allowanceId))?.status).toBe('abandoned');
+    expect((await store.listLive(OTHER)).map((r) => r.status)).toEqual(['active']);
+    const revokedAt = (await store.find(USER, v.allowanceId))?.revokedAt;
+    // Twice delivered: one revoke, the same time, nothing more to do.
+    expect(await trading.applySelfFreeze(USER)).toEqual({ allowances: 0 });
+    expect((await store.find(USER, v.allowanceId))?.revokedAt).toEqual(revokedAt);
+    // The person sees the revoke the wallet may sign on the venue; the key signs nothing more (#4: after the lift too).
+    const [view] = await trading.list(person, AGENT);
+    expect(view).toMatchObject({ status: 'revoked', agentKeyHeld: false, next: { step: 'revoke_agent' } });
+    freeze.frozenUsers.delete(USER);
+    expect((await refusedAs(trading.place(person, AGENT, buy(uuid('0e'))))).code).toBe('agents.allowance_revoked');
+  });
+
+  it('J-wallet-13 #2: while frozen, granting, signing an allowance and an agent order are refused with the freeze reason; unread refuses too', async () => {
+    const v = await active();
+    const pending = await trading.grant(person, '22222222-2222-4222-8222-2222222222f4', {
+      allowanceId: uuid('a14'),
+      owner,
+      subAccount: subA.subAccount,
+      amount: '5',
+      period: 'week',
+    });
+    freeze.frozenUsers.add(USER);
+    const refusals = [
+      await refusedAs(grant(uuid('a15'), '5', 'week', subB.subAccount)),
+      await refusedAs(
+        trading.submit(
+          person,
+          '22222222-2222-4222-8222-2222222222f4',
+          pending.allowanceId,
+          pending.next!.actionKey,
+          await sign(pending.next!.prepared),
+        ),
+      ),
+      await refusedAs(trading.place(person, AGENT, buy(uuid('0e')))),
+    ];
+    for (const e of refusals) {
+      expect([e.code, e.status]).toEqual(['trade.account_frozen_self', 423]);
+      expect(e.message).toMatch(/you froze this account/);
+    }
+    expect(await store.listForAgent(USER, AGENT)).toHaveLength(1);
+    expect((await store.find(USER, pending.allowanceId))?.status).toBe('signing');
+    // The person's own revoke still passes while frozen.
+    expect((await trading.revoke(person, AGENT, v.allowanceId)).status).toBe('revoked');
+    freeze.frozenUsers.delete(USER);
+    freeze.down = true;
+    const unread = await refusedAs(grant(uuid('a16'), '5', 'week', subB.subAccount));
+    expect([unread.code, unread.status]).toEqual(['trade.freeze_unavailable', 503]);
   });
 });

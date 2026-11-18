@@ -1,9 +1,9 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import { ASSET_AMOUNT_EXCEEDS_PRECISION, toAssetUnits } from '@intafaced/contracts';
 import { formatMoney, locale } from '@intafaced/i18n';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 
-type Db = Sql | TransactionSql;
 import { resolvePayerCopy, PAYER_COPY_KEYS } from '../payer-copy.js';
 import { MerchantOpsError } from './errors.js';
 import { iso } from './money.js';
@@ -438,7 +438,10 @@ export class ReceiptBrandingService {
     return places;
   }
 
-  private async resolve(merchantId: string, db: Db = this.sql): Promise<{ row: VersionRow; source: 'merchant' | 'ops_default' } | null> {
+  private async resolve(
+    merchantId: string,
+    db: Queryable = this.sql,
+  ): Promise<{ row: VersionRow; source: 'merchant' | 'ops_default' } | null> {
     const own = await this.latest(db, merchantId);
     if (own) return { row: own, source: 'merchant' };
     const ops = await this.latest(db, null);
@@ -446,7 +449,7 @@ export class ReceiptBrandingService {
     return null;
   }
 
-  private async latest(db: Db, merchantId: string | null): Promise<VersionRow | undefined> {
+  private async latest(db: Queryable, merchantId: string | null): Promise<VersionRow | undefined> {
     const sql = this.sql;
     const rows = await db<VersionRow[]>`
       SELECT id, version, logo_ref, accent, footer, language, body_hash, created_at, merchant_id
@@ -503,7 +506,7 @@ export class ReceiptBrandingService {
     });
   }
 
-  private async versionInScope(db: Db, versionId: string, merchantId: string | null): Promise<VersionRow> {
+  private async versionInScope(db: Queryable, versionId: string, merchantId: string | null): Promise<VersionRow> {
     const sql = this.sql;
     const rows = await db<VersionRow[]>`
       SELECT id, version, logo_ref, accent, footer, language, body_hash, created_at, merchant_id
@@ -516,7 +519,7 @@ export class ReceiptBrandingService {
   }
 
   private async insertRequest(
-    db: Db,
+    db: Queryable,
     merchantId: string | null,
     requestId: string,
     hash: string,

@@ -7,7 +7,7 @@
  * are sealed under the KYC document key (unset refuses `kyc.trading_checks_unconfigured`) and never logged.
  */
 import { checkAccess, type KycTier } from '@intafaced/config';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { countryCode } from '../auth/sign-up.js';
 import { capabilitiesOfLevel, grantOnApproval, markRequested, type KycCapabilityMap } from './capabilities.js';
@@ -160,7 +160,7 @@ export interface TradingChecksDeps {
   readonly list: SanctionsPersonList | null;
   readonly capabilities: KycCapabilityMap;
   /** The level the person holds now, read the way the token issuer reads it. */
-  readonly kycTier: (userId: string, sql: Sql) => Promise<KycTier>;
+  readonly kycTier: (userId: string, sql: Queryable) => Promise<KycTier>;
   /** After a clear commits: the approval event and its XP, as an operator's approval sends them. */
   readonly now?: () => Date;
 }
@@ -211,7 +211,7 @@ export class TradingChecksDesk {
       if (!decision.allowed) {
         if (decision.code === 'denied.screening_unconfigured' || decision.code === 'denied.screening_fixture')
           throw new TradingCheckError('The trading checks are paused: no list is set.', 'kyc.screening_list_unset');
-        throw new TradingCheckError('Trading is not offered for this country right now.', 'kyc.region_blocked');
+        throw new TradingCheckError('This country is not served, so trading is not offered there.', 'kyc.region_blocked');
       }
       const [birth] = await tx<
         Array<{ ciphertext: Buffer; nonce: Buffer }>

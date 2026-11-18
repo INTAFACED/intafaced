@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import { type Queryable, requireConnection } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { parseAlgoPlaceGrant } from '../algo/durable-principal.js';
 import type { GridLevelPlan } from './plan.js';
@@ -400,7 +400,7 @@ const ORDER_COLUMNS = `client_order_id, bot_id, level_index, side, cycle, order_
   order_hold::text AS order_hold, status, pair_profit::text AS pair_profit, placed_at, closed_at`;
 
 export class SqlGridStore implements GridStore {
-  constructor(private readonly sql: Sql) {}
+  constructor(private readonly sql: Queryable) {}
 
   async findBot(botId: string) {
     const rows = await this.sql.unsafe<BotRow[]>(`SELECT ${BOT_COLUMNS} FROM grid_bots WHERE bot_id = $1`, [botId]);
@@ -441,8 +441,8 @@ export class SqlGridStore implements GridStore {
   }
 
   async createWithReserve(bot: GridBot, reserve: GridReserve, check: (unused: Amount) => Promise<void>) {
-    return (await this.sql.begin(async (tx) => {
-      const store = new SqlGridStore(tx as unknown as Sql);
+    return (await requireConnection(this.sql).begin(async (tx) => {
+      const store = new SqlGridStore(tx);
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${reserveLockKey(bot.userId, reserve.asset)}, 0))`;
       const existing = await store.findBot(bot.botId);
       if (existing) return { created: false, bot: existing };
@@ -533,8 +533,8 @@ export class SqlGridStore implements GridStore {
     key: { withdrawalId: string; botId: string; userId: string; asset: string; at: Date },
     decide: (state: { reserve: GridReserve | null; usedToday: Amount }) => GridWithdrawal,
   ) {
-    return (await this.sql.begin(async (tx) => {
-      const store = new SqlGridStore(tx as unknown as Sql);
+    return (await requireConnection(this.sql).begin(async (tx) => {
+      const store = new SqlGridStore(tx);
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${reserveLockKey(key.userId, key.asset)}, 0))`;
       const existing = await store.findWithdrawal(key.withdrawalId);
       if (existing) return { created: false, withdrawal: existing };
@@ -579,8 +579,8 @@ export class SqlGridStore implements GridStore {
       gridUnused: Amount;
     }) => Promise<{ topUp: GridTopUp; levels: readonly GridLevelPlan[] }>,
   ) {
-    return (await this.sql.begin(async (tx) => {
-      const store = new SqlGridStore(tx as unknown as Sql);
+    return (await requireConnection(this.sql).begin(async (tx) => {
+      const store = new SqlGridStore(tx);
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${reserveLockKey(key.userId, key.asset)}, 0))`;
       const existing = await store.findTopUp(key.topUpId);
       if (existing) return { created: false, topUp: existing };

@@ -5,8 +5,16 @@ import type { AsOf, OrderIntent, VenueMarket, VenueOrder, VenuePreview, VenueUp 
 import { VenueReviewRows, VenueVerifyDesk, WithdrawalLine } from './VenueSpotDesk';
 import {
   HeldDraft,
+  amountForValue,
   depositTransfer,
+  offeredTif,
+  tagProblem,
+  valueOf,
+  venueSelfTrade,
   intentOf,
+  lockShortfall,
+  pendingOrders,
+  previewMoved,
   refusedAtHeldWorst,
   shortAddress,
   slippageLimit,
@@ -30,6 +38,10 @@ const MARKET: VenueMarket = {
   maxLeverageBps: null,
   tickSize: '0.1',
   lotSize: '0.00001',
+  // TEST: the venue publishes each rule a spot order is checked against (J-cex-spot-04).
+  minOrderNotional: '10',
+  priceBandBps: '9500',
+  maxOpenOrders: 1000,
   makerFeeBps: { known: true, value: '1' },
   takerFeeBps: { known: true, value: '3.5' },
   listedBy: { known: false },
@@ -212,6 +224,81 @@ describe('the review’s lines are the venue’s', () => {
   });
 });
 
+describe('J-cex-spot-03: market by spend, every time in force, self-trade, tag and unit', () => {
+  it('a spend sizes the most whole lots whose cost at the worst price stays within it', () => {
+    // 100 / 60300.2 = 0.0016583… → 0.00165 at a 0.00001 lot; 0.00166 × 60300.2 would pass 100.
+    expect(amountForValue('100', '60300.2', '0.00001')).toBe('0.00165');
+    expect(amountForValue('100', '60300.2', '0.0001')).toBe('0.0016');
+    expect(amountForValue('1', '60300.2', '0.0001')).toBeNull();
+    expect(amountForValue('', '60300.2', '0.0001')).toBeNull();
+    expect(amountForValue('100', null, '0.0001')).toBeNull();
+    expect(valueOf('0.001', '30000')).toBe('30');
+  });
+
+  it('a limit carries the picked time in force; a market order stays IOC', () => {
+    const key = new HeldDraft(OWNER, MARKET.symbol, () => 1).keyFor(limitBuy);
+    expect(intentOf({ ...limitBuy, tif: 'IOC' }, MARKET, null, key, true)?.timeInForce).toBe('IOC');
+    expect(intentOf({ ...limitBuy, tif: 'ALO' }, MARKET, null, key, true)?.timeInForce).toBe('ALO');
+    expect(intentOf({ ...limitBuy, type: 'market', tif: 'ALO' }, MARKET, '60300.2', key, true)?.timeInForce).toBe('IOC');
+  });
+
+  it('a changed time in force is a new order with a new key', () => {
+    const draft = new HeldDraft(OWNER, MARKET.symbol, () => 1);
+    const gtc = draft.keyFor(limitBuy);
+    expect(draft.keyFor({ ...limitBuy, tif: 'IOC' })).not.toBe(gtc);
+  });
+
+  it('only what the venue offers can be picked: FOK and GTD are not offered by the TEST venue', () => {
+    expect(offeredTif(MARKET, 'GTC')).toBe('GTC');
+    expect(offeredTif(MARKET, 'ALO')).toBe('ALO');
+    expect(offeredTif(MARKET, 'FOK')).toBeNull();
+    expect(offeredTif(MARKET, 'GTD')).toBeNull();
+  });
+
+  it('the self-trade rule is the venue’s own, or none where it publishes none', () => {
+    expect(venueSelfTrade({ selfTrade: { known: true, value: 'cancel_resting' } })).toBe('cancel_resting');
+    expect(venueSelfTrade({ selfTrade: { known: false } })).toBeNull();
+    expect(venueSelfTrade({})).toBeNull();
+  });
+
+  it('a tag is optional, up to 32 plain characters', () => {
+    expect(tagProblem('')).toBe(false);
+    expect(tagProblem('desk-run_1.a')).toBe(false);
+    expect(tagProblem('x'.repeat(33))).toBe(true);
+    expect(tagProblem('<b>')).toBe(true);
+  });
+
+  it('the review shows a market order’s price protection in words, the venue’s self-trade rule and the tag', () => {
+    const market = intentOf({ ...limitBuy, type: 'market' }, MARKET, '60300.2', 'order:0xowner:btc-usdc:abc2', true)!;
+    const html = renderToStaticMarkup(
+      <VenueReviewRows
+        intent={market}
+        preview={preview()}
+        status={{ builder: null, test: true }}
+        approved={null}
+        protectionBps="50"
+        selfTrade="cancel_resting"
+        tag="desk-1"
+      />,
+    );
+    const shown = text(html);
+    expect(shown).toContain('Price protection You won’t pay more than 60,300.2 USDC per BTC (50 bps above the best ask)');
+    expect(shown).toContain('If it meets my own order Cancel my resting order');
+    expect(shown).toContain('Tag desk-1');
+    const sell = renderToStaticMarkup(
+      <VenueReviewRows
+        intent={{ ...market, side: 'sell' }}
+        preview={preview()}
+        status={{ builder: null, test: true }}
+        approved={null}
+        protectionBps="50"
+      />,
+    );
+    expect(text(sell)).toContain('You won’t sell for less than 60,300.2 USDC per BTC (50 bps below the best bid)');
+    expect(text(sell)).toContain('If it meets my own order not published by this venue');
+  });
+});
+
 describe('the deposit is the person’s own transfer', () => {
   const route = {
     chainId: 84532,
@@ -268,7 +355,7 @@ describe('a person not verified for trading', () => {
       venue: { id: 'test-venue', displayName: 'TEST venue' },
       test: true,
       builder: null,
-    } as unknown as VenueUp;
+    } as VenueUp;
     const html = renderToStaticMarkup(<VenueVerifyDesk status={status} symbol="BTC-USDC" />);
     const shown = text(html);
     expect(html).toContain('data-access="verify"');
@@ -331,5 +418,68 @@ describe('an order the desk placed that filled (J-cex-spot-01 #8)', () => {
     expect(rows[1]!.body).toMatch(/data-cell="status"[^>]*>Filled</);
     expect(rows[1]!.body).not.toContain('<button');
     expect(rows[0]!.body).toContain('Cancel');
+  });
+});
+
+// J-cex-spot-02 on the venue spot desk: a lock the venue account can't cover is refused before Confirm, a preview that
+// moved between Review and Confirm is asked again, and an order with no definite answer is kept across a reload.
+describe('J-cex-spot-02: placing safely on the venue desk', () => {
+  const preview = (over: Partial<VenuePreview> = {}): VenuePreview => ({
+    symbol: 'BTC-USDC',
+    kind: 'spot',
+    lock: { asset: 'USDC', amount: '6000' },
+    role: 'maker',
+    venueFee: { known: true, value: { asset: 'BTC', amount: '0.00001' } },
+    builderFee: { known: true, value: { asset: 'USDC', amount: '0' } },
+    fill: { known: true, value: { amount: '0', averagePrice: null } },
+    perpetual: null,
+    ...over,
+  });
+
+  it('refuses a lock above the free balance of the asset it locks, from the venue figures, and lets an exact one pass', () => {
+    expect(lockShortfall(preview(), [{ asset: 'USDC', free: '5999.99' }])).toEqual({ asset: 'USDC', lock: '6000', free: '5999.99' });
+    expect(lockShortfall(preview(), [{ asset: 'USDC', free: '6000' }])).toBeNull();
+    // No balance row for the locked asset is nothing free.
+    expect(lockShortfall(preview(), [{ asset: 'BTC', free: '10' }])).toEqual({ asset: 'USDC', lock: '6000', free: '0' });
+  });
+
+  it('calls a preview moved when any figure the review showed changed, and the same figures unmoved', () => {
+    expect(previewMoved(preview(), preview())).toBe(false);
+    expect(previewMoved(preview(), preview({ role: 'taker' }))).toBe(true);
+    expect(previewMoved(preview(), preview({ lock: { asset: 'USDC', amount: '6000.1' } }))).toBe(true);
+    expect(previewMoved(preview(), preview({ fill: { known: true, value: { amount: '0.01', averagePrice: '60000' } } }))).toBe(true);
+  });
+
+  it('keeps an order with no definite answer across a reload, once per client id, until the venue names it', () => {
+    const intent: OrderIntent = {
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.01',
+      price: '60000',
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: 'order:k1',
+      builderFee: null,
+    };
+    const store = new Map<string, string>();
+    const session = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    };
+    const before = globalThis.sessionStorage;
+    Object.defineProperty(globalThis, 'sessionStorage', { value: session, configurable: true });
+    try {
+      pendingOrders(OWNER).add({ clientOrderId: '0xabc', key: 'order:k1', intent });
+      pendingOrders(OWNER).add({ clientOrderId: '0xabc', key: 'order:k1', intent });
+      // A new page (a reload) reads the same list.
+      expect(pendingOrders(OWNER).list()).toEqual([{ clientOrderId: '0xabc', key: 'order:k1', intent }]);
+      expect(pendingOrders('0xother').list()).toEqual([]);
+      pendingOrders(OWNER).remove('0xabc');
+      expect(pendingOrders(OWNER).list()).toEqual([]);
+    } finally {
+      Object.defineProperty(globalThis, 'sessionStorage', { value: before, configurable: true });
+    }
   });
 });

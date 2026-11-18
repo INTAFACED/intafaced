@@ -11,13 +11,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../../docker-compose.apps.yml');
 
 function agentsServiceBlock(source: string): string {
-  const match = source.match(/^  svc-agents:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-agents service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-agents');
 }
 
 describe('compose ACADEMY_URL for coach grounding', () => {

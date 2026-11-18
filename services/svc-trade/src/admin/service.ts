@@ -97,7 +97,10 @@ export interface TradeOpsDeps {
   /** Existing cancel path. The adapter builds the order owner's principal. */
   readonly cancelOrder: (orderId: string, userId: string) => Promise<void>;
   /** Existing `TradeService.reconcileOrder`; the sweep passes `{ leaveLive: true }`. */
-  readonly reconcileOrder: (orderId: string, opts?: { leaveLive?: boolean }) => Promise<ReconcileResult>;
+  readonly reconcileOrder: (
+    orderId: string,
+    opts?: { leaveLive?: boolean; engineMissFloorSeconds?: number | null; sightedBy?: string },
+  ) => Promise<ReconcileResult>;
   /** `TradeService.engineLiveOrderIds`: one market's resting order ids, from one engine list. Absent: the sweep reads no book. */
   readonly engineLiveOrderIds?: (marketId: string) => Promise<ReadonlySet<string>>;
   /** TRADE_OPERATOR_SWEEP_ENABLED: the sweep's kill switch, off unless set on. Off, the sweep refuses `reconcile_sweep_disabled`. */
@@ -1205,7 +1208,11 @@ export class TradeOpsAdmin {
       });
       throw new TradeOpsError('reconcile_order_in_flight', `order ${input.orderId} hold may still be in flight; ${secondsLeft}s left`);
     }
-    const verdict = await this.deps.reconcileOrder(input.orderId);
+    // An engine miss is released only on a sighting the owner's floor old (#8560): the first reconcile records it.
+    const verdict = await this.deps.reconcileOrder(input.orderId, {
+      engineMissFloorSeconds: this.deps.sweepMinAgeSeconds ?? null,
+      sightedBy: `reconcile:${clientRequestId}`,
+    });
     await storeRequest(this.deps.sql, clientRequestId, 'reconcile', fingerprint, verdict);
     await writeOperatorAudit(this.deps.sql, {
       kind: 'orders.reconcile',
@@ -1340,7 +1347,11 @@ export class TradeOpsAdmin {
       }
       let verdict: ReconcileResult;
       try {
-        verdict = await this.deps.reconcileOrder(orderId, { leaveLive: true });
+        verdict = await this.deps.reconcileOrder(orderId, {
+          leaveLive: true,
+          engineMissFloorSeconds: run.minAge,
+          sightedBy: run.clientRequestId,
+        });
       } catch (error) {
         // Whether it acted is read from the row, not assumed: a thrown reconcile may have finalized first.
         const [row] = await this.deps.sql<Array<{ status: string }>>`SELECT status::text FROM trade.orders WHERE id = ${orderId}`;
@@ -1385,8 +1396,7 @@ export class TradeOpsAdmin {
       minAgeSeconds: run.minAge,
       ranAt: at.toISOString(),
     };
-    await this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    await this.deps.sql.begin(async (q) => {
       await q`INSERT INTO trade.operator_reconcile_sweeps (id, client_request_id, occurred_at, result)
         VALUES (${randomUUID()}, ${run.clientRequestId}, ${at.toISOString()}, ${q.json(result as never)})`;
       await storeRequest(q, run.clientRequestId, 'reconcile_sweep', run.fingerprint, result);

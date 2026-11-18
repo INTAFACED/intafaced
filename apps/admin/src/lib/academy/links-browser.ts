@@ -1,8 +1,7 @@
 /** Browser hop for a course's private links. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { LinksDeskReply, LinksView } from './links-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchLinks(courseId: string): Promise<LinksView | null> {
   try {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ExtraControlsPort } from '../safety/extra-controls.js';
 import { TRPCError } from '@intafaced/contracts';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';
 import { BankError } from '../errors.js';
@@ -316,6 +317,13 @@ export type BankRouterOptions = {
    * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
+  /**
+   * Strong customer authentication for a business statement that reaches back past the partner's age for it (J-bank-23
+   * #3). Always required, whatever the money-out rule says: omitted, it fails closed (`bank.step_up_unavailable`).
+   */
+  statementStepUp?: StepUpGate;
+  /** The person's own step-up extras (BK-safe-01), read per send to another person. Omitted: no extras are checked (router tests). */
+  extraControls?: ExtraControlsPort;
   /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
   loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
 };
@@ -379,5 +387,12 @@ export const partnerHoldReportOutput = z
     refunded: z.string(),
     open: z.string(),
     expiresAt: z.string().nullable(),
+    /** The asset the partner holds it in, when it says. */
+    assetId: z.string().optional(),
+    /** A hold by a pay-from order (J-bank-29): the merchant's amount, the partner's rate and the rate's time. */
+    conversion: z
+      .object({ settlementAssetId: z.string(), settlementAmount: z.string(), rate: z.string(), rateAsOf: z.string() })
+      .strict()
+      .optional(),
   })
   .strict();

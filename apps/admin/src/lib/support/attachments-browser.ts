@@ -3,12 +3,9 @@ import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import { readAttachmentLimits, type AttachmentLimits, type AttachmentSetRequest } from './attachments';
 import type { SupportAttachmentsView } from './attachments-server';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export type AttachmentsDeskView = SupportAttachmentsView;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 export async function fetchAttachments(signal?: AbortSignal): Promise<AttachmentsDeskView | null> {
   try {

@@ -758,6 +758,38 @@ function UsageTable({ data, name }: { data: z.infer<typeof agentsTeamUsageSchema
       <p>
         <Copy k="usageTotal" /> <span data-testid="usage-total">{`${data.sealedTotal} ${data.assetId}`}</span>
       </p>
+      <h3>{t('windowsTitle')}</h3>
+      <p className="muted">
+        <Copy k="windowsNote" />
+      </p>
+      {data.windows.length === 0 ? (
+        <p>
+          <Copy k="windowsEmpty" />
+        </p>
+      ) : (
+        <DataTable
+          label={t('windowsTitle')}
+          headers={[t('colWindowMember'), t('colWindowCost'), t('colWindowOwedBy'), t('colWindowPaid'), t('colWindowKey')]}
+        >
+          {data.windows.map((w) => (
+            <tr key={`${w.sessionId}:${w.windowId}`} data-testid="sealed-window">
+              <th scope="row">{name(w.userId)}</th>
+              <td data-testid="window-cost">{`${w.amount} ${data.assetId}`}</td>
+              <td data-testid="window-owed-by">{w.owedBy === 'business' ? t('owedByBusiness') : t('owedByMember')}</td>
+              <td data-testid="window-paid">
+                {w.payment
+                  ? t('windowPaidFrom', { label: w.payment.label, ref: w.payment.ref })
+                  : w.state === 'settled'
+                    ? t('windowPaidMember')
+                    : t('windowOwed')}
+              </td>
+              <td>
+                <code data-testid="window-charge-key">{w.chargeKey ?? ''}</code>
+              </td>
+            </tr>
+          ))}
+        </DataTable>
+      )}
     </>
   );
 }

@@ -36,7 +36,7 @@ function capture(): Sent[] {
       headers: init?.headers as Record<string, string>,
       body: String(init?.body),
     });
-    const body = /\/trpc\/balances$/.test(String(input))
+    const body = String(input).endsWith('/trpc/balances')
       ? []
       : { accountId: 'a-1', assetId: 'USDT', kind: 'available', purpose: '', amount: '5' };
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });

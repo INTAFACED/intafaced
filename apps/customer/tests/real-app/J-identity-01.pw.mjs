@@ -3,14 +3,15 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import {
+  api,
   DEVICE_KEY,
   EDGE,
-  api,
   fund,
   journeyState,
   mailedCodes,
   mailedConfirmLinks,
   nextMailedCode,
+  ORIGIN,
   restartWith,
   signOutBrowser,
   stackFile,
@@ -24,7 +25,6 @@ import { awayBid, deskPath, held, openOrders, previewed, reviewSheet, verify } f
 // TEST owner values: minimum age 18, sign-up closed for AQ, five wrong codes lock, a new code after 30 s, five
 // confirmation emails an hour.
 const J = 'J-identity-01';
-const ORIGIN = 'http://127.0.0.1:3210';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
@@ -771,14 +771,18 @@ test(`${J} #9 a blocked province is refused with its reason, a US person from th
   try {
     first = outbox();
     await details(page, who);
-    await expect(notice(page)).toContainText('Sign-up is paused: the sanctions screening list is not set. Nothing was created.', {
+    await expect(notice(page)).toContainText('Sign-up is paused: the blocked-countries list is not set. Nothing was created.', {
       timeout: 15_000,
     });
     await expect(notice(page).locator('small')).toHaveText('identity.screening_unset');
-    await nothingMade(page, who, first);
+    // No code step and nothing mailed. Sign-in is refused too while the list is blank (J-identity-22 #1), so whether an
+    // account exists is asked once the list is back.
+    await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toHaveCount(0);
+    expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
   } finally {
     screeningList(true);
   }
+  await noAccount(who);
 
   // A province that is served (Quebec), answered "not a US person", goes on to the code step: the blocks are the
   // blocked regions only.

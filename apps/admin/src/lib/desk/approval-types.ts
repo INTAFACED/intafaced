@@ -1,6 +1,7 @@
 import { readOpenedDocument, type OpenedDocument } from '@/lib/kyc-documents/document';
 import { isApprovalId } from './approval-packet';
 import type { RefusalView } from './refusal-copy';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /** Wire types shared by the approval BFFs and their browser client. Pure. */
 
@@ -32,10 +33,6 @@ export type StepReply =
     }
   | { readonly ok: true; readonly step: 'execute'; readonly detail: string; readonly document?: OpenedDocument }
   | { readonly ok: false; readonly step: StepName | null; readonly refusal: RefusalView };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 const STEP_NAMES: readonly string[] = ['propose', 'approve', 'reject', 'revoke', 'execute'];
 

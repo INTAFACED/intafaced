@@ -5,7 +5,7 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MemoryAttachmentStore, type MalwareScanner, type ScanVerdict } from './attachments.js';
 import { PostgresSupportStore } from './store.js';
-import { SupportError, SupportService } from './support-service.js';
+import { SupportService } from './support-service.js';
 
 /**
  * SP-tickets-02 — scan state on Postgres: a file is `scanning` from its row, moves once, is read live on a replay, is

@@ -564,7 +564,7 @@ describe('the request that travels between the two founders', () => {
       after: MerchantControlProfile;
       tiers: TierView[];
     }
-    const fixtures = liveFixtures as unknown as Fixture[];
+    const fixtures = liveFixtures as Fixture[];
     const check = (f: Fixture, over: Partial<{ after: MerchantControlProfile; merchantId: string; tiers: TierView[] }> = {}) =>
       verifyConfirmResult({
         handoff: f.handoff,

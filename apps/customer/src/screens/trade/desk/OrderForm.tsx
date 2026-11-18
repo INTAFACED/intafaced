@@ -76,6 +76,7 @@ import { scaleLockStays } from './ticket/scale-flow';
 import { TicketRules } from './MarketRules';
 import { failureOf, isLedgerFrozen, previewFailure, previewIsOrderable, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
+import { dayTime } from './time';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
 import { reviewIdFor } from './review-id';
@@ -107,6 +108,19 @@ function restingRefusal(failure: Failure, draft: Draft): Failure {
     kind: 'refusal',
     copy: { title: deskCopy.t('Resting bracket refused title'), body: deskCopy.t('Resting bracket refused body') },
   };
+}
+
+/** A shut session says when it opens, and that nothing waits for it (J-cex-spot-14 #6). */
+function SessionShut({ market }: { market: DeskMarket }) {
+  const { t } = deskCopy.useCopy();
+  const { timeZone } = usePreferences();
+  return (
+    <StateBlock
+      kind="refused"
+      title={t('Session shut title')}
+      body={market.opensAt != null ? t('Session shut body opens', { time: dayTime(market.opensAt, timeZone) }) : t('Session shut body')}
+    />
+  );
 }
 
 function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetry?: () => void; onDismiss?: () => void }) {
@@ -345,7 +359,7 @@ function SideForm({
     type,
     tif,
     expireAt,
-  ]); // eslint-disable-line react-hooks/exhaustive-deps
+  ]);
   const key = draft
     ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.stopPrice ?? ''}|${tif}|${draft.expireAt ?? ''}`
     : 'none';
@@ -1489,7 +1503,11 @@ export const OrderPanel = memo(function OrderPanel({
       <TicketRules market={market} />
       {!market.open ? (
         <div className="dk-order-body">
-          <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />
+          {market.sessionShut ? (
+            <SessionShut market={market} />
+          ) : (
+            <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />
+          )}
         </div>
       ) : (
         <TabsPanel value={type} className="dk-order-body">

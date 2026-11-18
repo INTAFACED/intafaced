@@ -41,7 +41,7 @@ function listingCaller(over: { ttl?: number | null; read?: { owner: Address; blo
     relay: {},
     relayEnabled: () => false,
     listing: { store, ttlSeconds: () => (over.ttl === undefined ? 300 : over.ttl), chain },
-  } as unknown as ProtocolRouterDeps;
+  } as ProtocolRouterDeps;
   return createProtocolRouter(deps).createCaller(anonymous()).listing;
 }
 

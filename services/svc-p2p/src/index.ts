@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { createProtocolEscrowReader, parseContractEscrowTokens } from './contract-escrow.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -22,6 +23,7 @@ import { describeLimits, limitsConfigured, offerLimitsFromEnv, offerLimitsPostur
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
+import { createIdentityCounterpartyState, unconfiguredCounterpartyState } from './counterparty-state.js';
 import type { MerchantStatus } from './merchant-programme.js';
 import { programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
 import { MerchantService } from './merchant-service.js';
@@ -171,6 +173,10 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   merchantStatusOf: async (userId: string): Promise<MerchantStatus | null> => (await merchants.get(userId))?.status ?? null,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
+  // #4689: a take asks identity whether the ad's maker may trade. Without IDENTITY_URL nobody can say, so every take refuses.
+  counterpartyState: env.IDENTITY_URL
+    ? createIdentityCounterpartyState(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
+    : unconfiguredCounterpartyState(),
   verificationLimits: parseVerificationLimits(env.P2P_VERIFICATION_LIMITS),
   securityChangeLockSeconds: env.P2P_SECURITY_CHANGE_LOCK_SECONDS,
   takeLimits: {
@@ -242,6 +248,13 @@ const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
 const releaseStepUp = createReleaseStepUp({ sql, approvals: actionApprovals });
 const instrumentStepUp = createInstrumentStepUp({ sql, approvals: actionApprovals });
 
+// RC-p2p-02: the contract escrow reads svc-protocol as the person of the request; blank owner values refuse by name.
+const contractEscrow = {
+  tokens: parseContractEscrowTokens(env.P2P_CONTRACT_ESCROW_TOKENS),
+  disputeWindowSeconds: env.P2P_CONTRACT_ESCROW_DISPUTE_WINDOW_SECONDS ?? null,
+  reader: env.PROTOCOL_URL ? createProtocolEscrowReader({ protocolUrl: env.PROTOCOL_URL }) : null,
+};
+
 export const appRouter = createP2pRouter(
   p2p,
   instruments,
@@ -258,6 +271,7 @@ export const appRouter = createP2pRouter(
     takeStepUp,
     releaseStepUp,
     instrumentStepUp,
+    contractEscrow,
     // The other side of an order by their handle; without IDENTITY_URL reputation.get says the profile is unwired.
     ...(env.IDENTITY_URL ? { publicProfile: createIdentityPublicProfile(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) } : {}),
   },

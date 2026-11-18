@@ -1,5 +1,14 @@
+import type { ApiResult } from '../../../../../shared/api';
 import { registerRefusals } from '../../refusal';
 import { applicationCopy } from './application-copy';
+
+/**
+ * A file sent as base64 can be refused by an HTTP body limit (413) before svc-pay reads its upload rules. That
+ * answer carries no `pay.*` code, so the upload calls give it this one and the screen says the file is too large.
+ */
+export const KYB_BODY_TOO_LARGE = 'portal.kyb_body_too_large';
+export const sizedOut = <T>(result: ApiResult<T>): ApiResult<T> =>
+  !result.ok && result.status === 413 ? { ...result, code: KYB_BODY_TOO_LARGE } : result;
 
 /** Plain words for the refusals the business application can meet. The codes never reach the screen. */
 registerRefusals({
@@ -13,6 +22,7 @@ registerRefusals({
   'pay.kyb_upload_rules_unset': () => applicationCopy.t('rRulesUnset'),
   'pay.kyb_doc_key_unset': () => applicationCopy.t('rStoreUnset'),
   'pay.kyb_document_too_large': () => applicationCopy.t('rTooLarge'),
+  [KYB_BODY_TOO_LARGE]: () => applicationCopy.t('rTooLarge'),
   'pay.kyb_document_type_refused': () => applicationCopy.t('rType'),
   'pay.kyb_document_key_unknown': () => applicationCopy.t('rDocUnknown'),
   'pay.kyb_document_empty': () => applicationCopy.t('rDocEmpty'),

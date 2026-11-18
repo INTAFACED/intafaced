@@ -18,7 +18,7 @@
  * nothing is stored; the stack's LOCAL-TEST outbox is the only transport (local-sms.ts).
  */
 import { randomInt } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { getAddress, recoverMessageAddress, type Hex } from 'viem';
 import { createSiweMessage, generateSiweNonce, parseSiweMessage } from 'viem/siwe';
@@ -107,7 +107,7 @@ type UserRow = {
   passkeys: number;
 };
 
-async function readUser(sql: Sql, userId: string, lock: boolean): Promise<UserRow> {
+async function readUser(sql: Queryable, userId: string, lock: boolean): Promise<UserRow> {
   const rows = lock
     ? await sql<UserRow[]>`
         SELECT status, password_set, email, email_verified_at, email_code_signin, handle,
@@ -122,7 +122,7 @@ async function readUser(sql: Sql, userId: string, lock: boolean): Promise<UserRo
   return user;
 }
 
-async function methodsOf(sql: Sql, userId: string, user: UserRow): Promise<SigninMethods> {
+async function methodsOf(sql: Queryable, userId: string, user: UserRow): Promise<SigninMethods> {
   const wallets = await sql<Array<{ address: string; created_at: Date }>>`
     SELECT address, created_at FROM wallet_identities WHERE user_id = ${userId} ORDER BY created_at, address`;
   const providers = await sql<Array<{ provider: string }>>`
@@ -163,7 +163,7 @@ export function assertLeavesAWayIn(methods: SigninMethods, removing: number = 1)
 }
 
 /** Read under the given transaction's users row lock, for removers elsewhere (passkeys, provider accounts). */
-export async function lockedSigninMethods(tx: Sql, userId: string): Promise<SigninMethods> {
+export async function lockedSigninMethods(tx: Queryable, userId: string): Promise<SigninMethods> {
   return methodsOf(tx, userId, await readUser(tx, userId, true));
 }
 
@@ -346,7 +346,13 @@ export async function checkLinkPhone(sql: Sql, config: PhoneConfig, userId: stri
   if (refusal) throw refusal;
 }
 
-async function answerPhone(tx: Sql, config: PhoneConfig, userId: string, phone: string, code: string): Promise<SigninMethodError | null> {
+async function answerPhone(
+  tx: Queryable,
+  config: PhoneConfig,
+  userId: string,
+  phone: string,
+  code: string,
+): Promise<SigninMethodError | null> {
   const now = config.now?.() ?? new Date();
   const [flow] = await tx<PhoneFlow[]>`
     SELECT id, subject_hash, code_hash, attempts, expires_at FROM auth_flows
@@ -443,7 +449,7 @@ export async function startWalletChallenge(
 
 type WalletAnswer = { flowId: string; message: string; signature: string };
 
-async function spend(sql: Sql, flowId: string, now: Date): Promise<void> {
+async function spend(sql: Queryable, flowId: string, now: Date): Promise<void> {
   await sql`UPDATE auth_flows SET status = 'consumed', consumed_at = ${now} WHERE id = ${flowId} AND consumed_at IS NULL`;
 }
 
@@ -455,7 +461,7 @@ type Answered = { ok: true; address: `0x${string}` } | { ok: false; error: Signi
  * before the refusal is thrown. Locks the challenge row.
  */
 async function answerWallet(
-  sql: Sql,
+  sql: Queryable,
   config: WalletConfig,
   purpose: WalletPurpose,
   answer: WalletAnswer,

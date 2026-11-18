@@ -18,6 +18,7 @@ import { partnerRefusalsProcedure } from '../partner/partner-refusals.js';
 import {
   cardPartnerTermsProcedure,
   cardProgrammeFundingProcedure,
+  cardPayFromReconciliationProcedure,
   cardProgrammeProcedure,
   requestCardProgrammeFundingProcedure,
   setCardStatusProcedure,
@@ -28,6 +29,9 @@ import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusPro
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { DestinationFraudList, destinationFraudListProcedure, setDestinationFraudListingProcedure } from '../ramps/fraud-list.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
+import { rampMetricsProcedure } from '../ops/ramp-metrics.js';
+import { directDebitMandatesProcedure } from '../ops/direct-debit-mandates.js';
+import { railsView, salaryRailsOutput } from '../salary/salary.router.js';
 import { onrampFeesNotKnownProcedure, onrampQuotesProcedure } from '../ops/onramp-quotes.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
@@ -36,6 +40,7 @@ import { customerCardsProcedure } from '../ops/customer-cards.js';
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
+import { cardProgrammeOpsProcedures } from '../ops/card-programme-ops.js';
 import { cardDisputeProcedures } from '../ops/card-disputes.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
 import { amountString, actionApprovalFields, heldSendOutput, partnerFiguresOutput, signedAmountString } from './shared.js';
@@ -790,7 +795,7 @@ export function createOpsRouter(c: BankRouterContext) {
           // pay is a fact an operator needs on the day it happens — the same
           // reasoning as `runRiskSweep.refused`.
           cashback: z.object({
-            status: z.enum(['none', 'paid', 'refused']),
+            status: z.enum(['none', 'paid', 'owed', 'refused']),
             amount: amountString,
             reason: z.string().optional(),
           }),
@@ -806,6 +811,8 @@ export function createOpsRouter(c: BankRouterContext) {
             /** A round-up into one of the person's own spaces: that space and the transfer that moved it. */
             spaceId: z.string().optional(),
             ledgerTxId: z.string().optional(),
+            /** The partner bank's move, when the partner holds the person's money (OWNER 226): nothing on the ledger. */
+            partnerMoveId: z.string().optional(),
           }),
           confirmOperatorId: z.string(),
         }),
@@ -840,6 +847,7 @@ export function createOpsRouter(c: BankRouterContext) {
               status: result.cashback.status,
               amount: formatAmount(result.cashback.amount),
               ...(result.cashback.status === 'refused' ? { reason: result.cashback.reason } : {}),
+              ...(result.cashback.status === 'owed' && result.cashback.reason ? { reason: result.cashback.reason } : {}),
             },
             roundUp: {
               status: result.roundUp.status,
@@ -848,7 +856,9 @@ export function createOpsRouter(c: BankRouterContext) {
               ...(result.roundUp.status === 'settled'
                 ? 'positionId' in result.roundUp
                   ? { positionId: result.roundUp.positionId }
-                  : { spaceId: result.roundUp.spaceId, ledgerTxId: result.roundUp.ledgerTxId }
+                  : result.roundUp.ledgerTxId === null
+                    ? { spaceId: result.roundUp.spaceId, partnerMoveId: result.roundUp.partnerMoveId }
+                    : { spaceId: result.roundUp.spaceId, ledgerTxId: result.roundUp.ledgerTxId }
                 : {}),
             },
             confirmOperatorId,
@@ -1123,12 +1133,34 @@ export function createOpsRouter(c: BankRouterContext) {
     cardPartnerTerms: cardPartnerTermsProcedure(bank, guard),
     /** Settlement reconciliation, stablecoin conversion and the partner's funding offers (J-bank-26 #6). Read only. */
     cardProgrammeFunding: cardProgrammeFundingProcedure(bank, guard),
+    /** Pay-from spend and open holds against the card partner's own reports, per asset (J-bank-29 #8). Read only. */
+    cardPayFromReconciliation: cardPayFromReconciliationProcedure(bank, guard),
     /** Fund, defund or set auto reload at the card partner, with a second founder's approval (J-bank-26 #6). */
     requestCardProgrammeFunding: requestCardProgrammeFundingProcedure(bank, consumeOpsApproval, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     /** J-bank-27: card disputes worked by support (queue, case, evidence, representment, arbitration, credit, decision). */
     ...cardDisputeProcedures(bank, guard),
+    /** J-bank-26: the card programme desk for support and finance (settings, rules, cardholders, log, roles, bulk issue). */
+    ...cardProgrammeOpsProcedures(bank, guard),
     rampHealth: rampHealthProcedure(bank, guard),
+    /** J-bank-28 #3: ramp orders by state, partner health and quote expiries, as the ramp partner reports them. Read only. */
+    rampMetrics: rampMetricsProcedure(() => bank.addMoney.partner, guard),
+    /** J-bank-28 #4: the partner's direct debit mandates with state, blocks and refunds, and its failures by reason. Read only. */
+    directDebitMandates: directDebitMandatesProcedure(
+      () => ({
+        report: bank.testPartner ? () => bank.testPartner!.directDebitReport() : null,
+        details: (ids) => bank.directDebits.opsMandateDetails(ids),
+      }),
+      guard,
+    ),
+    /**
+     * J-bank-30 #8: the payroll rail, per currency: the network's own credits minus reversals against what the app showed.
+     * `partner: null` when no payroll network is wired ("no data", never zero). Read only.
+     */
+    salaryRails: scopedProcedure('admin:read')
+      .input(z.object({}).strict().optional())
+      .output(salaryRailsOutput)
+      .query(() => guard(async () => railsView(await bank.salary.rails()))),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),
     /** J-cex-spot-17 #8: the buy asks the partner's ramp gave no fee for, read as "not known". Read only. */

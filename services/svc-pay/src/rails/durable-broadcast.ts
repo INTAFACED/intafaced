@@ -1,5 +1,13 @@
 import type { BroadcastStore } from './broadcast-store.js';
 
+/** The key was answered `not_sent` and its money may already be given back: nothing is signed or sent under it. */
+export class BroadcastClosedError extends Error {
+  constructor(readonly idempotencyKey: string) {
+    super(`durable broadcast refused for ${idempotencyKey}: the key was answered not_sent and is closed`);
+    this.name = 'BroadcastClosedError';
+  }
+}
+
 /**
  * Class M outbound broadcast with DIRECTION §3.1 durability:
  *
@@ -22,6 +30,7 @@ export async function runDurableBroadcast(opts: {
 }): Promise<string> {
   const claimed = await opts.store.claim(opts.idempotencyKey);
   if (claimed.kind === 'done') return claimed.txHash;
+  if (claimed.kind === 'closed') throw new BroadcastClosedError(opts.idempotencyKey);
 
   let signedRaw: string;
   if (claimed.kind === 'resume') {

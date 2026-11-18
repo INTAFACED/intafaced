@@ -81,7 +81,7 @@ describe('D26-P1-P5 fraud Done bar — public doors', () => {
       getPayment: async () => paymentView(),
       markDisputed: async () => paymentView({ status: 'disputed' }),
     } as unknown as PayService;
-    const userMoney = {} as unknown as UserMoneyService;
+    const userMoney = {} as UserMoneyService;
     const rails = new RailRegistry([new CardSandboxAdapter({ secret: 'fraud-done-bar-secret-at-least-32-chars', toleranceSeconds: 300 })]);
     const router = createPayRouter(pay, rails, userMoney, null, undefined, stubApprovalConsumer(CONFIRM));
     return router.createCaller(await ctx(scopes));

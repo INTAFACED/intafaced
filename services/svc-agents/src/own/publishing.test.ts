@@ -18,6 +18,7 @@ import { UserSpendStore } from '../spend/store.js';
 import { createFixtureSupportDesk } from '../support-agent/desk-port.js';
 import { checkCoOwner, checkSurfaces, OWN_AGENT_CHILD_TABLES } from './publishing.js';
 import { OWN_RUN_TASK } from './routes.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 
 /**
  * Publishing, sharing and deleting a person's own agent (AG-builder-03; J-agents-03 #7, #8), through the service's own
@@ -145,7 +146,16 @@ if (!available) {
         { userId: FROZEN, status: 'frozen', kycTier: 'full' },
       ],
     });
-    const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'USDT', sql, supportDesk });
+    const router = createAgentsRouter({
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+      runtime,
+      gateway,
+      meter,
+      feeAssetId: 'USDT',
+      sql,
+      supportDesk,
+    });
     return { person: router.createCaller(callerFor(USER, PERSON)), other: router.createCaller(callerFor(OTHER, PERSON)) };
   }
   type Caller = ReturnType<typeof build>['person'];

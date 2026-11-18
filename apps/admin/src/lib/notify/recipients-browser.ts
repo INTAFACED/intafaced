@@ -1,10 +1,7 @@
 /** Browser hop for the recipient health panel. Same-origin BFF only; the CSRF nonce is fetched per release. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RecipientState, RecipientsView, ReleaseReply, RecipientRow } from './recipients-model';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchRecipients(state: RecipientState, signal?: AbortSignal): Promise<RecipientsView | null> {
   try {

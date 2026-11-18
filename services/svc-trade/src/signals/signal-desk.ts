@@ -21,6 +21,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
+import { SIGNAL_ALERT_ORDER_FIELDS, signalAlertOrderSchema } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { PlaceUserOrderIntent } from '@intafaced/venue-contracts';
 import type { Principal } from '@intafaced/auth';
@@ -32,6 +33,12 @@ const TOKEN_BYTES = 24;
 const LIST_MAX = 100;
 const MAX_AGE_LIMIT_SECONDS = 3600;
 const WEBHOOK_DAYS_LIMIT = 366;
+/** What a refused order field says, by the field the contract's schema refused first. */
+const ORDER_FIELD_REFUSAL: Record<(typeof SIGNAL_ALERT_ORDER_FIELDS)[number], string> = {
+  side: 'side is required: buy or sell',
+  amount: 'amount is required: a decimal quantity, as a string',
+  price: 'price is required: the worst price the order accepts, as a decimal string',
+};
 
 export class SignalError extends Error {
   constructor(
@@ -117,6 +124,15 @@ export function parseSignalWebhookDays(raw: string | undefined): number | null {
     throw new Error(`TRADE_SIGNAL_WEBHOOK_DAYS must be whole days, 1 to ${WEBHOOK_DAYS_LIMIT}, or blank`);
   }
   return n;
+}
+
+/** A schema-valid decimal the ledger's column still cannot hold (too large) is refused by its field, never a 500. */
+function scaledOrRefuse(text: string, field: 'amount' | 'price'): Amount {
+  try {
+    return parseAmount(text);
+  } catch {
+    throw new SignalError(ORDER_FIELD_REFUSAL[field], 'trade.signal_format_invalid', 400, field);
+  }
 }
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -331,31 +347,17 @@ export class SignalDesk {
     if (hook.state === 'paused') throw new SignalError('This webhook is paused', 'trade.signal_paused', 409);
     if (hook.state === 'ended') throw new SignalError('This webhook has ended', 'trade.signal_webhook_ended', 410);
 
-    const side = body.side;
-    if (side !== 'buy' && side !== 'sell')
-      throw new SignalError('side is required: buy or sell', 'trade.signal_format_invalid', 400, 'side');
-    // Money arrives as decimal strings only: a JSON number may already have lost digits before it reaches us.
-    const amountText = typeof body.amount === 'string' ? body.amount.trim() : '';
-    let qty: Amount;
-    try {
-      qty = parseAmount(amountText);
-    } catch {
-      throw new SignalError('amount is required: a decimal quantity, as a string', 'trade.signal_format_invalid', 400, 'amount');
+    // The order fields parse through the contract's schema: money is a decimal string only, never a JSON number.
+    const parsed = signalAlertOrderSchema.safeParse(body);
+    if (!parsed.success) {
+      const bad = new Set(parsed.error.issues.map((issue) => issue.path[0]));
+      const field = SIGNAL_ALERT_ORDER_FIELDS.find((name) => bad.has(name)) ?? 'side';
+      throw new SignalError(ORDER_FIELD_REFUSAL[field], 'trade.signal_format_invalid', 400, field);
     }
+    const { side } = parsed.data;
+    const qty = scaledOrRefuse(parsed.data.amount, 'amount');
     if (qty <= 0n) throw new SignalError('amount must be above zero', 'trade.signal_format_invalid', 400, 'amount');
-    // A market order on the venue carries the worst price it accepts: the alert names it, as TradingView's {{close}} can.
-    const priceText = typeof body.price === 'string' ? body.price.trim() : '';
-    let price: Amount;
-    try {
-      price = parseAmount(priceText);
-    } catch {
-      throw new SignalError(
-        'price is required: the worst price the order accepts, as a decimal string',
-        'trade.signal_format_invalid',
-        400,
-        'price',
-      );
-    }
+    const price = scaledOrRefuse(parsed.data.price, 'price');
     if (price <= 0n) throw new SignalError('price must be above zero', 'trade.signal_format_invalid', 400, 'price');
 
     const key = `signal.alert:${hook.id}:${alertId}:open`;

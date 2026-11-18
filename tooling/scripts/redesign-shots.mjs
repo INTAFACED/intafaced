@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { homedir } from 'node:os';
 import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { stackUrl } from './local-test-facts.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, '..', '..');
@@ -24,7 +25,7 @@ export const REPO_ROOT = resolve(HERE, '..', '..');
 // ---------------------------------------------------------------------------------------------
 export const MILESTONES = ['M1', 'M2', 'M3'];
 export const ALLOWED_HOST = '127.0.0.1';
-export const DEFAULT_BASE = 'http://127.0.0.1:3210';
+export const DEFAULT_BASE = stackUrl('customer');
 export const REQUEST_BUDGET_PER_MIN = 120;
 export const OURS_LABEL = 'INTAFACED (local test)';
 export const CAPTURE_DATE = '2026-10-13';
@@ -523,7 +524,7 @@ async function focusInfo(page, within) {
     const anchor = el.closest('a[href]');
     const outlineVisible =
       (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 && !/rgba\(\s*\d+,\s*\d+,\s*\d+,\s*0\s*\)/.test(cs.outlineColor)) ||
-      (cs.boxShadow !== 'none' && !/^rgba\(0, 0, 0, 0\)/.test(cs.boxShadow));
+      (cs.boxShadow !== 'none' && !cs.boxShadow.startsWith('rgba(0, 0, 0, 0)'));
     return {
       tag: el.tagName,
       role: el.getAttribute('role') ?? '',

@@ -91,7 +91,7 @@ describe('createTradeHttpMarkSource', () => {
         return new Response(JSON.stringify([{ id: MARKET_ID, symbol: SYMBOL }]), { status: 200 });
       }
       return new Response(JSON.stringify({ bid: null, ask: null, last: null }), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpMarkSource({
       baseUrl: 'http://trade.test',
@@ -111,7 +111,7 @@ describe('createTradeHttpMarkSource', () => {
         return new Response(JSON.stringify([{ id: MARKET_ID, symbol: SYMBOL }]), { status: 200 });
       }
       return new Response(JSON.stringify(null), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpMarkSource({
       baseUrl: 'http://trade.test',
@@ -138,7 +138,7 @@ describe('createTradeHttpMarkSource', () => {
         return new Response(JSON.stringify({ bid: '100', ask: '102', last: '101', timestamp: now.getTime() }), { status: 200 });
       }
       return new Response('nope', { status: 404 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpMarkSource({
       baseUrl: 'http://trade.test/',
@@ -165,7 +165,7 @@ describe('createTradeHttpMarkSource', () => {
         return new Response(JSON.stringify([{ id: MARKET_ID, symbol: SYMBOL }]), { status: 200 });
       }
       return new Response(JSON.stringify({ bid: '200', ask: '200', last: '200', timestamp: now.getTime() - 301_000 }), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpMarkSource({
       baseUrl: 'http://trade.test',
@@ -203,7 +203,7 @@ describe('createTradeHttpMarkSource', () => {
         return new Response(JSON.stringify([{ id: MARKET_ID, symbol: SYMBOL }]), { status: 200 });
       }
       return new Response(JSON.stringify({ bid: '200', ask: '200', last: '200' }), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const store = new MemoryAlertStore();
     const notifyStore = new MemoryNotifyStore();
@@ -241,7 +241,7 @@ describe('createTradeHttpMarkSource', () => {
   it('refuses when markets list is down — does not invent a symbol', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('ECONNREFUSED');
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpMarkSource({
       baseUrl: 'http://trade.test',
@@ -258,7 +258,7 @@ describe('createTradeHttpMarkSource', () => {
   it('omit marketsLimit refuses notify.markets_list_limit_unset — never invent 50 or fetch', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('must not fetch');
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpMarkSource({ baseUrl: 'http://trade.test', fetchImpl });
     const q = await marks.quote(MARKET_ID);
@@ -274,7 +274,7 @@ describe('createTradeHttpMarkSource', () => {
     const fetchImpl = vi.fn(async (url: string) => {
       expect(String(url)).toBe('http://trade.test/api/v1/markets?limit=500');
       return new Response(JSON.stringify([]), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const marks = createTradeHttpMarkSource({
       baseUrl: 'http://trade.test',
@@ -287,7 +287,7 @@ describe('createTradeHttpMarkSource', () => {
   });
 
   it('markets HTTP 400 stays failure — never invents a mark', async () => {
-    const fetchImpl = vi.fn(async () => new Response('limit required', { status: 400 })) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(async () => new Response('limit required', { status: 400 })) as typeof fetch;
     const marks = createTradeHttpMarkSource({
       baseUrl: 'http://trade.test',
       fetchImpl,

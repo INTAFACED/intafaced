@@ -15,6 +15,7 @@
  * - While the market is halted, not open or unreadable, every order control on the chart is disabled and names why.
  */
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { chartValue } from '../../../shared/chart-value';
 import { createPortal } from 'react-dom';
 import { useDataEnv } from '../../../data/hooks';
 import { fmtAmount, fmtPrice } from '../../../data/format';
@@ -30,6 +31,7 @@ import type { ChartHost } from '../chart-host';
 import { chartsCopy } from '../copy';
 import { OWNER_VALUE_UNSET } from '../owner-values';
 import { onTick, protectionCheck, samePrice, snapToTick } from './chart-orders';
+import './chart-trading.css';
 
 type Side = 'buy' | 'sell';
 type Note = { tone: 'good' | 'bad'; text: string; code?: string };
@@ -57,14 +59,14 @@ export interface ChartTradingProps {
 /** A pointer that moves less than this many pixels between down and up is a click on the line, not a drag. */
 const DRAG_MIN_PX = 4;
 
-const isLineOrder = (order: Order, symbol: string) =>
+const isLineOrder = (order: Order, symbol: string): order is Order & { price: string } =>
   order.symbol === symbol && order.type === 'limit' && order.price !== null && order.price !== undefined;
 
 /**
  * Where the price pane sits in the chart, from the host's top: the panes above it (a study moved up) and their separators.
  * The library measures a pane's coordinates from that pane's own top, and the overlay is laid over the whole host.
  */
-export function pricePane(host: ChartHost): { index: number; top: number; height: number } {
+export function pricePane(host: Pick<ChartHost, 'chart' | 'main'>): { index: number; top: number; height: number } {
   const index = host.main.getPane().paneIndex();
   const panes = host.chart.panes();
   let top = 0;
@@ -108,7 +110,10 @@ export function ChartTrading({
   const signedIn = userId !== null;
 
   const lineOrders = useMemo(
-    () => (openOrders.status === 'ready' ? openOrders.data.filter((order) => isLineOrder(order, market.symbol)) : []),
+    () =>
+      openOrders.status === 'ready'
+        ? openOrders.data.filter((order): order is Order & { price: string } => isLineOrder(order, market.symbol))
+        : [],
     [openOrders, market.symbol],
   );
   // An order's hold moves the balance too: every private list is read again, not only the open orders.
@@ -173,7 +178,7 @@ export function ChartTrading({
     if (projected)
       lines.push(
         host.main.createPriceLine({
-          price: Number(projected),
+          price: chartValue(projected),
           color: colour(side),
           lineWidth: 1,
           lineStyle: 2,
@@ -184,7 +189,7 @@ export function ChartTrading({
     for (const order of lineOrders)
       lines.push(
         host.main.createPriceLine({
-          price: Number(order.price),
+          price: chartValue(order.price),
           color: colour(order.side),
           lineWidth: 2,
           lineStyle: 0,
@@ -193,14 +198,14 @@ export function ChartTrading({
         }),
       );
     // The price scale takes in every line, so an order far from the bars is still on the chart to read and to drag.
-    const prices = [projected, ...lineOrders.map((order) => order.price)].filter((p): p is string => !!p).map(Number);
+    const prices = [projected, ...lineOrders.map((order) => order.price)].filter((p): p is string => !!p).map((p) => chartValue(p));
     if (prices.length > 0)
       host.main.applyOptions({
         autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
           const base = original();
           const low = Math.min(...prices, base?.priceRange.minValue ?? Infinity);
           const high = Math.max(...prices, base?.priceRange.maxValue ?? -Infinity);
-          return { ...(base ?? {}), priceRange: { minValue: low, maxValue: high } };
+          return { ...base, priceRange: { minValue: low, maxValue: high } };
         },
       });
     return () => {
@@ -405,7 +410,7 @@ export function ChartTrading({
   const stage = host?.element.parentElement ?? null;
   const paneTop = host ? pricePane(host).top : 0;
   const yOf = (value: string | null | undefined) => {
-    const y = host && value ? host.main.priceToCoordinate(Number(value)) : null;
+    const y = host && value ? host.main.priceToCoordinate(chartValue(value)) : null;
     return y === null ? null : paneTop + y;
   };
   const projectedY = yOf(projected);

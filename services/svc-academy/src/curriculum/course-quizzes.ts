@@ -18,10 +18,11 @@
  * filter: a caller address the service cannot read refuses `academy.ip_unreadable`, one outside the list
  * `academy.ip_not_allowed`. Every save, publish, take-down and essay score is an event row with who. No money moves here.
  */
+import type { Queryable } from '@intafaced/db';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { BlockList, isIP } from 'node:net';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import type {
   AcademyAdminCourseQuiz,
   AcademyCourseQuizAnswer,
@@ -41,8 +42,6 @@ import type {
 import { AcademyError } from '../errors.js';
 import { answerFits, scoreAttempt, scoreQuestion } from './course-quiz-score.js';
 import { assertItemOpen } from './course-release.js';
-
-type Db = Sql | TransactionSql;
 
 type QuizRow = {
   item_id: string;
@@ -88,13 +87,13 @@ type AttemptRow = {
   passed: boolean | null;
 };
 
-const columns = (sql: Db) => sql`
+const columns = (sql: Queryable) => sql`
   i.id AS item_id, i.course_id, i.title, i.kind, q.kind AS quiz_kind, q.anonymous, q.results_visibility, q.revision, q.state,
   q.questions, q.pass_mark, q.attempt_limit, q.scoring_policy, q.time_limit_seconds, q.review_mode, q.access_code_hash, q.ip_allow,
   q.saved_by, q.saved_at, q.published_at
 `;
 
-const ATTEMPT = (sql: Db) => sql`
+const ATTEMPT = (sql: Queryable) => sql`
   id, item_id, user_id, number, started_at, deadline_at, quiz, answers, finished_at, state, auto_score, max_score, essay_points,
   score, passed
 `;
@@ -145,7 +144,7 @@ function reviewOf(row: AttemptRow) {
 
 /** One row of a quiz's own history: a save, publish, take-down, essay score or key fix, with who and why. */
 export async function recordQuizEvent(
-  sql: Db,
+  sql: Queryable,
   itemId: string,
   revision: number,
   kind: string,
@@ -553,12 +552,12 @@ export class CourseQuizzes {
   }
 
   /** One learner's attempts on one quiz are taken in turn. */
-  private async hold(tx: Db, userId: string, itemId: string) {
+  private async hold(tx: Queryable, userId: string, itemId: string) {
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${userId}:course-quiz:${itemId}`}, 0))`;
   }
 
   /** The caller's own attempt; another learner's id is not found, the same as one that does not exist. */
-  private async ownAttempt(tx: Db, attemptId: string, userId: string): Promise<AttemptRow> {
+  private async ownAttempt(tx: Queryable, attemptId: string, userId: string): Promise<AttemptRow> {
     const [row] = await tx<AttemptRow[]>`
       SELECT ${ATTEMPT(tx)} FROM academy.course_quiz_attempts WHERE id = ${attemptId} AND user_id = ${userId}
     `;
@@ -566,7 +565,7 @@ export class CourseQuizzes {
     return row;
   }
 
-  private async ownOpen(tx: Db, attemptId: string, userId: string, now: Date): Promise<AttemptRow> {
+  private async ownOpen(tx: Queryable, attemptId: string, userId: string, now: Date): Promise<AttemptRow> {
     const row = await this.ownAttempt(tx, attemptId, userId);
     await this.hold(tx, userId, row.item_id);
     const open = await this.settleOpen(tx, userId, row.item_id, now);
@@ -575,7 +574,7 @@ export class CourseQuizzes {
   }
 
   /** The open attempt, unless its deadline has passed: then it is finished with the answers saved by the deadline. */
-  private async settleOpen(tx: Db, userId: string, itemId: string, now: Date): Promise<AttemptRow | null> {
+  private async settleOpen(tx: Queryable, userId: string, itemId: string, now: Date): Promise<AttemptRow | null> {
     const [open] = await tx<AttemptRow[]>`
       SELECT ${ATTEMPT(tx)} FROM academy.course_quiz_attempts WHERE item_id = ${itemId} AND user_id = ${userId} AND state = 'open'
     `;
@@ -588,7 +587,7 @@ export class CourseQuizzes {
   }
 
   /** Score the saved answers against the attempt's own copy; an essay leaves it pending review. */
-  private async finishRow(tx: Db, row: AttemptRow, at: Date): Promise<AttemptRow> {
+  private async finishRow(tx: Queryable, row: AttemptRow, at: Date): Promise<AttemptRow> {
     const scored = scoreAttempt(row.quiz.questions, row.answers);
     const finishedAt = row.deadline_at && at.getTime() > row.deadline_at.getTime() ? row.deadline_at : at;
     const graded = !scored.essays;
@@ -604,7 +603,7 @@ export class CourseQuizzes {
   }
 
   /** An attempt as its learner sees it: the score only as the quiz's results visibility allows. */
-  private async attemptIn(tx: Db, row: AttemptRow, now: Date): Promise<AcademyCourseQuizAttempt> {
+  private async attemptIn(tx: Queryable, row: AttemptRow, now: Date): Promise<AcademyCourseQuizAttempt> {
     const secondsLeft =
       row.state === 'open' && row.deadline_at ? Math.max(0, Math.ceil((row.deadline_at.getTime() - now.getTime()) / 1000)) : null;
     const base = {
@@ -654,7 +653,7 @@ export class CourseQuizzes {
   }
 
   /** Whether the quiz's results visibility, as it is now, lets this learner see a graded score, and its review mode. */
-  private async resultsShow(tx: Db, row: AttemptRow): Promise<{ show: boolean; reviewMode: AcademyQuizReviewMode }> {
+  private async resultsShow(tx: Queryable, row: AttemptRow): Promise<{ show: boolean; reviewMode: AcademyQuizReviewMode }> {
     const [quiz] = await tx<
       Array<{ visibility: AcademyResultsVisibility; limit: number | null; finished: number; review_mode: AcademyQuizReviewMode }>
     >`
@@ -668,7 +667,7 @@ export class CourseQuizzes {
     return { show, reviewMode: quiz.review_mode };
   }
 
-  private async learnerRow(sql: Db, itemId: string, userId: string, lock = false, now = new Date()): Promise<LearnerRow> {
+  private async learnerRow(sql: Queryable, itemId: string, userId: string, lock = false, now = new Date()): Promise<LearnerRow> {
     const [row] = await sql<LearnerRow[]>`
       SELECT ${columns(sql)}, c.slug AS course_slug, c.title AS course_title, c.state AS course_state,
         EXISTS (SELECT 1 FROM academy.course_enrolments e
@@ -688,7 +687,7 @@ export class CourseQuizzes {
     return row;
   }
 
-  private async row(sql: Db, itemId: string, lock = false): Promise<QuizRow> {
+  private async row(sql: Queryable, itemId: string, lock = false): Promise<QuizRow> {
     const [row] = await sql<QuizRow[]>`
       SELECT ${columns(sql)}
       FROM academy.course_items i LEFT JOIN academy.course_quizzes q ON q.item_id = i.id
@@ -701,7 +700,7 @@ export class CourseQuizzes {
   }
 
   /** Attempts and survey responses on the quiz: once there is one, its questions stay as they are. */
-  private async taken(sql: Db, itemId: string): Promise<number> {
+  private async taken(sql: Queryable, itemId: string): Promise<number> {
     const [counted] = await sql<Array<{ n: number }>>`
       SELECT (SELECT count(*) FROM academy.course_quiz_attempts WHERE item_id = ${itemId})::int
            + (SELECT count(*) FROM academy.course_survey_responses WHERE item_id = ${itemId})::int AS n
@@ -709,11 +708,11 @@ export class CourseQuizzes {
     return counted!.n;
   }
 
-  private async event(sql: Db, itemId: string, revision: number, kind: string, reason: string | null, actorId: string, at: Date) {
+  private async event(sql: Queryable, itemId: string, revision: number, kind: string, reason: string | null, actorId: string, at: Date) {
     await recordQuizEvent(sql, itemId, revision, kind, reason, actorId, at);
   }
 
-  private async adminIn(sql: Db, row: QuizRow): Promise<AcademyAdminCourseQuiz> {
+  private async adminIn(sql: Queryable, row: QuizRow): Promise<AcademyAdminCourseQuiz> {
     const questions = questionsOf(row);
     const kind = row.quiz_kind ?? 'quiz';
     const quiz = {

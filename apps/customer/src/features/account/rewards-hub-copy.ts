@@ -24,6 +24,9 @@ const en = {
   status_closed: 'Closed',
   why_held: 'Waiting for the campaign’s review hold to end: {left} left, until {when}.',
   why_held_ended: 'The review hold ended on {when}; it is being released for payment.',
+  why_review: 'On hold for a risk review ({reason}): nothing is paid until a person decides.',
+  why_reclaiming: 'Being cancelled after a risk review ({reason}): it will not be paid.',
+  why_cancelled: 'Cancelled after a risk review ({reason}): it will not be paid. You may appeal the decision.',
   why_withheld: 'Withheld while your account is not active ({reason}). When it is active again, claim again on the campaign page.',
   more: 'The newest {count} rewards are listed; the totals count every reward.',
   why_qualified: 'Qualified and waiting to be paid.',
@@ -53,7 +56,19 @@ const en = {
   total_owed: 'Owed by INTAFACED, not in your wallet',
   status_owed: 'Owed',
   why_owed:
-    'Owed to you by INTAFACED since {when}. It is not in your wallet and is not part of any balance: INTAFACED has no way to pay rewards to wallets today, so it has not been paid.',
+    'Owed to you by INTAFACED since {when}. It is not in your wallet and is not part of any balance: it has not been paid to your wallet.',
+  why_owed_frozen:
+    'Owed to you by INTAFACED. Payments are paused on the platform, so nothing was sent; it is paid once to your connected wallet after they resume.',
+  why_owed_wallet_short:
+    'Owed to you by INTAFACED. INTAFACED’s rewards wallet cannot cover it at the moment, so nothing was sent; it is paid once to your connected wallet when it can.',
+  why_owed_no_wallet:
+    'Owed to you by INTAFACED. Connect a wallet to your account and open this page again: it is paid to that wallet. Nothing was sent.',
+  why_owed_stuck:
+    'Owed to you by INTAFACED. Its payment to your wallet did not go through ({reason}) and is being looked at; it is never paid twice. It is not in your wallet.',
+  total_paid: 'Paid to your wallet',
+  status_paid: 'Paid',
+  why_paid: 'Paid to your connected wallet {wallet} on {when}.',
+  chainTxLink: 'Chain transaction {tx}',
   why_owed_withheld: 'Owed to you by INTAFACED, and not paid while your account is not active ({reason}). It is not in your wallet.',
   why_owed_held:
     'Owed to you by INTAFACED. The campaign’s review hold ends in {left}, on {when}; it is paid to your connected wallet after that. It is not in your wallet now.',
@@ -89,6 +104,9 @@ const es: { [K in keyof typeof en]: string } = {
   status_closed: 'Cerrada',
   why_held: 'A la espera de que termine la retención de revisión de la campaña: quedan {left}, hasta el {when}.',
   why_held_ended: 'La retención de revisión terminó el {when}; se está liberando para el pago.',
+  why_review: 'En espera de una revisión de riesgo ({reason}): no se paga nada hasta que una persona decida.',
+  why_reclaiming: 'Cancelándose tras una revisión de riesgo ({reason}): no se pagará.',
+  why_cancelled: 'Cancelada tras una revisión de riesgo ({reason}): no se pagará. Puedes apelar la decisión.',
   why_withheld: 'Retenida mientras tu cuenta no está activa ({reason}). Reclama de nuevo en la página de la campaña cuando esté activa.',
   more: 'Se muestran las {count} recompensas más recientes; los totales cuentan todas.',
   why_qualified: 'Cumple y está pendiente de pago.',
@@ -118,7 +136,19 @@ const es: { [K in keyof typeof en]: string } = {
   total_owed: 'Adeudado por INTAFACED, no está en tu monedero',
   status_owed: 'Adeudada',
   why_owed:
-    'INTAFACED te la adeuda desde el {when}. No está en tu monedero ni forma parte de ningún saldo: INTAFACED no tiene hoy forma de pagar recompensas a monederos, así que no se ha pagado.',
+    'INTAFACED te la adeuda desde el {when}. No está en tu monedero ni forma parte de ningún saldo: aún no se ha pagado a tu monedero.',
+  why_owed_frozen:
+    'INTAFACED te la adeuda. Los pagos están en pausa en la plataforma, así que no se envió nada; se paga una vez a tu monedero conectado cuando se reanuden.',
+  why_owed_wallet_short:
+    'INTAFACED te la adeuda. El monedero de recompensas de INTAFACED no puede cubrirla ahora, así que no se envió nada; se paga una vez a tu monedero conectado cuando pueda.',
+  why_owed_no_wallet:
+    'INTAFACED te la adeuda. Conecta un monedero a tu cuenta y vuelve a abrir esta página: se paga a ese monedero. No se envió nada.',
+  why_owed_stuck:
+    'INTAFACED te la adeuda. Su pago a tu monedero no se completó ({reason}) y se está revisando; nunca se paga dos veces. No está en tu monedero.',
+  total_paid: 'Pagado a tu monedero',
+  status_paid: 'Pagada',
+  why_paid: 'Pagada a tu monedero conectado {wallet} el {when}.',
+  chainTxLink: 'Transacción en cadena {tx}',
   why_owed_withheld: 'INTAFACED te la adeuda, y no se paga mientras tu cuenta no esté activa ({reason}). No está en tu monedero.',
   why_owed_held:
     'INTAFACED te la adeuda. La retención de revisión de la campaña termina en {left}, el {when}; después se paga a tu monedero conectado. Ahora no está en tu monedero.',
@@ -154,6 +184,9 @@ const fr: { [K in keyof typeof en]: string } = {
   status_closed: 'Close',
   why_held: 'En attente de la fin de la retenue de vérification de la campagne : encore {left}, jusqu’au {when}.',
   why_held_ended: 'La retenue de vérification a pris fin le {when} ; elle est en cours de libération pour le paiement.',
+  why_review: 'En attente d’un examen des risques ({reason}) : rien n’est versé avant la décision d’une personne.',
+  why_reclaiming: 'En cours d’annulation après un examen des risques ({reason}) : elle ne sera pas versée.',
+  why_cancelled: 'Annulée après un examen des risques ({reason}) : elle ne sera pas versée. Vous pouvez faire appel de la décision.',
   why_withheld:
     'Retenue tant que votre compte n’est pas actif ({reason}). Réclamez à nouveau sur la page de la campagne une fois qu’il est actif.',
   more: 'Les {count} récompenses les plus récentes sont listées ; les totaux comptent toutes les récompenses.',
@@ -185,7 +218,19 @@ const fr: { [K in keyof typeof en]: string } = {
   total_owed: 'Dû par INTAFACED, pas dans votre portefeuille',
   status_owed: 'Due',
   why_owed:
-    'INTAFACED vous la doit depuis le {when}. Elle n’est ni dans votre portefeuille ni dans aucun solde : INTAFACED n’a aujourd’hui aucun moyen de verser des récompenses aux portefeuilles, elle n’a donc pas été versée.',
+    'INTAFACED vous la doit depuis le {when}. Elle n’est ni dans votre portefeuille ni dans aucun solde : elle n’a pas été versée à votre portefeuille.',
+  why_owed_frozen:
+    'INTAFACED vous la doit. Les paiements sont suspendus sur la plateforme, rien n’a donc été envoyé. Elle est versée à votre portefeuille connecté dès leur reprise, jamais deux fois.',
+  why_owed_wallet_short:
+    'INTAFACED vous la doit. Le portefeuille de récompenses d’INTAFACED ne peut pas la couvrir pour le moment, rien n’a donc été envoyé. Elle est versée à votre portefeuille connecté dès qu’il le peut, jamais deux fois.',
+  why_owed_no_wallet:
+    'INTAFACED vous la doit. Connectez un portefeuille à votre compte et rouvrez cette page : elle est versée à ce portefeuille. Rien n’a été envoyé.',
+  why_owed_stuck:
+    'INTAFACED vous la doit. Son versement à votre portefeuille n’a pas abouti ({reason}) et est en cours d’examen ; elle n’est jamais versée deux fois. Elle n’est pas dans votre portefeuille.',
+  total_paid: 'Versé à votre portefeuille',
+  status_paid: 'Versée',
+  why_paid: 'Versée à votre portefeuille connecté {wallet} le {when}.',
+  chainTxLink: 'Transaction sur la chaîne {tx}',
   why_owed_withheld:
     'INTAFACED vous la doit, et elle n’est pas versée tant que votre compte n’est pas actif ({reason}). Elle n’est pas dans votre portefeuille.',
   why_owed_held:

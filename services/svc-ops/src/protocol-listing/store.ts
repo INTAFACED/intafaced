@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { ListingState, ProtocolOpsAction } from '@intafaced/contracts';
 
@@ -153,7 +154,7 @@ const toDecision = (row: DecisionRow): ListingDecision => ({
 
 /** Decisions live in `ops.protocol_listing_decisions` (append-only) and the current state in `ops.protocol_listing_overrides`. */
 export function createPgListingStore(sql: Sql): ListingStore {
-  const decisionByKey = async (q: Sql, idempotencyKey: string): Promise<ListingDecision | null> => {
+  const decisionByKey = async (q: Queryable, idempotencyKey: string): Promise<ListingDecision | null> => {
     const [row] = await q<
       DecisionRow[]
     >`SELECT idempotency_key,action,kind,target_id,outcome,note,reason_code,reason,approval_id,requester_id,approver_id,policy_version
@@ -175,8 +176,7 @@ export function createPgListingStore(sql: Sql): ListingStore {
       return rows.map(toRow);
     },
     async record(draft, at) {
-      return sql.begin(async (tx) => {
-        const q = tx as unknown as Sql;
+      return sql.begin(async (q) => {
         // One writer per target at a time, so the no-op check and the write see the same state.
         await q`SELECT pg_advisory_xact_lock(hashtext(${`ops.protocol_listing:${draft.kind}:${draft.targetId}`}))`;
         const prior = await decisionByKey(q, draft.idempotencyKey);

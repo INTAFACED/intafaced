@@ -12,6 +12,8 @@ export const copyDeskSchema = z.object({
   jurisdictionPublished: z.boolean(),
   leaderShareBps: z.string().nullable(),
   autoMirrorPlace: z.object({ published: z.boolean() }).optional(),
+  /** The owner's minimum investment per follow; null when unpublished (every follow refuses). */
+  minInvestment: z.string().nullable().optional(),
 });
 export type CopyDesk = z.infer<typeof copyDeskSchema>;
 
@@ -29,6 +31,59 @@ export const signalWebhookSchema = z.object({
   token: z.string().nullable().optional(),
 });
 export type SignalWebhook = z.infer<typeof signalWebhookSchema>;
+/** A published signal (svc-market `signals.*`, J-copy-bots-otc-22): free or a monthly fee, never a profit share. */
+export const providerSignalSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  assetId: z.string(),
+  recommendedAmount: decimalSchema.nullable(),
+  feeModel: z.enum(['free', 'monthly']),
+  price: decimalSchema.nullable(),
+  periodSeconds: z.number().int().nullable(),
+  /** A monthly fee signal's Market listing, where a buyer pays one period. Null on a free signal. */
+  listingId: z.string().nullable(),
+  state: z.enum(['pending', 'published', 'archived']),
+  createdAt: z.string(),
+  archivedAt: z.string().nullable(),
+});
+export type ProviderSignal = z.infer<typeof providerSignalSchema>;
+/** The provider's one vetting against the platform's criteria, and what it saw. */
+export const signalVettingSchema = z.object({
+  minTier: z.string(),
+  minFills: z.number().int(),
+  tierSeen: z.string(),
+  fillsSeen: z.number().int(),
+  firstFillAt: z.string().nullable(),
+  passedAt: z.string(),
+});
+export type SignalVetting = z.infer<typeof signalVettingSchema>;
+export const signalCriteriaSchema = z.object({ set: z.boolean(), minTier: z.string().nullable(), minFills: z.number().int().nullable() });
+export const signalPublishSchema = z.object({ signal: providerSignalSchema, vetting: signalVettingSchema, replayed: z.boolean() });
+export const mySignalsSchema = z.object({ signals: z.array(providerSignalSchema), vetting: signalVettingSchema.nullable() });
+export const signalEarningsSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  settlement: z.literal('at_sale'),
+  assets: z.array(
+    z.object({ assetId: z.string(), gross: decimalSchema, commission: decimalSchema, net: decimalSchema, sales: z.number().int() }),
+  ),
+  profitShare: z.null(),
+});
+export type SignalEarnings = z.infer<typeof signalEarningsSchema>;
+export type SignalPublishRequest = {
+  publishKey: string;
+  title: string;
+  description: string;
+  assetId: string;
+  recommendedAmount: string | null;
+  feeModel: 'free' | 'monthly' | 'profit_share' | 'recurring';
+  price: string | null;
+  periodSeconds: number | null;
+};
+/** Signals a list read asks for at a time; the service refuses a read without a limit and lists at most 50. */
+export const SIGNAL_PAGE = 50;
+
 /** The scopes the platform has paused now (svc-trade `copy.platformPauses`, CB-ops-03). */
 export const platformPausesSchema = z.object({
   leads: z.array(z.string()),
@@ -139,6 +194,26 @@ export const copyPositionSchema = z.object({
   price: decimalSchema,
   status: z.string(),
   placedAt: z.string(),
+  /** On a follow that copies on the venue: who placed it, and its fills with their fees, as the venue reports them. */
+  venue: z
+    .object({
+      venueName: z.string(),
+      test: z.boolean(),
+      asOf: z.string(),
+      placedBy: z.string(),
+      fills: z.array(
+        z.object({
+          fillId: z.string(),
+          amount: decimalSchema,
+          price: decimalSchema,
+          venueFee: decimalSchema,
+          builderFee: decimalSchema,
+          feeAsset: z.string(),
+          filledAt: z.string(),
+        }),
+      ),
+    })
+    .optional(),
 });
 export type CopyPosition = z.infer<typeof copyPositionSchema>;
 
@@ -316,9 +391,17 @@ export type FollowRequest = {
   maxLoss?: string;
   /** Quote amount each copied order uses. Left out means no fixed size. */
   fixedOrderSize?: string;
+  /** How each copy is sized. Locked once the follow is made. */
+  sizingMode?: 'fixed_amount' | 'smart_sync';
   expiresAt: string;
   /** This Start copying request's own key: pressing again returns the same follow. */
   clientRequestId: string;
+};
+export type AmendFollowRequest = {
+  followId: string;
+  sizingMode?: 'fixed_amount' | 'smart_sync' | 'multiplier';
+  maxPerMarket?: string;
+  maxPerDay?: string;
 };
 export type TwapRequest = {
   symbol: string;
@@ -331,6 +414,13 @@ export type TwapRequest = {
   kind: 'twap' | 'vwap' | 'pov';
   participationBps?: number;
 };
+
+/** copy.checkVenueFollow (svc-trade copy-service.ts): a venue follow checked with nothing written, or the follow its key made. */
+export const venueFollowCheckSchema = z.union([
+  z.object({ followId: z.string(), follow: copyFollowSchema }),
+  z.object({ followId: z.string(), follow: z.null(), quoteAsset: z.string(), maxAggregateExposure: decimalSchema }),
+]);
+export type VenueFollowCheck = z.infer<typeof venueFollowCheckSchema>;
 
 export function createRoomApi(api: ApiClient) {
   const tools = createToolApi(api);
@@ -360,7 +450,13 @@ export function createRoomApi(api: ApiClient) {
       }),
     follows: tools.copyFollows,
     follow: (input: FollowRequest) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
+    /** Start copying on the venue, checked: every gate and term, with nothing written (J-copy-bots-otc-01 #5 #7). */
+    checkVenueFollow: (input: FollowRequest) => api.mutate('trade', 'copy.checkVenueFollow', input, venueFollowCheckSchema),
+    /** A follow that copies onto one of the person's own open agent accounts (svc-trade venue-copy.ts). */
+    venueFollow: (input: FollowRequest & { agentAccountId: string }) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
     followAction: tools.copyAction,
+    /** Edit limits: the sizing mode is locked (a change is refused), a blank cap clears it. */
+    amendFollow: (input: AmendFollowRequest) => api.mutate('trade', 'copy.amendFollow', input, copyFollowSchema),
     /** Lets the service place each copy as this person. The one-time key it answers with is never kept. */
     grantCopying: (followId: string) => api.mutate('trade', 'copy.grantSessionKey', { followId }, copyFollowSchema),
     stopCopying: (followId: string) => api.mutate('trade', 'copy.killSessionKey', { followId }, copyFollowSchema),
@@ -388,6 +484,14 @@ export function createRoomApi(api: ApiClient) {
     webhooks: (signal?: AbortSignal) => api.query('trade', 'signals.webhooks.list', undefined, z.array(signalWebhookSchema), { signal }),
     createWebhook: (input: { symbol: string; venueOwner: string; clientRequestId: string }) =>
       api.mutate('trade', 'signals.webhooks.create', input, signalWebhookSchema),
+    signalCriteria: (signal?: AbortSignal) => api.query('market', 'signals.criteria', undefined, signalCriteriaSchema, { signal }),
+    publishSignal: (input: SignalPublishRequest) => api.mutate('market', 'signals.publish', input, signalPublishSchema),
+    archiveSignal: (signalId: string) => api.mutate('market', 'signals.archive', { signalId }, providerSignalSchema),
+    mySignals: (signal?: AbortSignal) => api.query('market', 'signals.mine', { limit: SIGNAL_PAGE }, mySignalsSchema, { signal }),
+    signalList: (signal?: AbortSignal) =>
+      api.query('market', 'signals.list', { limit: SIGNAL_PAGE }, z.array(providerSignalSchema), { signal }),
+    signalEarnings: (window: { from: string; to: string }, signal?: AbortSignal) =>
+      api.query('market', 'signals.earnings', window, signalEarningsSchema, { signal }),
     leadEarnings: (signal?: AbortSignal) =>
       api.query('trade', 'copy.leadEarnings', { limit: LEAD_EARNINGS_PAGE }, leadEarningsSchema, { signal }),
     leadLevel: (signal?: AbortSignal) => api.query('trade', 'copy.leadLevel', undefined, leadLevelSchema, { signal }),

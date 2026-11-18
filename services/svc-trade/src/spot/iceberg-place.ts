@@ -22,17 +22,6 @@ function wantsIceberg(rec: Record<string, unknown>): boolean {
   return rec.iceberg === true || rec.displayQty !== undefined;
 }
 
-function readDisplay(raw: unknown): Amount | null {
-  if (raw == null) return null;
-  if (typeof raw === 'string' && raw.trim() === '') return null;
-  try {
-    const qty = typeof raw === 'string' || typeof raw === 'number' ? parseAmount(String(raw)) : (raw as Amount);
-    return qty;
-  } catch {
-    return null;
-  }
-}
-
 export function icebergDisplayRefuse(qty: Amount, displayQty: Amount | null): TradeError | null {
   if (displayQty === null || displayQty <= (0n as Amount)) {
     return new TradeError('iceberg requires a display qty; trade does not invent a display', 'trade.iceberg_display_missing');

@@ -12,6 +12,7 @@
  * the higher of it and the person's snapshot tier while it lasts. It moves no money and no ledger write is imported.
  * The same approval sent again answers what it decided; an approval consumed for another application refuses.
  */
+import type { Queryable } from '@intafaced/db';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { requireScope, type Principal } from '@intafaced/auth';
@@ -237,8 +238,7 @@ export class VipReviewAdmin {
     });
     this.twoPeople(principal, consumed.approverId);
     const status: VipApplicationStatus = input.decision === 'reject' ? 'rejected' : trial ? 'approved' : 'approved_no_trial';
-    const write = this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    const write = this.deps.sql.begin(async (q) => {
       if (trial) await this.lockPerson(q, current.user_id);
       const [locked] = await q<Array<{ status: VipApplicationStatus }>>`
         SELECT status FROM trade.vip_applications WHERE id = ${input.applicationId} FOR UPDATE`;
@@ -306,8 +306,7 @@ export class VipReviewAdmin {
       operationId: input.operationId,
     });
     this.twoPeople(principal, consumed.approverId);
-    const write = this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    const write = this.deps.sql.begin(async (q) => {
       await this.lockPerson(q, current.user_id);
       const [locked] = await q<Array<{ status: VipApplicationStatus }>>`
         SELECT status FROM trade.vip_applications WHERE id = ${input.applicationId} FOR UPDATE`;
@@ -388,12 +387,12 @@ export class VipReviewAdmin {
   }
 
   /** One trial decision per person at a time, so two applications cannot each grant a trial in force. */
-  private async lockPerson(q: Sql, userId: string): Promise<void> {
+  private async lockPerson(q: Queryable, userId: string): Promise<void> {
     await q`SELECT pg_advisory_xact_lock(hashtextextended(${`trade.vip_trial:${userId}`}, 0))`;
   }
 
   /** A person with a trial in force is granted no second one: a new trial waits until it ends, and a fresh review. */
-  private async noTrialInForce(q: Sql, userId: string, at: Date): Promise<void> {
+  private async noTrialInForce(q: Queryable, userId: string, at: Date): Promise<void> {
     const [active] = await q<Array<{ ends_at: Date }>>`
       SELECT ends_at FROM trade.vip_trials WHERE user_id = ${userId} AND starts_at <= ${at.toISOString()} AND ends_at > ${at.toISOString()}
        ORDER BY ends_at DESC LIMIT 1`;
@@ -403,7 +402,7 @@ export class VipReviewAdmin {
   }
 
   private async insertTrial(
-    q: Sql,
+    q: Queryable,
     userId: string,
     applicationId: string,
     trial: VipTrialRules,

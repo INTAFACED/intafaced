@@ -215,7 +215,7 @@ describe('protocol.amm.allowances', () => {
   });
 
   it('refuses an owner that is not an address', async () => {
-    const deps = { ...base, ammFactoryAddress: () => PAIRS.factory, chain: {} } as unknown as ProtocolRouterDeps;
+    const deps = { ...base, ammFactoryAddress: () => PAIRS.factory, chain: {} } as ProtocolRouterDeps;
     await expect(createProtocolRouter(deps).createCaller(anonymous()).amm.allowances({ owner: 'alice' })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });

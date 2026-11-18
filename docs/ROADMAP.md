@@ -4,7 +4,7 @@ What gets built until INTAFACED is finished, in what order, and what waits on wh
 
 ## Finished
 
-Finished is the Operation Zero definition: every build row of all 21 modules complete on labelled TEST data, every enabled control gives a success, a typed refusal, or the allowlisted notice naming an outside service, the cross-module journeys pass, and it is proven in the real app. Getting there has three stages:
+Finished, done, built and proven are defined once, in [`../GLOSSARY.md`](../GLOSSARY.md). Getting there has three stages:
 
 1. **Push (now).** Build every slice. Proof per slice: its tests, the journey it serves, and screenshots.
 2. **Polish (part of finishing, after the push).** Review against the reference apps with a rubric, scripted persona tasks per module, nightly re-runs, dependency upgrades, leftover review findings.
@@ -50,18 +50,18 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ### Journey map
 
-Done is defined by 452 journeys (3007 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 73 steps still need a capability no slice covers yet.
+The journeys are 451 (3005 steps) in `modules/<module>/acceptance/journeys.md`; when one is done is in [`../GLOSSARY.md`](../GLOSSARY.md). Order 1 is a module's first usable journey, and lane queues take its slices first. 70 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
 | merchant       | 35       | 0       | 24      | 11      | 200   | 5                   |
 | bank           | 31       | 5       | 17      | 9       | 190   | 10                  |
-| copy-bots-otc  | 30       | 0       | 18      | 12      | 207   | 3                   |
+| copy-bots-otc  | 30       | 0       | 18      | 12      | 210   | 5                   |
 | dex-protocol   | 30       | 0       | 19      | 11      | 251   | 0                   |
 | derivatives    | 28       | 15      | 5       | 8       | 205   | 2                   |
-| wallet         | 23       | 4       | 12      | 7       | 125   | 13                  |
 | identity       | 22       | 8       | 9       | 5       | 138   | 5                   |
-| support-public | 22       | 1       | 15      | 6       | 171   | 14                  |
+| support-public | 22       | 1       | 15      | 6       | 172   | 14                  |
+| wallet         | 22       | 4       | 11      | 7       | 120   | 8                   |
 | agents         | 21       | 4       | 9       | 8       | 138   | 3                   |
 | p2p            | 21       | 1       | 16      | 4       | 117   | 1                   |
 | pay            | 21       | 0       | 14      | 7       | 123   | 1                   |
@@ -74,7 +74,7 @@ Done is defined by 452 journeys (3007 steps) in `modules/<module>/acceptance/jou
 | academy        | 16       | 0       | 11      | 5       | 97    | 0                   |
 | algo-dev       | 16       | 0       | 9       | 7       | 105   | 0                   |
 | home-ia        | 11       | 3       | 7       | 1       | 61    | 3                   |
-| more-catalogue | 11       | 0       | 8       | 3       | 69    | 1                   |
+| more-catalogue | 11       | 0       | 8       | 3       | 68    | 1                   |
 
 ### Parked
 

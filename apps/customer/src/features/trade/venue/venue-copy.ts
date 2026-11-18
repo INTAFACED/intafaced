@@ -60,6 +60,8 @@ export const venueCopy = defineCopy('trade.venue', {
   'Fee asset': 'Fee asset',
   'Realised result': 'Realised result',
   Cancel: 'Cancel',
+  Edit: 'Edit',
+  'Edit order': 'Edit order {id}',
   'Cancel again': 'Cancel again',
   'No open orders': 'No open orders on the venue.',
   'No fills': 'No fills on the venue.',
@@ -85,6 +87,13 @@ export const venueCopy = defineCopy('trade.venue', {
   tif_GTC: 'Good till cancelled',
   tif_IOC: 'Immediate or cancel',
   tif_ALO: 'Post only',
+  tif_FOK: 'Fill or kill',
+  tif_GTD: 'Good till date',
+  stp_cancel_resting: 'Cancel my resting order',
+  stp_cancel_new: 'Cancel the new order',
+  stp_cancel_both: 'Cancel both',
+  'Not published': 'not published by this venue',
+  Tag: 'Tag',
 
   // Review and signing
   Review: 'Review',
@@ -121,8 +130,10 @@ export const venueCopy = defineCopy('trade.venue', {
   'Read back missing': 'Read back from the venue: not found so far. Still checking; nothing is sent again.',
   'Outcome waiting':
     'Waiting for the other prompt: this action is already open for signing in another tab or window. Press again to sign it here instead.',
+  'Fill zero fee': 'Zero fee',
+  'Fill venue rebate': 'Venue rebate {amount}',
   'Builder fee owner blank':
-    'Not set: our builder fee is an owner value that is blank, so the venue refuses every order until it is published.',
+    'Builder fee not set: our builder fee is an owner value that is blank, so no order is prepared or signed until it is published.',
   'Not a step': '{field} must be a multiple of {step}.',
   'Enter amount': 'Enter an amount.',
   'Enter price': 'Enter a price.',

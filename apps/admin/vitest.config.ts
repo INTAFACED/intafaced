@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';
 
 /**
  * THE OPERATOR CONSOLE'S TESTS.
@@ -41,6 +42,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    ...TEST_BUDGET,
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     environment: 'node',
   },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client/money';
+import { formatAmount } from '@intafaced/ledger-client/money';
 import { CaptureLog } from '@intafaced/connect-data-lake';
 import {
   applyDelta,

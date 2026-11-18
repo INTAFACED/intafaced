@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { checkAccess, checkCitizenship, hasSubdivisionRows, isSubdivisionCode, regionCodeChain } from '@intafaced/config';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { flowSubjectHash, type PasswordResetMail } from './password-reset.js';
 import { sealBirthDate } from '../kyc/birth-date.js';
@@ -227,6 +227,16 @@ function secondsUntil(at: Date, now: Date): number {
   return Math.max(1, Math.ceil((at.getTime() - now.getTime()) / 1000));
 }
 
+/**
+ * True while the owner's blocked-countries list is not set (no list, or a placeholder read under fail-closed): the same
+ * answer sign-up's country check gets (`identity.screening_unset`), so sign-in refuses exactly when sign-up does
+ * (J-identity-22 #1). The screening refusal comes before any region rule in `checkAccess`, so the region asked is moot.
+ */
+export function countryListUnset(): boolean {
+  const { code } = checkAccess({ module: 'identity', region: 'DE', plane: 'fiat', kycTier: 'none' });
+  return code === 'denied.screening_unconfigured' || code === 'denied.screening_fixture';
+}
+
 /** Age, then country and nationality. Throws the first refusal; nothing has been written yet. Exported for its unit test. */
 export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCountries'>, input: SignUpStart, now: Date): string {
   const minAge = intIn(deps.minAgeYears, 1, MAX_MIN_AGE);
@@ -247,7 +257,7 @@ export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCou
   if (nationalityRaw && !nationality) throw new SignUpError('Choose your nationality from the list.', 'identity.country_invalid');
 
   const paused = (code: string): boolean => code === 'denied.screening_unconfigured' || code === 'denied.screening_fixture';
-  const pausedError = () => new SignUpError('Sign-up is paused: the sanctions screening list is not set.', 'identity.screening_unset');
+  const pausedError = () => new SignUpError('Sign-up is paused: the blocked-countries list is not set.', 'identity.screening_unset');
   const blocked = () => new SignUpError('We cannot open accounts for this country right now.', 'identity.region_blocked');
   const closedSet = new Set((deps.closedCountries ?? []).map((c) => c.trim().toUpperCase()));
   // The owner's sign-up off switch names countries; it covers every subdivision in them.
@@ -393,7 +403,7 @@ type OpenSignUp = {
 };
 
 /** One sign-up flow and its draft. `lock` holds the flow row until the caller's transaction ends. */
-async function readFlow(sql: Sql, flowId: string, lock = false): Promise<OpenSignUp | undefined> {
+async function readFlow(sql: Queryable, flowId: string, lock = false): Promise<OpenSignUp | undefined> {
   if (!/^[0-9a-f-]{36}$/i.test(flowId)) return undefined;
   const rows = lock
     ? await sql<OpenSignUp[]>`
@@ -478,7 +488,7 @@ export async function resendSignUp(deps: SignUpDeps, input: { flowId: string }):
 export async function confirmSignUp(
   deps: SignUpDeps,
   input: { flowId: string; code: string },
-  create: (tx: Sql, draft: SignUpDraft) => Promise<string>,
+  create: (tx: Queryable, draft: SignUpDraft) => Promise<string>,
 ): Promise<{ userId: string; draft: SignUpDraft }> {
   const budget = requireBudget(deps);
   const now = deps.now();

@@ -100,4 +100,17 @@ describe('lifecycle store on Postgres (AL-lifecycle-01)', () => {
     expect(stored.decisions.map((d) => d.decision)).toEqual(['rejected']);
     expect(stored.stages).toEqual([]);
   });
+
+  it('reads every decision on the audit, newest first, each approval with its one stage row (J-algo-dev-13 #3)', async () => {
+    const audit = await repo.audit(10);
+    expect(audit.total).toBe(2);
+    expect(audit.rows.map((row) => [row.strategyId, row.decision.decision, row.stage?.to ?? null])).toEqual(
+      expect.arrayContaining([
+        ['str_1', 'approved', 'candidate'],
+        ['str_2', 'rejected', null],
+      ]),
+    );
+    expect(audit.rows.every((row) => row.actor === ACCOUNT)).toBe(true);
+    expect((await repo.audit(1)).rows).toHaveLength(1);
+  });
 });

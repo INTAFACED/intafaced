@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import { LOCAL_TEST_MARKER_PREFIX, hasLocalTestMarker, isExplicitDevOrTest } from '@intafaced/config';
 import type { Sql } from 'postgres';
@@ -699,7 +700,7 @@ export class AppendOnlyMarketLifecycleLog {
 /** Durable append-only adapter used by the service process when SQL is available. */
 export class SqlMarketLifecycleEvidenceStore {
   constructor(
-    private readonly sql: Sql,
+    private readonly sql: Queryable,
     private readonly options: { readonly env?: LifecycleEnv } = {},
   ) {}
 

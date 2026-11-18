@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { contractEscrowOffer, contractTermsFor, type ContractEscrowSetting } from './contract-escrow.js';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { enabledFiat } from '@intafaced/config';
@@ -125,6 +126,8 @@ export type P2pRouterOptions = {
   releaseStepUp?: ReleaseStepUp;
   /** P-ads-merchant-18: the person's fresh confirmation of a payment-method change. Unset refuses every change. */
   instrumentStepUp?: InstrumentStepUp;
+  /** RC-p2p-02: the contract escrow's owner values and svc-protocol reader. Unset: every contract order refuses by name. */
+  contractEscrow?: ContractEscrowSetting;
 };
 
 /**
@@ -304,6 +307,24 @@ const tradeOutput = z.object({
   escrowedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
+  /** RC-p2p-02: who holds the coins: the ledger, or the escrow contract (no ledger entry at all). Fixed at take. */
+  escrowKind: z.enum(['ledger', 'contract']),
+  /**
+   * The contract deal's terms (fixed at take) and, once the seller attached it, the deal. Null on a ledger order.
+   * Amounts are the token's base units.
+   */
+  contract: z
+    .object({
+      chainId: z.number().int().positive(),
+      token: z.string(),
+      units: z.string().regex(/^[1-9][0-9]*$/),
+      buyerWallet: z.string(),
+      disputeWindowSeconds: z.number().int().positive(),
+      timeout: z.literal('refund_seller'),
+      dealId: z.string().nullable(),
+      sellerWallet: z.string().nullable(),
+    })
+    .nullable(),
 });
 /**
  * P-trade-orders-15: how many reminders the buyer sent, when the last went, and when the next may go (null when none can:
@@ -716,6 +737,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.method_not_rail_validated':
       // P-trade-orders-19: the seller's cancellation request waits for the founders' decision.
       case 'p2p.owner_decision_pending':
+      // #4689: identity could not say whether the ad's maker may trade; nothing was reserved, and a retry may pass.
+      case 'p2p.counterparty_unverifiable':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
       // P-ads-merchant-07: a private ad without a link to it reads as not there to everyone but its maker.
@@ -758,6 +781,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.offer_has_open_trades':
       // P-ads-merchant-08: the ad's maker is away; it takes orders again in their hours (the error data says when).
       case 'p2p.maker_offline':
+      // #4689: the ad's maker may not trade (frozen, closed or unknown); nothing was reserved.
+      case 'p2p.counterparty_unavailable':
       // P-ads-merchant-07: a share link that ended or was withdrawn; the person asks the maker for a new one.
       case 'p2p.share_link_expired':
       case 'p2p.share_link_revoked':
@@ -850,6 +875,14 @@ export function toTrpcError(err: unknown): TRPCError {
         // than deleted so a future caller that raises it does not fall through
         // to INTERNAL_SERVER_ERROR.
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+      // RC-p2p-02: the contract escrow is not offered here (blocker named), a ledger path was asked of a contract order,
+      // or a deal does not match its order.
+      case 'p2p.contract_escrow_unavailable':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'p2p.escrow_contract_held':
+      case 'p2p.escrow_deal_mismatch':
+      case 'p2p.escrow_kind_immutable':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.escrow_missing':
         // Not a client error: the caller asked for something reasonable and the
         // trade was not in a state that could honour it.
@@ -1034,6 +1067,7 @@ export function createP2pRouter(
   const takeStepUp = options.takeStepUp ?? unwiredTakeStepUp();
   const releaseStepUp = options.releaseStepUp ?? unwiredReleaseStepUp();
   const instrumentStepUp = options.instrumentStepUp ?? unwiredInstrumentStepUp();
+  const contractEscrow: ContractEscrowSetting = options.contractEscrow ?? { tokens: null, disputeWindowSeconds: null, reader: null };
   const stepUpCaller = (principal: Principal): TakeStepUpCaller => ({
     userId: principal.userId,
     sessionId: principal.sid,
@@ -1802,6 +1836,15 @@ export function createP2pRouter(
             stepUpApprovalId: z.string().min(1).max(128).optional(),
             /** P-ads-merchant-07: the share link the taker came by; required for a private ad, and marks the order shared. */
             shareToken: shareTokenInput.optional(),
+            /**
+             * RC-p2p-02: who holds the coins. `ledger` (the default) as before; `contract`, chosen by the buyer of a sell
+             * ad, opens a SovereignEscrow deal paying `buyerWallet`, the buyer's own wallet.
+             */
+            escrowKind: z.enum(['ledger', 'contract']).default('ledger'),
+            buyerWallet: z
+              .string()
+              .regex(/^0x[0-9a-fA-F]{40}$/)
+              .optional(),
           }),
         )
         .output(tradeOutput)
@@ -1809,6 +1852,20 @@ export function createP2pRouter(
           guard(async () => {
             // Before anything is reserved or locked: the same checks the eligibility panel shows.
             await takeGate.assertCanTake(ctx);
+            // RC-p2p-02: a contract order is offered only when its chain, contract, token and window are all there.
+            let contract:
+              { chainId: number; token: string; decimals: number; buyerWallet: string; disputeWindowSeconds: number } | undefined;
+            if (input.escrowKind === 'contract') {
+              if (!input.buyerWallet) {
+                throw new P2pError(
+                  'A contract escrow pays your own wallet: connect it and send its address',
+                  'p2p.contract_escrow_unavailable',
+                );
+              }
+              const offer = await p2p.getOffer(input.offerId, ctx.principal.userId, input.shareToken);
+              const terms = await contractTermsFor(contractEscrow, ctx, offer.asset);
+              contract = { ...terms, buyerWallet: input.buyerWallet };
+            }
             // Then the fresh confirmation, over the strings this take carries.
             await takeStepUp.assertConfirmed(
               stepUpCaller(ctx.principal),
@@ -1831,8 +1888,70 @@ export function createP2pRouter(
                 ...(input.quoteId ? { quoteId: input.quoteId } : {}),
                 ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
                 ...(input.shareToken ? { shareToken: input.shareToken } : {}),
+                ...(contract ? { contract } : {}),
               }),
             );
+          }),
+        ),
+
+      /**
+       * RC-p2p-02: the contract escrow as a person choosing it sees it for one asset: offered, or not with the blocker
+       * named (owner value blank, contract not deployed, svc-protocol unreachable); the testnet's plain label; and
+       * mainnet, always off in this build (`audit.external`). Reads only.
+       */
+      contractEscrow: merchantApiProcedure('p2p:read')
+        .input(z.object({ asset: z.string().min(1).max(32) }))
+        .output(
+          z.object({
+            available: z.boolean(),
+            blocker: z.string().nullable(),
+            reason: z.string().nullable(),
+            network: z.object({ chainId: z.number().int().positive(), label: z.string(), escrow: z.string() }).nullable(),
+            token: z.object({ address: z.string(), decimals: z.number().int() }).nullable(),
+            disputeWindowSeconds: z.number().int().positive().nullable(),
+            timeout: z.literal('refund_seller'),
+            mainnet: z.object({ available: z.literal(false), blocker: z.literal('audit.external') }),
+            audited: z.literal(false),
+          }),
+        )
+        .query(async ({ ctx, input }) => guard(async () => contractEscrowOffer(contractEscrow, ctx, input.asset))),
+
+      /**
+       * RC-p2p-02: the seller attaches the deal they opened and funded from their own wallet. The deal is read from the
+       * chain through svc-protocol, never taken from the caller, and must match the order exactly and be locked; the
+       * order is then escrowed. The same deal again returns the order. No ledger call.
+       */
+      attachContractDeal: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().guid(), dealId: z.string().regex(/^[1-9][0-9]{0,77}$/) }))
+        .output(tradeOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const current = await p2p.getTrade(input.tradeId);
+            if (current.buyerId !== ctx.principal.userId && current.sellerId !== ctx.principal.userId) throw unknownTrade(input.tradeId);
+            if (!contractEscrow.reader)
+              throw new P2pError('svc-protocol is not connected (PROTOCOL_URL is unset)', 'p2p.contract_escrow_unavailable');
+            const deal = await contractEscrow.reader.deal(ctx, input.dealId);
+            return toTradeOut(await p2p.attachContractDeal({ tradeId: input.tradeId, actorId: ctx.principal.userId, deal }));
+          }),
+        ),
+
+      /**
+       * RC-p2p-02: either party brings a contract order to its deal's chain state (released, refunded, disputed). Read
+       * from the chain through svc-protocol; the same state twice changes the order once. No ledger call.
+       */
+      syncContractDeal: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().guid() }))
+        .output(tradeOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const current = await p2p.getTrade(input.tradeId);
+            if (current.buyerId !== ctx.principal.userId && current.sellerId !== ctx.principal.userId) throw unknownTrade(input.tradeId);
+            const dealId = current.contract?.dealId;
+            if (!dealId) throw new P2pError('This order is not held by a contract deal yet', 'p2p.escrow_deal_mismatch');
+            if (!contractEscrow.reader)
+              throw new P2pError('svc-protocol is not connected (PROTOCOL_URL is unset)', 'p2p.contract_escrow_unavailable');
+            const deal = await contractEscrow.reader.deal(ctx, dealId);
+            return toTradeOut(await p2p.syncContractDeal({ tradeId: input.tradeId, actorId: ctx.principal.userId, deal }));
           }),
         ),
 
@@ -2038,7 +2157,9 @@ export function createP2pRouter(
               ...releaseSplit(trade),
               settlement: trade.settlement,
               releasePreview: releasePreview(trade),
-              escrowHeld: escrowHeld(trade),
+              // RC-p2p-02: what the ledger holds for the order. A contract order: nothing, ever; the deal's own holding is
+              // read from the chain (svc-protocol `escrow.deal`).
+              escrowHeld: trade.escrowKind === 'contract' ? '0' : escrowHeld(trade),
               ...(await Promise.all([p2p.reminderState(trade), p2p.mismatchReport(trade.id)]).then(([reminders, mismatch]) => ({
                 reminders: toReminderOut(reminders),
                 mismatch: mismatch ? toMismatchOut(mismatch) : null,
@@ -4372,5 +4493,7 @@ function toTradeOut(trade: Awaited<ReturnType<P2pService['getTrade']>>): TradeOu
     escrowedAt: trade.escrowedAt?.toISOString() ?? null,
     resolvedAt: trade.resolvedAt?.toISOString() ?? null,
     settledAt: trade.settledAt?.toISOString() ?? null,
+    escrowKind: trade.escrowKind ?? 'ledger',
+    contract: trade.contract ? { ...trade.contract, timeout: 'refund_seller' } : null,
   };
 }

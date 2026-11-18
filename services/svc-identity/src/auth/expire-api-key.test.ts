@@ -11,7 +11,7 @@ function fakeSql(...answers: unknown[][]) {
     texts.push(strings.join('?'));
     return answers.shift() ?? [];
   };
-  return { sql: fn as unknown as Parameters<typeof expireApiKey>[0]['sql'], texts };
+  return { sql: fn as Parameters<typeof expireApiKey>[0]['sql'], texts };
 }
 
 /** A gate that refuses without a proof and runs the change with one, as the live gate does. */

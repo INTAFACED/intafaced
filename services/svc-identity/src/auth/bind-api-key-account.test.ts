@@ -72,7 +72,7 @@ describe('assertPortfolioKeyRoom (the bind door keeps the sub-account key cap)',
     const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
       seen.push(values);
       return [{ n: 0 }];
-    }) as unknown as Parameters<typeof bindApiKeyAccount>[0];
+    }) as Parameters<typeof bindApiKeyAccount>[0];
     await assertPortfolioKeyRoom(sql, USER, ACC, 2, KEY);
     expect(seen[0]).toEqual([USER, ACC, KEY]);
   });

@@ -441,10 +441,6 @@
     font-size: var(--if-text-base);
     font-weight: 500;
   }
-  .tb-restoring {
-    display: inline-block;
-    min-width: 140px;
-  }
   .tb-note {
     margin: 0;
     padding: var(--if-space-3) var(--if-space-6);

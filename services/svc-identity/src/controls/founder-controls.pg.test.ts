@@ -19,6 +19,7 @@ import {
   syncNavigatorSessionsClosedForUser,
 } from '../agents/navigator-session-projection-sync.js';
 import { createNavigatorSessionStore } from '../agents/navigator-session-store.js';
+import { lockFounderControls } from './founder-control-lock.js';
 
 const url = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), '../../drizzle');
@@ -552,6 +553,38 @@ if (!available) {
       // a pair that was never bootstrapped is not configured
       const neverBooted = new FounderControls(db.sql, parseFounderPair(firstId, secondId));
       expect(await neverBooted.isLiveFounder(secondId)).toBe(false);
+    });
+
+    it("the founder's own status answers while a command holds the founder-controls lock and the founder's rows (#8299)", async () => {
+      const founder = first.principal!.userId;
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      let held!: () => void;
+      const holding = new Promise<void>((resolve) => (held = resolve));
+      // What a founder command or a sign-in holds while it works: the shared lock and the founder's session, user and
+      // entitlement rows.
+      const holder = db.sql.begin(async (tx) => {
+        await lockFounderControls(tx as unknown as typeof db.sql);
+        await tx`SELECT id FROM sessions WHERE user_id = ${founder} FOR UPDATE`;
+        await tx`SELECT id FROM users WHERE id = ${founder} FOR UPDATE`;
+        await tx`SELECT user_id FROM founder_operator_entitlements WHERE user_id = ${founder} FOR UPDATE`;
+        held();
+        await released;
+      });
+      await holding;
+      try {
+        const answer = await Promise.race([
+          controls.operatorStatus(first),
+          new Promise<'waited'>((resolve) => setTimeout(() => resolve('waited'), 2000)),
+        ]);
+        expect(answer).toMatchObject({ status: 'enabled', userId: founder });
+      } finally {
+        release();
+        await holder;
+      }
+      // Commands still take the lock: a revoke is seen by the next read.
+      await db.sql`UPDATE founder_operator_entitlements SET enabled = false WHERE user_id = ${founder}`;
+      expect(await controls.operatorStatus(first)).toMatchObject({ status: 'revoked' });
     });
 
     it('delegated and own-status reads require actual session MFA and matching signed principal', async () => {

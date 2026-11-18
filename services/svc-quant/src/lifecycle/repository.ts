@@ -1,4 +1,10 @@
-import type { QuantGateDecision, QuantOwnerCriterion, QuantPromoteOutput, QuantStageRow } from '@intafaced/contracts';
+import type {
+  QuantGateDecision,
+  QuantOwnerCriterion,
+  QuantPromoteOutput,
+  QuantPromotionAuditRow,
+  QuantStageRow,
+} from '@intafaced/contracts';
 
 /** One owner criterion as an operator stored it; null value is blank ("not set"). */
 export interface OwnerCriterionRow {
@@ -47,4 +53,6 @@ export interface LifecycleRepository {
   replay(accountId: string, key: string): Promise<RecordPromotion['response'] | null>;
   /** Stores the decision and its stage row. Returns null when that stage was already reached under another key. */
   record(input: RecordPromotion): Promise<RecordPromotion['response'] | null>;
+  /** Every stored decision across accounts, newest first, each with the stage row it wrote; at most `limit` rows. */
+  audit(limit: number): Promise<{ readonly rows: readonly QuantPromotionAuditRow[]; readonly total: number }>;
 }

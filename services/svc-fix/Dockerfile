@@ -17,6 +17,15 @@ RUN apt-get update \
     && tar -xzf /tmp/maven.tgz -C /opt/maven --strip-components=1 \
     && rm /tmp/maven.tgz
 
+# The OpenTelemetry Java agent (Apache-2.0), from Maven Central, checked against its published sha512.
+# It traces the gateway's calls to matching; OTEL_JAVAAGENT_ENABLED (compose sets it from OTEL_ENABLED) turns it off.
+ARG OTEL_JAVAAGENT_VERSION=2.33.1
+ARG OTEL_JAVAAGENT_SHA512=279caaa5c366344235e93c3c89c8b3957e1c79693a68db83ef3cb3a0c390ac9f89a064d10896ff245ad4bb1e95d799b40f6c61315b41f5b04dced304c0b6c6c8
+RUN mkdir -p /opt/otel \
+    && curl -fsSL -o /opt/otel/opentelemetry-javaagent.jar \
+      "https://repo.maven.apache.org/maven2/io/opentelemetry/javaagent/opentelemetry-javaagent/${OTEL_JAVAAGENT_VERSION}/opentelemetry-javaagent-${OTEL_JAVAAGENT_VERSION}.jar" \
+    && echo "${OTEL_JAVAAGENT_SHA512}  /opt/otel/opentelemetry-javaagent.jar" | sha512sum -c -
+
 ENV PATH=/opt/maven/bin:$PATH
 WORKDIR /src
 
@@ -30,6 +39,7 @@ FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 COPY --from=build /src/target/svc-fix-0.0.0.jar /app/svc-fix.jar
 COPY --from=build /src/PIN.quickfixj /app/PIN.quickfixj
+COPY --from=build /opt/otel/opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
 USER nobody
 # Compose may replace CMD. Main-Class is io.intafaced.fix.FixAcceptorMain.
-CMD ["java", "-cp", "/app/svc-fix.jar", "io.intafaced.fix.FixAcceptorMain"]
+CMD ["java", "-javaagent:/app/opentelemetry-javaagent.jar", "-cp", "/app/svc-fix.jar", "io.intafaced.fix.FixAcceptorMain"]

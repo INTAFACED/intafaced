@@ -20,7 +20,7 @@ function fakeApi(answers: Record<string, (input: unknown) => unknown>) {
       if (!answer) throw new Error(`unexpected ${procedure}`);
       return answer(input);
     },
-  } as unknown as ApiClient;
+  } as ApiClient;
   return { api: createAddressBookApi(client), sent };
 }
 /** The wallet provider's `sign`: in the app it shows the plain-words sheet, then asks the wallet. */

@@ -204,11 +204,15 @@ describe('personal send and request (Postgres)', () => {
     expect(await available(ADA)).toBe('80');
     expect(await available(BOB)).toBe('20');
 
-    const tx = await ledger.getTx(sent.ledgerTxId);
+    const txId = sent.ledgerTxId;
+    if (txId === null) throw new Error('a send on the custodial layer names its ledger transaction');
+    expect(sent.partnerMove).toBeNull();
+    const tx = await ledger.getTx(txId);
     const bob = await caller(BOB, ['bank:read', 'bank:write']);
-    const receipt = await bob.transfers.get({ ledgerTxId: sent.ledgerTxId });
+    const receipt = await bob.transfers.get({ ledgerTxId: txId });
     expect(receipt).toMatchObject({
-      ledgerTxId: sent.ledgerTxId,
+      ledgerTxId: txId,
+      partnerMove: null,
       transferId: 'send-note-1',
       createdAt: tx!.postedAt.toISOString(),
       fromHandle: 'ada',
@@ -231,7 +235,7 @@ describe('personal send and request (Postgres)', () => {
     expect(ledger.journal().filter((tx) => tx.reason === 'bank.transfer.manual')).toHaveLength(1);
 
     const stranger = await caller(CY, ['bank:read']);
-    await expect(stranger.transfers.get({ ledgerTxId: sent.ledgerTxId })).rejects.toMatchObject({
+    await expect(stranger.transfers.get({ ledgerTxId: txId })).rejects.toMatchObject({
       code: 'NOT_FOUND',
       message: expect.stringContaining('bank.personal_transfer_not_found'),
     });
@@ -250,6 +254,7 @@ describe('personal send and request (Postgres)', () => {
         amount: '12.5',
         assetId: 'USDT',
         ledgerTxId: sent.ledgerTxId,
+        partnerMoveId: null,
         postedAt: expect.any(String),
       },
     ]);

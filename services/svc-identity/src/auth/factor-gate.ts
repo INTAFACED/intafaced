@@ -28,7 +28,7 @@
  * the SAME transaction as the write, so two parallel first-factor enrolments
  * serialise: the second sees the first's factor and now needs MFA.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { TRPCError } from '@intafaced/contracts';
 import { userCopy } from '../user-copy.js';
 import { AuthError } from './auth-service.js';
@@ -85,7 +85,7 @@ function refuseDelegated(actor: FactorActor): void {
  * lock the caller's write then relies on; `sql` MUST then be the writer's own
  * transaction, or the lock is released before the write.
  */
-export async function assertMayAddFactor(sql: Sql, userId: string, actor: FactorActor, lock: boolean): Promise<void> {
+export async function assertMayAddFactor(sql: Queryable, userId: string, actor: FactorActor, lock: boolean): Promise<void> {
   const rows = lock
     ? await sql<
         Array<{ totp_secret: string | null; webauthn_creds: unknown }>

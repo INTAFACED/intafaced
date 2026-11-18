@@ -14,7 +14,7 @@ function fetcherOf(reply: () => Response | Promise<Response>) {
   const fetcher = (async (url: string | URL) => {
     calls.push(String(url));
     return reply();
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   return { calls, fetcher };
 }
 

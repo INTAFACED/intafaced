@@ -49,6 +49,15 @@ import {
   ownAgentUsageDaySchema,
   ownAgentUsageWindowSchema,
   ownAgentAcceptSchema,
+  ownAgentKeepTranscriptsSchema,
+  ownAgentMemoryClearSchema,
+  ownAgentMemorySchema,
+  ownAgentMemorySetEnabledSchema,
+  ownAgentPrivacySchema,
+  ownAgentShareCheckInputSchema,
+  ownAgentShareCheckSchema,
+  ownAgentShareSchema,
+  ownAgentShareSetSchema,
   ownAgentAssistantSchema,
   ownAgentReviewCheckSchema,
   ownAgentReviewerSchema,
@@ -88,8 +97,11 @@ import {
   type OwnTemplate,
 } from './catalog.js';
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
+import type { Cadence } from './automation.js';
+import { ownAutomationRouter } from './automation-routes.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
 import { OwnPaymentMethodStore, type LinkedWalletsPort } from './payment-method.js';
+import { OwnMemoryStore, type RetentionPeriods } from './memory.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
 import { checkCoOwner, checkSurfaces, OwnPublishingStore, type OwnAccountDirectory } from './publishing.js';
 import { checkEvalRequest, OwnEvalStore } from './evaluations.js';
@@ -105,6 +117,7 @@ import {
   type PolicyBaseline,
 } from './guardrails.js';
 import { assertOwnerActive, OwnIdentityStore, tokenLifetime } from './identity.js';
+import { assertNotSelfFrozen, type OwnSelfFreezeRead } from './self-freeze.js';
 import { draftTicketComment } from '../support-agent/comment-draft.js';
 import { assistantEngine, draftAgent, OwnerDecisionPending } from './assistant.js';
 import { OwnReviewerStore, reviewCall, reviewerEngine } from './reviewer.js';
@@ -293,8 +306,18 @@ export interface OwnToolDeps {
   readonly background?: BackgroundSettings | null;
   /** Identity's list of the person's linked wallets, for the agent's payment method (J-agents-02 #4); absent reads unread. */
   readonly linkedWallets?: LinkedWalletsPort | null;
+  /** The owner's cadence values for schedules (AG-sessions-02); blank refuses a new schedule agents.schedule_cadence_unset. */
+  readonly cadence?: Cadence | null;
+  /** The owner's retention periods in days (AG-guardrails-04); a kind left out reads "not set" and refuses a write needing it. */
+  readonly retention?: RetentionPeriods;
+  /**
+   * Identity's read of the owner's own freeze (J-wallet-13). Every agent action and every change that gives an agent
+   * more reads it first; absent or unreadable refuses agents.identity.owner_freeze_unread.
+   */
+  readonly selfFreeze?: OwnSelfFreezeRead | null;
 }
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
+const NO_CADENCE: Cadence = { minIntervalMinutes: null, dailyLimit: null };
 
 /** A whole number as the person typed it, or undefined so the door refuses it as unset rather than guessing one. */
 /** A tool's door answered with its own refusal reason; nothing was read. */
@@ -357,7 +380,7 @@ export function ownRouter(
     const draft = draftTicketComment({ ticketId: stored.input.ticketId, body: stored.input.body });
     if (draft.status === 'refuse') throw new TRPCError({ code: 'BAD_REQUEST', message: `agents.tool_refused.${draft.reason}` });
     // Fails closed: the owner's account must read active from identity before anything is approved or run.
-    await guard(() => assertOwnerActive(owner, tooling.accounts ?? null), approvalRefused);
+    await guard(() => assertOwnerActive(owner, tooling.accounts ?? null, tooling.selfFreeze), approvalRefused);
     const { agent, session } = await ownedOwnSession(sql, runtime, owner, stored.agentId, stored.sessionId);
     // The call's gates as they stand now: a consent withdrawn, a tool taken off the agent, a baseline left blank or
     // a rule that now hands the step off refuses, as the same call made now would be refused.
@@ -406,6 +429,12 @@ export function ownRouter(
   }
 
   return router({
+    /** The agent's schedules and event triggers (AG-sessions-02): each occurrence or event is at most one metered run. */
+    ...ownAutomationRouter(sql, {
+      feeAssetId: run?.feeAssetId ?? null,
+      cadence: tooling.cadence ?? NO_CADENCE,
+      selfFreeze: tooling.selfFreeze ?? null,
+    }),
     /** The templates and the tools a draft may be given, with the ones that move money marked so they can be refused. */
     catalogue: scopedProcedure('agents:read', { module: 'agents' })
       .output(ownAgentCatalogueSchema)
@@ -628,10 +657,12 @@ export function ownRouter(
           assertPersonSetsLimits(ctx.principal);
           return guard(async () => {
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            // An allow gives the agent more, so it waits for the lift of the owner's own freeze; a deny only narrows.
+            if (input.effect === 'allow') await assertNotSelfFrozen(ctx.principal.userId, tooling.selfFreeze);
             const store = new OwnPolicyStore(sqlOf(sql));
             await store.add(ctx.principal.userId, agent.id, { effect: input.effect, action: input.action, scope: input.scope });
             return store.read(ctx.principal.userId, agent.id);
-          });
+          }, ownerForbidden);
         }),
       remove: scopedProcedure('agents:read', { module: 'agents', person: true })
         .input(idInput.extend({ ruleId: z.string().uuid() }))
@@ -652,10 +683,12 @@ export function ownRouter(
           assertPersonSetsLimits(ctx.principal);
           return guard(async () => {
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            // Turning required rules off gives the agent more; turning them on only narrows.
+            if (!input.rulesRequired) await assertNotSelfFrozen(ctx.principal.userId, tooling.selfFreeze);
             const store = new OwnPolicyStore(sqlOf(sql));
             await store.setRulesRequired(ctx.principal.userId, agent.id, input.rulesRequired);
             return store.read(ctx.principal.userId, agent.id);
-          });
+          }, ownerForbidden);
         }),
       /**
        * The gate an agent action passes first. A sub-account the person has not given the agent, or one whose access has
@@ -764,6 +797,7 @@ export function ownRouter(
           assertPersonSetsLimits(ctx.principal);
           return guard(async () => {
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            await assertNotSelfFrozen(ctx.principal.userId, tooling.selfFreeze);
             return new OwnAccessStore(sqlOf(sql)).grant(ctx.principal.userId, agent.id, {
               grantKey: input.grantKey,
               venueId: input.venueId,
@@ -771,7 +805,7 @@ export function ownRouter(
               subAccounts: input.subAccounts,
               endsIn: input.endsInDays,
             });
-          });
+          }, ownerForbidden);
         }),
     }),
 
@@ -797,8 +831,9 @@ export function ownRouter(
           assertPersonSetsLimits(ctx.principal);
           return guard(async () => {
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            await assertNotSelfFrozen(ctx.principal.userId, tooling.selfFreeze);
             return new OwnConsentStore(sqlOf(sql)).grant(ctx.principal.userId, agent.id, input.dataClass);
-          });
+          }, ownerForbidden);
         }),
       revoke: scopedProcedure('agents:read', { module: 'agents', person: true })
         .input(idInput.extend({ dataClass: z.enum(OWN_AGENT_DATA_CLASSES) }))
@@ -837,7 +872,14 @@ export function ownRouter(
           return guard(async () => {
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
             const lifetime = tokenLifetime(tooling.tokenLifetimeMinutes);
-            return new OwnIdentityStore(sqlOf(sql)).issue(ctx.principal.userId, agent.id, agent.tools, lifetime, tooling.accounts ?? null);
+            return new OwnIdentityStore(sqlOf(sql)).issue(
+              ctx.principal.userId,
+              agent.id,
+              agent.tools,
+              lifetime,
+              tooling.accounts ?? null,
+              tooling.selfFreeze,
+            );
           }, ownerForbidden);
         }),
       revoke: scopedProcedure('agents:read', { module: 'agents', person: true })
@@ -859,7 +901,7 @@ export function ownRouter(
         .output(ownAgentTokenCallerSchema)
         .mutation(async ({ input }) => {
           try {
-            return await new OwnIdentityStore(sqlOf(sql)).call(input.token, tooling.accounts ?? null);
+            return await new OwnIdentityStore(sqlOf(sql)).call(input.token, tooling.accounts ?? null, tooling.selfFreeze);
           } catch (err) {
             if (!(err instanceof OwnAgentRefusal)) throw err;
             throw new TRPCError({ code: ownerForbidden(err.code) ?? 'UNAUTHORIZED', message: err.code, cause: err });
@@ -1139,8 +1181,9 @@ export function ownRouter(
           }
           const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
           await assertOwnAgentOn(sqlOf(sql), agent.id);
+          await assertNotSelfFrozen(ctx.principal.userId, tooling.selfFreeze);
           return new BackgroundRunStore(sqlOf(sql)).start(ctx.principal.userId, agent.id, input.requestId, input.ask, steps);
-        });
+        }, ownerForbidden);
       }),
 
     /** The agent's background test runs, newest first, each with its state and the code that stopped it. */
@@ -1207,6 +1250,133 @@ export function ownRouter(
         });
       }),
 
+    /**
+     * What the agent remembers for the person (AG-builder-02; J-agents-09 #1-#4): whether memory is on, and each item with
+     * the run that remembered it, newest first. Only the agent's owner reads it, from their own signed-in session.
+     */
+    memory: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
+        .output(ownAgentMemorySchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnMemoryStore(sqlOf(sql)).get(ctx.principal.userId, agent.id, input.limit);
+          });
+        }),
+      /** Clears one item: only it goes; the run that remembered it keeps its log. Not the person's: not found. */
+      clear: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentMemoryClearSchema)
+        .output(ownAgentMemorySchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(
+            async () => {
+              const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+              const memory = new OwnMemoryStore(sqlOf(sql));
+              await memory.clear(ctx.principal.userId, agent.id, input.itemId);
+              return memory.get(ctx.principal.userId, agent.id, 200);
+            },
+            (code) => (code === 'agents.memory.not_found' ? 'NOT_FOUND' : null),
+          );
+        }),
+      /** Switches memory on or off for this agent; while off, a run writes nothing and says so. */
+      setEnabled: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentMemorySetEnabledSchema)
+        .output(ownAgentMemorySchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const memory = new OwnMemoryStore(sqlOf(sql));
+            await memory.setEnabled(ctx.principal.userId, agent.id, input.enabled);
+            return memory.get(ctx.principal.userId, agent.id, 200);
+          });
+        }),
+    }),
+
+    /**
+     * What is kept about the person's agent and for how long (AG-guardrails-04; J-agents-09 #5): each period is the
+     * owner's value or null ("not set"). Keeping transcripts needs the transcript period: blank refuses
+     * `agents.retention_unset` and stores nothing.
+     */
+    privacy: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentPrivacySchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnMemoryStore(sqlOf(sql)).privacy(ctx.principal.userId, agent.id, tooling.retention ?? {});
+          });
+        }),
+      keepTranscripts: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentKeepTranscriptsSchema)
+        .output(ownAgentPrivacySchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(
+            async () => {
+              const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+              const memory = new OwnMemoryStore(sqlOf(sql));
+              await memory.setKeepTranscripts(ctx.principal.userId, agent.id, input.keep, tooling.retention ?? {});
+              return memory.privacy(ctx.principal.userId, agent.id, tooling.retention ?? {});
+            },
+            (code) => (code === 'agents.retention_unset' ? 'PRECONDITION_FAILED' : null),
+          );
+        }),
+    }),
+
+    /**
+     * Sharing the agent with its co-owners (AG-guardrails-04; J-agents-09 #6). `check` lists the private context a share
+     * would make visible; `set` refuses `agents.privacy.confirm_required` until the person confirms that check, and
+     * stores nothing before then.
+     */
+    share: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentShareSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnMemoryStore(sqlOf(sql)).share(ctx.principal.userId, agent.id);
+          });
+        }),
+      check: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentShareCheckInputSchema)
+        .output(ownAgentShareCheckSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnMemoryStore(sqlOf(sql)).shareCheck(ctx.principal.userId, agent.id, {
+              transcripts: input.includeTranscripts,
+              memory: input.includeMemory,
+            });
+          });
+        }),
+      set: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(ownAgentShareSetSchema)
+        .output(ownAgentShareSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(
+            async () => {
+              const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+              return new OwnMemoryStore(sqlOf(sql)).setShare(ctx.principal.userId, agent.id, {
+                transcripts: input.includeTranscripts,
+                memory: input.includeMemory,
+                confirmed: input.confirmed,
+              });
+            },
+            (code) => (code === 'agents.privacy.confirm_required' ? 'PRECONDITION_FAILED' : null),
+          );
+        }),
+    }),
+
     /** The agent's test runs, newest first, apart from its live runs (`own.runs`). Each is labelled TEST and cost 0. */
     testRuns: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
@@ -1271,6 +1441,7 @@ export function ownRouter(
         .mutation(async ({ ctx, input }) => {
           const { runtime } = runDepsOf(run);
           const { agent, session } = await ownedOwnSession(sql, runtime, ctx.principal.userId, input.id, input.sessionId);
+          await guard(() => assertNotSelfFrozen(ctx.principal.userId, tooling.selfFreeze), ownerForbidden);
           const requests = new OwnApprovalRequestStore(sqlOf(sql));
           // A request id already held for the person is that request, whatever the rules say now: never a second call.
           const held = await guard(() => requests.find(ctx.principal.userId, session.id, input.requestId, input.tool, input.input));
@@ -1473,6 +1644,7 @@ export function ownRouter(
             const { runtime } = runDepsOf(run);
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
             await assertOwnAgentOn(sqlOf(sql), agent.id);
+            await assertNotSelfFrozen(ctx.principal.userId, tooling.selfFreeze);
             if (!(await readOwnCaps(sqlOf(sql), ctx.principal.userId, agent.id))) throw new OwnAgentRefusal('agents.spend.cap_unset');
             const session = await runtime.openOwnSession({ userId: ctx.principal.userId, guardrail: ownGuardrail(agent) });
             // The session keeps this version's instructions for its whole life (AG-builder-03); its tools and cap are in
@@ -1485,7 +1657,7 @@ export function ownRouter(
               agent.instructions,
             );
             return { sessionId: session.id, agentId: session.agentId, version: session.guardrailVersion };
-          }),
+          }, ownerForbidden),
         ),
 
       /**
@@ -1523,6 +1695,8 @@ export function ownRouter(
       .mutation(async ({ ctx, input }) => {
         const deps = runDepsOf(run);
         const { agent, session } = await ownedOwnSession(sql, deps.runtime, ctx.principal.userId, input.id, input.sessionId);
+        // While the owner's own freeze is on (or cannot be read) the agent does nothing for them (J-wallet-13 #2).
+        await guard(() => assertNotSelfFrozen(ctx.principal.userId, tooling.selfFreeze), ownerForbidden);
         // A session keeps the instructions it opened on (AG-builder-03), whatever was edited or published since. One
         // opened before sessions were pinned reads the agent as it stands.
         const pinned = await new OwnPublishingStore(sqlOf(sql)).sessionInstructions(ctx.principal.userId, session.id);

@@ -7,7 +7,7 @@ import { stamp } from '../../../../screens/money/time';
 import { useSession } from '../../../session/session';
 import { contactLabel, contactsFrom, readRequests, readSent, removeRequest, requestPath } from '../personal-model';
 import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefusal } from '../scan';
-import { decodedSegment, requestRoomHref, type PersonalRoomMatch } from './rooms';
+import { decodedSegment, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
 import { fetchHeldSend, type HeldSend } from '../../held-send';
 import { isServerRequestId } from '../requests';

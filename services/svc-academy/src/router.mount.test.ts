@@ -20,7 +20,7 @@ import { assertCallerCannotLiePaperFlag, memoryPaperFlagPort } from './paper/mar
 process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
 
 /**
- * THE MOUNT BOUNDARY for svc-academy (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY for svc-academy.
  *
  * Context comes from `createEdgeContext` over real headers — never a
  * hand-written principal. A seat belongs to the edge-signed caller and to
@@ -164,7 +164,7 @@ function stubAcademy(overrides: Partial<AcademyService> = {}): AcademyService {
       };
     }),
     ...overrides,
-  } as unknown as AcademyService;
+  } as AcademyService;
 }
 
 describe('svc-academy mount — the router is actually mounted', () => {
@@ -261,6 +261,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'programmes',
         'programme',
         'admin.revokeCert',
+        'admin.grantCertException',
         'certPaths',
         'admin.certIssueRule',
         'admin.setVideoTracks',
@@ -299,6 +300,10 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'authoredCourseEnrolment',
         'enrolAuthoredCourse',
         'leaveAuthoredCourse',
+        'coursePurchase',
+        'buyCourse',
+        'submitCoursePayment',
+        'abandonCoursePurchase',
         'assignment',
         'courseQuiz',
         'startCourseQuiz',
@@ -331,6 +336,8 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'admin.updateCourse',
         'admin.setCourseState',
         'admin.withdrawCoursePrice',
+        'admin.coursePurchase',
+        'admin.refundCoursePurchase',
         'admin.saveOutline',
         'admin.lesson',
         'admin.saveLesson',
@@ -890,7 +897,7 @@ describe('svc-academy mount — the paper drill gate is reachable, and refuses l
         simulated: true as const,
         venue: 'paper' as const,
         realMoney: true,
-      })) as unknown as AcademyService['paperOpsStatus'],
+      })) as AcademyService['paperOpsStatus'],
     });
     await expect(createAcademyRouter(academy).createCaller(signed()).paperOpsStatus()).rejects.toMatchObject({
       code: 'INTERNAL_SERVER_ERROR',

@@ -27,7 +27,6 @@ import type { AmendResult, EngineAmend, EngineOrder, Fill, MarketId, RejectReaso
 const FLAG = Symbol.for('intafaced.matching.spread-book');
 
 type BookSubmit = (this: OrderBook, order: EngineOrder, now?: Date | null) => SubmitResult;
-type BookAmend = (this: OrderBook, cmd: EngineAmend, now?: Date | null) => AmendResult;
 
 /** Book -> identity of the spread listing it trades. Set on the first accepted spread order. */
 const marked = new WeakMap<OrderBook, string>();
@@ -214,8 +213,8 @@ export function spreadFillKey(spreadId: MarketId, sequence: number): string {
 
 export function installSpreadBook(ctor: typeof OrderBook = OrderBook): void {
   const proto = ctor.prototype as unknown as {
-    submit: BookSubmit;
-    amend: BookAmend;
+    submit: OrderBook['submit'];
+    amend: OrderBook['amend'];
     [FLAG]?: boolean;
   };
   if (proto[FLAG]) return;

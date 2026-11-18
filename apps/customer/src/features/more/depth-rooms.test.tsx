@@ -30,7 +30,7 @@ vi.mock('../session/session', async (original) => {
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
   return {
     ...real,
-    useSession: () => ({ session: null }) as unknown as ReturnType<typeof real.useSession>,
+    useSession: () => ({ session: null }) as ReturnType<typeof real.useSession>,
     useApi: () => api as never,
   };
 });

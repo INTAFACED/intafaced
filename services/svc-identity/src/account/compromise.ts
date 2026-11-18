@@ -7,6 +7,7 @@
  * crash never leaves keys revoked with no freeze, or a freeze with no case. It is idempotent on the open case: while one
  * is open it returns that case and ends nothing more.
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import {
   COMPROMISE_CHECKLIST_ITEMS,
@@ -34,7 +35,7 @@ export type OpenedCase = { caseId: string; openedAt: Date; changed: boolean; ses
  * ends every session and API key and makes sure the owner's freeze is on, so a second press after an attacker signed
  * in again, or after the person lifted the freeze, secures the account again; it still returns the same case.
  */
-export async function openCompromiseCase(tx: Sql, userId: string): Promise<OpenedCase> {
+export async function openCompromiseCase(tx: Queryable, userId: string): Promise<OpenedCase> {
   await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
   // Counted here, before the freeze, so the case says what this press ended even when a freeze was already open.
   const sessions = await tx<Array<{ id: string }>>`

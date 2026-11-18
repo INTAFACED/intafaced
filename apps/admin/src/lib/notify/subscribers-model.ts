@@ -4,6 +4,7 @@
  * safeguards (owner values on the status page) and founder imports. Pure and browser safe.
  */
 import type { Part } from '@/lib/desk/part';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export const SUBSCRIBER_STATES = ['unconfirmed', 'active', 'unsubscribed'] as const;
 export type SubscriberState = (typeof SUBSCRIBER_STATES)[number];
@@ -88,7 +89,6 @@ export type SubscriberDeskReply =
       readonly changed: 'no' | 'unknown';
     };
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const isInt = (v: unknown): v is number => Number.isInteger(v);
 const STATUSES: readonly unknown[] = ['pending', 'accepted', 'failed', 'refused'];
 
