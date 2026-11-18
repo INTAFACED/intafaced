@@ -29,6 +29,13 @@
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
  *   POST /api/v1/venue/convert/sell-quote   { owner, symbol, amount, quoteKey }   the venue's price for a sell (J-cex-spot-17 #8)
+ *   GET  /api/v1/venue/convert/pairs                   what Convert may use now, each pair's limit, the restricted coins, paused
+ *   GET  /api/v1/venue/convert/route?from=&to=         the market joining two assets, or why none does (J-cex-spot-11 #11)
+ *   POST /api/v1/venue/convert/quote  { owner, from, to, amount, quoteKey }   a price that holds nothing (#3, #12)
+ *   POST /api/v1/venue/convert/accept { owner, quoteId }   the quote's one venue order, prepared for the wallet (#5, #13)
+ *   POST /api/v1/venue/convert/limit  { owner, from, to, amount, price, limitKey }   a resting venue order (#8)
+ *   POST /api/v1/venue/convert/submit { actionKey, signature }   sent, never on a price past its window (#4)
+ *   GET  /api/v1/venue/convert/history?owner=          accepted conversions as the venue records them (#10)
  *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
  *   POST /api/v1/venue/submit    { actionKey, signature }    sent on the venue the action was prepared for
  *   GET  /api/v1/venue/markets/:symbol/venues?owner=&side=   every configured venue for the market (J-derivatives-28 #1)
@@ -86,6 +93,7 @@ import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './u
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
 import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
+import { presentConversion, presentConvertQuote, presentPairs, type VenueConverts } from './venue-convert.js';
 import { StatementError } from '../statements/statement-export.js';
 import type { VenueStatements } from './venue-statements.js';
 import type { VenueAdlAcks } from './venue-adl-acks.js';
@@ -109,6 +117,8 @@ export interface UserVenueRestDeps {
   spreadLimitBps?: number | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
   sellQuotes?: VenueSellQuotes | null;
+  /** Convert on the customer's own venue account (J-cex-spot-11); absent, its routes refuse `trade.venue_convert_unwired`. */
+  converts?: VenueConverts | null;
   /**
    * True when `principal` is an API key connected to an agent account (J-agents-21 #9; agent-orders.ts `confined`). Such
    * a key trades its agent account through the assistant's own route and nothing else: every other venue route refuses it
@@ -889,6 +899,77 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         quoteKey: b.quoteKey ?? '',
       });
       return presentVenueSellQuote(quote);
+    });
+  });
+
+  // Convert on the customer's own venue account (src/venue/venue-convert.ts, J-cex-spot-11), on the primary venue.
+  const converts = (): VenueConverts => {
+    if (!deps.converts) throw new UserVenueDoorError('venue Convert is not wired on this deployment', 'trade.venue_convert_unwired', 503);
+    return deps.converts;
+  };
+  app.get('/api/v1/venue/convert/pairs', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => presentPairs(await converts().pairs(d)));
+  });
+  app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/venue/convert/route', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => {
+      const { market, side } = await converts().route(d, req.query.from ?? '', req.query.to ?? '');
+      return { kind: 'direct', symbol: market.symbol, side };
+    });
+  });
+  app.post('/api/v1/venue/convert/quote', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const b = body<{ owner?: string; from?: string; to?: string; amount?: bigint; quoteKey?: string }>(req);
+      const quote = await converts().quote(d, principal, {
+        owner: b.owner ?? '',
+        from: b.from ?? '',
+        to: b.to ?? '',
+        amount: b.amount as bigint,
+        quoteKey: b.quoteKey ?? '',
+      });
+      return presentConvertQuote(quote);
+    });
+  });
+  app.post('/api/v1/venue/convert/accept', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const b = body<{ owner?: string; quoteId?: string }>(req);
+      return converts().accept(d, principal, { owner: b.owner ?? '', quoteId: b.quoteId ?? '' });
+    });
+  });
+  app.post('/api/v1/venue/convert/limit', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const b = body<{ owner?: string; from?: string; to?: string; amount?: bigint; price?: bigint; limitKey?: string }>(req);
+      return converts().limit(d, principal, {
+        owner: b.owner ?? '',
+        from: b.from ?? '',
+        to: b.to ?? '',
+        amount: b.amount as bigint,
+        price: b.price as bigint,
+        limitKey: b.limitKey ?? '',
+      });
+    });
+  });
+  app.post('/api/v1/venue/convert/submit', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const b = body<{ actionKey?: string; signature?: VenueSignature }>(req);
+      return converts().submit(d, principal, b.actionKey ?? '', b.signature as VenueSignature);
+    });
+  });
+  app.get<{ Querystring: { owner?: string } }>('/api/v1/venue/convert/history', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const read = await converts().history(d, principal, req.query.owner ?? '');
+      return { conversions: read.conversions.map(presentConversion), asOf: read.asOf?.toISOString() ?? null };
     });
   });
 

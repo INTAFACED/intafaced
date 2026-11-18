@@ -299,6 +299,13 @@ const schema = serviceEnvSchema
       TRADE_CONVERT_QUOTE_TTL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
+       * Convert on the person's own venue account (J-cex-spot-11 #4, src/venue/venue-convert.ts): how long a venue
+       * price may be accepted, in milliseconds, before a fresh one must be. The venue holds no price; this is only how
+       * long ours is fresh. NO DEFAULT: blank refuses every venue convert quote `trade.convert_window_unset`.
+       */
+      TRADE_CONVERT_ACCEPT_WINDOW_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
        * Kill-switch for TWAP algo execution (D-S-04 / trade.algo).
        * OFF refuses new schedules; cancel/pause of existing still work.
        */

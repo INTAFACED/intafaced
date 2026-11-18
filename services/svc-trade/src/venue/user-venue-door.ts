@@ -141,6 +141,8 @@ export interface DoorCaller {
   readonly agentAccount?: boolean;
   /** Set only by a live strategy run (src/quant/live-run/live-runs.ts): its actions are stored under `algo:` keys. */
   readonly liveRun?: boolean;
+  /** Set only by Convert (src/venue/venue-convert.ts): its orders are stored under `convert:` keys. */
+  readonly convert?: boolean;
 }
 
 /** A live strategy run's keys (`algo:order:`, `algo:liquidate:`, `algo:stop:`, `algo:deploy:`): only the run stores or sends one. */
@@ -149,6 +151,22 @@ export const LIVE_RUN_KEY_PREFIX = 'algo:';
 function assertLiveRunKey(key: string, caller: DoorCaller | undefined): void {
   if (key.startsWith(LIVE_RUN_KEY_PREFIX) && !caller?.liveRun) {
     throw new UserVenueDoorError(`the key ${key} belongs to a live strategy run`, 'trade.venue_live_run_only', 403);
+  }
+}
+
+/**
+ * A conversion's keys (`convert:<owner>:<quoteId>`, `convert:<owner>:limit:<key>`): only Convert stores or sends one, so a
+ * price past its window is never signed through the plain prepare and submit routes (J-cex-spot-11 #4).
+ */
+export const CONVERT_KEY_PREFIX = 'convert:';
+
+function assertConvertKey(key: string, caller: DoorCaller | undefined): void {
+  if (key.startsWith(CONVERT_KEY_PREFIX) && !caller?.convert) {
+    throw new UserVenueDoorError(
+      `the key ${key} belongs to Convert (/api/v1/venue/convert/...), which checks the price window`,
+      'trade.venue_convert_only',
+      403,
+    );
   }
 }
 
@@ -247,6 +265,20 @@ export type UserVenueDoorCode =
   | 'trade.venue_sell_quote_market_unknown'
   | 'trade.venue_sell_quote_not_spot'
   | 'trade.venue_sell_quote_key_reused'
+  // Convert on the person's own venue account (venue-convert.ts, J-cex-spot-11).
+  | 'trade.venue_convert_only'
+  | 'trade.venue_convert_unwired'
+  | 'trade.convert_disabled'
+  | 'trade.convert_window_unset'
+  | 'trade.convert_quote_unknown'
+  | 'trade.convert_quote_expired'
+  | 'trade.convert_quote_key_reused'
+  | 'trade.convert_pair_unlisted'
+  | 'trade.convert_cash_not_offered'
+  | 'trade.convert_no_price'
+  | 'trade.convert_amount_too_small'
+  | 'trade.convert_amount_not_on_lot'
+  | 'trade.convert_price_not_on_tick'
   | VenueRouteRefusalCode
   // J-derivatives-07 #5: the auto-deleveraging acknowledgement routes are off here, or name a version the venue replaced.
   | 'trade.venue_adl_acks_unmounted'
@@ -1422,6 +1454,7 @@ export class UserVenueDoor {
     const key = this.businessKey(intent, req.actionKey);
     assertDoorMay(intent.kind, caller, key);
     assertLiveRunKey(key, caller);
+    assertConvertKey(key, caller);
     // The person's own sub-account keys are for its two intents only, never another action's.
     if (key.startsWith('own:') && !isOwnSubAccountKey(intent.kind, key)) {
       throw new UserVenueDoorError(
@@ -1637,6 +1670,7 @@ export class UserVenueDoor {
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
     assertDoorMay(row.prepared.intent.kind, caller, key);
     assertLiveRunKey(key, caller);
+    assertConvertKey(key, caller);
     assertInteractive(principal, row.prepared.intent.kind);
     // An action is only ever sent to the venue it was prepared for: with several venues behind the router, a key stored
     // for another venue is that venue's door's to send (venue-router.ts), never this one's.

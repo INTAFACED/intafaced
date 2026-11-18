@@ -117,6 +117,7 @@ import type { AgentAccounts } from './venue/agent-account.js';
 import type { AgentOrders } from './venue/agent-orders.js';
 import type { UserVenueRouter } from './venue/venue-router.js';
 import type { VenueSellQuotes } from './venue/venue-sell-quotes.js';
+import type { VenueConverts } from './venue/venue-convert.js';
 import type { GridService } from './grid/grid-service.js';
 
 /**
@@ -251,6 +252,8 @@ export interface PrivateRestDeps {
   liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
+  /** Convert on the customer's own venue account (J-cex-spot-11); absent, its routes refuse `trade.venue_convert_unwired`. */
+  venueConverts?: VenueConverts | null;
   /** The statement export on the venue's own records (J-cex-spot-07 #5). Absent: its routes answer 503. */
   venueStatements?: VenueStatements | null;
   /** Each person's acknowledged version of a venue's auto-deleveraging rules (J-derivatives-07 #5). */
@@ -1489,6 +1492,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     spreadLimitBps: deps.userVenueSpreadLimitBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
+    converts: deps.venueConverts ?? null,
     venueStatements: deps.venueStatements ?? null,
     venueAdlAcks: deps.venueAdlAcks ?? null,
     builderFeesOf: deps.venueBuilderFees ?? null,
