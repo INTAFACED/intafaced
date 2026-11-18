@@ -927,7 +927,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         owner: b.owner ?? '',
         from: b.from ?? '',
         to: b.to ?? '',
-        amount: b.amount as bigint,
+        amount: b.amount ?? 0n,
         quoteKey: b.quoteKey ?? '',
       });
       return presentConvertQuote(quote);
@@ -950,8 +950,8 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         owner: b.owner ?? '',
         from: b.from ?? '',
         to: b.to ?? '',
-        amount: b.amount as bigint,
-        price: b.price as bigint,
+        amount: b.amount ?? 0n,
+        price: b.price ?? 0n,
         limitKey: b.limitKey ?? '',
       });
     });
@@ -961,7 +961,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     if (!principal) return;
     return answer(reply, async (d) => {
       const b = body<{ actionKey?: string; signature?: VenueSignature }>(req);
-      return converts().submit(d, principal, b.actionKey ?? '', b.signature as VenueSignature);
+      return converts().submit(d, principal, { actionKey: b.actionKey ?? '', signature: b.signature });
     });
   });
   app.get<{ Querystring: { owner?: string } }>('/api/v1/venue/convert/history', privateRead, async (req, reply) => {

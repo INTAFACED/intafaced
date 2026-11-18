@@ -160,9 +160,9 @@ describe('venue Convert: accepting signs one swap', () => {
     expect(second).toMatchObject({ actionKey: first.actionKey, reused: true });
     expect(second.prepared.digest).toBe(first.prepared.digest);
     const signature = await sign(first.prepared);
-    const sent = await converts.submit(door, principal, first.actionKey, signature);
+    const sent = await converts.submit(door, principal, { actionKey: first.actionKey, signature });
     expect(sent.outcome).toMatchObject({ definite: true, accepted: true });
-    const again = await converts.submit(door, principal, first.actionKey, signature);
+    const again = await converts.submit(door, principal, { actionKey: first.actionKey, signature });
     expect(again.replayed).toBe(true);
     const cloid = first.prepared.venueClientOrderId!;
     expect((await ordersWithId(cloid))?.status).toBe('filled');
@@ -192,7 +192,9 @@ describe('venue Convert: accepting signs one swap', () => {
     const q2 = await converts.quote(door, principal, { owner, from: 'USDC', to: 'BTC', amount: a('100'), quoteKey: nextKey() });
     const prepared = await converts.accept(door, principal, { owner, quoteId: q2.quoteId });
     t = new Date(q2.freshUntil.getTime() + 1);
-    await expect(converts.submit(door, principal, prepared.actionKey, await sign(prepared.prepared))).rejects.toMatchObject({
+    await expect(
+      converts.submit(door, principal, { actionKey: prepared.actionKey, signature: await sign(prepared.prepared) }),
+    ).rejects.toMatchObject({
       code: 'trade.convert_quote_expired',
     });
     expect((await actions.find(USER, prepared.actionKey))?.signature).toBeNull();
@@ -206,7 +208,7 @@ describe('venue Convert: accepting signs one swap', () => {
     const signature = await sign(prepared.prepared);
     await switches({ loseAnswers: 1 });
     try {
-      const sent = await converts.submit(door, principal, prepared.actionKey, signature);
+      const sent = await converts.submit(door, principal, { actionKey: prepared.actionKey, signature });
       expect(sent.outcome.definite).toBe(false);
       expect(sent.readBack).toEqual({ venueClientOrderId: prepared.prepared.venueClientOrderId });
     } finally {
@@ -218,7 +220,7 @@ describe('venue Convert: accepting signs one swap', () => {
     const read = await door.orderByKey(principal, prepared.actionKey);
     expect(read).toMatchObject({ state: 'accepted', order: { status: 'filled' } });
     const fillsBefore = (await fillsOf(prepared.prepared.venueClientOrderId!)).length;
-    const resent = await converts.submit(door, principal, prepared.actionKey, signature);
+    const resent = await converts.submit(door, principal, { actionKey: prepared.actionKey, signature });
     expect(resent.outcome).toMatchObject({ definite: true });
     expect(await fillsOf(prepared.prepared.venueClientOrderId!)).toHaveLength(fillsBefore);
     expect((await ordersWithId(prepared.prepared.venueClientOrderId!))?.filled).toBe(q.size);
@@ -250,7 +252,7 @@ describe('venue Convert: accepting signs one swap', () => {
     const { door, converts } = desk();
     const ask = { owner, from: 'USDC', to: 'BTC', amount: a('100'), price: a('30000'), limitKey: 'limit-key-0001' };
     const first = await converts.limit(door, principal, ask);
-    await converts.submit(door, principal, first.actionKey, await sign(first.prepared));
+    await converts.submit(door, principal, { actionKey: first.actionKey, signature: await sign(first.prepared) });
     const again = await converts.limit(door, principal, ask);
     expect(again).toMatchObject({ actionKey: first.actionKey, reused: true, signed: true });
     const resting = (await openOrders()).filter((o) => o.venueClientOrderId === first.prepared.venueClientOrderId);
@@ -284,7 +286,7 @@ describe('venue Convert: the money invariant', () => {
     const convert = async (from: string, to: string, amount: string) => {
       const q = await converts.quote(door, principal, { owner, from, to, amount: a(amount), quoteKey: nextKey() });
       const p = await converts.accept(door, principal, { owner, quoteId: q.quoteId });
-      await converts.submit(door, principal, p.actionKey, await sign(p.prepared));
+      await converts.submit(door, principal, { actionKey: p.actionKey, signature: await sign(p.prepared) });
       return p.prepared.venueClientOrderId!;
     };
 

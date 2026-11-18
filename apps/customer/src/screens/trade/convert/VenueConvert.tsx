@@ -4,13 +4,14 @@
  * nothing; Convert now signs one venue order in the person's wallet; Recent conversions reads the venue's own fills. The
  * room keeps the Convert layout (card, pickers, review, recent list); every figure is the venue's, with its TEST label.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Tabs, TabsList, TabsTab } from '@intafaced/ui';
 import { AmountInput, Button, CoinIcon, StateBlock } from '../buy/deps';
 import { AssetPicker, type PickerItem } from '../buy/AssetPicker';
 import { Dialog } from '../../../shared/ui';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
+import { useNow } from '../../../shared/use-now';
 import { useSession } from '../../../features/session/session';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -182,14 +183,10 @@ function VenueCard({
   const [done, setDone] = useState<{ actionKey: string; order: VenueOrder | null } | null>(null);
   const [limitDone, setLimitDone] = useState<{ order: VenueOrder | null; venueClientOrderId: string | null } | null>(null);
   const [deposit, setDeposit] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const now = useNow(500);
   const sending = useRef(false);
   const limitKey = useRef<string | null>(null);
   const venue = useVenueApi();
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(timer);
-  }, []);
 
   if (!chosen)
     return (
@@ -316,7 +313,7 @@ function VenueCard({
     try {
       const read = await venue.orderByClientId(owner, unknown.venueClientOrderId);
       if (!read.ok) return setCheckNote(t('Check failed', { detail: read.message }));
-      if (!read.data.value) return setCheckNote(t('Not on venue yet'));
+      if (!read.data.value) return setCheckNote(t('Not on venue'));
       setDone({ actionKey: unknown.actionKey, order: read.data.value });
       setUnknown(null);
       account.reload();

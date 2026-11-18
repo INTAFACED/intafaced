@@ -1,6 +1,6 @@
 /**
  * CONVERT ON THE PERSON'S OWN VENUE ACCOUNT (J-cex-spot-11; docs/adr/2026-11-10-launch-money-model.md). We hold no customer
- * money (OWNER 226), so a conversion is one venue order the person's wallet signs, never a fill against our own book:
+ * money at launch, so a conversion is one venue order the person's wallet signs, never a fill against our own book:
  *
  *   · A QUOTE holds nothing. It reads the venue's best price on the side the conversion meets, bounds it by the owner's
  *     slippage cap (`TRADE_MARKET_SLIPPAGE_CAP_BPS`) into the order's limit price, sizes the order so it never costs more
@@ -17,6 +17,7 @@
  *     every order the door signed (src/builder-fee/builder-fee-poster.ts). A buy carries no builder fee.
  */
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
 import { add, div, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
 import {
@@ -102,38 +103,56 @@ export class MemoryConvertQuoteStore implements ConvertQuoteStore {
   }
 }
 
-interface Row {
-  user_id: string;
-  quote_id: string;
-  venue_id: string;
-  test: boolean;
-  owner: string;
-  market: string;
-  side: ConvertSide;
-  from_asset: string;
-  to_asset: string;
-  spend: string;
-  size: string;
-  best_price: string;
-  best_as_of: Date;
-  limit_price: string;
-  slippage_bps: number;
-  builder_fee_bps: string | null;
-  builder_fee_known: boolean;
-  builder_fee_amount: string | null;
-  venue_fee_known: boolean;
-  venue_fee_amount: string | null;
-  venue_fee_asset: string | null;
-  fill_known: boolean;
-  fill_amount: string | null;
-  fill_average_price: string | null;
-  fresh_until: Date;
-  created_at: Date;
-}
+const Row = z.object({
+  user_id: z.string(),
+  quote_id: z.string(),
+  venue_id: z.string(),
+  test: z.boolean(),
+  owner: z.string(),
+  market: z.string(),
+  side: z.enum(['buy', 'sell']),
+  from_asset: z.string(),
+  to_asset: z.string(),
+  spend: z.string(),
+  size: z.string(),
+  best_price: z.string(),
+  best_as_of: z.date(),
+  limit_price: z.string(),
+  slippage_bps: z.number().int(),
+  builder_fee_bps: z.string().nullable(),
+  builder_fee_amount: z.string().nullable(),
+  venue_fee_amount: z.string().nullable(),
+  venue_fee_asset: z.string().nullable(),
+  fill_known: z.boolean(),
+  fill_amount: z.string().nullable(),
+  fill_average_price: z.string().nullable(),
+  fresh_until: z.date(),
+  created_at: z.date(),
+});
+type Row = z.infer<typeof Row>;
 
-const known = <T>(isKnown: boolean, value: () => T): MaybeKnown<T> => (isKnown ? { known: true, value: value() } : { known: false });
+const maybe = (value: string | null): MaybeKnown<Amount> =>
+  value === null ? { known: false } : { known: true, value: parseAmount(value) };
 
 function fromRow(r: Row): ConvertQuote {
+  const builderFee: ConvertBuilderFee =
+    r.builder_fee_bps === null
+      ? { kind: 'none', reason: 'buy' }
+      : { kind: 'quote_asset', bps: parseAmount(r.builder_fee_bps), amount: maybe(r.builder_fee_amount) };
+  const venueFee: MaybeKnown<VenueAssetAmount> =
+    r.venue_fee_amount === null || r.venue_fee_asset === null
+      ? { known: false }
+      : { known: true, value: { asset: r.venue_fee_asset, amount: parseAmount(r.venue_fee_amount) } };
+  const fill: MaybeKnown<VenuePreviewFill> =
+    !r.fill_known || r.fill_amount === null
+      ? { known: false }
+      : {
+          known: true,
+          value: {
+            amount: parseAmount(r.fill_amount),
+            averagePrice: r.fill_average_price === null ? null : parseAmount(r.fill_average_price),
+          },
+        };
   return {
     quoteId: r.quote_id,
     userId: r.user_id,
@@ -149,30 +168,17 @@ function fromRow(r: Row): ConvertQuote {
     bestPrice: { price: parseAmount(r.best_price), asOf: r.best_as_of },
     limitPrice: parseAmount(r.limit_price),
     slippageBps: r.slippage_bps,
-    builderFee:
-      r.builder_fee_bps === null
-        ? { kind: 'none', reason: 'buy' }
-        : {
-            kind: 'quote_asset',
-            bps: parseAmount(r.builder_fee_bps),
-            amount: known(r.builder_fee_known && r.builder_fee_amount !== null, () => parseAmount(r.builder_fee_amount!)),
-          },
-    venueFee: known(r.venue_fee_known && r.venue_fee_amount !== null && r.venue_fee_asset !== null, () => ({
-      asset: r.venue_fee_asset!,
-      amount: parseAmount(r.venue_fee_amount!),
-    })),
-    fill: known(r.fill_known && r.fill_amount !== null, () => ({
-      amount: parseAmount(r.fill_amount!),
-      averagePrice: r.fill_average_price === null ? null : parseAmount(r.fill_average_price),
-    })),
+    builderFee,
+    venueFee,
+    fill,
     freshUntil: r.fresh_until,
     createdAt: r.created_at,
   };
 }
 
 const COLUMNS = `user_id, quote_id, venue_id, test, owner, market, side, from_asset, to_asset, spend::text, size::text,
-  best_price::text, best_as_of, limit_price::text, slippage_bps, builder_fee_bps::text, builder_fee_known,
-  builder_fee_amount::text, venue_fee_known, venue_fee_amount::text, venue_fee_asset, fill_known, fill_amount::text,
+  best_price::text, best_as_of, limit_price::text, slippage_bps, builder_fee_bps::text,
+  builder_fee_amount::text, venue_fee_amount::text, venue_fee_asset, fill_known, fill_amount::text,
   fill_average_price::text, fresh_until, created_at`;
 
 export class SqlConvertQuoteStore implements ConvertQuoteStore {
@@ -203,8 +209,10 @@ export class SqlConvertQuoteStore implements ConvertQuoteStore {
   }
 
   async get(userId: string, quoteId: string): Promise<ConvertQuote | null> {
-    const rows = await this.sql<Row[]>`
-      SELECT ${this.sql.unsafe(COLUMNS)} FROM trade.venue_convert_quotes WHERE user_id = ${userId} AND quote_id = ${quoteId}`;
+    const rows = Row.array().parse(
+      await this
+        .sql`SELECT ${this.sql.unsafe(COLUMNS)} FROM trade.venue_convert_quotes WHERE user_id = ${userId} AND quote_id = ${quoteId}`,
+    );
     return rows[0] ? fromRow(rows[0]) : null;
   }
 }
@@ -305,11 +313,10 @@ export const limitConvertKey = (owner: string, limitKey: string) => `${CONVERT_K
 /** `{ quoteId }` for an instant conversion's key, `{ limitKey }` for a limit convert's, `null` for anything else. */
 function partsOf(key: string): { owner: string; quoteId: string | null; limitKey: string | null } | null {
   if (!key.startsWith(CONVERT_KEY_PREFIX)) return null;
-  const parts = key.slice(CONVERT_KEY_PREFIX.length).split(':');
-  if (parts.length === 2 && KEY_RE.test(parts[1]!)) return { owner: parts[0]!, quoteId: parts[1]!, limitKey: null };
-  if (parts.length === 3 && parts[1] === LIMIT_PART && KEY_RE.test(parts[2]!))
-    return { owner: parts[0]!, quoteId: null, limitKey: parts[2]! };
-  return null;
+  const [owner = '', second = '', third, ...rest] = key.slice(CONVERT_KEY_PREFIX.length).split(':');
+  if (rest.length > 0 || !owner) return null;
+  if (third === undefined) return KEY_RE.test(second) ? { owner, quoteId: second, limitKey: null } : null;
+  return second === LIMIT_PART && KEY_RE.test(third) ? { owner, quoteId: null, limitKey: third } : null;
 }
 
 function convertible(m: ListedVenueMarket): boolean {
@@ -381,7 +388,7 @@ export class VenueConverts {
     this.assertOpen();
     const windowMs = this.deps.windowMs;
     if (windowMs === null || !Number.isInteger(windowMs) || windowMs < 1)
-      refuse('the window a convert price may be accepted in is not set (owner value blank)', 'trade.convert_window_unset', 503);
+      return refuse('the window a convert price may be accepted in is not set (owner value blank)', 'trade.convert_window_unset', 503);
     if (typeof ask.quoteKey !== 'string' || !KEY_RE.test(ask.quoteKey))
       bad('quoteKey must be 8 to 80 letters, digits, "_" or "-", made once per ask and reused on a retry');
     if (typeof ask.amount !== 'bigint' || ask.amount <= 0n) bad('amount must be a positive decimal string');
@@ -396,13 +403,20 @@ export class VenueConverts {
     const reference = best ? (side === 'buy' ? best.value.ask : best.value.bid) : null;
     const limitPrice = best ? marketProtectionBound(side, best.value, cap, market.tickSize) : null;
     if (!best || reference === null || limitPrice === null)
-      refuse(
+      return refuse(
         `the venue has no ${side === 'buy' ? 'ask' : 'bid'} on ${market.symbol} to price this conversion; nothing was priced`,
         'trade.convert_no_price',
         422,
       );
-    const size = this.sizeOf(side, ask.amount, limitPrice!, market);
-    const intent = orderOf(market.symbol, side, size, limitPrice!, 'IOC', convertKey(owner, ask.quoteKey));
+    const size = this.sizeOf({ side, amount: ask.amount, price: limitPrice, market });
+    const intent = orderOf({
+      symbol: market.symbol,
+      side,
+      amount: size,
+      price: limitPrice,
+      timeInForce: 'IOC',
+      clientOrderKey: convertKey(owner, ask.quoteKey),
+    });
     const preview = await door.preview(principal, owner, intent);
     let builderFee: ConvertBuilderFee = { kind: 'none', reason: 'buy' };
     if (side === 'sell') {
@@ -434,13 +448,13 @@ export class VenueConverts {
       to: ask.to,
       spend: ask.amount,
       size,
-      bestPrice: { price: reference!, asOf: best!.asOf },
-      limitPrice: limitPrice!,
+      bestPrice: { price: reference, asOf: best.asOf },
+      limitPrice,
       slippageBps: cap,
       builderFee,
       venueFee: preview.value.venueFee,
       fill: preview.value.fill,
-      freshUntil: new Date(now.getTime() + windowMs!),
+      freshUntil: new Date(now.getTime() + windowMs),
       createdAt: now,
     });
     return same(stored, owner, ask);
@@ -464,7 +478,7 @@ export class VenueConverts {
       {
         owner,
         signer: { role: 'owner', address: owner },
-        intent: orderOf(q.market, q.side, q.size, q.limitPrice, 'IOC', key),
+        intent: orderOf({ symbol: q.market, side: q.side, amount: q.size, price: q.limitPrice, timeInForce: 'IOC', clientOrderKey: key }),
       },
       { convert: true },
     );
@@ -485,27 +499,39 @@ export class VenueConverts {
         'trade.convert_price_not_on_tick',
         422,
       );
-    const size = this.sizeOf(side, ask.amount, ask.price, market);
+    const size = this.sizeOf({ side, amount: ask.amount, price: ask.price, market });
     return door.prepare(
       principal,
       {
         owner,
         signer: { role: 'owner', address: owner },
-        intent: orderOf(market.symbol, side, size, ask.price, 'GTC', limitConvertKey(owner, ask.limitKey)),
+        intent: orderOf({
+          symbol: market.symbol,
+          side,
+          amount: size,
+          price: ask.price,
+          timeInForce: 'GTC',
+          clientOrderKey: limitConvertKey(owner, ask.limitKey),
+        }),
       },
       { convert: true },
     );
   }
 
   /** Send a conversion's prepared order with the wallet's signature. A quote past its window is never signed here. */
-  async submit(door: UserVenueDoor, principal: Principal, actionKey: string, signature: VenueSignature): Promise<SubmitAnswer> {
+  async submit(
+    door: UserVenueDoor,
+    principal: Principal,
+    { actionKey, signature }: { actionKey: string; signature: VenueSignature | undefined },
+  ): Promise<SubmitAnswer> {
     const key = (actionKey ?? '').trim();
+    if (!signature) return bad('signature is required: the wallet signs the prepared order');
     const parts = partsOf(key);
-    if (!parts) bad('actionKey must be the key a convert accept or limit convert answered');
+    if (!parts) return bad('actionKey must be the key a convert accept or limit convert answered');
     const row = await door.stored(principal, key);
     if (row && !row.signature) {
       this.assertOpen();
-      if (parts!.quoteId) this.assertFresh(await this.quoteOf(principal, parts!.quoteId));
+      if (parts.quoteId) this.assertFresh(await this.quoteOf(principal, parts.quoteId));
     }
     return door.submit(principal, key, signature, { convert: true });
   }
@@ -526,13 +552,17 @@ export class VenueConverts {
     const bySymbol = new Map(markets.value.map((m) => [m.symbol, m]));
     const conversions: Conversion[] = [];
     for (const row of rows) {
-      const intent = row.prepared.intent as PlaceUserOrderIntent;
+      const intent = row.prepared.intent;
+      const parts = partsOf(row.businessKey);
+      if (intent.kind !== 'place_order' || !parts) continue;
       const market = bySymbol.get(intent.symbol);
       if (!market) continue;
       const cloid = row.prepared.venueClientOrderId;
       const order = cloid ? (await venue.orderByClientId(account, cloid)).value : null;
       const mine = fills.value.filter((f) => cloid !== null && f.venueClientOrderId === cloid);
-      conversions.push(conversionOf(row, intent, market.baseAsset, market.quoteAsset, order?.status ?? null, mine));
+      conversions.push(
+        conversionOf({ row, parts, intent, base: market.baseAsset, quote: market.quoteAsset, status: order?.status ?? null, fills: mine }),
+      );
     }
     conversions.sort((a, b) => b.acceptedAt.getTime() - a.acceptedAt.getTime());
     return { conversions, asOf: fills.asOf };
@@ -564,7 +594,7 @@ export class VenueConverts {
    * the order never costs more than typed; on a sell the typed coins, which must be whole lots. Too small for the venue's
    * smallest order value refuses before anything is asked of the venue.
    */
-  private sizeOf(side: ConvertSide, amount: Amount, price: Amount, market: ListedVenueMarket): Amount {
+  private sizeOf({ side, amount, price, market }: { side: ConvertSide; amount: Amount; price: Amount; market: ListedVenueMarket }): Amount {
     const lot = market.lotSize;
     let size = amount;
     if (side === 'buy') {
@@ -584,14 +614,21 @@ export class VenueConverts {
   }
 }
 
-function orderOf(
-  symbol: string,
-  side: ConvertSide,
-  amount: Amount,
-  price: Amount,
-  timeInForce: 'IOC' | 'GTC',
-  clientOrderKey: string,
-): PlaceUserOrderIntent {
+function orderOf({
+  symbol,
+  side,
+  amount,
+  price,
+  timeInForce,
+  clientOrderKey,
+}: {
+  symbol: string;
+  side: ConvertSide;
+  amount: Amount;
+  price: Amount;
+  timeInForce: 'IOC' | 'GTC';
+  clientOrderKey: string;
+}): PlaceUserOrderIntent {
   return {
     kind: 'place_order',
     symbol,
@@ -613,15 +650,23 @@ function same(q: ConvertQuote, owner: string, ask: ConvertAsk): ConvertQuote {
   return q;
 }
 
-function conversionOf(
-  row: StoredVenueAction,
-  intent: PlaceUserOrderIntent,
-  base: string,
-  quote: string,
-  status: string | null,
-  fills: readonly UserVenueFill[],
-): Conversion {
-  const parts = partsOf(row.businessKey)!;
+function conversionOf({
+  row,
+  parts,
+  intent,
+  base,
+  quote,
+  status,
+  fills,
+}: {
+  row: StoredVenueAction;
+  parts: NonNullable<ReturnType<typeof partsOf>>;
+  intent: PlaceUserOrderIntent;
+  base: string;
+  quote: string;
+  status: string | null;
+  fills: readonly UserVenueFill[];
+}): Conversion {
   let baseAmount = 0n;
   let quoteAmount = 0n;
   let venueFee = 0n;
@@ -680,7 +725,7 @@ function conversionOf(
   };
 }
 
-const assetAmount = (v: VenueAssetAmount | null) => (v ? { asset: v.asset, amount: formatAmount(v.amount) } : null);
+const assetAmount = (v: VenueAssetAmount) => ({ asset: v.asset, amount: formatAmount(v.amount) });
 
 /** A quote as the room and the API read it: every amount a decimal string, a figure the venue does not give `known: false`. */
 export function presentConvertQuote(q: ConvertQuote) {
@@ -739,10 +784,10 @@ export function presentConversion(c: Conversion) {
     venueClientOrderId: c.venueClientOrderId,
     limitPrice: formatAmount(c.limitPrice),
     state: c.state,
-    paid: assetAmount(c.paid)!,
-    received: assetAmount(c.received)!,
-    venueFee: assetAmount(c.venueFee),
-    builderFee: assetAmount(c.builderFee),
+    paid: assetAmount(c.paid),
+    received: assetAmount(c.received),
+    venueFee: c.venueFee ? assetAmount(c.venueFee) : null,
+    builderFee: c.builderFee ? assetAmount(c.builderFee) : null,
     fills: c.fills,
     filledAt: c.filledAt?.toISOString() ?? null,
     acceptedAt: c.acceptedAt.toISOString(),
