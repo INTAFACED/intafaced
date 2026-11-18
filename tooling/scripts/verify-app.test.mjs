@@ -19,7 +19,6 @@ import {
   lsofPorts,
   parseHealth,
   planDrive,
-  recordedDrive,
   againCommand,
   installedAnvil,
   reportTests,
@@ -412,36 +411,10 @@ test('anvil: the stack’s own rule first; else Foundry’s, then the newest ~/.
   assert.equal(installedAnvil(args()), null);
 });
 
-test('run.json: a whole-journey drive records its run as `journey` does; a drive of steps records none (#8757)', async () => {
-  const world = () => {
-    const records = [];
-    return { records, io: { tree: () => 'tree1', now: () => 1700000000000, record: (r) => records.push(r) } };
-  };
-  const files = ['J-x-01.pw.mjs'];
-  const pass = world();
-  assert.equal(await recordedDrive([], files, pass.io, async () => 0), 0);
-  assert.deepEqual(pass.records, [
-    { tree: 'tree1', files, startedAt: 1700000000000, pid: process.pid, code: null },
-    { tree: 'tree1', files, startedAt: 1700000000000, pid: process.pid, code: 0 },
-  ]);
-  const fail = world();
-  assert.equal(await recordedDrive([], files, fail.io, async () => 1), 1);
-  assert.deepEqual(
-    fail.records.map((r) => r.code),
-    [null, 1],
-  );
-  const part = world();
-  assert.equal(await recordedDrive([2], files, part.io, async () => 0), 0);
-  assert.deepEqual(part.records, []);
-  // A drive that crashes leaves only the start record, code null: never a pass.
-  const crash = world();
-  await assert.rejects(
-    recordedDrive([], files, crash.io, async () => {
-      throw new Error('boom');
-    }),
-  );
-  assert.deepEqual(
-    crash.records.map((r) => r.code),
-    [null],
-  );
+test('run.json: a drive, whole or of steps, records nothing; only `pnpm local:stack journey` writes the first-push record (project-state #3021)', async () => {
+  const local = await import('./journey-local.mjs');
+  // The one writer of .jr/run.json is private to journeyLocal, so no other command can import it.
+  assert.equal('recordRun' in local, false, 'journey-local.mjs must not export recordRun: only `journey` records a run');
+  const src = fs.readFileSync(fileURLToPath(new URL('./verify-app.mjs', import.meta.url)), 'utf8');
+  assert.doesNotMatch(src, /\brecordRun\b|\.record\??\.?\(|\.jr\b[^\n]*run\.json[^\n]*write/, 'verify-app.mjs writes no run record');
 });
