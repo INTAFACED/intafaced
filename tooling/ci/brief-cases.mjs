@@ -7,10 +7,13 @@
  * run on the signed-in reviewer CLI (the job's own binary name, on PATH), never in CI.
  *
  *   node tooling/ci/brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>]
- *        [--words <project-state clone>] [--out <dir>]
+ *        [--runs <n>] [--words <project-state clone>] [--out <dir>]
  *
  * `--drop <text>` scores the brief with the one line holding <text> removed: a case set that scores the same without a
  * line doesn't test it. A change to a brief shows its score before and after in its pull request.
+ *
+ * `--runs <n>` (default 2) asks each case n times: one answer per case is too noisy to rank two briefs. A case scores
+ * the mean of its runs, and a control passes only when every run passes.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -73,6 +76,12 @@ export function scoreRead(c, v) {
   if (!r) return { score: 0, got: 'no read for the step' };
   const right = c.kind === 'control' ? r.verdict === 'FAITHFUL' : r.verdict !== 'FAITHFUL';
   return { score: right ? 1 : 0, got: r.verdict, findings: [r.note] };
+}
+
+/** One case's runs to one result: the mean score, and every run's answer. A control passes only if every run does. */
+export function mergeRuns(runs) {
+  const score = runs.reduce((n, r) => n + r.score, 0) / runs.length;
+  return { score, got: runs.map((r) => r.got).join(' | '), runs };
 }
 
 /** Totals: bad cases' score and the controls that passed. */
@@ -194,7 +203,7 @@ async function main() {
   const arg = (n, d) => (rest.includes(n) ? rest[rest.indexOf(n) + 1] : d);
   if (!JUDGES[judge]) {
     console.error(
-      'usage: brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>] [--words <project-state clone>] [--out <dir>]',
+      'usage: brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>] [--runs <n>] [--words <project-state clone>] [--out <dir>]',
     );
     process.exit(2);
   }
@@ -206,14 +215,17 @@ async function main() {
   const clone = arg('--words', join(process.env.HOME ?? '', 'code/project-state'));
   const out = arg('--out', mkdtempSync(join(tmpdir(), `brief-cases-${judge}-`)));
   const jobs = Number(arg('--jobs', '4'));
+  const runs = Number(arg('--runs', '2'));
+  if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a whole number of at least 1, not ${arg('--runs')}`);
   console.log(
-    `${judge}: ${cases.length} cases on ${call.model} at ${call.effort}${arg('--drop') ? `, without the line holding "${arg('--drop')}"` : ''}; answers in ${out}`,
+    `${judge}: ${cases.length} cases, ${runs} runs each, on ${call.model} at ${call.effort}${arg('--drop') ? `, without the line holding "${arg('--drop')}"` : ''}; answers in ${out}`,
   );
-  const results = [];
-  const queue = [...cases];
+  const answers = new Map(cases.map((c) => [c.id, []]));
+  const queue = cases.flatMap((c) => Array.from({ length: runs }, (_, n) => ({ c, n })));
   const worker = async () => {
-    for (let c = queue.shift(); c; c = queue.shift()) {
-      const work = join(out, c.id);
+    for (let q = queue.shift(); q; q = queue.shift()) {
+      const { c, n } = q;
+      const work = join(out, c.id, `run-${n + 1}`);
       mkdirSync(work, { recursive: true });
       let r;
       try {
@@ -221,11 +233,13 @@ async function main() {
       } catch (e) {
         r = { score: 0, got: `error: ${e.message}` };
       }
-      results.push({ id: c.id, kind: c.kind, ...r });
-      console.log(`${c.kind.padEnd(7)} ${c.id.padEnd(24)} ${String(r.score).padEnd(3)} ${r.got}`);
+      answers.get(c.id).push(r);
+      console.log(`${c.kind.padEnd(7)} ${c.id.padEnd(24)} run ${n + 1} ${String(r.score).padEnd(3)} ${r.got}`);
     }
   };
   await Promise.all(Array.from({ length: jobs }, worker));
+  const results = cases.map((c) => ({ id: c.id, kind: c.kind, ...mergeRuns(answers.get(c.id)) }));
+  for (const r of results) console.log(`${r.kind.padEnd(7)} ${r.id.padEnd(24)} mean ${r.score}`);
   writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 1));
   const t = totals(results);
   console.log(`score: bad ${t.bad} of ${t.badOf}; controls passed ${t.controls} of ${t.controlsOf}`);

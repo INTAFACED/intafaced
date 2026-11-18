@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { dropLine, JUDGES, jobCall, scoreRead, scoreReview, totals } from './brief-cases.mjs';
+import { dropLine, JUDGES, jobCall, mergeRuns, scoreRead, scoreReview, totals } from './brief-cases.mjs';
 
 const workflow = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
 
@@ -64,6 +64,18 @@ test('a read case scores WEAK or MISMATCH right for a bad case, FAITHFUL right f
       controlsOf: 2,
     },
   );
+});
+
+test('a case asked twice scores the mean of its runs, and a control passes only when every run passes', () => {
+  assert.equal(mergeRuns([{ score: 1 }, { score: 0 }]).score, 0.5);
+  assert.equal(mergeRuns([{ score: 1 }, { score: 0.5 }]).score, 0.75);
+  const flaky = mergeRuns([
+    { score: 1, got: 'PASS' },
+    { score: 0, got: 'FAIL' },
+  ]);
+  assert.equal(flaky.got, 'PASS | FAIL');
+  assert.deepEqual(totals([{ kind: 'control', ...flaky }]), { bad: 0, badOf: 0, controls: 0, controlsOf: 1 });
+  assert.deepEqual(totals([{ kind: 'control', ...mergeRuns([{ score: 1 }, { score: 1 }]) }]).controls, 1);
 });
 
 test('each case file has bad cases and controls, unique ids, full shas, and no copied step words', () => {
