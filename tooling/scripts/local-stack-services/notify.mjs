@@ -17,6 +17,9 @@ export function onEmptyNoticesDb(url) {
   u.pathname = `/${NOTIFY_EMPTY_NOTICES_DB}`;
   return u.toString();
 }
+/** LOCAL TEST only: the push application key the TEST push stand-in hands browsers (a P-256 public key; its private half was
+ *  never kept). Production has none until the owner configures push delivery. */
+const LOCAL_TEST_PUSH_KEY = 'BCOnhgGJygEZFzKtnBSDYgSKSL2Lv74VEfd45O8MzRWvE_swbTqR3oBusUqy_rT1NU9SDzTZNXNMZRiZJu805xo';
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
@@ -35,7 +38,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     MATCHING_URL: urlOf('matching'),
     // Notices for P2P merchants: notify asks p2p whether the reader is an active merchant.
     P2P_URL: urlOf('p2p'),
-    // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly.
+    // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly (a journey's restart
+    // may turn on the TEST email or push stand-in below).
     NOTIFY_REQUIRED_CHANNELS: 'none',
     // Required, no default. LOCAL TEST values: attempts only matter for out-of-app delivery (none here);
     // the verification-code lifetime is the .env.example value.
@@ -67,6 +71,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // A person confirms their address with a code the stand-in writes there, so the code key is set with it, and only then.
     ...(process.env.LOCAL_STACK_NOTIFY_EMAIL === 'on'
       ? { NOTIFY_EMAIL_TEST_OUTBOX: path.join(STATE, 'notify-mail-outbox.log'), NOTIFY_VERIFY_CODE_PEPPER: secrets.notifyVerifyCode }
+      : {}),
+    // LOCAL_STACK_NOTIFY_PUSH=on (a journey's restart only, J-home-ia-05 #4): the TEST push stand-in writes every push, labelled
+    // TEST, to a file in this stack's state folder, and notify hands browsers the LOCAL TEST application key below, so a TEST
+    // device can register and be sent its confirmation. No private key exists for it and nothing is ever pushed. Off, as in
+    // production with no push gateway, no device registers and the page names vendor.push.
+    ...(process.env.LOCAL_STACK_NOTIFY_PUSH === 'on'
+      ? {
+          NOTIFY_PUSH_TEST_OUTBOX: path.join(STATE, 'notify-push-outbox.log'),
+          NOTIFY_PUSH_PUBLIC_KEY: LOCAL_TEST_PUSH_KEY,
+          NOTIFY_VERIFY_CODE_PEPPER: secrets.notifyVerifyCode,
+        }
       : {}),
     // LOCAL TEST only: the page of svc-trade's market list the alert marks read (trade's own cap). Unset, every live
     // quote refuses notify.markets_list_limit_unset and no alert can fire on the stack.

@@ -5,7 +5,7 @@ import { Button, Popover, PopoverContent, PopoverTitle, PopoverTrigger, StateBlo
 import { notifyCopy } from './copy';
 import { announceChange } from './notify-api';
 import { InboxFailure, NotificationRow } from './NotificationRow';
-import { useInboxView, useUnreadCount } from './use-notifications';
+import { badgeText, useInboxPolicy, useInboxView, useUnreadCount } from './use-notifications';
 
 /** How many notifications the popover lists; the rest are one click away under "See all". */
 export const POPOVER_ITEMS = 8;
@@ -21,6 +21,7 @@ export const POPOVER_ITEMS = 8;
 export function BellPopover({ path }: { path?: string }) {
   const copy = notifyCopy.useCopy();
   const unread = useUnreadCount();
+  const policy = useInboxPolicy();
   const [open, setOpen] = useState(false);
   const first = useRef(true);
   const inner = useRef<HTMLDivElement>(null);
@@ -31,7 +32,8 @@ export function BellPopover({ path }: { path?: string }) {
     }
     announceChange();
   }, [path]);
-  const shown = unread && unread > 99 ? '99+' : unread;
+  // Capped at the owner's cap (notify.inboxPolicy); with none set, the exact count.
+  const shown = unread ? badgeText(unread, policy.status === 'ready' ? policy.data.unreadCap : null) : unread;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger

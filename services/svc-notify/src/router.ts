@@ -75,6 +75,7 @@ import {
 } from './alerts/types.js';
 import { describeChannelsPolicy } from './channels-policy.js';
 import { PUSH_KEY_UNSET, pushKeyPolicy } from './push-key.js';
+import { NOTIFY_INBOX_POLICY } from '@intafaced/contracts/notify-inbox-policy';
 import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
 import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, venueIncidentOutput, type VenueIncidentLoader } from './venue-incident-truth.js';
@@ -798,7 +799,10 @@ export function createNotifyRouter(
        * Notification centre owner values — page size, unread cap, retention.
        * Blank values report unset with their typed code; nothing is defaulted.
        */
-      inboxPolicy: publicProcedure.query(() => describeInboxPolicy(inbox)),
+      inboxPolicy: publicProcedure
+        .input(NOTIFY_INBOX_POLICY.input)
+        .output(NOTIFY_INBOX_POLICY.output)
+        .query(() => describeInboxPolicy(inbox)),
 
       /**
        * Public announcement. Real content is not published here.
