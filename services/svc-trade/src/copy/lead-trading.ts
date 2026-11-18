@@ -308,13 +308,14 @@ export class LeadTrading {
 
   /**
    * What the lead holds or has committed in lead trades of a pair: lead buys (live ones whole, finished ones as filled)
-   * less lead sells as filled, never under zero. Only orders that exist count.
+   * less lead sells as filled, never under zero. Only orders that exist count. Price times size carries 36 places in
+   * Postgres; each sum is rounded to the ledger's 18.
    */
   private async heldNotional(userId: string, symbol: string): Promise<Amount> {
     const [row] = await this.deps.sql<Array<{ buys: string | null; sells: string | null }>>`
-      SELECT sum(CASE WHEN o.status::text IN ${this.deps.sql([...ONGOING])} THEN o.price * o.qty ELSE o.price * o.filled_qty END)
-               FILTER (WHERE l.side = 'buy')::text AS buys,
-             sum(o.price * o.filled_qty) FILTER (WHERE l.side = 'sell')::text AS sells
+      SELECT round(sum(CASE WHEN o.status::text IN ${this.deps.sql([...ONGOING])} THEN o.price * o.qty ELSE o.price * o.filled_qty END)
+               FILTER (WHERE l.side = 'buy'), 18)::text AS buys,
+             round(sum(o.price * o.filled_qty) FILTER (WHERE l.side = 'sell'), 18)::text AS sells
         FROM trade.copy_lead_orders l INNER JOIN trade.orders o ON o.id = l.order_id
        WHERE l.leader_user_id = ${userId} AND l.symbol = ${symbol} AND l.lead`;
     const held = sub(parseAmount(row?.buys ?? '0'), parseAmount(row?.sells ?? '0'));
@@ -324,7 +325,7 @@ export class LeadTrading {
   /** Lead buys since the owner day began: live ones whole, finished ones as filled. Only orders that exist count. */
   private async boughtSince(userId: string, start: Date): Promise<Amount> {
     const [row] = await this.deps.sql<Array<{ bought: string | null }>>`
-      SELECT sum(CASE WHEN o.status::text IN ${this.deps.sql([...ONGOING])} THEN o.price * o.qty ELSE o.price * o.filled_qty END)::text AS bought
+      SELECT round(sum(CASE WHEN o.status::text IN ${this.deps.sql([...ONGOING])} THEN o.price * o.qty ELSE o.price * o.filled_qty END), 18)::text AS bought
         FROM trade.copy_lead_orders l INNER JOIN trade.orders o ON o.id = l.order_id
        WHERE l.leader_user_id = ${userId} AND l.lead AND l.side = 'buy' AND l.created_at >= ${start.toISOString()}`;
     return parseAmount(row?.bought ?? '0');
