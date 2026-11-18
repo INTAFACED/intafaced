@@ -71,6 +71,7 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   const calls = Object.assign({}, ...tokens.map((token) => tokenAnswers(chainId, address, token)));
   const requests = [];
   const sends = [];
+  const added = [];
   let rejectNext = false;
   let rejectNextSend = false;
   let otherKeyNext = false;
@@ -93,6 +94,10 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     const { domain, types, primaryType, message } = JSON.parse(params[1]);
     const { EIP712Domain: _domain, ...rest } = types;
     return { signature: (entry.signature = await account.signTypedData({ domain, types: rest, primaryType, message })) };
+  });
+  // A network the page asks the wallet to add is kept as asked, so a test can read exactly what was offered. Nothing is added.
+  await page.exposeFunction('__testWalletAdd', (params) => {
+    added.push(params);
   });
   // A transaction the page asks to send is kept, so a test can read what was built. With no TEST chain it is never sent;
   // with one, an eth_sendTransaction on that chain is signed here (the key never enters the browser) and sent.
@@ -178,6 +183,7 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
             if (answer.rejected) throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
             return answer.signature;
           }
+          if (method === 'wallet_addEthereumChain') return (await window.__testWalletAdd(params), null);
           if (method === 'wallet_switchEthereumChain') {
             chain = Number.parseInt(params[0].chainId, 16);
             emit('chainChanged', hex(chain));
@@ -218,6 +224,8 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     address,
     /** Every signature the page asked for, in order: `{ method, params }`, and `signature` once the wallet signed it. */
     requests,
+    /** Every `wallet_addEthereumChain` the page asked for, in order: its params exactly as sent. */
+    added,
     /**
      * Every transaction or call batch the page asked the wallet to send, in order: `{ method, params }`, and `hash` once
      * sent. Only with `rpcUrl` does one reach a chain.
