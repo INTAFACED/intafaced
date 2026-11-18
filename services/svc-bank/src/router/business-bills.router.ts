@@ -63,23 +63,22 @@ const fileBase64 = z
  */
 export function createBusinessBillsRouter(c: BankRouterContext) {
   const { bank, stepUpEnforced, requireStepUp } = c;
-  // Read on each call, never at mount: a router built over a partial service (the preview doors) must not touch it.
-  const bills = () => bank.businessBills;
+  const bills = bank.businessBills;
   const accountInput = z.object({ accountId: z.string().guid() }).strict();
   const billInput = z.object({ billId: z.string().guid() }).strict();
   return router({
     list: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessBillSchema))
-      .query(({ ctx, input }) => guard(async () => (await bills().bills(input.accountId, ctx.principal.userId)).map(billView))),
+      .query(({ ctx, input }) => guard(async () => (await bills.bills(input.accountId, ctx.principal.userId)).map(billView))),
     get: scopedProcedure('bank:read', { module: 'bank' })
       .input(billInput)
       .output(businessBillSchema)
-      .query(({ ctx, input }) => guard(async () => billView(await bills().bill(input.billId, ctx.principal.userId)))),
+      .query(({ ctx, input }) => guard(async () => billView(await bills.bill(input.billId, ctx.principal.userId)))),
     settings: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(businessBillSettingsSchema)
-      .query(({ ctx, input }) => guard(async () => settingsView(await bills().settings(input.accountId, ctx.principal.userId)))),
+      .query(({ ctx, input }) => guard(async () => settingsView(await bills.settings(input.accountId, ctx.principal.userId)))),
 
     upload: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -101,7 +100,7 @@ export function createBusinessBillsRouter(c: BankRouterContext) {
             throw new BankError('A bill file is 1 byte to 1 MiB.', 'bank.bill_file_invalid');
           }
           return billView(
-            await bills().upload({
+            await bills.upload({
               accountId: input.accountId,
               billId: input.billId,
               userId: ctx.principal.userId,
@@ -128,7 +127,7 @@ export function createBusinessBillsRouter(c: BankRouterContext) {
       .mutation(({ ctx, input }) =>
         guard(async () =>
           billView(
-            await bills().review({
+            await bills.review({
               ...input,
               amount: input.amount === null ? null : parseAmount(input.amount),
               userId: ctx.principal.userId,
@@ -139,12 +138,12 @@ export function createBusinessBillsRouter(c: BankRouterContext) {
     clearDuplicate: scopedProcedure('bank:write', { module: 'bank' })
       .input(billInput)
       .output(businessBillSchema)
-      .mutation(({ ctx, input }) => guard(async () => billView(await bills().clearDuplicate({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => billView(await bills.clearDuplicate({ ...input, userId: ctx.principal.userId })))),
     setVendor: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ accountId: z.string().guid(), name: z.string().min(1).max(128), cap: amountString }).strict())
       .output(businessBillVendorSchema)
       .mutation(({ ctx, input }) =>
-        guard(async () => vendorView(await bills().setVendor({ ...input, cap: parseAmount(input.cap), userId: ctx.principal.userId }))),
+        guard(async () => vendorView(await bills.setVendor({ ...input, cap: parseAmount(input.cap), userId: ctx.principal.userId }))),
       ),
     setLimits: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -162,7 +161,7 @@ export function createBusinessBillsRouter(c: BankRouterContext) {
         guard(async () => {
           const p = (v: string | null) => (v === null ? null : parseAmount(v));
           return limitsView(
-            await bills().setLimits({
+            await bills.setLimits({
               accountId: input.accountId,
               userId: ctx.principal.userId,
               limits: { perPayment: p(input.perPayment), daily: p(input.daily), monthly: p(input.monthly) },
@@ -173,11 +172,11 @@ export function createBusinessBillsRouter(c: BankRouterContext) {
     submit: scopedProcedure('bank:write', { module: 'bank' })
       .input(billInput)
       .output(businessBillSchema)
-      .mutation(({ ctx, input }) => guard(async () => billView(await bills().submit({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => billView(await bills.submit({ ...input, userId: ctx.principal.userId })))),
     approve: scopedProcedure('bank:write', { module: 'bank' })
       .input(billInput)
       .output(businessBillSchema)
-      .mutation(({ ctx, input }) => guard(async () => billView(await bills().approve({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => billView(await bills.approve({ ...input, userId: ctx.principal.userId })))),
     /** Pays an approved bill now, or schedules it: one partner instruction under its own key, sent once. */
     pay: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -208,7 +207,7 @@ export function createBusinessBillsRouter(c: BankRouterContext) {
             );
           }
           return billView(
-            await bills().pay({
+            await bills.pay({
               ...rest,
               splits: rest.splits.map((s) => ({ category: s.category, amount: parseAmount(s.amount) })),
               userId: ctx.principal.userId,
@@ -220,10 +219,10 @@ export function createBusinessBillsRouter(c: BankRouterContext) {
     resend: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ paymentId: z.string().guid() }).strict())
       .output(businessBillSchema)
-      .mutation(({ ctx, input }) => guard(async () => billView(await bills().resend({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => billView(await bills.resend({ ...input, userId: ctx.principal.userId })))),
     cancel: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ paymentId: z.string().guid() }).strict())
       .output(businessBillSchema)
-      .mutation(({ ctx, input }) => guard(async () => billView(await bills().cancel({ ...input, userId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => billView(await bills.cancel({ ...input, userId: ctx.principal.userId })))),
   });
 }

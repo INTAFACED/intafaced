@@ -122,8 +122,7 @@ export function createBankAccountRouter(
     }
     return compliance;
   };
-  // Read per call, never at mount: a router built for one door must not touch the bank's services until it is called.
-  const owner = () => bank.bankAccountTerms;
+  const terms = bank.bankAccountTerms;
 
   return router({
     /** The partner's steps and requirements, with the owner's, and our identity case where the partner accepts it (#1). */
@@ -157,7 +156,6 @@ export function createBankAccountRouter(
       )
       .query(({ ctx, input }) =>
         guard(async () => {
-          const terms = owner();
           const userId = ctx.principal.userId;
           const partner = await partnerFor(userId, input?.profile);
           const now = await partner.onboarding(userId, ctx.principal.tier);
@@ -194,7 +192,6 @@ export function createBankAccountRouter(
       )
       .query(({ ctx, input }) =>
         guard(async () => {
-          const terms = owner();
           const rows = await (await partnerFor(ctx.principal.userId, input?.profile)).requests(ctx.principal.userId);
           return {
             requests: rows.map(requestWire),
@@ -222,7 +219,6 @@ export function createBankAccountRouter(
       .output(infoRequestOut)
       .mutation(({ ctx, input }) =>
         guard(async () => {
-          const terms = owner();
           const userId = ctx.principal.userId;
           const partner = await partnerFor(userId, input?.profile);
           const limits = terms.upload;
@@ -300,7 +296,6 @@ export function createBankAccountRouter(
       )
       .query(({ ctx, input }) =>
         guard(async () => {
-          const terms = owner();
           const now = await (await partnerFor(ctx.principal.userId, input?.profile)).closure(ctx.principal.userId);
           const closedAt = now.state === 'closed' ? (now.closures[0]?.closedAt ?? null) : null;
           return {
@@ -361,7 +356,6 @@ export function createBankAccountRouter(
       .output(closureOut)
       .mutation(({ ctx, input }) =>
         guard(async () => {
-          const terms = owner();
           const partner = await partnerFor(ctx.principal.userId, input?.profile);
           if (terms.reopenWindowDays === null) {
             throw new BankError(
