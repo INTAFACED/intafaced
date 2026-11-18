@@ -36,7 +36,7 @@ run() {
   else
     cp "$here/ReceivedHold.tla" "$d/ReceivedHold.tla"
   fi
-  printf 'CONSTANTS Placers = {%s}  B = 2  MaxT = %s  Tries = 2\nSPECIFICATION Spec\nINVARIANTS %s\nCHECK_DEADLOCK FALSE\n' \
+  printf 'CONSTANTS Placers = {%s}  B = 2  MaxT = %s  Tries = 2\nSPECIFICATION Spec\nINVARIANTS %s\n' \
     "$placers" "${MAXT:-8}" "$invariants" > "$d/ReceivedHold.cfg"
   local status=0
   ( cd "$d" && "$java" -XX:+UseSerialGC -Xmx2g -cp "$jar" tlc2.TLC -workers "${WORKERS:-auto}" -config ReceivedHold.cfg ReceivedHold.tla > out.txt 2>&1 ) || status=$?
