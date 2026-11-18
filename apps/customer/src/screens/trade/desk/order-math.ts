@@ -81,7 +81,9 @@ export type Problem =
   | { kind: 'amountMin'; min: string }
   | { kind: 'priceTick'; tick: string }
   | { kind: 'valueMin'; min: string }
-  | { kind: 'noPrice' };
+  | { kind: 'noPrice' }
+  /** A new listing in its opening window takes limit orders only (J-cex-spot-14 #7). */
+  | { kind: 'openingWindow' };
 
 /** `stopLossLimit` is the buy OCO's stop-loss limit price (the stop-loss is the trigger); a sell OCO and a bracket have none. */
 export type Exit = { takeProfit: string; stopLoss: string; stopLossLimit?: string };
@@ -154,11 +156,16 @@ export function orderValue(input: FormInput, ref: Reference | null): { value: st
  */
 export function checkOrder(
   input: FormInput,
-  market: Pick<DeskMarket, 'tickSize' | 'lotSize' | 'minAmount' | 'minCost'>,
+  market: Pick<DeskMarket, 'tickSize' | 'lotSize' | 'minAmount' | 'minCost' | 'openingWindowEndsAt'>,
   ref: Reference | null,
+  now: number = Date.now(),
 ): Checked {
   const amount = positive(input.amount);
   if (amount === null) return { ok: false, problem: { kind: 'amountEmpty' } };
+  // Inside a new listing's opening window only a limit order is taken: any other type is refused here, in words, before
+  // anything is sent, as the door refuses it (`trade.opening_window`).
+  if (market.openingWindowEndsAt != null && now < market.openingWindowEndsAt && input.type !== 'limit')
+    return { ok: false, problem: { kind: 'openingWindow' } };
   const lot = positive(market.lotSize);
   if (lot !== null && amount % lot !== 0n) return { ok: false, problem: { kind: 'amountLot', lot: market.lotSize } };
   const minAmount = positive(market.minAmount);

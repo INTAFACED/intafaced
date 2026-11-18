@@ -132,6 +132,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only: the TEST chain's trading venue (seed-test-chain.ts ensureVenueParts), so a wallet's venue deposit
       // and withdraw build against a real SovereignVenue. Production stays blank and refuses protocol.venue_unset.
       ...(chain?.venue ? { PROTOCOL_VENUE_ADDRESS: chain.venue } : {}),
+      // LOCAL TEST only: the TEST chain's P2P escrow (seed-test-chain.ts ensureP2pEscrow), so a contract-escrow P2P order
+      // (J-p2p-21) opens a real SovereignEscrow deal. Production stays blank and refuses protocol.escrow_not_deployed.
+      ...(chain?.p2pEscrow ? { PROTOCOL_P2P_ESCROW_ADDRESS: chain.p2pEscrow } : {}),
       // LOCAL TEST only: the TEST chain's lending market (seed-test-chain.ts ensureLendingParts), so a wallet's lending
       // position is read from a real IsolatedLendingMarket. Production stays blank and refuses protocol.lending_market_unset.
       ...(() => {

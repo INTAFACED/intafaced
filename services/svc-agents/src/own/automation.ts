@@ -16,6 +16,7 @@ import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { OwnAgentRefusal } from './catalog.js';
 import { readOwnCaps } from './limits.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
+import { assertNotSelfFrozen, type OwnSelfFreezeRead } from './self-freeze.js';
 
 /**
  * Schedules and event triggers of a person's own agent (AG-sessions-02, J-agents-07 #1 to #4).
@@ -336,6 +337,8 @@ export interface AutoRunDeps {
   /** The guardrail a session of the agent is bound to, with `perSessionCap` as its spend ceiling. */
   readonly guardrailOf: (agent: OwnAgentView) => Guardrail;
   readonly log?: (msg: string, detail: Record<string, unknown>) => void;
+  /** Identity's read of the owner's own freeze, asked before each run; null skips every run as unreadable. */
+  readonly selfFreeze: OwnSelfFreezeRead | null;
 }
 
 const minCap = (a: Amount, b: Amount) => (a < b ? a : b);
@@ -394,6 +397,13 @@ export async function executeAutoRun(deps: AutoRunDeps, runId: string): Promise<
   }
   // Admission, as for the person's own run: nothing runs on a guess.
   if ((await ownAgentSwitch(sql, agent.id)) !== 'active') return skip('agents.agent.disabled');
+  // The owner's own freeze, read at each run (J-wallet-13): frozen or unreadable, the occurrence is skipped by its code.
+  try {
+    await assertNotSelfFrozen(row.owner_id, deps.selfFreeze);
+  } catch (err) {
+    if (err instanceof OwnAgentRefusal) return skip(err.code);
+    throw err;
+  }
   if (row.per_run_cap === null) return skip('agents.schedule.cap_per_run_unset');
   if (!(await readOwnCaps(sql, row.owner_id, agent.id))) return skip('agents.spend.cap_unset');
   if (deps.cadence.dailyLimit === null) return skip('agents.schedule_cadence_unset');

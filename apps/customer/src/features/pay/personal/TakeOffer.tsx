@@ -15,6 +15,9 @@ import { TraderName, useTraders } from './Trader';
 import { P2PEligibilityPanel, StaySafe } from './Eligibility';
 import { TakeSettlementNotice } from './Settlement';
 import { StepUpConfirm } from '../../money/StepUpConfirm';
+import { ContractEscrowChoice, useContractEscrowChoice } from './ContractEscrow';
+import { WalletProvider } from '../../protocol/wallet/WalletProvider';
+import { contractEscrowCopy as escrowCopy } from './contract-escrow-copy';
 import type { StepUpBegin } from '../../account/security-step-up';
 import {
   checkTake,
@@ -338,7 +341,16 @@ export function QuoteCountdown({
  * the order id is chosen and stored first, a lost answer is "check before trying again", and nothing retries by itself.
  * The offer's own maker never gets this form.
  */
-export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: PersonalPayApi; userId: string | null }) {
+/** The take form, inside one wallet connection: the contract escrow pays the wallet the buyer connects here (RC-p2p-02). */
+export function TakeOfferPanel(props: { offer: Offer; pay: PersonalPayApi; userId: string | null }) {
+  return (
+    <WalletProvider>
+      <TakeOfferForm {...props} />
+    </WalletProvider>
+  );
+}
+
+function TakeOfferForm({ offer, pay, userId }: { offer: Offer; pay: PersonalPayApi; userId: string | null }) {
   const { t, languageFor, directionFor, requestedLocale } = p2pDepth.useCopy();
   const own = isOwnOffer(offer, userId);
   const methods = offerMethodIds(offer);
@@ -353,6 +365,9 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
   const journalKey = `${userId}:take:${offer.id.toLowerCase()}`;
   const selling = takerRole(offer) === 'seller';
   const wantsBalance = selling && !own && Boolean(userId);
+  // RC-p2p-02: who holds the seller's coins, chosen here and fixed once the order is placed.
+  const escrow = useContractEscrowChoice(pay, offer, !selling);
+  const escrowChoice = escrow.choice;
   const [available, setAvailable] = useState<ApiResult<string> | 'loading' | null>(null);
   // While an earlier take is held its escrow may already have used part of the balance, so the figure can't judge a retry.
   const over =
@@ -540,6 +555,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
         quote: review.quote,
         current: () => mounted.current && reviewToken.current === token,
         ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+        ...(escrowChoice.kind === 'contract' ? { contractEscrow: { buyerWallet: escrowChoice.buyerWallet } } : {}),
       });
     } catch (err) {
       if (mounted.current) setBusy(false);
@@ -732,6 +748,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
           </select>
         </label>
         <TakeSettlementNotice offer={offer} method={method} />
+        <ContractEscrowChoice state={escrow} />
         <div className="p2p-quote" aria-live="polite" data-testid="take-quote-area">
           <h4>{t('takeQuoteTitle')}</h4>
           {shown === null ? (
@@ -771,6 +788,12 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
                 amount: displayAmount(review.quote.amount),
                 asset: offer.asset,
               })}
+            </p>
+            <p className="muted" data-testid="take-review-escrow">
+              {escrowCopy.t('escrowType')}:{' '}
+              {escrowChoice.kind === 'contract'
+                ? `${escrowCopy.t('escrowContract')} · ${escrowCopy.t('escrowWallet', { address: escrowChoice.buyerWallet })}`
+                : escrowCopy.t('escrowLedger')}
             </p>
             <TakeReviewDetails
               offer={offer}

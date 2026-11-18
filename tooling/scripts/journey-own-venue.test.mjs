@@ -13,8 +13,9 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { testVenueId } from './local-test-venue.mjs';
 
+import * as restore from '../../apps/customer/tests/real-app/world-restore.mjs';
+
 const realApp = resolve(dirname(fileURLToPath(import.meta.url)), '../../apps/customer/tests/real-app');
-const restore = await import(join(realApp, 'world-restore.mjs'));
 
 test("the venue's id: blank is the simulator's own, a fresh one is test-venue-sim- and 4 to 16 letters or digits", () => {
   for (const blank of [undefined, '', '  ']) assert.equal(testVenueId(blank), null);

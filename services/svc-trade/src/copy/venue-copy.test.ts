@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { MemoryFreezeRead } from '../quant/live-run/ports.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
@@ -128,7 +129,14 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
       now: () => new Date(),
     });
     accountStore = new InMemoryAgentAccountStore();
-    accounts = new AgentAccounts({ door, store: accountStore, stepUp, values: VALUES, now: () => new Date() });
+    accounts = new AgentAccounts({
+      door,
+      store: accountStore,
+      stepUp,
+      values: VALUES,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
     orders = new AgentOrders({
       door,
       accounts: accountStore,
@@ -136,6 +144,7 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
       keys: { read: async () => ({ state: 'none' }) },
       stepUp,
       values: VALUES,
+      freeze: new MemoryFreezeRead(),
       now: () => new Date(),
     });
     copyStore = new MemoryCopyFollowStore();

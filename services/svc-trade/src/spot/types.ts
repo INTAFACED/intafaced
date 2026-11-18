@@ -77,6 +77,11 @@ export interface Market {
   readonly listedAt: Date | null;
   /** The date a delisted market leaves the board (J-cex-spot-14 #1); null when none is set or the read did not load it. */
   readonly delistsAt?: Date | null;
+  /**
+   * When a new listing's opening window ends (J-cex-spot-14 #7). Until then a market or conditional order is refused
+   * with `trade.opening_window` and a limit order is taken. Null: no window (or the read did not load it).
+   */
+  readonly openingWindowEndsAt?: Date | null;
   readonly assetClass: AssetClass;
   /**
    * When this market accepts orders.
@@ -313,6 +318,8 @@ export type TradeErrorCode =
   // venue is between sessions and the same order will be fine on Monday.
   | 'trade.market_closed'
   | 'trade.mode_limit_only'
+  /** A new listing inside its opening window: only limit orders are taken until it ends (SP-markets-data-02). */
+  | 'trade.opening_window'
   /** The retail price improvement layer has no priority class (SP-markets-data-04): an order asking for it is refused. */
   | 'trade.rpi_unavailable'
   /** Cancel-only mode: a new order is refused; cancel works. */

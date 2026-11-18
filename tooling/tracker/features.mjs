@@ -39,7 +39,7 @@
  * svc-edge EXISTS and signs `x-intafaced-principal` for every routed request.
  * `scopedProcedure` is reachable by logged-in humans through the edge.
  * `done` still means code mounted + tested + unpropped — not "live product
- * complete" (rails, chain, KYC ops may still be sandbox). See mount-boundary.
+ * complete" (rails, chain, KYC ops may still be sandbox).
  */
 
 /** @typedef {'done'|'wip'|'ready'|'socket'} DeclaredStatus */
@@ -209,7 +209,7 @@ export const FEATURES = [
     status: 'done',
     dependsOn: ['identity.kyc'],
     requires: ['services/svc-identity'],
-    note: "Reachable on svc-identity's mounted /trpc; tested in router.test.ts + identity.test.ts; nothing propped up — approval is an operator action against kyc_records, no provider stub. Custodial side only: §22 permissionless surfaces read no tier (docs/decisions/kyc-posture.md).",
+    note: "Reachable on svc-identity's mounted /trpc; tested in router.test.ts + identity.test.ts; nothing propped up — approval is an operator action against kyc_records, no provider stub. Custodial side only: §22 permissionless surfaces read no tier.",
   }),
   f('identity.step-up', 'Step-up challenge minting trade:withdraw for five minutes', {
     module: 'identity',

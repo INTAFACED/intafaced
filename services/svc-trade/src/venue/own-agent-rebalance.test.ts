@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { MemoryFreezeRead } from '../quant/live-run/ports.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -146,7 +147,7 @@ describe("the Portfolio planner's rebalance of a person's own agent's sub-accoun
       now: () => new Date(),
     });
     store = new InMemoryAllowanceStore();
-    trading = new OwnAgentTrading({ door, store, policy: p, values: VALUES, now: () => new Date() });
+    trading = new OwnAgentTrading({ door, store, policy: p, values: VALUES, freeze: new MemoryFreezeRead(), now: () => new Date() });
     planner = new OwnAgentRebalance({ trading, store: new InMemoryRebalanceStore(), now: () => new Date() });
   }
 

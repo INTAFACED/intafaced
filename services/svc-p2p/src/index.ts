@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { createProtocolEscrowReader, parseContractEscrowTokens } from './contract-escrow.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -247,6 +248,13 @@ const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
 const releaseStepUp = createReleaseStepUp({ sql, approvals: actionApprovals });
 const instrumentStepUp = createInstrumentStepUp({ sql, approvals: actionApprovals });
 
+// RC-p2p-02: the contract escrow reads svc-protocol as the person of the request; blank owner values refuse by name.
+const contractEscrow = {
+  tokens: parseContractEscrowTokens(env.P2P_CONTRACT_ESCROW_TOKENS),
+  disputeWindowSeconds: env.P2P_CONTRACT_ESCROW_DISPUTE_WINDOW_SECONDS ?? null,
+  reader: env.PROTOCOL_URL ? createProtocolEscrowReader({ protocolUrl: env.PROTOCOL_URL }) : null,
+};
+
 export const appRouter = createP2pRouter(
   p2p,
   instruments,
@@ -263,6 +271,7 @@ export const appRouter = createP2pRouter(
     takeStepUp,
     releaseStepUp,
     instrumentStepUp,
+    contractEscrow,
     // The other side of an order by their handle; without IDENTITY_URL reputation.get says the profile is unwired.
     ...(env.IDENTITY_URL ? { publicProfile: createIdentityPublicProfile(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) } : {}),
   },

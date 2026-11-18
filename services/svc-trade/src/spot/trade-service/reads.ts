@@ -346,7 +346,7 @@ export async function everyFillOfOrders(
 export async function marketById(svc: TradeServiceInternal, marketId: string): Promise<Market | null> {
   const rows = await svc.sql<MarketRow[]>`
     SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-           min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
+           min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at, opening_window_ends_at,
               asset_class, schedule, paper,
               futures_contract_style, futures_expiry_at, futures_settlement_fixing,
               futures_family, futures_settle_asset, contract_size

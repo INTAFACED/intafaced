@@ -11,7 +11,8 @@
  *   GET  /api/v1/venue/trades?symbol=BTC-USDC&limit=50  the venue's newest prints there, newest first
  *   GET  /api/v1/venue/candles?symbol=BTC-USDC&interval=15m&limit=240   candles of the venue's prints, oldest first
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
- *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
+ *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=|clientOrderKey=   the venue's order, by its venue client id or
+ *                                                      by the caller's own client id (the key it placed it under)
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
  *   GET  /api/v1/venue/withdrawal-terms?owner=&asset=   the venue's published withdrawal fee, network fee and arrival time (J-bank-31 #3)
@@ -68,6 +69,7 @@ import {
   type VenueSigner,
   type VenueCandleInterval,
   VENUE_CANDLE_INTERVALS,
+  venueClientOrderId,
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
@@ -77,6 +79,7 @@ import { SessionKeys } from './session-key.js';
 import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
 import { StatementError } from '../statements/statement-export.js';
 import type { VenueStatements } from './venue-statements.js';
+import type { VenueAdlAcks } from './venue-adl-acks.js';
 
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
@@ -102,7 +105,17 @@ export interface UserVenueRestDeps {
   agentKeyConfined?: (principal: Principal) => Promise<boolean>;
   /** The statement export on the venue's own records (J-cex-spot-07 #5); absent, its routes answer 503 `trade.statements_unmounted`. */
   venueStatements?: VenueStatements | null;
+  /**
+   * Each person's acknowledged version of a venue's auto-deleveraging rules (J-derivatives-07 #5); absent, the
+   * acknowledgement routes answer 503 `trade.venue_adl_acks_unmounted`.
+   */
+  venueAdlAcks?: VenueAdlAcks | null;
+  /** The clock an acknowledgement is stamped with; absent, the system clock. */
+  now?: () => Date;
 }
+
+/** An acknowledgement of a version the venue no longer publishes (J-derivatives-07 #5): it is not stored. */
+export const VENUE_ADL_VERSION_STALE = 'trade.venue_adl_version_stale' as const;
 
 /** The refusal a connected agent key gets on any venue route but the assistant's own (J-agents-21 #9). */
 export const AGENT_KEY_CONFINED_CODE = 'auth.scope_denied' as const;
@@ -138,7 +151,12 @@ export async function refusedAgentKey(reply: FastifyReply, principal: Principal,
 type Query = {
   owner?: string;
   subAccount?: string;
+  /** J-derivatives-05 #4: a leverage change's leverage (basis points of 1x) and margin mode. */
+  leverageBps?: string;
+  marginMode?: string;
   clientOrderId?: string;
+  /** J-cex-spot-15 #5: the caller's own client id, the business key its order was placed under. */
+  clientOrderKey?: string;
   since?: string;
   symbol?: string;
   cursor?: string;
@@ -316,6 +334,118 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.publicFees(), req.query.venueId);
   });
 
+  // J-derivatives-07 #4: the venue's own insurance fund or vault and where to read it, signed in or not. A venue that
+  // publishes none answers `known: false`, read as "not published by this venue", never a zero. INTAFACED runs no fund.
+  app.get<{ Querystring: Query }>('/api/v1/venue/insurance-fund', publicRead, async (req, reply) => {
+    return answer(
+      reply,
+      async (d) => {
+        const venue = await d.venue();
+        const read = venue.insuranceFund
+          ? await venue.insuranceFund()
+          : { venueId: venue.venue.id, value: { known: false }, asOf: new Date() };
+        return { ...read, venueName: venue.venue.displayName };
+      },
+      req.query.venueId,
+    );
+  });
+
+  // J-derivatives-07 #7: the venue's public liquidation and auto-deleveraging alerts on the markets we list, newest first:
+  // the market, side, size and price, and no account identity. Signed in or not.
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/liquidation-alerts', publicRead, async (req, reply) => {
+    return answer(
+      reply,
+      async (d) => {
+        const symbol = req.query.symbol === undefined ? null : symbolOf(req.query.symbol);
+        const limit = whole(req.query.limit, 'limit', 500, 50);
+        const venue = await d.venue();
+        if (!venue.liquidationAlerts)
+          throw new VenueRefusalError({
+            venueId: venue.venue.id,
+            code: 'not_offered',
+            detail: `${venue.venue.displayName} publishes no liquidation alerts`,
+          });
+        const listed = new Set((await d.markets()).value.map((m) => m.symbol));
+        if (symbol !== null && !listed.has(symbol))
+          throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: `${symbol} is not a market listed here` });
+        const read = await venue.liquidationAlerts(symbol, limit);
+        // Only what a public alert carries, so nothing a venue adds to one can name an account.
+        return {
+          ...read,
+          value: read.value
+            .filter((x) => listed.has(x.symbol))
+            .map((x) => ({ kind: x.kind, symbol: x.symbol, side: x.side, size: x.size, price: x.price, alertedAt: x.alertedAt })),
+        };
+      },
+      req.query.venueId,
+    );
+  });
+
+  // J-derivatives-07 #5: the venue's auto-deleveraging rules with their version, and whether this person has read that
+  // version. "I have read this" stores the version read; a version the venue has since replaced does not count.
+  const adlDisclosure = async (d: UserVenueDoor, userId: string) => {
+    const acks = deps.venueAdlAcks;
+    if (!acks)
+      throw new UserVenueDoorError('auto-deleveraging acknowledgements are not mounted here', 'trade.venue_adl_acks_unmounted', 503);
+    const venue = await d.venue();
+    if (!venue.adlRules)
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'not_offered',
+        detail: `${venue.venue.displayName} publishes no auto-deleveraging rules`,
+      });
+    const rules = await venue.adlRules();
+    const ack = await acks.get(userId, venue.venue.id);
+    const current = rules.value !== null && ack !== null && ack.version === rules.value.version;
+    return {
+      venueId: venue.venue.id,
+      venueName: venue.venue.displayName,
+      asOf: rules.asOf,
+      rules: rules.value,
+      acknowledged: current,
+      acknowledgedVersion: ack?.version ?? null,
+      acknowledgedAt: ack?.acknowledgedAt ?? null,
+    };
+  };
+  app.get<{ Querystring: Query }>('/api/v1/venue/adl-disclosure', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(reply, async (d) => adlDisclosure(d, principal.userId), req.query.venueId);
+  });
+  app.post('/api/v1/venue/adl-disclosure/ack', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    let b: { version?: unknown; venueId?: unknown };
+    try {
+      b = body<{ version?: unknown; venueId?: unknown }>(req);
+    } catch (error) {
+      return venueRefusalReply(reply, error);
+    }
+    const venueId = typeof b.venueId === 'string' ? b.venueId : null;
+    return answer(
+      reply,
+      async (d) => {
+        if (typeof b.version !== 'string' || b.version.trim() === '') throw new VenueWireError('version is the version you read');
+        const now = await adlDisclosure(d, principal.userId);
+        if (!now.rules)
+          throw new VenueRefusalError({
+            venueId: now.venueId,
+            code: 'not_offered',
+            detail: `${now.venueName} publishes no auto-deleveraging rules to acknowledge`,
+          });
+        if (b.version !== now.rules.version)
+          throw new UserVenueDoorError(
+            `version ${b.version} is not the one ${now.venueName} publishes now (${now.rules.version}): read the current rules and acknowledge them`,
+            VENUE_ADL_VERSION_STALE,
+            409,
+          );
+        await deps.venueAdlAcks!.record(principal.userId, now.venueId, now.rules.version, (deps.now ?? (() => new Date()))());
+        return adlDisclosure(d, principal.userId);
+      },
+      venueId,
+    );
+  });
+
   // J-cex-spot-01 #5: the venue's public book, prints and candles on a market we list, as the spot desk draws them. Gated
   // as `markets` and `best-prices` are: venue market data is for a person the trade jurisdiction admits.
   const whole = (raw: string | undefined, name: string, most: number, fallback: number) => {
@@ -376,9 +506,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.subAccounts(a);
     },
+    // J-cex-spot-15 #5: a bot looks its order up by its own client id (`clientOrderKey`, the business key it placed the
+    // order under), or by the venue's client order id; the venue answers with the order's own state.
     '/api/v1/venue/orders/by-client-id': async (d, q, a) => {
-      if (!q.clientOrderId) throw new VenueWireError('clientOrderId is required');
-      return (await d.venue()).orderByClientId(a, q.clientOrderId);
+      if (q.clientOrderId && q.clientOrderKey) throw new VenueWireError('send clientOrderId or clientOrderKey, not both');
+      const id = q.clientOrderKey ? venueClientOrderId(a.venueId, q.clientOrderKey) : q.clientOrderId;
+      if (!id) throw new VenueWireError('clientOrderId or clientOrderKey is required');
+      return (await d.venue()).orderByClientId(a, id);
     },
     '/api/v1/venue/fills': async (d, q, a) => {
       const since = new Date(q.since ?? '');
@@ -404,6 +538,86 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/leverage': async (d, q, a) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
+    },
+    // J-derivatives-05 #4: what a leverage change would do to the open position's margin, by the venue's own rule, read
+    // before anything is signed; a venue that reads none refuses not_offered, and the app says it states no difference.
+    '/api/v1/venue/leverage-change': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const bps = Number(q.leverageBps);
+      if (!Number.isInteger(bps) || bps < 1) throw new VenueWireError('leverageBps is a whole number of basis points of 1x');
+      if (q.marginMode !== 'cross' && q.marginMode !== 'isolated') throw new VenueWireError('marginMode is cross or isolated');
+      const venue = await d.venue();
+      if (!venue.leverageChange)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} states no margin difference for a leverage change`,
+        });
+      return venue.leverageChange(a, q.symbol, bps, q.marginMode);
+    },
+    // J-derivatives-06 #2 #3: an open isolated position's margin and the venue's own limit for removing it, read before
+    // anything is signed; a venue that reads none refuses not_offered.
+    '/api/v1/venue/isolated-margin': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.isolatedMargin)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reads no isolated position margin`,
+        });
+      return venue.isolatedMargin(a, q.symbol);
+    },
+    // J-derivatives-06 #1: the account's equity, free, used margin, maintenance and margin ratio as the venue reports them.
+    '/api/v1/venue/account-summary': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.accountSummary)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no account margin summary`,
+        });
+      return venue.accountSummary(a);
+    },
+    // J-derivatives-07 #1 #3: the position's liquidation state on one market and the venue's price and fee rules, in its
+    // own words; a venue that reads none refuses not_offered.
+    '/api/v1/venue/liquidation': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.liquidationStatus)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no liquidation state`,
+        });
+      return venue.liquidationStatus(a, q.symbol);
+    },
+    // J-derivatives-07 #2 #3: each liquidation the venue reports for the account, with every part's price, size, fee and
+    // the venue's ids; since an ISO time, or every one the venue keeps.
+    '/api/v1/venue/liquidations': async (d, q, a) => {
+      const since = new Date(q.since ?? 0);
+      if (Number.isNaN(since.getTime())) throw new VenueWireError('since is an ISO time');
+      const venue = await d.venue();
+      if (!venue.liquidations)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no liquidations`,
+        });
+      return venue.liquidations(a, since);
+    },
+    // J-derivatives-07 #6: each auto-deleveraging of the account's positions, with the venue's notice.
+    '/api/v1/venue/deleverages': async (d, q, a) => {
+      const since = new Date(q.since ?? 0);
+      if (Number.isNaN(since.getTime())) throw new VenueWireError('since is an ISO time');
+      const venue = await d.venue();
+      if (!venue.deleverages)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no auto-deleveraging`,
+        });
+      return venue.deleverages(a, since);
     },
     // J-derivatives-27 #7: the person's balance in the margin account a market's deployer keeps for it, on the main
     // account; a venue that reads none refuses not_offered.
@@ -467,6 +681,12 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/deposits',
     '/api/v1/venue/withdrawal-terms',
     '/api/v1/venue/leverage',
+    '/api/v1/venue/leverage-change',
+    '/api/v1/venue/isolated-margin',
+    '/api/v1/venue/account-summary',
+    '/api/v1/venue/liquidation',
+    '/api/v1/venue/liquidations',
+    '/api/v1/venue/deleverages',
     '/api/v1/venue/market-margin',
     '/api/v1/venue/settlements',
     '/api/v1/venue/scheduled-cancel',
@@ -478,7 +698,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       if (!(await admit(req, reply, 'trade:read'))) return;
       return answer(
         reply,
-        async (d) => read(d, req.query, await d.account(req.query.owner ?? '', req.query.subAccount ?? null)),
+        async (d) => read(d, req.query, await d.readableAccount(req.query.owner ?? '', req.query.subAccount ?? null)),
         req.query.venueId,
       );
     });

@@ -134,13 +134,17 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // Each service the stack started, one row each in its own health table, answers its health check.
   const table = run('tooling/scripts/local-test-stack.mjs', ['status'], { LOCAL_STACK_STATE: STATE });
   expect(table.status, table.out).toBe(0);
-  // A row's name may carry a TEST mark (`chain (TEST)`, `team-tls (TEST)`), which is not its port.
-  const rows = [...table.out.matchAll(/^ {2}(\S+)(?: \(TEST\))? +\S+ +(\d+|owned) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
+  // A row's name may carry a TEST mark (`chain (TEST)`, `team-tls (TEST)`), which is not its port. A row with no process
+  // reads `-` for its PID (a TEST venue the stack left off), and is still read, so its health is checked below.
+  const rows = [...table.out.matchAll(/^ {2}(\S+)(?: \(TEST\))? +\S+ +(\d+|owned|-) +(.+)$/gm)].map((m) => [m[1], m[3].trim()]);
   const names = rows.map(([name]) => name);
   expect(new Set(names).size, 'one row per service').toBe(names.length);
   // Against the stack's own inventory of what it started (its marker's ports), each exactly once.
   const marker = JSON.parse(readFileSync(path.join(STATE, 'LOCAL-TEST-STACK.json'), 'utf8'));
-  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
+  // The TEST adapters behind a service's outside door have rows of their own; the stack starts the venues only with the
+  // user-venue switch on, so one it left off reads "off". The wallet provider starts with every full stack.
+  const ADAPTERS = ['test-venue', 'test-venue-b', 'test-wallet-provider'];
+  const PLAIN = ['postgres', 'nats', 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls', ...ADAPTERS];
   const started = Object.keys(marker.ports)
     .filter((name) => name !== 'natsMonitor')
     .map((name) => (PLAIN.includes(name) ? name : `svc-${name}`));
@@ -148,7 +152,8 @@ test(`${J} #1 the tester profile starts healthy services, and its seed service r
   // is still checked below.
   const NOT_PORTS = ['chain', 'market-maker'];
   expect(names.filter((name) => !NOT_PORTS.includes(name)).sort()).toEqual([...started].sort());
-  for (const [name, health] of rows) expect(health, `${name} health`).toMatch(/^ok\b/);
+  for (const [name, health] of rows)
+    expect(health, `${name} health`).toMatch(ADAPTERS.includes(name) && name !== 'test-wallet-provider' ? /^(ok|off)\b/ : /^ok\b/);
 
   // The tester profile's seed service: off unless asked, it runs the founder seed (init, then enrol) and the test-content
   // seed (apply, then home), in that order, and refuses any APP_ENV but dev or test.
@@ -621,6 +626,27 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
     // Red by name only for the outside blocker: compose refusing a blank value the tester profile has not set yet.
     if (config.status !== 0) expect(config.out).toMatch(/required variable [A-Z_]+ is missing a value/);
     expect(config.status, `BLOCKED compose_seed: a fresh compose up with the tester profile refuses to start:\n${config.out}`).toBe(0);
+    // Healthy services first: what the seed waits for (its `depends_on ... service_healthy`) comes up on its own and compose
+    // waits until each is healthy; then every service compose started reads running (healthy where it has a health check)
+    // or, for a one-shot job (migrate, nats-streams), exited 0.
+    const needs = [...seed.block.matchAll(/^ {6}([a-z0-9-]+):\n {8}condition: service_healthy$/gm)].map((m) => m[1]);
+    expect(needs.length, `the seed service waits for no healthy service:\n${seed.block}`).toBeGreaterThan(0);
+    const deps = compose(['up', '--build', '--detach', '--wait', ...needs], env, { timeout: 25 * 60_000 });
+    const depsWhy = deps.status === 0 ? '' : notHealthyLogs(env);
+    const depsTail = deps.out.trim().split('\n').slice(-40).join('\n');
+    expect(deps.status, `BLOCKED compose_seed: the services the seed needs did not turn healthy:\n${depsTail}${depsWhy}`).toBe(0);
+    const states = compose(['ps', '-a', '--format', '{{.Service}}|{{.State}}|{{.Health}}|{{.ExitCode}}'], env);
+    expect(states.status, states.out).toBe(0);
+    const services = states.out
+      .trim()
+      .split('\n')
+      .map((line) => line.split('|'));
+    expect(services.map(([svc]) => svc)).toEqual(expect.arrayContaining(needs));
+    for (const [svc, state, health, code] of services) {
+      const fine = state === 'running' ? health === '' || health === 'healthy' : state === 'exited' && code === '0';
+      expect(fine, `${svc}: ${state}${health ? `, ${health}` : ''}, exit ${code}`).toBe(true);
+    }
+    for (const svc of needs) expect(services.find(([name]) => name === svc)?.[2], `${svc} health`).toBe('healthy');
     const up = compose(['up', '--build', '--abort-on-container-exit', '--exit-code-from', 'seed', 'seed'], env, {
       timeout: 25 * 60_000,
     });

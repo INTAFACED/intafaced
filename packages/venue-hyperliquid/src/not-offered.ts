@@ -22,6 +22,8 @@ export const NOT_OFFERED: Readonly<Record<Exclude<VenueIntent['kind'], BuiltInte
   market_margin_transfer: "a HIP-3 deployer's own margin account is not offered by this adapter yet",
   // The venue takes several orders in one `order` action, but this adapter does not build or read one yet, and its
   // descriptor declares no `ordersPerAction`: each order is signed on its own.
+  // Hyperliquid has one (`updateIsolatedMargin`); this adapter does not build it or read its limit yet.
+  update_isolated_margin: "changing an isolated position's margin is not offered by this adapter yet",
   place_orders: 'orders signed together are not offered by this adapter yet: sign each order on its own',
 };
 

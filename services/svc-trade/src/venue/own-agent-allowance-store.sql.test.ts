@@ -129,6 +129,31 @@ describe('SqlAllowanceStore on Postgres (trade.user_venue_own_agent_allowances, 
     expect((await store.draws(USER, al.allowanceId)).map((d) => d.orderId)).toEqual([x.orderId]);
   });
 
+  it("J-wallet-13: listLive answers the person's signing and active allowances of every agent, oldest first, and no one else's", async () => {
+    const store = new SqlAllowanceStore(db!.sql);
+    const who = '11111111-1111-4111-8111-1111111111c9';
+    const other = '11111111-1111-4111-8111-1111111111c8';
+    const mk = (userId: string, agentId: string, ageMs: number): AllowanceRecord => ({
+      ...allowance(id(), agentId),
+      userId,
+      createdAt: new Date(Date.now() - ageMs),
+    });
+    const older = mk(who, '22222222-2222-4222-8222-2222222222d1', 5_000);
+    const newer = mk(who, '22222222-2222-4222-8222-2222222222d2', 2_000);
+    const gone = mk(who, '22222222-2222-4222-8222-2222222222d3', 9_000);
+    const theirs = mk(other, '22222222-2222-4222-8222-2222222222d4', 1_000);
+    for (const r of [older, newer, gone, theirs]) expect('stored' in (await store.insertOnce(r))).toBe(true);
+    await store.activate(who, older.allowanceId, new Date());
+    await store.abandon(who, gone.allowanceId);
+    expect((await store.listLive(who)).map((r) => [r.allowanceId, r.status])).toEqual([
+      [older.allowanceId, 'active'],
+      [newer.allowanceId, 'signing'],
+    ]);
+    await store.revoke(who, older.allowanceId, new Date());
+    expect((await store.listLive(who)).map((r) => r.allowanceId)).toEqual([newer.allowanceId]);
+    expect((await store.listLive(other)).map((r) => r.allowanceId)).toEqual([theirs.allowanceId]);
+  });
+
   it('a revoked allowance admits nothing, and a draw is never deleted and never un-refused', async () => {
     const sql = db!.sql;
     const store = new SqlAllowanceStore(sql);

@@ -117,7 +117,7 @@ test('--before-push runs every gate but those it leaves to CI, each named with w
     assert.ok(ids(GATES).includes(id), `${id} is not a gate`);
     assert.ok(LEFT_TO_CI_BEFORE_PUSH[id].length >= 20, `${id} needs its reason`);
   }
-  for (const id of ['boundary', 'brand', 'reachability', 'secrets', 'migrations']) assert.ok(ids(gatesBeforePush(GATES)).includes(id), id);
+  for (const id of ['boundary', 'brand', 'dead-code', 'secrets', 'migrations']) assert.ok(ids(gatesBeforePush(GATES)).includes(id), id);
   assert.ok(!ids(gatesBeforePush(GATES)).includes('money-property-mutation'));
 });
 

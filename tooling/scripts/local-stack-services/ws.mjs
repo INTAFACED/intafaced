@@ -17,9 +17,9 @@ export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_
       // The SBE consumer list's read key; svc-edge signs with the same one for the founder console (J-cex-spot-20 #3).
       WS_STATUS_READ_SECRET: secrets.wsStatusRead,
       EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
-      // The multiplexed door's labelled TEST values (tooling/profiles/test-owner-values/ws.json), so that door mounts and
-      // takes subscriptions on this stack (#8311). Every other WS_* limit (depth, lag) stays unset and refuses by its
-      // own *_unset code.
+      // The labelled TEST stream limits (tooling/profiles/test-owner-values/ws.json): the multiplexed door mounts and
+      // takes subscriptions (#8311), and the public depth socket opens with its depth, lag and listing limits
+      // (J-cex-spot-14 #8). Every other WS_* owner value stays unset and refuses by its own *_unset code.
       ...profileEnvFor('ws', 'test'),
     };
   },

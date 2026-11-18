@@ -12,6 +12,10 @@ import {
   statusLabel,
   sweepLeftOpen,
   sweepLine,
+  VENUE_ORDER_ID,
+  parseVenueOrderRead,
+  venueOrderIdsIn,
+  venueStatusLabel,
 } from './order-read';
 
 const ORDER = '0b6c3d0e-9f1a-4c2b-8d3e-112233445566';
@@ -145,5 +149,73 @@ describe('sweep result and audit rows (J-cex-spot-18 #3, #5)', () => {
     };
     expect(parseTradeAudit({ rows: [row], nextCursor: null })?.rows).toEqual([row]);
     expect(parseTradeAudit({ rows: [{ ...row, operatorId: 1 }], nextCursor: null })).toBeNull();
+  });
+});
+
+describe('a routed order (J-cex-spot-18 #1 #2)', () => {
+  const cloid = `0x${'ab'.repeat(16)}`;
+  const read = {
+    accountId: 'u-1',
+    venueId: 'test-venue',
+    owner: `0x${'1'.repeat(40)}`,
+    subAccount: null,
+    venueClientOrderId: cloid,
+    recordedAt: '2026-11-18T00:00:00.000Z',
+    sent: 'accepted',
+    order: {
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      timeInForce: 'GTC',
+      price: '60000',
+      amount: '0.001',
+      filled: '0.001',
+      remaining: '0',
+      averagePrice: '59990',
+      status: 'filled',
+      locked: '0',
+    },
+    fills: [
+      {
+        fillId: 'f1',
+        price: '59990',
+        amount: '0.001',
+        role: 'taker',
+        venueFee: '0.02',
+        builderFee: '0',
+        feeAsset: 'USDC',
+        filledAt: '2026-11-18T00:00:01.000Z',
+      },
+    ],
+    reject: null,
+    asOf: '2026-11-18T00:00:02.000Z',
+  };
+
+  it('finds each routed-order id a customer wrote, once, in lower case, and never a uuid', () => {
+    expect(
+      venueOrderIdsIn(`order ${cloid.toUpperCase().replace('0X', '0x')} and ${cloid}`, '11111111-1111-4111-8111-111111111111'),
+    ).toEqual([cloid]);
+    expect(VENUE_ORDER_ID.test(cloid)).toBe(true);
+    expect(VENUE_ORDER_ID.test('11111111-1111-4111-8111-111111111111')).toBe(false);
+  });
+
+  it('parses the read, in the words the customer sees, and refuses a shape it does not know', () => {
+    const parsed = parseVenueOrderRead(read);
+    expect(parsed?.order?.status).toBe('filled');
+    expect(venueStatusLabel(parsed!.order!.status)).toBe('Filled');
+    expect(parsed?.fills).toHaveLength(1);
+    expect(
+      parseVenueOrderRead({
+        ...read,
+        order: null,
+        sent: 'refused',
+        reject: { source: 'venue_refusal', code: 'insufficient_balance', detail: 'x' },
+      }),
+    ).toMatchObject({
+      order: null,
+      reject: { code: 'insufficient_balance' },
+    });
+    expect(parseVenueOrderRead({ ...read, sent: 'maybe' })).toBeNull();
+    expect(parseVenueOrderRead({ ...read, order: { ...read.order, filled: 0.001 } })).toBeNull();
   });
 });

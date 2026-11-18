@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { StaffAccessLink } from './StaffAccess';
 import { flushSync } from 'react-dom';
 import { z } from 'zod';
 import { useSession } from '../session/session';
@@ -637,6 +638,7 @@ export function Security() {
             <Copy k={journal.failed ? 'storage' : problem!} />
           </p>
         )}
+        <StaffAccessLink />
         <div className="security__layout">
           <section data-testid="security__passkeys" className="security__passkeys security__card" aria-label={t('passkeys')}>
             <div className="section-heading">

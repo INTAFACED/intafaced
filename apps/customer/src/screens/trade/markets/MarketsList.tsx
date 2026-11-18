@@ -25,7 +25,7 @@ import {
   type TableColumn,
 } from './deps';
 import { isAnnounced, isPaused, marketTarget, priceText, spreadRatio, spreadText, volumeText, type Entry, type Mode } from './select';
-import { opensLabel, rowStatus, type ListingStatusMap } from './listing-status';
+import { isSessionShut, opensLabel, rowStatus, type ListingStatusMap } from './listing-status';
 import { maintenanceWhen, type MaintenanceWindowSoon } from '../../../shared/market-maintenance';
 import { ianaZone, partialWindowStart, sinceLabel } from './window';
 import { usePreferences } from '../../../shared/preferences';
@@ -248,6 +248,17 @@ export function MarketsList({
               ) : null}
             </span>
             <ListingState market={market} dense={dense} />
+            {/* The simple list has no status column, so a shut session is named by the name, with when it opens (J-cex-spot-14 #6). */}
+            {!pro && isSessionShut(statuses, market.symbol) ? (
+              <span data-testid="mkt-session" className="mkt-stack" data-start="">
+                <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
+                  {t('Closed')}
+                </Badge>
+                {statuses?.[market.symbol]?.opensAt != null ? (
+                  <span className="mkt-since">{t('Opens {time}', { time: opensLabel(statuses[market.symbol]!.opensAt!, timeZone) })}</span>
+                ) : null}
+              </span>
+            ) : null}
             {/* The simple list has no status column, so a maintenance window is flagged by the name (J-cex-spot-14 #5). */}
             {!pro && statuses?.[market.symbol]?.maintenance ? <MaintenanceFlag window={statuses[market.symbol]!.maintenance!} /> : null}
           </span>
@@ -394,6 +405,20 @@ export function MarketsList({
               focusableWhenDisabled
               aria-label={aria}
               title={market.listing === 'upcoming' ? t('This market has not opened for trading') : t('This market is being delisted')}
+            >
+              {text}
+            </Button>,
+          );
+        if (isSessionShut(statuses, market.symbol))
+          // A shut session is never a tradeable row: an order now is refused and not queued (J-cex-spot-14 #6).
+          return wrap(
+            <Button
+              variant="secondary"
+              size={size}
+              disabled
+              focusableWhenDisabled
+              aria-label={aria}
+              title={t('This market is closed. Orders are not queued while it is closed')}
             >
               {text}
             </Button>,

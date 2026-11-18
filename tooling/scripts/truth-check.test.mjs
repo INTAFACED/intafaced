@@ -29,7 +29,8 @@ function git(cwd, args) {
   if (result.status !== 0) throw new Error(result.stderr || result.stdout || 'git failed');
 }
 
-function fixture(mutate) {
+/** `seed` writes files into the base commit (what main already holds); `mutate` changes the topic after it. */
+function fixture(mutate, seed) {
   const root = mkdtempSync(join(tmpdir(), 'truth-check-'));
   mkdirSync(join(root, 'tooling/agent-protocol'), { recursive: true });
   mkdirSync(join(root, '.cursor/rules'), { recursive: true });
@@ -39,9 +40,10 @@ function fixture(mutate) {
   writeFileSync(join(root, 'CONTRIBUTING.md'), 'Never run `pnpm wt:rm` or `pnpm wt:gc:apply`.\n');
   writeFileSync(join(root, 'README.md'), '# readme\n');
   writeFileSync(join(root, 'tooling/agent-protocol/AGENT_PROTOCOL.md'), '# protocol\n');
-  writeFileSync(join(root, '.cursor/rules/inta.mdc'), '# rules\n');
+  writeFileSync(join(root, '.cursor/rules/any.mdc'), '# rules\n');
   writeFileSync(join(root, 'docs/README.md'), '# docs\n- [Move me](MOVE-ME.md)\n');
   writeFileSync(join(root, 'docs/MOVE-ME.md'), 'kept\n');
+  seed?.(root);
   git(root, ['init', '-b', 'main']);
   git(root, ['add', '.']);
   git(root, ['commit', '-m', 'base']);
@@ -54,8 +56,8 @@ function run(root, env = {}) {
   return spawnSync(process.execPath, [script, '--root', root], { encoding: 'utf8', env: { ...process.env, ...env } });
 }
 
-function withRoot(mutate, check, env) {
-  const root = fixture(mutate);
+function withRoot(mutate, check, env, seed) {
+  const root = fixture(mutate, seed);
   try {
     check(run(root, env), root);
   } finally {
@@ -277,6 +279,9 @@ test('an unbannered doc under docs/ with a stale rule fails; a bannered one, adr
     },
   );
   withRoot(
+    null,
+    (result) => assert.equal(result.status, 0, result.stderr),
+    undefined,
     (root) => {
       const banner = '> **Not current rules (2026-10-17).** Current rules: [`AGENTS.md`](../AGENTS.md).\n\n';
       writeFileSync(join(root, 'docs/OLD-LAW.md'), `# Old law\n\n${banner}Merge when done.\n`);
@@ -285,7 +290,6 @@ test('an unbannered doc under docs/ with a stale rule fails; a bannered one, adr
         writeFileSync(join(root, 'docs', dir, 'DOC.md'), stale);
       }
     },
-    (result) => assert.equal(result.status, 0, result.stderr),
   );
 });
 
@@ -318,7 +322,7 @@ test('paraphrases of "merge your own PR" fail; the same words after a negation p
   }
 });
 
-test('a newly listed live doc that calls Vue the front end fails; a bannered or honest one passes', () => {
+test('a newly listed live doc that calls Vue the front end fails; so does a new bannered one; an honest one passes', () => {
   const topic =
     (body, banner = '') =>
     (root) => {
@@ -333,7 +337,8 @@ test('a newly listed live doc that calls Vue the front end fails; a bannered or 
     assert.match(result.stderr, /stale rule in unbannered doc docs\/NEW-LIVE.md: Vue as the current front end/);
   });
   withRoot(topic('The front end is Vue.', '> **Not current rules (2026-10-17).** AGENTS.md wins.\n\n'), (result) => {
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /docs\/NEW-LIVE.md is newly marked not current: delete it instead/);
   });
   withRoot(topic('Vue was retired; the front end is React.'), (result) => assert.equal(result.status, 0, result.stderr));
 });
@@ -405,8 +410,34 @@ test('a banner must open the quote: a blockquote that only mentions history does
     '> Retired.',
   ]) {
     withRoot(
-      (root) => writeFileSync(join(root, 'docs/OLD.md'), `${opener}\n\n# Old\n\n${body}`),
+      null,
       (result) => assert.equal(result.status, 0, `${opener}: ${result.stderr}`),
+      undefined,
+      (root) => writeFileSync(join(root, 'docs/OLD.md'), `${opener}\n\n# Old\n\n${body}`),
     );
   }
+});
+
+test('a doc gains a "not current" banner only by being deleted: adding one to a new or a live file fails, an old one may stay or be edited', () => {
+  const banner = '> **Not current rules (2026-11-18).** Current rules: AGENTS.md.\n\n';
+  withRoot(
+    (root) => writeFileSync(join(root, 'docs/MOVE-ME.md'), `${banner}kept\n`),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /docs\/MOVE-ME.md is newly marked not current: delete it instead \(git history keeps it\)/);
+    },
+  );
+  withRoot(
+    (root) => {
+      mkdirSync(join(root, 'docs/decisions'), { recursive: true });
+      writeFileSync(join(root, 'docs/decisions/OLD.md'), `# Old\n\n${banner}Then it changed.\n`);
+    },
+    (result) => assert.match(result.stderr, /docs\/decisions\/OLD.md is newly marked not current/),
+  );
+  withRoot(
+    (root) => writeFileSync(join(root, 'docs/OLD.md'), `# Old\n\n${banner}Edited.\n`),
+    (result) => assert.equal(result.status, 0, result.stderr),
+    undefined,
+    (root) => writeFileSync(join(root, 'docs/OLD.md'), `# Old\n\n${banner}Kept.\n`),
+  );
 });

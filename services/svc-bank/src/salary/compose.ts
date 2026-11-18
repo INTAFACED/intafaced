@@ -1,13 +1,10 @@
-import type { Sql } from 'postgres';
+import type { BankRoot } from '../bank-root.js';
 import type { AccountDetailsService } from '../account-details/account-details.js';
 import type { IncomeSorterService } from '../sorter/income-sorter.js';
 import type { PayrollPartner } from './payroll-sim.js';
 import { SalaryService } from './salary-service.js';
 
-/**
- * Salary by direct deposit (J-bank-30), made in its own place: `bank-service.ts` spreads these and does not change for a
- * salary journey (project-state #2656; `bank-service.compose.test.ts`).
- */
+/** Salary by direct deposit (J-bank-30). An area of svc-bank (`area-chain.ts`). */
 export interface SalaryServices {
   /** J-bank-30: salary paid in by direct deposit, at the partner bank. `rail.bank` while no payroll network is wired. */
   readonly salary: SalaryService;
@@ -22,18 +19,16 @@ export interface SalaryServiceOptions {
   salaryNow?: () => Date;
 }
 
-export interface SalaryComposeContext {
-  readonly sql: Sql;
-  readonly accountDetails: AccountDetailsService;
-  readonly sorter: Pick<IncomeSorterService, 'list' | 'minimumCredit'>;
-}
-
-export function composeSalaryServices(ctx: SalaryComposeContext, options: SalaryServiceOptions): SalaryServices {
+export function composeSalaryArea(
+  root: BankRoot,
+  made: { readonly accountDetails: AccountDetailsService; readonly sorter: Pick<IncomeSorterService, 'list' | 'minimumCredit'> },
+  options: SalaryServiceOptions,
+): SalaryServices {
   return {
-    salary: new SalaryService(ctx.sql, {
+    salary: new SalaryService(root.sql, {
       payroll: options.payrollPartner ?? null,
-      accountDetails: ctx.accountDetails,
-      sorter: ctx.sorter,
+      accountDetails: made.accountDetails,
+      sorter: made.sorter,
       reversalDays: () => options.directDepositReversalDays,
       ...(options.salaryNow ? { now: options.salaryNow } : {}),
     }),

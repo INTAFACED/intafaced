@@ -89,7 +89,11 @@ import {
   slotEnv,
   slotPorts,
   STACK_PORTS,
+  MAKER_RECORD,
   stackPids,
+  stackRecords,
+  stackRecordsFile,
+  writeStackRecords,
 } from './local-test-facts.mjs';
 import { reduceMaps } from './journey-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
@@ -164,7 +168,7 @@ const SLOT = localStackSlot();
 const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
-  procs: path.join(STATE, 'run', 'processes.json'),
+  procs: stackRecordsFile(STATE),
   s2sMode: path.join(STATE, 'run', 's2s-mode'),
   run: path.join(STATE, 'run'),
   tls: path.join(STATE, 'tls'),
@@ -496,14 +500,9 @@ function localOperatorIds() {
 
 // ── Process records (pid file + argv) ───────────────────────────────────────
 
-function readProcs() {
-  try {
-    return readJson(P.procs);
-  } catch {
-    return {};
-  }
-}
-const writeProcs = (procs) => writePrivate(P.procs, JSON.stringify(procs, null, 2));
+/** This stack's one process record (local-test-facts.mjs `stackRecords`), the TEST market maker's included. */
+const readProcs = () => stackRecords(STATE);
+const writeProcs = (procs) => writeStackRecords(STATE, procs);
 
 /** Verify each record independently, including while other stack services are down. */
 function ownedAlive(rec) {
@@ -531,6 +530,8 @@ function offOverridden() {
 }
 
 function startProc(name, argv, env, cwd, extra = {}) {
+  // The maker's record is its own script's (local-test-market.mjs); a service under its name would be read as the maker.
+  if (name === MAKER_RECORD) throw new Error(`refusing: ${name} names the TEST market maker's record, not a service`);
   const logPath = path.join(P.logs, `${name}.log`);
   const fd = fs.openSync(logPath, 'a', 0o600);
   const child = spawn(argv[0], argv.slice(1), { cwd, env, detached: true, stdio: ['ignore', fd, fd] });
@@ -1593,6 +1594,8 @@ function testChain() {
     claimEscrow: record.claimEscrow ?? null,
     // The TEST trading venue (SovereignVenue) a wallet deposits into and withdraws from (J-dex-protocol-05 #9).
     venue: record.venue ?? null,
+    // The P2P escrow (SovereignEscrow) a contract-escrow P2P order opens its deal in (J-p2p-21).
+    p2pEscrow: record.p2pEscrow ?? null,
     liquidityRouter: record.liquidityRouter ?? null,
     // The smart account factory and implementation (J-dex-protocol-08's session keys).
     accountFactory: record.accountFactory ?? null,
@@ -2216,6 +2219,20 @@ async function healthTable({ gateMarket = false } = {}) {
     procs['rail-statements']?.pid ?? '-',
     statements.status === 200 ? 'ok (TEST)' : `DOWN (${statements.status})`,
   ]);
+  // The TEST adapters behind a service's outside door: each a row of its own, so the table names every port the stack's
+  // marker holds. One this start left off (the user-venue switch, or an `--only` without it) reads "off", which doesn't fail.
+  // A venue's record outlives its process (a stop keeps it), so a stopped venue the switch doesn't ask for is off too;
+  // one the switch asks for that is not running is DOWN.
+  const venues = userVenueOn() ? userVenueCount(process.env.LOCAL_STACK_USER_VENUE) : 0;
+  const wanted = { 'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true };
+  for (const name of ['test-venue', 'test-venue-b', 'test-wallet-provider']) {
+    if (!procs[name] || (!wanted[name] && !ownedAlive(procs[name]))) {
+      rows.push([`${name} (TEST)`, PORTS[name], '-', 'off (not started)']);
+      continue;
+    }
+    const adapter = await httpGet(`${urlOf(name)}/health`, 2500);
+    rows.push([`${name} (TEST)`, PORTS[name], procs[name].pid ?? '-', adapter.status === 200 ? 'ok (TEST)' : `DOWN (${adapter.status})`]);
+  }
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
     'customer',
@@ -2245,11 +2262,12 @@ async function healthTable({ gateMarket = false } = {}) {
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
-  const w = [17, 12, 8];
+  // The name column fits its longest name (`test-wallet-provider (TEST)`), so a name never runs into its port.
+  const w = [Math.max(17, ...rows.map((r) => String(r[0]).length + 1)), 12, 8];
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
   const marketBad = mk.state === 'down' || mk.state === 'stale';
-  return rows.slice(0, -1).every((r) => /^(ok|absent)\b/.test(String(r[3]))) && !(gateMarket && marketBad);
+  return rows.slice(0, -1).every((r) => /^(ok|absent|off)\b/.test(String(r[3]))) && !(gateMarket && marketBad);
 }
 
 /** `--only a,b` -> ['a','b'] (validated against the services this script knows); null when absent. */
@@ -2678,17 +2696,25 @@ async function cmdStart(flags) {
  * A stack that never ran the market is left alone, and a failure here never fails the stack.
  */
 function ensureMarket() {
-  const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), 'ensure'], {
+  const r = marketTool('ensure');
+  say(`  market maker: ${r.text}`);
+}
+
+/** Runs one `local-test-market.mjs` command on this stack: its status and its output on one line. */
+function marketTool(cmd) {
+  const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), cmd], {
     env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: STATE, ...slotEnv() },
     encoding: 'utf8',
   });
   const text = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').filter(Boolean).join(' | ');
-  say(`  market maker: ${text || `ensure exited ${r.status}`}`);
+  return { status: r.status, text: text || `${cmd} exited ${r.status}` };
 }
 
 async function cmdStop(names = []) {
   const procs = readProcs();
   const order = [
+    // First, while Edge still runs: the maker cancels its resting TEST orders as it stops.
+    MAKER_RECORD,
     'team-tls',
     'admin',
     'apex',
@@ -2713,6 +2739,13 @@ async function cmdStop(names = []) {
     if (only && !only.includes(name)) continue;
     const rec = procs[name];
     if (!rec) continue;
+    if (name === MAKER_RECORD) {
+      // The maker's own stop: it holds the maker to its record and waits while it cancels its orders.
+      const r = marketTool('stop');
+      say(`  market maker: ${r.text}`);
+      if (r.status !== 0) bad = true;
+      continue;
+    }
     if (rec.pid && psCommand(rec.pid) && !ownedAlive(rec)) {
       say(`  ${name}: pid ${rec.pid} no longer matches the recorded command line or start time, refusing to signal it`);
       bad = true;

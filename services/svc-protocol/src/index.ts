@@ -191,6 +191,10 @@ export const appRouter = createProtocolRouter({
         }
       : null,
   claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
+  p2pEscrow: () => ({
+    escrow: env.PROTOCOL_P2P_ESCROW_ADDRESS as `0x${string}`,
+    mainnet: badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworkRegistry()),
+  }),
   venue: () => env.PROTOCOL_VENUE_ADDRESS as `0x${string}`,
   lendingMarket: () => env.PROTOCOL_LENDING_MARKET_ADDRESS as `0x${string}`,
   swapV2: () =>

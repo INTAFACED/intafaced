@@ -37,7 +37,7 @@ function excusingWords(line, found) {
 const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s/;
 /** Files whose markdown links must resolve. */
 const LINK_FILES = ['AGENTS.md', 'docs/ARCHITECTURE.md'];
-/** Under docs/, current truth: ARCHITECTURE.md and these folders. Everything else is history and must carry a banner. */
+/** Under docs/, current truth: ARCHITECTURE.md and these folders. A file elsewhere that states a stale rule fails unless it is one of the old bannered files. */
 const DOCS_CURRENT_DIRS = ['docs/archive/', 'docs/adr/', 'docs/runbooks/', 'docs/refs/'];
 /** A banner is a blockquote line in the first 15 lines whose first words say the file is not current. */
 const BANNER = /^>\s*(\*\*)?\s*(not current|superseded|historical|stale snapshot|retired)/i;
@@ -172,6 +172,16 @@ function evaluate(root) {
     for (const hit of staleHits(text)) messages.push(`stale rule in unbannered doc ${rel}: ${hit}`);
   }
   for (const hit of staleHits(read(root, 'docs/ARCHITECTURE.md') ?? '')) messages.push(`stale rule in docs/ARCHITECTURE.md: ${hit}`);
+  for (const rel of [...(changed ?? [])].filter((p) => p.endsWith('.md'))) {
+    const text = read(root, rel);
+    if (text == null || !hasBanner(text)) continue;
+    const before = git(root, ['show', `${base}:${rel}`]);
+    if (before.status !== 0 || !hasBanner(before.stdout)) {
+      messages.push(
+        `${rel} is newly marked not current: delete it instead (git history keeps it), or keep it current if something still reads it`,
+      );
+    }
+  }
   const readme = read(root, 'docs/README.md') ?? '';
   for (const rel of addedPaths(root, base)) {
     if (rel === 'docs/archive/README.md') continue;

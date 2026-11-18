@@ -43,6 +43,7 @@ import { registerTrackRecord } from './signals/track-record.js';
 import { leadOrderGate, registerLeadCheck } from './copy/lead-api.js';
 import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
+import { subscribeSelfFreeze } from './self-freeze-events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
@@ -152,6 +153,7 @@ import {
   staticBandInForce,
   type BandInForce,
 } from './futures/dynamic-price-band.js';
+import { sqlVenueAdlAcks } from './venue/venue-adl-acks.js';
 import { ADL_DISCLOSURE_VERSION, presentAdlDisclosureWire, sqlAdlDisclosureStore } from './futures/adl-disclosure.js';
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { derivativesAccessGate } from './futures/derivatives-access.js';
@@ -804,6 +806,7 @@ export const appRouter = createTradeRouter(
       deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
     },
     venueDesk: { venue: userVenue ? () => userVenue.venue() : null, store: venueListings, notices: venueDelistingNotices },
+    venueOrders: { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
     venueRouting:
       userVenueDoors.length > 0 ? (from, to) => routingReport({ doors: userVenueDoors, store: userVenueStore }, from, to) : null,
     // The builder-fee caps the venue itself publishes, read through the user-venue door (J-cex-spot-17 #3). Off: null.
@@ -987,6 +990,9 @@ const positions = new PositionService(sql, ledger, {
 const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: positions.matchedFills };
 const stopTriggers = sqlStopTrigger(sql);
 const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills, stopTriggers);
+// The owner's own freeze (J-wallet-13 #1): every agent permission kept here for them is revoked at once, and their live
+// runs stop, on identity's event (src/self-freeze-events.ts). Each door still reads the freeze itself before it acts.
+subscriptions.push(await subscribeSelfFreeze(bus, { liveRuns, agentOrders, ownAgentTrading }));
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 builderFeeWiring.scheduleJobs(futuresJobs.host);
@@ -1840,6 +1846,7 @@ registerPrivateRest(app, {
   venueSellQuotes,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
+  venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
