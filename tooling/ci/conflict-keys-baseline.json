@@ -313,15 +313,6 @@
       "why": "A same-id duplicate either waits on the arbiter, or, if both pass it, clashes on ramp_offramps_pkey. The loser's serializable transaction (transaction() default, packages/db/src/connection.ts:113) had already read that id (SELECT … WHERE id FOR UPDATE, ramp-service.ts:900), so Postgres reports 40001 and transaction() retries and returns the row. Caveat: the 23505 catch at ramp-service.ts:925 queries inside an aborted transaction and would raise 25P02 if a raw 23505 ever reached it."
     },
     {
-      "file": "services/svc-bank/src/recovery/recovery-claims.ts",
-      "table": "recovery_claims",
-      "target": "(owner_user_id)",
-      "constraint": "recovery_claims_pkey",
-      "verdict": "race",
-      "issue": 8900,
-      "why": "id = recoveryClaimId(owner, noticeId) is a deterministic hash (recovery-claims.ts:151). open() inserts on this.sql with no lock (recovery-claims.ts:229-234). Two concurrent opens by the heir (double click or retry) carry the same owner_user_id and id, and the loser raises 23505 recovery_claims_pkey instead of reading the claim."
-    },
-    {
       "file": "services/svc-bank/src/spaces/bills-pot.ts",
       "table": "bills_pots",
       "target": "(user_id, asset_id)",
