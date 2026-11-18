@@ -19,6 +19,7 @@ import { journeyCopyRules } from './journey-copy-rule.js';
 import { repeatRules } from './repeat-rules.js';
 import { staleReadRules } from './stale-read-rule.js';
 import { stepPictureRules } from './step-picture-rule.js';
+import { handClockRules } from './hand-clock-rule.js';
 import { restartServiceRules } from './restart-service-rule.js';
 import { storedSearchRules } from './stored-search-rule.js';
 
@@ -216,6 +217,7 @@ export default {
     ...repeatRules,
     ...staleReadRules,
     ...stepPictureRules,
+    ...handClockRules,
     ...restartServiceRules,
     ...storedSearchRules,
   },
