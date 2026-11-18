@@ -11,11 +11,12 @@
 //  - Reference images (OKX / Robinhood) are read from the evidence folder and composed OUTSIDE the repo: an --out
 //    directory inside this repository is refused.
 //  - Stub flows (M2/M3) never place orders or move money; they skip with a message.
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stackUrl } from './local-test-facts.mjs';
+import { findChromiumExecutable } from '../uiproof/playwright-browsers.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, '..', '..');
@@ -414,54 +415,8 @@ export async function composeSideBySide(
 // ---------------------------------------------------------------------------------------------
 // Browser
 // ---------------------------------------------------------------------------------------------
-export function findChromiumExecutable({
-  env = process.env,
-  home = homedir(),
-  listDir = (d) => {
-    try {
-      return readdirSync(d);
-    } catch {
-      return [];
-    }
-  },
-  isFile = (p) => {
-    try {
-      return statSync(p).isFile();
-    } catch {
-      return false;
-    }
-  },
-} = {}) {
-  const roots = [
-    env.PLAYWRIGHT_BROWSERS_PATH,
-    join(home, 'Library', 'Caches', 'ms-playwright'),
-    join(home, '.cache', 'ms-playwright'),
-  ].filter(Boolean);
-  const byRevision = (re) => (a, b) => Number(b.match(re)[1]) - Number(a.match(re)[1]);
-  const shell = [
-    'chrome-headless-shell-mac-arm64/chrome-headless-shell',
-    'chrome-headless-shell-mac-x64/chrome-headless-shell',
-    'chrome-headless-shell-linux64/chrome-headless-shell',
-    'chrome-headless-shell-win64/chrome-headless-shell.exe',
-  ];
-  const full = [
-    'chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
-    'chrome-mac/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
-    'chrome-linux64/chrome',
-    'chrome-win64/chrome.exe',
-  ];
-  for (const root of roots) {
-    const names = listDir(root);
-    const groups = [
-      [names.filter((n) => /^chromium_headless_shell-\d+$/.test(n)).sort(byRevision(/-(\d+)$/)), shell],
-      [names.filter((n) => /^chromium-\d+$/.test(n)).sort(byRevision(/-(\d+)$/)), full],
-    ];
-    for (const [dirs, rels] of groups) {
-      for (const d of dirs) for (const rel of rels) if (isFile(join(root, d, ...rel.split('/')))) return join(root, d, ...rel.split('/'));
-    }
-  }
-  return undefined;
-}
+// The one browser finder, shared with every harness (tooling/uiproof/playwright-browsers.mjs).
+export { findChromiumExecutable };
 
 export async function launchBrowser(chromium) {
   try {
