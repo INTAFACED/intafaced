@@ -164,9 +164,10 @@ function csvCells(line) {
   return cells.map((c) => (/^'[=+\-@]/.test(c) ? c.slice(1) : c));
 }
 
-const closeDialog = async (page) => {
+/** The confirm dialog's own way out: 'Close' after the change was made, 'Cancel' after a refusal (confirm-action.tsx). */
+const closeDialog = async (page, label = 'Close') => {
   const dialog = page.getByRole('alertdialog');
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: label, exact: true }).click();
   await expect(dialog).toHaveCount(0);
 };
 
@@ -358,7 +359,7 @@ test.describe(`${J} #2 #3 #4 chart feed control and its audit`, () => {
       expect(filed.change).toBe('primary, On → primary, Disabled');
       let dialog = await applyChange(page, filed.form, filed.approvalId);
       await expect(dialog.locator('[data-outcome=refused]')).toContainText('action_approval.pending');
-      await closeDialog(page);
+      await closeDialog(page, 'Cancel');
       expect(await settingOf(pair, SYMBOL)).toMatchObject({ state: 'on' });
       expect((await candleRead(SYMBOL)).status).toBe(200);
 
