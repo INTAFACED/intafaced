@@ -29,7 +29,7 @@ import {
 import type { PreparedActionStore, StoredVenueAction } from '../venue/prepared-action-store.js';
 import { TradeOpsError, requireOperator, type AuditWrite } from './common.js';
 
-export const VENUE_ORDER_READ_KIND = 'venue_orders.get';
+const VENUE_ORDER_READ_KIND = 'venue_orders.get';
 
 /** A venue client order id: `0x` and 32 hex. */
 const CLOID = /^0x[0-9a-f]{32}$/;

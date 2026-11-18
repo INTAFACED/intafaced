@@ -37,7 +37,7 @@ export function StaffAccessLink() {
 }
 
 /** The most rows one read shows. */
-export const STAFF_ACCESS_ROWS = 100;
+const STAFF_ACCESS_ROWS = 100;
 
 const staffAccessMine = contractProcedure('trade', 'staffAccess.mine', {
   input: staffAccessMineInputSchema,
@@ -47,7 +47,7 @@ const staffAccessMine = contractProcedure('trade', 'staffAccess.mine', {
 type T = ReturnType<typeof copy.useCopy>['t'];
 
 /** The operator record's kind in the person's own words; a kind with no words of its own is named as it is. */
-export function kindWords(t: T, kind: string): string {
+function kindWords(t: T, kind: string): string {
   if (kind === 'venue_orders.get') return t('kind_venue_orders_get');
   if (kind === 'orders.get') return t('kind_orders_get');
   if (kind === 'orders.list') return t('kind_orders_list');
