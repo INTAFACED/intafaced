@@ -339,15 +339,6 @@
       "why": "The upsert runs under the space's row lock (ownPotForUpdate: SELECT … FOR UPDATE, space-service.ts:762). A space has exactly one user and one asset, so a clash on space_id implies the same (user_id, asset_id), which the DO UPDATE target absorbs."
     },
     {
-      "file": "services/svc-bank/src/transfers/limit-requests.ts",
-      "table": "limit_increase_requests",
-      "target": "(id)",
-      "constraint": "limit_increase_requests_open_uq",
-      "verdict": "race",
-      "issue": 8902,
-      "why": "Two concurrent requests with the same requestId (a retry) carry the same (user, asset, kind) while it is open. With no lock (limit-requests.ts:107), the loser raises 23505 on limit_increase_requests_open_uq, and the catch maps it to bank.limit_request_open instead of the replay this id should get."
-    },
-    {
       "file": "services/svc-bank/src/transfers/personal-pay.ts",
       "table": "personal_request_reminds",
       "target": "(request_id, idempotency_key)",
