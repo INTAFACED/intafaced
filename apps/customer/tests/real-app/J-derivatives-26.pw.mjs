@@ -4,12 +4,11 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
-import { personDoor } from './person-door.mjs';
+import { partnerBookMoves, partnerMainBalance, personDoor } from './person-door.mjs';
 import { CHAIN_ID, connectWhenAsked } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
 import { signedOnVenue, venueAt, venueNow } from './venue-door.mjs';
-import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-derivatives-26, in the running app (docs/roadmap/journeys.json): my spending money stays untouched when my cross
 // account is liquidated. One test per step, titled "J-derivatives-26 #<n>", run in order, on the launch money model: the
@@ -32,7 +31,6 @@ const TO_SPACE = '100';
 const MAIN_LEFT = '400';
 const SPACE_NAME = 'TEST Savings';
 const LONG = '50';
-const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
 const runId = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${runId}`);
 const second = journeyState(`${J}-two-${runId}`);
@@ -59,12 +57,8 @@ const fundNow = async () => (await venueAt('/insurance-fund', {})).value;
 
 // ── the TEST partner bank's own book ──
 
-const partnerMoves = async (userId) => (await venueRecord(userId, '/moves', {}, PARTNER_RECORD, null)).value;
-/** The partner's own figure for the person's main USDC account. */
-async function partnerMain(userId) {
-  const rows = (await venueRecord(userId, '/balances', {}, PARTNER_RECORD, null)).value;
-  return rows.find((r) => r.asset === 'USDC')?.total ?? '0';
-}
+const partnerMoves = partnerBookMoves;
+const partnerMain = (userId) => partnerMainBalance(userId, 'USDC');
 /** The partner's own figure for one space: every move its book lists into it, less every move out. */
 async function partnerSpace(userId, spaceId) {
   let units = 0n;

@@ -2200,6 +2200,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /** The account's open cross positions and their shared equity and maintenance, at each market's mark; `null` with none. */
   private crossOf(state: AccountState): {
+    asset: string;
     usdc: { free: Amount; locked: Amount };
     open: { market: SimMarketConfig; p: PositionState; mark: Amount }[];
     unrealised: Amount;
@@ -2210,8 +2211,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     for (const [symbol, p] of state.positions)
       if (p.size !== ZERO && p.marginMode === 'cross')
         open.push({ market: this.market(symbol), p, mark: this.marks.get(symbol) ?? p.entryPrice });
-    if (open.length === 0) return null;
-    const usdc = this.balance(state, open[0]!.market.quoteAsset);
+    const asset = open[0]?.market.quoteAsset;
+    if (asset === undefined) return null;
+    const usdc = this.balance(state, asset);
     let unrealised = ZERO;
     let margin = ZERO;
     let maintenance = ZERO;
@@ -2221,13 +2223,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const m = this.maintenanceOf(market, p);
       if (m.known) maintenance = add(maintenance, m.value);
     }
-    return { usdc, open, unrealised, equity: add(add(usdc.free, margin), unrealised), maintenance };
+    return { asset, usdc, open, unrealised, equity: add(add(usdc.free, margin), unrealised), maintenance };
   }
 
   /** What a cross loss at the mark already takes from the account's free `asset`: zero or less. */
   private crossLoss(state: AccountState, asset: string): Amount {
     const c = this.crossOf(state);
-    if (!c || c.open[0]!.market.quoteAsset !== asset) return ZERO;
+    if (!c || c.asset !== asset) return ZERO;
     return min(c.unrealised, ZERO);
   }
 
@@ -2247,7 +2249,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       for (const { market, p, mark } of c.open) {
         const qty = p.size;
         left = add(left, add(p.margin, this.pnl(p, mark, qty)));
-        const fee = min(mul(mul(mark, qty), market.liquidation!.feeRate, QUOTE_ROUND), max(left, ZERO));
+        // A cross market liquidates (`runLiquidations` runs only there), so its fee rate is published.
+        const fee = min(mul(mul(mark, qty), market.liquidation?.feeRate ?? ZERO, QUOTE_ROUND), max(left, ZERO));
         left = sub(left, fee);
         this.insurance.balance = add(this.insurance.balance, fee);
         usdc.locked = sub(usdc.locked, p.margin);
