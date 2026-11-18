@@ -111,21 +111,18 @@ describe('own moves: spending to trading (J-derivatives-25 #2 #3)', () => {
             return TX(sends.length);
           },
     );
+    const hold = options.hold === 'unset' ? null : (options.hold ?? {});
     const sanctions = options.sanctions ?? memorySanctions([{ network: '*', address: '0x00000000000000000000000000000000005a1c7d' }]);
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       ramps: {
         sanctions,
-        ...(options.hold === 'unset'
-          ? {}
-          : {
+        ...(hold
+          ? {
               securityLock: {
-                read: async () => ({
-                  locked: options.hold?.locked ?? false,
-                  unlocksAt: null,
-                  selfFrozen: options.hold?.selfFrozen ?? false,
-                }),
+                read: async () => ({ locked: hold.locked ?? false, unlocksAt: null, selfFrozen: hold.selfFrozen ?? false }),
               },
-            }),
+            }
+          : {}),
       },
       onrampPartner: partner,
       testPartner: tp,
