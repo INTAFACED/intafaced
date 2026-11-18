@@ -33,7 +33,7 @@ test('the calls are read from the job, so the cases are asked as the job asks', 
     assert.match(c[j].reads, /\$GITHUB_WORKSPACE/);
     assert.match(c[j].turns, /^\d+$/);
   }
-  assert.match(c.review.reads, /callers and tests/);
+  assert.match(c.review.reads, /every caller, test and reader/);
   assert.match(c.read.reads, /\$pics/);
   assert.throws(() => jobCall('name: CI review\n'), /no longer has the calls/);
 });

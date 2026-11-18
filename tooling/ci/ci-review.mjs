@@ -395,8 +395,11 @@ export const VERDICT_SCHEMA = {
   properties: {
     verdict: { type: 'string', enum: ['PASS', 'FAIL'] },
     findings: { type: 'array', items: { type: 'string' }, maxItems: 50 },
+    // What was checked and found clear, one string each, on a PASS and a FAIL alike (pstack blast-radius: "List the
+    // ones you checked and cleared separately"): the job prints it, so a PASS says what it rests on. It decides nothing.
+    cleared: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 20 },
   },
-  required: ['verdict', 'findings'],
+  required: ['verdict', 'findings', 'cleared'],
   additionalProperties: false,
 };
 
@@ -601,13 +604,15 @@ export function readReview(a) {
   if (a.verdict !== 'PASS' && a.verdict !== 'FAIL') return { ok: false, why: `the verdict "${a.verdict}" is neither PASS nor FAIL` };
   if (!Array.isArray(a.findings) || a.findings.some((f) => typeof f !== 'string'))
     return { ok: false, why: 'the findings are not a list of strings' };
+  // What it cleared is told, never judged: an answer without it keeps its verdict (the schema asks for it).
+  const cleared = Array.isArray(a.cleared) ? a.cleared.filter((c) => typeof c === 'string') : [];
   // A PASS may carry notes only; a blocking finding under a PASS makes it a FAIL.
   const blocking = a.findings.filter((f) => !/^note:/i.test(f.trim()));
   if (a.verdict === 'PASS' && blocking.length > 0)
-    return { ok: true, verdict: 'FAIL', findings: a.findings, why: 'a PASS with blocking findings counts as FAIL' };
+    return { ok: true, verdict: 'FAIL', findings: a.findings, cleared, why: 'a PASS with blocking findings counts as FAIL' };
   if (a.verdict === 'FAIL' && blocking.length === 0)
-    return { ok: true, verdict: 'FAIL', findings: ['the reviewer answered FAIL without a finding'], why: 'FAIL' };
-  return { ok: true, verdict: a.verdict, findings: a.findings, why: a.verdict };
+    return { ok: true, verdict: 'FAIL', findings: ['the reviewer answered FAIL without a finding'], cleared, why: 'FAIL' };
+  return { ok: true, verdict: a.verdict, findings: a.findings, cleared, why: a.verdict };
 }
 
 /** The event's pull request: its number, base and head shas, and whether it comes from this repository. */
@@ -1013,6 +1018,7 @@ export function readVerdicts(dir) {
   // A diff reviewed in parts: every part's answer, or no verdict; the review FAILs when any part does.
   let verdict = a.verdict;
   const all = [...a.findings];
+  const cleared = [...a.cleared];
   const partsDir = join(dir, 'parts');
   const parts = existsSync(partsDir) ? readdirSync(partsDir).sort((x, y) => Number(x) - Number(y)) : [];
   for (const k of parts) {
@@ -1022,10 +1028,12 @@ export function readVerdicts(dir) {
     if (!p.ok) return { ok: false, why: `part ${k}: ${p.why}` };
     if (p.verdict === 'FAIL') verdict = 'FAIL';
     all.push(...p.findings);
+    cleared.push(...p.cleared);
   }
   // The step words were in this call's input: a finding that repeats them never reaches the public log.
-  const findings = withheld(withheld(all, join(tests, 'shingles.json')), join(dir, OWNER_SHINGLES), "the owner's record");
-  writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict, findings }));
+  const hide = (list) => withheld(withheld(list, join(tests, 'shingles.json')), join(dir, OWNER_SHINGLES), "the owner's record");
+  const findings = hide(all);
+  writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict, findings, cleared: hide(cleared) }));
   const w = written();
   const inParts = parts.length ? `, in ${parts.length + 1} parts` : '';
   return w.ok ? { ok: true, why: `review ${verdict} (${a.why}${inParts})` } : w;
@@ -1097,6 +1105,15 @@ export function findingsInLog(log) {
   return out;
 }
 
+/**
+ * What the reviewer checked and found clear, under its own heading after the findings, so findingsInLog (which stops at
+ * the first `##[` or reads `- ` lines) never takes one for a finding: each line is indented. Nothing when none is given.
+ */
+export function clearedLines(cleared) {
+  if (!Array.isArray(cleared) || cleared.length === 0) return [];
+  return ['', '### Checked and cleared', '', ...cleared.map((c) => `  * ${String(c).replace(/\s+/g, ' ')}`)];
+}
+
 /** The FAILs in a row at which the judge says to stop fixing (pstack principle-attack-the-premise: two fixes failed). */
 export const PREMISE_AT = 3;
 
@@ -1111,12 +1128,41 @@ export function premiseLines(streak) {
     '',
     `### ${streak.length} FAILs in a row on this branch: stop fixing`,
     '',
-    'Each fix since the first FAIL assumed one belief, and each FAIL is evidence against it. Before the next push, write that belief down in one sentence and test it: find an observation that would come out differently if it were false, and make it. Look at what the findings below have in common that the belief did not predict. If it holds, ask the next "why": the earlier fixes may have treated a consequence. Then ask the outside reviewer once why, as project-state BUILDER.md says (row d74). Advice, not a gate.',
+    'Each fix since the first FAIL assumed one belief, and each FAIL is evidence against it. Before the next push, write that belief down in one sentence and test it: find an observation that would come out differently if it were false, and make it. Look at what the findings below have in common that the belief did not predict, and at where they fall, not only how many there are: which steps, files and heads they land on, and which they never touch. If it holds, ask the next "why": the earlier fixes may have treated a consequence. Then ask the outside reviewer once why, as project-state BUILDER.md says (row d74). Advice, not a gate.',
     '',
+    ...whereTheyFall(streak),
     ...streak.flatMap(({ sha, findings }) => [
       `- ${sha.slice(0, 10)}${findings?.length ? '' : ': (findings unreadable)'}`,
       ...(findings ?? []).map((f) => `  - ${cut(f)}`),
     ]),
+  ];
+}
+
+/**
+ * Where a streak's findings fall (pstack principle-attack-the-premise: "Look at how the failures are distributed, not
+ * only at how large they are"): each file (a finding's leading `path:line`) and each journey step (`J-x #n`) its findings
+ * name, with the heads that name it, most heads first. A finding that names neither is counted apart. Indented lines
+ * under a `Where they fall` line, so findingsInLog never reads one as a finding.
+ */
+export function whereTheyFall(streak) {
+  const at = new Map();
+  let unplaced = 0;
+  for (const { sha, findings } of streak)
+    for (const f of findings ?? []) {
+      const places = new Set();
+      const file = /^\s*([\w@./-]+\.[\w]+):\d+/.exec(f)?.[1];
+      if (file) places.add(file);
+      for (const m of f.matchAll(/\b(J-[\w-]+ #\d+)/g)) places.add(m[1]);
+      if (!places.size) unplaced++;
+      for (const pl of places) at.set(pl, new Set([...(at.get(pl) ?? []), sha.slice(0, 10)]));
+    }
+  if (!at.size) return [];
+  const rows = [...at.entries()].sort((x, y) => y[1].size - x[1].size || x[0].localeCompare(y[0]));
+  return [
+    `Where they fall, of ${streak.length} heads:`,
+    ...rows.map(([pl, heads]) => `  * ${pl}: ${heads.size} (${[...heads].join(', ')})`),
+    ...(unplaced ? [`  * ${unplaced} finding(s) name no file or step`] : []),
+    '',
   ];
 }
 
@@ -1163,7 +1209,7 @@ function cmdRead(dir) {
 
 async function cmdJudge(dir) {
   const v = JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8'));
-  const lines = [`## CI review: ${v.verdict} on ${v.head}`, '', ...v.findings.map((f) => `- ${f}`)];
+  const lines = [`## CI review: ${v.verdict} on ${v.head}`, '', ...v.findings.map((f) => `- ${f}`), ...clearedLines(v.cleared)];
   // The third FAIL in a row adds the instruction; a failed read adds a warning and changes no verdict.
   let premise = [];
   if (v.verdict !== 'PASS')
