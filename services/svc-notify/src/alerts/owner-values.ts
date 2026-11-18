@@ -167,7 +167,7 @@ export class AlertOwnerValues {
       SELECT DISTINCT ON (key, coalesce(plan, ''))
              id::text AS id, key, plan, value, old_value, operator_id, reason, created_at
         FROM notify.alert_owner_values
-       ORDER BY key, coalesce(plan, ''), id DESC`;
+       ORDER BY key, coalesce(plan, ''), alert_owner_values.id DESC`;
     return new Map(rows.map((r) => [slot(r.key, r.plan), r]));
   }
 
@@ -203,7 +203,7 @@ export class AlertOwnerValues {
     const latest = await this.latest();
     const history = await this.sql<Row[]>`
       SELECT id::text AS id, key, plan, value, old_value, operator_id, reason, created_at
-        FROM notify.alert_owner_values ORDER BY id DESC LIMIT ${HISTORY_LIMIT}`;
+        FROM notify.alert_owner_values ORDER BY alert_owner_values.id DESC LIMIT ${HISTORY_LIMIT}`;
     return {
       plans: this.plans,
       quotas: (this.plans?.plans ?? []).map(({ id: plan }) => this.viewOf('priceQuota', plan, latest.get(slot('priceQuota', plan)))),
@@ -253,7 +253,7 @@ export class AlertOwnerValues {
       if (replay) return;
       const [current] = await tx<{ id: string; value: number | null }[]>`
         SELECT id::text AS id, value FROM notify.alert_owner_values
-         WHERE key = ${input.key} AND coalesce(plan, '') = ${plan ?? ''} ORDER BY id DESC LIMIT 1`;
+         WHERE key = ${input.key} AND coalesce(plan, '') = ${plan ?? ''} ORDER BY alert_owner_values.id DESC LIMIT 1`;
       if ((current?.id ?? '0') !== input.expectedVersion) {
         throw new AlertOwnerValueError(NOTIFY_OWNER_VALUE_STALE, 'the value changed since it was read: read it again');
       }

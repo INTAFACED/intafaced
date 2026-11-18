@@ -244,7 +244,7 @@ export class FeedHealthDesk {
     const journal = await sql<EventRow[]>`
       SELECT id::text AS id, kind, at, observed_at, reason, actor
         FROM trade.feed_events WHERE symbol = ${row.symbol}
-       ORDER BY id DESC LIMIT ${FEED_LIST_MAX}`;
+       ORDER BY feed_events.id DESC LIMIT ${FEED_LIST_MAX}`;
     const market = { symbol: row.symbol, test: row.test, ...feedStateOf(row.last_tick, ages, now) };
     return {
       asOf: now.toISOString(),

@@ -1,4 +1,5 @@
 // World: market
+// Market: live
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signUp } from './desk.mjs';
@@ -42,6 +43,15 @@ async function ownerValues(symbol = BTC) {
   const res = await fetch(`${EDGE}/api/v1/charts/owner-values?symbol=${encodeURIComponent(symbol)}`);
   expect(res.status).toBe(200);
   return res.json();
+}
+
+/** A market's id on the stack, as svc-trade lists it: alerts are kept by market id, never by symbol. */
+async function marketIdOf(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  expect(res.status).toBe(200);
+  const market = (await res.json()).find((m) => m.symbol === symbol);
+  expect(market, `${symbol} is listed on the stack`).toBeTruthy();
+  return market.id;
 }
 
 /** The newest trade on the public tape, epoch ms, or null when the market has none. */
@@ -163,7 +173,18 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
         { timeout: 180_000, intervals: [3_000] },
       )
       .toBe(true);
-    await expect.poll(async () => (await journalOf()).locator('tr[data-kind=reconnect]').count(), { timeout: 60_000 }).toBeGreaterThan(0);
+    // A reconnect of this stop: dated at a trade after the drop's last tick (a stack run before may hold older ones).
+    const newestReconnectAt = async () => {
+      const at = await (
+        await journalOf()
+      )
+        .locator('tr[data-kind=reconnect]')
+        .first()
+        .getAttribute('data-at', { timeout: 5_000 })
+        .catch(() => null);
+      return at === null ? 0 : Date.parse(at);
+    };
+    await expect.poll(newestReconnectAt, { timeout: 60_000 }).toBeGreaterThan(lastTick);
     journal = await journalOf();
     // Newest first: the reconnect sits above the drop, and is dated at a trade after the drop's last tick.
     const reconnect = journal.locator('tr[data-kind=reconnect]').first();
@@ -189,7 +210,7 @@ async function customer(page, prefix) {
 }
 
 async function createAlert(client, targetPrice, direction = 'above') {
-  const res = await client.post('/api/notify/trpc/notify.createAlert', { marketId: 'BTC-USDT', direction, targetPrice });
+  const res = await client.post('/api/notify/trpc/notify.createAlert', { marketId: await marketIdOf(BTC), direction, targetPrice });
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
 }
@@ -389,11 +410,19 @@ test(`${J} #5 opens the module's settings page: compare cap, alert quotas, reten
     await chart.goto('/charts/BTC-USDT');
     const tools = chart.getByRole('group', { name: 'Compare and share' }).first();
     const picker = tools.getByRole('combobox', { name: /Compare with/ });
+    // The picker lists the other markets once the market list has loaded: wait for one before reading it.
+    await expect(picker.locator('option').first()).toBeAttached({ timeout: 30_000 });
     const first = (await picker.locator('option').allTextContents())[0];
     await picker.selectOption(first);
-    await tools.getByRole('button', { name: 'Add', exact: true }).click();
+    // Pressed before the chart has read the owner values, Add says "Reading the compare limit. Try again in a moment.":
+    // a person tries again, and so does this test, until the chart answers from the value it read.
+    await expect(async () => {
+      await tools.getByRole('button', { name: 'Add', exact: true }).click();
+      await expect(chart.getByTestId('compare-note')).toContainText('compare limit, which is not set. Nothing was added.', {
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 60_000 });
     await expect(chart.getByTestId('compare-note')).toHaveAttribute('data-code', 'trade.chart.owner_value_unset');
-    await expect(chart.getByTestId('compare-note')).toContainText('compare limit, which is not set. Nothing was added.');
     await expect(tools.getByRole('list', { name: 'Compared markets' }).getByRole('listitem')).toHaveCount(0);
     await context.close();
   } finally {
@@ -424,14 +453,15 @@ test(`${J} #6 sets an alert quota for a plan and saves: the change is recorded w
   // The customer sees what applies to their plan now.
   await expect(quotaLine()).toContainText(before === 'Not set' ? 'has not been set' : `0 of ${before} price alerts in use`);
 
-  // A TEST quota of 2 for the plan, saved with a reason.
+  // A TEST quota of 2 for the plan (3 when 2 is already what applies, so the save changes something), saved with a reason.
+  const quota = before === '2' ? 3 : 2;
   const label = PLAN_LABEL;
-  const reason = `${J} #6 TEST quota of 2 for the TEST Standard plan (${RUN})`;
+  const reason = `${J} #6 TEST quota of ${quota} for the TEST Standard plan (${RUN})`;
   const startedAt = Date.now();
-  await saveValue(desk, label, '2', reason);
+  await saveValue(desk, label, String(quota), reason);
   try {
     await openSettings(desk);
-    await expect(alertRow(desk, 'priceQuota', PLAN).locator('[data-field=current]')).toHaveText('2');
+    await expect(alertRow(desk, 'priceQuota', PLAN).locator('[data-field=current]')).toHaveText(String(quota));
     await expect(alertRow(desk, 'priceQuota', PLAN)).toHaveAttribute('data-source', 'page');
     // Recorded with who and when: the newest change names the founder, the time, the old and new value and the reason.
     const change = desk.getByRole('table', { name: 'Alert settings changes' }).locator('tbody tr').first();
@@ -441,21 +471,21 @@ test(`${J} #6 sets an alert quota for a plan and saves: the change is recorded w
     expect(at).toBeGreaterThanOrEqual(startedAt - 5_000);
     expect(at).toBeLessThanOrEqual(Date.now() + 5_000);
     await expect(change.locator('[data-field=old]')).toHaveText(before);
-    await expect(change.locator('[data-field=new]')).toHaveText('2');
+    await expect(change.locator('[data-field=new]')).toHaveText(String(quota));
     await expect(change.locator('[data-field=reason]')).toHaveText(reason);
 
-    // The customer sees the new quota, and it holds: two price alerts are taken, the third is refused at the quota.
+    // The customer sees the new quota, and it holds: that many price alerts are taken, the next is refused at the quota.
     await page.reload();
-    await expect(quotaLine()).toContainText('0 of 2 price alerts in use');
+    await expect(quotaLine()).toContainText(`0 of ${quota} price alerts in use`);
+    const btcId = await marketIdOf(BTC);
     const create = (n) =>
-      client.post('/api/notify/trpc/notify.createAlert', { marketId: 'BTC-USDT', direction: 'above', targetPrice: String(10_000_000 + n) });
-    expect((await create(1)).status).toBe(200);
-    expect((await create(2)).status).toBe(200);
-    const third = await create(3);
+      client.post('/api/notify/trpc/notify.createAlert', { marketId: btcId, direction: 'above', targetPrice: String(10_000_000 + n) });
+    for (let n = 1; n <= quota; n += 1) expect((await create(n)).status).toBe(200);
+    const third = await create(quota + 1);
     expect(third.status).not.toBe(200);
     expect(JSON.stringify(third.body)).toContain('alert.quota_reached');
     await page.reload();
-    await expect(quotaLine()).toContainText('2 of 2 price alerts in use');
+    await expect(quotaLine()).toContainText(`${quota} of ${quota} price alerts in use`);
   } finally {
     await openSettings(desk);
     await saveValue(desk, label, before === 'Not set' ? '' : before, `${J} #6 puts the quota back as it was (TEST ${RUN})`);
