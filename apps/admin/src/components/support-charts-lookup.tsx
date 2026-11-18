@@ -99,7 +99,7 @@ export function ChartsLookupResult({ view }: { view: SupportChartsLookupView | n
       <Words words={alertsWords(l)} testId="charts-alerts-state" />
       {l.alerts.status === 'read' && l.alerts.items.length > 0 && (
         <div className="dk-table-wrap" role="region" aria-label="Price alerts" tabIndex={0}>
-          <table className="adm-table">
+          <table className="adm-table" aria-label="Price alerts">
             <thead>
               <tr>
                 <th>Alert</th>
@@ -132,7 +132,7 @@ export function ChartsLookupResult({ view }: { view: SupportChartsLookupView | n
       <Words words={historyWords(l)} testId="charts-history-state" />
       {l.alerts.status === 'read' && l.alerts.history.status === 'read' && l.alerts.history.items.length > 0 && (
         <div className="dk-table-wrap" role="region" aria-label="Alert history" tabIndex={0}>
-          <table className="adm-table">
+          <table className="adm-table" aria-label="Alert history">
             <thead>
               <tr>
                 <th>Fired</th>
@@ -163,7 +163,7 @@ export function ChartsLookupResult({ view }: { view: SupportChartsLookupView | n
       <Words words={layoutsWords(l)} testId="charts-layouts-state" />
       {l.layouts.status === 'read' && l.layouts.items.length > 0 && (
         <div className="dk-table-wrap" role="region" aria-label="Saved layouts" tabIndex={0}>
-          <table className="adm-table">
+          <table className="adm-table" aria-label="Saved layouts">
             <thead>
               <tr>
                 <th>Name</th>
