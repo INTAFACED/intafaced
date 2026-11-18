@@ -487,6 +487,8 @@ test(`${J} #4 reports a lost phone or a compromised account from the bank: step-
 });
 
 test(`${J} #5 files a complaint: an acknowledgement once with the deadline from the owner's limit, or "not set"`, async ({ browser }) => {
+  // A restart of support with the limit blank, and one back, run inside this step.
+  test.setTimeout(300_000);
   const page = await visitor(browser);
   const who = await signUp(page, 'jb18c');
   const desk = await support(who);
@@ -557,7 +559,7 @@ test(`${J} #5 files a complaint: an acknowledgement once with the deadline from 
     restartWithAll('support', { LOCAL_STACK_SUPPORT_COMPLAINT_RESPONSE_DAYS: 'off' });
     await page.goto('/bank/safety/complaint');
     await form.getByLabel('What is it about', { exact: true }).selectOption('cards');
-    await form.getByLabel('What went wrong', { exact: true }).fill(`TEST ${J} ${RUN}: no limit published, my card was charged twice.`);
+    await form.getByLabel(/^What went wrong/).fill(`TEST ${J} ${RUN}: no limit published, my card was charged twice.`);
     await form.getByRole('button', { name: 'Send complaint', exact: true }).click();
     const unset = main.getByRole('status').filter({ hasText: 'Complaint received' });
     await expect(unset).toBeVisible();
