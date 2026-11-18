@@ -70,29 +70,29 @@ test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeh
   await signIn(page, follower);
 
   await page.goto('/trade/copy');
-  await expect(page.getByRole('heading', { name: 'Copy trading', level: 1 })).toBeVisible();
-  const tabs = page.getByRole('tablist', { name: 'Copy trading sections' });
+  await expect(page.getByRole('heading', { name: 'Copy trading', level: 1, exact: true })).toBeVisible();
+  const tabs = page.getByRole('tablist', { name: 'Copy trading sections', exact: true });
   for (const name of TABS) await expect(tabs.getByRole('tab', { name, exact: true })).toBeVisible();
 
   // No journey ever lists a signal leader, so that tab is the empty directory: the words, and no row at all.
   await tabs.getByRole('tab', { name: 'Signal', exact: true }).click();
   await expect(page).toHaveURL(/tab=signal/);
-  await expect(page.getByText('No leaders are listed')).toBeVisible();
-  await expect(page.getByRole('table', { name: 'Leaders' }).getByRole('button', { name: /^Follow / })).toHaveCount(0);
+  await expect(page.getByText('No leaders are listed', { exact: true })).toBeVisible();
+  await expect(page.getByRole('table', { name: /Leaders/i }).getByRole('button', { name: /^Follow / })).toHaveCount(0);
 
   // A control with no back end answers with a typed refusal, never a dead button: a ranked list is not offered, so
   // pressing one asks the service, which refuses by code, and the room says so in words.
   await tabs.getByRole('tab', { name: 'Leaders', exact: true }).click();
-  const ranked = page.getByRole('group', { name: 'Ranked lists' }).getByRole('button', { name: 'Top return' });
+  const ranked = page.getByRole('group', { name: 'Ranked lists', exact: true }).getByRole('button', { name: 'Top return', exact: true });
   await expect(ranked).toBeEnabled();
   const ranking = page.waitForResponse((res) => res.url().includes('copy.listLeaders') && res.url().includes('category'));
   await ranked.click();
   expect((await ranking).status()).toBe(403);
   await expect(page.getByRole('alert').filter({ hasText: 'Rankings aren’t offered' })).toBeVisible();
-  await expect(page.getByText('Reference trade.copy_ranking_forbidden')).toBeVisible();
+  await expect(page.getByText('Reference trade.copy_ranking_forbidden', { exact: true })).toBeVisible();
 
   // The desk state comes from the service (TEST fee share and country list are published on this stack).
-  await expect(page.getByText('Copy desk open')).toBeVisible();
+  await expect(page.getByText('Copy desk open', { exact: true })).toBeVisible();
   await tabs.getByRole('tab', { name: 'Rules', exact: true }).click();
   await expect(page.getByText(PUBLISHED_SHARE)).toBeVisible();
 });
@@ -123,7 +123,7 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
   await signOutBrowser(page.context());
   await signIn(page, state('follower'));
   await page.goto('/trade/copy?tab=futures');
-  const table = page.getByRole('table', { name: 'Leaders' });
+  const table = page.getByRole('table', { name: /Leaders/i });
   await expect(table.getByRole('link', { name: futuresName })).toBeVisible();
   await expect(table.getByRole('link', { name: spotName })).toHaveCount(0);
 
@@ -133,7 +133,7 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
     const input = JSON.parse(new URL(res.url()).searchParams.get('input') ?? '{}');
     return input.marketMode === 'futures' && input.q === `futures ${tag}`.toUpperCase();
   });
-  await page.getByLabel('Search leaders').fill(`futures ${tag}`.toUpperCase());
+  await page.getByLabel('Search leaders', { exact: true }).fill(`futures ${tag}`.toUpperCase());
   // The server's own answer to the uppercased name: exactly the futures leader, matched in any case.
   const answer = await answered;
   expect(answer.status()).toBe(200);
@@ -146,17 +146,17 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
 
   // The same search on the Spot tab finds no futures leader.
   await page.goto('/trade/copy?tab=spot');
-  await page.getByLabel('Search leaders').fill(`FUTURES ${tag}`);
-  await expect(page.getByText('No leader matches that name')).toBeVisible();
-  await page.getByLabel('Search leaders').fill(`spot ${tag}`);
+  await page.getByLabel('Search leaders', { exact: true }).fill(`FUTURES ${tag}`);
+  await expect(page.getByText('No leader matches that name', { exact: true })).toBeVisible();
+  await page.getByLabel('Search leaders', { exact: true }).fill(`spot ${tag}`);
   await expect(table.getByRole('link', { name: spotName })).toBeVisible();
 });
 
 test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and no returns-ranked board`, async ({ page }) => {
   await signIn(page, state('follower'));
   await page.goto('/trade/copy');
-  const rankings = page.getByRole('group', { name: 'Ranked lists' });
-  const leaders = page.getByRole('table', { name: 'Leaders' });
+  const rankings = page.getByRole('group', { name: 'Ranked lists', exact: true });
+  const leaders = page.getByRole('table', { name: /Leaders/i });
   await expect(leaders).toBeVisible();
   // The list as read once it has loaded: while it loads, the table is busy and its rows are the "Loading" placeholder
   // (#7000: #3 once read that placeholder as the order before the clicks).
@@ -174,7 +174,7 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
     await rankings.getByRole('button', { name }).click();
     expect((await answer).status()).toBe(403);
     await expect(page.getByRole('alert').filter({ hasText: 'Rankings aren’t offered' })).toBeVisible();
-    await expect(page.getByText('Reference trade.copy_ranking_forbidden')).toBeVisible();
+    await expect(page.getByText('Reference trade.copy_ranking_forbidden', { exact: true })).toBeVisible();
     // No returns-ranked board: the only table is still the plain leader list, in the same order, with no rank column.
     await expect(page.getByRole('table')).toHaveCount(1);
     expect(await order(`after ${name}`), `the leader list after ${name}`).toEqual(before);
@@ -219,9 +219,9 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
 
   await signIn(page, state('follower'));
   await page.goto('/trade/copy?tab=spot');
-  await page.getByLabel('Search leaders').fill(`spot ${tag}`);
+  await page.getByLabel('Search leaders', { exact: true }).fill(`spot ${tag}`);
   await page
-    .getByRole('table', { name: 'Leaders' })
+    .getByRole('table', { name: 'Leaders', exact: true })
     .getByRole('link', { name: state('spotName') })
     .click();
   await expect(page).toHaveURL(new RegExp(`/trade/copy/${state('spotRef')}$`));
@@ -238,7 +238,7 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   await expect(metric('winRate')).toHaveText(/Win rate\s*Not set by the platform/);
   await expect(metric('sharpeRatio')).toHaveText(/Sharpe ratio\s*Not set by the platform/);
 
-  const trades = page.getByRole('table', { name: 'Leader trades' });
+  const trades = page.getByRole('table', { name: /Leader trades/i });
   const rows = trades.locator('tbody tr');
   await expect(rows).toHaveCount(2);
   // Newest first: the open buy, then the closed round trip.
@@ -280,7 +280,7 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
 
   // An unknown leader page is a typed not-found, never an empty profile.
   await page.goto('/trade/copy/no-such-leader');
-  await expect(page.getByText('That leader was not found')).toBeVisible();
+  await expect(page.getByText('That leader was not found', { exact: true })).toBeVisible();
 });
 
 /** A permission end a week ahead, in the datetime-local box's own format. */
@@ -304,15 +304,15 @@ async function walletIn(page, key = state('walletKey')) {
 async function openWizardAtLimits(page, key) {
   const wallet = await walletIn(page, key);
   await page.goto(`/trade/copy/${state('spotRef')}`);
-  await page.getByRole('button', { name: 'Start copying' }).click();
+  await page.getByRole('button', { name: /Start copying/i }).click();
   const wizard = page.getByRole('dialog');
   await expect(wizard.getByText(state('spotName'))).toBeVisible();
-  await wizard.getByLabel('Your country').fill('DE');
-  await wizard.getByRole('button', { name: 'Next' }).click();
+  await wizard.getByLabel(/Your country/i).fill('DE');
+  await wizard.getByRole('button', { name: /Next/i }).click();
   await wizard.getByText(VENUE_MARKET, { exact: true }).click();
-  await wizard.getByRole('button', { name: 'Next' }).click();
+  await wizard.getByRole('button', { name: /Next/i }).click();
   // Connected already when this page connected the wallet before (the wallet keeps its connection for the page).
-  const connect = wizard.getByRole('button', { name: 'Connect TEST Wallet' });
+  const connect = wizard.getByRole('button', { name: /Connect TEST Wallet/i });
   const address = wizard.getByTestId('venue-wallet-address');
   await expect(connect.or(address)).toBeVisible();
   if (await connect.isVisible()) await connect.click();
@@ -333,10 +333,10 @@ const venueStart = (over = {}) => ({
 });
 
 async function fillLimits(wizard, { perOrder, total, fixed }) {
-  await wizard.getByLabel('Most per order (USDC)').fill(perOrder);
-  await wizard.getByLabel('Most in total (USDC)').fill(total);
-  await wizard.getByLabel('Fixed amount per copied order (USDC)').fill(fixed);
-  await wizard.getByLabel('Permission ends').fill(weekAhead());
+  await wizard.getByLabel(/^Most per order \(USDC\)/).fill(perOrder);
+  await wizard.getByLabel(/^Most in total \(USDC\)/).fill(total);
+  await wizard.getByLabel(/^Fixed amount per copied order \(USDC\)/).fill(fixed);
+  await wizard.getByLabel(/^Permission ends/).fill(weekAhead());
 }
 
 test(`${J} #5 presses Start copying: below the copy verification level, under a blank country list and as a sub-account, each refused by name, and nothing is followed`, async ({
@@ -355,11 +355,11 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   // Verified at basic, which opens the copy room, but the TEST copy level is full.
   const unverified = await signUp(page, 'jcn');
   await page.goto('/verification');
-  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
-  await page.getByLabel('Country code').fill('DE');
-  await page.getByRole('button', { name: 'Review request' }).click();
-  await page.getByRole('button', { name: 'Submit this request' }).click();
-  await expect(page.getByText('Your reviewed request')).toBeVisible();
+  await page.getByLabel(/^Level to request/).selectOption({ label: 'Basic' });
+  await page.getByLabel('Country code', { exact: true }).fill('DE');
+  await page.getByRole('button', { name: 'Review request', exact: true }).click();
+  await page.getByRole('button', { name: 'Submit this request', exact: true }).click();
+  await expect(page.getByText('Your reviewed request', { exact: true })).toBeVisible();
   tool('local-test-gates.mjs', 'verify');
   // Their own TEST wallet with TEST USDC on the venue, so the wizard's own free-balance check passes.
   const unverifiedKey = testWalletKey();
@@ -369,17 +369,17 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await signIn(page, unverified);
   const wizard = await openWizardAtLimits(page, unverifiedKey);
   await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });
-  await wizard.getByRole('button', { name: 'Next' }).click();
+  await wizard.getByRole('button', { name: 'Next', exact: true }).click();
   const answer = page.waitForResponse((res) => res.url().includes('copy.checkVenueFollow'));
-  await wizard.getByRole('button', { name: 'Start copying' }).click();
+  await wizard.getByRole('button', { name: 'Start copying', exact: true }).click();
   expect((await answer).status()).toBe(403);
   await expect(wizard.getByRole('alert').filter({ hasText: 'More verification needed' })).toBeVisible();
-  await expect(wizard.getByText('Reference trade.tier_insufficient')).toBeVisible();
+  await expect(wizard.getByText('Reference trade.tier_insufficient', { exact: true })).toBeVisible();
 
   // Nothing was written: no follow, no copy permission on the venue, and the venue balance is untouched.
   await page.keyboard.press('Escape');
   await page.goto('/trade/copy?tab=follows');
-  await expect(page.getByText('You aren’t following anyone')).toBeVisible();
+  await expect(page.getByText('You aren’t following anyone', { exact: true })).toBeVisible();
   expect((await venueBalance(unverifiedOwner, 'USDC')).free, 'the venue balance is untouched').toBe('1000');
   expect((await venueRecord(unverifiedOwner, '/agents')).value, 'no copy permission was asked for').toEqual([]);
   expect((await venueRecord(unverifiedOwner, '/sub-accounts')).value, 'no agent account was opened on the venue').toEqual([]);
@@ -404,18 +404,18 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
     expect(await myFollows(await api(follower)), 'no follow was started under a blank country list').toEqual(followsBefore);
     await signIn(page, follower);
     await page.goto('/trade/copy');
-    await expect(page.getByRole('heading', { name: 'Copy trading', level: 1 })).toBeVisible();
-    await expect(page.getByText('Copy desk closed')).toBeVisible();
-    await expect(page.getByText('Copy desk open')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Copy trading', level: 1, exact: true })).toBeVisible();
+    await expect(page.getByText('Copy desk closed', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Copy desk open/i)).toHaveCount(0);
     // The wizard checks the same gate when Start copying is pressed: refused by name, and nothing is followed.
     const closed = await openWizardAtLimits(page);
     await fillLimits(closed, { perOrder: '50', total: '200', fixed: '20' });
-    await closed.getByRole('button', { name: 'Next' }).click();
+    await closed.getByRole('button', { name: 'Next', exact: true }).click();
     const blankAnswer = page.waitForResponse((res) => res.url().includes('copy.checkVenueFollow'));
-    await closed.getByRole('button', { name: 'Start copying' }).click();
+    await closed.getByRole('button', { name: 'Start copying', exact: true }).click();
     expect((await blankAnswer).status()).toBe(412);
     await expect(closed.getByRole('alert').filter({ hasText: 'Copy trading isn’t open for your country' })).toBeVisible();
-    await expect(closed.getByText('Reference trade.copy_jurisdiction_blank')).toBeVisible();
+    await expect(closed.getByText('Reference trade.copy_jurisdiction_blank', { exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
     expect(await myFollows(await api(follower)), 'no follow was started from the wizard under a blank country list').toEqual(followsBefore);
   } finally {
@@ -428,16 +428,16 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await page.goto('/uc/account');
   const subLabel = `Copy ${state('tag')}`;
   const create = page.getByTestId('subaccounts__create');
-  await create.getByLabel('Label').fill(subLabel);
-  await create.getByRole('button', { name: 'Review subaccount' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Create subaccount' }).click();
+  await create.getByLabel('Label', { exact: true }).fill(subLabel);
+  await create.getByRole('button', { name: 'Review subaccount', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create subaccount', exact: true }).click();
   await expect(page.getByTestId('subaccounts__request').last()).toContainText('The service created the original strategy subaccount.');
   const row = page.locator('li.subaccounts__row').filter({ has: page.getByText(subLabel, { exact: true }) });
   const use = row.getByRole('button', { name: /^Use sub-account / });
   await expect(use).toBeEnabled();
   const subAccountId = (await use.getAttribute('aria-label')).replace('Use sub-account ', '').toLowerCase();
   await use.click();
-  const inUse = page.getByRole('region', { name: 'Sub-account in use' });
+  const inUse = page.getByRole('region', { name: /Sub-account in use/i });
   await expect(inUse).toContainText(`You are using sub-account ${subLabel} in this tab.`);
   await expect(inUse).toContainText(subAccountId);
 
@@ -448,9 +448,9 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await expect(inUse, 'the copy room is opened as the sub-account').toContainText(subAccountId);
   const asSub = await openWizardAtLimits(page);
   await fillLimits(asSub, { perOrder: '50', total: '200', fixed: '20' });
-  await asSub.getByRole('button', { name: 'Next' }).click();
+  await asSub.getByRole('button', { name: 'Next', exact: true }).click();
   const subAnswer = page.waitForResponse((res) => res.url().includes('copy.checkVenueFollow'));
-  await asSub.getByRole('button', { name: 'Start copying' }).click();
+  await asSub.getByRole('button', { name: 'Start copying', exact: true }).click();
   const subRes = await subAnswer;
   // The press went out as the sub-account: its token names the sub-account the person chose.
   const bearer = (await subRes.request().headerValue('authorization'))?.replace(/^Bearer /, '') ?? '';
@@ -458,7 +458,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   expect(claims.sub_account, 'the Start copying request carries the sub-account').toBe(subAccountId);
   expect(subRes.status()).toBe(403);
   await expect(asSub.getByRole('alert').filter({ hasText: 'Sub-accounts can’t copy' })).toBeVisible();
-  await expect(asSub.getByText('Reference trade.copy_subaccount_refused')).toBeVisible();
+  await expect(asSub.getByText('Reference trade.copy_subaccount_refused', { exact: true })).toBeVisible();
 
   // Nothing was written: no follow on the account, no copy permission on the venue, and the venue balance is untouched.
   await page.keyboard.press('Escape');
@@ -469,7 +469,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   expect(await agentAccounts(await api(follower)), 'no agent account was made').toEqual([]);
 
   // Back to the main account in the same tab.
-  await inUse.getByRole('button', { name: 'Switch back to the main account' }).click();
+  await inUse.getByRole('button', { name: 'Switch back to the main account', exact: true }).click();
   await expect(inUse).toHaveCount(0);
 });
 
@@ -510,12 +510,12 @@ test(`${J} #6 reaches the review with no risk disclosure to accept, and Start co
   await signIn(page, follower);
   const wizard = await openWizardAtLimits(page);
   await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });
-  await wizard.getByRole('button', { name: 'Next' }).click();
+  await wizard.getByRole('button', { name: 'Next', exact: true }).click();
 
-  await expect(wizard.getByRole('region', { name: 'What it costs' })).toBeVisible();
-  await expect(wizard.getByRole('region', { name: 'Copy risk disclosure' })).toHaveCount(0);
+  await expect(wizard.getByRole('region', { name: 'What it costs', exact: true })).toBeVisible();
+  await expect(wizard.getByRole('region', { name: /Copy risk disclosure/i })).toHaveCount(0);
   await expect(wizard.getByRole('checkbox', { name: /disclosure/ })).toHaveCount(0);
-  await expect(wizard.getByRole('button', { name: 'Start copying' })).toBeEnabled();
+  await expect(wizard.getByRole('button', { name: 'Start copying', exact: true })).toBeEnabled();
 });
 
 const codeOf = (res) => res.body?.error?.data?.cause?.code ?? res.body?.error?.data?.intafacedCode;
@@ -539,7 +539,7 @@ async function builderOf(me) {
  * then signs or rejects as it was told. Returns how many it answered.
  */
 async function walletAnswers(page, done) {
-  const sheet = page.getByRole('dialog', { name: 'Check before you sign' });
+  const sheet = page.getByRole('dialog', { name: 'Check before you sign', exact: true });
   let finished = false;
   done.then(
     () => (finished = true),
@@ -595,32 +595,32 @@ test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap an
     await browserHoldsPasskey(page, passkey.saved());
     await signIn(page, follower);
     const wizard = await openWizardAtLimits(page);
-    await expect(wizard.getByText(`${before.free} USDC`).or(wizard.getByText(/1,000 USDC/))).toBeVisible();
+    await expect(wizard.getByText(`${before.free} USDC`, { exact: true }).or(wizard.getByText(/1,000 USDC/))).toBeVisible();
     await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '0' });
-    await wizard.getByRole('button', { name: 'Next' }).click();
-    await expect(wizard.getByText('Enter an amount above zero')).toBeVisible();
-    await wizard.getByLabel('Fixed amount per copied order (USDC)').fill('60');
-    await wizard.getByRole('button', { name: 'Next' }).click();
-    await expect(wizard.getByText('The most per order is 50 USDC')).toBeVisible();
+    await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(wizard.getByText('Enter an amount above zero', { exact: true })).toBeVisible();
+    await wizard.getByLabel(/^Fixed amount per copied order \(USDC\)/).fill('60');
+    await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(wizard.getByText('The most per order is 50 USDC', { exact: true })).toBeVisible();
     // Above the free USDC the venue reports: refused on the screen, naming the venue's figure and its as-of time.
-    await wizard.getByLabel('Most per order (USDC)').fill('5000');
-    await wizard.getByLabel('Fixed amount per copied order (USDC)').fill('5000');
-    await wizard.getByLabel('Most in total (USDC)').fill('5000');
-    await wizard.getByRole('button', { name: 'Next' }).click();
+    await wizard.getByLabel(/^Most per order \(USDC\)/).fill('5000');
+    await wizard.getByLabel(/^Fixed amount per copied order \(USDC\)/).fill('5000');
+    await wizard.getByLabel(/^Most in total \(USDC\)/).fill('5000');
+    await wizard.getByRole('button', { name: 'Next', exact: true }).click();
     const refusal = wizard.getByText(
       new RegExp(`more than the 1,?000 USDC free that ${venue.displayName} reports for your account, as of `),
     );
     await expect(refusal).toBeVisible();
     // The as-of time is the venue's own read of that balance: the same instant the balance line above names.
     const asOf = (await refusal.innerText()).split(', as of ')[1].trim();
-    await expect(wizard.getByText(`As the venue reports it, as of ${asOf}`)).toBeVisible();
+    await expect(wizard.getByText(`As the venue reports it, as of ${asOf}`, { exact: true })).toBeVisible();
     const when = new Date(asOf);
     expect(Number.isNaN(when.getTime()), `the as-of time ${asOf} is a time`).toBe(false);
     expect(Math.abs(Date.now() - when.getTime()), 'read within the last few minutes').toBeLessThan(10 * 60_000);
     // The fixed amount is the follow's cap: no copy may go past 20 USDC, each copy or in total.
     await fillLimits(wizard, { perOrder: '20', total: '20', fixed: '20' });
-    await wizard.getByRole('button', { name: 'Next' }).click();
-    await expect(wizard.getByRole('region', { name: 'Copy permission' })).toContainText(
+    await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(wizard.getByRole('region', { name: 'Copy permission', exact: true })).toContainText(
       'The permission can place and cancel orders there and can never withdraw',
     );
     expect(signs(), 'nothing is asked of the wallet to sign before Start copying').toEqual([]);
@@ -628,8 +628,8 @@ test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap an
     // Start copying, confirmed with the passkey: the wallet is asked to open the follow's agent account. Rejected, it is
     // never sent: the account is ended, nothing moved, and there is no follow.
     wallet.rejectNext();
-    await wizard.getByRole('button', { name: 'Start copying' }).click();
-    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey' }).click();
+    await wizard.getByRole('button', { name: 'Start copying', exact: true }).click();
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey', exact: true }).click();
     await continueInWallet(page);
     await expect(page.getByRole('dialog').getByRole('alert').filter({ hasText: 'Your wallet did not sign' })).toBeVisible();
     expect(await myFollows(me), 'a rejected signature leaves no follow').toEqual([]);
@@ -654,17 +654,17 @@ test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap an
       await route.abort('connectionreset');
       lost();
     });
-    await wizard.getByRole('button', { name: 'Start copying' }).click();
-    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey' }).click();
+    await wizard.getByRole('button', { name: 'Start copying', exact: true }).click();
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey', exact: true }).click();
     const signed = await walletAnswers(page, answerLost);
     await answerLost;
     expect(signed, 'one signature per agent-account step, and one for our builder fee when the owner set one').toBe(builder ? 4 : 3);
     expect(signs().length).toBe(asked + signed);
-    await expect(wizard.getByRole('button', { name: 'Start copying' })).toBeEnabled();
+    await expect(wizard.getByRole('button', { name: 'Start copying', exact: true })).toBeEnabled();
     await expect(page).not.toHaveURL(/tab=follows/);
     await page.unroute(isFollow);
     const second = page.waitForResponse((res) => isFollow(res.url()));
-    await wizard.getByRole('button', { name: 'Start copying' }).click();
+    await wizard.getByRole('button', { name: 'Start copying', exact: true }).click();
     const secondAnswer = await (await second).json();
     followBodies.push((await second).request().postData());
     await expect(page).toHaveURL(/tab=follows/);
@@ -683,12 +683,12 @@ test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap an
     expect(spot.maxAggregateExposure, 'the fixed amount is the cap in total').toBe('20');
     // Nothing is held by INTAFACED: no reserve of ours.
     expect(spot.reserve ?? null, 'no reserve is held').toBeNull();
-    const row = page.getByRole('grid', { name: 'My follows' }).getByRole('rowgroup').nth(1).getByRole('row');
+    const row = page.getByRole('grid', { name: 'My follows', exact: true }).getByRole('rowgroup').nth(1).getByRole('row');
     await expect(row).toHaveCount(1);
-    await row.first().getByRole('button', { name: 'Manage' }).click();
+    await row.first().getByRole('button', { name: 'Manage', exact: true }).click();
     const detail = page.getByRole('dialog');
     await expect(detail).toContainText('20 USDC');
-    await expect(detail.getByText('Reserved for this copy').locator('..')).toContainText('Not set');
+    await expect(detail.getByText('Reserved for this copy', { exact: true }).locator('..')).toContainText('Not set');
 
     // The follow's agent account: the person's own, open, capped at the fixed amount, holding the 20 USDC their own wallet
     // moved from their main venue account, as the venue reports both. Nothing else moved.
@@ -778,16 +778,16 @@ test(`${J} #8 waits for the lead to fill: the copy is an order on the follower's
   await page.goto('/trade/copy?tab=follows');
   // #7 followed the spot leader on screen; this is its follow.
   const row = page
-    .getByRole('grid', { name: 'My follows' })
+    .getByRole('grid', { name: 'My follows', exact: true })
     .getByRole('rowgroup')
     .nth(1)
     .getByRole('row')
     .filter({ hasText: state('spotRef') });
-  await row.first().getByRole('button', { name: 'Manage' }).click();
+  await row.first().getByRole('button', { name: 'Manage', exact: true }).click();
   const detail = page.getByRole('dialog');
   // Start copying in #7 also turned automatic copying on; nothing is copied before the lead trades.
-  await expect(detail.getByRole('button', { name: 'Turn off automatic copying' })).toBeVisible();
-  await expect(detail.getByText('No copied orders')).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Turn off automatic copying', exact: true })).toBeVisible();
+  await expect(detail.getByText('No copied orders', { exact: true })).toBeVisible();
 
   // The lead buys on the venue: its own order on its own venue account, signed by its own wallet through our door, at
   // the best ask. Our builder fee rides on door orders, so the lead's wallet approves it first.
@@ -816,10 +816,10 @@ test(`${J} #8 waits for the lead to fill: the copy is an order on the follower's
   const leadFills = (await venueRecord(state('leadOwner'), '/fills', { since: state('followedAt') })).value;
   expect(leadFills.length, "the lead's buy filled on the venue").toBeGreaterThan(0);
 
-  const copied = detail.getByRole('table', { name: 'Copied orders' }).locator('tbody tr:not([data-slot="table-empty-row"])');
+  const copied = detail.getByRole('table', { name: 'Copied orders', exact: true }).locator('tbody tr:not([data-slot="table-empty-row"])');
   await expect(async () => {
     await page.reload();
-    await row.first().getByRole('button', { name: 'Manage' }).click();
+    await row.first().getByRole('button', { name: 'Manage', exact: true }).click();
     await expect(copied).toHaveCount(1, { timeout: 2_000 });
     await expect(copied.first()).toContainText('Filled', { timeout: 2_000 });
   }).toPass({ timeout: 90_000 });
@@ -851,8 +851,8 @@ test(`${J} #8 waits for the lead to fill: the copy is an order on the follower's
 
   // The Positions tab: the copied fills with the venue's fee and our builder fee, as the venue reports them, and no
   // profit-share value anywhere on it.
-  await detail.getByRole('tab', { name: 'Positions' }).click();
-  const fillsTable = detail.getByRole('table', { name: 'Copied fills' });
+  await detail.getByRole('tab', { name: 'Positions', exact: true }).click();
+  const fillsTable = detail.getByRole('table', { name: /Copied fills/i });
   const fillRows = fillsTable.locator('tbody tr:not([data-slot="table-empty-row"])');
   await expect(fillRows).toHaveCount(mine.length);
   const headers = (await fillsTable.locator('thead th').allInnerTexts()).map((h) => h.trim());
@@ -874,7 +874,7 @@ test(`${J} #8 waits for the lead to fill: the copy is an order on the follower's
   // No profit-share value: the copied fills name none, and where the copied positions keep a leader profit-share column
   // (J-copy-bots-otc-06), each of its cells says the platform sets none.
   await expect(fillsTable).not.toContainText(/profit/i);
-  const positions = detail.getByRole('table', { name: 'Copied positions' });
+  const positions = detail.getByRole('table', { name: /Copied positions/i });
   const positionHeaders = (await positions.locator('thead th').allInnerTexts()).map((h) => h.trim());
   const shareColumn = positionHeaders.findIndex((h) => /profit share/i.test(h));
   const positionRows = positions.locator('tbody tr:not([data-slot="table-empty-row"])');
@@ -886,7 +886,7 @@ test(`${J} #8 waits for the lead to fill: the copy is an order on the follower's
 
   // Read again after the copy driver's later sweeps: still one copied order, on the screen and on the venue.
   await page.reload();
-  await row.first().getByRole('button', { name: 'Manage' }).click();
+  await row.first().getByRole('button', { name: 'Manage', exact: true }).click();
   await expect(copied).toHaveCount(1);
   expect(
     new Set((await venueRecord(owner, '/fills', { since: state('followedAt') }, undefined, sub)).value.map((f) => f.venueClientOrderId))
