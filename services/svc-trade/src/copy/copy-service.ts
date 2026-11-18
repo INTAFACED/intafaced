@@ -197,6 +197,8 @@ export type LeaderFill = {
   readonly notional: Amount;
   /** Leader fill price. Absent → a slippage cap cannot be evaluated. */
   readonly price?: Amount;
+  /** The lead marked the fill's order as not a lead trade (switch off, or an iceberg; CB-copy-14): never copied. */
+  readonly notLead?: boolean;
 };
 
 /** Production wires `trade.fills`. Absent or missing fill row → refuse-closed. */
@@ -1808,6 +1810,9 @@ export class CopyService {
         'Fill does not belong to this leader — refuse rather than invent observation',
         'trade.copy_leader_fill_not_found',
       );
+    }
+    if (fill.notLead) {
+      throw new CopyError('The leader marked this order as not a lead trade, so it is not copied', 'trade.copy_not_lead_order');
     }
     return {
       observation: parseLeaderFillObservation({

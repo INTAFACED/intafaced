@@ -254,6 +254,12 @@ export class LeaderDirectory {
     return { leaderRef: row.leaderRef, state: row.state };
   }
 
+  /** The public ref and display name a leader user id is listed under, or null when no row exists. */
+  async listingName(leaderUserId: string): Promise<{ readonly leaderRef: string; readonly displayName: string } | null> {
+    const row = await this.backend.getByUser(leaderUserId, false);
+    return row ? { leaderRef: row.leaderRef, displayName: row.displayName } : null;
+  }
+
   /** The lead API's read (`copy/lead-api.ts`): a leader's listing state and the instruments it names, or null. */
   async leadListing(leaderUserId: string): Promise<{ readonly state: CopyLeaderListingState; readonly assets: readonly string[] } | null> {
     const row = await this.backend.getByUser(leaderUserId, false);
