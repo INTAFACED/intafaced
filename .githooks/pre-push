@@ -1,6 +1,7 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require the Doctrine gates before any push. The rest of CI runs on GitHub.
+# Refuse direct push to main + require the Doctrine gates and the typecheck of what the push reaches before any push.
+# The rest of CI runs on GitHub.
 # Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
 # Formatting is checked by .githooks/pre-commit on every commit and by CI's Format job on the pull request.
 
@@ -111,6 +112,15 @@ if grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED" && [ -f "$TOP
   fi
 fi
 
+# CI's typecheck on the packages this push reaches (tooling/scripts/pre-push-typecheck.mjs: ci-affected.mjs's selection,
+# under a time limit that prints TIMEOUT and lets the push go). A push that changes no TypeScript pays nothing. A type
+# error was otherwise first seen as a red Typecheck & build job minutes after the push (#8814, #8804, #8783 on 17-18 Nov).
+if grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED" && [ -f "$TOP/tooling/scripts/pre-push-typecheck.mjs" ] &&
+  ! (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-typecheck.mjs) </dev/null; then
+  rm -f "$PUSHED"
+  exit 1
+fi
+
 # The CI review's size rule, by the review's own diff step on local git (review-before-push.mjs --size): the bytes it
 # will count and its refusal, before the push. #8463 and #8491 were each refused for size after a whole round (15 Nov).
 if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
@@ -125,8 +135,8 @@ fi
 
 # What runs here takes seconds: the tooling tests that read
 # journey files (when one is pushed), the lint ratchet on the pushed files, the cross-package read scan, the Doctrine
-# gates that read the pushed tree, the CI review's size count and the refusal of main. Only on GitHub: build, typecheck,
-# unit tests, the other tooling tests and the gates gates.mjs leaves to CI (on the Mac CI's checks took 13 to 91 minutes
+# gates that read the pushed tree, the typecheck of the packages the push reaches (within its time limit), the CI review's
+# size count and the refusal of main. Only on GitHub: build, the whole repo's typecheck, unit tests, the other tooling tests and the gates gates.mjs leaves to CI (on the Mac CI's checks took 13 to 91 minutes
 # a push under three builders; GitHub runs them in 9 to 20), on the pull request.
 # `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
 rm -f "$PUSHED"
