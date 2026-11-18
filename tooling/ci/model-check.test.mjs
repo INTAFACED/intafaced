@@ -12,10 +12,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { SELF, findModels, plan } from './model-check.mjs';
+import { SELF, findModels, gonePaths, plan } from './model-check.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(ROOT, 'tooling', 'ci', 'model-check.mjs');
+const trackedRepo = () =>
+  execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    .split('\0')
+    .filter(Boolean);
 
 /** A scratch git repository holding `files` ({ path: text }); a path ending in check.sh is made executable. */
 function scratch(files) {
@@ -155,4 +159,50 @@ test('the workflow plans every pull request and needs a broken version failing i
   assert.match(yml, /matrix:\n\s+model: \$\{\{ fromJSON\(needs\.plan\.outputs\.models\) \}\}/);
   assert.match(yml, /violated as it should be/);
   assert.match(yml, /\n {4}name: Model check\n {4}needs: \[plan, model\]\n {4}if: always\(\)/);
+  // project-state#2962: exit 3 (could not check) is the Judge down step, never the Verdict; any other non-zero exit fails.
+  assert.match(yml, /if \[ "\$code" -eq 3 \]; then[\s\S]*?echo "down=true" >> "\$GITHUB_OUTPUT"/);
+  assert.match(yml, /\n {6}- name: Judge down\n {8}if: steps\.read\.outputs\.down != '0'\n/);
+  assert.match(yml, /\n {6}- name: Verdict\n {8}if: steps\.read\.outputs\.down == '0'\n/);
+});
+
+test('project-state#2962: every model check.sh prints the whole trace and tells a broken rule from could not check', () => {
+  for (const m of findModels(ROOT).models) {
+    const checks = [m.check, ...(m.check.endsWith('svc-bank/model/check.sh') ? ['services/svc-bank/model/check-cashout.sh'] : [])];
+    for (const c of checks) {
+      const sh = readFileSync(join(ROOT, c), 'utf8');
+      assert.doesNotMatch(sh, /sed -n '1,\d+p'/, `${c} cuts the trace short`);
+      assert.match(sh, /sed -nE '\/is violated\|Deadlock reached\/,\$p'/, `${c} prints the trace from the break to the end`);
+      assert.match(
+        sh,
+        /case "\$status" in 0 \| 11 \| 12 \| 13\) ;; \*\) echo "COULD NOT CHECK/,
+        `${c} reads a TLC exit outside 0, 11-13 as could not check`,
+      );
+      assert.match(
+        sh,
+        /if \[ "\$failed" -eq 0 \] && \[ "\$couldnt" -eq 1 \]; then exit 3; fi\nexit "\$failed"\n$/,
+        `${c} exits 3 only with no rule broken`,
+      );
+      assert.match(sh, /did not download" >&2; exit 3; \}/, `${c} reads a failed download as could not check`);
+    }
+  }
+});
+
+test('project-state#2962: a path a COVERS.md names that is gone fails the plan by name', () => {
+  const files = trackedRepo();
+  assert.deepEqual(gonePaths(ROOT, findModels(ROOT, files).models, files), [], 'every path named today is there');
+  const gone = files.filter((f) => f !== 'services/svc-campaigns/src/reward-payer.ts');
+  const p = plan(ROOT, ['docs/x.md'], { files: gone });
+  assert.equal(p.run, false);
+  assert.deepEqual(p.errors, [
+    'services/svc-campaigns/model/COVERS.md names services/svc-campaigns/src/reward-payer.ts, which is gone: the model no longer covers it; fix COVERS.md or the model',
+  ]);
+  // A folder a COVERS.md names counts as there while it holds a tracked file.
+  assert.equal(
+    gonePaths(
+      ROOT,
+      findModels(ROOT, files).models,
+      files.filter((f) => !f.startsWith('services/svc-trade/src/spot/')),
+    ).length,
+    1,
+  );
 });
