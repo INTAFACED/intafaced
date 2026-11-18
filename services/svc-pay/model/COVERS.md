@@ -66,3 +66,7 @@ The merchant payout's hold is on a customer account, so `LEDGER_CUSTODY_LAYER` (
 ## Last confirmed
 
 Against the #8828 fix on `fix/ps-3050`, 18 Nov 2026 (`check.sh`, TLC 1.7.4, Java 21: every run as expected). Whoever changes a covered function reruns `check.sh` and updates this line.
+
+## Changing it
+
+Run `check.sh` once before you change a covered function or the model, and keep the result: a pass then only says the old description still holds. Update the model from the code, never from what makes it pass; when the code breaks a rule, that is a finding. A rule changes only when the promise changes on purpose: the PR gives the old wording, the new wording and the evidence in the change (a doc comment, a test or the commit message). Keep the bounds unless the change makes them wrong, and name any bound you reduce in the PR. The model's update goes in the same PR as the code change. The method in full: [`create-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/create-formal-verification-skill/SKILL.md) and [`maintain-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/maintain-formal-verification-skill/SKILL.md).

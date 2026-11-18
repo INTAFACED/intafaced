@@ -66,3 +66,7 @@ TLC's deadlock check is on: every state of this model has a step out (the clock 
 ## Last confirmed
 
 Against `received-holds.ts` with #8586's fix, branch `model/received-hold-strand` off `origin/main` at `76621e07ff`, 16 Nov 2026. Whoever changes a covered function reruns `check.sh` and updates this line.
+
+## Changing it
+
+Run `check.sh` once before you change a covered function or the model, and keep the result: a pass then only says the old description still holds. Update the model from the code, never from what makes it pass; when the code breaks a rule, that is a finding. A rule changes only when the promise changes on purpose: the PR gives the old wording, the new wording and the evidence in the change (a doc comment, a test or the commit message). Keep the bounds unless the change makes them wrong, and name any bound you reduce in the PR. The model's update goes in the same PR as the code change. The method in full: [`create-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/create-formal-verification-skill/SKILL.md) and [`maintain-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/maintain-formal-verification-skill/SKILL.md).
