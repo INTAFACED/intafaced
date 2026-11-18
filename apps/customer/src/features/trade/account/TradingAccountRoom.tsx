@@ -531,8 +531,8 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
               <td className="numeric">
                 {displayAmount(m.amount, 2)} {m.assetId}
               </td>
-              <td data-cell="partner-leg">{m.deliveryTx ? `${t('legSent')} ${m.deliveryTx}` : t('legNotYet')}</td>
-              <td data-cell="deposit-leg">{m.depositTx ? `${t('legSent')} ${m.depositTx}` : t('legNotYet')}</td>
+              <td data-cell="partner-leg">{m.deliveryTx ? <Tx hash={m.deliveryTx} sent={t('legSent')} /> : t('legNotYet')}</td>
+              <td data-cell="deposit-leg">{m.depositTx ? <Tx hash={m.depositTx} sent={t('legSent')} /> : t('legNotYet')}</td>
             </tr>
           ))}
         </DataTable>
@@ -541,19 +541,37 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
   );
 }
 
+/** A transaction hash the way a person reads it: its first and last characters, the whole hash on hover. */
+function shortTx(hash: string): string {
+  return `${hash.slice(0, 10)}…${hash.slice(-8)}`;
+}
+
+function Tx({ hash, sent }: { hash: string; sent: string }) {
+  return (
+    <span data-tx={hash} title={hash}>
+      {sent} {shortTx(hash)}
+    </span>
+  );
+}
+
 function MoveLegs({ move, venue, t }: { move: OwnMove; venue: Venue; t: T }) {
   return (
     <ol data-testid="move-legs">
       <li data-leg="partner">
         {t('moveLegPartner', { partner: move.partner, amount: displayAmount(move.amount, 2), asset: move.assetId, wallet: move.wallet })}{' '}
-        <span data-tx={move.deliveryTx ?? ''}>{move.deliveryTx}</span>{' '}
+        <span data-tx={move.deliveryTx ?? ''} title={move.deliveryTx ?? undefined}>
+          {move.deliveryTx ? shortTx(move.deliveryTx) : null}
+        </span>{' '}
         <span data-fee>
           {move.partnerFee === null ? t('moveFeeUnknown') : t('moveFee', { fee: `${displayAmount(move.partnerFee, 2)} ${move.assetId}` })}
         </span>
       </li>
       <li data-leg="deposit">
         {t('moveLegDeposit', { amount: displayAmount(move.amount, 2), asset: move.assetId, venue: venue.name })}{' '}
-        <span data-tx={move.depositTx ?? ''}>{move.depositTx}</span> <span data-fee>{t('moveFeeUnknown')}</span>
+        <span data-tx={move.depositTx ?? ''} title={move.depositTx ?? undefined}>
+          {move.depositTx ? shortTx(move.depositTx) : null}
+        </span>{' '}
+        <span data-fee>{t('moveFeeUnknown')}</span>
       </li>
     </ol>
   );
