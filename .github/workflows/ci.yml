@@ -74,7 +74,7 @@ env:
 jobs:
   gates:
     name: Doctrine gates
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: about 2 min (the tooling tests are about 40 s of it)
     permissions:
       contents: read
@@ -271,7 +271,7 @@ jobs:
 
   changes:
     name: Affected tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: under 1 min; a slow registry install passed 5 min on three PRs on 2026-10-22
     outputs:
       full: ${{ steps.cls.outputs.full }}
@@ -293,7 +293,7 @@ jobs:
 
   format:
     name: Format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10 # healthy run: 1-2 min
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -308,7 +308,7 @@ jobs:
 
   build:
     name: Typecheck & build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20 # healthy run: 4-11 min
     needs: [changes]
     steps:
@@ -434,7 +434,6 @@ jobs:
       fail-fast: false # a red shard must not hide what the others found
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
-    # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
     runs-on: ubuntu-24.04
     timeout-minutes: 45 # healthy run: 11-20 min
 
@@ -606,7 +605,7 @@ jobs:
     # the head, so a job of this name here would pass the required check in its place (journey-seal.mjs CI_JOBS_NAME,
     # sealNow). `CI merge seal` on a merge queue's commit, which merge-seal.yml never reaches.
     name: ${{ github.event_name == 'merge_group' && 'CI merge seal' || 'CI jobs' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25
     if: always()
@@ -718,7 +717,7 @@ jobs:
     name: Start the seal
     needs: [changes, gates, format, build, test-full, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
     permissions:
       contents: read

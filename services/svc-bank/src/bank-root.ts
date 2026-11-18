@@ -7,7 +7,7 @@ import {
   type PartnerCustody,
   type PostingFreeze,
 } from './partner/partner-bank.js';
-import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
+import { testPartnerCustody, type TestPartner, type TestPartnerDoors } from './partner/test-partner.js';
 import { PartnerStopService, stopGuardedCustody, TEST_PARTNER_ID } from './partner/partner-stops.js';
 import { PartnerRefusalCounts } from './partner/partner-refusals.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
@@ -31,7 +31,8 @@ export interface BankRoot {
   readonly partnerRefusals: PartnerRefusalCounts;
   /** The TEST partner's custody, asked behind the posting freeze and the partner stop. */
   readonly custody: PartnerCustody;
-  readonly testPartner: TestPartner | null;
+  /** The TEST partner without its raw bank: every area moves money at it through `custody`, never around it (floor 4). */
+  readonly testPartner: TestPartnerDoors | null;
   readonly directory: BusinessDirectoryPort;
   /** One lookup budget per caller for every door that asks the directory for a person: business and shared pots. */
   readonly directoryLookups: BusinessLookupLimiter;
@@ -49,7 +50,10 @@ export interface BankRootOptions {
   custodyLayer?: CustodyLayerState;
   /** svc-ledger's platform posting freeze, asked before every partner move (`ledgerPostingFreeze`). */
   postingFreeze?: PostingFreeze;
-  /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
+  /**
+   * The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. The
+   * whole partner, raw bank included, is taken only here, to build the guarded `custody`; the root hands on the rest.
+   */
   testPartner?: TestPartner | null;
   /**
    * Public handles and exact recipient lookup. Unset refuses team, approval

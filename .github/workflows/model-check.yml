@@ -32,7 +32,7 @@ concurrency:
 jobs:
   plan:
     name: Which models
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       run: ${{ steps.plan.outputs.run }}
@@ -76,7 +76,7 @@ jobs:
     name: ${{ matrix.model.name }} model
     needs: plan
     if: needs.plan.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -119,7 +119,7 @@ jobs:
     name: Model check
     needs: [plan, model]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions:
       actions: read # this run's model jobs, for their Could not check step
@@ -166,7 +166,7 @@ jobs:
     name: Start the seal
     needs: [plan, model, verdict]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
     permissions:
       contents: read

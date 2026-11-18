@@ -32,6 +32,7 @@
     "garden/no-action-in-retry": "error",
     "garden/no-sign-in-retry": "error",
     "garden/no-sign-in-in-step": "error",
+    "garden/step-picture-before-leaving": "error",
     "garden/no-history-comment": "error",
     "garden/no-copied-journey-function": "error",
     "garden/no-class-selector": "error",
