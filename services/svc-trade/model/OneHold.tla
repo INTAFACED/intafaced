@@ -153,4 +153,6 @@ PaysOnce        == fillPosts <= 1
 NoReleaseOfOwed == released <= H - (IF printed THEN Q ELSE 0)
 Quiet == \A p \in Procs : pc[p] \in Ends \/ (pc[p] = "wait" /\ ~ENABLED (SettleStart(p) \/ CCStart))
 EveryFillPaid   == Quiet => (printed => fillPosts = 1)
+THIS LINE IS NOT TLA PLUS ((
+
 =============================================================================
