@@ -355,7 +355,11 @@ test(`${J} #3 editing an active design with issued certificates warns, and the i
   expect((await staffRead('admin.certDesign', { certId: CERT })).design.activeRevision).toBeNull();
 });
 
-test(`${J} #4 the issued list and its export agree, with zero counts and an empty state when none`, async ({ page, browser }) => {
+test(`${J} #4 the issued list and its export agree, with zero counts and an empty state when none`, async ({
+  page,
+  browser,
+  stepPicture,
+}) => {
   test.setTimeout(240_000);
   await staffSignIn(page, browser, 'compliance');
 
@@ -404,6 +408,13 @@ test(`${J} #4 the issued list and its export agree, with zero counts and an empt
     expect(lines.filter((l) => l[2] === c.certId && l[3] === 'revoked')).toHaveLength(c.revoked);
   }
   expect(lines.some((l) => l[0] === run.read().publicId && l[3] === 'revoked')).toBe(true);
+  // The step's picture: the counts, the newest issued and the export together, from the top of the page. Making the
+  // export left the page scrolled to its button, and a whole-page picture taken there paints the console's sticky bar
+  // over the middle of the page (the step picture of run 44391292793).
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.getByTestId('issued-counts')).toBeVisible();
+  await expect(exported).toBeVisible();
+  await stepPicture();
 });
 
 // ─── #5 to #7: issue rules, an exception, a revoke and a course team role (AC-certificates-02, AC-roles-01) ───────────
