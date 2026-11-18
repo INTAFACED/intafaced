@@ -7,6 +7,11 @@
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/funding-history?base=BTC&since=<ISO>  public: the funding the venue published on our listed
  *                                                      perpetual on that asset (a chart's funding study, J-charts-desk-04 #6)
+ *   GET  /api/v1/venue/price-history?symbol=BTC-PERP&kind=mark|index&since=<ISO>  public: the venue's mark or index
+ *                                                      series on a perpetual we list; an unpublished index is `series:
+ *                                                      null` with its reason (J-derivatives-08 #6)
+ *   GET  /api/v1/venue/funding-payments?owner=&since=<ISO>  the funding the venue charged or paid on the account's
+ *                                                      positions, one per position per period (J-derivatives-08 #3 #4 #5)
  *   GET  /api/v1/venue/book?symbol=BTC-USDC&depth=20    the venue's own book on a market we list (J-cex-spot-01 #5)
  *   GET  /api/v1/venue/trades?symbol=BTC-USDC&limit=50  the venue's newest prints there, newest first
  *   GET  /api/v1/venue/candles?symbol=BTC-USDC&interval=15m&limit=240   candles of the venue's prints, oldest first
@@ -329,6 +334,23 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     });
   });
 
+  // J-derivatives-08 #6: public market data, as the funding history is; no account and no sign-in.
+  app.get<{ Querystring: Query & { symbol?: string; kind?: string; since?: string } }>(
+    '/api/v1/venue/price-history',
+    publicRead,
+    async (req, reply) => {
+      return answer(reply, async (d) => {
+        const symbol = req.query.symbol ?? '';
+        if (!/^[A-Za-z0-9][A-Za-z0-9/._-]{0,63}$/.test(symbol)) throw new VenueWireError('symbol is a perpetual, as BTC-PERP');
+        const kind = req.query.kind;
+        if (kind !== 'mark' && kind !== 'index') throw new VenueWireError('kind is mark or index');
+        const since = new Date(req.query.since ?? '');
+        if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
+        return d.priceHistory(symbol, kind, since);
+      });
+    },
+  );
+
   // J-cex-spot-10 #2: the public fee page, signed in or not: the venue's tiers and rates, its builder-fee cap and ours.
   app.get<{ Querystring: Query }>('/api/v1/venue/fees', publicRead, async (req, reply) => {
     return answer(reply, async (d) => d.publicFees(), req.query.venueId);
@@ -645,6 +667,19 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.settlements(a, since);
     },
+    // J-derivatives-08 #3 #4 #5: the funding the venue charged or paid on the person's positions, as it booked it.
+    '/api/v1/venue/funding-payments': async (d, q, a) => {
+      const since = new Date(q.since ?? '');
+      if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
+      const venue = await d.venue();
+      if (!venue.fundingPayments)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no funding payments`,
+        });
+      return venue.fundingPayments(a, since);
+    },
     // J-cex-spot-07: the venue's own scheduled cancel for this account; a venue that offers none refuses not_offered.
     '/api/v1/venue/scheduled-cancel': async (d, _q, a) => {
       const venue = await d.venue();
@@ -689,6 +724,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/deleverages',
     '/api/v1/venue/market-margin',
     '/api/v1/venue/settlements',
+    '/api/v1/venue/funding-payments',
     '/api/v1/venue/scheduled-cancel',
     '/api/v1/venue/builder-fee-approval',
     '/api/v1/venue/fee-tier',

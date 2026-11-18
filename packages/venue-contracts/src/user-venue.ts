@@ -1177,6 +1177,50 @@ export interface UserVenueFunding {
   readonly rate: Amount;
   readonly intervalSeconds: number;
   readonly nextFundingAt: Date;
+  /**
+   * What the venue built the rate from, as it publishes them (J-derivatives-08 #1), or `known: false` where it publishes
+   * none. Optional on the wire for venues that report none: read as not published.
+   */
+  readonly inputs?: MaybeKnown<UserVenueFundingInputs>;
+}
+
+/**
+ * The parts of a perpetual's funding rate, each the venue's own figure: its premium (a signed scaled fraction, how far the
+ * mark sits from the index), its interest component (a signed scaled fraction per interval), the cap it holds the rate
+ * within (either way), and the mark and index prices the premium was taken from. Never recomputed by us.
+ */
+export interface UserVenueFundingInputs {
+  readonly premium: Amount;
+  readonly interestRate: Amount;
+  readonly rateCap: Amount;
+  readonly markPrice: Amount;
+  readonly indexPrice: Amount;
+  /** The venue's own published rule for the rate, in its words, or `known: false`. */
+  readonly rule: MaybeKnown<string>;
+}
+
+/**
+ * One funding payment on one of the account's positions, as the venue booked it when it closed a funding period
+ * (J-derivatives-08 #3 #4 #5): the period it closed (`periodAt`), the position's side and size then, the mark it charged
+ * against, the period's signed rate and the signed amount (positive: the account received it; negative: it paid it), in
+ * the venue's settle asset. The venue's figures, never recomputed by us; our ledger holds none of it.
+ */
+export interface UserVenueFundingPayment {
+  readonly paymentId: string;
+  readonly symbol: string;
+  readonly side: 'long' | 'short';
+  readonly size: Amount;
+  readonly markPrice: Amount;
+  readonly rate: Amount;
+  readonly amount: Amount;
+  readonly asset: string;
+  readonly periodAt: Date;
+}
+
+/** One sample of a perpetual's mark or index price as the venue published it (J-derivatives-08 #6). */
+export interface VenuePriceSample {
+  readonly sampledAt: Date;
+  readonly price: Amount;
 }
 
 export interface UserVenueMarket {
@@ -1283,6 +1327,11 @@ export interface VenueFundingRow {
   readonly fundingAt: Date;
   /** A signed scaled fraction of notional per interval (as `UserVenueFunding.rate`), never a percent. */
   readonly rate: Amount;
+  /**
+   * The period's premium as the venue published it (J-derivatives-08 #6), or `null` where it publishes none. Optional on
+   * the wire for venues that report none.
+   */
+  readonly premium?: Amount | null;
 }
 
 /**
@@ -1600,6 +1649,19 @@ export interface UserVenue {
   fundingHistory?(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>>;
 
   /**
+   * The mark or index price this venue published for the perpetual `symbol` since `since`, oldest first, no account
+   * (J-derivatives-08 #6). `known: false` with the venue's reason where it publishes no such series (an index it does not
+   * publish), never a series of ours. Optional: absent, the door refuses `not_offered`.
+   */
+  priceHistory?(
+    symbol: string,
+    kind: 'mark' | 'index',
+    since: Date,
+  ): Promise<
+    AsOf<{ readonly known: true; readonly value: readonly VenuePriceSample[] } | { readonly known: false; readonly reason: string }>
+  >;
+
+  /**
    * The newest `limit` public prints on `symbol`, newest first, no account (J-cex-spot-01 #5: the desk's tape). Refuses
    * `unknown_market` for a symbol it does not list. Optional: a venue (or an adapter) that does not read its prints leaves
    * it out, and the desk then shows the tape refused by name.
@@ -1690,6 +1752,11 @@ export interface UserVenue {
   marketMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>>;
   /** The account's settlements in market events (a deployer's halt, a split) since `since`, oldest first. Absent: not read. */
   settlements?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>>;
+  /**
+   * The funding the venue charged or paid on the account's positions since `since`, one payment per position per period
+   * it closed, oldest first (J-derivatives-08 #3 #4 #5). Absent: not read, and the door refuses `not_offered`.
+   */
+  fundingPayments?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFundingPayment[]>>;
 
   /**
    * The venue's scheduled cancel for this account (J-cex-spot-07), as the venue records it. Present only on a venue whose

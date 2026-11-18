@@ -68,6 +68,12 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'baseVolume',
   // UserVenueFunding (J-derivatives-01 #4): the signed funding rate, a scaled fraction
   'rate',
+  // UserVenueFundingInputs, UserVenueFundingPayment and VenueFundingRow.premium (J-derivatives-08)
+  'premium',
+  'interestRate',
+  'rateCap',
+  'indexPrice',
+  'annualisedRate',
   // UserVenueMarginTier (J-derivatives-02 #2): the notional a tier starts at and its maintenance rate
   'fromNotional',
   'maintenanceRate',
@@ -133,6 +139,9 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'minOrderNotional',
   'priceBandBps',
   'capSize',
+  // VenueFundingRow.premium (J-derivatives-08 #6): null where the venue publishes none, and its annualised rate
+  'premium',
+  'annualisedRate',
 ]);
 
 const DATE_FIELDS: ReadonlySet<string> = new Set([
@@ -177,6 +186,9 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'startedAt',
   'deleveragedAt',
   'alertedAt',
+  // UserVenueFundingPayment and VenuePriceSample (J-derivatives-08)
+  'periodAt',
+  'sampledAt',
 ]);
 
 /**
@@ -195,6 +207,8 @@ const OPAQUE_FIELDS: ReadonlySet<string> = new Set([
   'offHoursRule',
   // A market's deployer margin account rule (J-derivatives-27 #7): its name, collateral asset and margin mode are text.
   'marginAccount',
+  // A funding rate's published rule (J-derivatives-08 #1): text.
+  'rule',
 ]);
 
 export class VenueWireError extends Error {
