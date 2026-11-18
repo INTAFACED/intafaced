@@ -1,4 +1,4 @@
-import { initTRPC, TRPCError } from '@trpc/server';
+import { initTRPC, TRPCError, type AnyProcedure, type AnyRouter } from '@trpc/server';
 import type { Principal, Scope } from '@intafaced/auth';
 import { requireScope, requireTier, AuthError, hasScope, FOUNDER_SESSION_SCOPE_ALLOWLIST } from '@intafaced/auth';
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
@@ -782,10 +782,22 @@ export function operatorProcedure(scope: OperatorScope, guards: Omit<GuardOption
  * Every procedure of a router with the caller rule its builder named; `undefined` for one that names none. A router's
  * `_def.procedures` is flat, keyed by dotted path, and includes nested routers.
  */
-export function procedureCallers(r: { _def: { procedures: object } }): { path: string; type: string; caller: CallerRule | undefined }[] {
-  return Object.entries(r._def.procedures as Record<string, { _def: { type: string; meta?: ProcedureMeta } }>)
-    .map(([path, proc]) => ({ path, type: proc._def.type, caller: proc._def.meta?.caller }))
+export function procedureCallers(r: AnyRouter): {
+  path: string;
+  type: string;
+  caller: CallerRule | undefined;
+}[] {
+  const procedures: Record<string, AnyProcedure> = r._def.procedures;
+  return Object.entries(procedures)
+    .map(([path, proc]) => ({ path, type: proc._def.type, caller: callerOf(proc._def.meta) }))
     .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+const CALLER_RULES: readonly CallerRule[] = ['public', 'scope', 'person', 'operator', 'service', 'jurisdiction'];
+
+function callerOf(meta: unknown): CallerRule | undefined {
+  if (typeof meta !== 'object' || meta === null || !('caller' in meta)) return undefined;
+  return CALLER_RULES.find((rule) => rule === meta.caller);
 }
 
 export { TRPCError };

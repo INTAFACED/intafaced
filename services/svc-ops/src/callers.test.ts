@@ -47,7 +47,7 @@ function ctx(principal: Principal): Context {
 }
 
 async function outcome(principal: Principal, path: string): Promise<string> {
-  const caller = api.createCaller(ctx(principal)) as unknown as Record<string, unknown>;
+  const caller: unknown = api.createCaller(ctx(principal));
   const fn = path.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)[k], caller) as (i?: unknown) => Promise<unknown>;
   try {
     await fn(undefined);
