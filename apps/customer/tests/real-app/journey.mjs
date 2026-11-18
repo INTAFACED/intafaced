@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
 import { REACH_ATTACHMENT, makeLogReader, makeRecorder } from '../../../../tooling/scripts/journey-reach.mjs';
+import { STEP_PICTURE } from '../../../../tooling/ci/step-pictures.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
@@ -307,6 +308,30 @@ const extended = base.extend({
       }
     },
     { auto: true },
+  ],
+  // The proof reader's picture of this step (tooling/ci/step-pictures.mjs, project-state #2952): the whole page of this
+  // test's own page, as it ended. `screenshot: 'on'` alone left the reader the 900-pixel window, so a step whose rows sit
+  // lower on the page read NOT SHOWN, and one picture per page of every context still open in the worker, so a page an
+  // earlier file never closed could be the one the reader was shown. A test with no page of its own (an API-only step,
+  // or one on its own browser.newContext() pages) attaches none and keeps the end pictures. Never fails the test.
+  // It takes `context`, so it ends before the test's own context closes; its own time, apart from the test's.
+  stepPicture: [
+    async ({ context }, use, testInfo) => {
+      await use();
+      try {
+        const page = context
+          .pages()
+          .filter((p) => !p.isClosed())
+          .at(-1);
+        if (!page) return;
+        const file = testInfo.outputPath('step-picture.png');
+        await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
+        await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });
+      } catch {
+        /* a picture never fails a test; the end pictures stay */
+      }
+    },
+    { auto: true, timeout: 30_000 },
   ],
   // No journey leaves the platform posting freeze on for the journeys after it (journey-freeze-guard.mjs).
   postingFreezeGuard: [
