@@ -60,6 +60,14 @@ const en = {
   busy: 'Waiting for your wallet…',
   fact: 'Escrow contract',
   failed: 'Nothing changed: {reason}',
+  openReverted: 'Opening the deal reverted on the chain. Nothing is locked; you can open it again.',
+  openPending: 'Opening the deal has no receipt from the chain after a minute. Check it in your wallet, then read the order again.',
+  lockReverted: 'Locking the coins in deal {dealId} reverted on the chain. Nothing is locked and the deal is not attached.',
+  lockPending:
+    'Locking the coins in deal {dealId} has no receipt from the chain after a minute. This browser keeps the deal for this order: attach it when your wallet shows the lock confirmed.',
+  attachLock: 'Attach deal {dealId} when its lock is confirmed',
+  callReverted: '{step}: reverted on the chain. Nothing changed.',
+  callPending: '{step}: no receipt from the chain after a minute. Check it in your wallet, then read the deal again.',
   noDealId: 'The opened deal’s id could not be read from its transaction.',
   wrongWallet: 'Connect the wallet {address}, which opened this deal.',
 } as const;
