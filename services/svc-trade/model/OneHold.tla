@@ -97,7 +97,7 @@ WriteLeft(p) == /\ pc[p] = "write_left"
 \* pass the engine's answer or event they hold.
 LeftOf(p) == IF p = "user" THEN leftCol ELSE engLeft
 \* Which closers pass it at all. Every one does; a broken variant takes some out.
-Evidenced == Closers \cup {"CC"}
+Evidenced == Closers \cup {"CC"
 
 \* ---- finalize (holds.ts finalize) ----
 FinLock(p) == /\ pc[p] = "fin_lock" /\ lock = "none"
