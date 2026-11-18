@@ -2,7 +2,8 @@
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { awayBid, fundedTrader, signIn } from './desk.mjs';
-import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
+import { deskData, deskPeople, ensureDeskGroup } from './help-centre.mjs';
+import { ownOrderFills, placeOwnOrder } from './own-book.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { api, bestPrices, fromUnits, journeyState, times, toUnits, tool } from './stack.mjs';
@@ -18,7 +19,7 @@ import { openVenueDesk, otherTraderKey, otherTraderRun, testDeposit, venueForThi
 // reads it from the venue by the customer's own address, the customer's own order page agrees, and the lookup's audit
 // row is in the customer's own access list. INTAFACED holds none of it.
 //
-// #3 #4 (Later, OWNER 226: our own book, the custodial layer): the same customer is funded with TEST 1000 USDT on our own
+// #3 #4 (Later: they work only while INTAFACED holds customer money, on our own book, the custodial layer): the same customer is funded with TEST 1000 USDT on our own
 // book, with one filled buy, one resting buy that stays live, and one resting buy whose book entry the stack drops and
 // whose cancel it loses (`local-test-gates.mjs engine-drop`, a LOCAL TEST fault that stops and restarts svc-trade): its
 // hold is then an orphan.
@@ -51,26 +52,6 @@ async function customerOrder(who, id) {
   const { status, body } = await (await api(who)).get(`/api/v1/orders/${id}`);
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
   return body;
-}
-
-async function customerFills(who, id) {
-  const { status, body } = await (await api(who)).get(`/api/v1/orders/${id}/trades?limit=100`);
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return Array.isArray(body) ? body : (body.trades ?? body.items ?? []);
-}
-
-async function place(who, body) {
-  const res = await (await api(who)).post('/api/v1/orders', { symbol: SYMBOL, timeInForce: 'GTC', ...body });
-  // A new order answers 201 Created (run 42196142904); any other answer is a refusal to read.
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
-  return res.body;
-}
-
-/** A desk call that must succeed; its data. */
-async function desk(who, kind, procedure, input) {
-  const res = await asDesk(who, kind, procedure, input);
-  if (res.json?.result?.data === undefined) throw new Error(`${procedure} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return res.json.result.data;
 }
 
 /** The stack's own audit read of routed-order lookups on one customer (svc-trade admin.audit.feed, as founder A). */
@@ -119,7 +100,7 @@ test.beforeAll(async ({ browser }) => {
   await testDeposit(owner, 'USDC', '1000', `84532:${keccak256(toHex(`${J} ${RUN} ${owner} USDC`))}:0`);
   const seller = `${J}-seller-${RUN}`;
   await testDeposit(otherTraderKey(seller).address, 'BTC', '1', `84532:${keccak256(toHex(`${J} ${RUN} seller BTC`))}:0`);
-  const ask = await otherTraderRun(seller, {
+  const resting = await otherTraderRun(seller, {
     kind: 'place_order',
     symbol: VENUE_SYMBOL,
     side: 'sell',
@@ -131,7 +112,7 @@ test.beforeAll(async ({ browser }) => {
     clientOrderKey: `order:${seller}:ask`,
     builderFee: null,
   });
-  expect(ask, JSON.stringify(ask).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+  expect(resting, JSON.stringify(resting).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   const venueSince = new Date(Date.now() - 60_000).toISOString();
   const routed = await doorOrder(customer, walletKey, {
     kind: 'place_order',
@@ -150,7 +131,7 @@ test.beforeAll(async ({ browser }) => {
   const { ask } = await bestPrices(SYMBOL);
   const one = toUnits('1');
   const through = fromUnits(((toUnits(ask) * 105n) / 100n / one) * one);
-  const reported = await place(customer, {
+  const reported = await placeOwnOrder(customer, SYMBOL, {
     type: 'limit',
     side: 'buy',
     amount: AMOUNT,
@@ -159,14 +140,14 @@ test.beforeAll(async ({ browser }) => {
   });
   await expect.poll(async () => (await customerOrder(customer, reported.id)).status, { timeout: 30_000 }).toBe('closed');
   // Two resting buys well under the market: one stays live, the other's book entry is dropped in #3.
-  const live = await place(customer, {
+  const live = await placeOwnOrder(customer, SYMBOL, {
     type: 'limit',
     side: 'buy',
     amount: AMOUNT,
     price: await awayBid(80),
     clientOrderId: `${J}-live-${RUN}`,
   });
-  const orphan = await place(customer, {
+  const orphan = await placeOwnOrder(customer, SYMBOL, {
     type: 'limit',
     side: 'buy',
     amount: AMOUNT,
@@ -187,11 +168,11 @@ test.beforeAll(async ({ browser }) => {
   // In the TEST agents' group, so founder B (the agent) may work it.
   // Founder B is appointed the desk's agent on the first agent call (help-centre.mjs appointAgent), as in
   // J-support-public-10; before that the lead cannot put B in a group (support.not_staff, run 42201499550).
-  await desk('agent', 'query', 'staffList', undefined);
+  await deskData('agent', 'query', 'staffList', undefined);
   const { agent } = await deskPeople();
   const group = await ensureDeskGroup(`TEST ${J} agents`);
-  if (!group.memberIds.includes(agent)) await desk('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
-  await desk('lead', 'mutation', 'ticketSetGroup', { ticketId: ticket.id, groupId: group.id });
+  if (!group.memberIds.includes(agent)) await deskData('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
+  await deskData('lead', 'mutation', 'ticketSetGroup', { ticketId: ticket.id, groupId: group.id });
   const customerId = (await api(customer)).userId;
   run.write({
     customer,
@@ -219,7 +200,7 @@ test(`${J} #1 opens a customer's routed order from the support desk: the venue o
   await founderSignIn(page, 'b');
   await page.goto(`${ADMIN}/support/${ticketId}`);
   const workspace = page.getByRole('region', { name: 'Ticket', exact: true });
-  await workspace.getByRole('link', { name: `Open order ${routed}` }).click();
+  await workspace.getByRole('link', { name: `Open order ${routed}`, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/trade-ops/orders/${routed}\\?account=${customerId}$`));
   const read = venueRead(page);
   // Read by the customer's own address, the one their wallet placed it from: never one an operator typed.
@@ -231,7 +212,7 @@ test(`${J} #1 opens a customer's routed order from the support desk: the venue o
   await expect(read).toHaveAttribute('data-status', truth.order.status);
   await expect(read.getByTestId('venue-read-status')).toHaveText('Filled');
   expect(toUnits(await read.getAttribute('data-filled'))).toBe(toUnits(truth.order.filled));
-  const shown = page.getByRole('region', { name: 'Venue fills' }).getByTestId('venue-read-fill');
+  const shown = page.getByRole('region', { name: 'Venue fills', exact: true }).getByTestId('venue-read-fill');
   await expect(shown).toHaveCount(truth.fills.length);
   for (const fill of truth.fills) await expect(shown.and(page.locator(`[data-fill-id="${fill.fillId}"]`))).toHaveCount(1);
   await expect(read.getByTestId('venue-read-reject')).toHaveText('None recorded');
@@ -248,7 +229,7 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
   const operatorStatus = (await read.getByTestId('venue-read-status').textContent()).trim();
   const operatorFilled = await read.getAttribute('data-filled');
   const operatorFills = await page
-    .getByRole('region', { name: 'Venue fills' })
+    .getByRole('region', { name: 'Venue fills', exact: true })
     .getByTestId('venue-read-fill')
     .evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill-id')).sort());
   // The customer's own order page, on their own wallet, says the same.
@@ -270,6 +251,7 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   const { customer, orphan, live, placedAt } = run.read();
   // A sweep looks only at orders unchanged for the owner's age floor (the stack's TEST value is 15 s,
   // tooling/scripts/local-stack-services/trade.mjs): the first sweep must already see the orphan.
+  // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- the sweep compares the engine's live book with trade's own order age; the engine's book has no age door
   await new Promise((resolve) => setTimeout(resolve, Math.max(0, placedAt + 20_000 - Date.now())));
   const orphanOrder = await customerOrder(customer, orphan);
   const hold = times(orphanOrder.price, orphanOrder.amount);
@@ -281,18 +263,18 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   const totalBefore = await usdtTotal(customer);
   await founderSignIn(page, 'b');
   await page.goto(`${ADMIN}/trade-ops/orders`);
-  const sweep = page.getByRole('region', { name: 'Reconcile sweep' });
+  const sweep = page.getByRole('region', { name: 'Reconcile sweep', exact: true });
 
   let runs = 0;
   const runSweep = async () => {
-    await sweep.getByRole('button', { name: 'Start reconcile sweep' }).click();
+    await sweep.getByRole('button', { name: 'Start reconcile sweep', exact: true }).click();
     const dialog = page.getByRole('alertdialog');
-    await dialog.getByLabel('Reason (kept in the audit)').fill(`TEST ${J} reported order problem`);
-    await dialog.getByRole('button', { name: 'Start reconcile sweep' }).click();
+    await dialog.getByLabel('Reason (kept in the audit)', { exact: true }).fill(`TEST ${J} reported order problem`);
+    await dialog.getByRole('button', { name: 'Start reconcile sweep', exact: true }).click();
     // The service confirms in the dialog, which stays open on its result. While it is open the page behind it is inert
     // (out of the accessibility tree), so the run's counts are read once it is closed (run 42206331204).
     await expect(dialog.getByRole('status')).toContainText('Swept', { timeout: 60_000 });
-    await dialog.getByRole('button', { name: 'Close' }).click();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog).toHaveCount(0);
     const result = sweep.locator('[data-sweep-result]').nth(runs++);
     await expect(result).toBeVisible();
@@ -304,6 +286,7 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   const sighted = await runSweep();
   expect((await sighted.getAttribute('data-released-orders')).split(',')).not.toContain(orphan);
   expect(await usdtUsed(customer)).toBe(usedBefore);
+  // oxlint-disable-next-line garden/no-wait-for-timeout -- the second look must be a real floor apart on the engine's live book, which has no age door
   await page.waitForTimeout(20_000);
 
   const first = await runSweep();
@@ -332,14 +315,14 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
   browser,
 }) => {
   const { customer, reported } = run.read();
-  const fillsBefore = await customerFills(customer, reported);
+  const fillsBefore = await ownOrderFills(customer, reported);
   const usdtBefore = await usdtTotal(customer);
   const btcBefore = await btcTotal(customer);
   await founderSignIn(page, 'b');
   await page.goto(`${ADMIN}/trade-ops/orders/${reported}`);
-  const bust = page.getByRole('region', { name: 'Trade bust' });
-  await bust.getByLabel('Reason (kept in the audit)').fill(`TEST ${J} customer reported a wrong fill`);
-  await bust.getByRole('button', { name: 'Propose a trade bust' }).click();
+  const bust = page.getByRole('region', { name: 'Trade bust', exact: true });
+  await bust.getByLabel('Reason (kept in the audit)', { exact: true }).fill(`TEST ${J} customer reported a wrong fill`);
+  await bust.getByRole('button', { name: 'Propose a trade bust', exact: true }).click();
   const proposal = bust.locator('[data-bust-proposal]');
   await expect(proposal).toBeVisible();
   const approvalId = await proposal.getAttribute('data-approval-id');
@@ -353,11 +336,11 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
   await founderSignIn(a, 'a');
   await a.goto(`${ADMIN}/trade-ops/approvals`);
   // The pending list loads after the page and lands above the form, moving "Approve request": act once it is in, or a
-  // press before it lands and a release after miss the button (J-cex-spot-17 #4, main run 42455893390, #7536).
-  await expect(a.getByRole('grid', { name: 'Approvals waiting for this operator' })).toBeVisible();
+  // press before it lands and a release after miss the button.
+  await expect(a.getByRole('grid', { name: 'Approvals waiting for this operator', exact: true })).toBeVisible();
   await a.getByLabel('Approval id', { exact: true }).fill(approvalId);
-  await a.getByLabel('Payload hash you reviewed').fill(payloadHash);
-  await a.getByRole('button', { name: 'Approve request' }).click();
+  await a.getByLabel('Payload hash you reviewed', { exact: true }).fill(payloadHash);
+  await a.getByRole('button', { name: 'Approve request', exact: true }).click();
   const approveDialog = a.getByRole('alertdialog');
   await expect(approveDialog).toBeVisible();
   await approveDialog.getByRole('button', { name: 'Approve', exact: true }).click();
@@ -365,13 +348,13 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
   await context.close();
 
   // Approved, the bust is carried out by the service, which refuses it with its own typed blocker today.
-  await bust.getByRole('button', { name: 'Carry out the approved bust' }).click();
+  await bust.getByRole('button', { name: 'Carry out the approved bust', exact: true }).click();
   const outcome = bust.locator('[data-outcome]');
   await expect(outcome).toHaveAttribute('data-outcome', 'refused');
   await expect(outcome.locator('code')).toHaveText('trade_bust_recipe_missing');
   await expect(page.locator('[data-not-connected]')).toHaveCount(0);
   // Nothing moved: the fill stands and the balances are as they were.
-  expect((await customerFills(customer, reported)).map((f) => f.id)).toEqual(fillsBefore.map((f) => f.id));
+  expect((await ownOrderFills(customer, reported)).map((f) => f.id)).toEqual(fillsBefore.map((f) => f.id));
   expect(await usdtTotal(customer)).toBe(usdtBefore);
   expect(await btcTotal(customer)).toBe(btcBefore);
 });
@@ -395,7 +378,7 @@ test(`${J} #5 reads the audit of the lookup: one row with the agent, the custome
   expect(Math.abs(Date.parse(row.occurredAt) - at)).toBeLessThan(60_000);
   // The console's audit room shows it: the agent, the customer and the time.
   await page.goto(`${ADMIN}/trade-ops/audit?kind=venue_orders.get&account=${customerId}`);
-  const shown = page.getByRole('table', { name: 'Audit rows' }).locator(`tr[data-audit-id="${row.id}"]`);
+  const shown = page.getByRole('table', { name: 'Audit rows', exact: true }).locator(`tr[data-audit-id="${row.id}"]`);
   await expect(shown).toHaveCount(1);
   await expect(shown.getByTestId('audit-operator')).toContainText(agent.userId);
   await expect(shown.getByTestId('audit-account')).toContainText(customerId);
