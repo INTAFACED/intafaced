@@ -6,7 +6,7 @@ import { signIn } from './desk.mjs';
 import { nextCode } from './identity-factors.mjs';
 import { venueInfo } from './venue.mjs';
 
-const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+export const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
 /**
  * One TEST person a journey file acts as, step after step: their account and wallet key are in the file's `run` state

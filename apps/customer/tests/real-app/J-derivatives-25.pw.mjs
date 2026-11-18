@@ -5,7 +5,7 @@ import { test, expect } from './journey.mjs';
 import { fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator } from './identity-factors.mjs';
-import { personDoor } from './person-door.mjs';
+import { personDoor, totp } from './person-door.mjs';
 import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { continueInWallet, sameDecimal, testVenue, venueBalance, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
@@ -291,7 +291,7 @@ test(`${J} #4 buys TEST 0.01 BTC on the venue's spot market (BTC-USDC, on this f
     const spendingBefore = await partnerMain(userId);
     const since = new Date(Date.now() - 1_000).toISOString();
     const ask = (await testVenue('/book', { symbol: SPOT, depth: 1 })).body.value.asks[0];
-    // The person's own key signs the buy through our venue door: a TEST market buy of 0.01 BTC, IOC, inside 1% of the ask.
+    // The person's own key signs the buy through our venue door: a TEST market buy of 0.01 BTC, IOC, inside 0.4% of the ask (the venue door's price protection is 50 bps).
     await signAndSend(
       {
         kind: 'place_order',
@@ -299,7 +299,7 @@ test(`${J} #4 buys TEST 0.01 BTC on the venue's spot market (BTC-USDC, on this f
         side: 'buy',
         type: 'market',
         amount: '0.01',
-        price: fromUnits((toUnits(ask.price) * 101n) / 100n),
+        price: fromUnits((toUnits(ask.price) * 1004n) / 1000n),
         timeInForce: 'IOC',
         reduceOnly: false,
         clientOrderKey: `order:${owner}:${J}:spot-buy`,
