@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { OwnAgent, OwnAgentAnalytics, OwnAgentCatalogue, OwnAgentTestRun } from '@intafaced/contracts/agents-own';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -42,7 +43,7 @@ const dryRun = (requestId: string, input: Record<string, string>): OwnAgentTestR
     ? { kind: 'run', tool: 'support.kb.search', module: 'support', dataClass: 'own_data', input }
     : { kind: 'refused', tool: 'support.kb.search', code: 'agents.consent_required' },
   cost: '0',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   label: 'TEST',
   createdAt: '2026-11-04T16:00:00.000Z',
 });
@@ -65,7 +66,7 @@ const engineRun = (requestId: string, ask: string): OwnAgentTestRun => ({
   guard: { content: null, outcome: 'answered', code: null, approval: null },
   memory: null,
   cost: '0',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   label: 'TEST',
   createdAt: '2026-11-04T16:01:00.000Z',
 });
@@ -95,7 +96,7 @@ const guardedRun = (input: Record<string, unknown>): OwnAgentTestRun => {
         content: label,
         outcome: 'awaiting_approval',
         code: null,
-        approval: { amount: '1', assetId: 'USDT', destination: 'my own savings' },
+        approval: { amount: '1', assetId: asAssetId('USDT'), destination: 'my own savings' },
       },
     };
   return { ...run, content, outputSchema };
@@ -110,7 +111,7 @@ const toolTest = (requestId: string, tool: string): OwnAgentTestRun => ({
   checks: [{ check: 'moves_no_value', passed: false, code: 'agents.own.money_tool' }],
   effect: { kind: 'would_move', tool, module: tool.split('.')[0]!, input: {} },
   cost: '0',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   label: 'TEST',
   createdAt: '2026-11-04T16:02:00.000Z',
 });
@@ -123,7 +124,7 @@ const analytics = (includeTest: boolean): OwnAgentAnalytics => ({
   failed: 0,
   testRuns: includeTest ? 1 : null,
   cost: '0.01',
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
 });
 
 vi.mock('../../shared/preferences', async (original) => {
@@ -274,7 +275,7 @@ describe('hostile content and output guards on a test run (J-agents-10 #1-#3)', 
     expect(approve).toEqual({
       id: AGENT.id,
       runId: '44444444-4444-4444-8444-444444444444',
-      payload: { amount: '1', assetId: 'USDT', destination: 'my own savings' },
+      payload: { amount: '1', assetId: asAssetId('USDT'), destination: 'my own savings' },
     });
     // Decided: there is nothing left to approve.
     expect(button(host.querySelector('[aria-label="Approval request"]')!, 'Approve')).toBeUndefined();

@@ -1,4 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
+import { assetIdSchema } from './asset-id.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   BANK_INTERNAL_WITHDRAWAL_CALLERS,
@@ -19,7 +20,7 @@ const input = {
   transferId: internalWithdrawalTransferId(WITHDRAWAL),
   fromUserId: 'user-sender',
   toUserId: 'user-receiver',
-  assetId: 'USDT',
+  assetId: assetIdSchema.parse('USDT'),
   amount: '25.5',
 };
 const UNKNOWN = { state: 'unknown', code: 'bank.internal_withdrawal_unknown' };

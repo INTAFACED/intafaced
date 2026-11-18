@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * svc-bank `businessPayouts.*` (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05): a business pays its team and contractors
@@ -36,7 +37,7 @@ export const businessBulkRunSchema = z
   .object({
     id: z.string(),
     accountId: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     fileSha256: z.string(),
     status: z.enum(BUSINESS_BULK_RUN_STATUSES),
     /** The valid lines' total: what the one partner instruction carries. */
@@ -69,7 +70,7 @@ export const businessContractorInvoiceSchema = z
     id: z.string(),
     contractorId: z.string(),
     number: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount,
     dueDate: z.string().nullable(),
     status: z.enum(BUSINESS_INVOICE_STATUSES),
@@ -96,7 +97,7 @@ export const businessContractorBatchSchema = z
   .object({
     id: z.string(),
     accountId: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     total: amount,
     status: z.enum(BUSINESS_CONTRACTOR_BATCH_STATUSES),
     approvalsNeeded: z.number().int(),
@@ -138,7 +139,7 @@ export const businessPayrollRunSchema = z
     signature: z.string().nullable(),
     signedAt: iso.nullable(),
     payslips: z.array(
-      z.object({ contractorId: z.string(), name: z.string(), walletAddress: z.string(), assetId: z.string(), amount }).strict(),
+      z.object({ contractorId: z.string(), name: z.string(), walletAddress: z.string(), assetId: assetIdSchema, amount }).strict(),
     ),
     createdAt: iso,
   })
@@ -149,7 +150,7 @@ export const businessCryptoPayrollSchema = z
     id: z.string(),
     accountId: z.string(),
     name: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     dayOfMonth: z.number().int(),
     members: z.array(z.object({ contractorId: z.string(), name: z.string(), walletAddress: z.string().nullable(), amount }).strict()),
     runs: z.array(businessPayrollRunSchema),

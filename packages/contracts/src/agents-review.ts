@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /** An unsigned exact decimal string such as `0.0001234`. */
 const decimal = z.string().regex(/^\d+(\.\d+)?$/);
@@ -15,7 +16,7 @@ export const ACTION_OUTCOMES = ['executed', 'refused', 'failed'] as const;
 export const actionOutcomeSchema = z.enum(ACTION_OUTCOMES);
 export type ActionOutcome = z.infer<typeof actionOutcomeSchema>;
 
-export const reviewAmountSchema = z.object({ assetId: z.string().min(1), amount: decimal });
+export const reviewAmountSchema = z.object({ assetId: assetIdSchema.min(1), amount: decimal });
 
 export const reviewDayFiguresSchema = z.object({
   day: z.string(),
@@ -50,7 +51,7 @@ export const runTraceSchema = z.object({
   task: z.string().nullable(),
   state: z.string(),
   cost: decimal.nullable(),
-  assetId: z.string().nullable(),
+  assetId: assetIdSchema.nullable(),
   startedAt: z.string(),
   plan: z.array(
     z.object({
@@ -118,7 +119,7 @@ export const usageGroupSchema = z.object({
   key: z.string(),
   name: z.string().nullable(),
   windows: count,
-  assetId: z.string().min(1),
+  assetId: assetIdSchema.min(1),
   amount: decimal,
 });
 
@@ -135,7 +136,7 @@ export const usageSummarySchema = z.object({
       task: z.string(),
       state: z.enum(['unpaid', 'settled']),
       amount: decimal,
-      assetId: z.string().min(1),
+      assetId: assetIdSchema.min(1),
     }),
   ),
   total: z.array(reviewAmountSchema),

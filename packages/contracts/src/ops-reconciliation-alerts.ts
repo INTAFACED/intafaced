@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import {
   reconciliationAssetEvidenceSchema,
   reconciliationControlRunSchema,
@@ -94,7 +95,7 @@ export const opsAlertSchema = z
       .nullable(),
     /** The fingerprint: one alert per control, failing asset, period and cause. No asset (a broken chain, an ERROR) is null. */
     controlId: z.string().uuid(),
-    assetId: z.string().nullable(),
+    assetId: assetIdSchema.nullable(),
     periodStart: isoSchema,
     periodEnd: isoSchema,
     severity: reconciliationSeveritySetSchema,
