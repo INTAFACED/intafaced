@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import type { UserVenueAccount } from '@intafaced/venue-contracts';
+import { z } from 'zod';
 
 /**
  * The account part of a builder fee's ledger key (OWNER 288 change 1a): the owner, or `<owner>/<subAccount>`. The two
@@ -234,15 +235,33 @@ export class SqlBuilderFeeStore implements BuilderFeeStore {
   }
 
   async ofUser(userId: string, account: UserVenueAccount, since: Date): Promise<LoggedBuilderFee[]> {
-    const rows = await this.sql<Row[]>`
-      SELECT venue_id, fill_id, user_id, owner, sub_account, asset_id, amount, filled_at, status, refusal_code, ledger_tx_id
+    const rows = FeeRow.array().parse(
+      await this.sql`
+      SELECT venue_id, fill_id, user_id, owner, sub_account, asset_id, amount::text AS amount, filled_at, status, refusal_code,
+             ledger_tx_id
       FROM trade.venue_builder_fees
       WHERE user_id = ${userId} AND venue_id = ${account.venueId} AND venue_account = ${builderFeeVenueAccount(account)}
         AND filled_at >= ${since}
-      ORDER BY filled_at, fill_id`;
+      ORDER BY filled_at, fill_id`,
+    );
     return rows.map(fromRow);
   }
 }
+
+/** A `trade.venue_builder_fees` row as read, checked where it is read. */
+const FeeRow = z.object({
+  venue_id: z.string(),
+  fill_id: z.string(),
+  user_id: z.string(),
+  owner: z.string(),
+  sub_account: z.string().nullable(),
+  asset_id: z.string(),
+  amount: z.string(),
+  filled_at: z.date(),
+  status: z.enum(['posted', 'refused', 'not_our_order']),
+  refusal_code: z.string().nullable(),
+  ledger_tx_id: z.string().nullable(),
+});
 
 function fromRow(r: Row): LoggedBuilderFee {
   return {

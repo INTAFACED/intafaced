@@ -27,7 +27,7 @@ const USER = {
   sid: 's-12',
   tier: 'basic',
   scopes: ['trade:read', 'trade:write'],
-} as unknown as Principal;
+} as Principal;
 const OTHER_USER = '22222222-2222-4222-8222-2222222222c2';
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade account reads')));
 const owner = key.address.toLowerCase();
