@@ -364,15 +364,6 @@
       "why": "This insert always writes origin='legacy' (withdraw-destination.ts:514), and the book index is WHERE origin='customer', so its rows never enter that index."
     },
     {
-      "file": "services/svc-bank/src/withdraw-destination.ts",
-      "table": "user_withdraw_destinations",
-      "target": "(user_id, kind) WHERE origin='legacy'",
-      "constraint": "user_withdraw_destinations_label_idx",
-      "verdict": "race",
-      "issue": 8903,
-      "why": "Two concurrent first persist() calls for the same user and kind with the same label can both pass the legacy-slot pre-check. The loser clashes on (user_id, lower(label)), and the catch maps that to LABEL_TAKEN (withdraw-destination.ts:526) instead of returning the winner's row. A persist without a label is unaffected: label is NULL."
-    },
-    {
       "file": "services/svc-blueprint/src/blueprint-service.ts",
       "table": "crew_members",
       "target": "(crew_id, user_id)",
