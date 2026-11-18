@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 export const SESSION_RUN_STATES = ['queued', 'running', 'paused', 'completed', 'stopped', 'failed'] as const;
 export type SessionRunState = (typeof SESSION_RUN_STATES)[number];
@@ -28,7 +29,7 @@ export const stopResultSchema = z.object({
   stoppedAt: z.string(),
   /** What the session's open windows settled for, in total, as a decimal string. */
   billed: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   settlements: z.array(z.object({ windowId: z.string(), amount: z.string(), chargeKey: z.string(), settled: z.boolean() })),
   /** `agents.window_unpaid` when a window could not be paid: it stays sealed and unpaid, and the session open. */
   unpaid: z.string().nullable(),

@@ -562,10 +562,21 @@ export const venuePublicFeesSchema = asOf(
   }),
 );
 export type VenuePublicFees = z.infer<typeof venuePublicFeesSchema>;
+/** One fee the venue publishes beside its trading fees (J-derivatives-12 #2), in bps of what it is charged on. */
+const venueOtherFeeSchema = z.object({
+  kind: z.enum(['settlement', 'liquidation', 'other']),
+  name: z.string(),
+  symbol: z.string().nullable(),
+  feeBps: decimalSchema,
+  rule: z.string(),
+});
+export type VenueOtherFee = z.infer<typeof venueOtherFeeSchema>;
 /** `GET /venue/fee-tier` (J-cex-spot-10 #6): the account's tier, counted volume and rates as the venue reports them. */
 export const venueFeeTierSchema = asOf(
   z.object({
     schedule: feeTiersSchema,
+    // J-derivatives-12 #2: the venue's settlement and other fees; absent or null where it publishes none.
+    otherFees: z.array(venueOtherFeeSchema).nullable().optional(),
     account: z
       .object({
         tierName: z.string().nullable(),
@@ -1113,6 +1124,26 @@ const venueGatedContractSchema = z.object({
 });
 export type VenueGatedContract = z.infer<typeof venueGatedContractSchema>;
 
+/** J-derivatives-12 #5: the perpetuals this account is eligible for, or none with the reason (svc-trade venue-eligibility.ts). */
+const venueEligibleSchema = z.object({
+  level: z.enum(['basic', 'full', 'institutional']).nullable(),
+  reason: z.object({ code: z.string(), message: z.string() }).nullable(),
+  instruments: z.array(z.object({ symbol: z.string(), settleAsset: z.string(), maxLeverageBps: z.number().int().positive().nullable() })),
+});
+export type VenueEligible = z.infer<typeof venueEligibleSchema>;
+
+/** J-derivatives-12 #4: our builder fee on one fill of the person's own orders, and the ledger transaction it posted. */
+const venueBuilderFeeRowSchema = z.object({
+  fillId: z.string(),
+  amount: decimalSchema,
+  asset: z.string(),
+  filledAt: isoTime,
+  status: z.enum(['posted', 'refused', 'not_our_order']),
+  refusalCode: z.string().nullable(),
+  ledgerTxId: z.string().nullable(),
+});
+export type VenueBuilderFeeRow = z.infer<typeof venueBuilderFeeRowSchema>;
+
 // ── The door ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export function venueApi(api: ApiClient) {
@@ -1203,8 +1234,14 @@ export function venueApi(api: ApiClient) {
     settlements: (owner: string, since: string, signal?: AbortSignal) =>
       read('/settlements', asOf(z.array(venueSettlementSchema)), { owner, since }, signal),
     /** The funding the venue charged or paid on the owner's positions since `since` (J-derivatives-08 #3 #4 #5). */
-    fundingPayments: (owner: string, since: string, signal?: AbortSignal) =>
-      read('/funding-payments', asOf(z.array(venueFundingPaymentSchema)), { owner, since }, signal),
+    fundingPayments: (owner: string, since: string, signal?: AbortSignal, venueId?: string) =>
+      read('/funding-payments', asOf(z.array(venueFundingPaymentSchema)), { owner, since, venueId }, signal),
+    /** Our builder fee on each fill of the person's own orders on the account, with its ledger transaction (J-derivatives-12 #4). */
+    builderFees: (owner: string, since: string, signal?: AbortSignal, venueId?: string) =>
+      read('/builder-fees', asOf(z.array(venueBuilderFeeRowSchema)), { owner, since, venueId }, signal),
+    /** The perpetuals this account is eligible for, each with its settle asset, or none with the reason (J-derivatives-12 #5). */
+    eligibleInstruments: (signal?: AbortSignal, venueId?: string) =>
+      read('/eligible-instruments', asOf(venueEligibleSchema), { venueId }, signal),
     /** The venue's scheduled cancel on the owner's account: when it cancels, and when it last did (J-cex-spot-07). */
     scheduledCancel: (owner: string, signal?: AbortSignal) =>
       read('/scheduled-cancel', asOf(venueScheduledCancelSchema), { owner }, signal),
@@ -1222,9 +1259,9 @@ export function venueApi(api: ApiClient) {
     builderFeeApproval: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/builder-fee-approval', asOf(decimalSchema), { owner, venueId }, signal),
     /** The venue's published fees, its builder-fee caps and ours, signed in or not (J-cex-spot-10 #2). */
-    publicFees: (signal?: AbortSignal) => read('/fees', venuePublicFeesSchema, {}, signal),
+    publicFees: (signal?: AbortSignal, venueId?: string) => read('/fees', venuePublicFeesSchema, { venueId }, signal),
     /** The owner's own fee tier as the venue reports it (J-cex-spot-10 #6). */
-    feeTier: (owner: string, signal?: AbortSignal) => read('/fee-tier', venueFeeTierSchema, { owner }, signal),
+    feeTier: (owner: string, signal?: AbortSignal, venueId?: string) => read('/fee-tier', venueFeeTierSchema, { owner, venueId }, signal),
     marketVenues: (symbol: string, owner: string, side: 'buy' | 'sell', signal?: AbortSignal) =>
       api.rest(`/venue/markets/${encodeURIComponent(symbol)}/venues`, marketVenuesSchema, { query: { owner, side }, signal }),
     routePreview: (owner: string, intent: OrderIntent) => write('/route-preview', routePreviewSchema, { owner, intent }),

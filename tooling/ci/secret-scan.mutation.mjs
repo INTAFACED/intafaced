@@ -7,7 +7,7 @@
  * A scanner that passes is indistinguishable from a scanner that is switched
  * off. `pnpm scan:secrets` printing a green tick proves nothing on its own —
  * `process.exit(0)` on line 1 would print the same tick. The A1.4 branch
- * (docs/A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md §4) handled this by hand:
+ * (2026-07-30, its report now in git history) handled this by hand:
  * a probe file with three planted credentials, run once, then deleted. That
  * proved the gate worked on the day it was written and nothing afterwards.
  *

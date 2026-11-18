@@ -1883,6 +1883,7 @@ registerPrivateRest(app, {
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
   venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
+  venueBuilderFees: userVenueRouter ? builderFees.ofUser : null,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

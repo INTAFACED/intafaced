@@ -29,6 +29,8 @@ export interface QueueEntry {
   readonly score: number;
   readonly ageMs: number;
   readonly createdAt: string;
+  /** The first-reply due time from the desk's active response target (SP-sla-01); null while none is active for it. */
+  readonly responseDue: { readonly dueAt: string; readonly targetMinutes: number } | null;
 }
 
 export interface QueueRead {

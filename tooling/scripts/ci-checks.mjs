@@ -13,8 +13,8 @@
  * Read from CI's own files on every call, so nothing here is a hand list:
  *   · the packages: tooling/ci/ci-affected.mjs `affectedFilters` / `buildFilters` against the merge-base, the functions
  *     CI's jobs print (`--filters`, `--build-filters`);
- *   · Node: the major in .node-version (CI's setup-node), taken from /opt/homebrew/opt/node@<major> when the default
- *     node differs (Node 25+ has a global localStorage that breaks jsdom suites CI passes);
+ *   · Node: the major in .node-version (CI's setup-node), taken when the default node differs from CI_NODE_BIN, else
+ *     Homebrew's /opt/homebrew/opt/node@<major> (macOS), else nvm's newest v<major> (Linux) (Node 25+ has a global localStorage that breaks jsdom suites CI passes);
  *   · the database: the `Test environment` step of .github/actions/test-infra/action.yml (TEST_DATABASE_URL and the
  *     per-service URLs, REQUIRE_POSTGRES=1, so a database suite fails instead of skipping), CI's bootstrap script, its
  *     schema count and tooling/ci/assert-test-db-env.mjs;
@@ -37,8 +37,8 @@
  *   node tooling/scripts/ci-checks.mjs --list           print what would run, run nothing
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -97,15 +97,38 @@ export function touchedPackages(tested, files) {
   return tested.map((p) => ({ ...p, own: files.filter((f) => f.startsWith(`${p.directory}/`)) })).filter((p) => p.own.length > 0);
 }
 
-/** The Node CI runs (.node-version's major): null when the default is it, else the bin dir to put first, or an error. */
-export function ciNode(nodeVersionText, current = process.versions.node, exists = existsSync) {
+const listDir = (dir) => {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The Node CI runs (.node-version's major): null when the default is it, else the bin dir to put first (CI_NODE_BIN,
+ * else Homebrew's keg, else nvm's newest of that major), or an error.
+ */
+export function ciNode(
+  nodeVersionText,
+  current = process.versions.node,
+  exists = existsSync,
+  { env = process.env, home = env.HOME || homedir(), list = listDir } = {},
+) {
   const want = String(nodeVersionText).trim().split('.')[0];
   if (!/^\d+$/.test(want)) return { error: `.node-version reads "${String(nodeVersionText).trim()}"` };
   if (current.split('.')[0] === want) return { bin: null, want };
-  const bin = `/opt/homebrew/opt/node@${want}/bin`;
-  return exists(`${bin}/node`)
+  const nvm = join(home, '.nvm', 'versions', 'node');
+  const nvmBins = list(nvm)
+    .filter((name) => name.startsWith(`v${want}.`))
+    .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))
+    .map((name) => join(nvm, name, 'bin'));
+  const bin = [env.CI_NODE_BIN, `/opt/homebrew/opt/node@${want}/bin`, ...nvmBins].filter(Boolean).find((dir) => exists(`${dir}/node`));
+  return bin
     ? { bin, want }
-    : { error: `CI runs Node ${want} and this machine has ${current}: brew install node@${want}` };
+    : {
+        error: `CI runs Node ${want} and this machine has ${current}: brew install node@${want} (macOS), nvm install ${want} (Linux), or set CI_NODE_BIN`,
+      };
 }
 
 const git = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });

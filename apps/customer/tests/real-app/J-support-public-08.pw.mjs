@@ -2,7 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { draftNotice, publishNotice, publishedNotices } from './notices.mjs';
 import { campaignTotals, enquiriesFor, inviteCampaign, publicSettings, setPublicSettings } from './outreach.mjs';
-import { ORIGIN, stackUrl, toolAwaited } from './stack.mjs';
+import { ORIGIN, restartService, stackUrl, startService, stopService } from './stack.mjs';
 
 /** The public invitation site on the stack (apps/invitation), where the join and partner enquiry forms live. */
 const JOIN = process.env.JOURNEY_JOIN_URL ?? stackUrl('invitation');
@@ -144,7 +144,7 @@ test(`${J} #4 joining from an invite link captures one enquiry for that invite, 
   // The store is down: the visitor is told it did not go through, and nothing is recorded for the invite.
   const failing = await inviteCampaign(`${key}-down`);
   try {
-    await toolAwaited('local-test-stack.mjs', 'stop', 'ops');
+    await stopService('ops');
     const down = await visitor(browser);
     await down.goto(`${JOIN}/partner?source=${failing.sourceKey}`);
     await contact(down, `${key.toLowerCase()}-down@example.org`);
@@ -156,7 +156,7 @@ test(`${J} #4 joining from an invite link captures one enquiry for that invite, 
     await expect(down.getByRole('heading', { name: 'Thank you. We’ve received your enquiry.' })).toHaveCount(0);
     await down.context().close();
   } finally {
-    await toolAwaited('local-test-stack.mjs', 'start', '--only', 'ops');
+    await startService('ops');
   }
   expect((await campaignTotals(failing.campaignId)).submissions).toBe(0);
 });
@@ -190,19 +190,9 @@ test(`${J} #5 /app with nothing set: the honest state, no store link and no vers
 
 /**
  * svc-notify restarted with its TEST notices switch set (`off`: a new database of its own, so the board holds no notice;
- * `null`: back on the stack's own), awaited so this worker's event loop stays free (#7449).
+ * `null`: back on the stack's own).
  */
-async function notifyNotices(value) {
-  const before = process.env.LOCAL_STACK_NOTIFY_NOTICES;
-  if (value === null) delete process.env.LOCAL_STACK_NOTIFY_NOTICES;
-  else process.env.LOCAL_STACK_NOTIFY_NOTICES = value;
-  try {
-    await toolAwaited('local-test-stack.mjs', 'restart', 'notify');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_NOTIFY_NOTICES;
-    else process.env.LOCAL_STACK_NOTIFY_NOTICES = before;
-  }
-}
+const notifyNotices = (value) => restartService('notify', { LOCAL_STACK_NOTIFY_NOTICES: value });
 
 test(`${J} #6 /announcement shows the published announcements, or "none are published"`, async ({ browser }) => {
   // Two restarts of notify (each up to two minutes), on top of the browser steps.

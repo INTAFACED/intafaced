@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * svc-bank `businessCards.*` (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02): a business gives its team cards and
@@ -41,7 +42,7 @@ export const businessCardSchema = z
     accountId: z.string(),
     memberUserId: z.string(),
     memberHandle: z.string().nullable(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     perPurchaseLimit: amount,
     panTail: z.string().regex(/^\d{4}$/),
     status: z.enum(['active', 'frozen']),
@@ -72,7 +73,7 @@ export const businessCardPurchaseSchema = z
     panTail: z.string(),
     memberUserId: z.string(),
     merchant: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount,
     status: z.enum(BUSINESS_CARD_PURCHASE_STATUSES),
     declineReason: z.string().nullable(),
@@ -106,7 +107,7 @@ export const businessReimbursementSchema = z
     id: z.string(),
     accountId: z.string(),
     memberUserId: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount,
     description: z.string(),
     receipt: businessReceiptSchema,

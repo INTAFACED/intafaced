@@ -11,6 +11,8 @@ import { guestNotificationsRouter } from './guests/router.js';
 import { guestVerificationRouter } from './guests/verification-router.js';
 import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
 import { navMetricsRouter } from './nav-metrics/router.js';
+import { reconAlertFeedRouter } from './reconciliation-alert-feed/router.js';
+import { MemoryReconAlertFeedStore, type ReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
 import type { NavMetricStore } from './nav-metrics/counts.js';
 import type { GuestNotificationService } from './guests/service.js';
 import type { GuestVerificationService } from './guests/verification.js';
@@ -671,8 +673,13 @@ export function createNotifyRouter(
   navMetrics?: NavMetricStore,
   verifications?: GuestVerificationService,
   watchRules?: WatchRuleService,
+  reconAlertFeed: { store: ReconAlertFeedStore; attached: () => boolean } = {
+    store: new MemoryReconAlertFeedStore(),
+    attached: () => false,
+  },
 ) {
   return router({
+    reconciliationAlertFeed: reconAlertFeedRouter(reconAlertFeed.store, reconAlertFeed.attached),
     guestNotifications: guestNotificationsRouter(guests),
     guestVerification: guestVerificationRouter(verifications),
     navMetrics: navMetricsRouter(navMetrics),

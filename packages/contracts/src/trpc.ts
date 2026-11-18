@@ -1,6 +1,6 @@
-import { initTRPC, TRPCError } from '@trpc/server';
+import { initTRPC, TRPCError, type AnyProcedure, type AnyRouter } from '@trpc/server';
 import type { Principal, Scope } from '@intafaced/auth';
-import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth';
+import { requireScope, requireTier, AuthError, hasScope, FOUNDER_SESSION_SCOPE_ALLOWLIST } from '@intafaced/auth';
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
 import { P2P_DELIST_REASONS, type P2pDelistReason } from './p2p-delist.js';
@@ -81,6 +81,25 @@ export interface Context {
    * Callers who own no merchant (team members) are not refused here.
    */
   ownerPayGrant?: OwnerPayGrantRecheck;
+  /**
+   * The live read of whether the signed-in person is an operator now, installed by a service that mounts
+   * `operatorProcedure`. Absent, every operator procedure refuses.
+   */
+  operatorAuthority?: OperatorAuthority;
+}
+
+/** `operator`: the person's operator entitlement is enabled now. `unavailable`: the read could not be made. */
+export type OperatorAuthority = (ctx: Context & { principal: Principal }) => Promise<'operator' | 'not_operator' | 'unavailable'>;
+
+/**
+ * Who may call a procedure, named by the builder it is made with. `procedureCallers` lists it for every procedure of a
+ * router, so a test can refuse a procedure that names nobody (`protectedProcedure`, which checks only that some
+ * principal is present).
+ */
+export type CallerRule = 'public' | 'scope' | 'person' | 'operator' | 'service' | 'jurisdiction';
+
+export interface ProcedureMeta {
+  caller?: CallerRule;
 }
 
 /**
@@ -436,70 +455,73 @@ export function p2pLimitOf(cause: unknown): P2pLimitDetails | undefined {
   return out;
 }
 
-const t = initTRPC.context<Context>().create({
-  errorFormatter({ shape, error, ctx }) {
-    const cause = error.cause;
-    const code = causeCode(cause);
-    const requestId = ctx && typeof ctx.requestId === 'string' && ctx.requestId.length > 0 ? ctx.requestId : undefined;
-    const blockers = errorBlockersOf(cause);
-    const delegationBlocker = delegationBlockerOf(cause);
-    const algo = algoRefusalDetails(cause);
-    const allowance = withdrawalAllowanceOf(cause);
-    const preview = previewRefusalOf(cause);
-    const spend = spendFiguresOf(cause);
-    const accountState = accountStateOf(cause);
-    const deviceAuthorisation = deviceAuthorisationOf(cause);
-    const secondStep = secondStepOf(cause);
-    const p2pLimit = p2pLimitOf(cause);
-    return {
-      ...shape,
-      data: {
-        ...shape.data,
-        ...(requestId ? { requestId } : {}),
-        // Surface our own error codes so clients can branch on
-        // 'ledger.insufficient_funds' rather than parsing prose.
-        intafacedCode: cause instanceof AuthError || cause instanceof JurisdictionError ? cause.code : undefined,
-        // Only ever set on 'denied.kyc_required'. A client that reads this can
-        // name the step the user has to take; one that ignores it is no worse
-        // off than before.
-        requiredTier: cause instanceof JurisdictionError ? cause.requiredTier : undefined,
-        // tRPC strips `cause` in production. Copy the named code so a public
-        // door can assert `token.buyback_tokens_unmoved` instead of prose.
-        // `blocker` is only `no_chain_service` on `token.delegation_unavailable`.
-        ...(code ? { cause: delegationBlocker ? { code, blocker: delegationBlocker } : { code } } : {}),
-        // Only on a stale profile.compare-and-set, so the client can show the row
-        // that won. No other error grows a profile field.
-        ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
-        // Only on `auth.too_many_attempts`, `auth.email_confirm_rate_limited`, `kyc.attempts_exhausted` and
-        // `identity.self_freeze_lift_too_soon`.
-        ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
-        // Only on sign-in's `auth.account_frozen`: `frozen` or `closed`.
-        ...(accountState ? { accountState } : {}),
-        // Only on `auth.device_authorisation_required`: the waiting new-device sign-in.
-        ...(deviceAuthorisation ? { deviceAuthorisation } : {}),
-        // Only on sign-in's `auth.mfa_required`: which second steps answer it, with a passkey challenge when one does.
-        ...(secondStep ? { secondStep } : {}),
-        ...(blockers ? { blockers } : {}),
-        ...(algo ? { algo } : {}),
-        // Only on `pay.guard_withdrawal_limit_exceeded`.
-        ...(allowance ? { allowance } : {}),
-        // Only on `preview.engine_not_built`: kind, code, engine, action, label.
-        ...(preview ? { preview } : {}),
-        // Only on `bank.insufficient_funds`.
-        ...(spend ? { spend } : {}),
-        // Only on the P2P take limits: active order cap, pair limit, verification-level limits.
-        ...(p2pLimit ? { p2pLimit } : {}),
-      },
-    };
-  },
-});
+const t = initTRPC
+  .context<Context>()
+  .meta<ProcedureMeta>()
+  .create({
+    errorFormatter({ shape, error, ctx }) {
+      const cause = error.cause;
+      const code = causeCode(cause);
+      const requestId = ctx && typeof ctx.requestId === 'string' && ctx.requestId.length > 0 ? ctx.requestId : undefined;
+      const blockers = errorBlockersOf(cause);
+      const delegationBlocker = delegationBlockerOf(cause);
+      const algo = algoRefusalDetails(cause);
+      const allowance = withdrawalAllowanceOf(cause);
+      const preview = previewRefusalOf(cause);
+      const spend = spendFiguresOf(cause);
+      const accountState = accountStateOf(cause);
+      const deviceAuthorisation = deviceAuthorisationOf(cause);
+      const secondStep = secondStepOf(cause);
+      const p2pLimit = p2pLimitOf(cause);
+      return {
+        ...shape,
+        data: {
+          ...shape.data,
+          ...(requestId ? { requestId } : {}),
+          // Surface our own error codes so clients can branch on
+          // 'ledger.insufficient_funds' rather than parsing prose.
+          intafacedCode: cause instanceof AuthError || cause instanceof JurisdictionError ? cause.code : undefined,
+          // Only ever set on 'denied.kyc_required'. A client that reads this can
+          // name the step the user has to take; one that ignores it is no worse
+          // off than before.
+          requiredTier: cause instanceof JurisdictionError ? cause.requiredTier : undefined,
+          // tRPC strips `cause` in production. Copy the named code so a public
+          // door can assert `token.buyback_tokens_unmoved` instead of prose.
+          // `blocker` is only `no_chain_service` on `token.delegation_unavailable`.
+          ...(code ? { cause: delegationBlocker ? { code, blocker: delegationBlocker } : { code } } : {}),
+          // Only on a stale profile.compare-and-set, so the client can show the row
+          // that won. No other error grows a profile field.
+          ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
+          // Only on `auth.too_many_attempts`, `auth.email_confirm_rate_limited`, `kyc.attempts_exhausted` and
+          // `identity.self_freeze_lift_too_soon`.
+          ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
+          // Only on sign-in's `auth.account_frozen`: `frozen` or `closed`.
+          ...(accountState ? { accountState } : {}),
+          // Only on `auth.device_authorisation_required`: the waiting new-device sign-in.
+          ...(deviceAuthorisation ? { deviceAuthorisation } : {}),
+          // Only on sign-in's `auth.mfa_required`: which second steps answer it, with a passkey challenge when one does.
+          ...(secondStep ? { secondStep } : {}),
+          ...(blockers ? { blockers } : {}),
+          ...(algo ? { algo } : {}),
+          // Only on `pay.guard_withdrawal_limit_exceeded`.
+          ...(allowance ? { allowance } : {}),
+          // Only on `preview.engine_not_built`: kind, code, engine, action, label.
+          ...(preview ? { preview } : {}),
+          // Only on `bank.insufficient_funds`.
+          ...(spend ? { spend } : {}),
+          // Only on the P2P take limits: active order cap, pair limit, verification-level limits.
+          ...(p2pLimit ? { p2pLimit } : {}),
+        },
+      };
+    },
+  });
 
 export const router = t.router;
 export const middleware = t.middleware;
 export const mergeRouters = t.mergeRouters;
 
 /** Open to anyone. Use sparingly — most things need a principal. */
-export const publicProcedure = t.procedure;
+export const publicProcedure = t.procedure.meta({ caller: 'public' });
 
 const authed = middleware(({ ctx, next }) => {
   if (!ctx.principal) {
@@ -508,7 +530,10 @@ const authed = middleware(({ ctx, next }) => {
   return next({ ctx: { ...ctx, principal: ctx.principal } });
 });
 
-/** Requires a verified principal. */
+/**
+ * Requires a verified principal, and nothing else: it names nobody, so `procedureCallers` reports it as `undefined`.
+ * Pick `personProcedure`, `operatorProcedure` or `scopedProcedure` instead.
+ */
 export const protectedProcedure = t.procedure.use(authed);
 
 export interface GuardOptions {
@@ -572,7 +597,7 @@ function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: Gua
 }
 
 export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
-  return protectedProcedure.use(async ({ ctx, next }) => {
+  return protectedProcedure.meta({ caller: 'scope' }).use(async ({ ctx, next }) => {
     refuseActingService(ctx, guards);
     try {
       requireScope(ctx.principal, scope);
@@ -596,7 +621,7 @@ export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
  * onboarding session.
  */
 export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: GuardOptions = {}) {
-  return protectedProcedure.use(async ({ ctx, next }) => {
+  return protectedProcedure.meta({ caller: 'scope' }).use(async ({ ctx, next }) => {
     refuseActingService(ctx, guards);
     let accepted = false;
     let sawMfa = false;
@@ -654,7 +679,7 @@ export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: 
  * What it replaces is `publicProcedure`, which checked nothing at all and left
  * every mounted money endpoint open to whoever could reach the port.
  */
-export const serviceProcedure = t.procedure.use(({ ctx, next }) => {
+export const serviceProcedure = t.procedure.meta({ caller: 'service' }).use(({ ctx, next }) => {
   requireServiceCaller(ctx.service);
   return next({ ctx });
 });
@@ -666,7 +691,7 @@ export const serviceProcedure = t.procedure.use(({ ctx, next }) => {
  * a claim, which is why the list is still enforced either way.
  */
 export function serviceProcedureFor(callers: readonly string[]) {
-  return t.procedure.use(({ ctx, next }) => {
+  return t.procedure.meta({ caller: 'service' }).use(({ ctx, next }) => {
     requireServiceCaller(ctx.service);
     if (!callers.includes(ctx.service)) {
       throw new TRPCError({
@@ -685,13 +710,94 @@ export function serviceProcedureFor(callers: readonly string[]) {
  * `scopedProcedure(scope, { module })` instead.
  */
 export function publicJurisdictionProcedure(module: ModuleId, plane: Plane = 'fiat') {
-  return t.procedure.use(({ ctx, next }) => {
+  return t.procedure.meta({ caller: 'jurisdiction' }).use(({ ctx, next }) => {
     const decision = checkAccess({ module, plane, region: ctx.region, kycTier: ctx.principal?.tier ?? 'none' });
     if (!decision.allowed) {
       throw new TRPCError({ code: 'FORBIDDEN', message: decision.reason, cause: new JurisdictionError(decision) });
     }
     return next({ ctx });
   });
+}
+
+function refusal(code: TRPCError['code'], refusalCode: string, message: string): TRPCError {
+  return new TRPCError({ code, message, cause: Object.assign(new Error(refusalCode), { code: refusalCode }) });
+}
+
+/** The signed-in person's own session: not an API key, not a sub-account token, not a service acting on the same request. */
+function refuseDelegatedCaller(ctx: Context & { principal: Principal }): void {
+  if (ctx.service || ctx.principal.kid || ctx.principal.sub_account) {
+    throw refusal('FORBIDDEN', 'auth.person_session_required', 'Sign in yourself; an API key, a sub-account or a service cannot do this');
+  }
+}
+
+/**
+ * The signed-in person only. Refuses an API key, a sub-account token and a service forwarding the person's principal,
+ * whatever scopes they carry; then checks `scope`, when one is named, and the guards, as `scopedProcedure` does.
+ */
+export function personProcedure(scope: Scope | null = null, guards: Omit<GuardOptions, 'person'> = {}) {
+  return protectedProcedure.meta({ caller: 'person' }).use(async ({ ctx, next }) => {
+    refuseDelegatedCaller(ctx);
+    try {
+      if (scope) requireScope(ctx.principal, scope);
+      if (guards.tier) requireTier(ctx.principal, guards.tier);
+    } catch (err) {
+      refuseGuard(err);
+    }
+    if (scope) await assertLiveOwnerPayScope(ctx, scope);
+    refuseJurisdiction(ctx, guards);
+    return next({ ctx });
+  });
+}
+
+/** The scopes only an operator's session carries. An ordinary session's scopes (`ops:read`) do not type here. */
+export type OperatorScope = (typeof FOUNDER_SESSION_SCOPE_ALLOWLIST)[number] | 'admin:treasury';
+
+/**
+ * Operators only: the signed-in person's own session (as `personProcedure`), holding `scope`, whose operator
+ * entitlement `ctx.operatorAuthority` reads as enabled on this call. No authority installed refuses.
+ */
+export function operatorProcedure(scope: OperatorScope, guards: Omit<GuardOptions, 'person'> = {}) {
+  return protectedProcedure.meta({ caller: 'operator' }).use(async ({ ctx, next }) => {
+    refuseDelegatedCaller(ctx);
+    try {
+      requireScope(ctx.principal, scope);
+      if (guards.tier) requireTier(ctx.principal, guards.tier);
+    } catch (err) {
+      refuseGuard(err);
+    }
+    if (!ctx.operatorAuthority) {
+      throw refusal('FORBIDDEN', 'operator.authority_unconfigured', 'No operator authority is configured');
+    }
+    const verdict = await ctx.operatorAuthority(ctx);
+    if (verdict === 'unavailable') {
+      throw refusal('SERVICE_UNAVAILABLE', 'operator.authority_unavailable', 'The operator entitlement could not be read');
+    }
+    if (verdict !== 'operator') throw refusal('FORBIDDEN', 'operator.forbidden', 'Operators only');
+    refuseJurisdiction(ctx, guards);
+    return next({ ctx });
+  });
+}
+
+/**
+ * Every procedure of a router with the caller rule its builder named; `undefined` for one that names none. A router's
+ * `_def.procedures` is flat, keyed by dotted path, and includes nested routers.
+ */
+export function procedureCallers(r: AnyRouter): {
+  path: string;
+  type: string;
+  caller: CallerRule | undefined;
+}[] {
+  const procedures: Record<string, AnyProcedure> = r._def.procedures;
+  return Object.entries(procedures)
+    .map(([path, proc]) => ({ path, type: proc._def.type, caller: callerOf(proc._def.meta) }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+const CALLER_RULES: readonly CallerRule[] = ['public', 'scope', 'person', 'operator', 'service', 'jurisdiction'];
+
+function callerOf(meta: unknown): CallerRule | undefined {
+  if (typeof meta !== 'object' || meta === null || !('caller' in meta)) return undefined;
+  return CALLER_RULES.find((rule) => rule === meta.caller);
 }
 
 export { TRPCError };

@@ -28,17 +28,18 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     sub: USER,
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
-    scopes: ['ops:read', 'ops:write'],
+    // An operator's session: the desks below are `operatorProcedure`s.
+    scopes: ['admin:read', 'admin:write'],
     tier: 'none',
-    mfa: false,
+    mfa: true,
     expiresAt: new Date(Date.now() + 60_000),
     ...overrides,
   } as Principal;
 }
 
-function signed(p: Principal = principal()) {
+async function signed(p: Principal = principal()) {
   const raw = encodePrincipal(p);
-  return edgeContext({
+  const ctx = await edgeContext({
     headers: {
       'x-intafaced-principal': raw,
       'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
@@ -46,6 +47,8 @@ function signed(p: Principal = principal()) {
     },
     id: 'req-signed',
   });
+  // The live entitlement read reads this person as an operator.
+  return { ...ctx, operatorAuthority: async () => 'operator' as const };
 }
 
 describe('svc-ops health — liveness is not a custodial stamp', () => {

@@ -14,16 +14,9 @@ Rules: AGENTS.md.
 
 ## Left or replaced
 
-<!-- The journey's steps this PR doesn't finish, and anything it replaces. "None" if so. -->
-
-## How to revert
-
-<!-- Usually "revert this squash commit". Say so when it isn't enough: a migration,
-     an event already published, state written elsewhere. -->
-
-## Risk
-
-<!-- What could break, for whom, and how you would notice. "None" only for docs. -->
+<!-- The journey's steps this PR doesn't finish, anything it replaces, and anything reverting
+     this squash commit doesn't undo (a migration, an event already published, state written
+     elsewhere). "None" if so. -->
 
 ## Money paths
 

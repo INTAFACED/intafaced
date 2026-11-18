@@ -1,5 +1,11 @@
 import Link from 'next/link';
-import type { OpsAlert, OpsAlertDetail, OpsAlertSource, OpsPlatformIncidents } from '@intafaced/contracts/ops-reconciliation-alerts';
+import type {
+  NotifyReconAlertFeed,
+  OpsAlert,
+  OpsAlertDetail,
+  OpsAlertSource,
+  OpsPlatformIncidents,
+} from '@intafaced/contracts/ops-reconciliation-alerts';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import type { Part } from '@/lib/desk/part';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
@@ -435,6 +441,45 @@ export function AlertDetail({ part, close }: { part: Part<OpsAlertDetail>; close
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * What the teams were told (J-ops-console-07 #10): svc-notify's own record of this alert's transitions, one per business key,
+ * so a transition delivered twice shows once. Read from svc-notify, not svc-ops; a failed read says why and lists nothing.
+ */
+export function AlertFeed({ part }: { part: Part<NotifyReconAlertFeed> }) {
+  if (part.kind === 'failed') return <Failed part={part} testId="alert-feed-failed" />;
+  const { bus, entries } = part.data;
+  return (
+    <section className="dk-stack" aria-label="Received by notifications" data-testid="alert-feed" data-bus={bus}>
+      <h3>Received by notifications</h3>
+      {bus === 'detached' && (
+        <p className="adm-callout" data-tone="warn" role="status">
+          svc-notify is not attached to the event bus now, so new transitions are not arriving here.
+        </p>
+      )}
+      {entries.length === 0 ? (
+        <p>None received yet.</p>
+      ) : (
+        <ol>
+          {entries.map((e) => (
+            <li
+              key={e.eventKey}
+              data-testid="alert-feed-entry"
+              data-event-key={e.eventKey}
+              data-kind={e.kind}
+              data-state={e.state}
+              data-actor={e.actor}
+              data-sequence={e.sequence}
+            >
+              #{e.sequence} · {e.kind} · {e.state} · {e.actor}
+              {e.team ? ` · ${TEAM_WORDS[e.team] ?? e.team}` : ''} · received {formatWhen(e.receivedAt)}
+            </li>
+          ))}
+        </ol>
       )}
     </section>
   );

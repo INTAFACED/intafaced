@@ -18,6 +18,14 @@
  * MUST supply a durable store — `MemoryBroadcastStore` is single-process only.
  */
 
+/** The key was answered `not_sent` and its money may already be given back: nothing is signed or sent under it. */
+export class BroadcastClosedError extends Error {
+  constructor(readonly idempotencyKey: string) {
+    super(`durable broadcast refused for ${idempotencyKey}: the key was answered not_sent and is closed`);
+    this.name = 'BroadcastClosedError';
+  }
+}
+
 /** Sentinel while a worker owns the right to broadcast but has not yet put a hash. */
 export const BROADCAST_PENDING = '__pending__' as const;
 
@@ -155,7 +163,7 @@ export class MemoryBroadcastStore implements BroadcastStore {
       throw new Error(`broadcast putSigned for ${idempotencyKey}: no claim row (call claim first)`);
     }
     if (existing === BROADCAST_CLOSED) {
-      throw new Error(`broadcast putSigned for ${idempotencyKey}: the key was closed by a not_sent answer`);
+      throw new BroadcastClosedError(idempotencyKey);
     }
     if (existing !== BROADCAST_PENDING) {
       // Already settled — signed bytes are irrelevant; keep first hash.
@@ -331,7 +339,7 @@ export class PostgresBroadcastStore implements BroadcastStore {
       throw new Error(`broadcast putSigned for ${idempotencyKey}: no claim row (call claim first)`);
     }
     if (row.tx_hash === BROADCAST_CLOSED) {
-      throw new Error(`broadcast putSigned for ${idempotencyKey}: the key was closed by a not_sent answer`);
+      throw new BroadcastClosedError(idempotencyKey);
     }
     if (row.tx_hash && row.tx_hash !== BROADCAST_PENDING) return;
     if (row.signed_raw && row.signed_raw !== signedRaw) {

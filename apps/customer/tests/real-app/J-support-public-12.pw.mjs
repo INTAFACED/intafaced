@@ -3,7 +3,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signUp } from './desk.mjs';
 import { asDesk, deskPeople } from './help-centre.mjs';
-import { api, toolAwaited } from './stack.mjs';
+import { api, restartService } from './stack.mjs';
 
 // J-support-public-12, in the running app (docs/roadmap/journeys.json): a support lead decides who sees which requests and
 // who gets them. Tests titled "J-support-public-12 #<n>" prove a whole step. The lead (founder A) works in the founder
@@ -18,26 +18,8 @@ const RUN = Date.now().toString(36);
 
 test.describe.configure({ mode: 'serial' });
 
-/**
- * Restart svc-support with these LOCAL TEST switches set for the restart only (undefined leaves one unset). Awaited, so
- * this worker's event loop sees Edge close an idle keep-alive socket while the restart runs; a blocking restart left
- * that socket in the pool and the next sign-in through Edge failed with "other side closed" (#8395, as #7449).
- */
-async function restartSupport(switches) {
-  const before = Object.fromEntries(Object.keys(switches).map((k) => [k, process.env[k]]));
-  for (const [k, v] of Object.entries(switches)) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  try {
-    await toolAwaited('local-test-stack.mjs', 'restart', 'support');
-  } finally {
-    for (const [k, v] of Object.entries(before)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
-}
+/** Restart svc-support with these LOCAL TEST switches set for the restart only (undefined leaves one unset). */
+const restartSupport = (switches) => restartService('support', switches);
 /** This file's desk: the empty-catalogue database, with the heartbeat window given (blank by default). */
 const ownDesk = (heartbeatWindow, { fresh = false } = {}) =>
   restartSupport({

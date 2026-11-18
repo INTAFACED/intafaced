@@ -9,6 +9,8 @@ import {
   type OpsAlertList,
   type OpsPlatformIncidents,
   type OpsReconciliationPeriods,
+  notifyReconAlertFeedSchema,
+  type NotifyReconAlertFeed,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
 import { partFrom, type Part } from '@/lib/desk/part';
@@ -49,6 +51,24 @@ export async function readAlertsRoom(ctx: FounderCallContext, after: OpsAlertCur
 export async function readAlertDetail(ctx: FounderCallContext, alertId: string): Promise<Part<OpsAlertDetail>> {
   const result = await founderCall(ctx, 'ops', 'alerts.get', 'GET', { alertId }, parseWith(opsAlertDetailSchema));
   return partFrom(result, (d) => d, labels);
+}
+
+const feedLabels = {
+  service: 'svc-notify',
+  forbiddenMessage: 'svc-notify did not accept this founder session for the alert feed. It needs the admin read permission (admin:read).',
+} as const;
+
+/** What svc-notify received of this alert's transitions: its own record, one per business key, read apart from svc-ops. */
+export async function readAlertFeed(ctx: FounderCallContext, alertId: string): Promise<Part<NotifyReconAlertFeed>> {
+  const result = await founderCall(
+    ctx,
+    'notify',
+    'reconciliationAlertFeed.list',
+    'GET',
+    { alertId },
+    parseWith(notifyReconAlertFeedSchema),
+  );
+  return partFrom(result, (d) => d, feedLabels);
 }
 
 /** `?after=<lastSeen>|<id>` as the list's cursor, or null for the newest page. */

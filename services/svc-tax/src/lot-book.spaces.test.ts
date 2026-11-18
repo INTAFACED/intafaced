@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { BankOwnSpacesPort } from '@intafaced/contracts';
 import { TAX_DATA_LAKE_UNAVAILABLE, TAX_INDEXER_UNAVAILABLE, TAX_LOT_BOOK_UNRECONCILED, TAX_OWN_SPACES_UNAVAILABLE } from './codes.js';
 import { createTaxLedgerReads } from './ledger-reads.js';
@@ -35,19 +36,25 @@ function ledger(opts: { sentOn?: boolean } = {}) {
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     asked.push({ path, ...body });
     let result: unknown = { entries: [], nextCursor: null };
-    const moved = { txId: 'mv', reason: 'bank.transfer.manual', amount: '1', assetId: 'BTC', postedAt: '2026-10-05T00:00:00.000Z' };
+    const moved = {
+      txId: 'mv',
+      reason: 'bank.transfer.manual',
+      amount: '1',
+      assetId: asAssetId('BTC'),
+      postedAt: '2026-10-05T00:00:00.000Z',
+    };
     if (path === '/trpc/balances') {
       result = [];
     } else if (body.ownerType === 'user' && body.kind === 'available') {
       result = {
         entries: [
           entry({ ...moved, direction: 'credit' }),
-          entry({ txId: 'buy', direction: 'debit', amount: '1', assetId: 'BTC', orderId: 'o1' }),
+          entry({ txId: 'buy', direction: 'debit', amount: '1', assetId: asAssetId('BTC'), orderId: 'o1' }),
         ],
         nextCursor: null,
       };
     } else if (body.kind === 'hold' && body.purpose === 'order:o1') {
-      result = { entries: [entry({ txId: 'buy', direction: 'credit', amount: '100', assetId: 'USDT' })], nextCursor: null };
+      result = { entries: [entry({ txId: 'buy', direction: 'credit', amount: '100', assetId: asAssetId('USDT') })], nextCursor: null };
     } else if (body.ownerType === 'subaccount' && body.ownerId === SPACE && body.kind === 'available') {
       result = {
         entries: [
@@ -58,7 +65,7 @@ function ledger(opts: { sentOn?: boolean } = {}) {
                   reason: 'bank.transfer.manual',
                   direction: 'credit',
                   amount: '1',
-                  assetId: 'BTC',
+                  assetId: asAssetId('BTC'),
                   postedAt: '2026-10-07T00:00:00.000Z',
                 }),
               ]
@@ -74,7 +81,7 @@ function ledger(opts: { sentOn?: boolean } = {}) {
 }
 
 const read: BankOwnSpacesPort = {
-  list: async () => ({ state: 'read', spaces: [{ spaceId: SPACE, assetId: 'BTC', name: 'TEST cold', archived: false }] }),
+  list: async () => ({ state: 'read', spaces: [{ spaceId: SPACE, assetId: asAssetId('BTC'), name: 'TEST cold', archived: false }] }),
 };
 const service = (spaces?: BankOwnSpacesPort) =>
   new TaxService({
@@ -94,12 +101,15 @@ describe('tax.lotBook own-account carry', () => {
   it('the bought lot keeps its acquired date and basis and is listed in the space, and the main account reconciles', async () => {
     const asked = ledger();
     const book = await service(read).lotBook({ userId: USER });
-    expect(book.spaces).toEqual({ status: 'read', list: [{ spaceId: SPACE, assetId: 'BTC', name: 'TEST cold', archived: false }] });
+    expect(book.spaces).toEqual({
+      status: 'read',
+      list: [{ spaceId: SPACE, assetId: asAssetId('BTC'), name: 'TEST cold', archived: false }],
+    });
     const inSpace = book.lots.filter((lot) => lot.spaceId === SPACE);
     expect(inSpace).toEqual([
       {
         id: 'lot:buy:BTC>mv',
-        assetId: 'BTC',
+        assetId: asAssetId('BTC'),
         acquiredAt: '2026-10-01T00:00:00.000Z',
         source: 'trade',
         qty: '1',

@@ -44,6 +44,14 @@ describe('queue reader', () => {
     expect(read?.entries).toHaveLength(2);
     expect(read?.limit).toBe(100);
   });
+  it('reads the due time of a row from an active response target, and refuses a malformed one', () => {
+    const due = { dueAt: '2026-10-17T02:30:00.000Z', targetMinutes: 30 };
+    expect(readQueueResult({ status: 'ok', entries: [entry({ responseDue: due })] }, 100)?.entries[0]?.responseDue).toEqual(due);
+    expect(readQueueResult({ status: 'ok', entries: [entry({ responseDue: null })] }, 100)?.entries[0]?.responseDue).toBeNull();
+    expect(readQueueResult({ status: 'ok', entries: [entry()] }, 100)?.entries[0]?.responseDue).toBeNull();
+    for (const bad of [{ dueAt: 'soon', targetMinutes: 30 }, { dueAt: due.dueAt, targetMinutes: 0 }, 'tomorrow'])
+      expect(readQueueResult({ status: 'ok', entries: [entry({ responseDue: bad })] }, 100)).toBeNull();
+  });
   it('an empty queue is only empty when the service says so', () => {
     expect(readQueueResult({ status: 'empty' }, 100)).toEqual({ entries: [], limit: 100 });
     expect(readQueueResult({ status: 'empty', entries: [entry()] }, 100)).toBeNull();

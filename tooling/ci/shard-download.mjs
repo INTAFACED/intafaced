@@ -94,6 +94,8 @@ export function downloadShards(io, { maxWaits = MAX_WAITS, pauses = PAUSES, dead
 }
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** A synchronous pause, for the waits above (step-pictures.mjs shares it). */
+export const pause = sleep;
 const budget = () =>
   JSON.parse(execFileSync('gh', ['api', 'rate_limit', '--jq', '.resources.core'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
 const show = (b) => `limit ${b.limit}, used ${b.used}, remaining ${b.remaining}, resets ${new Date(b.reset * 1000).toISOString()}`;

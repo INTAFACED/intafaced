@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   localStackState,
   localPgOsUser,
+  localPgBin,
   assertStackOwnership,
   processRecordMatches,
   postgresProcessMatches,
@@ -21,6 +22,16 @@ assert.equal(localStackState('/test-home', {}), '/test-home/.intafaced/local-tes
 assert.equal(localStackState('/root', { LOCAL_STACK_STATE: '/srv/stack' }), '/srv/stack');
 assert.equal(localPgOsUser({}, 501), null);
 assert.equal(localPgOsUser({}, 0), 'postgres');
+
+// psql and pg_ctl: the setting, else Homebrew's on the Mac, else a Linux box's newest /usr/lib/postgresql major.
+{
+  const has = (...bins) => ({ exists: (p) => bins.some((b) => p === `${b}/pg_ctl`), list: () => ['14', '17', 'common'] });
+  assert.equal(localPgBin({ LOCAL_STACK_PG_BIN: '/opt/pg/bin' }, has('/opt/homebrew/bin')), '/opt/pg/bin');
+  assert.equal(localPgBin({}, has('/opt/homebrew/bin', '/usr/lib/postgresql/17/bin')), '/opt/homebrew/bin');
+  // A Linux home: no /opt/homebrew, Postgres 17 from apt (main took 16, which this box does not have).
+  assert.equal(localPgBin({}, has('/usr/lib/postgresql/14/bin', '/usr/lib/postgresql/17/bin')), '/usr/lib/postgresql/17/bin');
+  assert.equal(localPgBin({}, { exists: () => false, list: () => [] }), '/usr/lib/postgresql/16/bin');
+}
 assert.equal(localPgOsUser({ LOCAL_STACK_PG_USER: 'pgrunner' }, 0), 'pgrunner');
 for (const value of ['', ' ', 'relative/path']) {
   assert.throws(() => localStackState('/test-home', { LOCAL_STACK_STATE: value }), /absolute folder path/);

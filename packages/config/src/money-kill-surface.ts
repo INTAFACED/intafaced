@@ -21,7 +21,7 @@
  * `services/svc-edge/src/money-routes.kill-switch.test.ts` and the money matrix
  * in `control-plane.e2e.test.ts` (flip via `/admin/kill-switches`).
  *
- * Operator incident steps stay in `docs/OPS-KILL-SWITCH-RUNBOOK.md` (P3-10).
+ * Operator incident steps stay in `docs/runbooks/OPS-KILL-SWITCH-RUNBOOK.md` (P3-10).
  * This file is the mapping the gate enforces — not a second runbook.
  */
 

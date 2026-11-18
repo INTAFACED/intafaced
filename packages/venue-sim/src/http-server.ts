@@ -52,7 +52,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
  *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -119,7 +119,7 @@ const rates = (maker: string, taker: string) =>
   }) as const;
 
 /**
- * The TEST venue's published fee tiers (J-cex-spot-10 #2 #6), counted on 14 days of the account's own fills in USDC. The
+ * The TEST venue's published fee tiers (J-cex-spot-10 #2 #6), counted on 30 days of the account's own fills in USDC. The
  * base tier names the BTC markets' published rates; an account the venue placed in the base tier pays each market's own.
  * The venue moves an account only at its next update (`/test/fee-tier-update`), as Hyperliquid updates tiers daily. Every
  * figure is TEST.
@@ -131,7 +131,7 @@ export const TEST_VENUE_FEE_TIERS = {
     { name: 'TEST tier 2', fromVolume: parseAmount('1000000'), spot: rates('0.5', '2.5'), perpetual: rates('1', '3.5') },
   ],
   volumeAsset: 'USDC',
-  volumeDays: 14,
+  volumeDays: 30,
 };
 
 /** The venue itself as the lister of its own markets (the BTC markets). */
@@ -462,6 +462,55 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     listedBy: VENUE_LISTED,
     oracle: {},
   },
+  {
+    // J-derivatives-12: a TEST perpetual of its own on which the TEST venue settles funding and liquidates, so one account
+    // gets a funding payment, a close and a liquidation on its bills, and moving its mark or closing its period reaches no
+    // other journey. Only J-derivatives-12 trades it. Priced by its TEST oracle, so a fill never moves its mark.
+    symbol: 'XBIL-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XBIL',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    // TEST: the venue takes USDC alone as margin here, at no haircut.
+    collateral: [{ asset: 'USDC', haircut: { known: true, value: parseAmount('0') } }],
+    // TEST: hourly funding as on XFND-PERP.
+    funding: {
+      rate: ZERO,
+      intervalSeconds: 3600,
+      settles: {
+        interestRate: parseAmount('0.0000125'),
+        rateCap: parseAmount('0.04'),
+        rule:
+          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
+          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
+      },
+    },
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
+        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
+        "into the venue's TEST insurance fund.",
+    },
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
@@ -474,6 +523,7 @@ const LADDER_SYMBOLS: ReadonlySet<string> = new Set([
   'XSTD-PERP',
   'XLIQ-PERP',
   'XFND-PERP',
+  'XBIL-PERP',
 ]);
 const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
@@ -494,6 +544,7 @@ const SEED_LADDERS: Readonly<Record<string, { mid: Amount; step: Amount }>> = {
   'XSTD-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
   'XLIQ-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
   'XFND-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
+  'XBIL-PERP': { mid: parseAmount('100'), step: parseAmount('0.1') },
 };
 
 /** A TEST key derived from a public name. It holds nothing anywhere but the simulator's memory. */
@@ -953,6 +1004,10 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
           throw new VenueWireError('scheduledCancelMinLeadMs must be a whole number of ms, or null');
         sim.declareScheduledCancel(n);
       }
+      if (body.otherFeesUnpublished !== undefined) {
+        if (typeof body.otherFeesUnpublished !== 'boolean') throw new VenueWireError('otherFeesUnpublished must be true or false');
+        sim.switches.otherFeesUnpublished = body.otherFeesUnpublished;
+      }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
       if (body.withdrawalArrivalSeconds !== undefined) {
@@ -984,6 +1039,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         withdrawalArrivalSeconds: sim.switches.withdrawalArrivalSeconds,
         withdrawalsHeld: sim.switches.withdrawalsHeld,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
+        otherFeesUnpublished: sim.switches.otherFeesUnpublished,
         label: 'TEST',
       };
     }

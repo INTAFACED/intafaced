@@ -5,7 +5,7 @@ import { parseAmount } from '@intafaced/ledger-client/money';
 import type { PlaceUserOrderIntent, UserVenueAccount } from '@intafaced/venue-contracts';
 import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
 import type { TestVenueTypedData } from './signing.js';
-import { TEST_VENUE_FEE_TIERS } from './http-server.js';
+import { TEST_VENUE_FEE_TIERS, TEST_VENUE_MARKETS, answerTestVenue } from './http-server.js';
 
 // J-cex-spot-10 #4 #6: the venue's published fee tiers, the tier its update places an account in from the account's own
 // fills, the rates it then charges, and a maker rebate charged as a fee below zero, never clamped to zero.
@@ -121,7 +121,7 @@ describe("the venue's fee tiers", () => {
     const { sim, maker, taker } = world();
     await maker.place('sell', '60000', '2', 'GTC');
     await taker.place('buy', '60000', '2', 'IOC');
-    now = new Date(now.getTime() + 15 * 86_400_000);
+    now = new Date(now.getTime() + (TEST_VENUE_FEE_TIERS.volumeDays + 1) * 86_400_000);
     expect(sim.updateFeeTier(taker.owner)).toMatchObject({ index: 0, volume: a('0') });
   });
 });
@@ -145,5 +145,18 @@ describe("the venue's maker rebate", () => {
         ],
       }),
     ).toThrow('a taker rate is never below zero');
+  });
+
+  // J-derivatives-12 #2: the venue's settlement and other fees, as it charges them, or none published.
+  it("publishes its settlement fee and each liquidating market's liquidation fee, and none while the switch withholds them", async () => {
+    const sim = new TestVenueSimulator({ clock: () => now, markets: TEST_VENUE_MARKETS, feeSchedule: TEST_VENUE_FEE_TIERS });
+    const fees = (await sim.feeStatus(null)).value.otherFees!;
+    expect(fees[0]).toMatchObject({ kind: 'settlement', symbol: null, feeBps: a('0') });
+    const liquidating = TEST_VENUE_MARKETS.filter((m) => m.liquidation).map((m) => m.symbol);
+    expect(liquidating).toEqual(['XLIQ-PERP', 'XBIL-PERP']);
+    expect(fees.filter((f) => f.kind === 'liquidation').map((f) => [f.symbol, f.feeBps])).toEqual(liquidating.map((s) => [s, a('100')]));
+    const [status] = await answerTestVenue(sim, 'POST', '/test/switches', JSON.stringify({ otherFeesUnpublished: true }));
+    expect(status).toBe(200);
+    expect((await sim.feeStatus(null)).value.otherFees).toBeNull();
   });
 });
