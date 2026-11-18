@@ -43,8 +43,8 @@ test(`${J}, part of #2 and #3: with an authenticator on, adding a passkey asks t
 
   // This browser's sign-in has not passed the new second factor, so the service refuses before any change.
   await page.goto('/uc/safe');
-  await page.getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey', exact: true }).click();
   const refusal = page.getByTestId('failure');
   await expect(refusal).toContainText('Confirm it is you');
   await expect(refusal).toContainText('Confirm it is you with your authenticator code or a passkey');
@@ -52,7 +52,7 @@ test(`${J}, part of #2 and #3: with an authenticator on, adding a passkey asks t
   await expect(page.getByTestId('security__passkeys')).toContainText('No passkeys yet');
 
   // Its link signs in again with the code and comes back to Security, where the passkey now adds.
-  await refusal.getByRole('link', { name: 'Sign in again' }).click();
+  await refusal.getByRole('link', { name: 'Sign in again', exact: true }).click();
   await expect(page).toHaveURL(/\/login\?redirect=%2Fuc%2Fsafe/);
   const { code } = await nextCode(totp, secret, step);
   await page.fill('input[name=totp]', code);
@@ -74,17 +74,17 @@ test(`${J}, part of #2: the refused passkey add goes ahead after the authenticat
   const { secret, step } = await addAuthenticator(page, totp);
 
   await page.goto('/uc/safe');
-  await page.getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey', exact: true }).click();
   const refusal = page.getByTestId('failure');
   await expect(refusal).toContainText('Confirm it is you');
 
   // The sheet asks for a fresh factor; the code buys one change, and the same add runs again on this page.
-  await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+  await refusal.getByRole('button', { name: 'Confirm it is you', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
   await expect(sheet).toContainText('This changes how you sign in');
   const { code } = await nextCode(totp, secret, step);
-  await sheet.getByLabel('Authenticator code or recovery code').fill(code);
+  await sheet.getByLabel('Authenticator code or recovery code', { exact: true }).fill(code);
   await sheet.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(sheet).toBeHidden();
   await expect(page).toHaveURL(/\/uc\/safe$/);
@@ -143,11 +143,11 @@ test(`${J} #2 a security change opens the step-up sheet; its approval is single 
   const send = (url, body) => page.request.post(url, { headers: held[0].headers, data: JSON.stringify(body) });
   const answer = async (res) => ({ status: res.status(), text: await res.text() });
   const names = page.getByTestId('security__passkey-names');
-  const nameField = names.getByLabel('Name (1 to 64 characters)');
+  const nameField = names.getByLabel('Name (1 to 64 characters)', { exact: true });
   const renameTo = async (label) => {
     if (!(await nameField.isVisible())) await names.getByRole('button', { name: /^Rename passkey/ }).click();
     await nameField.fill(label);
-    await names.getByRole('button', { name: 'Save with a passkey' }).click();
+    await names.getByRole('button', { name: 'Save with a passkey', exact: true }).click();
   };
 
   // Renaming is a security change: the page asks for a fresh factor first (the passkey answers), and only then sends.
@@ -210,22 +210,22 @@ test(`${J} #2 a security change opens the step-up sheet; its approval is single 
   // The step-up sheet: adding a second passkey on this password sign-in is a security change, so the page opens
   // "Confirm it's you" before anything changes, and the passkey answers it.
   await virtualAuthenticator(page, 'usb');
-  await page.getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey', exact: true }).click();
   const refusal = page.getByTestId('failure');
   await expect(refusal).toContainText('Confirm it is you');
-  await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+  await refusal.getByRole('button', { name: 'Confirm it is you', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
   await expect(sheet).toContainText('This changes how you sign in');
-  await sheet.getByRole('button', { name: 'Use a passkey' }).click();
+  await sheet.getByRole('button', { name: 'Use a passkey', exact: true }).click();
   await expect(sheet).toBeHidden();
   await expect(names.getByTestId('security__row')).toHaveCount(2);
 
   // After a refresh the confirmation is gone: starting the same kind of change asks to confirm again, before any change.
   await page.reload();
   await expect(names.getByTestId('security__row')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey', exact: true }).click();
   await expect(page.getByTestId('failure')).toContainText('Confirm it is you');
   await expect(names.getByTestId('security__row')).toHaveCount(2);
 });
@@ -247,14 +247,14 @@ test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and l
   // Renaming confirms with the passkey itself. The name field stops at 64 characters, and an empty name is refused
   // before anything is sent.
   await names.getByRole('button', { name: /^Rename passkey/ }).click();
-  const name = names.getByLabel('Name (1 to 64 characters)');
+  const name = names.getByLabel('Name (1 to 64 characters)', { exact: true });
   await name.fill('x'.repeat(70));
   expect((await name.inputValue()).length).toBeLessThanOrEqual(64);
   await name.fill('   ');
-  await names.getByRole('button', { name: 'Save with a passkey' }).click();
+  await names.getByRole('button', { name: 'Save with a passkey', exact: true }).click();
   await expect(names.getByRole('alert')).toContainText('Use 1 to 64 characters');
   await name.fill('Work laptop');
-  await names.getByRole('button', { name: 'Save with a passkey' }).click();
+  await names.getByRole('button', { name: 'Save with a passkey', exact: true }).click();
   await expect(names).toContainText('Name saved.');
   await expect(names).toContainText('Work laptop');
 
@@ -287,13 +287,13 @@ test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and l
   // A second passkey from another authenticator. This sign-in has not passed a second factor, so the add asks
   // "Confirm it is you" first; the first passkey answers it.
   await virtualAuthenticator(page, 'usb');
-  await page.getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey', exact: true }).click();
   const refusal = page.getByTestId('failure');
   await expect(refusal).toContainText('Confirm it is you');
-  await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+  await refusal.getByRole('button', { name: 'Confirm it is you', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
-  await sheet.getByRole('button', { name: 'Use a passkey' }).click();
+  await sheet.getByRole('button', { name: 'Use a passkey', exact: true }).click();
   await expect(sheet).toBeHidden();
   // The names list follows the add on its own, with no refresh.
   await expect(names.getByTestId('security__row')).toHaveCount(2);
@@ -351,12 +351,12 @@ test(`${J} #1 Security opens on a checklist: each method, its status and why an 
   await expect(checklist).toContainText('Always needs a second step');
 
   // A passkey after "Confirm it is you" with the code ticks the last one.
-  await page.getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you' }).click();
+  await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey', exact: true }).click();
+  await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
   const { code } = await nextCode(totp, secret, step);
-  await sheet.getByLabel('Authenticator code or recovery code').fill(code);
+  await sheet.getByLabel('Authenticator code or recovery code', { exact: true }).fill(code);
   await sheet.getByRole('button', { name: 'Confirm', exact: true }).click();
   await expect(sheet).toBeHidden();
   await expect(item('A passkey')).toContainText('Done');
@@ -384,9 +384,9 @@ test(`${J} #5 the first authenticator code turns it on; recovery codes show once
   ).toContainText(`${codes.length} left`);
 
   // "I saved them" takes the codes and the setup key off the page; neither was ever written to storage.
-  const saved = recovery.getByRole('button', { name: 'I saved them' });
+  const saved = recovery.getByRole('button', { name: 'I saved them', exact: true });
   await expect(saved).toBeDisabled();
-  await recovery.getByLabel('I wrote these codes down or stored them somewhere safe').check();
+  await recovery.getByLabel('I wrote these codes down or stored them somewhere safe', { exact: true }).check();
   await saved.click();
   await expect(recovery).toHaveCount(0);
   const html = await page.content();
@@ -416,24 +416,24 @@ test(`${J}, part of #5: when the confirmation's answer is lost, the recovery cod
   const who = person('ru');
   await signUpInBrowser(page, who);
   await page.goto('/uc/safe');
-  await page.getByRole('button', { name: 'Start authenticator setup' }).click();
-  await page.getByRole('button', { name: 'Start authenticator setup' }).last().click();
-  await page.getByRole('button', { name: 'Show setup key' }).click();
-  const secret = await page.getByLabel('Authenticator setup key').inputValue();
+  await page.getByRole('button', { name: 'Start authenticator setup', exact: true }).click();
+  await page.getByRole('button', { name: 'Start authenticator setup', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Show setup key', exact: true }).click();
+  const secret = await page.getByLabel('Authenticator setup key', { exact: true }).inputValue();
 
   // Identity turns the authenticator on, then the answer never reaches the browser.
   await page.route('**/totp.confirm**', async (route) => {
     await route.fetch();
     await route.abort('connectionreset');
   });
-  await page.getByLabel('Six-digit authenticator code').fill(totp(secret));
-  await page.getByRole('button', { name: 'Confirm authenticator' }).click();
+  await page.getByLabel('Six-digit authenticator code', { exact: true }).fill(totp(secret));
+  await page.getByRole('button', { name: 'Confirm authenticator', exact: true }).click();
 
   const recovery = page.getByTestId('security__recovery');
   await expect(recovery).toContainText('We could not tell whether your authenticator was turned on');
   await expect(recovery.getByTestId('recovery-codes').locator('li')).toHaveCount(10);
   // The page no longer asks for the confirmation it may already have.
-  await expect(page.getByRole('button', { name: 'Confirm authenticator' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Confirm authenticator', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('security__authenticator')).not.toContainText('Confirmation is still required');
   // It was on: the checklist says so.
   const authenticatorRow = page
@@ -441,8 +441,8 @@ test(`${J}, part of #5: when the confirmation's answer is lost, the recovery cod
     .getByTestId('security__row')
     .filter({ has: page.getByText('An authenticator app', { exact: true }) });
   await expect(authenticatorRow).toContainText('Done');
-  await recovery.getByLabel('I wrote these codes down or stored them somewhere safe').check();
-  await recovery.getByRole('button', { name: 'I saved them' }).click();
+  await recovery.getByLabel('I wrote these codes down or stored them somewhere safe', { exact: true }).check();
+  await recovery.getByRole('button', { name: 'I saved them', exact: true }).click();
   await expect(recovery).toHaveCount(0);
 });
 
@@ -466,15 +466,15 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
   async function save(code, button = 'Save with code') {
     const next = await nextCode(totp, secret, step);
     step = next.step;
-    if (code !== null) await card.getByLabel('New code (4 to 20 letters and digits)').fill(code);
-    await card.getByLabel('6-digit code from your authenticator app').fill(next.code);
+    if (code !== null) await card.getByLabel('New code (4 to 20 letters and digits)', { exact: true }).fill(code);
+    await card.getByLabel('6-digit code from your authenticator app', { exact: true }).fill(next.code);
     await card.getByRole('button', { name: button }).click();
   }
 
   // A code that is the handle is refused, and nothing is set.
-  await card.getByRole('button', { name: 'Set a code' }).click();
-  await card.getByLabel('New code (4 to 20 letters and digits)').fill('ab');
-  await card.getByRole('button', { name: 'Save with code' }).click();
+  await card.getByRole('button', { name: 'Set a code', exact: true }).click();
+  await card.getByLabel('New code (4 to 20 letters and digits)', { exact: true }).fill('ab');
+  await card.getByRole('button', { name: 'Save with code', exact: true }).click();
   await expect(card.getByRole('alert')).toHaveText('Use 4 to 20 letters and digits.');
   await save(who.handle.toUpperCase());
   await expect(card.getByRole('alert')).toContainText('it is your handle, your email or your password');
@@ -499,14 +499,14 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
     const before = mailedLines(who.email, 'signup-existing').length;
     const other = await page.context().browser().newPage({ baseURL: PASSKEY_ORIGIN });
     await other.goto('/register');
-    await other.getByLabel('Email address').fill(who.email);
-    await other.getByLabel('Handle').fill(`${who.handle}x`);
-    await other.getByLabel('Password').fill(`TEST-${randomBytes(9).toString('base64url')}-9b`);
-    await other.getByLabel('Country you live in').selectOption('DE');
-    await other.getByRole('radio', { name: 'No, I am not a US person' }).check();
-    await other.getByLabel('Date of birth').fill('1990-05-01');
-    await other.getByRole('button', { name: 'Create account' }).click();
-    await other.getByRole('heading', { name: 'Check your email' }).waitFor();
+    await other.getByLabel('Email address', { exact: true }).fill(who.email);
+    await other.getByLabel('Handle', { exact: true }).fill(`${who.handle}x`);
+    await other.getByLabel('Password', { exact: true }).fill(`TEST-${randomBytes(9).toString('base64url')}-9b`);
+    await other.getByLabel('Country you live in', { exact: true }).selectOption('DE');
+    await other.getByRole('radio', { name: 'No, I am not a US person', exact: true }).check();
+    await other.getByLabel('Date of birth', { exact: true }).fill('1990-05-01');
+    await other.getByRole('button', { name: 'Create account', exact: true }).click();
+    await other.getByRole('heading', { name: 'Check your email', exact: true }).waitFor();
     await other.close();
     await expect.poll(() => mailedLines(who.email, 'signup-existing').length, { timeout: 30_000 }).toBeGreaterThan(before);
     return mailedLines(who.email, 'signup-existing').at(-1);
@@ -519,8 +519,8 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
   try {
     await out.goto('/findPwd');
     await out.getByLabel('Email address', { exact: true }).fill(who.email);
-    await out.getByRole('button', { name: 'Send reset code' }).click();
-    await expect(out.getByLabel('Code from the email')).toBeVisible();
+    await out.getByRole('button', { name: 'Send reset code', exact: true }).click();
+    await expect(out.getByLabel('Code from the email', { exact: true })).toBeVisible();
     await expect.poll(() => mailedLines(who.email, 'password-reset').length, { timeout: 30_000 }).toBeGreaterThan(resets);
     expect(mailedLines(who.email, 'password-reset').at(-1)).toMatch(new RegExp(` anti_phishing=${code}$`));
     expect(await out.content()).not.toContain(code);
@@ -540,11 +540,11 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
   expect(signedIn.status()).toBe(200);
   expect(await signedIn.text()).toContain(code);
   await page.goto('/home');
-  await page.getByRole('button', { name: 'Account menu' }).click();
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page).toHaveURL((url) => url.pathname === '/');
   await page.goto('/uc/safe');
-  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toBeVisible();
   await expect(card).toHaveCount(0);
   expect(await page.content()).not.toContain(code);
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }))).not.toContain(code);
@@ -553,7 +553,7 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
   expect(await afterSignOut.text()).not.toContain(code);
 
   // Signed in again, the card reads it back.
-  await page.getByRole('main').getByRole('link', { name: 'Sign in' }).click();
+  await page.getByRole('main').getByRole('link', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/login\?redirect=%2Fuc%2Fsafe/);
   const again = await nextCode(totp, secret, step);
   step = again.step;
@@ -565,12 +565,12 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
   await expect(card).toContainText(`Your code: ${code}`);
 
   const changed = `Heron${randomBytes(3).toString('hex')}`;
-  await card.getByRole('button', { name: 'Change the code' }).click();
+  await card.getByRole('button', { name: 'Change the code', exact: true }).click();
   await save(changed);
   await expect(card).toContainText(`Your code: ${changed}`);
   await expect(card.getByTestId('security__mail-preview')).toContainText(`Your anti-phishing code: ${changed}`);
 
-  await card.getByRole('button', { name: 'Remove the code' }).click();
+  await card.getByRole('button', { name: 'Remove the code', exact: true }).click();
   await expect(card).toContainText('Confirm it is you to remove the code.');
   await save(null, 'Remove with code');
   await expect(card.getByRole('status')).toHaveText('Anti-phishing code removed.');
@@ -596,19 +596,19 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   // Still the session that signed in with the password alone: no sign-in was asked for.
   await expect(page).not.toHaveURL(/\/login/);
   const real = page.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
-  await real.getByRole('button', { name: 'My codes do not work' }).click();
-  const ok = real.getByRole('region', { name: 'When codes do not work' });
+  await real.getByRole('button', { name: 'My codes do not work', exact: true }).click();
+  const ok = real.getByRole('region', { name: 'When codes do not work', exact: true });
   await expect(ok.getByRole('status')).toContainText('so codes should work');
   await expect(ok).toContainText('Apps that sync codes');
   await expect(ok.getByRole('listitem')).toHaveCount(4);
   await expect(ok.getByRole('button', { name: 'Replace', exact: true })).toBeVisible();
   // Moving to a new phone starts the card's own replace, which first confirms it is you, then takes the new app's code.
-  await ok.getByRole('button', { name: 'Move to a new phone' }).click();
+  await ok.getByRole('button', { name: 'Move to a new phone', exact: true }).click();
   await expect(ok).toHaveCount(0);
-  await expect(real.getByRole('heading', { name: 'Confirm it is you' })).toBeVisible();
+  await expect(real.getByRole('heading', { name: 'Confirm it is you', exact: true })).toBeVisible();
   let code;
   ({ code, step } = await nextCode(totp, secret, step));
-  await real.getByLabel('6-digit code or a recovery code').fill(code);
+  await real.getByLabel('6-digit code or a recovery code', { exact: true }).fill(code);
   await real.getByRole('button', { name: 'Confirm', exact: true }).click();
   // The new key shows in its own setup card, under the same name.
   const setup = page
@@ -616,10 +616,10 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
     .filter({ hasText: 'Add this key to your new authenticator app, then enter the code it shows.' });
   await expect(setup).toHaveCount(1);
   const newKey = (await setup.locator('code').innerText()).trim();
-  await setup.getByLabel('Code from the new app').fill(totp(newKey));
+  await setup.getByLabel('Code from the new app', { exact: true }).fill(totp(newKey));
   ({ code, step } = await nextCode(totp, secret, step));
-  await setup.getByLabel('Next code or a recovery code').fill(code);
-  await setup.getByRole('button', { name: 'Replace authenticator app' }).click();
+  await setup.getByLabel('Next code or a recovery code', { exact: true }).fill(code);
+  await setup.getByRole('button', { name: 'Replace authenticator app', exact: true }).click();
   await expect(page.locator('[data-testid="notice"][role=status]').filter({ hasText: 'Authenticator app replaced' })).toBeVisible();
 
   // The same signed-in browser with its clock set 90 seconds ahead (the clock is the whole browser's), on a fresh page.
@@ -628,8 +628,8 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   const skewed = await page.context().newPage();
   await skewed.goto('/uc/safe');
   const card = skewed.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
-  await card.getByRole('button', { name: 'My codes do not work' }).click();
-  const help = card.getByRole('region', { name: 'When codes do not work' });
+  await card.getByRole('button', { name: 'My codes do not work', exact: true }).click();
+  const help = card.getByRole('region', { name: 'When codes do not work', exact: true });
   await expect(help).toContainText('Codes depend on the clock.');
   await expect(help.getByRole('status')).toHaveText(/This device’s clock is (89|90|91) seconds ahead of ours\./);
   await expect(help.getByRole('button', { name: 'Replace', exact: true })).toHaveCount(0);
@@ -661,29 +661,29 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   await addPasskey(page);
   const mine = (await heldPasskeys(device)).find((id) => id !== theirs);
   const names = page.getByTestId('security__passkey-names');
-  const second = names.getByRole('group', { name: 'A passkey after your password' });
+  const second = names.getByRole('group', { name: 'A passkey after your password', exact: true });
   await expect(second).toContainText('Off: your password signs you in');
-  await second.getByRole('button', { name: 'Ask for a passkey' }).click();
-  await second.getByRole('button', { name: 'Save with a passkey' }).click();
+  await second.getByRole('button', { name: 'Ask for a passkey', exact: true }).click();
+  await second.getByRole('button', { name: 'Save with a passkey', exact: true }).click();
   await expect(names.getByRole('status')).toHaveText('Saved how you sign in.');
   await expect(second).toContainText('On: signing in with your password also asks for one of your passkeys.');
 
   // A second passkey, a security key, kept for signing in only.
   const key = await virtualAuthenticator(page, 'usb');
-  await page.getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you' }).click();
+  await page.getByRole('button', { name: 'Add passkey', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey', exact: true }).click();
+  await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you', exact: true }).click();
   await page
     .getByRole('dialog', { name: /confirm it’s you/i })
-    .getByRole('button', { name: 'Use a passkey' })
+    .getByRole('button', { name: 'Use a passkey', exact: true })
     .click();
   await expect(names.getByTestId('security__row')).toHaveCount(2);
   const [kept] = await heldPasskeys(key);
   const securityKey = names.locator('[data-testid="security__row"]', { hasText: 'Security key' });
   await expect(securityKey).toContainText('Kept for: nothing in particular');
   await securityKey.getByRole('button', { name: /^Choose what passkey/ }).click();
-  await securityKey.getByLabel('Signing in').check();
-  await securityKey.getByRole('button', { name: 'Save with a passkey' }).click();
+  await securityKey.getByLabel('Signing in', { exact: true }).check();
+  await securityKey.getByRole('button', { name: 'Save with a passkey', exact: true }).click();
   await expect(names.getByRole('status')).toHaveText('Saved what this passkey is for.');
   await expect(securityKey).toContainText('Kept for: Signing in');
   await expect(names.locator('[data-testid="security__row"]', { hasText: 'This device' })).toContainText('Kept for: nothing in particular');
@@ -759,7 +759,7 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   expect(refusal?.intafacedCode ?? refusal?.cause?.code ?? refusal?.code).toBe('auth.webauthn_invalid');
   expect(JSON.stringify(forged.body)).not.toContain('accessToken');
   await page.goto('/uc/safe');
-  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to continue', exact: true })).toBeVisible();
 
   // The person's own kept passkey signs them in: the security key is plugged back in and the device is put away, so the
   // browser offers the one authenticator that holds the kept passkey.
@@ -767,7 +767,7 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   const replugged = await virtualAuthenticator(page, 'usb');
   await replugged.cdp.send('WebAuthn.addCredential', { authenticatorId: replugged.authenticatorId, credential: keptCredential });
   await password();
-  await page.getByRole('button', { name: 'Use your passkey' }).click();
+  await page.getByRole('button', { name: 'Use your passkey', exact: true }).click();
   await page.waitForURL((url) => url.pathname !== '/login');
   await page.goto('/uc/safe');
   await expect(page.getByTestId('security__passkey-names')).toContainText(
@@ -794,42 +794,48 @@ test(`${J} #7 links a phone with its texted code and a wallet with its own signa
   // A phone number links only with the code texted to it (the stack's LOCAL-TEST outbox texts nobody) and a confirmation:
   // a wrong code is refused before any confirmation is asked for, and nothing is linked.
   const phone = `+4479${String(Date.now()).slice(-8)}`;
-  await row('Phone number').getByRole('button', { name: 'Link a phone number' }).click();
-  await row('Phone number').getByLabel('Phone number, starting with +').fill(phone);
-  await row('Phone number').getByRole('button', { name: 'Text me a code' }).click();
+  await row('Phone number').getByRole('button', { name: 'Link a phone number', exact: true }).click();
+  await row('Phone number').getByLabel('Phone number, starting with +', { exact: true }).fill(phone);
+  await row('Phone number').getByRole('button', { name: 'Text me a code', exact: true }).click();
   await expect(card.locator('[data-not-connected="vendor.sms"]')).toHaveCount(0);
   await expect.poll(() => textedCodes(phone).length, { timeout: 20_000 }).toBeGreaterThan(0);
   const texted = textedCodes(phone).at(-1);
   const wrong = `${(Number(texted[0]) + 1) % 10}${texted.slice(1)}`;
-  await row('Phone number').getByLabel('6-digit code from the text').fill(wrong);
-  await row('Phone number').getByRole('button', { name: 'Confirm phone number' }).click();
+  await row('Phone number').getByLabel('6-digit code from the text', { exact: true }).fill(wrong);
+  await row('Phone number').getByRole('button', { name: 'Confirm phone number', exact: true }).click();
   await expect(card.getByTestId('failure')).toContainText('That code did not work, or it ran out.');
-  await expect(card.getByRole('form', { name: 'Confirm it is you' })).toHaveCount(0);
+  await expect(card.getByRole('form', { name: 'Confirm it is you', exact: true })).toHaveCount(0);
   await expect(row('Phone number')).not.toContainText(phone.slice(-4));
-  await row('Phone number').getByLabel('6-digit code from the text').fill(texted);
-  await row('Phone number').getByRole('button', { name: 'Confirm phone number' }).click();
-  await card.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+  await row('Phone number').getByLabel('6-digit code from the text', { exact: true }).fill(texted);
+  await row('Phone number').getByRole('button', { name: 'Confirm phone number', exact: true }).click();
+  await card
+    .getByRole('form', { name: 'Confirm it is you', exact: true })
+    .getByRole('button', { name: 'Confirm with a passkey', exact: true })
+    .click();
   await expect(card.getByRole('status')).toContainText(`Phone number ${phone} added.`);
   await expect(row('Phone number')).toContainText(phone);
 
   // A social account needs an outside sign-in provider that is off in this build; the card names it.
-  await row('Social account').getByRole('button', { name: 'Link a social account' }).click();
+  await row('Social account').getByRole('button', { name: 'Link a social account', exact: true }).click();
   await expect(card.locator('[data-not-connected="idp.social"]')).toContainText(
     'Signing in with a social account needs an outside sign-in provider.',
   );
 
   // A signature from another key is refused before any confirmation is asked for, and nothing is linked.
   wallet.signWithOtherKeyNext();
-  await row('Wallets').getByRole('button', { name: 'Link a wallet' }).click();
+  await row('Wallets').getByRole('button', { name: 'Link a wallet', exact: true }).click();
   await expect(card.getByTestId('failure')).toContainText('That signature is not from this wallet. Nothing was changed.');
-  await expect(card.getByRole('form', { name: 'Confirm it is you' })).toHaveCount(0);
+  await expect(card.getByRole('form', { name: 'Confirm it is you', exact: true })).toHaveCount(0);
   await expect(row('Wallets')).toContainText('No wallet linked.');
 
   // The wallet's own signature, then a confirmation with the passkey, links it.
   async function confirmWithPasskey() {
-    await card.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+    await card
+      .getByRole('form', { name: 'Confirm it is you', exact: true })
+      .getByRole('button', { name: 'Confirm with a passkey', exact: true })
+      .click();
   }
-  await row('Wallets').getByRole('button', { name: 'Link a wallet' }).click();
+  await row('Wallets').getByRole('button', { name: 'Link a wallet', exact: true }).click();
   await confirmWithPasskey();
   const short = `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`;
   await expect(card.getByRole('status')).toContainText(`Wallet ${short} linked. You can sign in with it.`);
@@ -837,10 +843,10 @@ test(`${J} #7 links a phone with its texted code and a wallet with its own signa
   expect(wallet.requests.filter((request) => request.method === 'personal_sign')).toHaveLength(2);
 
   // Code by email off, then the password, each confirmed with the passkey.
-  await row('Code by email').getByRole('button', { name: 'Turn off' }).click();
+  await row('Code by email').getByRole('button', { name: 'Turn off', exact: true }).click();
   await confirmWithPasskey();
   await expect(row('Code by email')).toContainText('Off: no sign-in code is mailed.');
-  await row('Password').getByRole('button', { name: 'Stop using a password' }).click();
+  await row('Password').getByRole('button', { name: 'Stop using a password', exact: true }).click();
   await confirmWithPasskey();
   await expect(row('Password')).toContainText('Off: your old password no longer signs in.');
   await forgetSession(page);
@@ -854,26 +860,26 @@ test(`${J} #7 links a phone with its texted code and a wallet with its own signa
   await expect(page).toHaveURL(/\/login/);
   await page.goto('/login');
   await page.fill('input[name=identifier]', who.handle);
-  await page.getByRole('button', { name: 'Use a passkey' }).click();
+  await page.getByRole('button', { name: 'Use a passkey', exact: true }).click();
   await page.waitForURL((url) => url.pathname !== '/login');
   await page.goto('/uc/safe');
   await page.getByRole('button', { name: /^Remove passkey / }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey', exact: true }).click();
   await expect(row('Passkeys')).toContainText('None on this account.');
   await expect(card).toContainText('This is your only way to sign in, so it cannot be removed. Add another first.');
 
   // Removing the wallet now is refused as the last way in, before any confirmation, and the wallet stays.
   await row('Wallets')
-    .getByRole('button', { name: `Remove wallet ${short}` })
+    .getByRole('button', { name: `Remove wallet ${short}`, exact: true })
     .click();
   await expect(card.getByTestId('failure')).toContainText('This is your last way to sign in. Add another before you remove it.');
-  await expect(card.getByRole('form', { name: 'Confirm it is you' })).toHaveCount(0);
+  await expect(card.getByRole('form', { name: 'Confirm it is you', exact: true })).toHaveCount(0);
   await expect(row('Wallets').getByTitle(wallet.address)).toBeVisible();
   await forgetSession(page);
 
   // The wallet signs in on the sign-in page by its signature alone.
   await page.goto('/login');
-  await page.getByRole('button', { name: 'Continue with a wallet' }).click();
+  await page.getByRole('button', { name: 'Continue with a wallet', exact: true }).click();
   await page.waitForURL((url) => url.pathname !== '/login');
   await page.goto('/uc/safe');
   await expect(row('Wallets').getByTitle(wallet.address)).toBeVisible();
