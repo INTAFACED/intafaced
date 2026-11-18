@@ -5,7 +5,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { awayBid, fundedTrader, signIn, signUp } from './desk.mjs';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
-import { api, restartWith, ROOT, tool, toolAwaited } from './stack.mjs';
+import { api, restartService, restartWith, ROOT, tool } from './stack.mjs';
 
 // J-support-public-10, in the running app (docs/roadmap/journeys.json): work the support queue and answer customers. Tests
 // titled "J-support-public-10 #<n>" prove a whole step. The agent works in the founder console (apps/admin) as the stack's
@@ -172,22 +172,6 @@ const when = (iso) => {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())} UTC`;
 };
 
-/**
- * svc-support restarted on the stack's empty-catalogue database (LOCAL_STACK_SUPPORT_CATALOGUE=off, made new on that start)
- * or back on the stack's own; awaited, so Edge's closed keep-alive sockets are dropped before the next call.
- */
-async function onEmptyCatalogue(on) {
-  const before = process.env.LOCAL_STACK_SUPPORT_CATALOGUE;
-  if (on) process.env.LOCAL_STACK_SUPPORT_CATALOGUE = 'off';
-  else delete process.env.LOCAL_STACK_SUPPORT_CATALOGUE;
-  try {
-    await toolAwaited('local-test-stack.mjs', 'restart', 'support');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_SUPPORT_CATALOGUE;
-    else process.env.LOCAL_STACK_SUPPORT_CATALOGUE = before;
-  }
-}
-
 /** The desk's response target turned on with `minutes`, or off; from the revision it reads now. */
 async function setResponseTarget(change) {
   const now = await desk('lead', 'query', 'responseTargets', undefined);
@@ -271,7 +255,8 @@ test(`${J} #1 /support lists unassigned open and pending requests by score, "not
   // request; tooling/scripts/local-stack-services/support.mjs) and put back on the stack's database after, whatever happened.
   let failure = null;
   try {
-    await onEmptyCatalogue(true);
+    // The stack's empty-catalogue database (LOCAL_STACK_SUPPORT_CATALOGUE=off) is made new on that start.
+    await restartService('support', { LOCAL_STACK_SUPPORT_CATALOGUE: 'off' });
     const { page: lead } = await founders.console('a');
     await lead.goto(`${ADMIN}/support`);
     await expect(lead.getByRole('heading', { name: 'Support queue', level: 1, exact: true })).toBeVisible();
@@ -283,7 +268,7 @@ test(`${J} #1 /support lists unassigned open and pending requests by score, "not
     failure = err;
   }
   try {
-    await onEmptyCatalogue(false);
+    await restartService('support', { LOCAL_STACK_SUPPORT_CATALOGUE: undefined });
   } catch (err) {
     failure ??= err;
   }
