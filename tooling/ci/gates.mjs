@@ -485,6 +485,12 @@ export function changedSinceMain(cwd = ROOT, base = 'origin/main') {
   }
 }
 
+/** The workflow command that annotates a red gate: titled by the gate's id, its doctrine as the message. */
+export function gateAnnotation(gate) {
+  const esc = (s) => String(s).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+  return `::error title=${esc(gate.id).replaceAll(':', '%3A').replaceAll(',', '%2C')}::Doctrine gate ${esc(gate.id)} failed: ${esc(gate.doctrine)}`;
+}
+
 // ── Run ────────────────────────────────────────────────────────────────────
 /**
  * Guarded so this file can be IMPORTED as data without the import running 32
@@ -600,6 +606,9 @@ async function main() {
 
   if (failed.length > 0) {
     console.error(`\n✖ ${failed.length} of ${gates.length} DOCTRINE GATE(S) FAILED\n`);
+    // One error annotation per red gate, titled by its id, so a red Doctrine gates run says which gate from its
+    // annotations alone; without it the run carried none of its own and every red read as "a gate".
+    if (process.env.GITHUB_ACTIONS) for (const { gate } of failed) console.log(gateAnnotation(gate));
     for (const { gate, output } of failed) {
       console.error(`── ${gate.id} — ${gate.doctrine} ──`);
       console.error(`   why this gate exists: ${gate.why}`);
