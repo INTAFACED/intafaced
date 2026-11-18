@@ -349,13 +349,21 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
     }
     const sourceCell = el.locator('[data-cell="source"]');
     await expect(sourceCell).toHaveAttribute('data-source', row.part);
-    await expect(sourceCell).toContainText(source);
+    if (typeof source === 'function') await expect.poll(source(sourceCell), `${row.asset}'s source names the page's block`).toBe(true);
+    else await expect(sourceCell).toContainText(source);
   }
+  /**
+   * A wallet row's source names the network and the block the wallet section reads at, read together: the page
+   * re-reads the chain while the TEST chain mines, so the block moves on while this test runs.
+   */
+  const atPageBlock = (cell) => async () => {
+    const now = await walletSection.getByTestId('source-wallet-block').getAttribute('data-block');
+    return (await cell.innerText()).includes(`${NETWORK}, block ${now}`);
+  };
   // The wallet: every token the chain holds for the address at the block the page names.
   const walletRows = valued.filter((row) => row.part === 'wallet');
   await expect(walletSection.locator('tbody tr')).toHaveCount(walletRows.length);
-  for (const row of walletRows)
-    await holding('source-wallet', row, { amountCells: { amount: decimal(row.amount) }, source: `${NETWORK}, block ${block}` });
+  for (const row of walletRows) await holding('source-wallet', row, { amountCells: { amount: decimal(row.amount) }, source: atPageBlock });
   // The venue account: free, locked and total exactly as the venue reports them, each asset it holds.
   await expect(page.getByTestId('source-venue').locator('tbody > tr')).toHaveCount(venueRows.length);
   for (const b of venueRows) {
