@@ -37,16 +37,16 @@ import {
 } from './common.js';
 
 export const CHART_FEED_CONTROL_ACTION = 'trade.chart_feed_control' as const;
-export const CHART_FEED_AUDIT_KIND = 'chart_feed.control' as const;
-export const CHART_FEED_EXPORT_AUDIT_KIND = 'chart_feed.export' as const;
+const CHART_FEED_AUDIT_KIND = 'chart_feed.control' as const;
+const CHART_FEED_EXPORT_AUDIT_KIND = 'chart_feed.export' as const;
 
 /** INTAFACED's own trade tape: the candle stream `spot/candles.ts` aggregates. Every market starts here. */
-export const PRIMARY_SOURCE = 'primary' as const;
+const PRIMARY_SOURCE = 'primary' as const;
 
-export const CHART_FEED_STATES = ['on', 'disabled', 'delisted_with_history'] as const;
+const CHART_FEED_STATES = ['on', 'disabled', 'delisted_with_history'] as const;
 export type ChartFeedState = (typeof CHART_FEED_STATES)[number];
 
-export const CHART_FEED_ACTION_KINDS = ['switch_source', 'disable', 'enable', 'delist_with_history'] as const;
+const CHART_FEED_ACTION_KINDS = ['switch_source', 'disable', 'enable', 'delist_with_history'] as const;
 export type ChartFeedActionKind = (typeof CHART_FEED_ACTION_KINDS)[number];
 
 export type ChartFeedAction =
@@ -56,15 +56,15 @@ export type ChartFeedAction =
   | { readonly kind: 'delist_with_history' };
 
 /** A source name, as the owner's list and the database both hold it. */
-export const SOURCE_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
+const SOURCE_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
 
 export const CHART_FEED_FALLBACK_UNSET = 'trade.chart_feed.fallback_sources_unset' as const;
 export const CHART_FEED_SOURCE_UNKNOWN = 'trade.chart_feed.source_unknown' as const;
 export const CHART_FEED_NO_CHANGE = 'trade.chart_feed.no_change' as const;
 export const CHART_FEED_DELISTED = 'trade.chart_feed.delisted' as const;
-export const CHART_FEED_STALE = 'trade.chart_feed.stale' as const;
+const CHART_FEED_STALE = 'trade.chart_feed.stale' as const;
 export const CHART_FEED_NOT_WRITTEN = 'trade.chart_feed.not_written' as const;
-export const CHART_FEED_APPROVAL_SPENT = 'trade.chart_feed.approval_spent' as const;
+const CHART_FEED_APPROVAL_SPENT = 'trade.chart_feed.approval_spent' as const;
 export const CHART_FEED_EXPORT_LIMIT_UNSET = 'trade.chart_feed.export_row_limit_unset' as const;
 export const CHART_FEED_EXPORT_OVER_LIMIT = 'trade.chart_feed.export_over_limit' as const;
 /** The candle read's two refusals. */
@@ -281,7 +281,7 @@ function settingOf(row: StateRow | undefined): ChartFeedSetting {
 }
 
 /** One market's chart feed setting; a market never changed reads primary, on, version 0. */
-export async function readChartFeedSetting(sql: Sql, symbol: string): Promise<ChartFeedSetting> {
+async function readChartFeedSetting(sql: Sql, symbol: string): Promise<ChartFeedSetting> {
   const [row] = StateRow.array().parse(
     await sql`SELECT source, state, version::text AS version, delisted_at, updated_at FROM trade.chart_feed_state WHERE symbol = ${symbol}`,
   );

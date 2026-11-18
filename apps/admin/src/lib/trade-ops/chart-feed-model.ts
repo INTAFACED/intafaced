@@ -6,7 +6,7 @@
  * filled in: a blank fallback list reads "not set", and the page says what each state really does.
  */
 
-export const CHART_FEED_STATES = ['on', 'disabled', 'delisted_with_history'] as const;
+const CHART_FEED_STATES = ['on', 'disabled', 'delisted_with_history'] as const;
 export type ChartFeedState = (typeof CHART_FEED_STATES)[number];
 
 export const CHART_FEED_ACTION_KINDS = ['switch_source', 'disable', 'enable', 'delist_with_history'] as const;
