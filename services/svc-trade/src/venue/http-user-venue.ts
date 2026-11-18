@@ -22,6 +22,15 @@ import {
   type UserVenueDescriptor,
   type UserVenueFill,
   type UserVenueLeverage,
+  type UserVenueLeverageChange,
+  type UserVenueIsolatedMargin,
+  type UserVenueAccountSummary,
+  type UserVenueAdlRules,
+  type UserVenueDeleverage,
+  type UserVenueInsuranceFund,
+  type UserVenueLiquidation,
+  type UserVenueLiquidationStatus,
+  type VenueLiquidationAlert,
   type UserVenueMarketMargin,
   type UserVenueSettlement,
   type UserVenueMarket,
@@ -44,6 +53,7 @@ import {
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
+  type VenueMarginMode,
 } from '@intafaced/venue-contracts';
 
 /**
@@ -347,6 +357,56 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     return this.read('/leverage', { account, symbol });
+  }
+
+  /** What a leverage change would do to the open position on `symbol`, by the venue's own rule (J-derivatives-05 #4). */
+  leverageChange(
+    account: UserVenueAccount,
+    symbol: string,
+    leverageBps: number,
+    marginMode: VenueMarginMode,
+  ): Promise<AsOf<UserVenueLeverageChange>> {
+    return this.read('/leverage-change', { account, symbol, leverageBps, marginMode });
+  }
+
+  /** The open isolated position's margin and the venue's removal limit (J-derivatives-06 #2 #3). */
+  isolatedMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueIsolatedMargin>> {
+    return this.read('/isolated-margin', { account, symbol });
+  }
+
+  /** The account's margin summary as the venue reports it (J-derivatives-06 #1). */
+  accountSummary(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>> {
+    return this.read('/account-summary', { account });
+  }
+
+  /** The position's liquidation state on `symbol` and the venue's price and fee rules (J-derivatives-07 #1 #3). */
+  liquidationStatus(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLiquidationStatus>> {
+    return this.read('/liquidation-status', { account, symbol });
+  }
+
+  /** The account's liquidations since `since`, each with its parts (J-derivatives-07 #2). */
+  liquidations(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueLiquidation[]>> {
+    return this.read('/liquidations', { account, since });
+  }
+
+  /** The venue's insurance fund, or not published (J-derivatives-07 #4). */
+  insuranceFund(): Promise<AsOf<MaybeKnown<UserVenueInsuranceFund>>> {
+    return this.read('/insurance-fund', {});
+  }
+
+  /** The venue's auto-deleveraging rules and their version, or none (J-derivatives-07 #5). */
+  adlRules(): Promise<AsOf<UserVenueAdlRules | null>> {
+    return this.read('/adl-rules', {});
+  }
+
+  /** The account's auto-deleveragings since `since`, with the venue's notice (J-derivatives-07 #6). */
+  deleverages(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueDeleverage[]>> {
+    return this.read('/deleverages', { account, since });
+  }
+
+  /** The newest public liquidation and auto-deleveraging alerts, with no account in them (J-derivatives-07 #7). */
+  liquidationAlerts(symbol: string | null, limit: number): Promise<AsOf<readonly VenueLiquidationAlert[]>> {
+    return this.read('/liquidation-alerts', { symbol, limit });
   }
 
   /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */

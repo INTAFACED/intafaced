@@ -24,8 +24,14 @@ describe('mux protocol — parseOp', () => {
     expect(parseOp('[1,2]')).toMatchObject({ ok: false, code: 'bad_request' });
     expect(parseOp('"subscribe"')).toMatchObject({ ok: false, code: 'bad_request' });
     expect(parseOp('null')).toMatchObject({ ok: false, code: 'bad_request' });
-    expect(parseOp(JSON.stringify({ op: 'dance', channels: [{}] }))).toMatchObject({ ok: false, code: 'bad_request' });
+    expect(parseOp(JSON.stringify({ op: 7, channels: [{}] }))).toMatchObject({ ok: false, code: 'bad_request' });
     expect(parseOp(JSON.stringify({ channels: [{}] }))).toMatchObject({ ok: false, code: 'bad_request' });
+  });
+
+  it('marks an unknown op type as ignored, not refused (J-developer-09 #3)', () => {
+    expect(parseOp(JSON.stringify({ op: 'dance', channels: [{}] }))).toEqual({ ok: 'ignored' });
+    expect(parseOp(JSON.stringify({ op: 'dance', id: 'x' }))).toEqual({ ok: 'ignored' });
+    expect(parseOp(JSON.stringify({ op: '' }))).toMatchObject({ ok: false, code: 'bad_request' });
   });
 
   it('bounds the channels array: non-empty and at most the protocol cap', () => {

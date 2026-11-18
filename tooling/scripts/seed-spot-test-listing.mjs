@@ -80,11 +80,47 @@ export const TEST_SPOT_LISTINGS = Object.freeze([
     /** Days from the seed to the date it leaves the board. */
     delistsInDays: 7,
   }),
+  // J-cex-spot-14 #6: a market whose session is shut now. A TEST commodity on the TEST schedule that opens one minute a
+  // week (`test-sunday-minute`, Sunday 00:00 to 00:01 UTC), so the list reads "Closed, opens" with a real next opening
+  // and an order refuses `trade.market_closed`. Only a TEST row may keep that schedule (svc-trade's database refuses it
+  // on any other). Never quoted, never traded.
+  Object.freeze({
+    symbol: 'TSES/USD',
+    baseAsset: 'TSES',
+    quoteAsset: 'USD',
+    displayName: 'TEST session market (shut but one minute a week)',
+    tickSize: '0.01',
+    lotSize: '1',
+    minQty: '1',
+    minNotional: '1',
+    makerBps: '15',
+    takerBps: '25',
+    assetClass: 'commodity',
+    schedule: 'test-sunday-minute',
+    pipSize: '0.01',
+  }),
+  // J-cex-spot-14 #7: a new listing inside its opening window, which ends this many days after the seed (re-dated on
+  // every seed, so it stays ahead). Until then a market order refuses `trade.opening_window` and a limit is taken.
+  // Unquoted: its book holds only what a journey rests on it.
+  Object.freeze({
+    symbol: 'TWIN/USDC',
+    baseAsset: 'TWIN',
+    quoteAsset: 'USDC',
+    displayName: 'TEST new listing in its opening window',
+    tickSize: '0.0001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '1',
+    makerBps: '10',
+    takerBps: '20',
+    /** Days from the seed to the end of the opening window. */
+    openingWindowInDays: 30,
+  }),
 ]);
 
 /** TEST listings the market maker never quotes, so their book holds only what a journey rests on it (J-copy-bots-otc-23
  * step 7 needs a book with one side empty and a known size on the other). Every other listing is quoted. */
-export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'IFC/BTC', 'TNEW/USDT', 'TOLD/USDT']);
+export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'IFC/BTC', 'TNEW/USDT', 'TOLD/USDT', 'TSES/USD', 'TWIN/USDC']);
 
 /** The open TEST market whose public tape stays empty: unquoted, and named only by the charts journeys that read it as a
  * market with no trades (their shared `untradedMarket` helper). No journey trades it. */
@@ -105,14 +141,23 @@ export async function insertSpotTestListing(sql, l) {
   const status = l.status ?? 'active';
   // A delisting is dated from the seed, so it stays in the future on every run.
   const delistsAt = status === 'delisted' && l.delistsInDays ? new Date(Date.now() + l.delistsInDays * 86_400_000) : null;
+  // An opening window is dated from the seed too, so the TEST new listing stays inside it on every run.
+  const openingWindowEndsAt = l.openingWindowInDays ? new Date(Date.now() + l.openingWindowInDays * 86_400_000) : null;
+  // A crypto row keeps continuous hours and no pip; any other class names its schedule and pip (markets_hours_match_class_ck,
+  // markets_pip_matches_class_ck).
+  const assetClass = l.assetClass ?? 'crypto';
+  const schedule = l.schedule ?? 'crypto-24x7';
+  const pipSize = l.pipSize ?? null;
   const rows = await sql`
     INSERT INTO trade.markets (
       symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
-      maker_bps, taker_bps, status, display_name, listed_at, "test", test_fixture, delists_at
+      maker_bps, taker_bps, status, display_name, listed_at, "test", test_fixture, delists_at,
+      asset_class, schedule, pip_size, opening_window_ends_at
     ) VALUES (
       ${l.symbol}, ${l.baseAsset}, ${l.quoteAsset}, 'spot', ${l.tickSize}::numeric, ${l.lotSize}::numeric,
       ${l.minQty}::numeric, ${l.minNotional}::numeric, ${l.makerBps}::numeric, ${l.takerBps}::numeric,
-      ${status}, ${l.displayName}, now(), true, ${sql.json(fixture)}, ${delistsAt}
+      ${status}, ${l.displayName}, now(), true, ${sql.json(fixture)}, ${delistsAt},
+      ${assetClass}, ${schedule}, ${pipSize}::numeric, ${openingWindowEndsAt}
     )
     ON CONFLICT (symbol) DO UPDATE SET
       display_name = EXCLUDED.display_name,
@@ -125,6 +170,7 @@ export async function insertSpotTestListing(sql, l) {
       test_fixture = EXCLUDED.test_fixture,
       status = EXCLUDED.status,
       delists_at = EXCLUDED.delists_at,
+      opening_window_ends_at = EXCLUDED.opening_window_ends_at,
       updated_at = now()
     WHERE trade.markets."test" = true
     RETURNING id, symbol

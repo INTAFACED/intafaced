@@ -248,3 +248,136 @@ export function parseTradeAudit(v: unknown): { rows: TradeAuditRow[]; nextCursor
   }
   return { rows, nextCursor: (v.nextCursor as string | null | undefined) ?? null };
 }
+
+// ── A customer's routed order (J-cex-spot-18 #1 #2, row d115) ───────────────
+
+/** A venue client order id (`0x` and 32 hex): the id a customer's routed order goes by, never an own-book order id. */
+export const VENUE_ORDER_ID = /^0x[0-9a-f]{32}$/i;
+
+/** Every routed-order id a customer wrote in their request, first seen first, each once, lower case. */
+export function venueOrderIdsIn(...texts: ReadonlyArray<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  for (const text of texts) for (const m of (text ?? '').matchAll(/\b0x[0-9a-f]{32}\b/gi)) seen.add(m[0].toLowerCase());
+  return [...seen];
+}
+
+/** The venue's own order status word (packages/venue-contracts VenueOrderStatus). */
+export type VenueStatusWord = 'open' | 'partially_filled' | 'filled' | 'canceled' | 'rejected' | 'expired';
+const VENUE_STATUSES: readonly VenueStatusWord[] = ['open', 'partially_filled', 'filled', 'canceled', 'rejected', 'expired'];
+
+/** The status in the words the customer's own order page uses (apps/customer venue-copy `status_*`). */
+export function venueStatusLabel(status: VenueStatusWord): string {
+  switch (status) {
+    case 'open':
+      return 'Open';
+    case 'partially_filled':
+      return 'Partly filled';
+    case 'filled':
+      return 'Filled';
+    case 'canceled':
+      return 'Cancelled';
+    case 'rejected':
+      return 'Rejected';
+    case 'expired':
+      return 'Expired';
+  }
+}
+
+export interface VenueOrderFill {
+  readonly fillId: string;
+  readonly price: string;
+  readonly amount: string;
+  readonly role: string;
+  readonly venueFee: string;
+  readonly builderFee: string;
+  readonly feeAsset: string;
+  readonly filledAt: string;
+}
+
+export interface VenueOrderView {
+  readonly symbol: string;
+  readonly side: string;
+  readonly type: string;
+  readonly timeInForce: string;
+  readonly price: string;
+  readonly amount: string;
+  readonly filled: string;
+  readonly remaining: string;
+  readonly averagePrice: string | null;
+  readonly status: VenueStatusWord;
+}
+
+export interface VenueOrderRead {
+  readonly accountId: string;
+  readonly venueId: string;
+  readonly owner: string;
+  readonly subAccount: string | null;
+  readonly venueClientOrderId: string;
+  readonly recordedAt: string;
+  readonly sent: 'accepted' | 'refused' | 'unknown';
+  readonly order: VenueOrderView | null;
+  readonly fills: readonly VenueOrderFill[];
+  readonly reject: { readonly source: string; readonly code: string; readonly detail: string } | null;
+  readonly asOf: string;
+}
+
+/** `admin.orders.venueGet` → VenueOrderRead, or null when the answer is not that shape. */
+export function parseVenueOrderRead(v: unknown): VenueOrderRead | null {
+  if (!rec(v) || !str(v.accountId) || !str(v.venueId) || !str(v.owner) || !str(v.venueClientOrderId)) return null;
+  if (!(v.subAccount === null || str(v.subAccount)) || !str(v.recordedAt) || !str(v.asOf)) return null;
+  if (v.sent !== 'accepted' && v.sent !== 'refused' && v.sent !== 'unknown') return null;
+  let order: VenueOrderView | null = null;
+  if (v.order !== null) {
+    const o = v.order;
+    if (!rec(o) || !str(o.symbol) || !str(o.side) || !str(o.type) || !str(o.timeInForce)) return null;
+    if (!dec(o.price) || !dec(o.amount) || !dec(o.filled) || !dec(o.remaining) || !decOrNull(o.averagePrice)) return null;
+    if (!str(o.status) || !(VENUE_STATUSES as readonly string[]).includes(o.status)) return null;
+    order = {
+      symbol: o.symbol,
+      side: o.side,
+      type: o.type,
+      timeInForce: o.timeInForce,
+      price: o.price,
+      amount: o.amount,
+      filled: o.filled,
+      remaining: o.remaining,
+      averagePrice: o.averagePrice,
+      status: o.status as VenueStatusWord,
+    };
+  }
+  if (!Array.isArray(v.fills)) return null;
+  const fills: VenueOrderFill[] = [];
+  for (const f of v.fills) {
+    if (!rec(f) || !str(f.fillId) || !dec(f.price) || !dec(f.amount) || !str(f.role)) return null;
+    if (!dec(f.venueFee) || !dec(f.builderFee) || !str(f.feeAsset) || !str(f.filledAt)) return null;
+    fills.push({
+      fillId: f.fillId,
+      price: f.price,
+      amount: f.amount,
+      role: f.role,
+      venueFee: f.venueFee,
+      builderFee: f.builderFee,
+      feeAsset: f.feeAsset,
+      filledAt: f.filledAt,
+    });
+  }
+  let reject: VenueOrderRead['reject'] = null;
+  if (v.reject !== null) {
+    const r = v.reject;
+    if (!rec(r) || !str(r.source) || !str(r.code) || !str(r.detail)) return null;
+    reject = { source: r.source, code: r.code, detail: r.detail };
+  }
+  return {
+    accountId: v.accountId,
+    venueId: v.venueId,
+    owner: v.owner,
+    subAccount: v.subAccount,
+    venueClientOrderId: v.venueClientOrderId,
+    recordedAt: v.recordedAt,
+    sent: v.sent,
+    order,
+    fills,
+    reject,
+    asOf: v.asOf,
+  };
+}

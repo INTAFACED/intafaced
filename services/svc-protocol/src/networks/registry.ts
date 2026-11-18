@@ -10,6 +10,7 @@ import {
   type NetworkEntry,
   type ProtocolDeploymentsOutput,
 } from '@intafaced/contracts';
+import { isExplicitDevOrTest } from '@intafaced/config';
 import { parseDeploymentRegistry } from '../deployments/registry.js';
 
 /**
@@ -86,6 +87,26 @@ export type RouterVersionRow = z.infer<typeof routerVersionFileSchema>[number];
 
 export function parseRouterVersions(json: unknown): RouterVersionRow[] {
   return routerVersionFileSchema.parse(json);
+}
+
+/**
+ * `PROTOCOL_TEST_NETWORKS_REGISTRY`, read once at boot: the network registry file `networks.list` serves. Blank serves the
+ * owner's `deployments/networks.json`. LOCAL TEST only: `TEST:<absolute path>` serves a TEST-labelled registry instead, so a
+ * journey can see what a published network adds to a wallet (J-dex-protocol-01 #6, #7); it refuses to boot outside APP_ENV
+ * dev or test, and the file is parsed at boot under the same rules as the owner's (no mainnet, no credential in an RPC URL).
+ */
+export function networksRegistryPathFromSetting(raw: string | undefined, rawAppEnv: string | undefined): string {
+  const value = raw?.trim() ?? '';
+  if (!value) return networksRegistryPath;
+  const test = /^TEST:(\/.+)$/.exec(value);
+  if (!test) throw new Error('PROTOCOL_TEST_NETWORKS_REGISTRY must be TEST:<absolute path>. Refusing to boot.');
+  if (!isExplicitDevOrTest(rawAppEnv))
+    throw new Error(
+      `PROTOCOL_TEST_NETWORKS_REGISTRY is a TEST value but APP_ENV=${rawAppEnv ?? '(unset)'} is not the local test stack. Refusing to boot.`,
+    );
+  const path = test[1]!.trim();
+  loadNetworkRegistry(path);
+  return path;
 }
 
 export const loadNetworkRegistry = (path = networksRegistryPath): NetworkEntry[] =>

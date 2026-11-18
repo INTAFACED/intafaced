@@ -23,6 +23,7 @@ import {
   type AutoRunDeps,
 } from './automation.js';
 import { OWN_RUN_TASK, ownGuardrail } from './routes.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 
 /**
  * Schedules and event triggers of a person's own agent (AG-sessions-02; J-agents-07 #1 to #4): a blank interval or a
@@ -131,8 +132,24 @@ if (!available) {
       spend: new UserSpendStore(sql),
       funds: { available: async () => 100n * 10n ** 18n },
     });
-    const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'USDT', sql, ownCadence: CADENCE });
-    const deps: AutoRunDeps = { sql, runtime, cadence: CADENCE, task: OWN_RUN_TASK, guardrailOf: ownGuardrail };
+    const router = createAgentsRouter({
+      runtime,
+      gateway,
+      meter,
+      feeAssetId: 'USDT',
+      sql,
+      ownCadence: CADENCE,
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+    });
+    const deps: AutoRunDeps = {
+      sql,
+      runtime,
+      cadence: CADENCE,
+      task: OWN_RUN_TASK,
+      guardrailOf: ownGuardrail,
+      selfFreeze: new MemorySelfFreezeRead(),
+    };
     return { person: router.createCaller(callerFor(USER)), other: router.createCaller(callerFor(OTHER)), deps, provider };
   }
   type Person = ReturnType<typeof people>['person'];

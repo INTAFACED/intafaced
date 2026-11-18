@@ -11,16 +11,20 @@ export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_
       ...shared,
       MATCHING_URL: urlOf('matching'),
       TRADE_URL: urlOf('trade'),
-      // The private and drop-copy doors check a customer's ownership with identity, the same way the edge does.
+      // The private and drop-copy doors check a customer's ownership with identity, the same way the edge does, with
+      // svc-ws's own read key: identity refuses a ws read signed with the edge's (IDENTITY_WS_AUTHORITY_SECRET).
       IDENTITY_URL: urlOf('identity'),
-      IDENTITY_OWNERSHIP_SECRET: secrets.edgeAuthority,
+      IDENTITY_OWNERSHIP_SECRET: secrets.wsAuthority,
       // The SBE consumer list's read key; svc-edge signs with the same one for the founder console (J-cex-spot-20 #3).
       WS_STATUS_READ_SECRET: secrets.wsStatusRead,
       EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
-      // The multiplexed door's labelled TEST values (tooling/profiles/test-owner-values/ws.json), so that door mounts and
-      // takes subscriptions on this stack (#8311). Every other WS_* limit (depth, lag) stays unset and refuses by its
-      // own *_unset code.
+      // The labelled TEST stream limits (tooling/profiles/test-owner-values/ws.json): the multiplexed door mounts and
+      // takes subscriptions (#8311), and the public depth socket opens with its depth, lag and listing limits
+      // (J-cex-spot-14 #8). Every other WS_* owner value stays unset and refuses by its own *_unset code.
       ...profileEnvFor('ws', 'test'),
+      // `LOCAL_STACK_WS_IP_BAN_SECONDS=off` on a start or restart leaves the owner's ban time blank, so the storm ban is
+      // off and svc-ws says so on GET /policy (J-developer-09 #6).
+      ...(process.env.LOCAL_STACK_WS_IP_BAN_SECONDS === 'off' ? { WS_PER_IP_BAN_SECONDS: '' } : {}),
     };
   },
 });

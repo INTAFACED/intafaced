@@ -20,7 +20,7 @@ import { assertCallerCannotLiePaperFlag, memoryPaperFlagPort } from './paper/mar
 process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
 
 /**
- * THE MOUNT BOUNDARY for svc-academy (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY for svc-academy.
  *
  * Context comes from `createEdgeContext` over real headers — never a
  * hand-written principal. A seat belongs to the edge-signed caller and to

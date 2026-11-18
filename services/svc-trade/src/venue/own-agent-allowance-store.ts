@@ -72,6 +72,8 @@ export interface AllowanceStore {
   find(userId: string, allowanceId: string): Promise<AllowanceRecord | null>;
   /** The agent's allowances, newest first. */
   listForAgent(userId: string, agentId: string): Promise<readonly AllowanceRecord[]>;
+  /** The person's allowances that are signing or active, of every agent, oldest first (the owner's freeze revokes them). */
+  listLive(userId: string): Promise<readonly AllowanceRecord[]>;
   /** Store a new allowance unless one with this id exists; refuses `live` when the agent already has one signing or active. */
   insertOnce(record: AllowanceRecord): Promise<{ stored: AllowanceRecord } | { live: AllowanceRecord }>;
   /** Signing → active, once the venue's record shows the agent permission. */
@@ -142,6 +144,12 @@ export class InMemoryAllowanceStore implements AllowanceStore {
     return [...this.rows.values()]
       .filter((r) => r.userId === userId && r.agentId === agentId)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async listLive(userId: string) {
+    return [...this.rows.values()]
+      .filter((r) => r.userId === userId && (r.status === 'signing' || r.status === 'active'))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
   insertOnce(record: AllowanceRecord) {
@@ -294,6 +302,13 @@ export class SqlAllowanceStore implements AllowanceStore {
     const rows = await this.sql<AllowanceRow[]>`
       SELECT ${this.sql.unsafe(ALLOWANCE_COLUMNS)} FROM trade.user_venue_own_agent_allowances
       WHERE user_id = ${userId} AND agent_id = ${agentId} ORDER BY created_at DESC, allowance_id`;
+    return rows.map(allowanceOf);
+  }
+
+  async listLive(userId: string) {
+    const rows = await this.sql<AllowanceRow[]>`
+      SELECT ${this.sql.unsafe(ALLOWANCE_COLUMNS)} FROM trade.user_venue_own_agent_allowances
+      WHERE user_id = ${userId} AND status IN ('signing', 'active') ORDER BY created_at, allowance_id`;
     return rows.map(allowanceOf);
   }
 

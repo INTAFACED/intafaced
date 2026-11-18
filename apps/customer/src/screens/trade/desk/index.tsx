@@ -44,7 +44,7 @@ import { floorToLot } from './order-math';
 import type { Reference, Side } from './order-math';
 import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
 import { useVenueMode } from '../../../features/trade/use-venue-mode';
-import { VenueSpotGate } from './VenueSpotDesk';
+import { VenueSpotGate } from './VenueSpotGate';
 
 function PairPicker({ selected }: { selected: string }) {
   const { t } = deskCopy.useCopy();

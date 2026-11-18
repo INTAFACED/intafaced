@@ -1440,6 +1440,11 @@ describe('svc-p2p payment instruments', () => {
         // P-trade-orders-05: the caller's own cancel count; it reads trade rows only, no instrument field.
         'access.limits': undefined,
         'offers.bulk': { action: 'pause', offerIds: [crypto.randomUUID()], idempotencyKey: `bulk:${crypto.randomUUID()}` },
+        // RC-p2p-02: the contract escrow offer is chain facts and owner settings; attach and sync act on the caller's own
+        // order only (a stranger is refused not_a_party or not_found); none reads an instrument field.
+        'trades.contractEscrow': { asset: 'USDT' },
+        'trades.attachContractDeal': { tradeId: trade.id, dealId: '1' },
+        'trades.syncContractDeal': { tradeId: trade.id },
       };
 
       const paths = Object.keys((api as { _def: { procedures: Record<string, unknown> } })._def.procedures);

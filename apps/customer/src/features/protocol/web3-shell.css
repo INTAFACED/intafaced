@@ -28,8 +28,9 @@
   .web3-chip--pill {
     color: var(--tb-fg);
   }
-  /* Below a desktop's width the chips take a line of their own under the switch and the nav. */
-  @media (max-width: 1099px) {
+  /* Below a wide desktop the chips take a line of their own under the switch and the nav: at 1440 the six sections, the
+     Algo dev tool, the three chips and the sign-in links do not fit one line, and the network chip was cut to "B…". */
+  @media (max-width: 99.9375rem) {
     .web3-bar {
       height: auto;
       min-height: 48px;

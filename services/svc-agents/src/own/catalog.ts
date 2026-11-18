@@ -285,6 +285,8 @@ export type OwnRefusalCode =
   | 'agents.identity.owner_unread'
   | 'agents.identity.owner_frozen'
   | 'agents.identity.owner_inactive'
+  | 'agents.identity.owner_frozen_self'
+  | 'agents.identity.owner_freeze_unread'
   | 'agents.assistant.engine_unavailable'
   | 'agents.assistant.description_blank'
   | 'agents.spend.cap_unset'

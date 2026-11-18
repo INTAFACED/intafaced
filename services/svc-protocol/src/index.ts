@@ -35,7 +35,7 @@ import { PostgresEmbeddedWalletStore } from './embedded-wallet/embedded.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
 import { PostgresListingStore } from './listing/ownership.pg.js';
 import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
-import { loadNetworkRegistry } from './networks/registry.js';
+import { loadNetworkRegistry, networksRegistryPathFromSetting } from './networks/registry.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -163,12 +163,16 @@ const embeddedWalletSetting = embeddedWalletFromSetting(
   env.PROTOCOL_EMBEDDED_WALLET_TEST_URL,
   process.env.APP_ENV,
 );
+// The network registry networks.list serves: the owner's file, or on the local test stack a TEST one (refuses to boot elsewhere).
+const networksRegistryPath = networksRegistryPathFromSetting(env.PROTOCOL_TEST_NETWORKS_REGISTRY, process.env.APP_ENV);
+const loadNetworks = () => loadNetworkRegistry(networksRegistryPath);
 const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
 let badgeRestartable: boolean | undefined;
 
 export const appRouter = createProtocolRouter({
   chainIdentity,
+  loadNetworks,
   opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
   gasPercentiles: () => parseGasPercentileSetting(env.PROTOCOL_GAS_PERCENTILES, env.PROTOCOL_GAS_HISTORY_BLOCKS),
   chain,
@@ -191,6 +195,10 @@ export const appRouter = createProtocolRouter({
         }
       : null,
   claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
+  p2pEscrow: () => ({
+    escrow: env.PROTOCOL_P2P_ESCROW_ADDRESS as `0x${string}`,
+    mainnet: badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworks()),
+  }),
   venue: () => env.PROTOCOL_VENUE_ADDRESS as `0x${string}`,
   lendingMarket: () => env.PROTOCOL_LENDING_MARKET_ADDRESS as `0x${string}`,
   swapV2: () =>
@@ -242,16 +250,11 @@ export const appRouter = createProtocolRouter({
     store: new PostgresBadgeStore(db.sql),
     minter: noBadgeSigner,
     window: () => badgeWindowFromSetting(env.PROTOCOL_BADGE_WINDOW_OPENS_AT, env.PROTOCOL_BADGE_WINDOW_CLOSES_AT),
-    mainnet: () => badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworkRegistry()),
+    mainnet: () => badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworks()),
     // Raw APP_ENV: only a `local` chain, or the local test stack's loopback chain, resets a claim when it starts again.
     // Fixed for the process, so the registry is read once, on the first badge request.
     restartable: () =>
-      (badgeRestartable ??= badgeChainIsRestartable(
-        env.PROTOCOL_CHAIN_ID,
-        loadNetworkRegistry(),
-        process.env.APP_ENV,
-        env.PROTOCOL_RPC_URL,
-      )),
+      (badgeRestartable ??= badgeChainIsRestartable(env.PROTOCOL_CHAIN_ID, loadNetworks(), process.env.APP_ENV, env.PROTOCOL_RPC_URL)),
     approvals: badgeApprovalConsumer(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
     stuckMintAgeSeconds: () => env.PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS,
   },

@@ -17,6 +17,8 @@ import {
 } from '../gateway-policy.js';
 import { isPublishedConnectionCeiling } from '../max-connections.js';
 import type { MuxGateway } from '../mux/gateway.js';
+import { PER_IP_CAP_UNSET, type PerIpAdmission } from '../per-ip.js';
+import { callerIpFromUpgrade } from '../private/caller-ip.js';
 import { PRIVATE_STREAM_PATH } from '../private/gateway.js';
 import { encodeL2JsonFrame } from '../sbe-l2-tape.js';
 import type { SbeConsumerHandle, SbeConsumers } from '../sbe-consumers.js';
@@ -143,6 +145,11 @@ export interface WebSocketGatewayOptions {
    * False refuses this upgrade and leaves sockets already open alone.
    */
   readonly admitNewConnection?: () => boolean;
+  /**
+   * The per-IP cap and storm ban (`per-ip.ts`), asked once per public upgrade with the TCP peer. Omitted admits. A
+   * refusal answers the upgrade with its typed code; an admission's seat is released when the socket closes.
+   */
+  readonly admitAddress?: (address: string | null) => PerIpAdmission;
   /** The SBE tape's consumers, listed by the adapter status door (J-cex-spot-20 #3). Omit = not recorded. */
   readonly sbeConsumers?: SbeConsumers;
 }
@@ -201,6 +208,14 @@ function sbeSink(socket: WebSocket, codec: SbeCodec, consumer?: SbeConsumerHandl
   };
 }
 
+/** A typed refusal before the upgrade: the code is in the JSON body, so a client reads why without a socket. */
+function refuseTyped(socket: Duplex, status: number, message: string, code: string): void {
+  const body = JSON.stringify({ code, message: resolveWsCopy(code) });
+  socket.end(
+    `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+  );
+}
+
 function reject(socket: Duplex, status: number, message: string): void {
   socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\n\r\n`);
   socket.destroy();
@@ -225,6 +240,7 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
     l3ProbeBoundMs,
     mux,
     admitNewConnection,
+    admitAddress,
     sbeConsumers,
   } = options;
 
@@ -299,6 +315,17 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
     if (url.pathname !== STREAM_PATH) return reject(socket, 404, 'Not Found');
 
     if (!enabled()) return reject(socket, 503, 'Service Unavailable');
+
+    // The per-IP cap and the storm ban hold on every public door, multiplexed or single-market (DV-limits-03).
+    if (admitAddress) {
+      const admission = admitAddress(callerIpFromUpgrade(request));
+      if (!admission.ok) {
+        return admission.code === PER_IP_CAP_UNSET
+          ? refuseTyped(socket, 503, 'Service Unavailable', admission.code)
+          : refuseTyped(socket, 429, 'Too Many Requests', admission.code);
+      }
+      socket.once('close', admission.release);
+    }
 
     // No `market` parameter at all: the multiplexed door, when one is mounted.
     // `?market=` with any value (even empty) is the single-market socket and is
@@ -408,9 +435,14 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
 
     const channel = parseChannel(url.searchParams.get('channel'));
     if (channel === null) return reject(socket, 400, 'Bad Request');
+    // `since`: the depth sequence a reconnecting client already holds (J-cex-spot-14 #8). Only the book has a sequence
+    // to resume from; anything but a whole number, or on another channel, is refused rather than ignored.
+    const sinceRaw = url.searchParams.get('since');
+    const since = sinceRaw === null ? null : /^(0|[1-9][0-9]{0,15})$/.test(sinceRaw) ? Number(sinceRaw) : NaN;
+    if (since !== null && (!Number.isSafeInteger(since) || channel !== 'depth')) return reject(socket, 400, 'Bad Request');
 
     wss.handleUpgrade(request, socket, head, (ws) => {
-      const detach = channel === 'trades' ? tradeHub.attach(marketId, sinkFor(ws)) : hub.attach(marketId, sinkFor(ws));
+      const detach = channel === 'trades' ? tradeHub.attach(marketId, sinkFor(ws)) : hub.attach(marketId, sinkFor(ws), { since });
       // Capacity refuse closes the sink inside attach — terminate so the client
       // never sits half-open with zero frames (mirrors private gateway).
       if (!detach) {

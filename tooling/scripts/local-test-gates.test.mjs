@@ -432,10 +432,13 @@ const picked = openableMarkets([
   { ...base, symbol: 'EUR/USD', orderable: false, schedule: 'fx-global' },
   { ...base, symbol: 'PAPER/X', paper: true },
   { ...base, symbol: 'OFF/USDT', active: false },
+  // The TEST session schedule is opened only on a TEST listing.
+  { ...base, symbol: 'TSES/USD', schedule: 'test-sunday-minute', test: true },
+  { ...base, symbol: 'REAL/USD', schedule: 'test-sunday-minute' },
 ]);
 assert.deepEqual(
   picked.map((m) => m.symbol),
-  ['BTC/USDT'],
+  ['BTC/USDT', 'TSES/USD'],
 );
 
 // TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker unless named unquoted, and opened
@@ -460,7 +463,7 @@ assert.deepEqual(
       assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
     }
     assert.deepEqual(
-      openableMarkets([{ ...base, symbol: l.symbol, test: true }]).map((m) => m.symbol),
+      openableMarkets([{ ...base, symbol: l.symbol, test: true, schedule: l.schedule ?? 'crypto-24x7' }]).map((m) => m.symbol),
       [l.symbol],
     );
   }

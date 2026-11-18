@@ -87,7 +87,13 @@ export type ChannelSpec =
 
 export type ParsedOp =
   | { readonly ok: true; readonly verb: MuxVerb; readonly id: string | undefined; readonly channels: readonly unknown[] }
-  | { readonly ok: false; readonly code: 'bad_json' | 'bad_request'; readonly message: string; readonly id: string | undefined };
+  | { readonly ok: false; readonly code: 'bad_json' | 'bad_request'; readonly message: string; readonly id: string | undefined }
+  /**
+   * A JSON object whose `op` is a string this door does not know. Ignored, as documented (DV-websocket-01,
+   * J-developer-09 #3): no answer, the connection stays open, so a client may send newer message types to an older
+   * server. It still costs one operation of the budget.
+   */
+  | { readonly ok: 'ignored' };
 
 const VERBS: readonly MuxVerb[] = ['subscribe', 'unsubscribe', 'resync'];
 
@@ -110,6 +116,7 @@ export function parseOp(text: string): ParsedOp {
   }
 
   const verb = body.op;
+  if (typeof verb === 'string' && verb.length > 0 && !(VERBS as readonly string[]).includes(verb)) return { ok: 'ignored' };
   if (typeof verb !== 'string' || !(VERBS as readonly string[]).includes(verb)) {
     return { ok: false, code: 'bad_request', message: `op must be one of: ${VERBS.join(', ')}`, id };
   }

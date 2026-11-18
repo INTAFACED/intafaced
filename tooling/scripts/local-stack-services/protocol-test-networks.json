@@ -1,0 +1,24 @@
+[
+  {
+    "chainId": 84532,
+    "name": "Base Sepolia test network",
+    "kind": "testnet",
+    "nativeCurrency": { "name": "TEST Sepolia Ether", "symbol": "ETH", "decimals": 18 },
+    "rpcUrls": ["https://base-sepolia-rpc.test.invalid"],
+    "blockTimeSeconds": 2,
+    "explorerUrls": ["https://sepolia.basescan.org"],
+    "faucets": [{ "name": "TEST faucet, a stand-in for a published one", "url": "https://base-sepolia-faucet.test.invalid" }],
+    "ecosystem": null
+  },
+  {
+    "chainId": 31337,
+    "name": "Local test chain",
+    "kind": "local",
+    "nativeCurrency": null,
+    "rpcUrls": null,
+    "blockTimeSeconds": null,
+    "explorerUrls": null,
+    "faucets": null,
+    "ecosystem": null
+  }
+]

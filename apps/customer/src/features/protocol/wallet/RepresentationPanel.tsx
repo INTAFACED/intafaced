@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import type { ProtocolApi, RepresentationStatus } from '../api';
-import { REGION_BLOCKED_CODE } from '../region';
+import { isRegionBlocked } from '../region';
 import { walletCopy } from './copy';
 import { useWallet } from './WalletProvider';
 
@@ -54,7 +54,7 @@ export function RepresentationPanel({
         return end({ kind: 'failed', message: signed.status === 'failed' ? signed.message : t('reprFailed') });
       const stored = await api.representationAccept({ address, version: status.version, signature: signed.signature });
       if (stored.ok) return end({ kind: 'accepted' });
-      if (stored.code === REGION_BLOCKED_CODE) return end({ kind: 'region' });
+      if (isRegionBlocked(stored.code)) return end({ kind: 'region' });
       if (stored.code === 'compliance.representation_version_stale') return end({ kind: 'failed', message: t('reprStale') });
       if (stored.code === 'compliance.representation_signature_not_owner') return end({ kind: 'failed', message: t('reprNotOwner') });
       end({ kind: 'failed', message: t('reprNotRecorded') });

@@ -85,7 +85,6 @@ import { assertSandboxKeyDoesNotLookLive, paymentModeFromRail, resolveMerchantRa
  *   POST   /api/pay/v1/submerchant-permissions/grant
  *   POST   /api/pay/v1/submerchant-permissions/revoke
  *   Same journal + actor-from-principal rules as tRPC `submerchantPermission.*`.
- *   Honest partial: docs/pay/PAYFAC-PERMISSIONS-PARTIAL-2026-08-12.md
  *
  * Not Class X go-live. Not a live acquirer. Outbound webhooks do not move value.
  */

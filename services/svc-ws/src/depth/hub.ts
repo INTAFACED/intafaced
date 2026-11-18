@@ -187,6 +187,11 @@ interface Subscription {
   readonly mux: boolean;
   /** Non-null until the snapshot has been sent. Deltas queue here, in order. */
   pending: DepthDelta[] | null;
+  /**
+   * The last sequence a reconnecting client already holds (`?since=`), or null. When the hub's recent deltas continue
+   * from it, they are sent in place of the snapshot (J-cex-spot-14 #8); otherwise the snapshot is sent as for anyone.
+   */
+  readonly since: number | null;
   /** Consecutive ticks spent above the high-water mark. */
   lagTicks: number;
   /** True when at least one delta has been dropped and not yet repaired. */
@@ -229,6 +234,13 @@ export class DepthHub {
 
   readonly #subscriptions = new Set<Subscription>();
   readonly #books = new Map<string, DepthBook>();
+  /**
+   * The deltas most recently fanned out per market, in order and unbroken (at most `maxPendingDeltas`), so a client
+   * that reconnects with the sequence it holds is sent what it missed instead of a whole snapshot. Cleared at every
+   * discontinuity (a repair snapshot, a sequence that went backwards) and when the book itself is forgotten.
+   */
+  readonly #recent = new Map<string, DepthDelta[]>();
+  #resumes = 0;
   /** In-flight cold-start fetches, so N simultaneous connections cost one GET. */
   readonly #seeding = new Map<string, Promise<void>>();
 
@@ -322,6 +334,8 @@ export class DepthHub {
     droppedFrames: number;
     evictions: number;
     repairs: number;
+    /** Reconnects sent only the deltas they missed (`?since=`), instead of a snapshot. */
+    resumes: number;
     matchingAvailable: boolean;
     code: typeof DEPTH_ENGINE_UNAVAILABLE | null;
   } {
@@ -331,6 +345,7 @@ export class DepthHub {
       droppedFrames: this.#droppedFrames,
       evictions: this.#evictions,
       repairs: this.#repairs,
+      resumes: this.#resumes,
       matchingAvailable: this.matchingAvailable,
       code: this.engineCode,
     };
@@ -354,8 +369,9 @@ export class DepthHub {
    * closed with 1013). Callers that open real sockets must terminate on null —
    * same fail-closed shape as the private hub (no half-open with zero frames).
    */
-  attach(marketId: string, sink: DepthSink, options: { readonly mux?: boolean } = {}): (() => void) | null {
+  attach(marketId: string, sink: DepthSink, options: { readonly mux?: boolean; readonly since?: number | null } = {}): (() => void) | null {
     const mux = options.mux === true;
+    const since = typeof options.since === 'number' && Number.isSafeInteger(options.since) && options.since >= 0 ? options.since : null;
     if (!isPublishedDepthLimit(this.#options.depthLimit)) {
       sink.close(CLOSE_POLICY, resolveWsCopy(WS_COPY.depthLimitUnset));
       return null;
@@ -378,7 +394,7 @@ export class DepthHub {
       return null;
     }
 
-    const sub: Subscription = { marketId, sink, mux, pending: [], lagTicks: 0, lagging: false, closed: false };
+    const sub: Subscription = { marketId, sink, mux, pending: [], since, lagTicks: 0, lagging: false, closed: false };
     this.#subscriptions.add(sub);
     void this.#open(sub);
 
@@ -551,8 +567,9 @@ export class DepthHub {
     if (this.#hasLiveSubscriber(marketId)) return;
     // Kept only while someone is watching. A book left behind goes stale, and a
     // stale book handed to the next connection as a "snapshot" is a lie with a
-    // sequence number on it.
+    // sequence number on it. Its recent deltas go with it: nothing after them was seen.
     this.#books.delete(marketId);
+    this.#recent.delete(marketId);
   }
 
   #hasLiveSubscriber(marketId: string): boolean {
@@ -644,6 +661,7 @@ export class DepthHub {
     // fans out the new book.
     if (this.isEngineUnavailable(book.marketId)) return;
     if (this.isMatchingNotTradable(book.marketId)) return;
+    this.#remember(book.marketId, delta, forceRepair);
     let snapshotFrame: string | null = null;
     const snapshot = (): string => (snapshotFrame ??= JSON.stringify(toSnapshot(book)));
     const deltaFrame = delta === null ? null : JSON.stringify(delta);
@@ -688,6 +706,40 @@ export class DepthHub {
     }
   }
 
+  /** Keep `delta` among the market's recent deltas while they stay unbroken; a repair or a gap starts them again. */
+  #remember(marketId: string, delta: DepthDelta | null, forceRepair: boolean): void {
+    if (forceRepair) {
+      this.#recent.delete(marketId);
+      return;
+    }
+    if (delta === null) return;
+    const recent = this.#recent.get(marketId) ?? [];
+    const last = recent.at(-1);
+    const kept = last && last.sequence !== delta.fromSequence ? [] : recent;
+    kept.push(delta);
+    if (kept.length > this.#options.maxPendingDeltas) kept.splice(0, kept.length - this.#options.maxPendingDeltas);
+    this.#recent.set(marketId, kept);
+  }
+
+  /**
+   * The deltas that take a client holding `since` to `book`, unbroken, or null when the hub cannot prove them (too old,
+   * ahead of the book, or across a discontinuity): that client is sent the snapshot instead.
+   */
+  #resumeFrom(book: DepthBook, since: number): DepthDelta[] | null {
+    if (since === book.sequence) return [];
+    if (since > book.sequence) return null;
+    const recent = this.#recent.get(book.marketId) ?? [];
+    const start = recent.findIndex((delta) => delta.fromSequence === since);
+    if (start < 0) return null;
+    const missed = recent.slice(start);
+    let cursor = since;
+    for (const delta of missed) {
+      if (delta.fromSequence !== cursor) return null;
+      cursor = delta.sequence;
+    }
+    return cursor === book.sequence ? missed : null;
+  }
+
   #queue(sub: Subscription, delta: DepthDelta): void {
     const pending = sub.pending;
     if (pending === null) return;
@@ -718,7 +770,15 @@ export class DepthHub {
     const buffered = (sub.pending ?? []).slice().sort((a, b) => a.sequence - b.sequence);
     sub.pending = null;
 
-    this.#write(sub, JSON.stringify(toSnapshot(book)));
+    // A reconnect that names the sequence it holds is sent only what it missed, when the hub can prove every delta in
+    // between; anything else gets the snapshot, which carries all of it (J-cex-spot-14 #8).
+    const missed = sub.since === null ? null : this.#resumeFrom(book, sub.since);
+    if (missed === null) {
+      this.#write(sub, JSON.stringify(toSnapshot(book)));
+    } else {
+      this.#resumes += 1;
+      for (const delta of missed) this.#write(sub, JSON.stringify(delta));
+    }
 
     let cursor = book.sequence;
     for (const delta of buffered) {

@@ -9,7 +9,7 @@ import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, service
  * This service self-mounts /trpc, so it must be able to authenticate the edge:
  * every procedure resolves `ctx.principal.userId` into somebody's seat, their
  * progress or their certification, and an unsigned principal header would let a
- * caller claim any of them (docs/decisions/mount-boundary.md).
+ * caller claim any of them.
  *
  * `internalServiceEnvSchema` is here for exactly two callees, both of which
  * authenticate on the shared service secret:

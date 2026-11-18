@@ -47,8 +47,7 @@ const blankIsUnset = <T extends z.ZodTypeAny>(schema: T) =>
  * `EDGE_PRINCIPAL_SECRET` is here because this service self-mounts /trpc. It is
  * not a custody key and grants nothing on-chain: it only lets this service tell
  * a principal the edge vouched for from one a caller typed. Most of the surface
- * is permissionless; the registry procedures are not, and they are the reason
- * (docs/decisions/mount-boundary.md).
+ * is permissionless; the registry procedures are not, and they are the reason.
  */
 const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
   z.object({
@@ -194,6 +193,12 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * values, read from it. NO DEFAULT: zero refuses `protocol.claim_escrow_unset` and no link can be sent.
      */
     PROTOCOL_CLAIM_ESCROW_ADDRESS: evmAddressDefaultZero,
+    /**
+     * The sovereign P2P escrow (RC-p2p-01): the SovereignEscrow contract on PROTOCOL_CHAIN_ID that holds a seller's tokens
+     * for one P2P order. NO DEFAULT: zero refuses `protocol.escrow_not_deployed` and the contract escrow is not offered.
+     * On a mainnet chain every escrow call refuses `audit.external` whatever this says.
+     */
+    PROTOCOL_P2P_ESCROW_ADDRESS: evmAddressDefaultZero,
     /**
      * The trading venue (D-bridge-chain-04): the SovereignVenue contract on PROTOCOL_CHAIN_ID that a wallet deposits its own
      * tokens into and withdraws them from. NO DEFAULT: zero refuses `protocol.venue_unset` and nothing is built.
@@ -355,6 +360,13 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * default: blank refuses `protocol.listing.challenge_ttl_unset`. `TEST:<seconds>` only on the local test stack.
      */
     PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS: z.string().default(''),
+
+    /**
+     * LOCAL TEST only: `TEST:<absolute path>` of a TEST network registry `networks.list` serves instead of the owner's
+     * `deployments/networks.json` (J-dex-protocol-01 #6, #7). Blank serves the owner's file; a TEST value refuses to boot
+     * outside APP_ENV dev or test (`networksRegistryPathFromSetting`).
+     */
+    PROTOCOL_TEST_NETWORKS_REGISTRY: z.string().default(''),
 
     /**
      * Gas tracker percentiles and history length (D-explorer-01). No default.

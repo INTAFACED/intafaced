@@ -1,4 +1,5 @@
 import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
+import { ContractEscrowPanel } from './personal/ContractEscrow';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
@@ -256,7 +257,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
           <PaymentNoteRules trade={trade} pay={pay} userId={userId} />
           <ReportRemark key={trade.id} trade={trade} pay={pay} userId={userId} />
           <OrderChat pay={pay} trade={trade} userId={userId} />
-          <OrderDispute trade={trade} pay={pay} reloadOrder={reload} />
+          {trade.escrowKind !== 'contract' ? <OrderDispute trade={trade} pay={pay} reloadOrder={reload} /> : null}
         </>
       )}
     />
@@ -429,7 +430,9 @@ export function OrderActions({
         )}
         {trade.buyerId === userId && trade.status === 'fiat_sent' && <RemindSeller trade={trade} pay={pay} onSent={reload} />}
         {trade.buyerId === userId && trade.status === 'fiat_sent' && <BuyerMismatch trade={trade} />}
-        {trade.sellerId === userId && trade.status === 'fiat_sent' && (
+        {/* RC-p2p-02: a contract order is released, refunded and disputed on the contract (ContractEscrowPanel). */}
+        {trade.escrowKind === 'contract' && <ContractEscrowPanel pay={pay} trade={trade} userId={userId} reload={reload} />}
+        {trade.escrowKind !== 'contract' && trade.sellerId === userId && trade.status === 'fiat_sent' && (
           <ReleaseAction
             trade={trade}
             pay={pay}
@@ -440,9 +443,9 @@ export function OrderActions({
         )}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && <ValidatePayment trade={trade} pay={pay} onChecked={reload} />}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && <ReportMismatch trade={trade} pay={pay} onReported={reload} />}
-        {trade.sellerId === userId && trade.status === 'fiat_sent' && <RequestCancel />}
+        {trade.escrowKind !== 'contract' && trade.sellerId === userId && trade.status === 'fiat_sent' && <RequestCancel />}
       </div>
-      {['created', 'escrowed'].includes(trade.status) && (
+      {trade.escrowKind !== 'contract' && ['created', 'escrowed'].includes(trade.status) && (
         <details className="p2p-order-other">
           <summary>
             <Copy k="other" />

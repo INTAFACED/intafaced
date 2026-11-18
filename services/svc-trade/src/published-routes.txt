@@ -81,6 +81,8 @@ GET /api/v1/ticker/:symbol public trade:read
 GET /api/v1/tickers public trade:read
 GET /api/v1/time public trade:read
 GET /api/v1/trades/:symbol public trade:read
+GET /api/v1/venue/account-summary private trade:read
+GET /api/v1/venue/adl-disclosure private trade:read
 GET /api/v1/venue/agent-accounts private trade:read
 GET /api/v1/venue/agent-accounts/:id private trade:read
 GET /api/v1/venue/agent-accounts/connections private trade:read
@@ -92,13 +94,20 @@ GET /api/v1/venue/best-prices private trade:read
 GET /api/v1/venue/book private trade:read
 GET /api/v1/venue/builder-fee-approval private trade:read
 GET /api/v1/venue/candles private trade:read
+GET /api/v1/venue/deleverages private trade:read
 GET /api/v1/venue/deposits private trade:read
 GET /api/v1/venue/fee-tier private trade:read
 GET /api/v1/venue/fees public trade:read
 GET /api/v1/venue/fills private trade:read
 GET /api/v1/venue/funding-history public trade:read
 GET /api/v1/venue/gated-list private trade:read
+GET /api/v1/venue/insurance-fund public trade:read
+GET /api/v1/venue/isolated-margin private trade:read
 GET /api/v1/venue/leverage private trade:read
+GET /api/v1/venue/leverage-change private trade:read
+GET /api/v1/venue/liquidation private trade:read
+GET /api/v1/venue/liquidation-alerts public trade:read
+GET /api/v1/venue/liquidations private trade:read
 GET /api/v1/venue/market-margin private trade:read
 GET /api/v1/venue/markets private trade:read
 GET /api/v1/venue/markets/:symbol/venues private trade:read
@@ -178,6 +187,7 @@ POST /api/v1/quant/live-runs/:id/test/kill-process private trade:write
 POST /api/v1/signals/webhook/:webhookId public trade:write
 POST /api/v1/spot/positions/close private trade:write
 POST /api/v1/statements private trade:write
+POST /api/v1/venue/adl-disclosure/ack private trade:write
 POST /api/v1/venue/agent-accounts private trade:write
 POST /api/v1/venue/agent-accounts/:id/abandon private trade:write
 POST /api/v1/venue/agent-accounts/:id/cap private trade:write

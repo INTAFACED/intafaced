@@ -519,6 +519,29 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: ws multiplexed door TEST values come from the ws profile');
 }
 
+// The ws process carries the per-IP cap and storm ban from the ws profile (J-developer-09 #6), and
+// LOCAL_STACK_WS_IP_BAN_SECONDS=off blanks only the ban time, so a journey can show the ban refusing to enable.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const names = ['WS_PER_IP_MAX_CONNECTIONS', 'WS_PER_IP_STORMS_BEFORE_BAN', 'WS_PER_IP_BAN_SECONDS'];
+  const ws = localTestServiceEnvs().find((service) => service.name === 'ws');
+  for (const name of names) {
+    assert.equal(profile[name]?.service, 'ws', `${name} is not in the ws profile`);
+    assert.equal(ws.env[name], profile[name].value, `ws env ${name} differs from the ws profile`);
+  }
+  process.env.LOCAL_STACK_WS_IP_BAN_SECONDS = 'off';
+  try {
+    const blank = localTestServiceEnvs().find((service) => service.name === 'ws');
+    assert.equal(blank.env.WS_PER_IP_BAN_SECONDS, '', 'the off switch must leave WS_PER_IP_BAN_SECONDS blank');
+    assert.equal(blank.env.WS_PER_IP_MAX_CONNECTIONS, profile.WS_PER_IP_MAX_CONNECTIONS.value);
+  } finally {
+    delete process.env.LOCAL_STACK_WS_IP_BAN_SECONDS;
+  }
+  console.log('local-test-stack: ws per-IP cap and ban TEST values come from the ws profile; the ban time can be blanked');
+}
+
 // The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
 // journey meets the rule instead of the unset refusal.
 {
@@ -1036,7 +1059,10 @@ console.log('local-test-stack: customer folder override checks passed');
     assert.match(status().stdout, /market-maker\s+-\s+-\s+not started/);
     // Started once, process gone: DOWN, and `status` exits non-zero so a script or a glance notices.
     mkdirSync(join(state, 'run'), { recursive: true });
-    writeFileSync(join(state, 'run', 'market.json'), JSON.stringify({ pid: 99998, startedAt: '2026-10-14T00:00:00.000Z' }));
+    writeFileSync(
+      join(state, 'run', 'processes.json'),
+      JSON.stringify({ 'market-maker': { pid: 99998, startedAt: '2026-10-14T00:00:00.000Z' } }),
+    );
     const down = status();
     assert.match(down.stdout, /market-maker\s+-\s+99998\s+DOWN \(was running/);
     assert.equal(down.status, 1);
@@ -1051,16 +1077,18 @@ console.log('local-test-stack: customer folder override checks passed');
     /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*if \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
   );
   // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS. A second
-  // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against.
+  // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against. The TEST
+  // market maker stops first, while Edge still runs to take its order cancels.
   assert.match(
     source,
-    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
+    /const order = \[\s*\/\/[^\n]*\n\s*MAKER_RECORD,\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
   assert.match(source, /APP_ENV: 'dev',/);
   assert.match(source, /async function cmdRestart[\s\S]*?await cmdStart\(\[\]\);/);
-  assert.match(source, /local-test-market\.mjs'\), 'ensure'\]/);
+  assert.match(source, /function ensureMarket\(\) \{\n\s+const r = marketTool\('ensure'\);/);
+  assert.match(source, /local-test-market\.mjs'\), cmd\]/);
   console.log('local-test-stack: market supervision checks passed');
 }
 
@@ -1734,6 +1762,64 @@ console.log('local-test-stack: customer folder override checks passed');
     true,
     'the agent ended: the owner is gone',
   );
+  // The stack's own TEST market maker counts as the stack: it records itself in the stack's one process record, and runs
+  // detached with the checkout as its folder (launchd its parent) and lsof children under it. Failure it prevents: on
+  // 17 Nov slots 0 and 1 stayed held 21 and 19 hours after their PRs merged, because the maker's pid lived in a file of
+  // its own (run/market.json) that the owner test never read, so reap said every stack had its owner (project-state#2935).
+  const finished = () =>
+    new Map([
+      [500, `${repo}/services/svc-edge`],
+      [800, repo],
+      [801, repo],
+    ]);
+  const marketParents = () =>
+    new Map([
+      [500, 1],
+      [800, 1],
+      [801, 800],
+      [600, 1],
+    ]);
+  const shapedLikeSlot0 = { ...claim, owner: { pid: 700, startedAt: 1000 } };
+  writeFileSync(
+    join(state, 'run', 'processes.json'),
+    JSON.stringify({ edge: { pid: 500 }, market: { pid: 900 }, 'market-maker': { pid: 800 } }),
+  );
+  assert.equal(
+    ownerGone(shapedLikeSlot0, { alive: dead, identity: () => null, cwds: finished, parents: marketParents }),
+    true,
+    'start and agent ended, only the stack and its own market maker left in the checkout: the owner is gone',
+  );
+  assert.equal(
+    ownerGone(shapedLikeSlot0, {
+      alive: dead,
+      identity: (pid) => (pid === 700 ? { startedAt: 1000 } : null),
+      cwds: finished,
+      parents: marketParents,
+    }),
+    false,
+    'the same stack with its agent alive: the owner is present',
+  );
+  assert.equal(
+    ownerGone(shapedLikeSlot0, {
+      alive: dead,
+      identity: () => null,
+      cwds: () => new Map([...finished(), [600, repo]]),
+      parents: marketParents,
+    }),
+    false,
+    'any process in the checkout that the stack did not start: the owner is present',
+  );
+  // A stack started before the maker's record moved keeps it in run/market.json (the two on the Mac on 17 Nov).
+  writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ edge: { pid: 500 } }));
+  writeFileSync(join(state, 'run', 'market.json'), JSON.stringify({ pid: 800 }));
+  assert.equal(
+    ownerGone(shapedLikeSlot0, { alive: dead, identity: () => null, cwds: finished, parents: marketParents }),
+    true,
+    'a stack whose maker record predates the move reads the same',
+  );
+  rmSync(join(state, 'run', 'market.json'));
+  // And `stop` stops that maker through its own stop (first, asserted with the stop order): none is left quoting.
+  assert.match(source, /if \(name === MAKER_RECORD\) \{\n[^\n]*\n\s+const r = marketTool\('stop'\);/, "the maker's own stop does it");
   const { agentOwner } = await import('./local-test-stack.mjs');
   const chain = () =>
     new Map([

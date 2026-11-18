@@ -62,19 +62,20 @@ smallest blast radius in the fleet. A second public origin on a process that hol
 HTTP + JSON, plus one websocket. Amounts in and out are **decimal strings**, never JSON numbers. The only JSON
 numbers anywhere in this service's output are integer sequences.
 
-| Route                                              | Input    | Output                                                                                                                                                            |
-| -------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /stream?market=<id>` (upgrade)                | —        | `DepthSnapshot`, then `DepthDelta` frames                                                                                                                         |
-| `GET /stream?market=<id>&channel=trades` (upgrade) | —        | recent `TradePrint` frames, then live prints                                                                                                                      |
-| `GET /stream` (upgrade, **no `market`**)           | JSON ops | the **multiplexed door**: any mix of book, trades, ticker and candles on one socket — see "The multiplexed door" below                                            |
-| `GET /drop-copy/stream` (upgrade, JWT)             | —        | independent execution evidence (`drop_copy`) · empty session is `RECOVERY_REQUIRED`, never a complete tape · not `/private/stream`                                |
-| `GET /markets/:marketId/depth`                     | —        | `DepthSnapshot` · `404` `MarketNotFound` (unlisted) · `404` `NoBook` (listed, no resting depth) · `502` upstream down                                             |
-| `GET /markets/:marketId/trades`                    | —        | recent `TradePrint[]` · `404` `MarketNotFound` (unlisted) · `404` `NoTape` (listed, no prints — never `200 { trades: [] }`) · `502` listing down                  |
-| `GET /markets/:marketId/orders`                    | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoBlotter` (listed — never `200 { orders: [] }`)                                                   |
-| `GET /markets/:marketId/positions`                 | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoPositions` (listed — never `200 { positions: [] }`)                                              |
-| `GET /markets`                                     | —        | `{ markets: string[] }` — the listing, not the engine's books                                                                                                     |
-| `GET /health`                                      | —        | `{ ok, service, enabled, connections, capacity.{depth,trades,private}, tradesBus, privateBus, … }` — occupancy never 503s; ceilings are per-hub, not process-wide |
-| `GET /ready`                                       | —        | depth + trade counters + `tradesBus` / `privateBus` / `privateConnections` · `503` only when kill-switch off · bus down does **not** 503 (depth still works)      |
+| Route                                              | Input    | Output                                                                                                                                                                     |
+| -------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /stream?market=<id>` (upgrade)                | —        | `DepthSnapshot`, then `DepthDelta` frames                                                                                                                                  |
+| `GET /stream?market=<id>&since=<n>` (upgrade)      | —        | a reconnect that holds sequence `n`: only the `DepthDelta`s after it, when the hub can prove them all, else the `DepthSnapshot` · `400` a malformed `n` or another channel |
+| `GET /stream?market=<id>&channel=trades` (upgrade) | —        | recent `TradePrint` frames, then live prints                                                                                                                               |
+| `GET /stream` (upgrade, **no `market`**)           | JSON ops | the **multiplexed door**: any mix of book, trades, ticker and candles on one socket — see "The multiplexed door" below                                                     |
+| `GET /drop-copy/stream` (upgrade, JWT)             | —        | independent execution evidence (`drop_copy`) · empty session is `RECOVERY_REQUIRED`, never a complete tape · not `/private/stream`                                         |
+| `GET /markets/:marketId/depth`                     | —        | `DepthSnapshot` · `404` `MarketNotFound` (unlisted) · `404` `NoBook` (listed, no resting depth) · `502` upstream down                                                      |
+| `GET /markets/:marketId/trades`                    | —        | recent `TradePrint[]` · `404` `MarketNotFound` (unlisted) · `404` `NoTape` (listed, no prints — never `200 { trades: [] }`) · `502` listing down                           |
+| `GET /markets/:marketId/orders`                    | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoBlotter` (listed — never `200 { orders: [] }`)                                                            |
+| `GET /markets/:marketId/positions`                 | —        | no public blotter · `404` `MarketNotFound` (unlisted) · `404` `NoPositions` (listed — never `200 { positions: [] }`)                                                       |
+| `GET /markets`                                     | —        | `{ markets: string[] }` — the listing, not the engine's books                                                                                                              |
+| `GET /health`                                      | —        | `{ ok, service, enabled, connections, capacity.{depth,trades,private}, tradesBus, privateBus, … }` — occupancy never 503s; ceilings are per-hub, not process-wide          |
+| `GET /ready`                                       | —        | depth + trade counters + `tradesBus` / `privateBus` / `privateConnections` · `503` only when kill-switch off · bus down does **not** 503 (depth still works)               |
 
 ### The wire format is not ours
 
@@ -156,6 +157,10 @@ each with a `channels` array of 1 to 64 entries and an optional `id` (1 to 64 ch
 { "op": "resync",      "channels": [ { "ch": "book",   "market": "BTC/USDT" } ] }
 ```
 
+**Unknown message types are ignored.** A JSON object whose `op` is a string other than the three verbs gets no answer
+and the connection stays open, so a client may send newer message types to an older server. It still costs one
+operation of the budget. A frame with no `op`, or a non-string one, is a `bad_request`.
+
 Operations on one connection run strictly in order. Subscribing to something already subscribed is a success
 (`note: "already subscribed"`) and does not take a second seat.
 
@@ -183,6 +188,9 @@ Control frames have `op` instead of `ch`:
     { "i": 1, "ch": "book", "market": "<id>", "ok": false, "code": "unknown_market", "message": "no such market" } ] }
 { "op": "error", "code": "bad_json", "message": "frame is not JSON" }
 ```
+
+Every ack and error carries the server's two clocks, `receivedAt` (the operation's frame arrived) and `sentAt` (its
+answer left), integer epoch milliseconds, so a client can tell network time from server time.
 
 An ack carries one result per requested channel, in order (`i` is the index). One bad entry is a typed result for that
 entry; the others and the connection are unaffected. Codes: `bad_json`, `bad_request`, `unknown_channel`,
@@ -243,16 +251,18 @@ continues it.
 
 ### Limits and backpressure
 
-| Limit                                      | Behaviour when exceeded                                                                                                                                                                                                                                                       |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `WS_MUX_MAX_SUBSCRIPTIONS` per socket      | that channel gets `subscription_limit`; the connection and its other channels are untouched                                                                                                                                                                                   |
-| `WS_MUX_MAX_OPS_PER_SECOND` per socket     | token bucket; a subscribe of N channels costs N. More channels than the rate: `bad_request` and **close `1008`** `rate_limited`. A later operation that does not fit the remaining tokens closes the same way                                                                 |
-| pending operations (16, protocol)          | a client that queues past it is not waiting for answers: **close `1008`**                                                                                                                                                                                                     |
-| frame size (8 KiB, protocol)               | the `ws` library closes `1009` before the frame is assembled                                                                                                                                                                                                                  |
-| `WS_MAX_CONNECTIONS` multiplexed sockets   | the newest multiplexed _connection_ is closed `1013` `at capacity`. This ceiling is not the `?market=` seat pool                                                                                                                                                              |
-| `WS_MUX_MAX_SEATS` per hub                 | book, trades, ticker, and candle subscriptions on the multiplexed door count here, not against `WS_MAX_CONNECTIONS`. Over the cap that channel gets `at_capacity`. Blank refuses the attach `1008` `ws.close.mux_max_seats_unset`. A full mux pool does not refuse `?market=` |
-| `WS_MUX_IDLE_MS`                           | a multiplexed socket that holds no subscription is closed `1008` `ws.close.mux_idle`. Blank, with no connection idle setting on this service, refuses to start the multiplexed door                                                                                           |
-| `WS_HIGH_WATER_BYTES` / `WS_MAX_LAG_TICKS` | slow client: see below                                                                                                                                                                                                                                                        |
+| Limit                                                  | Behaviour when exceeded                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WS_MUX_MAX_SUBSCRIPTIONS` per socket                  | that channel gets `subscription_limit`; the connection and its other channels are untouched                                                                                                                                                                                   |
+| `WS_MUX_MAX_OPS_PER_SECOND` per socket                 | token bucket; a subscribe of N channels costs N. More channels than the rate: `bad_request` and **close `1008`** `rate_limited`. A later operation that does not fit the remaining tokens closes the same way                                                                 |
+| pending operations (16, protocol)                      | a client that queues past it is not waiting for answers: **close `1008`**                                                                                                                                                                                                     |
+| frame size (8 KiB, protocol)                           | the `ws` library closes `1009` before the frame is assembled                                                                                                                                                                                                                  |
+| `WS_MAX_CONNECTIONS` multiplexed sockets               | the newest multiplexed _connection_ is closed `1013` `at capacity`. This ceiling is not the `?market=` seat pool                                                                                                                                                              |
+| `WS_MUX_MAX_SEATS` per hub                             | book, trades, ticker, and candle subscriptions on the multiplexed door count here, not against `WS_MAX_CONNECTIONS`. Over the cap that channel gets `at_capacity`. Blank refuses the attach `1008` `ws.close.mux_max_seats_unset`. A full mux pool does not refuse `?market=` |
+| `WS_MUX_IDLE_MS`                                       | a multiplexed socket that holds no subscription is closed `1008` `ws.close.mux_idle`. Blank, with no connection idle setting on this service, refuses to start the multiplexed door                                                                                           |
+| `WS_PER_IP_MAX_CONNECTIONS` per address                | on every public door, single-market or multiplexed: the upgrade over it is answered `429` with `{"code":"ws.per_ip_cap"}`; sockets already open stay. Each such refusal is a storm. Blank refuses every public socket `503` `ws.per_ip_cap_unset`                             |
+| `WS_PER_IP_STORMS_BEFORE_BAN`, `WS_PER_IP_BAN_SECONDS` | that many storms, none a whole ban time after the one before, ban the address for the ban time: `429` `ws.ip_banned`. Either blank leaves the ban off; `GET /policy` says `perIp.ban: "unset"`. The address is the TCP peer                                                   |
+| `WS_HIGH_WATER_BYTES` / `WS_MAX_LAG_TICKS`             | slow client: see below                                                                                                                                                                                                                                                        |
 
 Every ceiling is owner-published like the rest of this service: blank is refused, never defaulted. A multiplexed
 connection with a blank subscription or operation ceiling is closed `1008` with `ws.close.mux_max_subscriptions_unset`
@@ -493,6 +503,14 @@ Direct `NEXT_PUBLIC_WS_URL` / `apps/web` wiring is not the compose path for the 
 JWT-authenticated, push-only. Query `?access_token=` (or `Authorization: Bearer`). Requires `trade:read` or
 `trade:write`. Disabled (403) when `JWT_ACCESS_SECRET` is unset; missing/invalid identity
 configuration refuses private upgrades with 503. Public depth/tape are unaffected.
+
+**Stream tokens** (identity `POST /api/v1/stream/token`, audience `<JWT_AUDIENCE>.stream`) open this door too, and
+only this door. svc-trade takes the platform audience alone, so on a stream-token seat svc-ws never calls svc-trade
+with the token: the starting open-orders and positions snapshot is named `ws.stream_token_snapshot_unavailable` per
+channel (live updates still flow), a positions subscribe gets `positions.snapshot_unavailable`, and `cod.arm` is
+refused `cod.stream_token_unsupported`, so a dead-man switch is never armed that could not fire. At the token's end
+the seat gets `{ type: "error", code: "ws.token_expired" }` and a 4003 close; a spent token's upgrade is 401
+`{"code":"ws.token_expired"}`.
 
 Both `/private/stream` and `/drop-copy/stream` require identity POST
 `/trpc/accountControls.currentAuthority`, exact plain JSON and body-bound v2 service

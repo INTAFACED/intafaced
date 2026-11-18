@@ -6,13 +6,14 @@ import { stackFile } from './stack.mjs';
  * reach the maker only through these and `tool('local-test-market.mjs', ...)`; they import none of its code
  * (docs/runbooks/harness-rewrite-plan.md, piece 1).
  *
- * - `pid`: its process record (`start` writes it; only `stop` removes it), with the options it was started with.
+ * - `records`: the stack's one process record; the maker's is under `market-maker` (`start` writes it; only `stop` removes
+ *   it), with the options it was started with.
  * - `accounts`: its own TEST accounts, the maker and its taker.
  * - `cycle`: its newest whole cycle (local-test-market.mjs `writeCycleRecord`): per market, held, or how many quotes
  *   rest and the TEST price shift they were quoted at.
  */
 const MARKET_FILES = {
-  pid: stackFile('run/market.json'),
+  records: stackFile('run/processes.json'),
   accounts: stackFile('market-accounts.json'),
   cycle: stackFile('run/market-cycle.json'),
 };
@@ -30,13 +31,13 @@ const readCycle = () => readJson(MARKET_FILES.cycle);
 
 /** The pid in the maker's process record, or null when it has none. */
 function makerPid() {
-  const rec = readJson(MARKET_FILES.pid);
+  const rec = readJson(MARKET_FILES.records)?.['market-maker'];
   return Number.isInteger(rec?.pid) ? rec.pid : null;
 }
 
 /** The options in the maker's process record, or [] when they can't be read. */
 export function makerRecordArgs() {
-  const rec = readJson(MARKET_FILES.pid);
+  const rec = readJson(MARKET_FILES.records)?.['market-maker'];
   return Array.isArray(rec?.args) ? rec.args.map(String) : [];
 }
 

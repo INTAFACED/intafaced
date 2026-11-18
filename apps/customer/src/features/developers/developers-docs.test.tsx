@@ -14,6 +14,7 @@ import { docsCopy } from './developers-docs-copy';
 import { AUDIENCES, SECTIONS, developersRoute } from './developers-model';
 import { REST_REFERENCE, routeLine, withinWindow } from './developers-reference';
 import { createDocsSearch } from './developers-search';
+import { pingView, policyView, streamHostsView } from './developers-streams';
 
 const html = (path: string) =>
   renderToString(
@@ -39,7 +40,7 @@ describe('developer portal home', () => {
     expect(home).toContain('aria-label="Search the developer docs"');
   });
   it('a section without a page names the slice it waits for', () => {
-    expect(text(html('/developers/websocket'))).toContain('It waits for DV-websocket-01');
+    expect(text(html('/developers/protocols'))).toContain('It waits for DV-websocket-01');
     // DV-limits-01 is built: the section is its written page, never the waits-for notice.
     expect(text(html('/developers/rate-limits'))).toContain('Rate-limit tiers');
     expect(text(html('/developers/rate-limits'))).not.toContain('It waits for DV-limits-01');
@@ -167,5 +168,52 @@ describe('developer docs copy', () => {
     const added = /^(section_connectivity|section_data_terms|access_|waitsFor|pageHere|search|errorsAuth)/;
     for (const locale of ['es', 'fr'] as const)
       expect(developersCopy.coverage(locale).missing.filter((key) => added.test(key))).toEqual([]);
+  });
+});
+
+describe('the WebSocket streams page', () => {
+  it('draws its heading, the protocol guide with each owning module and the unknown-message rule, and waits for its live reads', () => {
+    const page = html('/developers/websocket');
+    expect(page).toMatch(/<h1>WebSocket streams<\/h1>/);
+    expect(text(page)).toContain('Unknown message types are ignored.');
+    for (const module of ['svc-trade', 'svc-ws', 'svc-fix']) expect(page).toContain(`data-module="${module}">Owned by ${module}</td>`);
+    // The hosts, the ping interval and the policy are read live: nothing is drawn as a value before the reads answer.
+    expect(page).not.toContain('data-endpoint=');
+    expect(page).not.toContain('data-seconds=');
+    expect(page).not.toContain('wss://');
+  });
+  it('writes wss:// before each published host, reads a blank host as unset, and only the unset code as "not set"', () => {
+    const view = streamHostsView({
+      status: 'ready',
+      data: {
+        endpoints: [
+          { endpoint: 'public', role: 'primary', host: 'stream.example.test' },
+          { endpoint: 'public', role: 'failover', host: null },
+        ],
+      },
+    });
+    expect(view.kind).toBe('table');
+    if (view.kind !== 'table') return;
+    expect(view.host('public', 'primary')).toEqual({ state: 'set', url: 'wss://stream.example.test' });
+    expect(view.host('public', 'failover')).toEqual({ state: 'unset' });
+    expect(view.host('business', 'primary')).toEqual({ state: 'unset' });
+    const unset = streamHostsView({ status: 'failed', code: 'trade.developer_stream_hosts_unset' });
+    expect(unset.kind === 'table' && unset.unsetCode).toBe('trade.developer_stream_hosts_unset');
+    expect(streamHostsView({ status: 'failed', code: 'something_else' }).kind).toBe('failed');
+    expect(streamHostsView({ status: 'failed' }).kind).toBe('failed');
+  });
+  it('reads the ping interval in whole seconds, and unset while svc-ws publishes none', () => {
+    expect(pingView({ status: 'ready', data: { timing: { heartbeatMs: 30_000, muxIdleMs: null } } })).toEqual({ kind: 'set', seconds: 30 });
+    expect(pingView({ status: 'ready', data: { timing: { heartbeatMs: null, muxIdleMs: null } } })).toEqual({ kind: 'unset' });
+    expect(pingView({ status: 'ready', data: {} })).toEqual({ kind: 'unset' });
+    expect(pingView({ status: 'failed' })).toEqual({ kind: 'failed' });
+  });
+  it('shows the per-address cap and ban as published, and says no address is banned while the ban time is blank', async () => {
+    expect(policyView({ status: 'ready', data: {} })).toEqual({ kind: 'unpublished' });
+    const perIp = { maxConnections: 3, stormsBeforeBan: 2, banSeconds: null, ban: 'unset' as const };
+    expect(policyView({ status: 'ready', data: { perIp } })).toEqual({ kind: 'published', perIp });
+    const t = docsCopy.forLocale('en').t;
+    expect(t('wsBanUnset')).toBe('No ban time is set, so no address is banned.');
+    expect(t('wsCap', { n: 3 })).toContain('At most 3 open connections');
   });
 });

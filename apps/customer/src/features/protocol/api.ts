@@ -68,6 +68,11 @@ import {
   protocolReplacementOutputSchema,
   type ProtocolReplacementInput,
 } from '@intafaced/contracts/protocol-wallet-tx';
+import {
+  protocolEscrowBuildOutputSchema,
+  protocolEscrowDealOutputSchema,
+  type ProtocolEscrowBuildInput,
+} from '@intafaced/contracts/protocol-escrow';
 import { protocolPortfolioOutputSchema } from '@intafaced/contracts/protocol-portfolio';
 import { protocolLendingPositionOutputSchema } from '@intafaced/contracts/protocol-lending-position';
 import type { ApiClient } from '../../shared/api';
@@ -187,6 +192,12 @@ export function createProtocolApi(api: ApiClient) {
     /** The venue's read-only calls with examples (the contract-read docs). */
     venueReads: (signal?: AbortSignal) => api.query('protocol', 'venue.reads', undefined, protocolVenueReadsOutputSchema, { signal }),
     /** The claim-link escrow and its published expiry bounds, read from the contract; blank refuses by name (D-swap-12). */
+    /** RC-p2p-01: one sovereign P2P escrow deal as the contract holds it now, with the chain's clock. */
+    escrowDeal: (dealId: string, signal?: AbortSignal) =>
+      api.query('protocol', 'escrow.deal', { dealId }, protocolEscrowDealOutputSchema, { signal }),
+    /** RC-p2p-01: one unsigned call on the sovereign P2P escrow (or the token's approve of it). The wallet signs it. */
+    escrowBuild: (input: ProtocolEscrowBuildInput, signal?: AbortSignal) =>
+      api.query('protocol', 'escrow.build', input, protocolEscrowBuildOutputSchema, { signal }),
     claimLinkConfig: (signal?: AbortSignal) =>
       api.query('protocol', 'claimLink.config', undefined, protocolClaimLinkConfigOutputSchema, { signal }),
     /** One claim link by its id (the link key's address), read from the escrow, with the chain's clock. */
