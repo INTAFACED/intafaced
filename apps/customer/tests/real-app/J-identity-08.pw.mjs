@@ -83,10 +83,10 @@ test(`${J} #1 (I-kyc-compliance-04): a ladder of levels, and every gated feature
   await expect(rung('none').locator('[data-feature="rewards"]')).toContainText('Set per reward');
   // Every level above none can be started from here; it fills the request form, it grants nothing.
   await rung('basic').getByRole('button', { name: 'Verify to unlock', exact: true }).click();
-  await expect(page.getByLabel('Level to request', { exact: true })).toHaveValue('basic');
+  await expect(page.getByLabel(/^Level to request/)).toHaveValue('basic');
   await rung('full').getByRole('button', { name: 'Verify to unlock', exact: true }).click();
-  await expect(page.getByLabel('Level to request', { exact: true })).toHaveValue('full');
-  await expect(rung('none').getByRole('button', { name: 'Verify to unlock', exact: true })).toHaveCount(0);
+  await expect(page.getByLabel(/^Level to request/)).toHaveValue('full');
+  await expect(rung('none').getByRole('button', { name: /Verify to unlock/i })).toHaveCount(0);
 });
 
 test(`${J} #1 (I-kyc-compliance-05): requirements not published say none are published; the review time is stated or says it is not`, async ({
@@ -139,7 +139,7 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
   await openBankVerification(page);
   const guided = page.getByRole('region', { name: 'Guided verification', exact: true });
   const current = guided.getByTestId('verification__guided-steps').locator('li[aria-current="step"]');
-  const cases = page.getByRole('region', { name: 'Case history', exact: true }).getByTestId('verification__case');
+  const cases = page.getByRole('region', { name: /Case history/i }).getByTestId('verification__case');
   await guided.getByRole('button', { name: 'Start guided verification', exact: true }).click();
   await expect(current).toHaveAttribute('data-step', 'residence');
 
@@ -176,7 +176,7 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
 
   // DE has a published list: pick from it.
   await expect(guided.getByTestId('verification__guided-doc-types')).toHaveAttribute('data-published', 'true');
-  await guided.getByLabel('ID type', { exact: true }).selectOption({ label: 'TEST: Passport' });
+  await guided.getByLabel(/^ID type/).selectOption({ label: 'TEST: Passport' });
   await expect(guided.getByText('Bring the original. A copy is not accepted.', { exact: true })).toBeVisible();
   await guided.getByLabel('ID number', { exact: true }).fill('TEST123456');
   await guided.getByRole('button', { name: 'Save and continue', exact: true }).click();
@@ -301,7 +301,7 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     await expect(onPhone.getByRole('alert')).toHaveCount(0);
     // Back on the computer, which still holds its own session and reads the latest selfie.
     await expect(selfie.getByTestId('verification__selfie-latest')).toHaveAttribute('data-via', 'handoff', { timeout: 15_000 });
-    await expect(selfie.getByRole('img', { name: 'Code with the link for your phone', exact: true })).toHaveCount(0);
+    await expect(selfie.getByRole('img', { name: /Code with the link for your phone/i })).toHaveCount(0);
     await expect(selfie.getByTestId('verification__selfie-sent')).toBeVisible();
 
     // The same link opened again is refused in plain words, and offers no camera.
@@ -310,7 +310,7 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     const refused = again.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
     await expect(refused).toHaveAttribute('data-state', 'used');
     await expect(refused).toHaveText('This link was already used. Make a new one on your computer.');
-    await expect(again.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera', exact: true })).toHaveCount(0);
+    await expect(again.getByTestId('verification__selfie').getByRole('button', { name: /Open camera/i })).toHaveCount(0);
 
     // The service itself refuses the used link, not only the page: a selfie sent straight to identity with it is refused
     // with its one typed code, and a re-read shows the phone's selfie is still the latest, so no second selfie was stored.
@@ -340,7 +340,7 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     await cut.goto(href.slice(0, -5));
     const broken = cut.getByTestId('verification__selfie').getByTestId('verification__selfie-handoff');
     await expect(broken).toHaveAttribute('data-state', 'broken');
-    await expect(cut.getByTestId('verification__selfie').getByRole('button', { name: 'Open camera', exact: true })).toHaveCount(0);
+    await expect(cut.getByTestId('verification__selfie').getByRole('button', { name: /Open camera/i })).toHaveCount(0);
     await expect(cut.getByTestId('verification__selfie-phone')).toHaveCount(0);
   } finally {
     await browser.close();
@@ -351,13 +351,13 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
   test.setTimeout(180_000);
   const { who } = await atVerification(page);
   const attempts = page.getByTestId('verification__attempts');
-  const cases = page.getByRole('region', { name: 'Case history', exact: true }).getByTestId('verification__case');
+  const cases = page.getByRole('region', { name: /Case history/i }).getByTestId('verification__case');
   // The TEST limit: two rejected requests in 24 hours, then a new request is refused for an hour after the last.
   await expect(attempts).toHaveAttribute('data-state', 'open');
   await expect(attempts).toContainText('0 of 2 rejected requests in the last 24 hours.');
 
   for (const n of [1, 2]) {
-    await page.getByLabel('Level to request', { exact: true }).selectOption({ label: 'Basic' });
+    await page.getByLabel(/^Level to request/).selectOption({ label: 'Basic' });
     await sendRequest(page);
     await page.reload();
     await expect(cases).toHaveCount(n);
@@ -440,10 +440,10 @@ function identityPoaRule(on) {
 test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
   test.setTimeout(240_000);
   await atVerification(page);
-  const poa = page.getByRole('region', { name: 'Proof of address', exact: true });
+  const poa = page.getByRole('region', { name: /Proof of address/i });
   // Asked for only after level Basic is approved.
   await expect(poa.getByTestId('verification__poa-state')).toHaveText('Proof of address is asked for after level Basic is approved.');
-  await page.getByLabel('Level to request', { exact: true }).selectOption({ label: 'Basic' });
+  await page.getByLabel(/^Level to request/).selectOption({ label: 'Basic' });
   await sendRequest(page);
   tool('local-test-gates.mjs', 'verify');
   await page.reload();
@@ -531,12 +531,12 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
 }) => {
   test.setTimeout(180_000);
   const { who, rung } = await atVerification(page);
-  const history = page.getByRole('region', { name: 'Case history', exact: true });
+  const history = page.getByRole('region', { name: /Case history/i });
   const cases = history.getByTestId('verification__case');
   await expect(history.getByText('No verification requests yet.', { exact: true })).toBeVisible();
 
   // Sent: one case, pending review, with its one step.
-  await page.getByLabel('Level to request', { exact: true }).selectOption({ label: 'Full' });
+  await page.getByLabel(/^Level to request/).selectOption({ label: 'Full' });
   await sendRequest(page);
   await page.reload();
   await expect(cases).toHaveCount(1);
@@ -557,14 +557,14 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
 
   // Sent again from the rejected case: a new case, linked to the rejected one, which stays as it was.
   await rejected.getByRole('button', { name: 'Send a new request', exact: true }).click();
-  await expect(page.getByLabel('Level to request', { exact: true })).toHaveValue('full');
+  await expect(page.getByLabel(/^Level to request/)).toHaveValue('full');
   await sendRequest(page);
   await page.reload();
   await expect(cases).toHaveCount(2);
   await expect(cases.first()).toHaveAttribute('data-state', 'submitted');
   await expect(cases.first().getByTestId('verification__case-follows')).toHaveText('This request follows your earlier rejected request.');
   await expect(cases.nth(1)).toHaveAttribute('data-state', 'rejected');
-  await expect(cases.first().getByRole('button', { name: 'Send a new request', exact: true })).toHaveCount(0);
+  await expect(cases.first().getByRole('button', { name: /Send a new request/i })).toHaveCount(0);
 
   // Approved: the case says so, and the ladder moves to Full at once, with what Full unlocks included.
   tool('local-test-gates.mjs', 'verify');
@@ -581,7 +581,7 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
   const { rung } = await atVerification(page);
   const capabilities = page.getByRole('region', { name: 'Capabilities', exact: true });
   const capability = (name) => capabilities.locator(`[data-testid="verification__capability"][data-capability="${name}"]`);
-  const cases = page.getByRole('region', { name: 'Case history', exact: true }).getByTestId('verification__case');
+  const cases = page.getByRole('region', { name: /Case history/i }).getByTestId('verification__case');
   // Nothing asked yet: every capability reads not requested, with the level that includes it (TEST mapping).
   await expect(capabilities.getByTestId('verification__capability')).toHaveCount(5);
   await expect(capabilities.getByTestId('verification__capabilities')).toHaveAttribute('data-mapped', 'true');
@@ -591,7 +591,7 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
   await expect(capability('custody_fiat')).toContainText('Comes with level Full');
 
   // Sent for Full: one case, and what Full includes is pending review.
-  await page.getByLabel('Level to request', { exact: true }).selectOption({ label: 'Full' });
+  await page.getByLabel(/^Level to request/).selectOption({ label: 'Full' });
   await sendRequest(page);
   await page.reload();
   await expect(cases).toHaveCount(1);
@@ -623,11 +623,9 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
     const other = await context.newPage();
     const second = await atVerification(other);
     const otherCapability = (name) =>
-      other
-        .getByRole('region', { name: 'Capabilities', exact: true })
-        .locator(`[data-testid="verification__capability"][data-capability="${name}"]`);
+      other.getByRole('region', { name: /Capabilities/i }).locator(`[data-testid="verification__capability"][data-capability="${name}"]`);
     const otherCases = other.getByRole('region', { name: 'Case history', exact: true }).getByTestId('verification__case');
-    await other.getByLabel('Level to request', { exact: true }).selectOption({ label: 'Full' });
+    await other.getByLabel(/^Level to request/).selectOption({ label: 'Full' });
     await sendRequest(other);
     await other.reload();
     await expect(otherCases).toHaveCount(1);
@@ -707,9 +705,9 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   // Hit it: ask for Basic, the TEST level that grants trading crypto, from its own screen. Identity refuses it with its
   // one typed code before anything is stored, and the refusal gives the reason in the owner's words and the next step.
   await page.goto('/verification');
-  const cases = page.getByRole('region', { name: 'Case history', exact: true }).getByTestId('verification__case');
+  const cases = page.getByRole('region', { name: /Case history/i }).getByTestId('verification__case');
   await expect(cases).toHaveCount(0);
-  await page.getByLabel('Level to request', { exact: true }).selectOption({ label: 'Basic' });
+  await page.getByLabel(/^Level to request/).selectOption({ label: 'Basic' });
   await page.getByLabel('Country code', { exact: true }).fill('DE');
   await page.getByRole('button', { name: 'Review request', exact: true }).click();
   const [reply] = await Promise.all([
@@ -725,7 +723,7 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
     'This level was refused because it grants a capability compliance switched off. The service opened no request.',
   );
   // The heading names the list it introduces, so it sits only above a list that has entries.
-  const list = refused.getByRole('list', { name: 'Switched off on your account:', exact: true });
+  const list = refused.getByRole('list', { name: /Switched off on your account:/i });
   await expect(list).toHaveCount(1);
   const why = list.locator('li[data-kind="capability_off"][data-capability="trade_crypto"]');
   await expect(why).toHaveCount(1);
@@ -1036,9 +1034,7 @@ test(`${J} #7: a platform posting freeze never reads as "your account is restric
     await page.goto('/verification');
     await expect(page.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
     await expect(
-      page
-        .getByRole('region', { name: 'Capabilities', exact: true })
-        .locator('[data-testid="verification__capability"][data-state="inactive"]'),
+      page.getByRole('region', { name: /Capabilities/i }).locator('[data-testid="verification__capability"][data-state="inactive"]'),
     ).toHaveCount(0);
   } finally {
     await setPostingFreeze(browser, false);

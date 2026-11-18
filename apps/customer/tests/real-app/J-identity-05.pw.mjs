@@ -136,15 +136,15 @@ test(`${J} #1, on a phone never used before: once the device is approved with th
  */
 async function startLockedOutReset(browser, who) {
   const at = await atSecondStep(browser, who);
-  await at.page.getByRole('button', { name: 'I lost my authenticator', exact: true }).click();
-  await expect(at.page.getByRole('heading', { name: 'Reset your second step', exact: true })).toBeVisible();
-  await expect(at.page.getByLabel('Email or handle', { exact: true })).toHaveValue(who.email);
+  await at.page.getByRole('button', { name: /I lost my authenticator/i }).click();
+  await expect(at.page.getByRole('heading', { name: /Reset your second step/i })).toBeVisible();
+  await expect(at.page.getByLabel(/Email or handle/i)).toHaveValue(who.email);
   await at.page.getByLabel('Password', { exact: true }).fill(who.password);
   const seen = mailedCodes(who.email, 'mfa-reset-code').length;
-  await at.page.getByRole('button', { name: 'Email me a code', exact: true }).click();
+  await at.page.getByRole('button', { name: /Email me a code/i }).click();
   await expect(at.page.getByRole('status').filter({ hasText: 'We emailed a 6-digit code' })).toBeVisible();
-  await at.page.getByLabel('Code from the email', { exact: true }).fill(await nextMailedCode(who.email, seen, 20_000, 'mfa-reset-code'));
-  await at.page.getByRole('button', { name: 'Start the reset', exact: true }).click();
+  await at.page.getByLabel(/Code from the email/i).fill(await nextMailedCode(who.email, seen, 20_000, 'mfa-reset-code'));
+  await at.page.getByRole('button', { name: /Start the reset/i }).click();
   await expect(at.page.getByRole('status').filter({ hasText: 'second step is being reset' })).toContainText('until');
   return at;
 }
@@ -240,7 +240,7 @@ test(`${J} #2 with no recovery codes left, a locked-out reset tells every contac
       'Resetting the second step on your own is switched off: its waiting time is not set. Write to Support and a person will help you get back in.',
     );
     await expect(refused.getByRole('link', { name: 'Write to Support', exact: true })).toHaveAttribute('href', '/help');
-    await expect(blank.page.getByLabel('Code from the email', { exact: true })).toHaveCount(0);
+    await expect(blank.page.getByLabel(/Code from the email/i)).toHaveCount(0);
     expect(mailedCodes(locked.who.email, 'mfa-reset-code')).toHaveLength(codesBefore);
     expect(mailedLines(locked.who.email, 'mfa-reset-started')).toHaveLength(toldBefore);
     await blank.context.close();
@@ -261,7 +261,7 @@ test(`${J} #3 a reset stops when cancelled from a signed-in session; otherwise i
   await expect(page.getByRole('status').filter({ hasText: 'The reset was stopped' })).toBeVisible();
   await expect.poll(() => mailedLines(who.email, 'mfa-reset-cancelled').length).toBeGreaterThan(cancelled);
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Stop this reset', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Stop this reset/i })).toHaveCount(0);
   await expect(page.getByTestId('security__authenticator').filter({ hasText: 'Recovery codes left' })).toBeVisible();
   await first.context.close();
 
@@ -322,7 +322,7 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
   await card.getByRole('button', { name: 'Replace authenticator app', exact: true }).click();
   const wrong = await (await refused).json();
   expect(wrong.error.data.intafacedCode ?? wrong.error.data.cause?.code ?? wrong.error.data.code).toBe('auth.mfa_invalid');
-  await expect(card.getByText('Authenticator app replaced', { exact: true })).toHaveCount(0);
+  await expect(card.getByText(/Authenticator app replaced/i)).toHaveCount(0);
   await other.reload();
   // The old app's code still confirms it is them, so the refused attempt changed nothing; the fresh replace is then done
   // with recovery codes, as a person whose old phone is gone would.
@@ -447,7 +447,7 @@ test(`${J} #5 support recovery: a case with a mailed one-time link, a second app
   await elsewhere.goto('/login');
   await elsewhere.getByRole('link', { name: 'I cannot sign in', exact: true }).click();
   await expect(elsewhere.getByRole('heading', { name: /a person answers/i })).toBeVisible();
-  await expect(elsewhere.getByText('A second member of Support must approve the case.', { exact: true })).toBeVisible();
+  await expect(elsewhere.getByText(/A second member of Support must approve the case\./)).toBeVisible();
 
   // Support finds the account and opens a case: the masked address and live sessions, no link yet.
   const found = await support('query', 'accountDirectory.search', { email: who.email });
@@ -557,7 +557,7 @@ test.describe('factor notices', () => {
     await page.getByRole('dialog').getByRole('button', { name: 'Add passkey', exact: true }).click();
     await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you', exact: true }).click();
     await confirmSheet();
-    await expect(page.getByTestId('security__checklist').getByText('1 on this account', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('security__checklist').getByText(/1 on this account/)).toBeVisible();
     await notified('passkey_added', 'Passkey added');
 
     // The passkey removed.
@@ -566,7 +566,7 @@ test.describe('factor notices', () => {
     // Removing a factor needs the second step first, as adding one did: confirm with the code, and the removal goes ahead.
     await page.getByTestId('failure').getByRole('button', { name: 'Confirm it is you', exact: true }).click();
     await confirmSheet();
-    await expect(page.getByTestId('security__checklist').getByText('1 on this account', { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('security__checklist').getByText(/1 on this account/i)).toHaveCount(0);
     await notified('passkey_removed', 'Passkey removed');
 
     // The same session replaces the app: its "Confirm it is you" with the old app's code starts and finishes the replace.

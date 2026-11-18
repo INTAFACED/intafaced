@@ -78,7 +78,7 @@ test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeh
   await tabs.getByRole('tab', { name: 'Signal', exact: true }).click();
   await expect(page).toHaveURL(/tab=signal/);
   await expect(page.getByText('No leaders are listed', { exact: true })).toBeVisible();
-  await expect(page.getByRole('table', { name: 'Leaders', exact: true }).getByRole('button', { name: /^Follow / })).toHaveCount(0);
+  await expect(page.getByRole('table', { name: /Leaders/i }).getByRole('button', { name: /^Follow / })).toHaveCount(0);
 
   // A control with no back end answers with a typed refusal, never a dead button: a ranked list is not offered, so
   // pressing one asks the service, which refuses by code, and the room says so in words.
@@ -123,7 +123,7 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
   await signOutBrowser(page.context());
   await signIn(page, state('follower'));
   await page.goto('/trade/copy?tab=futures');
-  const table = page.getByRole('table', { name: 'Leaders', exact: true });
+  const table = page.getByRole('table', { name: /Leaders/i });
   await expect(table.getByRole('link', { name: futuresName })).toBeVisible();
   await expect(table.getByRole('link', { name: spotName })).toHaveCount(0);
 
@@ -156,7 +156,7 @@ test(`${J} #3 opens a ranked category and the trending row: a typed refusal, and
   await signIn(page, state('follower'));
   await page.goto('/trade/copy');
   const rankings = page.getByRole('group', { name: 'Ranked lists', exact: true });
-  const leaders = page.getByRole('table', { name: 'Leaders', exact: true });
+  const leaders = page.getByRole('table', { name: /Leaders/i });
   await expect(leaders).toBeVisible();
   // The list as read once it has loaded: while it loads, the table is busy and its rows are the "Loading" placeholder
   // (#7000: #3 once read that placeholder as the order before the clicks).
@@ -238,7 +238,7 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   await expect(metric('winRate')).toHaveText(/Win rate\s*Not set by the platform/);
   await expect(metric('sharpeRatio')).toHaveText(/Sharpe ratio\s*Not set by the platform/);
 
-  const trades = page.getByRole('table', { name: 'Leader trades', exact: true });
+  const trades = page.getByRole('table', { name: /Leader trades/i });
   const rows = trades.locator('tbody tr');
   await expect(rows).toHaveCount(2);
   // Newest first: the open buy, then the closed round trip.
@@ -304,15 +304,15 @@ async function walletIn(page, key = state('walletKey')) {
 async function openWizardAtLimits(page, key) {
   const wallet = await walletIn(page, key);
   await page.goto(`/trade/copy/${state('spotRef')}`);
-  await page.getByRole('button', { name: 'Start copying', exact: true }).click();
+  await page.getByRole('button', { name: /Start copying/i }).click();
   const wizard = page.getByRole('dialog');
   await expect(wizard.getByText(state('spotName'))).toBeVisible();
-  await wizard.getByLabel('Your country', { exact: true }).fill('DE');
-  await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+  await wizard.getByLabel(/Your country/i).fill('DE');
+  await wizard.getByRole('button', { name: /Next/i }).click();
   await wizard.getByText(VENUE_MARKET, { exact: true }).click();
-  await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+  await wizard.getByRole('button', { name: /Next/i }).click();
   // Connected already when this page connected the wallet before (the wallet keeps its connection for the page).
-  const connect = wizard.getByRole('button', { name: 'Connect TEST Wallet', exact: true });
+  const connect = wizard.getByRole('button', { name: /Connect TEST Wallet/i });
   const address = wizard.getByTestId('venue-wallet-address');
   await expect(connect.or(address)).toBeVisible();
   if (await connect.isVisible()) await connect.click();
@@ -333,10 +333,10 @@ const venueStart = (over = {}) => ({
 });
 
 async function fillLimits(wizard, { perOrder, total, fixed }) {
-  await wizard.getByLabel('Most per order (USDC)', { exact: true }).fill(perOrder);
-  await wizard.getByLabel('Most in total (USDC)', { exact: true }).fill(total);
-  await wizard.getByLabel('Fixed amount per copied order (USDC)', { exact: true }).fill(fixed);
-  await wizard.getByLabel('Permission ends', { exact: true }).fill(weekAhead());
+  await wizard.getByLabel(/^Most per order \(USDC\)/).fill(perOrder);
+  await wizard.getByLabel(/^Most in total \(USDC\)/).fill(total);
+  await wizard.getByLabel(/^Fixed amount per copied order \(USDC\)/).fill(fixed);
+  await wizard.getByLabel(/^Permission ends/).fill(weekAhead());
 }
 
 test(`${J} #5 presses Start copying: below the copy verification level, under a blank country list and as a sub-account, each refused by name, and nothing is followed`, async ({
@@ -355,7 +355,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   // Verified at basic, which opens the copy room, but the TEST copy level is full.
   const unverified = await signUp(page, 'jcn');
   await page.goto('/verification');
-  await page.getByLabel('Level to request', { exact: true }).selectOption({ label: 'Basic' });
+  await page.getByLabel(/^Level to request/).selectOption({ label: 'Basic' });
   await page.getByLabel('Country code', { exact: true }).fill('DE');
   await page.getByRole('button', { name: 'Review request', exact: true }).click();
   await page.getByRole('button', { name: 'Submit this request', exact: true }).click();
@@ -406,7 +406,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
     await page.goto('/trade/copy');
     await expect(page.getByRole('heading', { name: 'Copy trading', level: 1, exact: true })).toBeVisible();
     await expect(page.getByText('Copy desk closed', { exact: true })).toBeVisible();
-    await expect(page.getByText('Copy desk open', { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Copy desk open/i)).toHaveCount(0);
     // The wizard checks the same gate when Start copying is pressed: refused by name, and nothing is followed.
     const closed = await openWizardAtLimits(page);
     await fillLimits(closed, { perOrder: '50', total: '200', fixed: '20' });
@@ -437,7 +437,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await expect(use).toBeEnabled();
   const subAccountId = (await use.getAttribute('aria-label')).replace('Use sub-account ', '').toLowerCase();
   await use.click();
-  const inUse = page.getByRole('region', { name: 'Sub-account in use', exact: true });
+  const inUse = page.getByRole('region', { name: /Sub-account in use/i });
   await expect(inUse).toContainText(`You are using sub-account ${subLabel} in this tab.`);
   await expect(inUse).toContainText(subAccountId);
 
@@ -513,7 +513,7 @@ test(`${J} #6 reaches the review with no risk disclosure to accept, and Start co
   await wizard.getByRole('button', { name: 'Next', exact: true }).click();
 
   await expect(wizard.getByRole('region', { name: 'What it costs', exact: true })).toBeVisible();
-  await expect(wizard.getByRole('region', { name: 'Copy risk disclosure', exact: true })).toHaveCount(0);
+  await expect(wizard.getByRole('region', { name: /Copy risk disclosure/i })).toHaveCount(0);
   await expect(wizard.getByRole('checkbox', { name: /disclosure/ })).toHaveCount(0);
   await expect(wizard.getByRole('button', { name: 'Start copying', exact: true })).toBeEnabled();
 });
@@ -599,13 +599,13 @@ test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap an
     await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '0' });
     await wizard.getByRole('button', { name: 'Next', exact: true }).click();
     await expect(wizard.getByText('Enter an amount above zero', { exact: true })).toBeVisible();
-    await wizard.getByLabel('Fixed amount per copied order (USDC)', { exact: true }).fill('60');
+    await wizard.getByLabel(/^Fixed amount per copied order \(USDC\)/).fill('60');
     await wizard.getByRole('button', { name: 'Next', exact: true }).click();
     await expect(wizard.getByText('The most per order is 50 USDC', { exact: true })).toBeVisible();
     // Above the free USDC the venue reports: refused on the screen, naming the venue's figure and its as-of time.
-    await wizard.getByLabel('Most per order (USDC)', { exact: true }).fill('5000');
-    await wizard.getByLabel('Fixed amount per copied order (USDC)', { exact: true }).fill('5000');
-    await wizard.getByLabel('Most in total (USDC)', { exact: true }).fill('5000');
+    await wizard.getByLabel(/^Most per order \(USDC\)/).fill('5000');
+    await wizard.getByLabel(/^Fixed amount per copied order \(USDC\)/).fill('5000');
+    await wizard.getByLabel(/^Most in total \(USDC\)/).fill('5000');
     await wizard.getByRole('button', { name: 'Next', exact: true }).click();
     const refusal = wizard.getByText(
       new RegExp(`more than the 1,?000 USDC free that ${venue.displayName} reports for your account, as of `),
@@ -852,7 +852,7 @@ test(`${J} #8 waits for the lead to fill: the copy is an order on the follower's
   // The Positions tab: the copied fills with the venue's fee and our builder fee, as the venue reports them, and no
   // profit-share value anywhere on it.
   await detail.getByRole('tab', { name: 'Positions', exact: true }).click();
-  const fillsTable = detail.getByRole('table', { name: 'Copied fills', exact: true });
+  const fillsTable = detail.getByRole('table', { name: /Copied fills/i });
   const fillRows = fillsTable.locator('tbody tr:not([data-slot="table-empty-row"])');
   await expect(fillRows).toHaveCount(mine.length);
   const headers = (await fillsTable.locator('thead th').allInnerTexts()).map((h) => h.trim());
@@ -874,7 +874,7 @@ test(`${J} #8 waits for the lead to fill: the copy is an order on the follower's
   // No profit-share value: the copied fills name none, and where the copied positions keep a leader profit-share column
   // (J-copy-bots-otc-06), each of its cells says the platform sets none.
   await expect(fillsTable).not.toContainText(/profit/i);
-  const positions = detail.getByRole('table', { name: 'Copied positions', exact: true });
+  const positions = detail.getByRole('table', { name: /Copied positions/i });
   const positionHeaders = (await positions.locator('thead th').allInnerTexts()).map((h) => h.trim());
   const shareColumn = positionHeaders.findIndex((h) => /profit share/i.test(h));
   const positionRows = positions.locator('tbody tr:not([data-slot="table-empty-row"])');

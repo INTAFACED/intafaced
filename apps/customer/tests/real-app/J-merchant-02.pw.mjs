@@ -33,12 +33,12 @@ test(`${J} part of #2 sending the verification reference and INTAFACED's decisio
   await verifiedBusiness(page, owner, merchantId);
 
   await page.goto('/pay/onboarding/verification');
-  const history = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Verification history', exact: true }) });
+  const history = page.locator('section').filter({ has: page.getByRole('heading', { name: /Verification history/i }) });
   await expect(history).toContainText('In review to Approved');
   await expect(history).toContainText('Decided by INTAFACED');
   await expect(history).toContainText('Not sent to In review');
   await expect(history).toContainText('Sent by you');
-  await expect(history.getByText('Nothing sent yet', { exact: true })).toHaveCount(0);
+  await expect(history.getByText(/Nothing sent yet/i)).toHaveCount(0);
   expect(refused).toEqual([]);
 });
 
@@ -52,7 +52,7 @@ test(`${J} part of #1 the owner reads the second-approval rule and turns it on a
   await signInWithCode(page, owner, '/pay/settings');
   const refused = refusedPayCalls(page);
 
-  const rule = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Second approval', level: 2, exact: true }) });
+  const rule = page.locator('section').filter({ has: page.getByRole('heading', { name: /Second approval/i, level: 2 }) });
   await expect(rule.getByRole('status')).toHaveText('Second approval is off.');
   await expect(rule).not.toContainText('We can’t read this setting.');
   await rule.getByRole('button', { name: 'Turn on second approval', exact: true }).click();
@@ -86,7 +86,7 @@ test(`${J} part of #1 a new owner adds the business address before verification,
   const review = page.getByRole('dialog');
   await expect(review).toContainText('1 Test Street, Testville, T3ST 1NG, GB');
   await review.getByRole('button', { name: 'Save changes', exact: true }).click();
-  const history = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Change history', level: 2, exact: true }) });
+  const history = page.locator('section').filter({ has: page.getByRole('heading', { name: /Change history/i, level: 2 }) });
   await expect(history.getByRole('listitem')).toHaveCount(1);
   await expect(history).toContainText('Add our address');
 
@@ -158,9 +158,7 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     };
     expect((await payCall('merchant.starterFee')).data).toEqual({ starterFee: null });
     await fillBusiness();
-    await expect(
-      page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee', { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText(/Opening new accounts isn’t possible here\. INTAFACED has not set the starting fee/)).toBeVisible();
     await expect(createButton).toBeDisabled();
     // A TEST fee the caller names is no way round it: the service opens accounts only at the fee it publishes.
     const create = await payCall('merchant.create', { pricing: { feeBps: 250 } });
@@ -171,10 +169,8 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     page.once('dialog', (dialog) => dialog.accept());
     await page.reload();
     await expectBusinessDraft();
-    await expect(
-      page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee', { exact: true }),
-    ).toBeVisible();
-    await expect(page.getByText('Your merchant account exists.', { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Opening new accounts isn’t possible here\. INTAFACED has not set the starting fee/)).toBeVisible();
+    await expect(page.getByText(/Your merchant account exists\./i)).toHaveCount(0);
   } finally {
     payStarterFee(true);
   }
@@ -194,7 +190,7 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
 
   // The stack's TEST starting fee published again: the same step opens the account.
   await fillBusiness();
-  await expect(page.getByText('Opening new accounts isn’t possible here', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Opening new accounts isn’t possible here/i)).toHaveCount(0);
   const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
   await createButton.click();
   const review = page.getByRole('dialog');
@@ -243,14 +239,14 @@ test(`${J} part of #6 the owner reads the published merchant terms and accepts t
     'href',
     'https://terms.example/TEST-merchant-terms-1',
   );
-  await expect(page.getByText('No terms of service to accept', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/No terms of service to accept/i)).toHaveCount(0);
   await terms.getByRole('button', { name: 'Accept the terms', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Accept the terms', exact: true }).click();
   await expect(terms.getByRole('status')).toContainText('Version TEST-merchant-terms-1 accepted.');
   await page.reload();
   await expect(terms.getByRole('status')).toContainText('Version TEST-merchant-terms-1 accepted.');
   await page.goto('/pay/onboarding');
-  await expect(page.getByText('Accept the terms of service (step 3).', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Accept the terms of service \(step 3\)\./i)).toHaveCount(0);
   expect(refused).toEqual([]);
 });
 
@@ -259,10 +255,10 @@ async function startApplication(page, typeLabel, country = 'DE') {
   await page.goto('/pay/onboarding/verification');
   const app = page
     .locator('section[data-testid="pay-section"]')
-    .filter({ has: page.getByRole('heading', { name: 'Business application', exact: true }) });
-  await app.getByLabel('Legal entity type *', { exact: true }).selectOption({ label: typeLabel });
-  await app.getByLabel('Country the business is registered in *', { exact: true }).selectOption(country);
-  await app.getByRole('button', { name: 'Start the application', exact: true }).click();
+    .filter({ has: page.getByRole('heading', { name: /Business application/i }) });
+  await app.getByLabel(/Legal entity type \*/i).selectOption({ label: typeLabel });
+  await app.getByLabel(/Country the business is registered in \*/i).selectOption(country);
+  await app.getByRole('button', { name: /Start the application/i }).click();
   await expect(app.getByText('Pending', { exact: true })).toBeVisible();
   return app;
 }
@@ -297,7 +293,7 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
   // The stack's TEST due date (PAY_KYB_APPLICATION_DUE_DAYS=30) counts from the start.
   expect(Date.parse(view.dueAt) - Date.parse(view.startedAt)).toBe(30 * DAY_MS);
   await expect(dueBy(app)).toHaveAttribute('datetime', view.dueAt);
-  const needed = app.getByRole('list', { name: 'Still needed', exact: true });
+  const needed = app.getByRole('list', { name: /Still needed/i });
   await expect(needed.getByRole('listitem')).toHaveText([
     'Company details',
     'People behind the business',
@@ -344,7 +340,7 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
   // The type changes to a private company: the application returns to Pending, and what the new type needs is listed
   // again, each part as svc-pay names it, under the same due date.
   const change = app.getByRole('region', { name: 'Change the legal entity type', exact: true });
-  await change.getByLabel('Legal entity type *', { exact: true }).selectOption({ label: 'Private company' });
+  await change.getByLabel(/^Legal entity type \*/).selectOption({ label: 'Private company' });
   const changed = reply('changeType');
   await change.getByRole('button', { name: 'Change type', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Change type', exact: true }).click();
@@ -462,7 +458,7 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   await page.getByRole('dialog').getByRole('button', { name: 'Send application for review', exact: true }).click();
   await expect(app.getByText('Sent for review', { exact: true })).toBeVisible();
   await expect(app).toContainText('INTAFACED is reviewing your application');
-  await expect(page.getByText('INTAFACED is reviewing it', { exact: true })).toBeVisible();
+  await expect(page.getByText(/INTAFACED is reviewing it/)).toBeVisible();
   await expect(app.getByRole('region', { name: 'Documents', exact: true }).locator('input[type=file]')).toHaveCount(0);
 
   // INTAFACED's compliance reviewer opens each file in the founder console and gives it a verdict.
@@ -477,7 +473,7 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   const tab = await opened;
   await expect.poll(() => tab.url()).toMatch(/^blob:/);
   await review.getByRole('button', { name: 'Mark Test proof of identity Verified', exact: true }).click();
-  await expect(review.getByRole('button', { name: 'Mark Test proof of identity Verified', exact: true })).toHaveCount(0);
+  await expect(review.getByRole('button', { name: /Mark Test proof of identity Verified/i })).toHaveCount(0);
   await expect(review.getByRole('row', { name: /Test proof of identity/ })).toContainText('Reviewed by');
   const addressRow = review.getByRole('row', { name: /Test proof of address/ });
   await expect(addressRow.getByRole('button', { name: 'Mark Test proof of address Invalid', exact: true })).toBeDisabled();
@@ -547,12 +543,12 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   expect(before.chosen).toBeNull();
   const section = page
     .locator('section[data-testid="pay-section"]')
-    .filter({ has: page.getByRole('heading', { name: 'Business category', exact: true }) });
-  const all = section.getByRole('list', { name: 'Every category', exact: true });
+    .filter({ has: page.getByRole('heading', { name: /Business category/i }) });
+  const all = section.getByRole('list', { name: /Every category/i });
   await expect(section.getByTestId('category-no-rule')).toBeVisible();
   await expect(section).toContainText('No rule set');
   await expect(all).toHaveCount(0);
-  await expect(section.getByLabel('Your business category', { exact: true })).toHaveCount(0);
+  await expect(section.getByLabel(/Your business category/i)).toHaveCount(0);
 
   // Founder A adds a high-risk (restricted) TEST category; founder B approves exactly that change in their own sign-in.
   const tag = Date.now().toString(36);
@@ -629,7 +625,7 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   await expect(item).toContainText('5% of payments, held for 90 days');
   await expect(item).toContainText('TEST gaming licence');
   await expect(section).toContainText('You haven’t chosen a category yet');
-  await section.getByLabel('Your business category', { exact: true }).selectOption({ label: LABEL });
+  await section.getByLabel(/^Your business category/).selectOption({ label: LABEL });
   await section.getByRole('button', { name: 'Save category', exact: true }).click();
   await expect(section.getByText('Your category was saved.', { exact: true })).toBeVisible();
   const chosen = section.getByTestId('category-chosen');
@@ -653,7 +649,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   const merchantId = await openBusiness(page, owner, 'TEST Activation Ltd');
   const refused = refusedPayCalls(page);
   const activation = page.getByTestId('pp-activation');
-  const history = page.getByRole('list', { name: 'Verification history', exact: true });
+  const history = page.getByRole('list', { name: /Verification history/i });
   const entries = async () =>
     history.getByRole('listitem').evaluateAll((items) =>
       items.map((li) => ({
@@ -765,7 +761,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   await expect(activation).toContainText('Unconfirmed');
   await expect(activation).not.toContainText('Confirmed');
   await expect(page.getByText(NO_RECORD, { exact: false })).toBeVisible();
-  await expect(page.getByText('It is not a screening result.', { exact: true })).toBeVisible();
+  await expect(page.getByText(/It is not a screening result\./)).toBeVisible();
   await screeningDisclaimed();
   await noClearance();
 
@@ -806,7 +802,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   const founder = await founderSignIn(desk, 'a');
   const founderId = founder.userId.toLowerCase();
   await desk.goto(`${ADMIN}/accounts`, { waitUntil: 'load' });
-  await desk.getByLabel('Account area', { exact: true }).selectOption('merchant');
+  await desk.getByLabel(/^Account area/).selectOption('merchant');
   await desk.getByLabel('Merchant ID', { exact: true }).fill(merchantId);
   await desk.getByRole('button', { name: 'Inspect account', exact: true }).click();
   await expect(desk.getByRole('heading', { name: 'Access permitted', exact: true })).toBeVisible({ timeout: 60_000 });
@@ -822,7 +818,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   await expect(controlRows.first()).toContainText('refused');
   const control = async (button, action, reason, before) => {
     const answered = desk.waitForResponse((r) => new URL(r.url()).pathname === '/api/accounts' && r.request().method() === 'POST');
-    await desk.getByLabel('Reason', { exact: true }).fill(reason);
+    await desk.getByLabel(/^Reason/).fill(reason);
     await desk.getByLabel(/I reviewed this account/).check();
     await desk.getByRole('button', { name: button }).click();
     const res = await answered;
@@ -901,7 +897,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   await expect(history.getByRole('listitem')).toHaveCount(2);
   expect(await entries()).toEqual(decided);
   expect(await serviceHistory()).toEqual(decidedRows);
-  await expect(page.getByText('It is not a screening result.', { exact: true })).toBeVisible();
+  await expect(page.getByText(/It is not a screening result\./)).toBeVisible();
   await noClearance();
   expect(refused).toEqual([]);
 });

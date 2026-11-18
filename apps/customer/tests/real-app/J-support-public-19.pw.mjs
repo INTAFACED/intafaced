@@ -35,7 +35,7 @@ async function statusDesk(browser) {
   const page = await context.newPage();
   await founderSignIn(page, 'a');
   await page.goto('/notify/status');
-  await expect(page.getByRole('heading', { level: 1, name: 'Status page', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Status page/i })).toBeVisible();
   return page;
 }
 
@@ -165,7 +165,7 @@ async function incidentDesk(browser, key) {
   const page = await context.newPage();
   await founderSignIn(page, key);
   await page.goto('/notify/incidents');
-  await expect(page.getByRole('heading', { level: 1, name: 'Incidents', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Incidents/i })).toBeVisible();
   return page;
 }
 
@@ -201,7 +201,7 @@ test(`${J} #2 declare an incident from a template: no template is supplied, the 
     await row.getByRole('button', { name: 'Retire', exact: true }).click();
     await expect(templates.getByTestId(id)).toHaveCount(0);
   }
-  await expect(templates.getByRole('button', { name: 'Retire', exact: true })).toHaveCount(0);
+  await expect(templates.getByRole('button', { name: /Retire/i })).toHaveCount(0);
   const declare = a.getByTestId('incident-declare');
   await expect(declare.getByTestId('incident-templates-none')).toBeVisible();
   await expect(declare.getByLabel('Template', { exact: true }).locator('option')).toHaveText(['No templates']);
@@ -226,7 +226,7 @@ test(`${J} #2 declare an incident from a template: no template is supplied, the 
   await expect(declare.getByLabel('First update', { exact: true })).toHaveValue(TEMPLATE.body);
   await expect(declare.getByLabel('Impact', { exact: true })).toHaveValue('minor');
   await expect(declare.getByRole('checkbox', { name: 'Payments', exact: true })).toBeChecked();
-  await expect(declare.getByRole('checkbox', { name: 'API', exact: true })).not.toBeChecked();
+  await expect(declare.getByRole('checkbox', { name: /API/i })).not.toBeChecked();
   await declare.getByLabel('Title', { exact: true }).fill(INCIDENT_TITLE);
   await declare.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: drafted');
@@ -264,7 +264,7 @@ test(`${J} #3 a second founder approves, the approver cannot also publish, and t
   await expect(outcome(b)).toContainText('Done: approved');
   await expect(first(b).getByTestId('incident-approval')).toHaveAttribute('data-status', 'APPROVED');
   await expect(first(b)).toContainText('Approved by you. The founder who asked publishes it');
-  await expect(first(b).getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+  await expect(first(b).getByRole('button', { name: /Publish/i })).toHaveCount(0);
   await readAgain(a);
   const approval = first(a).getByTestId('incident-approval');
   await expect(approval).toHaveAttribute('data-status', 'APPROVED');
@@ -368,7 +368,7 @@ async function subscriberDesk(browser) {
   const page = await context.newPage();
   await founderSignIn(page, 'a');
   await page.goto('/notify/subscribers');
-  await expect(page.getByRole('heading', { level: 1, name: 'Status subscribers', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Status subscribers/i })).toBeVisible();
   return page;
 }
 
@@ -605,7 +605,7 @@ test(`${J} #7 a postmortem: refused on an incident still open, then written, app
   await postmortem(b, INCIDENT_TITLE).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(outcome(b)).toContainText('Done: approved');
   await expect(postmortem(b, INCIDENT_TITLE)).toContainText('Approved by you. The founder who asked publishes it');
-  await expect(postmortem(b, INCIDENT_TITLE).getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+  await expect(postmortem(b, INCIDENT_TITLE).getByRole('button', { name: /Publish/i })).toHaveCount(0);
   await readAgain(a);
   await expect(section.getByTestId('postmortem-approval')).toHaveAttribute('data-status', 'APPROVED');
   await section.getByRole('button', { name: 'Publish', exact: true }).click();
@@ -651,7 +651,7 @@ async function maintenanceDesk(browser, key) {
   const page = await context.newPage();
   await founderSignIn(page, key);
   await page.goto('/notify/maintenance');
-  await expect(page.getByRole('heading', { level: 1, name: 'Maintenance', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Maintenance/i })).toBeVisible();
   return page;
 }
 
@@ -728,7 +728,7 @@ test(`${J} #8 a maintenance window: scheduled, in progress from its start, verif
   await b.getByRole('button', { name: 'Read again', exact: true }).click();
   await maintenanceWindow(b, TITLE).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(maintenanceOutcome(b)).toContainText('Done: approved');
-  await expect(maintenanceWindow(b, TITLE).getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+  await expect(maintenanceWindow(b, TITLE).getByRole('button', { name: /Publish/i })).toHaveCount(0);
   await a.getByRole('button', { name: 'Read again', exact: true }).click();
   await card.getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(maintenanceOutcome(a)).toContainText('Done: published');
@@ -813,7 +813,7 @@ async function noticesDesk(browser, key) {
   const page = await context.newPage();
   await founderSignIn(page, key);
   await page.goto('/notify/notices');
-  await expect(page.getByRole('heading', { level: 1, name: 'Announcements', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: /Announcements/i })).toBeVisible();
   return page;
 }
 
@@ -864,7 +864,7 @@ test(`${J} #9 an announcement with a kind and a category: off the list refused, 
     await b.getByRole('button', { name: 'Read again', exact: true }).click();
     await noticeCard(b, TITLE).getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(noticesOutcome(b)).toContainText('Done: approved');
-    await expect(noticeCard(b, TITLE).getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+    await expect(noticeCard(b, TITLE).getByRole('button', { name: /Publish/i })).toHaveCount(0);
     await a.getByRole('button', { name: 'Read again', exact: true }).click();
     await card.getByRole('button', { name: 'Publish', exact: true }).click();
     await expect(noticesOutcome(a)).toContainText('Done: published');

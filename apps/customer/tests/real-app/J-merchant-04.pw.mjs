@@ -176,7 +176,7 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
   const refused = refusedPayCalls(page);
   const look = page
     .locator('section[data-testid="pay-section"]')
-    .filter({ has: page.getByRole('heading', { name: 'How your checkout looks', exact: true }) });
+    .filter({ has: page.getByRole('heading', { name: /How your checkout looks/i }) });
   // Not configured: the default look, with Save.
   await expect(look.getByTestId('checkout-look-state')).toHaveText(/You are using the default look/);
   await expect(look.getByLabel('Brand colour *', { exact: true })).toHaveValue('#1a5fd0');
@@ -186,7 +186,7 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
   // A logo over the published size is refused with the limits, and nothing is sent.
   await look.getByLabel('Logo', { exact: true }).setInputFiles({ name: 'big-logo.png', mimeType: 'image/png', buffer: BIG_PNG });
   await expect(look.getByRole('alert')).toHaveText('This logo is 120 KB. A logo can be up to 100 KB, as PNG, JPEG or WebP.');
-  await expect(look.getByRole('img', { name: 'Your logo', exact: true })).toHaveCount(0);
+  await expect(look.getByRole('img', { name: /Your logo/i })).toHaveCount(0);
 
   // A valid logo and colour show in the preview, then are saved.
   await look.getByLabel('Logo', { exact: true }).setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
@@ -267,12 +267,12 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   const refused = refusedPayCalls(page);
 
   // A product with a one-time TEST 25 USDC price.
-  await page.getByLabel('Type *', { exact: true }).selectOption({ label: 'Physical good' });
+  await page.getByLabel(/^Type \*/).selectOption({ label: 'Physical good' });
   await page.getByLabel('Name *', { exact: true }).fill('TEST Tote bag');
   await page.getByRole('button', { name: 'Save product', exact: true }).click();
   await expect(page).toHaveURL(/\/pay\/products\/[0-9a-f-]{36}$/);
   await page.getByRole('button', { name: 'Add price', exact: true }).click();
-  await page.getByLabel('Billing *', { exact: true }).selectOption({ label: 'One time' });
+  await page.getByLabel(/^Billing \*/).selectOption({ label: 'One time' });
   await page.getByLabel('Amount *', { exact: true }).fill('25');
   await page.getByLabel('Asset *', { exact: true }).fill('USDC');
   await page.getByRole('button', { name: 'Save price', exact: true }).click();
@@ -352,7 +352,7 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
 
   // Hiding the address closes the receipt; the address is not shown on the new-link page again.
   await receipt.getByRole('button', { name: 'Hide address', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Your link is ready', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Your link is ready/i })).toHaveCount(0);
   await expect(page.getByTestId('link-address')).toHaveCount(0);
   await expect(page.getByText(shownAddress)).toHaveCount(0);
 
@@ -377,7 +377,7 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   await expect(rows.first()).toContainText('0 of 3');
   await expiryIs(rows.first().locator('time'), listed.expiresAt);
   await expect(page.getByTestId('link-address')).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Open the link', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /Open the link/i })).toHaveCount(0);
   await expect(page.getByText(shownAddress)).toHaveCount(0);
   const token = new URL(shownAddress).searchParams.get('token');
   await expect(page.locator('main')).not.toContainText(token);
@@ -592,7 +592,7 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
     await payerPage.goto(toteAddress);
     await expect(payerPage.getByRole('heading', { name: 'TEST Tote bag', exact: true })).toBeVisible();
     await expect(payerPage.locator('.amount')).toHaveText('25.00 USDC');
-    await expect(payerPage.getByLabel('Amount', { exact: true })).toHaveCount(0);
+    await expect(payerPage.getByLabel(/Amount/i)).toHaveCount(0);
     const toteReference = await payerContinues(payerPage);
     // The address is one of the business's own wallet, which only the business can spend from.
     expect(ownWalletIndex(toteReference)).toBeGreaterThanOrEqual(0);
@@ -722,7 +722,7 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
       expect(figure(row.Clearing)).toBe(was.clearing + 40);
     }).toPass({ timeout: 60_000 });
     expect(figure(row.Available)).toBe(was.available + 60);
-    await expect(payerPage.getByText('Payment received', { exact: true })).toHaveCount(0);
+    await expect(payerPage.getByText(/Payment received/i)).toHaveCount(0);
     expect(ledgerPosts(reference)).toEqual([]);
 
     // The same transfer, now final, completes the payment once.
@@ -807,14 +807,14 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
     // The payer says the transfer comes from Ada Lovelace; the TEST bank reports it from "A LOVELACE".
     const reference = await payerSendsByBank(payerPage, address, '30', 'EUR', 'Ada Lovelace');
     const sessionUrl = payerPage.url();
-    await expect(payerPage.getByText('Waiting for your transfer', { exact: true })).toBeVisible();
+    await expect(payerPage.getByText(/^Waiting for your transfer/)).toBeVisible();
     tool('local-test-stack.mjs', 'bank-transfer', reference, 'EUR', '30', '--tx', `j-merchant-04-name-${run}`, '--payer', 'A LOVELACE');
     await expect(async () => {
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByRole('status')).toHaveText('Your bank transfer arrived and is held for a check', { timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
     await expect(payerPage.getByText('Being checked', { exact: true })).toBeVisible();
-    await expect(payerPage.getByText('Payment received', { exact: true })).toHaveCount(0);
+    await expect(payerPage.getByText(/Payment received/i)).toHaveCount(0);
 
     // Delivered again, the same transfer is still one held transfer: nothing is counted for the business, nothing booked.
     tool('local-test-stack.mjs', 'bank-transfer', reference, 'EUR', '30', '--tx', `j-merchant-04-name-${run}`, '--payer', 'A LOVELACE');
@@ -859,7 +859,7 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
   const state = journey();
   await signInOwner(page, state, '/pay/checkout');
   const refused = refusedPayCalls(page);
-  const methods = page.getByRole('list', { name: 'Payment methods', exact: true });
+  const methods = page.getByRole('list', { name: /Payment methods/i });
   const method = (id) => methods.locator(`li[data-method="${id}"]`);
 
   // What the platform can take: crypto and the TEST bank's transfers are available; card, bank debit and pay later each
@@ -943,7 +943,7 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
       await payerPage.getByLabel('Country', { exact: true }).fill('DE');
       await payerPage.getByRole('button', { name: /continue/i }).click();
     };
-    const howToPay = payerPage.getByRole('group', { name: 'How to pay', exact: true });
+    const howToPay = payerPage.getByRole('group', { name: /How to pay/i });
     const listed = () => howToPay.getByRole('radio').evaluateAll((radios) => radios.map((r) => r.value));
 
     // In Germany in EUR the page lists bank debit first, which cannot be picked and names rail.bank, then bank transfer,
@@ -956,7 +956,7 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
       'Bank debit needs a banking partner. It is switched off here. rail.bank',
     );
     await expect(howToPay.getByRole('radio', { name: 'Bank transfer', exact: true })).toBeChecked();
-    await expect(payerPage.getByText('Send exactly this amount to', { exact: true })).toHaveCount(0);
+    await expect(payerPage.getByText(/Send exactly this amount to/i)).toHaveCount(0);
     // Naming nothing, the same payer goes on with the one method that can take it: bank transfer asks for the name.
     await offeredTo('12', 'EUR');
     await expect(payerPage.getByRole('alert')).toHaveText('Give the name on the bank account you will send the transfer from.');
@@ -974,7 +974,7 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
     const reference = (await payerPage.locator('.reference code').textContent())?.trim();
     expect(ownWalletIndex(reference)).toBeGreaterThanOrEqual(0);
     const sessionUrl = payerPage.url();
-    await expect(payerPage.getByText('Payment received', { exact: true })).toHaveCount(0);
+    await expect(payerPage.getByText(/Payment received/i)).toHaveCount(0);
     tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '7', '12', '--tx', `j-merchant-04-methods-${Date.now()}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);

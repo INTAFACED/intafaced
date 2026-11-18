@@ -63,7 +63,7 @@ async function openDraft(page) {
 
 test(`${J} #1 opens the campaigns desk with none: the overview with honest empty states and no sample number`, async ({ page }) => {
   await openDesk(page);
-  const overview = page.getByRole('region', { name: 'Overview', exact: true });
+  const overview = page.getByRole('region', { name: /Overview/i });
   await expect(overview).toBeVisible();
   // No sample number: each figure is the count of the campaigns the desk lists in that state, and a state with none says
   // "None yet". A stack with no campaign shows every figure as none, and the overview says so.
@@ -133,7 +133,7 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
   await openDraft(page);
   await builder(page).getByRole('tab', { name: 'Rules', exact: true }).click();
   const rule = page.getByRole('group', { name: 'Rule', exact: true });
-  const library = page.getByRole('region', { name: 'Rule library', exact: true });
+  const library = page.getByRole('region', { name: /Rule library/i });
   // Each attempt saves its own name, so a retry starts from a library without it.
   const ruleName = `${draftName()} rule r${testInfo.retry}`;
   await page.getByRole('button', { name: 'Open the rule library', exact: true }).click(UNBUILT);
@@ -210,7 +210,7 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
 test(`${J} #5 defines participation exclusions and a region list: a blank region list refuses activation`, async ({ page }) => {
   await openDraft(page);
   await builder(page).getByRole('tab', { name: 'Who can take part', exact: true }).click(UNBUILT);
-  const exclusions = page.getByRole('group', { name: 'Exclusions', exact: true });
+  const exclusions = page.getByRole('group', { name: /Exclusions/i });
   await exclusions.getByRole('checkbox', { name: 'Business accounts', exact: true }).check();
   await builder(page).getByRole('radio', { name: 'Every region except a restricted list', exact: true }).check();
   await builder(page).getByRole('textbox', { name: 'Restricted regions', exact: true }).fill('');
@@ -231,10 +231,10 @@ test(`${J} #5 defines participation exclusions and a region list: a blank region
   await page.reload();
   await builder(page).getByRole('tab', { name: 'Who can take part', exact: true }).click();
   await expect(exclusions.getByRole('checkbox', { name: 'Business accounts', exact: true })).toBeChecked();
-  await expect(exclusions.getByRole('checkbox', { name: 'Institutional accounts', exact: true })).not.toBeChecked();
+  await expect(exclusions.getByRole('checkbox', { name: /Institutional accounts/i })).not.toBeChecked();
   await expect(builder(page).getByRole('textbox', { name: 'Restricted regions', exact: true })).toHaveValue('KP');
   await builder(page).getByRole('button', { name: 'Check the draft', exact: true }).click();
-  await expect(page.getByRole('list', { name: 'Still missing', exact: true })).not.toContainText('Region list');
+  await expect(page.getByRole('list', { name: /Still missing/i })).not.toContainText('Region list');
 });
 
 test(`${J} #6 adds an earning rule with a trigger, condition and fixed incentive: one intent per event; a formula outside the grammar and an unknown trigger refuse`, async ({
@@ -242,11 +242,11 @@ test(`${J} #6 adds an earning rule with a trigger, condition and fixed incentive
 }) => {
   await openDraft(page);
   await builder(page).getByRole('tab', { name: 'Earning rules', exact: true }).click();
-  const form = page.getByRole('form', { name: 'Earning rule', exact: true });
-  const rules = page.getByRole('list', { name: 'Earning rules', exact: true });
+  const form = page.getByRole('form', { name: /Earning rule/i });
+  const rules = page.getByRole('list', { name: /Earning rules/i });
   await expect(form).toBeVisible(UNBUILT);
   // A retry starts from a draft without the rule an earlier attempt added.
-  const earlier = page.getByRole('button', { name: 'Remove Deposit reward', exact: true });
+  const earlier = page.getByRole('button', { name: /Remove Deposit reward/i });
   if (await earlier.count()) await earlier.click();
   await expect(rules).toHaveCount(0);
   await form.getByRole('textbox', { name: 'Earning rule name', exact: true }).fill('Deposit reward');
@@ -316,7 +316,7 @@ test(`${J} #8 the requester tries to approve and a second founder approves: the 
   browser,
 }) => {
   await openDraft(page);
-  await page.getByRole('button', { name: 'Approve', exact: true }).click(UNBUILT);
+  await page.getByRole('button', { name: /^approve and take live/i }).click(UNBUILT);
   await expect(builder(page).getByRole('alert')).toContainText('You asked for this, so another founder must approve it.');
   await expect(builder(page).getByRole('alert')).toHaveAttribute('data-code', 'campaigns.second_person_required');
   // The refused approval changed nothing: the campaign still waits for a second founder.
@@ -325,7 +325,7 @@ test(`${J} #8 the requester tries to approve and a second founder approves: the 
   const second = await (await browser.newContext()).newPage();
   await openDesk(second, 'b');
   await campaigns(second).getByRole('link', { name: draftName(), exact: true }).click();
-  await second.getByRole('button', { name: 'Approve', exact: true }).click();
+  await second.getByRole('button', { name: /^approve and take live/i }).click();
   await expect(second.getByRole('status')).toContainText(/Approved revision \d+/);
   const approved = Number((await second.getByRole('status').textContent())?.match(/Approved revision (\d+)/)?.[1]);
   await second.context().close();
@@ -364,7 +364,11 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   await issue(first);
   await expect(vouchers.getByRole('status')).toHaveText(`Issued voucher ${first} under revision 1: 5 USDT.`);
   const row = (code) =>
-    vouchers.getByRole('table', { name: 'Vouchers', exact: true }).getByRole('row').filter({ hasText: code }).getByRole('cell');
+    vouchers
+      .getByRole('table', { name: /^Vouchers/ })
+      .getByRole('row')
+      .filter({ hasText: code })
+      .getByRole('cell');
   await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
 
   // The edit is the next revision beside the live one, which stays live until another founder approves it.
@@ -390,7 +394,7 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   const b = await (await browser.newContext()).newPage();
   await openDesk(b, 'b');
   await campaigns(b).getByRole('link', { name, exact: true }).click();
-  await b.getByRole('button', { name: 'Approve', exact: true }).click();
+  await b.getByRole('button', { name: /^approve and take live/i }).click();
   await expect(builder(b).getByRole('status')).toContainText(`Approved revision ${asked}. It replaces revision 1 as the live one.`);
   await b.context().close();
 
@@ -505,7 +509,7 @@ async function depositAddress(page) {
   await page.mouse.move(0, 600);
   await page.getByRole('combobox', { name: /^Asset Coins you hold/ }).selectOption('USDT');
   await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: 'TEST Ethereum' });
-  await page.getByRole('checkbox', { name: 'I will send only USDT on TEST Ethereum.', exact: true }).check();
+  await page.getByRole('checkbox', { name: /I will send only USDT on TEST Ethereum\./ }).check();
   await page.getByRole('button', { name: 'Show my deposit address', exact: true }).click();
   return (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
 }

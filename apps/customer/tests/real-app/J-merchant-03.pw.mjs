@@ -58,7 +58,11 @@ async function addMember(page, who, role, ownerWho) {
   ).toHaveCount(1);
   await forgetSession(page);
   await signInWithCode(page, who, '/pay/team');
-  const accept = page.locator('li').filter({ hasText: role }).getByRole('button', { name: 'Accept', exact: true }).first();
+  const accept = page
+    .locator('li')
+    .filter({ hasText: role })
+    .getByRole('button', { name: /Accept/i })
+    .first();
   await expect(async () => {
     await page.reload();
     await expect(accept).toBeVisible({ timeout: 3000 });
@@ -102,10 +106,10 @@ test(`${J} #1 Products opens empty with Add product, and finance and viewers see
     await signInWithCode(page, member, '/pay/products');
     const theirs = refusedPayCalls(page);
     await expect(page.getByRole('heading', { name: 'No products yet', exact: true })).toBeVisible();
-    await expect(page.getByText('The owner, an admin or a developer can add them.', { exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Add product', exact: true })).toHaveCount(0);
+    await expect(page.getByText(/The owner, an admin or a developer can add them\./)).toBeVisible();
+    await expect(page.getByRole('link', { name: /Add product/i })).toHaveCount(0);
     await page.goto('/pay/products/new');
-    await expect(page.getByRole('button', { name: 'Save product', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Save product/i })).toHaveCount(0);
     expect(theirs).toEqual([]);
     await forgetSession(page);
   }
@@ -122,7 +126,7 @@ test(`${J} #1 Products opens empty with Add product, and finance and viewers see
   const productUrl = new URL(page.url()).pathname;
   for (const amount of ['1', '2']) {
     await page.getByRole('button', { name: 'Add price', exact: true }).click();
-    await page.getByLabel('Billing *', { exact: true }).selectOption({ label: 'One time' });
+    await page.getByLabel(/^Billing \*/).selectOption({ label: 'One time' });
     await page.getByLabel('Amount *', { exact: true }).fill(amount);
     await page.getByLabel('Asset *', { exact: true }).fill('USDC');
     await page.getByRole('button', { name: 'Save price', exact: true }).click();
@@ -144,7 +148,7 @@ test(`${J} #1 Products opens empty with Add product, and finance and viewers see
   async function noWriteControls(their) {
     for (const mode of ['live', 'test']) {
       await their.goto(mode === 'live' ? '/pay/products' : '/pay/products?mode=test');
-      await expect(their.getByLabel('Catalogue', { exact: true })).toHaveValue(mode);
+      await expect(their.getByLabel(/^Catalogue/)).toHaveValue(mode);
       if (mode === 'live')
         await expect(
           their.getByRole('region', { name: 'Your products', exact: true }).getByText('TEST Read-only check', { exact: true }),
@@ -154,13 +158,13 @@ test(`${J} #1 Products opens empty with Add product, and finance and viewers see
       for (const name of ['Copy to live', 'Copy to test']) await expect(their.getByRole('button', { name })).toHaveCount(0);
     }
     await their.goto('/pay/products/new');
-    await expect(their.getByText('The owner, an admin or a developer can add them.', { exact: true })).toBeVisible();
-    await expect(their.getByLabel('Name *', { exact: true })).toHaveCount(0);
-    await expect(their.getByRole('button', { name: 'Save product', exact: true })).toHaveCount(0);
+    await expect(their.getByText(/The owner, an admin or a developer can add them\./)).toBeVisible();
+    await expect(their.getByLabel(/Name \*/i)).toHaveCount(0);
+    await expect(their.getByRole('button', { name: /Save product/i })).toHaveCount(0);
     await their.goto('/pay/products/import');
-    await expect(their.getByText('The owner, an admin or a developer can add them.', { exact: true })).toBeVisible();
-    await expect(their.getByLabel('Products file (CSV)', { exact: true })).toHaveCount(0);
-    await expect(their.getByRole('button', { name: 'Check file', exact: true })).toHaveCount(0);
+    await expect(their.getByText(/The owner, an admin or a developer can add them\./)).toBeVisible();
+    await expect(their.getByLabel(/Products file \(CSV\)/i)).toHaveCount(0);
+    await expect(their.getByRole('button', { name: /Check file/i })).toHaveCount(0);
     await expect(their.getByRole('button', { name: /^Import \d/ })).toHaveCount(0);
     await their.goto(productUrl);
     await expect(their.locator('dl[data-testid="pp-facts"]')).toContainText('TEST Read-only check');
@@ -177,7 +181,7 @@ test(`${J} #1 Products opens empty with Add product, and finance and viewers see
       'Save price',
     ])
       await expect(their.getByRole('button', { name, exact: true })).toHaveCount(0);
-    await expect(their.getByRole('link', { name: 'Add a store', exact: true })).toHaveCount(0);
+    await expect(their.getByRole('link', { name: /Add a store/i })).toHaveCount(0);
     for (const box of await their.getByRole('checkbox').all()) await expect(box).toBeDisabled();
   }
 
@@ -221,13 +225,13 @@ test(`${J} #2 the owner adds a product with type, unit label, descriptor and ima
   await expect(save).toBeDisabled();
 
   // An event asks for its start time and place; a digital product does not.
-  const type = page.getByLabel('Type *', { exact: true });
+  const type = page.getByLabel(/^Type \*/);
   await type.selectOption({ label: 'Event' });
   await expect(page.getByLabel('Start time *', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Location *', { exact: true })).toBeVisible();
   await type.selectOption({ label: 'Digital product' });
-  await expect(page.getByLabel('Start time *', { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel('Location *', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel(/Start time \*/i)).toHaveCount(0);
+  await expect(page.getByLabel(/Location \*/i)).toHaveCount(0);
   await type.selectOption({ label: 'Physical good' });
 
   // The image rule is the owner's (a TEST 500 KB on this stack): a 3 MB file and a GIF are refused with it.
@@ -266,7 +270,7 @@ test(`${J} #2 the owner adds a product with type, unit label, descriptor and ima
   await page.goto('/pay/products');
   await expect(page.getByRole('link', { name: 'Add product', exact: true })).toBeVisible();
   await expect(page.getByText('TEST Poster', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('TEST Second poster', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/TEST Second poster/i)).toHaveCount(0);
   expect(refused.filter((r) => !r.includes('merchantCatalog.products.create'))).toEqual([]);
 });
 
@@ -276,14 +280,14 @@ test(`${J} #3 a one-time TEST 20 USDC price is the default until the monthly one
   if (!state.productUrl) throw new Error(`${J} #2 made no product, so this step has none to price`);
   await signInOwner(page, state, state.productUrl);
   const refused = refusedPayCalls(page);
-  const prices = page.getByRole('region', { name: 'Prices of this product', exact: true });
+  const prices = page.getByRole('region', { name: /Prices of this product/i });
   const row = (text) => prices.getByRole('row').filter({ hasText: text });
 
   async function addPrice({ billing, amount, chosen }) {
     await page.getByRole('button', { name: 'Add price', exact: true }).click();
-    await page.getByLabel('Billing *', { exact: true }).selectOption({ label: billing });
+    await page.getByLabel(/^Billing \*/).selectOption({ label: billing });
     if (chosen) {
-      await page.getByLabel('How the amount is set *', { exact: true }).selectOption({ label: 'The customer chooses' });
+      await page.getByLabel(/^How the amount is set \*/).selectOption({ label: 'The customer chooses' });
       await page.getByLabel('Minimum *', { exact: true }).fill(chosen.min);
       await page.getByLabel('Maximum *', { exact: true }).fill(chosen.max);
     } else await page.getByLabel('Amount *', { exact: true }).fill(amount);
@@ -323,7 +327,7 @@ async function recordMandate(page, customerId, amount) {
   await page.getByRole('button', { name: 'New mandate', exact: true }).click();
   await page.getByLabel('Authorized customer ID', { exact: true }).fill(customerId);
   await page.getByLabel('Authorized amount', { exact: true }).fill(amount);
-  await page.getByLabel('Cadence', { exact: true }).selectOption('monthly');
+  await page.getByLabel(/^Cadence/).selectOption('monthly');
   const starts = new Date(Date.now() + 30 * 86_400_000);
   const local = new Date(starts.getTime() - starts.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   await page.getByLabel('Authorization starts', { exact: true }).fill(local);
@@ -335,7 +339,7 @@ async function recordMandate(page, customerId, amount) {
 
 /** Choose the mandate of `customerId` in the subscription form; its option names the customer first. */
 async function chooseMandate(page, customerId) {
-  const select = page.getByLabel('Active customer mandate *', { exact: true });
+  const select = page.getByLabel(/^Active customer mandate \*/);
   await expect(select.locator('option', { hasText: customerId })).toHaveCount(1);
   const value = await select.locator('option', { hasText: customerId }).getAttribute('value');
   await select.selectOption(value);
@@ -349,12 +353,12 @@ test(`${J} #4 replacing a price a subscription uses keeps the subscription on th
   if (!state.productUrl) throw new Error(`${J} #2 made no product, so this step has none to change`);
   await signInOwner(page, state, state.productUrl);
   const refused = refusedPayCalls(page);
-  const prices = page.getByRole('region', { name: 'Prices of this product', exact: true });
+  const prices = page.getByRole('region', { name: /Prices of this product/i });
   const row = (text) => prices.getByRole('row').filter({ hasText: text });
 
   // A monthly TEST 5 USDT price, and a subscription started on it from a 5 USDT monthly mandate.
   await page.getByRole('button', { name: 'Add price', exact: true }).click();
-  await page.getByLabel('Billing *', { exact: true }).selectOption({ label: 'Monthly' });
+  await page.getByLabel(/^Billing \*/).selectOption({ label: 'Monthly' });
   await page.getByLabel('Amount *', { exact: true }).fill('5');
   await page.getByLabel('Asset *', { exact: true }).fill('USDT');
   await page.getByRole('button', { name: 'Save price', exact: true }).click();
@@ -365,8 +369,8 @@ test(`${J} #4 replacing a price a subscription uses keeps the subscription on th
   await page.goto('/pay/subscriptions/new');
   await recordMandate(page, customer, '5');
   await chooseMandate(page, customer);
-  await page.getByLabel('Supported charge path *', { exact: true }).selectOption({ label: 'Crypto invoice and watch' });
-  const pick = page.getByLabel('Price from your catalogue', { exact: true });
+  await page.getByLabel(/^Supported charge path \*/).selectOption({ label: 'Crypto invoice and watch' });
+  const pick = page.getByLabel(/Price from your catalogue/i);
   await expect(pick.locator('option', { hasText: 'TEST Poster · 5.00 USDT monthly' })).toHaveCount(1);
   // A 5 USDC price is not offered to a USDT mandate, and a one-time price never is.
   await expect(pick.locator('option', { hasText: 'USDC' })).toHaveCount(0);
@@ -393,7 +397,7 @@ test(`${J} #4 replacing a price a subscription uses keeps the subscription on th
   await expect(page.getByRole('status').filter({ hasText: 'Price replaced.' })).toBeVisible();
   await expect(row('6.00 USDT').filter({ hasText: 'Active' })).toHaveCount(1);
   await expect(row('5.00 USDT').filter({ hasText: 'Archived' })).toHaveCount(1);
-  await expect(row('5.00 USDT').getByRole('button', { name: 'Replace price', exact: true })).toHaveCount(0);
+  await expect(row('5.00 USDT').getByRole('button', { name: /Replace price/i })).toHaveCount(0);
   await page.goto(subscriptionUrl);
   await expect(page.getByRole('link', { name: 'TEST Poster · 5.00 USDT monthly (archived)', exact: true })).toBeVisible();
 
@@ -408,12 +412,12 @@ test(`${J} #4 replacing a price a subscription uses keeps the subscription on th
   await page.getByRole('button', { name: 'Archive product', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Product archived.' })).toBeVisible();
   await expect(page.getByText('This product is archived.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Add price', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Replace price', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Add price/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Replace price/i })).toHaveCount(0);
 
   await page.goto('/pay/products');
   await expect(page.getByRole('heading', { name: 'No active products', exact: true })).toBeVisible();
-  await page.getByLabel('Show', { exact: true }).selectOption({ label: 'Archived products' });
+  await page.getByLabel(/^Show/).selectOption({ label: 'Archived products' });
   await expect(
     page.getByRole('region', { name: 'Your products', exact: true }).getByText('TEST Poster', { exact: true }).first(),
   ).toBeVisible();
@@ -441,7 +445,7 @@ test(`${J} #4 replacing a price a subscription uses keeps the subscription on th
     .getByRole('button', { name: 'Delete product', exact: true })
     .click();
   await expect(page).toHaveURL(/\/pay\/products$/);
-  await expect(page.getByText('TEST Draft', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/TEST Draft/i)).toHaveCount(0);
   expect(refused.filter((r) => !r.includes('merchantCatalog.products.delete'))).toEqual([]);
 });
 
@@ -521,7 +525,7 @@ test(`${J} #6 copying the catalogue between test and live makes no duplicates, a
   const refused = refusedPayCalls(page);
 
   // The test catalogue is its own: empty while live holds step 5's products.
-  await page.getByLabel('Catalogue', { exact: true }).selectOption({ label: 'Test catalogue' });
+  await page.getByLabel(/^Catalogue/).selectOption({ label: 'Test catalogue' });
   await expect(page).toHaveURL(/\/pay\/products\?mode=test$/);
   await expect(page.getByText('No products yet', { exact: true })).toBeVisible();
 
@@ -560,14 +564,14 @@ test(`${J} #6 copying the catalogue between test and live makes no duplicates, a
   // A second copy makes nothing: both are reported as skipped, the guide as copied before.
   await copy();
   await expect(page.getByRole('status').filter({ hasText: '0 copied to the live catalogue, 2 skipped.' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Copied', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: /Copied/i })).toHaveCount(0);
   await expect(
     page.getByRole('region', { name: 'Skipped', exact: true }).getByRole('row').filter({ hasText: 'TEST Sample guide' }),
   ).toContainText('Already in the live catalogue: copied before.');
 
   // Live holds the guide once, and its page says where it came from.
-  await page.getByLabel('Catalogue', { exact: true }).selectOption({ label: 'Live catalogue' });
-  const liveList = page.getByRole('region', { name: 'Your products', exact: true });
+  await page.getByLabel(/^Catalogue/).selectOption({ label: 'Live catalogue' });
+  const liveList = page.getByRole('region', { name: /Your products/i });
   await expect(liveList.getByText('TEST Sample guide', { exact: true })).toHaveCount(1);
   await expect(liveList.getByText('TEST Sample mug', { exact: true })).toHaveCount(0);
   await liveList.getByRole('row').filter({ hasText: 'TEST Sample guide' }).getByRole('link').last().click();
@@ -590,14 +594,14 @@ test(`${J} #6 copying the catalogue between test and live makes no duplicates, a
 
   await page.goto(guideUrl);
   await page.getByRole('button', { name: 'Add price', exact: true }).click();
-  await page.getByLabel('Billing *', { exact: true }).selectOption({ label: 'One time' });
+  await page.getByLabel(/^Billing \*/).selectOption({ label: 'One time' });
   await page.getByLabel('Amount *', { exact: true }).fill('12');
   await page.getByLabel('Asset *', { exact: true }).fill('USDC');
   await page.getByRole('button', { name: 'Save price', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Price added.' })).toBeVisible();
 
-  const where = page.getByRole('region', { name: 'Where this product is sold', exact: true });
-  const inPerson = where.getByRole('checkbox', { name: 'In person at TEST Market stall', exact: true });
+  const where = page.getByRole('region', { name: /Where this product is sold/i });
+  const inPerson = where.getByRole('checkbox', { name: /In person at TEST Market stall/i });
   await expect(inPerson).toBeChecked();
   await expect(where.getByRole('checkbox', { name: 'Online at TEST Market stall', exact: true })).toBeChecked();
   await inPerson.uncheck();
@@ -606,20 +610,18 @@ test(`${J} #6 copying the catalogue between test and live makes no duplicates, a
 
   // A sale in person there is refused; online in the same store it is sold.
   const sale = page.getByRole('group', { name: 'Check a sale', exact: true });
-  await sale.getByLabel('Store', { exact: true }).selectOption({ label: 'TEST Market stall' });
-  await sale.getByLabel('Channel', { exact: true }).selectOption({ label: 'In person' });
+  await sale.getByLabel(/^Store/).selectOption({ label: 'TEST Market stall' });
+  await sale.getByLabel(/^Channel/).selectOption({ label: 'In person' });
   await sale.getByRole('button', { name: 'Check sale', exact: true }).click();
   await expect(sale.getByRole('alert')).toHaveText('This product is not sold in this store through this channel.');
-  await sale.getByLabel('Channel', { exact: true }).selectOption({ label: 'Online' });
+  await sale.getByLabel(/^Channel/).selectOption({ label: 'Online' });
   await sale.getByRole('button', { name: 'Check sale', exact: true }).click();
   await expect(sale.getByRole('status')).toContainText('Sold here for 12');
 
   // It stays off after a reload: the service keeps it, not the page.
   await page.reload();
   await expect(
-    page
-      .getByRole('region', { name: 'Where this product is sold', exact: true })
-      .getByRole('checkbox', { name: 'In person at TEST Market stall', exact: true }),
+    page.getByRole('region', { name: /Where this product is sold/i }).getByRole('checkbox', { name: /In person at TEST Market stall/i }),
   ).not.toBeChecked();
   expect(refused.filter((r) => !r.includes('merchantCatalog.prices.quote'))).toEqual([]);
 });

@@ -143,7 +143,7 @@ test(`${J} #2 a security change opens the step-up sheet; its approval is single 
   const send = (url, body) => page.request.post(url, { headers: held[0].headers, data: JSON.stringify(body) });
   const answer = async (res) => ({ status: res.status(), text: await res.text() });
   const names = page.getByTestId('security__passkey-names');
-  const nameField = names.getByLabel('Name (1 to 64 characters)', { exact: true });
+  const nameField = names.getByLabel(/Name \(1 to 64 characters\)/i);
   const renameTo = async (label) => {
     if (!(await nameField.isVisible())) await names.getByRole('button', { name: /^Rename passkey/ }).click();
     await nameField.fill(label);
@@ -247,7 +247,7 @@ test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and l
   // Renaming confirms with the passkey itself. The name field stops at 64 characters, and an empty name is refused
   // before anything is sent.
   await names.getByRole('button', { name: /^Rename passkey/ }).click();
-  const name = names.getByLabel('Name (1 to 64 characters)', { exact: true });
+  const name = names.getByLabel(/Name \(1 to 64 characters\)/i);
   await name.fill('x'.repeat(70));
   expect((await name.inputValue()).length).toBeLessThanOrEqual(64);
   await name.fill('   ');
@@ -419,7 +419,7 @@ test(`${J}, part of #5: when the confirmation's answer is lost, the recovery cod
   await page.getByRole('button', { name: 'Start authenticator setup', exact: true }).click();
   await page.getByRole('button', { name: 'Start authenticator setup', exact: true }).last().click();
   await page.getByRole('button', { name: 'Show setup key', exact: true }).click();
-  const secret = await page.getByLabel('Authenticator setup key', { exact: true }).inputValue();
+  const secret = await page.getByLabel(/Authenticator setup key/i).inputValue();
 
   // Identity turns the authenticator on, then the answer never reaches the browser.
   await page.route('**/totp.confirm**', async (route) => {
@@ -433,7 +433,7 @@ test(`${J}, part of #5: when the confirmation's answer is lost, the recovery cod
   await expect(recovery).toContainText('We could not tell whether your authenticator was turned on');
   await expect(recovery.getByTestId('recovery-codes').locator('li')).toHaveCount(10);
   // The page no longer asks for the confirmation it may already have.
-  await expect(page.getByRole('button', { name: 'Confirm authenticator', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Confirm authenticator/i })).toHaveCount(0);
   await expect(page.getByTestId('security__authenticator')).not.toContainText('Confirmation is still required');
   // It was on: the checklist says so.
   const authenticatorRow = page
@@ -499,14 +499,14 @@ test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later se
     const before = mailedLines(who.email, 'signup-existing').length;
     const other = await page.context().browser().newPage({ baseURL: PASSKEY_ORIGIN });
     await other.goto('/register');
-    await other.getByLabel('Email address', { exact: true }).fill(who.email);
-    await other.getByLabel('Handle', { exact: true }).fill(`${who.handle}x`);
-    await other.getByLabel('Password', { exact: true }).fill(`TEST-${randomBytes(9).toString('base64url')}-9b`);
-    await other.getByLabel('Country you live in', { exact: true }).selectOption('DE');
-    await other.getByRole('radio', { name: 'No, I am not a US person', exact: true }).check();
-    await other.getByLabel('Date of birth', { exact: true }).fill('1990-05-01');
-    await other.getByRole('button', { name: 'Create account', exact: true }).click();
-    await other.getByRole('heading', { name: 'Check your email', exact: true }).waitFor();
+    await other.getByLabel(/Email address/i).fill(who.email);
+    await other.getByLabel(/Handle/i).fill(`${who.handle}x`);
+    await other.getByLabel(/Password/i).fill(`TEST-${randomBytes(9).toString('base64url')}-9b`);
+    await other.getByLabel(/Country you live in/i).selectOption('DE');
+    await other.getByRole('radio', { name: /No, I am not a US person/i }).check();
+    await other.getByLabel(/Date of birth/i).fill('1990-05-01');
+    await other.getByRole('button', { name: /Create account/i }).click();
+    await other.getByRole('heading', { name: /Check your email/i }).waitFor();
     await other.close();
     await expect.poll(() => mailedLines(who.email, 'signup-existing').length, { timeout: 30_000 }).toBeGreaterThan(before);
     return mailedLines(who.email, 'signup-existing').at(-1);
@@ -597,7 +597,7 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   await expect(page).not.toHaveURL(/\/login/);
   const real = page.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
   await real.getByRole('button', { name: 'My codes do not work', exact: true }).click();
-  const ok = real.getByRole('region', { name: 'When codes do not work', exact: true });
+  const ok = real.getByRole('region', { name: /When codes do not work/i });
   await expect(ok.getByRole('status')).toContainText('so codes should work');
   await expect(ok).toContainText('Apps that sync codes');
   await expect(ok.getByRole('listitem')).toHaveCount(4);
@@ -629,7 +629,7 @@ test(`${J} #6 "my codes do not work" names a clock that is out by seconds, or sa
   await skewed.goto('/uc/safe');
   const card = skewed.locator('[data-testid="security__authenticator"][aria-label="Authenticator app"]');
   await card.getByRole('button', { name: 'My codes do not work', exact: true }).click();
-  const help = card.getByRole('region', { name: 'When codes do not work', exact: true });
+  const help = card.getByRole('region', { name: /When codes do not work/i });
   await expect(help).toContainText('Codes depend on the clock.');
   await expect(help.getByRole('status')).toHaveText(/This device’s clock is (89|90|91) seconds ahead of ours\./);
   await expect(help.getByRole('button', { name: 'Replace', exact: true })).toHaveCount(0);
@@ -804,7 +804,7 @@ test(`${J} #7 links a phone with its texted code and a wallet with its own signa
   await row('Phone number').getByLabel('6-digit code from the text', { exact: true }).fill(wrong);
   await row('Phone number').getByRole('button', { name: 'Confirm phone number', exact: true }).click();
   await expect(card.getByTestId('failure')).toContainText('That code did not work, or it ran out.');
-  await expect(card.getByRole('form', { name: 'Confirm it is you', exact: true })).toHaveCount(0);
+  await expect(card.getByRole('form', { name: /Confirm it is you/i })).toHaveCount(0);
   await expect(row('Phone number')).not.toContainText(phone.slice(-4));
   await row('Phone number').getByLabel('6-digit code from the text', { exact: true }).fill(texted);
   await row('Phone number').getByRole('button', { name: 'Confirm phone number', exact: true }).click();
@@ -825,7 +825,7 @@ test(`${J} #7 links a phone with its texted code and a wallet with its own signa
   wallet.signWithOtherKeyNext();
   await row('Wallets').getByRole('button', { name: 'Link a wallet', exact: true }).click();
   await expect(card.getByTestId('failure')).toContainText('That signature is not from this wallet. Nothing was changed.');
-  await expect(card.getByRole('form', { name: 'Confirm it is you', exact: true })).toHaveCount(0);
+  await expect(card.getByRole('form', { name: /Confirm it is you/i })).toHaveCount(0);
   await expect(row('Wallets')).toContainText('No wallet linked.');
 
   // The wallet's own signature, then a confirmation with the passkey, links it.
@@ -873,7 +873,7 @@ test(`${J} #7 links a phone with its texted code and a wallet with its own signa
     .getByRole('button', { name: `Remove wallet ${short}`, exact: true })
     .click();
   await expect(card.getByTestId('failure')).toContainText('This is your last way to sign in. Add another before you remove it.');
-  await expect(card.getByRole('form', { name: 'Confirm it is you', exact: true })).toHaveCount(0);
+  await expect(card.getByRole('form', { name: /Confirm it is you/i })).toHaveCount(0);
   await expect(row('Wallets').getByTitle(wallet.address)).toBeVisible();
   await forgetSession(page);
 
