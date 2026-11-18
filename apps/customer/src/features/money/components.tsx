@@ -9,7 +9,7 @@ import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { bankReads, bankWriteForReview, type BankRead, type BankWrite } from './contracts';
-import { createMoneyClient, type Space, type TransferDraft } from './client';
+import { createMoneyClient, readSpaces, type Space, type TransferDraft } from './client';
 import {
   clearPendingOutcome,
   originalRecordRefs,
@@ -43,6 +43,14 @@ export function useBankRead<K extends BankRead>(procedure: K, input: unknown, en
     },
     `${userId}:${procedure}:${JSON.stringify(input)}:${enabled}`,
   );
+}
+/** The person's spaces, by the `spaces.list` record and Money's row check (`readSpaces`). */
+export function useSpaces(limit: number) {
+  const { api, userId } = useSession();
+  return useResource<Space[]>(async (signal) => {
+    if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
+    return readSpaces(api, limit, signal);
+  }, `${userId}:spaces.list:${limit}`);
 }
 export function ResourceView<T>({
   resource,

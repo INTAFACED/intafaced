@@ -27,6 +27,13 @@ const world = vi.hoisted(() => {
         return Promise.resolve({ ok: false, code: 'NOT_WIRED_IN_TEST' });
       },
       mutation: () => Promise.resolve({ ok: false, code: 'NOT_WIRED_IN_TEST' }),
+      // A call by its record is the same read, named by the record's module and path.
+      call: (record: { module: string; path: string }, input: unknown) =>
+        (world.session as { api: { query: (s: string, p: string, i: unknown) => Promise<unknown> } }).api.query(
+          record.module,
+          record.path,
+          input,
+        ),
     },
   };
   return world;

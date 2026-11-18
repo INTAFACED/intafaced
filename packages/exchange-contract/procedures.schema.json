@@ -1,0 +1,864 @@
+{
+  "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
+  "procedures": {
+    "matching.orders.submit": {
+      "service": "svc-matching",
+      "transport": "http",
+      "method": "POST",
+      "path": "/markets/:marketId/orders",
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "accountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "type": {
+            "type": "string",
+            "enum": ["market", "limit", "stop", "stop_limit"]
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "qty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopPrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopPx": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tif": {
+            "type": "string",
+            "enum": ["GTC", "IOC", "FOK", "PO", "MOC", "GTD", "GTT"]
+          },
+          "ocoSiblingId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "oco": {
+            "type": "boolean"
+          },
+          "takeProfit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopLoss": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopLossLimit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expireAt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "reduceOnly": {
+            "type": "boolean"
+          },
+          "postOnly": {
+            "type": "boolean"
+          },
+          "iceberg": {
+            "type": "boolean"
+          },
+          "displayQty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "trail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mark": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "strike": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expiry": {
+            "type": ["string", "null"]
+          },
+          "minQty": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "aon": {
+            "type": "boolean"
+          },
+          "peg": {
+            "type": "boolean"
+          },
+          "midpoint": {
+            "type": "boolean"
+          },
+          "relative": {
+            "type": "boolean"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "auction": {
+            "type": "boolean"
+          },
+          "benchmark": {
+            "type": "boolean"
+          },
+          "collar": {
+            "type": "boolean"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minNotional": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "combo": {
+            "type": "boolean"
+          },
+          "legs": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": ["string", "null"]
+                    },
+                    "ratio": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "strike": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d{1,18})?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "expiry": {
+                      "type": ["string", "null"]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lifecycleProof": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": ["PLACE", "PLACE_POST_ONLY", "AMEND"]
+              },
+              "decision": {
+                "type": "string",
+                "const": "ELIGIBLE"
+              },
+              "checkedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "snapshotId": {
+                "type": "string",
+                "pattern": "^trade\\.lifecycle\\.snapshot:[a-f0-9]{64}$"
+              },
+              "transitionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "snapshot": {
+                "type": "object",
+                "properties": {
+                  "marketId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "ruleVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "instrumentId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "instrumentVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "DRAFT",
+                      "REVIEW",
+                      "APPROVED",
+                      "PRELAUNCH",
+                      "AUCTION",
+                      "OPEN",
+                      "POST_ONLY",
+                      "LIMIT_ONLY",
+                      "CANCEL_ONLY",
+                      "REDUCE_ONLY",
+                      "HALTED",
+                      "EXPIRING",
+                      "EXPIRED",
+                      "SETTLING",
+                      "SETTLED",
+                      "DELISTING",
+                      "REFUSED",
+                      "ARCHIVED"
+                    ]
+                  },
+                  "reasonCategory": {
+                    "type": "string",
+                    "enum": [
+                      "NORMAL",
+                      "REGULATORY",
+                      "TECHNICAL",
+                      "ORACLE_INDEX",
+                      "CUSTODY_CHAIN",
+                      "LIQUIDITY_DISORDERLY_MARKET",
+                      "SECURITY",
+                      "SETTLEMENT",
+                      "OPERATOR",
+                      "WIND_DOWN"
+                    ]
+                  },
+                  "reasonCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "effectiveAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "observedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "lastGoodState": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "DRAFT",
+                          "REVIEW",
+                          "APPROVED",
+                          "PRELAUNCH",
+                          "AUCTION",
+                          "OPEN",
+                          "POST_ONLY",
+                          "LIMIT_ONLY",
+                          "CANCEL_ONLY",
+                          "REDUCE_ONLY",
+                          "HALTED",
+                          "EXPIRING",
+                          "EXPIRED",
+                          "SETTLING",
+                          "SETTLED",
+                          "DELISTING",
+                          "REFUSED",
+                          "ARCHIVED"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "allowedActions": {
+                    "maxItems": 9,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"]
+                    }
+                  },
+                  "transitionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "evidenceRefs": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  }
+                },
+                "required": [
+                  "marketId",
+                  "ruleVersion",
+                  "instrumentId",
+                  "instrumentVersion",
+                  "state",
+                  "reasonCategory",
+                  "reasonCode",
+                  "effectiveAt",
+                  "observedAt",
+                  "lastGoodState",
+                  "allowedActions",
+                  "transitionId",
+                  "evidenceRefs"
+                ]
+              }
+            },
+            "required": ["action", "decision", "checkedAt", "snapshotId", "transitionId", "evidenceRefs", "snapshot"]
+          }
+        },
+        "required": ["orderId", "accountId", "type", "side", "qty", "tif", "lifecycleProof"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "sequence": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "makerOrderId": {
+                  "type": "string"
+                },
+                "makerAccountId": {
+                  "type": "string"
+                },
+                "takerOrderId": {
+                  "type": "string"
+                },
+                "takerAccountId": {
+                  "type": "string"
+                },
+                "takerSide": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "legs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "symbol": {
+                        "type": "string"
+                      },
+                      "takerSide": {
+                        "type": "string",
+                        "enum": ["buy", "sell"]
+                      },
+                      "qty": {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      },
+                      "price": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                      }
+                    },
+                    "required": ["symbol", "takerSide", "qty", "price"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["sequence", "makerOrderId", "makerAccountId", "takerOrderId", "takerAccountId", "takerSide", "price", "qty"],
+              "additionalProperties": false
+            }
+          },
+          "resting": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["book", "stop"]
+                  },
+                  "orderId": {
+                    "type": "string"
+                  },
+                  "accountId": {
+                    "type": "string"
+                  },
+                  "side": {
+                    "type": "string",
+                    "enum": ["buy", "sell"]
+                  },
+                  "price": {
+                    "type": "string",
+                    "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                  },
+                  "remaining": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["kind", "orderId", "accountId", "side", "price", "remaining", "sequence", "version"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rejected": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": ["code", "message"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cancellations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "orderId": {
+                  "type": "string"
+                },
+                "accountId": {
+                  "type": "string"
+                },
+                "remainingQty": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": ["orderId", "accountId", "remainingQty", "sequence", "reason"],
+              "additionalProperties": false
+            }
+          },
+          "triggered": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "orderId": {
+                  "type": "string"
+                },
+                "sequence": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "fills": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "makerOrderId": {
+                        "type": "string"
+                      },
+                      "makerAccountId": {
+                        "type": "string"
+                      },
+                      "takerOrderId": {
+                        "type": "string"
+                      },
+                      "takerAccountId": {
+                        "type": "string"
+                      },
+                      "takerSide": {
+                        "type": "string",
+                        "enum": ["buy", "sell"]
+                      },
+                      "price": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                      },
+                      "qty": {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      },
+                      "legs": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "takerSide": {
+                              "type": "string",
+                              "enum": ["buy", "sell"]
+                            },
+                            "qty": {
+                              "type": "string",
+                              "pattern": "^\\d+(\\.\\d{1,18})?$"
+                            },
+                            "price": {
+                              "type": "string",
+                              "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                            }
+                          },
+                          "required": ["symbol", "takerSide", "qty", "price"],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "sequence",
+                      "makerOrderId",
+                      "makerAccountId",
+                      "takerOrderId",
+                      "takerAccountId",
+                      "takerSide",
+                      "price",
+                      "qty"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "resting": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": ["book", "stop"]
+                        },
+                        "orderId": {
+                          "type": "string"
+                        },
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "side": {
+                          "type": "string",
+                          "enum": ["buy", "sell"]
+                        },
+                        "price": {
+                          "type": "string",
+                          "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                        },
+                        "remaining": {
+                          "type": "string",
+                          "pattern": "^\\d+(\\.\\d{1,18})?$"
+                        },
+                        "sequence": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["kind", "orderId", "accountId", "side", "price", "remaining", "sequence", "version"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cancellations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "orderId": {
+                        "type": "string"
+                      },
+                      "accountId": {
+                        "type": "string"
+                      },
+                      "remainingQty": {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["orderId", "accountId", "remainingQty", "sequence", "reason"],
+                    "additionalProperties": false
+                  }
+                },
+                "rejected": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["orderId", "sequence", "fills", "resting", "cancellations", "rejected"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["accepted", "sequence", "fills", "resting", "rejected", "cancellations", "triggered"],
+        "additionalProperties": false
+      }
+    }
+  }
+}

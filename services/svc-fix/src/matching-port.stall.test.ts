@@ -3,6 +3,27 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, expect, it } from 'vitest';
 import type { MatchingOrderCommand } from './command.js';
 import { postMatchingSubmit } from './matching-port.js';
+import { createMarketLifecycleAdmissionProof } from '@intafaced/exchange-contract';
+
+/** A TEST market lifecycle admission proof for BTC/USDT: svc-fix has no real source of one (see `lifecycleProof`). */
+const testProof = createMarketLifecycleAdmissionProof(
+  {
+    marketId: 'BTC/USDT',
+    ruleVersion: 'TEST-rules-1',
+    instrumentId: 'TEST-instrument',
+    instrumentVersion: 'TEST-v1',
+    state: 'OPEN',
+    reasonCategory: 'NORMAL',
+    reasonCode: 'trade.lifecycle.ready',
+    effectiveAt: '2026-11-18T00:00:00.000Z',
+    observedAt: '2026-11-18T00:00:00.000Z',
+    lastGoodState: 'OPEN',
+    allowedActions: ['PLACE'],
+    transitionId: 'TEST-transition',
+    evidenceRefs: ['TEST-evidence'],
+  },
+  'PLACE',
+);
 
 let server: Server | undefined;
 afterEach(() => {
@@ -35,6 +56,7 @@ it('2xx headers then a stalled body is reported as a timeout, not a definite rej
     matchingBaseUrl: `http://127.0.0.1:${port}`,
     compIdAccountJson: '{"CLIENT":"acct-desk"}',
     internalServiceSecret: 'a'.repeat(32),
+    lifecycleProof: () => testProof,
     timeoutMs: 300,
   });
   expect(result.ok).toBe(false);
