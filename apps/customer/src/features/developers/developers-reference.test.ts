@@ -35,7 +35,7 @@ const repo = (path: string) => readFileSync(new URL(`../../../../../${path}`, im
 const ROUTE_LIST = new URL('../../../../../services/svc-trade/src/published-routes.txt', import.meta.url);
 const TRADE_SRC = new URL('../../../../../services/svc-trade/src/', import.meta.url);
 
-/** svc-trade's sources, walked here; the parser is svc-trade's own, which its published-route-list.test.ts also runs. */
+/** svc-trade's sources, walked here; the parser is svc-trade's own, which tooling/ci/published-routes.mjs also runs. */
 function tradeDeclarations() {
   const files = (readdirSync(TRADE_SRC, { recursive: true }) as string[])
     .filter((file) => file.endsWith('.ts') && isRouteSource(file))
