@@ -21,9 +21,11 @@ const migration = (f: string) => readFileSync(join(here, '..', '..', 'drizzle', 
 // Runs against a real database every time: CI provides it. Without one the suite fails, and says so.
 const sql = postgres(URL, { max: 3, onnotice: () => undefined });
 await assertTestDatabase(sql, 'svc-notify owner-values.pg.test');
-// The table needs only its schema; on CI the service's migrations have made it already.
-await sql`CREATE SCHEMA IF NOT EXISTS notify`;
-await sql.unsafe(migration('20261107093559_alert_owner_values.sql'));
+// The table needs only its schema. On CI the service's migrations made both already, and the test role may not create a
+// schema, so a refused create is fine; the table read below fails by name if neither is there.
+await sql`CREATE SCHEMA IF NOT EXISTS notify`.catch(() => undefined);
+await sql.unsafe(migration('20261107093559_alert_owner_values.sql')).catch(() => undefined);
+await sql`SELECT 1 FROM notify.alert_owner_values LIMIT 1`;
 
 // A plan id of this run only, so the rows here never meet another test's.
 const PLAN = `t${randomBytes(6).toString('hex')}`;
