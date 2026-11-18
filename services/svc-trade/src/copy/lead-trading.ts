@@ -18,8 +18,10 @@
  * `not_lead_order` (copy-service.ts). A refusal writes nothing and places nothing.
  *
  * Money: none. The order itself is the ordinary order path, its hold and settlement included. Crash points: the row is
- * written before the order is placed, under the order's own id, so a crash after it leaves a row for an order that may
- * not exist (every read joins the order) and never a not-lead order without its row.
+ * written before the order is placed, under the order's own id, so a crash or a refused place leaves a row for an order
+ * that does not exist, and never a not-lead order without its row. Every read joins `trade.orders`, so such a row counts
+ * for nothing. The limits count what an order commits: a live lead buy its whole price times size, a finished one only
+ * what filled; a lead sell only what filled, so a sell that never runs frees no room.
  */
 import type { Principal } from '@intafaced/auth';
 import { add, compare, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
@@ -304,19 +306,27 @@ export class LeadTrading {
     }
   }
 
-  /** What the lead holds in lead trades of a pair, as recorded: lead buys less lead sells, never under zero. */
+  /**
+   * What the lead holds or has committed in lead trades of a pair: lead buys (live ones whole, finished ones as filled)
+   * less lead sells as filled, never under zero. Only orders that exist count.
+   */
   private async heldNotional(userId: string, symbol: string): Promise<Amount> {
     const [row] = await this.deps.sql<Array<{ buys: string | null; sells: string | null }>>`
-      SELECT sum(notional) FILTER (WHERE side = 'buy')::text AS buys, sum(notional) FILTER (WHERE side = 'sell')::text AS sells
-        FROM trade.copy_lead_orders WHERE leader_user_id = ${userId} AND symbol = ${symbol} AND lead`;
+      SELECT sum(CASE WHEN o.status::text IN ${this.deps.sql([...ONGOING])} THEN o.price * o.qty ELSE o.price * o.filled_qty END)
+               FILTER (WHERE l.side = 'buy')::text AS buys,
+             sum(o.price * o.filled_qty) FILTER (WHERE l.side = 'sell')::text AS sells
+        FROM trade.copy_lead_orders l INNER JOIN trade.orders o ON o.id = l.order_id
+       WHERE l.leader_user_id = ${userId} AND l.symbol = ${symbol} AND l.lead`;
     const held = sub(parseAmount(row?.buys ?? '0'), parseAmount(row?.sells ?? '0'));
     return compare(held, parseAmount('0')) > 0 ? held : parseAmount('0');
   }
 
+  /** Lead buys since the owner day began: live ones whole, finished ones as filled. Only orders that exist count. */
   private async boughtSince(userId: string, start: Date): Promise<Amount> {
     const [row] = await this.deps.sql<Array<{ bought: string | null }>>`
-      SELECT sum(notional)::text AS bought FROM trade.copy_lead_orders
-       WHERE leader_user_id = ${userId} AND lead AND side = 'buy' AND created_at >= ${start.toISOString()}`;
+      SELECT sum(CASE WHEN o.status::text IN ${this.deps.sql([...ONGOING])} THEN o.price * o.qty ELSE o.price * o.filled_qty END)::text AS bought
+        FROM trade.copy_lead_orders l INNER JOIN trade.orders o ON o.id = l.order_id
+       WHERE l.leader_user_id = ${userId} AND l.lead AND l.side = 'buy' AND l.created_at >= ${start.toISOString()}`;
     return parseAmount(row?.bought ?? '0');
   }
 }

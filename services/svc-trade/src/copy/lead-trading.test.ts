@@ -13,10 +13,12 @@ import { LeadTrading, parseLeadDailyBuyCap, parseLeadPairHolding, type LeadOrder
 const LEAD = '11111111-1111-4111-8111-111111111111';
 const lead = principalFor(LEAD, ['trade:read', 'trade:write']);
 
-/** A fake of the two sums `decide` reads and the one insert `record` writes. */
+/** A fake of the two sums `decide` reads and the one insert `record` writes; what they count is lead-trading.pg.test.ts's. */
 function fakeSql(sums: { held?: { buys: string | null; sells: string | null }; bought?: string | null } = {}) {
   const writes: unknown[][] = [];
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+    // `sql([...])` (a list helper inside a query) is not a query of its own.
+    if (!('raw' in strings)) return strings;
     const text = strings.join('?');
     if (text.includes('INSERT INTO trade.copy_lead_orders')) {
       writes.push(values);
