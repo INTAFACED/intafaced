@@ -135,7 +135,10 @@ test.describe(`${J} #1 #2 on a market whose candle stream stops and then resumes
     await founderSignIn(page, 'a');
     const journalOf = async () => {
       await page.goto(`${ADMIN}/trade-ops/feeds/${encodeURIComponent(ETH)}`);
-      return page.getByRole('region', { name: 'Feed event journal', exact: true });
+      // The console draws the screen after its shell: read the journal once it is there, not the loading shell.
+      const journal = page.getByRole('region', { name: 'Feed event journal', exact: true });
+      await expect(journal).toBeVisible({ timeout: 30_000 });
+      return journal;
     };
     // The drop: dated when the stream passed the stale age, from the system, with the reason.
     const dropAt = new Date(lastTick + boundary * 1000).toISOString();
@@ -255,7 +258,10 @@ test(`${J} #3 opens charts module metrics: chart opens, alerts, layouts and indi
 /** The alert engine desk's deliveries table: one row per channel, each status count, and failures, as the page shows them. */
 async function deliveryRows(desk) {
   const table = desk.getByRole('table', { name: 'Alert deliveries by channel', exact: true });
-  await expect(table).toBeVisible();
+  // Before any alert is delivered today the desk says so instead of drawing the table: no rows.
+  const none = desk.getByText('No alert was delivered on any channel today', { exact: true });
+  await expect(table.or(none)).toBeVisible();
+  if (await none.isVisible()) return [];
   return table.locator('tbody tr').evaluateAll((trs) =>
     trs.map((tr) => {
       const n = (f) => Number(tr.querySelector(`[data-field="${f}"]`).textContent);
