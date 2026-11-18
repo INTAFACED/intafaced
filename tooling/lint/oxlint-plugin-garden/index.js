@@ -15,6 +15,7 @@ import { retryActionRules } from './retry-action-rule.js';
 import { signInRetryRules } from './sign-in-retry-rule.js';
 import { historyCommentRules } from './history-comment-rule.js';
 import { journeyCopyRules } from './journey-copy-rule.js';
+import { repeatRules } from './repeat-rules.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
@@ -206,5 +207,6 @@ export default {
     ...signInRetryRules,
     ...historyCommentRules,
     ...journeyCopyRules,
+    ...repeatRules,
   },
 };
