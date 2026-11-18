@@ -48,6 +48,8 @@ export interface PayInCredit {
   readonly txHash: string;
   readonly logIndex: number;
   readonly amount: Amount;
+  /** The address the transfer came from, lowercase, as the chain's transfer log names it (the venue's payout, or the person's own wallet). */
+  readonly from: string;
   /** pending: seen on chain, not yet credited by the partner; available: credited to the main balance. */
   readonly status: 'pending' | 'available';
   /** The partner holds its answer on this pay-in (the `payIn` switch). */
@@ -78,6 +80,7 @@ interface Kept {
   txHash: string;
   logIndex: number;
   amount: Amount;
+  from: string;
   block: bigint;
   seenAt: Date;
   availableAt: Date | null;
@@ -171,6 +174,7 @@ export function testPayInRail(options: {
           txHash: k.txHash,
           logIndex: k.logIndex,
           amount: k.amount,
+          from: k.from,
           status: k.availableAt ? ('available' as const) : ('pending' as const),
           held,
           confirmations: Math.min(confirmations, TEST_PAY_IN_CONFIRMATIONS),
@@ -211,6 +215,7 @@ export function testPayInRail(options: {
             txHash,
             logIndex,
             amount: unitsToAmount(units, decimals),
+            from: `0x${log.topics[1]!.slice(-40)}`.toLowerCase(),
             block: BigInt(log.blockNumber),
             seenAt: clock(),
             availableAt: null,
@@ -242,6 +247,7 @@ export function payInCreditView(c: PayInCredit) {
     key: c.key,
     txHash: c.txHash,
     amount: formatAmount(c.amount),
+    from: c.from,
     status: c.status,
     held: c.held,
     confirmations: c.confirmations,

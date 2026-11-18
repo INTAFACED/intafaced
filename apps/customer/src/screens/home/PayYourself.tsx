@@ -40,6 +40,7 @@ import {
   sourceFigure,
   spendableNow,
   venueFigures,
+  type PayInCredit,
   type PayMove,
   type PayYourselfSummary,
 } from './pay-yourself';
@@ -246,9 +247,13 @@ export default function PayYourself({
             <ul>
               {onItsWay(s.credits).map((c) => (
                 <li key={c.key} data-credit={c.txHash}>
-                  {c.held
-                    ? t('onItsWayHeld', { amount: displayAmount(c.amount), partner: partnerName })
-                    : t('onItsWayLine', { amount: displayAmount(c.amount), partner: partnerName })}{' '}
+                  {c.from === owner.toLowerCase()
+                    ? c.held
+                      ? t('onItsWayWalletHeld', { amount: displayAmount(c.amount), partner: partnerName })
+                      : t('onItsWayWalletLine', { amount: displayAmount(c.amount), partner: partnerName })
+                    : c.held
+                      ? t('onItsWayHeld', { amount: displayAmount(c.amount), partner: partnerName })
+                      : t('onItsWayLine', { amount: displayAmount(c.amount), partner: partnerName })}{' '}
                   <At iso={c.seenAt} />
                 </li>
               ))}
@@ -360,7 +365,89 @@ export default function PayYourself({
         ))}
         {s && payIn ? <Rule summary={s} t={t} onSaved={() => summary.reload()} /> : null}
       </section>
+
+      {s && payIn ? <FromWallet payIn={payIn} credits={s.credits} partner={partnerName} partnerFee={s.partnerFee} t={t} /> : null}
     </div>
+  );
+}
+
+/**
+ * Adding to the partner account from the person's own wallet (J-ops-console-27 #6): the partner's pay-in address for this
+ * person, as the partner gives it, and the way to Send in their wallet with it filled in. The wallet signs and sends the
+ * transfer itself; the partner credits it after its confirmations. Each pay-in the partner has seen is listed as the
+ * partner reports it, pending or available, with the partner's fee or "not known". INTAFACED holds none of it.
+ */
+function FromWallet({
+  payIn,
+  credits,
+  partner,
+  partnerFee,
+  t,
+}: {
+  payIn: Extract<PayYourselfSummary['payIn'], { address: string }>;
+  credits: readonly PayInCredit[];
+  partner: string;
+  partnerFee: string | null;
+  t: T;
+}) {
+  const send = `/wallet/send?${new URLSearchParams({ to: payIn.address, token: payIn.token }).toString()}`;
+  const newest = [...credits].sort((a, b) => Date.parse(b.seenAt) - Date.parse(a.seenAt));
+  return (
+    <section aria-label={t('fromWalletTitle', { partner })} data-testid="pay-in-route" className="form-stack">
+      <h2>{t('fromWalletTitle', { partner })}</h2>
+      <p className="muted">{t('fromWalletNote', { partner, n: String(payIn.confirmations) })}</p>
+      <dl>
+        <div>
+          <dt>{t('fromWalletAddress')}</dt>
+          <dd data-pay-in="address">
+            <code>{payIn.address}</code> <span data-pay-in="label">{t('TEST')}</span>
+          </dd>
+        </div>
+        <div>
+          <dt>{t('fromWalletAsset')}</dt>
+          <dd data-pay-in="asset">{payIn.asset}</dd>
+        </div>
+        <div>
+          <dt>{t('fromWalletToken')}</dt>
+          <dd data-pay-in="token">
+            <code>{payIn.token}</code>
+          </dd>
+        </div>
+        <div>
+          <dt>{t('fromWalletPartnerFee')}</dt>
+          <dd data-pay-in="partner-fee">{partnerFee !== null ? `${displayAmount(partnerFee)} ${payIn.asset}` : t('notKnown')}</dd>
+        </div>
+      </dl>
+      <a href={send} data-pay-in="send">
+        {t('fromWalletSend')}
+      </a>
+      {newest.length > 0 ? (
+        <ul data-testid="pay-in-credits">
+          {newest.map((c) => (
+            <li key={c.key} data-pay-in-credit={c.txHash} data-status={c.status}>
+              <strong data-credit-amount>
+                {displayAmount(c.amount)} {payIn.asset}
+              </strong>{' '}
+              <span data-credit-state>
+                {c.status === 'available'
+                  ? t('stateAvailable')
+                  : c.held
+                    ? t('stateHeld')
+                    : `${t('statePending')}, ${t('partnerConfirmations', { n: String(c.confirmations), m: String(c.required) })}`}
+              </span>
+              {', '}
+              <span className="muted" data-credit-source>
+                {t('sourcePartner')}, {t('asOf')} <At iso={c.availableAt ?? c.seenAt} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted" data-testid="pay-in-none">
+          {t('fromWalletNone')}
+        </p>
+      )}
+    </section>
   );
 }
 

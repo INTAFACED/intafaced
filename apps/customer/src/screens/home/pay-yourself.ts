@@ -121,6 +121,8 @@ export const payYourselfSummarySchema = z.object({
       key: z.string(),
       txHash: z.string(),
       amount: decimal,
+      /** The address the transfer came from: the person's own wallet, or the venue paying out. */
+      from: z.string(),
       status: z.enum(['pending', 'available']),
       held: z.boolean(),
       confirmations: z.number().int(),

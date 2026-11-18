@@ -41,6 +41,7 @@ const creditView = z.object({
   key: z.string(),
   txHash: z.string(),
   amount: z.string(),
+  from: z.string(),
   status: z.enum(['pending', 'available']),
   held: z.boolean(),
   confirmations: z.number().int(),
