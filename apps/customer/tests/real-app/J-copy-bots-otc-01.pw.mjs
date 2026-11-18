@@ -4,7 +4,7 @@ import path from 'node:path';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { ROOT, api, fromUnits, journeyState, restartService, tool, signOutBrowser, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, api, fromUnits, journeyState, tool, signOutBrowser, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { listLeader, takeBest } from './copy.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
@@ -474,9 +474,34 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
 });
 
 /** Restart trade with the copy country list blank (`blank`) or as the TEST profile sets it (`set`), by its stack switch. */
-const copyCountries = (state) =>
+async function copyCountries(state) {
+  const before = process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
+  const door = process.env.LOCAL_STACK_USER_VENUE;
+  if (state === 'blank') process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = 'blank';
+  else delete process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
   // The user-venue door stays on for this file across the restart (venueForThisFile).
-  restartService('trade', { LOCAL_STACK_TRADE_COPY_JURISDICTION: state === 'blank' ? 'blank' : undefined, LOCAL_STACK_USER_VENUE: 'on' });
+  process.env.LOCAL_STACK_USER_VENUE = 'on';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
+    else process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = before;
+    if (door === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
+    else process.env.LOCAL_STACK_USER_VENUE = door;
+  }
+  // A restart outlasts Edge's idle timeout: drop the closed kept-alive sockets before the next write (as in J-14).
+  for (let i = 0, live = 0; i < 20 && live < 3; i++) {
+    try {
+      await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent('BTC/USDT')}?limit=1`, { headers: { origin: ORIGIN } }).then((r) =>
+        r.arrayBuffer(),
+      );
+      live += 1;
+    } catch (error) {
+      if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      live = 0;
+    }
+  }
+}
 
 // Step 6 was "reads and accepts the copy disclosure". Deferred until launch prep (owner decision 2026-10-27): no risk
 // disclosure is asked for, so this step proves the review asks for none and Start is on once the limits are valid.

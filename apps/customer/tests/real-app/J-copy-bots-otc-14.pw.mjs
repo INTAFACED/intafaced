@@ -2,7 +2,7 @@
 // Market: live
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ROOT, api, bestPrices, fromUnits, journeyState, restartService, tool, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, api, bestPrices, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -308,7 +308,38 @@ async function everyBotCreate(who, tag) {
 }
 
 /** Restart trade with one owner value blank (`blank`) or as the TEST profile sets it (`set`), by its stack switch. */
-const restartTrade = (switchName, state) => restartService('trade', { [switchName]: state === 'blank' ? 'blank' : undefined });
+function restartTrade(switchName, state) {
+  const before = process.env[switchName];
+  if (state === 'blank') process.env[switchName] = 'blank';
+  else delete process.env[switchName];
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    if (before === undefined) delete process.env[switchName];
+    else process.env[switchName] = before;
+  }
+  return dropClosedSockets();
+}
+
+/**
+ * A restart takes longer than Edge's idle timeout, so the kept-alive sockets this process holds to Edge are closed on
+ * Edge's side; the next request on one fails before any answer ("other side closed"). Cheap reads drop them from the
+ * pool until three in a row answer, so the step's own writes go out on live sockets and are never sent twice.
+ */
+async function dropClosedSockets() {
+  let live = 0;
+  for (let i = 0; i < 20 && live < 3; i++) {
+    try {
+      await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent('BTC/USDT')}?limit=1`, { headers: { origin: ORIGIN } }).then((r) =>
+        r.arrayBuffer(),
+      );
+      live += 1;
+    } catch (error) {
+      if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      live = 0;
+    }
+  }
+}
 
 /** The owner's bots verification level, blank or as the TEST profile sets it. */
 const botsLevel = (state) => restartTrade('LOCAL_STACK_TRADE_BOTS_LEVEL', state);

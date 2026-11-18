@@ -1,6 +1,6 @@
 // World: book, gates, restart
 import { test, expect } from './journey.mjs';
-import { api, journeyState, restartService, tool } from './stack.mjs';
+import { EDGE, ORIGIN, api, journeyState, tool, toolAwaited } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, takeBest, weekAhead, wizardAtLimits } from './copy.mjs';
 
@@ -50,7 +50,33 @@ async function myFollows(who) {
 }
 
 /** Restart trade with the given `LOCAL_STACK_TRADE_*` switches (a value, or undefined for the TEST profile's own). */
-const restartTrade = (switches) => restartService('trade', switches);
+async function restartTrade(switches) {
+  const before = Object.fromEntries(Object.keys(switches).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(switches)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    await toolAwaited('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    for (const [k, v] of Object.entries(before)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+  // A restart outlasts Edge's idle timeout: drop the closed kept-alive sockets before the next write (as in J-copy-bots-otc-01).
+  for (let i = 0, live = 0; i < 20 && live < 3; i++) {
+    try {
+      await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent('BTC/USDT')}?limit=1`, { headers: { origin: ORIGIN } }).then((r) =>
+        r.arrayBuffer(),
+      );
+      live += 1;
+    } catch (error) {
+      if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      live = 0;
+    }
+  }
+}
 
 /** Restart trade with the copy minimum investment blank (`blank`) or as the TEST profile sets it (`set`). */
 const copyMinimum = (value) => restartTrade({ LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT: value === 'blank' ? 'off' : undefined });
