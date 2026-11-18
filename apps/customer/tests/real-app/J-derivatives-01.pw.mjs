@@ -212,7 +212,10 @@ test(`${J}, part of #6, checked on our own ledger: types a TEST size and leverag
   expect(toUnits(preview.body.liquidationPrice)).toBeLessThan(toUnits(preview.body.markPrice));
 });
 
-test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({ page }) => {
+test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({
+  page,
+  stepPicture,
+}) => {
   await desk(page);
   const sent = writes(page);
   const types = page.getByRole('group', { name: 'Order type' });
@@ -225,6 +228,7 @@ test(`${J} #7 looks at the order types: market and limit offered, the rest liste
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
   expect(await menu.getByRole('menuitem').count()).toBeGreaterThan(0);
+  await stepPicture();
   await page.keyboard.press('Escape');
   expect(sent).toEqual([]);
 });

@@ -554,6 +554,7 @@ const grouped = (value) => {
 
 test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw use, and a retired asset stays listed with its history`, async ({
   page,
+  stepPicture,
 }) => {
   const who = account();
   const credit = fund(who.email, RETIRED, '5', `jw01-ret-${who.email.split('@')[0].replace(/[^A-Za-z0-9-]/g, '')}`.slice(0, 64));
@@ -659,6 +660,7 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   await expect(retired.locator('[data-col="state"]')).toContainText('Retired');
   await expect(retired.locator('[data-col="state"]')).toContainText('What you hold and your history with it stay.');
   await expect(retired.locator('[data-col="actions"]')).toHaveText('Nothing new');
+  await stepPicture();
   await retired.getByRole('link', { name: `Your ${RETIRED} history` }).click();
   await expect(page).toHaveURL(new RegExp(`/money/balance/${RETIRED}$`));
   await expect(page.getByRole('region', { name: `${RETIRED} balance, entry by entry` })).toContainText(credit.tx);
