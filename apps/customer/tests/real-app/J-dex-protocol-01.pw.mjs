@@ -109,6 +109,8 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
   const firstReason = swap.locator(':scope > .protocol-actions__reason');
   await expect(firstReason).toHaveCount(1);
   await expect(firstReason).toHaveAttribute('data-not-connected', 'rail.crypto');
+  // The notice's own words: what Swap needs, and that it is off here, with its code.
+  await expect(firstReason).toHaveText('Swap needs a live network node or custody signer. It is switched off in this build. rail.crypto');
   await swap.locator('summary', { hasText: 'All blockers' }).click();
   const listed = swap.locator('ol > li');
   await expect(listed.first()).toContainText('The chain is unreachable');
