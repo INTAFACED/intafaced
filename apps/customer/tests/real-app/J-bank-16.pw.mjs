@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
+import { DAY, utcDay } from './clock.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { setPartner } from './partner.mjs';
@@ -33,7 +34,6 @@ function person() {
   return who;
 }
 
-const utcDay = (at) => at.toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const monthStart = (now = new Date()) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 const nextMonthStart = (now = new Date()) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
@@ -149,7 +149,7 @@ test(`${J} #1 exports a month as PDF: every line the partner reports, a hash pro
     .check();
   await centre(page)
     .getByLabel('From (UTC)', { exact: true })
-    .fill(utcDay(new Date(monthStart().getTime() - 86_400_000)));
+    .fill(utcDay(monthStart().getTime() - DAY));
   await centre(page).getByLabel('To (UTC)', { exact: true }).fill(today);
   await centre(page).getByRole('combobox', { name: 'Format' }).selectOption('pdf');
   let saved = false;
@@ -390,7 +390,6 @@ async function job(procedure, input) {
   expect(res.status, `${procedure}: ${JSON.stringify(parsed).slice(0, 300)}`).toBe(200);
   return parsed.result.data;
 }
-const DAY = 86_400_000;
 
 test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee after a full withdrawal`, async ({ page }) => {
   test.setTimeout(240_000);
@@ -412,7 +411,7 @@ test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee afte
   // is run for this one account, so no other account on the stack is touched.
   const asOf = new Date(Date.now() + (rule.inactiveDays + 1) * DAY);
   const first = await job('ops.runDormancy', { at: asOf.toISOString(), userIds: [userId] });
-  const debitDate = new Date(asOf.getTime() + rule.noticeLeadDays * DAY).toISOString().slice(0, 10);
+  const debitDate = utcDay(asOf.getTime() + rule.noticeLeadDays * DAY);
   expect(first.noticed).toEqual([{ userId, assetId: 'USDT', fee: '5', debitDate }]);
   // Run again: the same notice, not a second one.
   expect((await job('ops.runDormancy', { at: asOf.toISOString(), userIds: [userId] })).noticed).toEqual([]);

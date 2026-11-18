@@ -44,7 +44,12 @@ export function walletOwner(run, first) {
 
 /** One call to the stack's TEST venue that must answer 200; its body. */
 export async function venueAt(path, body) {
-  const { status, body: out } = await testVenueAt(TEST_VENUE, path, body);
+  return venueAtBase(TEST_VENUE, path, body);
+}
+
+/** As `venueAt`, on either TEST venue by its base URL (TEST_VENUE_B for a journey across both). */
+export async function venueAtBase(base, path, body) {
+  const { status, body: out } = await testVenueAt(base, path, body);
   expect(status, `${path}: ${JSON.stringify(out).slice(0, 300)}`).toBe(200);
   return out;
 }

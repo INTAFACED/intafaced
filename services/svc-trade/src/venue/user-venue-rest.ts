@@ -4,6 +4,10 @@
  *   GET  /api/v1/venue/status                          `{ enabled: false }` when the door is off; else the venue, TEST label, chain id
  *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
  *   GET  /api/v1/venue/gated-list                      each perpetual open or blocked for this account, every reason (J-derivatives-01 #2)
+ *   GET  /api/v1/venue/eligible-instruments            the perpetuals this account is eligible for, each with its settle
+ *                                                      asset, or none with the reason (J-derivatives-12 #5)
+ *   GET  /api/v1/venue/builder-fees?owner=&since=<ISO>  our builder fee on each fill of the caller's own orders on the
+ *                                                      account, with the ledger transaction it posted (J-derivatives-12 #4)
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/funding-history?base=BTC&since=<ISO>  public: the funding the venue published on our listed
  *                                                      perpetual on that asset (a chart's funding study, J-charts-desk-04 #6)
@@ -85,6 +89,9 @@ import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes
 import { StatementError } from '../statements/statement-export.js';
 import type { VenueStatements } from './venue-statements.js';
 import type { VenueAdlAcks } from './venue-adl-acks.js';
+import type { UserVenueAccount } from '@intafaced/venue-contracts';
+import type { LoggedBuilderFee } from '../builder-fee/builder-fee-store.js';
+import { tradeTier } from '@intafaced/auth';
 
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
@@ -117,6 +124,11 @@ export interface UserVenueRestDeps {
   venueAdlAcks?: VenueAdlAcks | null;
   /** The clock an acknowledgement is stamped with; absent, the system clock. */
   now?: () => Date;
+  /**
+   * One person's builder fees on one venue account since a time, each with its ledger transaction (J-derivatives-12 #4;
+   * src/builder-fee/builder-fee-store.ts `ofUser`). Absent: `builder-fees` answers 503 `trade.venue_builder_fees_unmounted`.
+   */
+  builderFeesOf?: ((userId: string, account: UserVenueAccount, since: Date) => Promise<readonly LoggedBuilderFee[]>) | null;
 }
 
 /** An acknowledgement of a version the venue no longer publishes (J-derivatives-07 #5): it is not stored. */
@@ -284,7 +296,48 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return venueRefusalReply(reply, error);
     }
     const account = deps.tradeAccessBlocker ? deps.tradeAccessBlocker(req, principal) : null;
-    return answer(reply, async (d) => d.gatedList(account), req.query.venueId);
+    return answer(reply, async (d) => d.gatedList(account, tradeTier(principal)), req.query.venueId);
+  });
+
+  // J-derivatives-12 #5: the perpetuals this account is eligible for, each with its settle asset; none, with the reason,
+  // when the owner's eligibility level is blank or the account is below it. A read: nothing is prepared or sent.
+  app.get<{ Querystring: Query }>('/api/v1/venue/eligible-instruments', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(reply, async (d) => d.eligibleInstruments(tradeTier(principal)), req.query.venueId);
+  });
+
+  // J-derivatives-12 #4: our builder fee on each fill of the caller's own orders on this venue account, as the poster
+  // recorded it, with the ledger transaction it posted (null until it is posted, with the ledger's refusal if it refused).
+  // Only the caller's own: rows are read by their user id, so another person's fees on the same wallet are never shown.
+  app.get<{ Querystring: Query }>('/api/v1/venue/builder-fees', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(
+      reply,
+      async (d) => {
+        const rowsOf = deps.builderFeesOf;
+        if (!rowsOf) throw new UserVenueDoorError('builder-fee records are not mounted here', 'trade.venue_builder_fees_unmounted', 503);
+        const since = new Date(req.query.since ?? '');
+        if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
+        const account = await d.readableAccount(req.query.owner ?? '', req.query.subAccount ?? null);
+        const rows = await rowsOf(principal.userId, account, since);
+        return {
+          venueId: account.venueId,
+          value: rows.map((r) => ({
+            fillId: r.fillId,
+            amount: r.amount,
+            asset: r.assetId,
+            filledAt: r.filledAt,
+            status: r.status,
+            refusalCode: r.refusalCode,
+            ledgerTxId: r.ledgerTxId,
+          })),
+          asOf: (deps.now ?? (() => new Date()))(),
+        };
+      },
+      req.query.venueId,
+    );
   });
 
   // J-derivatives-28 #1: every configured venue for one market, with its own price, depth and fees, our builder fee,

@@ -80,7 +80,6 @@ const messages = {
   'form.weekly': 'Weekly',
   'form.monthly': 'Monthly',
   'form.once': 'One-off',
-  'client.space.account.must.match.its.asset.and': 'Space account must match its asset and available account',
   'client.available.and.restricted.must.match.the.scoped': 'Available and restricted must match the scoped quantity',
   'client.the.settled.amount.must.match.the.review': 'The settled amount must match the review',
   'client.transfer.names.one.book': 'The reply must name either the ledger transaction or the partner bank’s move, not both or neither',
@@ -783,7 +782,6 @@ const es = {
   'form.weekly': 'Semanal',
   'form.monthly': 'Mensual',
   'form.once': 'Una sola vez',
-  'client.space.account.must.match.its.asset.and': 'La cuenta del espacio debe coincidir con su activo y su cuenta disponible',
   'client.available.and.restricted.must.match.the.scoped':
     'Las cantidades disponibles y restringidas deben coincidir con la cantidad del ámbito consultado',
   'client.the.settled.amount.must.match.the.review': 'El importe liquidado debe coincidir con la revisión',
@@ -1509,7 +1507,6 @@ const fr = {
   'form.weekly': 'Hebdomadaire',
   'form.monthly': 'Mensuelle',
   'form.once': 'Une seule fois',
-  'client.space.account.must.match.its.asset.and': 'Le compte de l’espace doit correspondre à son actif et à son compte disponible',
   'client.available.and.restricted.must.match.the.scoped':
     'Les quantités disponibles et restreintes doivent correspondre à la quantité du périmètre consulté',
   'client.the.settled.amount.must.match.the.review': 'Le montant réglé doit correspondre à la vérification',

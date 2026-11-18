@@ -3,7 +3,7 @@ import { CopyButton } from '../../screens/account/CopyButton';
 import { useSession } from '../session/session';
 import { AccountDetailsList } from './AccountDetails';
 import { IncomeSorter } from './IncomeSorter';
-import { amount, date, NoRows, ResourceView, Section, useBankRead, type ActionSpec } from './components';
+import { amount, date, NoRows, ResourceView, Section, useBankRead, useSpaces, type ActionSpec } from './components';
 import type { AccountDetailsRow, SalaryCredit } from './contracts';
 import { salaryCopy } from './salary-copy';
 import type { Space } from './client';
@@ -18,7 +18,7 @@ export function SalaryRoom({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = salaryCopy.useCopy();
   const { profiles } = useSession();
   const details = useBankRead('salary.details', { profile: profiles.active });
-  const spaces = useBankRead('spaces.list', { limit: 200 });
+  const spaces = useSpaces(200);
   const credits = useBankRead('salary.credits', { limit: 50 });
   const spaceRows: Space[] = spaces.resource.status === 'ready' ? (spaces.resource.data as Space[]) : [];
   const nameOf = (spaceId: string) => spaceRows.find((space) => space.id === spaceId)?.name ?? t('unknownSpace');

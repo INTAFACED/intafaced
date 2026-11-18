@@ -1,12 +1,14 @@
 import { s2sFromEnv, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { z } from 'zod';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
+import { createHash } from 'node:crypto';
+import { MATCHING_SUBMIT_ORDER, type MarketLifecycleAdmissionProof } from '@intafaced/exchange-contract';
 import {
   adaptResultSchema,
   matchingOrderCommandSchema,
   matchingTifSchema,
   type AdaptResult,
   type MatchingOrderCommand,
-  type MatchingTif,
 } from './command.js';
 
 /**
@@ -35,11 +37,13 @@ export const matchingPortErrorSchema = z.object({
     'invalid_decimal',
     'invalid_message',
     'tif_missing',
+    'tif_unsupported',
     'gtd_expiry_missing',
     'unmapped_economic_tag',
     'matching_account_unmapped',
     'matching_unconfigured',
     'matching_service_auth_unconfigured',
+    'matching_lifecycle_proof_unavailable',
     'matching_unavailable',
     'matching_timeout',
     'matching_rejected',
@@ -73,18 +77,16 @@ export type MatchingPortOptions = {
    * signature is the only form and the shared secret may be blank.
    */
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
+  /**
+   * The market lifecycle admission proof matching requires on every submit (PX-S01). svc-fix has no source of one yet, so
+   * in production this is unset and every order refuses `matching_lifecycle_proof_unavailable` before any POST: svc-fix
+   * never invents a proof. Tests pass a TEST proof to exercise the POST path.
+   */
+  lifecycleProof?: (command: MatchingOrderCommand) => MarketLifecycleAdmissionProof | null;
 };
 
-/** Matching submit JSON. Qty/price stay decimal strings. A market price is the protection price when set, otherwise null — never a last. */
-export type MatchingSubmitBody = {
-  orderId: string;
-  accountId: string;
-  type: 'market' | 'limit';
-  side: 'buy' | 'sell';
-  qty: string;
-  price: string | null;
-  tif: MatchingTif;
-};
+/** Matching submit JSON: the record's own input (`MATCHING_SUBMIT_ORDER`), never a copy. Qty/price stay decimal strings. */
+export type MatchingSubmitBody = ProcedureInput<typeof MATCHING_SUBMIT_ORDER>;
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 
@@ -139,23 +141,50 @@ export function resolveAccountId(
   return { ok: true, accountId };
 }
 
-export function readCommandTif(command: MatchingOrderCommand): { ok: true; tif: MatchingTif } | { ok: false; error: MatchingPortError } {
+/** The time in force matching takes: the record's own list. */
+export type MatchingSubmitTif = MatchingSubmitBody['tif'];
+
+export function readCommandTif(
+  command: MatchingOrderCommand,
+): { ok: true; tif: MatchingSubmitTif } | { ok: false; error: MatchingPortError } {
   const parsed = matchingTifSchema.safeParse(command.tif);
   if (!parsed.success) {
     return refuse('tif_missing', 'TimeInForce is missing; svc-fix does not invent GTC');
   }
+  // FIX DAY (59=0) has no matching time in force; mapping it to GTC or IOC would change the order.
+  if (parsed.data === 'DAY') {
+    return refuse('tif_unsupported', 'TimeInForce DAY has no matching time in force; svc-fix does not map it to another');
+  }
   return { ok: true, tif: parsed.data };
 }
 
-export function toMatchingSubmitBody(command: MatchingOrderCommand, accountId: string, tif: MatchingTif): MatchingSubmitBody {
+/**
+ * The GUID matching keys the order by, from the business key `fix:<SenderCompID>:<ClOrdID>` (a name-based UUID, version 5
+ * layout over SHA-1). The same order from the same session always maps to the same id, so a resend cannot place it twice,
+ * and two sessions' equal ClOrdIDs never collide.
+ */
+export function fixOrderId(senderCompId: string, clOrdId: string): string {
+  const hash = createHash('sha1').update(`fix:${senderCompId}:${clOrdId}`).digest();
+  hash.writeUInt8((hash.readUInt8(6) & 0x0f) | 0x50, 6);
+  hash.writeUInt8((hash.readUInt8(8) & 0x3f) | 0x80, 8);
+  const hex = hash.subarray(0, 16).toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+export function toMatchingSubmitBody(
+  command: MatchingOrderCommand,
+  order: { accountId: string; tif: MatchingSubmitTif; lifecycleProof: MarketLifecycleAdmissionProof },
+): MatchingSubmitBody {
+  const { accountId, tif, lifecycleProof } = order;
   return {
-    orderId: command.clOrdId,
+    orderId: fixOrderId(command.senderCompId ?? '', command.clOrdId),
     accountId,
     type: command.ordType,
     side: command.side,
     qty: command.qty,
     price: command.price,
     tif,
+    lifecycleProof,
   };
 }
 
@@ -302,8 +331,21 @@ export async function postMatchingSubmit(command: unknown, options: MatchingPort
     }
     secret = checked.secret;
   }
-  const body = toMatchingSubmitBody(parsed.command, account.accountId, tif.tif);
-  const payload = JSON.stringify(body);
+  const proof = options.lifecycleProof?.(parsed.command) ?? null;
+  if (!proof) {
+    return refuse(
+      'matching_lifecycle_proof_unavailable',
+      'svc-fix has no market lifecycle admission proof for this order; matching requires one and svc-fix does not invent it',
+    );
+  }
+  // The body is checked against the record matching parses with, so an order matching would refuse is never sent.
+  const body = MATCHING_SUBMIT_ORDER.input.safeParse(
+    toMatchingSubmitBody(parsed.command, { accountId: account.accountId, tif: tif.tif, lifecycleProof: proof }),
+  );
+  if (!body.success) {
+    return refuse('invalid_message', `the order does not satisfy matching's submit record: ${body.error.issues[0]?.message ?? 'invalid'}`);
+  }
+  const payload = JSON.stringify(body.data);
   const path = matchingSubmitPath(parsed.command);
   const sign = serviceCallSigner({ service: MATCHING_SERVICE_NAME, audience: MATCHING_AUDIENCE, legacySecret: secret, s2s });
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;

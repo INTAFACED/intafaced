@@ -45,7 +45,15 @@ import {
   kycTradingChecksSchema,
 } from '@intafaced/contracts/identity-kyc-trading-checks';
 import { z } from 'zod';
-import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  personProcedure,
+  protectedProcedure,
+  scopedProcedure,
+  serviceProcedure,
+  TRPCError,
+} from '@intafaced/contracts';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
 import { signInChallengeProofSchema, signInChallengeSchema } from '@intafaced/contracts/identity-signin-challenge';
@@ -2027,9 +2035,12 @@ export function createIdentityRouter(
           return { ok: true as const };
         }),
 
-      logoutAll: protectedProcedure.output(z.object({ revoked: z.number() })).mutation(async ({ ctx }) => ({
-        revoked: await auth.logoutAll(ctx.principal.userId),
-      })),
+      // The signed-in person only: an API key or a sub-account token must not sign its owner out everywhere.
+      logoutAll: personProcedure()
+        .output(z.object({ revoked: z.number() }))
+        .mutation(async ({ ctx }) => ({
+          revoked: await auth.logoutAll(ctx.principal.userId),
+        })),
 
       /**
        * Change the signed-in user's password. User sessions only (an API key or

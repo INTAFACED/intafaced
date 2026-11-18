@@ -340,3 +340,43 @@ export const opsReconciliationPeriodsSchema = z
   .object({ source: opsAlertSourceSchema, periods: z.array(opsReconciliationPeriodSchema) })
   .strict();
 export type OpsReconciliationPeriods = z.infer<typeof opsReconciliationPeriodsSchema>;
+
+/**
+ * The teams' reconciliation alert feed (J-ops-console-07 #10): svc-notify's own record of each alert transition svc-ops
+ * published, one row per business key `ops:reconciliation-alert:<alertId>:<sequence>`, so a transition received twice is
+ * applied once. Read with `notify.reconciliationAlertFeed.list` (`admin:read`).
+ */
+export const NOTIFY_RECON_ALERT_FEED_KINDS = [
+  'opened',
+  'acknowledged',
+  'snoozed',
+  'unsnoozed',
+  'reopened',
+  'resolved',
+  'accepted',
+] as const;
+export const notifyReconAlertFeedInputSchema = z.object({ alertId: z.string().guid() }).strict();
+export const notifyReconAlertFeedEntrySchema = z
+  .object({
+    eventKey: z.string().min(1),
+    alertId: z.string(),
+    sequence: z.number().int().min(1),
+    kind: z.enum(NOTIFY_RECON_ALERT_FEED_KINDS),
+    team: z.enum(['finance', 'platform']).nullable(),
+    state: z.enum(['open', 'acknowledged', 'snoozed', 'resolved', 'accepted']),
+    /** The signed operator, the approver of an acceptance, or `auto`. */
+    actor: z.string(),
+    occurredAt: z.string(),
+    receivedAt: z.string(),
+  })
+  .strict();
+export type NotifyReconAlertFeedEntry = z.infer<typeof notifyReconAlertFeedEntrySchema>;
+export const notifyReconAlertFeedSchema = z
+  .object({
+    alertId: z.string(),
+    /** Whether svc-notify's four transition consumers are attached to the bus now; detached, nothing new arrives. */
+    bus: z.enum(['attached', 'detached']),
+    entries: z.array(notifyReconAlertFeedEntrySchema),
+  })
+  .strict();
+export type NotifyReconAlertFeed = z.infer<typeof notifyReconAlertFeedSchema>;

@@ -1,12 +1,12 @@
 import { expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
+import { MINUTE, utcMinuteOf } from './clock.mjs';
 
 // The TEST tape the algo journeys backtest on: closed 1m bars of BTC/USDT from the local TEST market maker.
 
 /** A UTC minute as a datetime-local value, `minutesAgo` before the current minute. */
 export function utcMinute(minutesAgo) {
-  const at = Math.floor(Date.now() / 60_000) * 60_000 - minutesAgo * 60_000;
-  return new Date(at).toISOString().slice(0, 16);
+  return utcMinuteOf(Date.now() - minutesAgo * MINUTE);
 }
 
 /** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */

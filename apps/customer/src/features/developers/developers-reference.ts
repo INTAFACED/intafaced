@@ -1160,6 +1160,20 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'The funding the venue charged or paid on each of your positions, one payment per position per period, as the venue booked it',
   },
   {
+    name: 'venueBuilderFees',
+    method: 'GET',
+    path: '/api/v1/venue/builder-fees',
+    product: 'accounts',
+    summary: 'Our builder fee on each fill of your own orders on the venue account, with the ledger transaction it was posted under',
+  },
+  {
+    name: 'venueEligibleInstruments',
+    method: 'GET',
+    path: '/api/v1/venue/eligible-instruments',
+    product: 'accounts',
+    summary: 'The perpetuals your account is eligible for on the venue, each with its settle asset, or none with the reason',
+  },
+  {
     name: 'venuePriceHistory',
     method: 'GET',
     path: '/api/v1/venue/price-history',

@@ -1471,6 +1471,9 @@ importers:
       '@intafaced/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@intafaced/exchange-contract':
+        specifier: workspace:*
+        version: link:../../packages/exchange-contract
       zod:
         specifier: ^4.6.7
         version: 4.6.7

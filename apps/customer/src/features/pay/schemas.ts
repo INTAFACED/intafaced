@@ -14,16 +14,6 @@ export const id = z.string().guid();
 export const asset = z.string().min(1).max(16);
 export const amount = decimalSchema.refine((v) => /^\d+(\.\d{1,18})?$/.test(v));
 export const positiveAmount = amount.refine((v) => /[1-9]/.test(v), 'Enter an amount greater than zero');
-export const spaceSchema = z.object({
-  id: z.string(),
-  assetId: asset,
-  kind: z.enum(['primary', 'named']),
-  name: z.string(),
-  goalTarget: amount.nullable(),
-  lockedUntil: z.string().nullable(),
-  balance: amount,
-  ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: asset, kind: z.string() }),
-});
 export const sendInput = z.object({
   transferId: z.string().min(8).max(64),
   fromSpaceId: id,

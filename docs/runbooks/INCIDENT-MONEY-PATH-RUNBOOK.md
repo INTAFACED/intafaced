@@ -5,7 +5,7 @@
 **Tracker:** D26-P3-10 · LIVE-LANES `denon-d26-p3-10-incident`  
 **Class:** N (ops procedure). Does **not** close Class X go-live.  
 **Law:** Doctrine §4.2 (unverifiable book → freeze posting) · §14.6 (operator kill, never trap funds) · [`../INTERNET-LEVERAGE-LAW.md`](../INTERNET-LEVERAGE-LAW.md) Phase A IN (name existing doors; do not rebuild them).  
-**How to pull a switch (curl / console):** [`../OPS-KILL-SWITCH-RUNBOOK.md`](../OPS-KILL-SWITCH-RUNBOOK.md) — this file is **who does what when**, not a second copy of those commands.  
+**How to pull a switch (curl / console):** [`OPS-KILL-SWITCH-RUNBOOK.md`](OPS-KILL-SWITCH-RUNBOOK.md) — this file is **who does what when**, not a second copy of those commands.  
 **Restore is not authorized here.** The bounded **D26-P3-09** drill is recorded in [`../MONEY-BACKUP-RESTORE-DRILL.md`](../archive/MONEY-BACKUP-RESTORE-DRILL.md); it is not production or incident-cutover authority. See §4.
 
 This page exists so agents and humans can act when **ledger posting** or **trade/match** is red **without inventing a new money control**. If a door is not named below, it is not in this playbook.
@@ -25,7 +25,7 @@ This page exists so agents and humans can act when **ledger posting** or **trade
 | Need a host backup, secret rotate, prod RPC, sanctions list, licence | **Class X.** This runbook does not authorize it.                                                                                                                           | Nitro human (+ counsel).                                                         |
 | Want to restore Postgres / matching journal                          | A local ledger-schema drill exists, but production/cross-store restore is unproven and not authorized here. Contain with freeze/kill above.                                | See §4.                                                                          |
 
-**Never:** invent freeze magnitudes, a new kill flag, a second book, or a “halt everything including cancels” switch. A control that traps open risk is not a safety control ([`../OPS-KILL-SWITCH-RUNBOOK.md`](../OPS-KILL-SWITCH-RUNBOOK.md)).
+**Never:** invent freeze magnitudes, a new kill flag, a second book, or a “halt everything including cancels” switch. A control that traps open risk is not a safety control ([`OPS-KILL-SWITCH-RUNBOOK.md`](OPS-KILL-SWITCH-RUNBOOK.md)).
 
 ---
 
@@ -66,7 +66,7 @@ Compose ports: `docker-compose.apps.yml` (`intafaced-svc-ledger` 4001, `svc-edge
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Edge proxy           | `GET/POST /admin/ledger/freeze` · `POST /admin/ledger/unfreeze` — `services/svc-edge/src/control-plane.ts` (`admin:treasury` + MFA). Needs `LEDGER_URL` on the edge; unset → **503** `edge.ledger_unreachable`, never a fake success. |
 | Ledger operator HTTP | `GET/POST /operator/freeze` · `POST /operator/unfreeze` · `POST /operator/reconcile` — `services/svc-ledger/src/operator-http.ts`.                                                                                                    |
-| Console hop          | `apps/admin` `/api/ledger-freeze` — documented in [`../OPS-KILL-SWITCH-RUNBOOK.md`](../OPS-KILL-SWITCH-RUNBOOK.md). Front-end path is HUMAN (`nitro-frontend-all`); agents do not craft Vue.                                          |
+| Console hop          | `apps/admin` `/api/ledger-freeze` — documented in [`OPS-KILL-SWITCH-RUNBOOK.md`](OPS-KILL-SWITCH-RUNBOOK.md). Front-end path is HUMAN (`nitro-frontend-all`); agents do not craft Vue.                                                |
 | Boot-only freeze     | `LEDGER_POSTING_ENABLED=false` — `LedgerService.applyStartupPolicy` **can freeze and can never thaw** via that flag. **Not** the interactive incident lever. Prefer `/admin/ledger/freeze`.                                           |
 
 Use freeze after an **unverifiable book** (§4.2), not as a substitute for killing a single module.
@@ -99,7 +99,7 @@ When `trade` is killed: new places → **503** `edge.module_killed` (or `edge.ki
 
 **Not a kill switch:** rolling back a deploy (staging workflow). Named in [`../THREAT-MODEL-STAGING-DEPLOY.md`](../THREAT-MODEL-STAGING-DEPLOY.md) §8 row 14.
 
-**Not this playbook:** pay rails / bank earn / partner vendor kills ([`../OPS-KILL-SWITCH-RUNBOOK.md`](../OPS-KILL-SWITCH-RUNBOOK.md) “What this does not cover”). Vendored Java dual-book needs its own halt if still mounted.
+**Not this playbook:** pay rails / bank earn / partner vendor kills ([`OPS-KILL-SWITCH-RUNBOOK.md`](OPS-KILL-SWITCH-RUNBOOK.md) “What this does not cover”). Vendored Java dual-book needs its own halt if still mounted.
 
 ---
 
@@ -171,7 +171,7 @@ The bounded drill does not authorize `pg_restore`, journal replay, volume copyin
 
 1. **D26-P3-09** local backup/restore drill is bounded evidence; production/PITR/off-host/cross-store recovery and cutover remain unproven.
 2. **D26-P3-08** alerts + one real (non-local) dashboard — local compose scrape + `edge-slo.json` exist; remote alert routes are a separate mountain.
-3. Multi-replica kill-switch store · operator SSO · flag store · console reconcile stub — [`../OPS-KILL-SWITCH-RUNBOOK.md`](../OPS-KILL-SWITCH-RUNBOOK.md) §13.
+3. Multi-replica kill-switch store · operator SSO · flag store · console reconcile stub — [`OPS-KILL-SWITCH-RUNBOOK.md`](OPS-KILL-SWITCH-RUNBOOK.md) §13.
 4. Edge cannot halt `svc-ws`.
 5. `edge.gateway` flag is `NOT_ENFORCED` — live kill is `/admin/kill-switches`, not that flag (`services/svc-edge/README.md`).
 6. Admin BFF shared token without network ACL — P0 residual; ship gate for real money.

@@ -23,6 +23,8 @@ const world = vi.hoisted(() => ({
         world.held ?? { ok: false, reason: 'error', status: 404, code: 'bank.held_send_not_found', message: 'No held payment with that id' }
       );
     },
+    // A call by its record is the same read, named by the record's module and path.
+    call: (record: { module: string; path: string }, input: unknown) => world.api.query(record.module, record.path, input),
   },
 }));
 vi.mock('../../../session/session', () => ({
