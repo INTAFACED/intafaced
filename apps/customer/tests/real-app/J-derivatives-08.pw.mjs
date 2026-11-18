@@ -293,7 +293,9 @@ test(`${J} #5 opens the funding statement: venue funding by position and period,
   await ledgerUntouched(s);
 });
 
-test(`${J} #6 reads public funding, index and mark history: rate rows with premium and annualised rate, index and mark series; an unpublished index returns null with its reason`, async () => {
+test(`${J} #6 reads public funding, index and mark history: rate rows with premium and annualised rate, index and mark series; an unpublished index returns null with its reason`, async ({
+  page,
+}) => {
   test.setTimeout(300_000);
   const s = state();
   // Signed out: these are public market data.
@@ -328,8 +330,14 @@ test(`${J} #6 reads public funding, index and mark history: rate rows with premi
   const venue = await venueNow();
   await venueAt('/test/index-published', { symbol: SYMBOL, published: false });
   try {
-    const none = await pub(`/api/v1/venue/price-history?symbol=${SYMBOL}&kind=index&since=${all}`);
+    const unpublished = `/api/v1/venue/price-history?symbol=${SYMBOL}&kind=index&since=${all}`;
+    const none = await pub(unpublished);
     expect(none).toMatchObject({ symbol: SYMBOL, kind: 'index', series: null, reason: `${venue.name} publishes no index for ${SYMBOL}` });
+    // The same public answer as a reader opens it, signed out, in the browser: null, with the venue's reason.
+    const opened = await page.goto(`${EDGE}${unpublished}`);
+    expect(opened.status()).toBe(200);
+    expect(JSON.parse(await page.locator('body').innerText())).toMatchObject({ series: null, reason: none.reason });
+    await expect(page.locator('body')).toContainText(`${venue.name} publishes no index for ${SYMBOL}`);
   } finally {
     await venueAt('/test/index-published', { symbol: SYMBOL, published: true });
   }
