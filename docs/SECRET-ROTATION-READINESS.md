@@ -11,7 +11,7 @@ This is the **tip runbook**: what must be rotatable, in what order, and which ga
 
 **Leverage (Phase A IN):** `.env.example` shapes + existing owner-actions + existing gates. Do not invent a second vault, a second money book, or a new product SPA.
 
-**Historical inventory (blast-radius map, 2026-08-03):** [`SECRET-ROTATION-READINESS-2026-08-03.md`](SECRET-ROTATION-READINESS-2026-08-03.md). That document remains the long form. This page is the operator order on tip.
+This page holds what was still true in the two dated reports it replaced on 2026-11-18 (the 2026-07-30 wallet-secrets and perimeter audit, and the 2026-08-03 rotation inventory); both are in git history.
 
 **Wallet disclosed-literal half (do not edit):** [`OWNER-ACTIONS-WALLET-RPC-SECRETS.md`](OWNER-ACTIONS-WALLET-RPC-SECRETS.md) — A1 first, A2 is a **different** account, A3/A3b/A4 constraints. Cite it; never duplicate its values.
 
@@ -34,18 +34,18 @@ Shapes live in `.env.example` and `packages/config` / `services/*/src/env.ts`. C
 
 ### 1.1 · Edge principal
 
-| Env name                | Role                                                                                                                                                               | Rotate with                                                                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EDGE_PRINCIPAL_SECRET` | HMAC over the principal svc-edge forwards. Edge signs; mounting services verify. `z.string().min(32)`, **no schema default**. Compose `:?` refuses an unset stack. | **One** `.env` edit. Restart **all** consumers together (14 services on the 2026-08-03 map). Partial rotation → authenticated paths **401**. |
+| Env name                | Role                                                                                                                                                               | Rotate with                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `EDGE_PRINCIPAL_SECRET` | HMAC over the principal svc-edge forwards. Edge signs; mounting services verify. `z.string().min(32)`, **no schema default**. Compose `:?` refuses an unset stack. | **One** `.env` edit. Restart **all** consumers together (§1.6). Partial rotation → authenticated paths **401**. |
 
-`.env.example` carries a `dev-only-*` placeholder so a clone boots locally. That placeholder is **not** a production value. A staging/prod host still running it is a disclosure — treat the five `dev-only-*` fleet placeholders as burned and follow §2.3 of the 2026-08-03 inventory. Confirm off-repo; do not paste the placeholder into this file as if it were evidence.
+`.env.example` carries a `dev-only-*` placeholder so a clone boots locally. That placeholder is **not** a production value. A staging/prod host still running it is a disclosure — treat the five `dev-only-*` fleet placeholders (edge, internal, JWT, both `PAY_*` webhooks) as burned and rotate each as §2 says. Confirm off-repo; do not paste the placeholder into this file as if it were evidence.
 
 ### 1.2 · Ledger / internal service secrets
 
-| Env name                  | Role                                                                                                                   | Rotate with                                                                                                                                                                                                                                                       |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `INTERNAL_SERVICE_SECRET` | Shared secret on the internal money plane. svc-ledger verifies; callers send it. `z.string().min(32)`, **no default**. | One `.env` edit. Restart **all** callers + ledger together (10 services on the 2026-08-03 map). Partial rotation → `ledger.post` **401** while `/health` stays green. **Verify with a money path** (`pnpm order-path-smoke` or a small fill), not a health check. |
-| `JWT_ACCESS_SECRET`       | Access-token HMAC. Identity mints; edge/ledger/ws verify. `z.string().min(32)`.                                        | Identity + edge + ledger + ws **together**. Every existing session dies; that is the design.                                                                                                                                                                      |
+| Env name                  | Role                                                                                                                   | Rotate with                                                                                                                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `INTERNAL_SERVICE_SECRET` | Shared secret on the internal money plane. svc-ledger verifies; callers send it. `z.string().min(32)`, **no default**. | One `.env` edit. Restart **all** callers + ledger together (§1.6). Partial rotation → `ledger.post` **401** while `/health` stays green. **Verify with a money path** (`pnpm order-path-smoke` or a small fill), not a health check. |
+| `JWT_ACCESS_SECRET`       | Access-token HMAC. Identity mints; the other holders verify (§1.6). `z.string().min(32)`; optional in svc-ws.          | Every holder in §1.6 **together**. Every existing session dies; that is the design.                                                                                                                                                  |
 
 `INTERNAL_SERVICE_BODY_BIND` is not a secret. If it is `require` anywhere, set it everywhere before blaming a rotation 401 on the secret. In production posture (`APP_ENV` anything but exactly `dev`/`test`) it must be exactly `require` on every process that holds `INTERNAL_SERVICE_SECRET`, or that process refuses to boot (`config.s2s_body_bind_not_required`).
 
@@ -70,10 +70,56 @@ Rotate token and vendor console together. Blast radius is notify only. Do not pu
 | `ECT_WITHDRAW_WALLET_SECRET`                                | ECT withdrawal signing seed (`coin.withdraw-wallet`). **OWNER-ACTIONS A1 — do this first among wallet keys.** Not listed as a filled `.env.example` default; the module is not in `docker-compose.apps.yml`. | `EctWithdrawSecretConfig` refuses unset **and** refuses when SHA-256(env) matches the digest of the committed literal (digest in source, **not** the literal). See [`OWNER-ACTIONS-WALLET-RPC-SECRETS.md`](OWNER-ACTIONS-WALLET-RPC-SECRETS.md) A1 “Already done for you”. Width of that digest is also CI: `wallet-rpc-mainnet` rule **M11**. |
 | Second ECT seed (A2)                                        | Different account in a deleted `main()`. **Rotating A1 does not cover A2.**                                                                                                                                  | Code path gone (`EctApi.main` deleted). No env var. Owner still sweeps the historical source account. Cite A2; do not recover the literal into git.                                                                                                                                                                                            |
 | `WALLET_RPC_AUTH_TOKEN`                                     | Shared `/rpc/**` auth. Minimum 32 chars.                                                                                                                                                                     | `RpcSecurityConfig` + `wallet-rpc-auth` scan: a bootable module without the guard on its classpath fails CI. Unset or short token → service does not start.                                                                                                                                                                                    |
-| `ETH_KEYSTORE_PASSWORD` / `ETH_WITHDRAW_WALLET_PASSWORD`    | ETH-family keystore passwords.                                                                                                                                                                               | Commented in `.env.example` with **no properties default**. Read `docs/RUNBOOK-ETH-KEYSTORE-REENCRYPTION.md` before setting on an existing keystore (empty password → files stop decrypting).                                                                                                                                                  |
+| `ETH_KEYSTORE_PASSWORD` / `ETH_WITHDRAW_WALLET_PASSWORD`    | ETH-family keystore passwords.                                                                                                                                                                               | Commented in `.env.example` with **no properties default**. Read `docs/runbooks/RUNBOOK-ETH-KEYSTORE-REENCRYPTION.md` before setting on an existing keystore (empty password → files stop decrypting).                                                                                                                                         |
 | `PAY_CRYPTO_HOT_WALLET_KEY` / `PAY_CRYPTO_DEPOSIT_MNEMONIC` | Optional live crypto rail (TypeScript pay). Unset ⇒ no live rail.                                                                                                                                            | Schema: `0x` + 64 hex for the key. **Never commit a mainnet hot key.** Compose/env parity covers the name once required.                                                                                                                                                                                                                       |
 
 ACT node RPC in a test `main()` (A3) is evidence, not a fleet env key. Owner decides if that node is ours. Cite A3; do not delete it as a “fix”.
+
+### 1.5 · Values disclosed in git history (the vendored exchange tree)
+
+The vendored Java tree was deleted on 2026-10-19, so nothing in HEAD boots these values. Each one is still readable in git history, and no rotation of any of them is recorded. Only the owner can make an old value worthless, with the provider or on the chain. Removing a literal from HEAD never un-discloses it. Names and keys only, never values.
+
+| What                                   | Where it was (history)                                                                                                                                  | Owner action                                                                                                                                                            |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Two ECT withdrawal seeds (A1, A2)      | `01_wallet_rpc/ect` properties `coin.withdraw-wallet`; a `main()` in its `EctApi`                                                                       | Move the value to fresh addresses; the destination must change, not just the seed. [`OWNER-ACTIONS-WALLET-RPC-SECRETS.md`](OWNER-ACTIONS-WALLET-RPC-SECRETS.md) A1, A2. |
+| ACT node RPC credential (A3)           | `01_wallet_rpc/act` test `ActClientTest`                                                                                                                | Rotate it on the node if the node is ours; else nothing to rotate. A3 there.                                                                                            |
+| Actuator basic-auth password           | `ucenter-api`, `otc-api` → `security.user.password`                                                                                                     | Rotate first. It guarded `/monitor/heapdump` on a published port, so treat everything those processes held in memory as exposed too.                                    |
+| Cloud access key pairs                 | `admin`, `ucenter-api` → `aliyun.accessKeyId` / `accessKeySecret`                                                                                       | Rotate with the provider (billable).                                                                                                                                    |
+| SMS gateway passwords                  | `admin`, `ucenter-api`, `wallet` → `sms.password`                                                                                                       | Rotate with the provider (billable).                                                                                                                                    |
+| Captcha keys                           | `ucenter-api` → `geetest.privateKey` (also a field copy in `GeetestLib`), `water.proof.app.secret.key`, and an id plus key pair in `RegisterController` | Rotate with the provider.                                                                                                                                               |
+| Admin console signing factor           | `admin` dev properties → `spark.system.md5.key`, read by eight admin controllers, the withdraw approval among them                                      | Rotate if that console was ever deployed anywhere; changing it can invalidate stored admin credentials.                                                                 |
+| Bytom access token; Etherscan API keys | `01_wallet_rpc/btm` → `client.access.token`; `erc-token`, `erc-eusdt` → `etherscan.token`                                                               | Rotate if ever used (the Bytom token is real-shaped).                                                                                                                   |
+
+The rest of what the 2026-07-30 audit swept (keyboard-mash values against the unroutable `111.111.111.111`, the matched dev pairs, a dead 2FA demo seed) was judged dead and needs nothing.
+
+### 1.6 · Who must move together
+
+Each shared secret must be identical in every compose block that holds it. On 2026-11-18 `docker-compose.apps.yml` gives them to:
+
+| Secret                    | Holders (re-count with `grep -n -e '*edge-secret' -e '*internal-secret' -e JWT_ACCESS_SECRET docker-compose.apps.yml`)                                                                                                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `EDGE_PRINCIPAL_SECRET`   | 23: svc-edge, svc-academy, svc-agents, svc-bank, svc-blueprint, svc-campaigns, svc-dex, svc-execution, svc-identity, svc-indexer, svc-market, svc-matching, svc-notify, svc-ops, svc-p2p, svc-pay, svc-protocol, svc-quant, svc-support, svc-tax, svc-token, svc-trade, vendor-shell |
+| `INTERNAL_SERVICE_SECRET` | 17: svc-ledger, svc-academy, svc-agents, svc-bank, svc-execution, svc-fix, svc-identity, svc-market, svc-matching, svc-mining-pool, svc-ops, svc-p2p, svc-pay, svc-support, svc-tax, svc-token, svc-trade                                                                            |
+| `JWT_ACCESS_SECRET`       | 9: svc-identity (mints), svc-edge, svc-ledger, svc-ws (optional), svc-agents, svc-bank, svc-support, svc-token, svc-trade                                                                                                                                                            |
+
+Absences that are load-bearing, not oversights: svc-ws holds neither the edge nor the internal secret, which is why it may be a second internet-facing port; svc-edge holds no `INTERNAL_SERVICE_SECRET`, so the front door cannot reach the money plane; svc-dex and svc-protocol hold no `INTERNAL_SERVICE_SECRET`, non-custodial by construction.
+
+What a partial rotation looks like:
+
+| Left on the old value               | Symptom                                                                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| An `EDGE_PRINCIPAL_SECRET` holder   | Its authenticated requests return 401; public paths keep working.                                                                    |
+| An `INTERNAL_SERVICE_SECRET` caller | Its `ledger.post` returns 401. The platform starts and `/health` passes, and no value can move. Nobody notices until someone trades. |
+| svc-identity (`JWT_ACCESS_SECRET`)  | Logins succeed and every later request is anonymous, with no error in any log.                                                       |
+| svc-edge (`JWT_ACCESS_SECRET`)      | Every request 401s.                                                                                                                  |
+| svc-ledger (`JWT_ACCESS_SECRET`)    | Users are unaffected; the operator console stops authenticating, mid-rotation.                                                       |
+| svc-ws (`JWT_ACCESS_SECRET`)        | Public market data keeps flowing; `/private/stream` refuses upgrades, so order and fill updates stop while prices still show.        |
+
+Per-service secrets reach one service and rotate alone. A `PAY_*_WEBHOOK_SECRET` also changes at its sender at the same moment, or deliveries fail their signature check.
+
+### 1.7 · What the dev stack publishes
+
+On 2026-11-18 the app fleet publishes only svc-edge (`4000`), svc-ws (`4014`), vendor-shell (`8090`) and admin (`3100`); every money service is compose-internal. `docker-compose.yml` publishes its infrastructure on all interfaces (Postgres `5433`, Redis `6380`, NATS `4222`/`8222`, OTLP `4317`/`4318`, Tempo `3200`, Prometheus `9090`, the dev EVM nodes `8545`/`8546`) and Grafana on `3001` with anonymous users given the Admin role. That is fine on a laptop; on any shared host bind them to loopback first.
 
 ---
 
@@ -90,13 +136,13 @@ Order is **blast radius of value**, then **auth plane**, then **money plane**, t
    - **Do not boot `01_wallet_rpc` to “test” the new key against real value (A4).**
 2. **`EDGE_PRINCIPAL_SECRET`** — whole edge-principal set, one restart.
 3. **`INTERNAL_SERVICE_SECRET`** — whole ledger-caller set, money-path probe.
-4. **`JWT_ACCESS_SECRET`** — identity + edge + ledger + ws together.
+4. **`JWT_ACCESS_SECRET`** — every holder in §1.6 together.
 5. **Notify gateway tokens** — with vendor-side token, URL pairing intact.
 6. **Per-service pay webhooks** (`PAY_CRYPTO_WEBHOOK_SECRET`, `PAY_CARD_SANDBOX_WEBHOOK_SECRET`) and, only if the live rail is actually on, `PAY_CRYPTO_*` signing material.
 
 Shared HMAC secrets have **no two-key overlap** today. The safe procedure is still: one env edit, restart the **entire** affected set. Rolling one container at a time is a mixed fleet.
 
-A rotation **recreates containers**. That is why compose/schema parity is a rotation gate, not a nicety: every latent missing `environment:` line becomes a crash-loop at the same moment (§2.4 of the 2026-08-03 inventory; #431 ledger JWT, #442 academy internal secret).
+A rotation **recreates containers**. That is why compose/schema parity is a rotation gate, not a nicety: every latent missing `environment:` line becomes a crash-loop at the same moment (#431: svc-ledger crash-looped on a missing `JWT_ACCESS_SECRET` when a recreate reached it; #442: svc-academy died at import, so no container and no logs existed to read).
 
 ---
 

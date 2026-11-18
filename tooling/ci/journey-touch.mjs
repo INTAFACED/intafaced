@@ -143,7 +143,6 @@ export const DOCS_READ = [
   'docs/decisions/s2s-body-bind.md',
   'docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md',
   'docs/CODEOWNERS',
-  'docs/OPS-KILL-SWITCH-RUNBOOK.md',
   'docs/OWNER-OPS-CHECKLIST-2026-07-31.md',
   'docs/OWNER-SETTINGS.md',
   'docs/RUNNING.md',
