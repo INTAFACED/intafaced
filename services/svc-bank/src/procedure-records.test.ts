@@ -8,9 +8,13 @@ import { createBankRouter } from './router.js';
  * a copy. A copy would compile and drift; this fails instead.
  */
 describe('svc-bank serves its recorded calls from their records', () => {
-  const procedures = (
-    createBankRouter({} as never) as unknown as { _def: { procedures: Record<string, { _def: { inputs: unknown[]; output?: unknown } }> } }
-  )._def.procedures;
+  const procedures =
+    // oxlint-disable-next-line garden/no-double-cast -- tRPC keeps a router's mounted parsers in `_def`, which its public type does not name
+    (
+      createBankRouter({} as never) as unknown as {
+        _def: { procedures: Record<string, { _def: { inputs: unknown[]; output?: unknown } }> };
+      }
+    )._def.procedures;
 
   it.each([BANK_SPACES_LIST])('$name is mounted at its path with its own input and output', (record) => {
     expect(record.service).toBe('svc-bank');
