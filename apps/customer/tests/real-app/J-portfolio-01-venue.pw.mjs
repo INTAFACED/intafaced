@@ -337,7 +337,8 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
   async function holding(section, row, { amountCells, source }) {
     const el = page.getByTestId(section).locator(`tr[data-asset="${row.asset}"]`);
     for (const [name, value] of Object.entries(amountCells))
-      await expect(el.locator(`[data-cell="${name}"]`).first()).toHaveText(new RegExp(`^${shown(value).replace(/\./g, '\\.')}`));
+      // The whole figure, exactly: no further digit, point or comma may follow it (500 never passes for 5000 or 500.5).
+      await expect(el.locator(`[data-cell="${name}"]`).first()).toHaveText(new RegExp(`^${shown(value).replace(/\./g, '\\.')}(?![\\d.,])`));
     if (row.price === null) {
       await expect(el.locator('[data-cell="price"]')).toHaveText('No price published');
       await expect(el.locator('[data-cell="value"]')).toHaveText('No price published');
