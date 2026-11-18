@@ -4,12 +4,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import type { UserVenue } from '@intafaced/venue-contracts';
+import type { AsOf, UserVenue, UserVenueAccount, UserVenueBalance, UserVenueDescriptor } from '@intafaced/venue-contracts';
 import type { CopyFollow } from './follows.js';
 import { leadFollowing, leadVenueUsdc } from './lead-conditions.js';
 
 const follow = (followId: string, leaderId: string, at: number, relationshipState?: CopyFollow['relationshipState']) =>
-  ({ followId, followerId: 'u', leaderId, createdAt: new Date(at), relationshipState }) as unknown as CopyFollow;
+  ({ followId, followerId: 'u', leaderId, createdAt: new Date(at), relationshipState }) as CopyFollow;
 
 describe('leadFollowing', () => {
   const names: Record<string, { leaderRef: string; displayName: string }> = {
@@ -40,17 +40,19 @@ describe('leadFollowing', () => {
 
 describe('leadVenueUsdc', () => {
   const asOf = new Date('2026-11-12T00:00:00.000Z');
-  const venue = (balances: Record<string, string>) =>
-    ({
-      venue: { id: 'test-venue', displayName: 'TEST venue', test: true },
-      balances: async (account: { owner: string; subAccount: string | null }) => {
-        const usdc = balances[`${account.owner}/${account.subAccount ?? ''}`];
-        return {
-          value: usdc === undefined ? [] : [{ asset: 'USDC', free: parseAmount(usdc), locked: 0n, total: parseAmount(usdc) }],
-          asOf,
-        };
-      },
-    }) as unknown as UserVenue;
+  // The descriptor's other fields are never read here; a TEST proof level makes it a TEST venue.
+  const descriptor = { id: 'test-venue', displayName: 'TEST venue', proofLevel: 'simulator' } as UserVenueDescriptor;
+  const venue = (balances: Record<string, string>): Pick<UserVenue, 'venue' | 'balances'> => ({
+    venue: descriptor,
+    balances: async (account: UserVenueAccount): Promise<AsOf<readonly UserVenueBalance[]>> => {
+      const usdc = balances[`${account.owner}/${account.subAccount ?? ''}`];
+      return {
+        venueId: account.venueId,
+        value: usdc === undefined ? [] : [{ asset: 'USDC', free: parseAmount(usdc), locked: 0n, total: parseAmount(usdc) }],
+        asOf,
+      };
+    },
+  });
 
   it('reads off with the door off and none without an account the wallet signed for', async () => {
     expect(await leadVenueUsdc({ venue: null, store: { ownerSignedAccounts: async () => [] } }, 'u')).toEqual({ state: 'off' });

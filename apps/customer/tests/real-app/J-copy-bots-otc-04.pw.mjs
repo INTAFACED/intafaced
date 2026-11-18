@@ -5,7 +5,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, signOutBrowser, tool, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { copiedOrdersLoaded, followOnScreen, leadVenueAccount, listLeader, openFollow } from './copy.mjs';
+import { copiedOrdersLoaded, followOnScreen, leadVenueAccount, listLeader, mineOf, openFollow } from './copy.mjs';
 import { testDeposit, venueForThisFile } from './venue.mjs';
 import { LEAD_TEST_SPOT } from '../../../../tooling/scripts/seed-spot-test-listing.mjs';
 
@@ -53,13 +53,6 @@ function state(key) {
 
 const codeOf = (body) => body?.error?.data?.cause?.code;
 
-/** The applicant's own application, as svc-trade answers `copy.myLeadApplication`. */
-async function mineOf(who) {
-  const res = await (await api(who)).get('/api/trade/trpc/copy.myLeadApplication');
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  return res.body?.result?.data ?? null;
-}
-
 /** svc-trade restarted with the user-venue door on and the least venue balance to lead blank, a TEST figure, or its TEST value. */
 function leadBalance(value) {
   const saved = { door: process.env.LOCAL_STACK_USER_VENUE, balance: process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE };
@@ -79,14 +72,14 @@ function leadBalance(value) {
   }
 }
 
-const terms = (page) => page.getByRole('region', { name: 'What leading needs' });
+const terms = (page) => page.getByRole('region', { name: 'What leading needs', exact: true });
 
 /** Opens Apply to lead, fills the display name and presses Apply; returns svc-trade's answer to the submit. */
 async function applyOnScreen(page, displayName) {
   await page.goto('/copy/lead/apply');
-  await page.getByRole('textbox', { name: 'Display name' }).fill(displayName);
+  await page.getByRole('textbox', { name: 'Display name', exact: true }).fill(displayName);
   const sent = page.waitForResponse((res) => res.url().includes('copy.applyToLead') && res.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Apply to lead' }).click();
+  await page.getByRole('button', { name: 'Apply to lead', exact: true }).click();
   const answer = await sent;
   return { status: answer.status(), body: await answer.json(), request: answer.request().postDataJSON() };
 }
@@ -97,19 +90,19 @@ async function applyOnScreen(page, displayName) {
  */
 async function leadOrderOnScreen(page, { symbol = BOOK_PATH, price, amount, postOnly = false }) {
   await page.goto(`/trade/spot/${symbol}?lead=1`);
-  const toggle = page.getByRole('switch', { name: 'Lead trade' });
+  const toggle = page.getByRole('switch', { name: 'Lead trade', exact: true });
   await expect(toggle).toBeChecked();
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
   if (postOnly) {
-    await page.getByRole('combobox', { name: 'Time in force' }).click();
+    await page.getByRole('combobox', { name: 'Time in force', exact: true }).click();
     await page.getByRole('option', { name: 'Post only', exact: true }).click();
   }
   const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
-  await form.getByRole('textbox', { name: 'Price' }).fill(price);
-  await form.getByRole('textbox', { name: 'Amount' }).fill(amount);
-  await page.getByRole('button', { name: `Buy ${symbol.split('-')[0]}` }).click();
+  await form.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
+  await form.getByRole('textbox', { name: 'Amount', exact: true }).fill(amount);
+  await page.getByRole('button', { name: `Buy ${symbol.split('-')[0]}`, exact: true }).click();
   const sent = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/v1/orders' && res.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
   const answer = await sent;
   return { status: answer.status(), body: await answer.json().catch(() => null), request: answer.request().postDataJSON() };
 }
@@ -230,10 +223,10 @@ test(`${J} #2 submits a valid application: submitted, the same submit again retu
   const reason = `TEST: track record not shown ${state('tag')}`;
   const founder = await (await browser.newContext()).newPage();
   await openDesk(founder);
-  const row = founder.getByRole('table', { name: 'Lead applications' }).locator('tbody tr').filter({ hasText: displayName });
-  await row.getByRole('button', { name: 'Reject' }).click();
-  await founder.getByRole('dialog').getByRole('textbox', { name: 'Reason' }).fill(reason);
-  await founder.getByRole('dialog').getByRole('button', { name: 'Reject' }).click();
+  const row = founder.getByRole('table', { name: 'Lead applications', exact: true }).locator('tbody tr').filter({ hasText: displayName });
+  await row.getByRole('button', { name: 'Reject', exact: true }).click();
+  await founder.getByRole('dialog').getByRole('textbox', { name: 'Reason', exact: true }).fill(reason);
+  await founder.getByRole('dialog').getByRole('button', { name: 'Reject', exact: true }).click();
   await expect(founder.getByRole('status').filter({ hasText: 'Rejected' })).toBeVisible();
   await founder.context().close();
 
@@ -243,7 +236,7 @@ test(`${J} #2 submits a valid application: submitted, the same submit again retu
   await page.goto('/copy/lead/apply');
   await expect(page.getByText(reason)).toBeVisible();
   await expect(page.getByTestId('reapply-after')).toHaveAttribute('datetime', decided.reapplyAfter);
-  await expect(page.getByRole('button', { name: 'Apply to lead' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Apply to lead', exact: true })).toHaveCount(0);
   // After the wait, on the real clock, the room offers the application again and a new one is submitted.
   const left = Date.parse(decided.reapplyAfter) - Date.now();
   if (left > 0) await page.waitForTimeout(left + 1_000);
@@ -261,7 +254,7 @@ test(`${J} #3 completes a new-trader mission: its progress is shown`, async ({ p
   const applicant = state('applicant');
   await signIn(page, applicant);
   await page.goto('/trade/copy?tab=lead');
-  const missions = page.getByRole('list', { name: 'New-trader missions' });
+  const missions = page.getByRole('list', { name: 'New-trader missions', exact: true });
   const fund = missions.getByRole('listitem').filter({ hasText: 'Hold the mission minimum on your venue account' });
   // Applied (#2), not yet approved, and the venue account holds the TEST 3000 USDC, under the TEST mission minimum.
   await expect(page.getByText('1 of 3 missions done')).toBeVisible();
@@ -283,7 +276,7 @@ test(`${J} #3 completes a new-trader mission: its progress is shown`, async ({ p
   await expect(fund).toContainText('Done');
   await expect(page.getByText('2 of 3 missions done')).toBeVisible();
   // Not yet a lead: no lead account opens before the founders approve.
-  await expect(page.getByRole('region', { name: 'Your lead account' })).toContainText('You are not a lead yet');
+  await expect(page.getByRole('region', { name: 'Your lead account', exact: true })).toContainText('You are not a lead yet');
 });
 
 test(`${J} #4 after approval opens the lead account: the lead's level ("Not set" where blank) and the lead trading screen`, async ({
@@ -297,28 +290,28 @@ test(`${J} #4 after approval opens the lead account: the lead's level ("Not set"
   // The lead criteria are a founder's setting; a TEST value where none is set yet.
   if (
     !(await founder
-      .getByRole('form', { name: 'Lead criteria' })
+      .getByRole('form', { name: 'Lead criteria', exact: true })
       .getByText(/Minimum track record\s*\d+/)
       .count())
   ) {
-    const criteria = founder.getByRole('form', { name: 'Lead criteria' });
-    await criteria.getByRole('textbox', { name: 'Minimum track record, days' }).fill('30');
-    await criteria.getByRole('button', { name: 'Save criteria' }).click();
+    const criteria = founder.getByRole('form', { name: 'Lead criteria', exact: true });
+    await criteria.getByRole('textbox', { name: 'Minimum track record, days', exact: true }).fill('30');
+    await criteria.getByRole('button', { name: 'Save criteria', exact: true }).click();
     await expect(founder.getByRole('status').filter({ hasText: 'Criteria saved' })).toBeVisible();
   }
-  const row = (p) => p.getByRole('table', { name: 'Lead applications' }).locator('tbody tr').filter({ hasText: displayName });
-  await row(founder).getByRole('button', { name: 'Approve' }).click();
+  const row = (p) => p.getByRole('table', { name: 'Lead applications', exact: true }).locator('tbody tr').filter({ hasText: displayName });
+  await row(founder).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(row(founder)).toContainText('Waiting for a second founder');
   await founder.context().close();
   const second = await (await browser.newContext()).newPage();
   await openDesk(second, 'b');
-  await row(second).getByRole('button', { name: 'Confirm approval' }).click();
+  await row(second).getByRole('button', { name: 'Confirm approval', exact: true }).click();
   await expect(second.getByRole('status').filter({ hasText: 'Approved and listed' })).toBeVisible();
   await second.context().close();
 
   await signIn(page, state('applicant'));
   await page.goto('/trade/copy?tab=lead');
-  const account = page.getByRole('region', { name: 'Your lead account' });
+  const account = page.getByRole('region', { name: 'Your lead account', exact: true });
   const lead = (await (await api(state('applicant'))).get('/api/trade/trpc/copy.myLead')).body?.result?.data;
   expect(lead, 'the approved applicant has a lead account').toMatchObject({ applicationId: state('applicationId'), state: 'listed' });
   await expect(account).toContainText(lead.leaderRef);
@@ -329,9 +322,9 @@ test(`${J} #4 after approval opens the lead account: the lead's level ("Not set"
   // The level: the owner has published no level thresholds, so it reads Not set and no level is shown.
   await expect(page.getByText(/Level\s*Not set: the platform has not published level thresholds/)).toBeVisible();
   // The lead trading screen: the spot desk, with the Lead trade switch on.
-  await account.getByRole('link', { name: 'Open the lead trading screen' }).click();
+  await account.getByRole('link', { name: 'Open the lead trading screen', exact: true }).click();
   await expect(page).toHaveURL(/\/trade\/spot\/BTC-USDT\?lead=1/);
-  await expect(page.getByRole('switch', { name: 'Lead trade' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Lead trade', exact: true })).toBeChecked();
   run.write({ leadRef: lead.leaderRef });
 });
 
@@ -353,7 +346,7 @@ test(`${J} #5 places a post-only lead order: with the leading instrument list bl
   // The founders set the list (their listing edit, as the console's does); a follower then copies the lead.
   await setLeadInstruments(applicant, state('displayName'), [BOOK, 'ETH/USDT']);
   const follower = await fundedTrader(page, 'jcf4', '500');
-  await followOnScreen(page, follower, leadRef, { perOrder: '200', total: '400', fixed: '50' });
+  await followOnScreen(page, follower, leadRef, { perOrder: '200', total: '400', fixed: '50', markets: [BOOK] });
   run.write({ follower });
 
   // The lead's buy is the best bid on the TEST lead book: one tick over anything an earlier run of this file left
@@ -369,7 +362,6 @@ test(`${J} #5 places a post-only lead order: with the leading instrument list bl
   const orderId = placed.body.id;
   // It rests: an ongoing lead trade, open on the book, and nothing is copied while it has not filled.
   await expect.poll(async () => (await leadTrades(applicant)).ongoing.map((o) => [o.orderId, o.status])).toEqual([[orderId, 'open']]);
-  await page.waitForTimeout(20_000);
   await signOutBrowser(page.context());
   await signIn(page, follower);
   let detail = await openFollow(page, leadRef);
@@ -411,23 +403,45 @@ test(`${J} #6 places an iceberg order: not a lead trade; the toggle is forced of
   test.setTimeout(240_000);
   const applicant = state('applicant');
   await signIn(page, applicant);
-  await page.goto('/trade/execution?tab=iceberg');
-  const form = page.getByRole('region', { name: 'New iceberg' });
-  const toggle = form.getByRole('switch', { name: 'Lead trade' });
+  await page.goto('/execution');
+  await page.getByRole('tablist', { name: 'Execution sections', exact: true }).getByRole('tab', { name: 'Iceberg', exact: true }).click();
+  const form = page.getByRole('region', { name: 'New iceberg', exact: true });
+  const toggle = form.getByRole('switch', { name: 'Lead trade', exact: true });
   await expect(toggle).not.toBeChecked();
   await expect(toggle).toBeDisabled();
   await expect(form.getByText('Iceberg orders are never lead trades, so followers don’t copy them.')).toBeVisible();
-  // An iceberg buy priced at the best ask, so it fills at once against the TEST maker.
-  const { ask } = await bestPrices('BTC/USDT');
-  await form.getByRole('textbox', { name: /Total size/ }).fill('0.002');
-  await form.getByRole('textbox', { name: /Display size/ }).fill('0.001');
-  await form.getByRole('textbox', { name: /Limit price/ }).fill(ask);
+  // A TEST taker rests an ask on the TEST lead book over every bid there, and the lead's iceberg buy takes it at once.
+  const book = (await bestPricesOrEmpty(BOOK)).body;
+  const top = (book.bids ?? []).reduce((m, [p]) => (toUnits(p) > toUnits(m) ? p : m), '1');
+  const ask = fromUnits(toUnits(top) + toUnits('0.1'));
+  const seller = await fundedTrader(page, 'jcs4', '10');
+  expect(fund(seller.email, BOOK.split('/')[0], '20').tx).toBeTruthy();
+  const rested = await (
+    await api(seller)
+  ).post('/api/v1/orders', {
+    symbol: BOOK,
+    type: 'limit',
+    side: 'sell',
+    amount: '20',
+    price: ask,
+    timeInForce: 'GTC',
+    clientOrderId: `${J}-6-seller-${state('tag')}`,
+  });
+  expect(rested.status, JSON.stringify(rested.body).slice(0, 300)).toBeLessThan(300);
+  await signIn(page, applicant);
+  await page.goto('/execution');
+  await page.getByRole('tablist', { name: 'Execution sections', exact: true }).getByRole('tab', { name: 'Iceberg', exact: true }).click();
+  await form.getByRole('combobox', { name: 'Market', exact: true }).click();
+  await page.getByRole('option', { name: new RegExp(`^${BOOK.replace('/', '\\/')}(?:,|$)`) }).click();
+  await form.getByLabel(`Total size (${BOOK.split('/')[0]})`).fill('20');
+  await form.getByLabel(`Display size (${BOOK.split('/')[0]})`).fill('10');
+  await form.getByLabel('Limit price').fill(ask);
   const sent = page.waitForResponse((res) => res.url().includes('/api/v1/orders') && res.request().method() === 'POST');
   await form.getByRole('button', { name: /Review/ }).click();
   await page.getByRole('dialog').getByRole('button', { name: /Place/ }).click();
   const answer = await sent;
   expect(answer.status(), (await answer.text()).slice(0, 300)).toBeLessThan(300);
-  expect(answer.request().postDataJSON()).toMatchObject({ lead: false, displayQty: '0.001' });
+  expect(answer.request().postDataJSON()).toMatchObject({ lead: false, displayQty: '10' });
   const iceberg = await answer.json();
   // Not a lead trade: never listed among the lead's trades.
   const trades = await leadTrades(applicant);
@@ -436,7 +450,7 @@ test(`${J} #6 places an iceberg order: not a lead trade; the toggle is forced of
   await expect
     .poll(
       async () => {
-        const read = await (await api(applicant)).get(`/api/v1/orders/${iceberg.id}?symbol=BTC%2FUSDT`);
+        const read = await (await api(applicant)).get(`/api/v1/orders/${iceberg.id}?symbol=${BOOK_QUERY}`);
         return read.body?.filled;
       },
       { timeout: 60_000, message: 'the iceberg never filled' },
@@ -448,7 +462,7 @@ test(`${J} #6 places an iceberg order: not a lead trade; the toggle is forced of
     .poll(
       async () => {
         const detail = await openFollow(page, state('leadRef'));
-        return (await detail.getByRole('table', { name: 'Skipped copies' }).textContent()) ?? '';
+        return (await detail.getByRole('table', { name: 'Skipped copies', exact: true }).textContent()) ?? '';
       },
       { timeout: 60_000, message: 'the iceberg fill was never logged as a skipped copy' },
     )
@@ -495,14 +509,14 @@ test(`${J} #8 opens the lead trade views: counters for ongoing and history, and 
   expect(counts.ongoing).toBeGreaterThanOrEqual(1);
   expect(counts.history).toBeGreaterThanOrEqual(1);
   await page.goto('/trade/copy?tab=lead');
-  const views = page.getByRole('region', { name: 'Lead trades' });
-  await expect(views.getByRole('tab', { name: `Ongoing (${counts.ongoing})` })).toBeVisible();
-  await expect(views.getByRole('tab', { name: `History (${counts.history})` })).toBeVisible();
-  await expect(views.getByRole('table', { name: 'Ongoing lead trades' })).toContainText(resting.body.id.slice(0, 8));
-  await views.getByRole('tab', { name: `History (${counts.history})` }).click();
-  await expect(views.getByRole('table', { name: 'Lead trade history' })).toContainText('filled');
+  const views = page.getByRole('region', { name: 'Lead trades', exact: true });
+  await expect(views.getByRole('tab', { name: `Ongoing (${counts.ongoing})`, exact: true })).toBeVisible();
+  await expect(views.getByRole('tab', { name: `History (${counts.history})`, exact: true })).toBeVisible();
+  await expect(views.getByRole('table', { name: 'Ongoing lead trades', exact: true })).toContainText(resting.body.id.slice(0, 8));
+  await views.getByRole('tab', { name: `History (${counts.history})`, exact: true }).click();
+  await expect(views.getByRole('table', { name: 'Lead trade history', exact: true })).toContainText('filled');
   // Each copier with its state: the follower from #5, copying.
-  const copiers = page.getByRole('table', { name: 'Your copiers' });
+  const copiers = page.getByRole('table', { name: 'Your copiers', exact: true });
   await expect(copiers.locator('tbody tr').first()).toContainText('Active');
   // Cancel the resting lead buy so the book is left as found.
   await (await api(applicant)).delete(`/api/v1/orders/${resting.body.id}?symbol=${BOOK_QUERY}`);

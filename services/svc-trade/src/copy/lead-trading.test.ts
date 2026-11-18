@@ -25,7 +25,7 @@ function fakeSql(sums: { held?: { buys: string | null; sells: string | null }; b
     if (text.includes('AS buys')) return Promise.resolve([sums.held ?? { buys: null, sells: null }]);
     if (text.includes('AS bought')) return Promise.resolve([{ bought: sums.bought ?? null }]);
     throw new Error(`unexpected query: ${text}`);
-  }) as unknown as Sql;
+  }) as Sql;
   return { sql, writes };
 }
 

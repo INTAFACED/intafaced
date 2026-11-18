@@ -36,7 +36,7 @@ export async function leadFollowing(
  * reads `off`; no account their wallet signed for reads `none`. A venue that does not answer throws.
  */
 export async function leadVenueUsdc(
-  deps: { venue: (() => Promise<UserVenue>) | null; store: Pick<PreparedActionStore, 'ownerSignedAccounts'> },
+  deps: { venue: (() => Promise<Pick<UserVenue, 'venue' | 'balances'>>) | null; store: Pick<PreparedActionStore, 'ownerSignedAccounts'> },
   userId: string,
 ): Promise<LeadVenueRead> {
   if (!deps.venue) return { state: 'off' };

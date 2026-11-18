@@ -1,11 +1,6 @@
-import { z } from 'zod';
+import { myLeadSchema } from '../../screens/trade/copybots/api';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session/session';
-
-const myLeadSchema = z
-  .object({ leaderRef: z.string(), state: z.string(), instruments: z.array(z.string()) })
-  .passthrough()
-  .nullable();
 
 /**
  * Whether the signed-in person is a listed lead, and so whether an order ticket shows the Lead trade switch

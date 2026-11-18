@@ -230,3 +230,10 @@ export async function leadVenueAccount(who, name, usdc) {
   expect(sent.body.outcome).toMatchObject({ definite: true, accepted: true });
   return owner;
 }
+
+/** The applicant's own application, as svc-trade answers `copy.myLeadApplication`. */
+export async function mineOf(who) {
+  const res = await (await api(who)).get('/api/trade/trpc/copy.myLeadApplication');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body?.result?.data ?? null;
+}

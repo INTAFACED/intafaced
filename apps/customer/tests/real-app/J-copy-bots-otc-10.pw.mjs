@@ -6,7 +6,7 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, journeyState, signOutBrowser } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
-import { leadVenueAccount } from './copy.mjs';
+import { leadVenueAccount, mineOf } from './copy.mjs';
 import { venueForThisFile } from './venue.mjs';
 
 // J-copy-bots-otc-10, in the running app (docs/roadmap/journeys.json): vet lead applications and pooled masters in the
@@ -182,13 +182,6 @@ test(`${J} #3 approves with the criteria set, as one founder: pending until the 
   expect(listed.leads.filter((l) => l.displayName === state('approve')).map((l) => l.state)).toEqual(['listed']);
   await second.context().close();
 });
-
-/** The applicant's own application, as svc-trade answers `copy.myLeadApplication`. */
-async function mineOf(who) {
-  const res = await (await api(who)).get('/api/trade/trpc/copy.myLeadApplication');
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  return res.body?.result?.data ?? null;
-}
 
 test(`${J} #4 rejects with a reason: the applicant sees it and when the owner's wait ends; applying inside the wait is refused`, async ({
   page,
