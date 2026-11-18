@@ -27,6 +27,7 @@ export function composeSalaryArea(
   return {
     salary: new SalaryService(root.sql, {
       payroll: options.payrollPartner ?? null,
+      custody: root.custody,
       accountDetails: made.accountDetails,
       sorter: made.sorter,
       reversalDays: () => options.directDepositReversalDays,

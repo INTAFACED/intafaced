@@ -31,7 +31,14 @@ import {
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import { assertPostingEnabled, type PartnerAccountRef, type PartnerBank, type PostingFreeze } from '../partner/partner-bank.js';
+import {
+  assertPostingEnabled,
+  type PartnerAccountRef,
+  type PartnerBank,
+  type PartnerCustody,
+  type PostingFreeze,
+} from '../partner/partner-bank.js';
+import { moneyHeldBy, type TestPartnerDoors } from '../partner/test-partner.js';
 
 /** INTAFACED's own account at the partner, where a person's payment to us lands. It is on no person's list of balances. */
 export const PARTNER_INTAFACED_OWNER = 'partner:intafaced';
@@ -67,6 +74,24 @@ export interface UsagePaymentDeps {
   businessPayer(businessId: string): Promise<string | null>;
 }
 
+/**
+ * Where a person's money is held, with the partner's GUARDED bank: the custody `createBankServices` builds, which asks the
+ * posting freeze and the operator's partner stop before every move. Never the TEST partner's raw bank, which asks neither
+ * (until 16 Nov this door was handed the raw one, so an operator's stop never refused a usage payment).
+ */
+export function usagePaymentHeldBy(
+  partner: TestPartnerDoors | null,
+  custody: PartnerCustody,
+  custodyLayer: 'on' | 'off',
+): UsagePaymentDeps['heldBy'] {
+  return (userId) => {
+    const held = moneyHeldBy(partner, userId, custodyLayer);
+    const bank = held === 'partner' ? custody.bankFor(userId) : null;
+    if (bank) return { kind: 'partner', bank, partnerId: 'test' };
+    return { kind: held === 'partner' ? 'none' : held };
+  };
+}
+
 /** The person whose payment method pays: the business's payer for a team run, else the person themselves. */
 async function payerOf(deps: UsagePaymentDeps, userId: string, businessId: string | undefined): Promise<string | null> {
   return businessId === undefined ? userId : deps.businessPayer(businessId);
@@ -97,6 +122,8 @@ const REFUSAL_BY_CODE: Record<string, Extract<AgentsUsagePaymentCollect, { ok: f
   'bank.partner_unavailable': 'partner_unavailable',
   'bank.partner_reply_lost': 'reply_lost',
   'bank.posting_frozen': 'posting_frozen',
+  'bank.partner_stopped': 'partner_stopped',
+  'bank.partner_stop_unreadable': 'partner_stopped',
 };
 
 export async function collectUsagePayment(
