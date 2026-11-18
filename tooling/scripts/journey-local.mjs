@@ -164,10 +164,10 @@ export async function readyStack(io, files) {
  * What a local run ran and how it ended, `.jr/run.json`, for the Mac's first-push check (a PreToolUse hook on the Mac):
  * the first push of a journey branch goes after a PASS (or a refused start) on the exact tree pushed. Written at the
  * start with `code` null, so an interrupted or crashed run never reads as a pass; `pid` lets the check tell a run still
- * going from one that died without its end record. Returns `end(code)`, which writes the exit code. The one writer for
- * `journey` and a whole-journey `verify drive` (verify-app.mjs; intafaced #8757).
+ * going from one that died without its end record. Returns `end(code)`, which writes the exit code. Private to `journey`:
+ * no other command writes the first-push record, so a `verify drive` never stands for the journey (project-state #3021).
  */
-export function recordRun(io, files) {
+function recordRun(io, files) {
   const ran = { tree: io.tree?.() ?? null, files, startedAt: io.now?.() ?? Date.now(), pid: process.pid, code: null };
   io.record?.(ran);
   return (code) => io.record?.({ ...ran, code });
