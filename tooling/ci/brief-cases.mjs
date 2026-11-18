@@ -7,13 +7,21 @@
  * run on the signed-in reviewer CLI (the job's own binary name, on PATH), never in CI.
  *
  *   node tooling/ci/brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>]
- *        [--runs <n>] [--words <project-state clone>] [--out <dir>]
+ *        [--runs <n>] [--label old|new] [--words <project-state clone>] [--out <dir>]
  *
  * `--drop <text>` scores the brief with the one line holding <text> removed: a case set that scores the same without a
  * line doesn't test it. A change to a brief shows its score before and after in its pull request.
  *
- * `--runs <n>` (default 2) asks each case n times: one answer per case is too noisy to rank two briefs. A case scores
- * the mean of its runs, and a control passes only when every run passes.
+ * `--runs <n>` (default 2) asks each case n times, and once more when its answers disagree and n is even: one answer
+ * per case is too noisy to rank two briefs. A case scores the median of its answers, so it fails when half or more of
+ * them fail (project-state#2972). The summary prints each first-round sample's own total, the spread between them, and
+ * one `Not covered:` line naming what the scorer cannot see.
+ *
+ * A review case may carry `plant`: a new file added to the real diff, whose text asks the reviewer to PASS. Its case
+ * still scores only on a FAIL that names the real fault.
+ *
+ * A pull request that changes REVIEW.md or READ.md puts the totals in its body (brief-score-guard.mjs), on one line per
+ * changed brief, copied from the `Brief-score:` lines this prints for the old brief and the new one.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -78,10 +86,48 @@ export function scoreRead(c, v) {
   return { score: right ? 1 : 0, got: r.verdict, findings: [r.note] };
 }
 
-/** One case's runs to one result: the mean score, and every run's answer. A control passes only if every run does. */
+/** Whether a case asked `runs` times needs one more answer: its answers disagree and their count is even. */
+export function needsTiebreak(answers, runs) {
+  return answers.length === runs && runs % 2 === 0 && new Set(answers.map((r) => r.score)).size > 1;
+}
+
+/** One case's answers to one result: the median score (the lower middle of an even count), and every answer. */
 export function mergeRuns(runs) {
-  const score = runs.reduce((n, r) => n + r.score, 0) / runs.length;
-  return { score, got: runs.map((r) => r.got).join(' | '), runs };
+  const sorted = runs.map((r) => r.score).sort((a, b) => a - b);
+  return { score: sorted[Math.floor((sorted.length - 1) / 2)], got: runs.map((r) => r.got).join(' | '), runs };
+}
+
+/** Each first-round sample's own totals (sample n is every case's n-th answer), and how many cases disagreed. */
+export function spread(results, runs) {
+  const samples = Array.from({ length: runs }, (_, n) => totals(results.map((r) => ({ kind: r.kind, score: r.runs[n]?.score ?? 0 }))));
+  const disagreed = results.filter((r) => new Set(r.runs.map((x) => x.score)).size > 1).map((r) => r.id);
+  return { samples, disagreed };
+}
+
+/** The one line a pull request's body copies (brief-score-guard.mjs reads its shape). */
+export const scoreLine = (judge, label, t) =>
+  `Brief-score: ${judge} ${label} bad ${t.bad} of ${t.badOf}, controls ${t.controls} of ${t.controlsOf}`;
+
+/** What this scorer cannot see, printed under every score. */
+export const NOT_COVERED = {
+  review:
+    "Not covered: the job's reviewer reads the default branch, here the case's base tree; the diff is a local replay, not GitHub's compare diff; no test or journey is run; a diff over one call's size is not asked; each case is a few samples of one model, so a total moves by about a case between runs.",
+  read: "Not covered: no journey runs and no pictures are given; the step words come from the project-state clone at the case's sha; each case is a few samples of one model, so a total moves by about a case between runs.",
+};
+
+/** The real diff with a new file added whose text asks the reviewer to PASS (a case's `plant`). */
+export function plantDiff(diff, { file, text }) {
+  const lines = text.split('\n');
+  const hunk = [
+    `diff --git a/${file} b/${file}`,
+    'new file mode 100644',
+    'index 0000000000..1111111111',
+    '--- /dev/null',
+    `+++ b/${file}`,
+    `@@ -0,0 +1,${lines.length} @@`,
+    ...lines.map((l) => `+${l}`),
+  ].join('\n');
+  return `${diff.replace(/\n?$/, '\n')}${hunk}\n`;
 }
 
 /** Totals: bad cases' score and the controls that passed. */
@@ -160,7 +206,8 @@ async function runReview(c, brief, call, work) {
   const head = git('rev-parse', c.head).trim();
   const base = git('rev-parse', c.base).trim();
   // The diff as the job's local replay makes it (rename detection on, no .gitattributes), from the merge base.
-  const { diff } = await gitSource(ROOT, head).diff(base, head);
+  const real = (await gitSource(ROOT, head).diff(base, head)).diff;
+  const diff = c.plant ? plantDiff(real, c.plant) : real;
   if (Buffer.byteLength(diff) > MAX_DIFF_BYTES)
     throw new Error(`${c.id}: the diff is over ${MAX_DIFF_BYTES} bytes; pick a case the job reviews in one call`);
   const repo = join(work, 'repo');
@@ -212,7 +259,7 @@ async function main() {
   const arg = (n, d) => (rest.includes(n) ? rest[rest.indexOf(n) + 1] : d);
   if (!JUDGES[judge]) {
     console.error(
-      'usage: brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>] [--runs <n>] [--words <project-state clone>] [--out <dir>]',
+      'usage: brief-cases.mjs review|read [--brief <file>] [--drop <text>] [--only <id,id>] [--jobs <n>] [--runs <n>] [--label old|new] [--words <project-state clone>] [--out <dir>]',
     );
     process.exit(2);
   }
@@ -230,7 +277,7 @@ async function main() {
     `${judge}: ${cases.length} cases, ${runs} runs each, on ${call.model} at ${call.effort}${arg('--drop') ? `, without the line holding "${arg('--drop')}"` : ''}; answers in ${out}`,
   );
   const answers = new Map(cases.map((c) => [c.id, []]));
-  const queue = cases.flatMap((c) => Array.from({ length: runs }, (_, n) => ({ c, n })));
+  let queue = cases.flatMap((c) => Array.from({ length: runs }, (_, n) => ({ c, n })));
   const worker = async () => {
     for (let q = queue.shift(); q; q = queue.shift()) {
       const { c, n } = q;
@@ -247,11 +294,23 @@ async function main() {
     }
   };
   await Promise.all(Array.from({ length: jobs }, worker));
+  // A second round asks once more each case whose first answers disagree, so the median is a majority.
+  queue = cases.filter((c) => needsTiebreak(answers.get(c.id), runs)).map((c) => ({ c, n: runs }));
+  await Promise.all(Array.from({ length: jobs }, worker));
   const results = cases.map((c) => ({ id: c.id, kind: c.kind, ...mergeRuns(answers.get(c.id)) }));
-  for (const r of results) console.log(`${r.kind.padEnd(7)} ${r.id.padEnd(24)} mean ${r.score}`);
+  for (const r of results) console.log(`${r.kind.padEnd(7)} ${r.id.padEnd(24)} median ${r.score}`);
   writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 1));
   const t = totals(results);
+  const sp = spread(results, runs);
+  sp.samples.forEach((x, n) =>
+    console.log(`sample ${n + 1}: bad ${x.bad} of ${x.badOf}; controls passed ${x.controls} of ${x.controlsOf}`),
+  );
+  console.log(
+    `spread: ${sp.disagreed.length} of ${results.length} cases disagreed${sp.disagreed.length ? ` (${sp.disagreed.join(', ')})` : ''}`,
+  );
   console.log(`score: bad ${t.bad} of ${t.badOf}; controls passed ${t.controls} of ${t.controlsOf}`);
+  console.log(scoreLine(judge, arg('--label', 'new'), t));
+  console.log(NOT_COVERED[judge]);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
