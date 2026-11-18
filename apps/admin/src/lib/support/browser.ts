@@ -11,6 +11,7 @@ import type {
   SupportLifecycleView,
   SupportMacrosView,
   SupportCustomerView,
+  SupportChartsLookupView,
   SupportPropertiesView,
   SupportRatingSummaryView,
   SupportQueueView,
@@ -467,5 +468,32 @@ export async function fetchMacroApply(ticketId: string, macroId: string): Promis
     return { ok: false, refusal: read.ok ? null : read.refusal };
   } catch {
     return { ok: false, refusal: null };
+  }
+}
+
+/**
+ * One charts lookup on a ticket (J-charts-desk-19 #1). Each call writes an audit row on the request, so it runs only when
+ * the agent asks. Null when nothing readable came back; the console's own refusal keeps its code.
+ */
+export async function fetchChartsLookup(id: string): Promise<SupportChartsLookupView | null> {
+  try {
+    const res = await fetch(`/api/support?view=charts&id=${encodeURIComponent(id)}`, { cache: 'no-store', credentials: 'same-origin' });
+    const body: unknown = await res.json().catch(() => null);
+    if (!res.ok) {
+      const code = isRecord(body) && typeof body.code === 'string' ? body.code : null;
+      return {
+        asOf: new Date().toISOString(),
+        lookup: {
+          kind: 'failed',
+          message: `The console could not run the lookup (HTTP ${String(res.status)}).`,
+          code,
+          notBuilt: false,
+          forbidden: res.status === 401 || res.status === 403,
+        },
+      };
+    }
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.lookup) ? (body as unknown as SupportChartsLookupView) : null;
+  } catch {
+    return null;
   }
 }

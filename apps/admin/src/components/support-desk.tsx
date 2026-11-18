@@ -11,6 +11,7 @@ import { Failed } from './support-action-parts';
 import { SupportBulkBar } from './support-bulk-bar';
 import { TicketActions } from './support-ticket-actions';
 import { CustomerCard } from './support-customer-card';
+import { ChartsLookupPanel } from './support-charts-lookup';
 import { TicketOwner } from './support-ticket-owner';
 import { RatingsSummary } from './support-ratings-summary';
 import { TicketExtras } from './support-ticket-extras';
@@ -220,6 +221,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
 
       <TicketOwner key={`owner:${t.id}`} ticket={t} events={detail.events} userId={p.userId} onDone={p.onActionDone} />
       <CustomerCard key={`customer:${t.id}`} ticketId={t.id} />
+      <ChartsLookupPanel key={`charts:${t.id}`} ticketId={t.id} />
 
       <h4>Conversation</h4>
       {detail.comments.kind === 'failed' ? (
