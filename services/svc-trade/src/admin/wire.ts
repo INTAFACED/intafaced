@@ -47,6 +47,8 @@ export function wireTradeOpsAdmin(deps: {
   venueRouting?: TradeOpsDeps['venueRouting'];
   /** The support desk's routed-order read (J-cex-spot-18 #1). */
   venueOrders?: TradeOpsDeps['venueOrders'];
+  /** The chart feed control's owner values (J-charts-desk-19). */
+  chartFeed?: TradeOpsDeps['chartFeed'];
 }): TradeOpsAdmin {
   return new TradeOpsAdmin({
     sql: deps.sql,
@@ -62,6 +64,7 @@ export function wireTradeOpsAdmin(deps: {
     ...(deps.venueDesk ? { venueDesk: deps.venueDesk } : {}),
     ...(deps.venueRouting ? { venueRouting: deps.venueRouting } : {}),
     ...(deps.venueOrders ? { venueOrders: deps.venueOrders } : {}),
+    ...(deps.chartFeed ? { chartFeed: deps.chartFeed } : {}),
     vipProofKey: deps.vipProofKey ?? null,
     ledger: deps.ledger,
     approvals: deps.approvals,
