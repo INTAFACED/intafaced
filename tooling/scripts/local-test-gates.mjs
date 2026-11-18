@@ -808,6 +808,20 @@ export async function approverSessions(ctx) {
   });
 }
 
+/**
+ * One founder's session (`a` or `b`), for a read that needs only that founder: one TOTP step, never the pair's two. On a
+ * stack without enrolled founders, that key of the test operators' pair. A founder has at most two TOTP steps per 30 s
+ * window, so a read that signs in a founder it does not use makes the next sign-in of that founder wait on the clock.
+ */
+export async function founderSession(ctx, key) {
+  const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
+  if (pair.length === 0) return (await operatorSessions(ctx))[key];
+  return shared(ctx, `founder:${key}`, () => {
+    const { ops, saveSteps } = founderOps(ctx, pair);
+    return signInOne(ctx, ops[key], saveSteps);
+  });
+}
+
 /** The founder pair as operators, each at the last TOTP step any local tool used, and the writer that records them. */
 function founderOps(ctx, pair) {
   const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
@@ -1261,14 +1275,14 @@ export async function dropEngineOrder(ctx, symbol, orderId) {
   return { symbol, marketId: market.id, orderId };
 }
 
-/** svc-trade's operator audit rows (admin.audit.feed) of one kind on one account, oldest first, every page, as founder A. */
+/** svc-trade's operator audit rows (admin.audit.feed) of one kind on one account, oldest first, every page, as founder A alone. */
 export async function tradeAudit(ctx, { kind, account }) {
-  const pair = await approverSessions(ctx);
+  const a = await founderSession(ctx, 'a');
   const rows = [];
   let cursor = null;
   for (let page = 0; page < 50; page++) {
     const got = data(
-      await ctx.edge.query('trade', 'admin.audit.feed', { kind, accountId: account, cursor, limit: 200 }, await pair.a.tradeOpsToken()),
+      await ctx.edge.query('trade', 'admin.audit.feed', { kind, accountId: account, cursor, limit: 200 }, await a.tradeOpsToken()),
     );
     if (!Array.isArray(got?.rows)) throw new Error(`trade admin.audit.feed gave no rows: ${JSON.stringify(got).slice(0, 300)}`);
     rows.push(...got.rows);

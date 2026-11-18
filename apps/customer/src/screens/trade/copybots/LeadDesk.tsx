@@ -8,6 +8,7 @@ import type { Failure } from './guard';
 import { RANKINGS } from './LeaderDirectory';
 import { useLive } from './live';
 import { InfoNote, RefusalNote } from './parts';
+import { LeadAccount } from './LeadAccount';
 
 type FeeRow = LeadEarnings['items'][number];
 
@@ -53,6 +54,7 @@ export function LeadDesk({ api }: { api: RoomApi }) {
 
   return (
     <>
+      <LeadAccount api={api} />
       <PageSection title={t('Your earnings')} headingLevel={2}>
         {earnings.status === 'error' && earnings.failure ? <RefusalNote failure={earnings.failure} retry={earnings.reload} /> : null}
         <InfoNote>{data?.profitShare ?? t('Leaders are paid a share of the trading fee only, never a share of profit.')}</InfoNote>

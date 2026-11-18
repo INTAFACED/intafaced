@@ -193,6 +193,11 @@ export const draftSchema = z
      * price for the base it received. Never with `exit`.
      */
     close: positive.optional(),
+    /**
+     * A listed lead's lead switch (J-copy-bots-otc-04 #5): true makes the order a lead trade that followers copy, false
+     * marks it as the lead's own order that is never copied. Absent on everyone else's orders.
+     */
+    lead: z.boolean().optional(),
   })
   .superRefine((draft, ctx) => {
     if (draft.exit) {
@@ -253,11 +258,12 @@ export type Draft = z.infer<typeof draftSchema>;
  */
 export function previewBody(
   draft: Draft,
-): Omit<Draft, 'exit' | 'stpMode' | 'tag' | 'close' | 'feeCurrency'> & { exit?: Record<string, string> } {
+): Omit<Draft, 'exit' | 'stpMode' | 'tag' | 'close' | 'feeCurrency' | 'lead'> & { exit?: Record<string, string> } {
   // The preview takes only what prices the order: a self-trade mode, a tag and the fee currency change none of it (the
-  // rate is the same; the token conversion happens at the fill), and it refuses unknown fields.
+  // rate is the same; the token conversion happens at the fill), and it refuses unknown fields. The lead switch is
+  // decided when the order is placed, not priced, so it is not sent either.
   // An OTO's close is not placed until the buy fills, so the preview prices the buy alone.
-  const { exit, stpMode: _stpMode, tag: _tag, close: _close, feeCurrency: _feeCurrency, ...order } = draft;
+  const { exit, stpMode: _stpMode, tag: _tag, close: _close, feeCurrency: _feeCurrency, lead: _lead, ...order } = draft;
   if (!exit) return order;
   const { kind, takeProfit, stopLoss, stopLossLimit } = exit;
   return {

@@ -42,7 +42,7 @@ It serves the campaign catalogue and join (J-campaigns-01), task campaigns and t
 | `ops.campaigns.exports.request`     | `campaigns:ops` + second factor | `{ campaignId, dataset, fields }`                         | `{ job, created }`; the same export while open or valid returns its job       |
 | `ops.campaigns.exports.download`    | `campaigns:ops` + second factor | `{ id }`                                                  | the CSV while its link is valid; after it `campaigns.export_expired`          |
 
-The catalogue, join and `ops.campaigns.*` procedures are in `src/router.ts`. Contracts: `@intafaced/contracts/campaigns-catalogue` and `@intafaced/contracts/campaigns-drops`.
+Each feature's procedures (customer, `ops.*` and `ops.campaigns.*`) are in its own `src/routes/<feature>.ts`; `src/router.ts` only composes them. Contracts: `@intafaced/contracts/campaigns-catalogue` and `@intafaced/contracts/campaigns-drops`.
 
 ## Rules
 

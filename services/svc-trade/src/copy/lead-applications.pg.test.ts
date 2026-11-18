@@ -11,7 +11,16 @@ import { ALICE, BOB, openTradeDatabase } from '../spot/__tests__/saga-trade-fixt
 import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { MemoryApprovalBook, payloadHash } from '../admin/common.js';
 import { sqlLeaderDirectory } from './leader-directory.js';
-import { COPY_LEAD_APPROVE_ACTION, LeadDesk, leadApprovalPayload, parseLeadReapplyWait } from './lead-applications.js';
+import { parseAmount } from '@intafaced/ledger-client/money';
+import {
+  COPY_LEAD_APPROVE_ACTION,
+  LeadDesk,
+  leadApprovalPayload,
+  parseLeadMinVenueUsdc,
+  parseLeadReapplyWait,
+  type LeadFollowing,
+  type LeadVenueRead,
+} from './lead-applications.js';
 
 const FOUNDER_A = '33333333-3333-4333-8333-333333333333';
 const FOUNDER_B = '44444444-4444-4444-8444-444444444444';
@@ -42,10 +51,24 @@ beforeEach(async () => {
 let tick = Date.parse('2026-10-29T00:00:00.000Z');
 const now = () => new Date((tick += 1_000));
 
-function harness(reapplyWaitSeconds: number | null = null) {
+/** The lead conditions a harness applies under; by default every applicant meets them (TEST figures). */
+interface Conditions {
+  minVenueUsdc?: bigint | null;
+  following?: (userId: string) => Promise<LeadFollowing | null>;
+  venueUsdc?: (userId: string) => Promise<LeadVenueRead>;
+}
+
+const MET: Required<Conditions> = {
+  minVenueUsdc: parseAmount('1000'),
+  following: async () => null,
+  venueUsdc: async () => ({ state: 'read', owner: '0xtest', test: true, usdc: parseAmount('3000'), asOf: new Date(0) }),
+};
+
+function harness(reapplyWaitSeconds: number | null = null, conditions: Conditions = {}) {
   const approvals = new MemoryApprovalBook();
   const directory = sqlLeaderDirectory(sql(), { now, feeShareLaw: { published: false } });
-  return { approvals, desk: new LeadDesk({ sql: sql(), approvals, directory, now, reapplyWaitSeconds }) };
+  const c = { ...MET, ...conditions };
+  return { approvals, desk: new LeadDesk({ sql: sql(), approvals, directory, now, reapplyWaitSeconds, ...c }) };
 }
 
 /** Founder A files identity's approval and records it; founder B approves it there. */
@@ -333,5 +356,92 @@ describe('lead applications', () => {
     await expect(desk.reject(founder(FOUNDER_A), { applicationId: 'not-a-uuid', reason: 'TEST reason' })).rejects.toMatchObject({
       code: 'trade.copy_lead_application_not_found',
     });
+  });
+});
+
+describe('the lead conditions (J-copy-bots-otc-04 #1)', () => {
+  const rows = async () => (await sql()`SELECT id FROM trade.copy_lead_applications`).length;
+
+  it('refuses an applicant who follows a leader, naming the leader, and writes nothing', async () => {
+    const { desk } = harness(null, { following: async () => ({ leaderRef: 'ldr_test', displayName: 'TEST Master' }) });
+    await expect(desk.apply(customer(ALICE), { displayName: 'TEST lead' })).rejects.toMatchObject({
+      code: 'trade.copy_lead_following',
+      message: expect.stringContaining('TEST Master'),
+    });
+    expect(await rows()).toBe(0);
+    expect((await desk.eligibility(customer(ALICE))).following).toEqual({ leaderRef: 'ldr_test', displayName: 'TEST Master' });
+  });
+
+  it('refuses every application while the least venue balance is unset, and writes nothing', async () => {
+    const { desk } = harness(null, { minVenueUsdc: null });
+    await expect(desk.apply(customer(ALICE), { displayName: 'TEST lead' })).rejects.toMatchObject({
+      code: 'trade.copy_lead_balance_threshold_unset',
+    });
+    expect(await rows()).toBe(0);
+    expect((await desk.eligibility(customer(ALICE))).threshold).toBeNull();
+  });
+
+  it('names whom the applicant follows before the unset threshold', async () => {
+    const { desk } = harness(null, { minVenueUsdc: null, following: async () => ({ leaderRef: null, displayName: 'TEST Master' }) });
+    await expect(desk.apply(customer(ALICE), { displayName: 'TEST lead' })).rejects.toMatchObject({ code: 'trade.copy_lead_following' });
+  });
+
+  it('refuses without an own venue account, with the door off, or with the venue down, and writes nothing', async () => {
+    for (const [venueUsdc, code] of [
+      [async () => ({ state: 'none' }) as const, 'trade.copy_lead_venue_account_missing'],
+      [async () => ({ state: 'off' }) as const, 'trade.copy_lead_venue_account_missing'],
+      [
+        async () => {
+          throw new Error('venue_down');
+        },
+        'trade.copy_lead_venue_unreadable',
+      ],
+    ] as const) {
+      const { desk } = harness(null, { venueUsdc });
+      await expect(desk.apply(customer(ALICE), { displayName: 'TEST lead' })).rejects.toMatchObject({ code });
+    }
+    expect(await rows()).toBe(0);
+  });
+
+  it('refuses a venue balance under the threshold and accepts one exactly at it', async () => {
+    const at = (usdc: string) => async () =>
+      ({ state: 'read', owner: '0xtest', test: true, usdc: parseAmount(usdc), asOf: new Date(0) }) as const;
+    const under = harness(null, { venueUsdc: at('999.999999') }).desk;
+    await expect(under.apply(customer(ALICE), { displayName: 'TEST lead' })).rejects.toMatchObject({
+      code: 'trade.copy_lead_balance_below',
+      message: expect.stringContaining('999.999999 USDC'),
+    });
+    expect(await rows()).toBe(0);
+    const exact = harness(null, { venueUsdc: at('1000') }).desk;
+    expect((await exact.apply(customer(ALICE), { displayName: 'TEST lead' })).state).toBe('submitted');
+  });
+
+  it('answers the same submit again with the same row even once the conditions no longer hold', async () => {
+    const first = await harness().desk.apply(customer(ALICE), { displayName: 'TEST lead' });
+    const down = harness(null, {
+      venueUsdc: async () => {
+        throw new Error('venue_down');
+      },
+    }).desk;
+    expect(await down.apply(customer(ALICE), { displayName: 'TEST lead' })).toEqual(first);
+    expect(await rows()).toBe(1);
+  });
+
+  it('measures a new application after a rejection again', async () => {
+    const { desk } = harness(0);
+    const first = await desk.apply(customer(ALICE), { displayName: 'TEST lead' });
+    await desk.reject(founder(FOUNDER_A), { applicationId: first.applicationId, reason: 'TEST reason' });
+    const following = harness(0, { following: async () => ({ leaderRef: null, displayName: 'TEST Master' }) }).desk;
+    await expect(following.apply(customer(ALICE), { displayName: 'TEST lead' })).rejects.toMatchObject({
+      code: 'trade.copy_lead_following',
+    });
+    expect(await rows()).toBe(1);
+  });
+
+  it('reads the threshold blank as unset and refuses anything but a decimal above zero', () => {
+    expect(parseLeadMinVenueUsdc('')).toBeNull();
+    expect(parseLeadMinVenueUsdc('  ')).toBeNull();
+    expect(parseLeadMinVenueUsdc('1000.5')).toBe(parseAmount('1000.5'));
+    for (const bad of ['0', '-1', 'abc', '1e3']) expect(() => parseLeadMinVenueUsdc(bad)).toThrow(/TRADE_COPY_LEAD_MIN_VENUE_USDC/);
   });
 });
