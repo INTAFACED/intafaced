@@ -29,8 +29,18 @@
  * #6831, #6832 and #6834 sat 10.8 hours like that after their author sessions ended at the pause; this names them in one
  * call.
  *
+ * A red "Real-app journeys" check on a PR also gets its steps from the run's merged report (the `real-app-journeys`
+ * artifact): per failed step, the test line it stopped on and what Playwright said there. CI keeps no trace (`--trace
+ * off`: a trace would carry the TEST session into a public artifact), so the report is the record. A step is marked a
+ * hypothesis unless the PR's previous head with a journeys run failed it too; when that head was red, a PREMISE line says
+ * to test what both fixes assumed before the next push (pstack attack-the-premise; on #8802 J-portfolio-01 #5 failed on
+ * three heads in a row at three different lines), and a LAST GREEN line names the PR's newest head where the check passed.
+ *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
  */
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ghJson, makeGh } from '../scripts/gate-gh.mjs';
 import { BUDGET_TITLE } from './api-budget.mjs';
@@ -39,7 +49,10 @@ export const SEAL = 'CI merge seal';
 export const REVIEW_STATUS = 'Independent review';
 export const RERUN_STATUS = 'Seal re-run'; // the retired review-signoff.mjs posted it red when it could not re-run the seal; old heads may still carry it
 export const REVIEW_MISSING = 'Review sign-off missing'; // the annotation title review-marker.mjs prints
+export const JOURNEYS = 'Real-app journeys'; // the scoreboard job: its run's `real-app-journeys` artifact holds report.json
 const MAX_LINES = 8;
+const MAX_STEPS = 4;
+const HISTORY = 10; // earlier heads read for the previous journeys run and the last green one
 const WIDTH = 200;
 
 const GREEN = new Set(['success', 'neutral', 'skipped']);
@@ -184,13 +197,151 @@ export function budgetRed(anns = []) {
   return said.length > 0 && said.every(isBudget);
 }
 
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'); // terminal colour codes in Playwright's messages
+
+/**
+ * Each failed journey step in a Playwright JSON report: its title, the repo path and line it stopped on, that source
+ * line, and what Playwright said (the error's first line, its Expected, Received and Locator). A timed-out step names
+ * the action it was waiting on, from the error that carries a location. `null` for no report.
+ */
+export function journeyFailures(report) {
+  if (!report) return null;
+  const out = [];
+  const walk = (suite) => {
+    for (const spec of suite.specs ?? [])
+      for (const t of spec.tests ?? []) {
+        if (t.status !== 'unexpected') continue;
+        const errors = (t.results?.at(-1)?.errors ?? []).map((e) => ({ ...e, message: String(e.message ?? '').replace(ANSI, '') }));
+        const at = errors.find((e) => e.location) ?? errors[0];
+        const lines = (at?.message ?? '').split('\n');
+        // Expected and Received before the Locator: a long locator would push them past WIDTH.
+        const part = (re) => lines.filter((l) => re.test(l)).map((l) => l.replace(/\s+/g, ' '));
+        const said = [
+          lines[0].replace(/^Error: /, ''),
+          ...part(/^Expected[\w ]*:/),
+          ...part(/^Received[\w ]*:/),
+          ...part(/^Locator:/),
+        ].join('; ');
+        const timedOut = errors.some((e) => /^Test timeout of \d+ms exceeded/.test(e.message)) && at !== errors[0];
+        out.push({
+          title: spec.title,
+          file: (at?.location?.file ?? spec.file ?? '').replace(/^.*?\/(?=(apps|services|packages|tooling)\/)/, ''),
+          line: at?.location?.line ?? null,
+          source: /^> *\d+ \| (.*)$/m.exec(at?.message ?? '')?.[1]?.trim() ?? '',
+          said: `${timedOut ? 'timed out waiting on: ' : ''}${said}`,
+        });
+      }
+    for (const child of suite.suites ?? []) walk(child);
+  };
+  for (const suite of report.suites ?? []) walk(suite);
+  return out;
+}
+
+/**
+ * The lines under a red journeys check: each failed step (hypothesis, or compared with the previous head's failure of
+ * the same step), the PREMISE line when the PR's previous head with a journeys run was red, and the LAST GREEN head.
+ * @param {{ failures: ReturnType<typeof journeyFailures>, prev?: { sha: string, conclusion: string, failures: any[] | null } | null,
+ *   green?: string | null, read?: number }} j
+ */
+export function journeyLines({ failures, prev = null, green = null, read = 0 }) {
+  const out = [];
+  const cut = (l) => l.slice(0, WIDTH);
+  if (failures === null) out.push('         the run kept no journeys report (shards cancelled, or the artifact expired): no step to name');
+  for (const f of (failures ?? []).slice(0, MAX_STEPS)) {
+    out.push(cut(`STEP     ${f.title}`));
+    out.push(cut(`         ${f.file}:${f.line ?? '?'}: ${f.source}`));
+    out.push(cut(`         ${f.said}`));
+    const before = prev?.failures?.find((p) => p.title === f.title);
+    out.push(
+      cut(
+        before
+          ? `         compared: it failed on ${prev.sha.slice(0, 12)} too, at ${before.file}:${before.line ?? '?'}: ${before.said}`
+          : "         hypothesis: where it stopped, not yet why (no earlier head's failure of this step to compare)",
+      ),
+    );
+  }
+  if ((failures?.length ?? 0) > MAX_STEPS) out.push(`         ... ${failures.length - MAX_STEPS} more steps failed`);
+  if (prev?.conclusion === 'failure') {
+    const same = (failures ?? []).filter((f) => prev.failures?.some((p) => p.title === f.title)).length;
+    out.push(
+      cut(
+        `PREMISE  ${JOURNEYS} was red on the previous head ${prev.sha.slice(0, 12)} too${same ? ` (${same} of these steps)` : ''}: the fix since did not hold. Write down what both fixes assumed and test it before the next push.`,
+      ),
+    );
+  }
+  if (read > 0)
+    out.push(
+      green
+        ? `LAST GREEN  ${JOURNEYS} passed on this PR at ${green.slice(0, 12)}`
+        : `LAST GREEN  none: ${JOURNEYS} passed on none of the ${read} earlier heads read`,
+    );
+  return out;
+}
+
+/** A run's merged journeys report (report.json in its `real-app-journeys` artifact), or null when it kept none. */
+export function readJourneyReport(gh, repo, runId) {
+  const dir = mkdtempSync(join(tmpdir(), 'why-red-'));
+  try {
+    const r = gh(['run', 'download', String(runId), '-R', repo, '-n', 'real-app-journeys', '-D', dir], { allowFail: true });
+    return r.status === 0 ? JSON.parse(readFileSync(join(dir, 'report.json'), 'utf8')) : null;
+  } catch (e) {
+    if (e?.name === 'GitHubRefusalError') throw e;
+    return null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** A head's finished journeys runs (success or failure), newest first; a cancelled PR run that a hand-run stood for is not one. */
+function journeyRuns(gh, repo, sha) {
+  const runs = ghJson(gh, ['api', `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?head_sha=${sha}&per_page=20`]);
+  return (runs.workflow_runs ?? []).filter((r) => r.status === 'completed' && ['success', 'failure'].includes(r.conclusion));
+}
+
+/**
+ * journeyLines' input for a red journeys check on PR `pr`: the failures of the head's red run that kept a report (the
+ * check's own run first: a PR run whose shards were cancelled keeps none, while the hand-run on that head does), then
+ * the PR's earlier heads newest first (at most HISTORY) for the nearest with a finished journeys run and the nearest
+ * green one.
+ */
+export function collectJourneys(gh, repo, pr, sha, runId) {
+  const reds = journeyRuns(gh, repo, sha)
+    .filter((r) => r.conclusion === 'failure')
+    .map((r) => String(r.id));
+  let failures = null;
+  for (const id of new Set([runId, ...reds].filter(Boolean))) if ((failures = journeyFailures(readJourneyReport(gh, repo, id)))) break;
+  const shas = ghJson(gh, ['api', `repos/${repo}/pulls/${pr}/commits?per_page=100`]).map((c) => c.sha);
+  const earlier = shas
+    .slice(0, Math.max(0, shas.indexOf(sha)))
+    .reverse()
+    .slice(0, HISTORY);
+  let prev = null;
+  let green = null;
+  let read = 0;
+  for (const s of earlier) {
+    read++;
+    const run = journeyRuns(gh, repo, s)[0];
+    if (!run) continue;
+    prev ??= {
+      sha: s,
+      conclusion: run.conclusion,
+      failures: run.conclusion === 'failure' ? journeyFailures(readJourneyReport(gh, repo, run.id)) : [],
+    };
+    if (run.conclusion === 'success') {
+      green = s;
+      break;
+    }
+  }
+  return { failures, prev, green, read };
+}
+
 /**
  * The verdict and its lines.
  * @param {{ sha: string, checks: Array<{id:number,name:string,status:string,conclusion:string|null}>,
  *   annotations: Record<number, object[]>, failedSteps: Record<number, string[]>,
  *   statuses: Array<{context:string,state:string}> }} input
  */
-export function summarize({ sha, checks: all, annotations, failedSteps, statuses, runs }) {
+export function summarize({ sha, checks: all, annotations, failedSteps, statuses, runs, journeys = {} }) {
   const checks = latestPerName(all);
   const out = [];
   const running = checks.filter((c) => c.status !== 'completed');
@@ -240,6 +391,7 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
           : `         no error lines and no failed step (job ${c.id})`,
       );
     }
+    if (journeys[c.id]) out.push(...journeyLines(journeys[c.id]));
   }
   for (const s of redStatuses) out.push(`RED      status ${s.context}`);
 
@@ -312,7 +464,11 @@ export function collect(gh, repo, ref) {
     const r = gh(['api', `repos/${repo}/actions/runs/${id}`], { allowFail: true });
     runs[id] = r.status === 0 ? JSON.parse(r.stdout) : null; // a failed read is not asked again
   }
-  return { sha, checks, annotations, failedSteps, statuses, runs };
+  // A red journeys check on a PR: its failed steps from the run's report, and the PR's earlier heads of that check.
+  const journeys = {};
+  for (const c of latestPerName(checks).filter((c) => c.name === JOURNEYS && c.status === 'completed' && c.conclusion === 'failure'))
+    if (/^\d+$/.test(String(ref))) journeys[c.id] = collectJourneys(gh, repo, ref, sha, runIdOf(c));
+  return { sha, checks, annotations, failedSteps, statuses, runs, journeys };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

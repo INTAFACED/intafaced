@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { copyFileSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
+  JOURNEYS,
+  collectJourneys,
+  journeyFailures,
+  journeyLines,
   REVIEW_MISSING,
   REVIEW_STATUS,
   RERUN_STATUS,
@@ -262,4 +269,122 @@ test('summarize: JUDGE DOWN only when every red is the spent API budget', () => 
     });
     check(last(silent).startsWith('RED:'), 'a red with no error line is never called JUDGE DOWN');
   }
+});
+
+// Journey steps from the run's merged report. The fixtures are the recorded reports of #8802 and #8804, trimmed to their
+// failed steps: J-portfolio-01 #5 failed on heads ad61e99 and 3ec80e0 at two different lines before 7e1193a fixed it by
+// changing line 558 of J-portfolio-01-venue.pw.mjs, the line the head 3ec80e0 report names.
+const fixture = (name) => fileURLToPath(new URL(`./fixtures/why-red-${name}.json`, import.meta.url));
+const report = (name) => JSON.parse(readFileSync(fixture(name), 'utf8'));
+const HEAD = '3ec80e0d3052d00f8eb37196969caa79b8155c7c';
+const PREV = 'ad61e9949e1261b2a97e9d8b25ec1c5287994351';
+const GREEN_HEAD = '9'.repeat(40);
+
+/** A gh that answers from the fixtures alone: no network. `runs` maps a head to its journeys runs; `reports` a run id to a fixture. */
+function fakeGh({ commits, runs, reports }) {
+  const asked = [];
+  const gh = (args) => {
+    asked.push(args.join(' '));
+    if (args[0] === 'run' && args[1] === 'download') {
+      const name = reports[args[2]];
+      if (!name) return { status: 1, stdout: '', stderr: 'no artifact matches' };
+      copyFileSync(fixture(name), join(args[args.indexOf('-D') + 1], 'report.json'));
+      return { status: 0, stdout: '', stderr: '' };
+    }
+    const path = args[1];
+    if (/\/pulls\/\d+\/commits/.test(path)) return { status: 0, stdout: JSON.stringify(commits.map((sha) => ({ sha }))), stderr: '' };
+    const head = /head_sha=([0-9a-f]{40})/.exec(path)?.[1];
+    if (head) return { status: 0, stdout: JSON.stringify({ workflow_runs: runs[head] ?? [] }), stderr: '' };
+    throw new Error(`unexpected gh call: ${args.join(' ')}`);
+  };
+  return { gh, asked };
+}
+const run = (id, conclusion) => ({ id, status: 'completed', conclusion });
+
+test('journeyFailures names the step, the line the fix changed, and what Playwright said there', () => {
+  const [f, ...rest] = journeyFailures(report('8802-3ec80e0'));
+  assert.equal(rest.length, 0);
+  assert.match(f.title, /^J-portfolio-01 #5 cancels the order/);
+  assert.equal(`${f.file}:${f.line}`, 'apps/customer/tests/real-app/J-portfolio-01-venue.pw.mjs:558');
+  assert.equal(f.source, `await expect(after.row.locator('[data-cell="locked"]')).toHaveText(/^0\\b/);`);
+  assert.match(
+    f.said,
+    /^expect\(locator\)\.toHaveText\(expected\) failed; Expected pattern: \/\^0\\b\/; Received string: "0In orders 0Collateral 0Stake 0"/,
+  );
+  check(!f.said.includes(String.fromCharCode(27)), 'no terminal colour codes');
+  assert.equal(journeyFailures(null), null, 'no report is named, never passed as no failures');
+});
+
+test('journeyFailures names the action a timed-out step was waiting on', () => {
+  const f = journeyFailures(report('8804-074169d')).find((x) => x.title.startsWith('J-p2p-21 #2'));
+  assert.equal(`${f.file}:${f.line}`, 'apps/customer/tests/real-app/J-p2p-21.pw.mjs:126');
+  assert.match(f.said, /^timed out waiting on: /);
+});
+
+test("collectJourneys reads the hand-run's report when the PR run kept none, and compares the previous red head", () => {
+  const { gh, asked } = fakeGh({
+    commits: [GREEN_HEAD, 'b'.repeat(40), PREV, 'c'.repeat(40), HEAD],
+    runs: {
+      [HEAD]: [run(1, 'cancelled'), run(2, 'failure')],
+      [PREV]: [run(3, 'failure')],
+      ['b'.repeat(40)]: [run(4, 'failure')],
+      [GREEN_HEAD]: [run(5, 'success')],
+    },
+    reports: { 2: '8802-3ec80e0', 3: '8802-ad61e99' },
+  });
+  const j = collectJourneys(gh, 'o/r', '8802', HEAD, '1');
+  assert.equal(j.failures.length, 1);
+  assert.equal(j.prev.sha, PREV, 'the nearest earlier head with a finished journeys run; c… had none');
+  assert.equal(j.green, GREEN_HEAD);
+  check(!asked.some((a) => a.includes('download 5')), 'a green head needs no report');
+  const lines = journeyLines(j);
+  assert.match(
+    lines.find((l) => l.includes('compared:')),
+    /failed on ad61e9949e12 too, at apps\/customer\/tests\/real-app\/venue\.mjs:148/,
+  );
+  check(!lines.some((l) => l.includes('hypothesis')), 'a compared step is not a hypothesis');
+  assert.match(
+    lines.find((l) => l.startsWith('PREMISE')),
+    /previous head ad61e9949e12 too \(1 of these steps\).*test it before the next push/,
+  );
+  assert.equal(last(lines), `LAST GREEN  ${JOURNEYS} passed on this PR at 999999999999`);
+});
+
+test('journeyLines: a first red is a hypothesis with no premise line; a run with no report says so', () => {
+  const lines = journeyLines({
+    failures: journeyFailures(report('8802-3ec80e0')),
+    prev: { sha: PREV, conclusion: 'success', failures: [] },
+    green: PREV,
+    read: 1,
+  });
+  check(
+    lines.some((l) => l.includes('hypothesis: where it stopped')),
+    'marked hypothesis',
+  );
+  check(!lines.some((l) => l.startsWith('PREMISE')), 'no premise after a green head');
+  assert.match(journeyLines({ failures: null })[0], /kept no journeys report/);
+});
+
+test('summarize prints the journey lines under the red journeys check, within the promised size', () => {
+  // #8804's four failed steps and #8802's one: five, one past the four printed.
+  const failures = [...journeyFailures(report('8804-074169d')), ...journeyFailures(report('8802-3ec80e0'))];
+  const j = { failures, prev: { sha: PREV, conclusion: 'failure', failures: [] }, green: null, read: 10 };
+  const out = summarize({
+    ...base,
+    checks: [ok(1, 'Format'), red(7, JOURNEYS)],
+    annotations: { 7: [fail('Process completed with exit code 1.')] },
+    failedSteps: { 7: ['Verdict'] },
+    journeys: { 7: j },
+  });
+  const at = out.findIndex((l) => l.startsWith(`RED      ${JOURNEYS}`));
+  assert.match(out[at + 2], /^STEP     J-p2p-21 #2/);
+  assert.equal(out.filter((l) => l.startsWith('STEP')).length, 4, 'at most four steps');
+  check(out.includes('         ... 1 more steps failed'), 'the rest counted');
+  check(
+    out.every((l) => l.length <= 200),
+    'every line within WIDTH',
+  );
+  const size = out.join('\n').length;
+  check(size < 3000, `the whole answer stays a few thousand characters, not the 30-40K a log read cost (${size})`);
+  assert.match(last(out), /^RED: /);
 });
