@@ -451,9 +451,10 @@ test('feature file: a room’s states, the keys its screen and the shell bind, w
   const file = `// World: none
 import { test, expect } from './journey.mjs';
 import { testPerson } from './stack.mjs';
-import { staffFreeze } from './staff.mjs';
+import { staffSignIn } from './staff.mjs';
 const J = 'J-r-01';
 const who = testPerson('class');
+await staffSignIn(page, browser, 'support');
 test(\`\${J} #1 opens a class and its join button is disabled\`, async ({ page }) => {
   await page.goto(\`/academy/\${id}\`);
   await expect(page.getByRole('link')).toBeFocused();
@@ -468,7 +469,7 @@ test(\`\${J} #2 reads the candles\`, async ({ page }) => {
   const md = featureMarkdown(j, found, app);
   assert.match(
     md,
-    /- States its tests name: focus \(`J-r-01\.pw\.mjs:9`\), disabled \(`J-r-01\.pw\.mjs:7`\)\. Not named, so no drive shows them: hover, loading, empty, error or refusal, selected, open or expanded\./,
+    /- States its tests name: focus \(`J-r-01\.pw\.mjs:10`\), disabled \(`J-r-01\.pw\.mjs:8`\)\. Not named, so no drive shows them: hover, loading, empty, error or refusal, selected, open or expanded\./,
   );
   assert.match(
     md,
@@ -478,7 +479,7 @@ test(\`\${J} #2 reads the candles\`, async ({ page }) => {
   assert.match(md, /Open `\/old` [^\n]*Its room \(`\/old`\) has no screen/);
   assert.match(md, /Open `\/nowhere` [^\n]*No room row in `apps\/customer\/src\/app\/rooms\/` names it/);
   assert.match(md, /- On every page with the app's top bar: \/ \(`app\/Search\.tsx:1`\)\./);
-  assert.match(md, /It acts as a TEST person it signs up itself, staff \(staff\.mjs\)\./);
+  assert.match(md, /It acts as a TEST person it signs up itself, staff \(staffSignIn, staffFreeze\)\./);
   assert.match(md, /Step #2\.\*\*[^\n]* It needs past trades \(`pnpm local:stack verify launch J-r-01`\)\./);
   assert.match(md, /TEST stand-in: on this stack the Academy door's outside part \(Live classes, video\) is not connected/);
   assert.doesNotMatch(md, /P2P door/);

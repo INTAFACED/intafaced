@@ -219,8 +219,8 @@ export function actorsUsed(plain) {
   return [
     /\btestPerson\(|\bsignUpInBrowser\(/.test(plain) ? 'a TEST person it signs up itself' : null,
     /\botherTrader\(/.test(plain) ? 'a second TEST trader (otherTrader)' : null,
-    /from '\.\/staff\.mjs'|\bstaffFreeze\(|\bstaffRestore\(/.test(plain) ? 'staff (staff.mjs)' : null,
-    /from '\.\/admin\.mjs'/.test(plain) ? 'an operator in the admin console (admin.mjs)' : null,
+    /\bstaff(?:SignIn|Freeze|Restore)\(/.test(plain) ? 'staff (staffSignIn, staffFreeze)' : null,
+    /\bfounder(?:SignIn|Code)\(/.test(plain) ? 'a founder in the admin console (founderSignIn)' : null,
   ].filter(Boolean);
 }
 
@@ -253,7 +253,7 @@ export function roomFor(rooms, testPath) {
 }
 
 /**
- * The files a source reaches by static relative imports, itself first (a lazy `import()` is another room's code, so it is
+ * The files a source reaches by static relative imports, itself first (a lazy import is another room's code, so it is
  * not followed). `read(file)` returns a file's text or null; files are absolute.
  */
 export function importClosure(entry, read) {
