@@ -548,7 +548,7 @@ jobs:
     name: Fix issue after merge
     needs: review
     if: ${{ !cancelled() && (needs.review.outputs.verdict == 'failure' || needs.review.outputs.tests == 'failure') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -584,7 +584,7 @@ jobs:
     name: Start the seal
     needs: [review, read, after-merge]
     if: ${{ !cancelled() && needs.review.result != 'skipped' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
     permissions:
       contents: read

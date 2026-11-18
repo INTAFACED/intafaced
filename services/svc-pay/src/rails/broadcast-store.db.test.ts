@@ -158,7 +158,7 @@ describe('PostgresBroadcastStore — two connections cannot double-send', () => 
         runDurableBroadcast({ store: a, idempotencyKey: key, sign, broadcast }),
       ]);
       if (closed.status !== 'fulfilled') throw closed.reason;
-      if (closed.value === 'closed') {
+      if (closed.value !== 'held') {
         expect(sent.status).toBe('rejected');
         expect(sent.status === 'rejected' && sent.reason).toBeInstanceOf(BroadcastClosedError);
         expect(broadcast).not.toHaveBeenCalled();

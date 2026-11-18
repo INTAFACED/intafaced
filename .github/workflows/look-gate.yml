@@ -35,7 +35,7 @@ env:
 jobs:
   look:
     name: Look gate (${{ matrix.shard }}/3)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     container:
       # mcr.microsoft.com/playwright:v1.65.0-noble, the version in the lockfile.

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -12,6 +12,7 @@ import {
   CALL_COST,
   NEVER_ON_A_KEY,
   REST_REFERENCE,
+  ROUTE_WORDS,
   STREAM_DOOR_PATH,
   STREAM_REFERENCE,
   neverOnAKeyTable,
@@ -24,6 +25,7 @@ import {
   signedOutOf,
   type Method,
 } from './developers-reference';
+import { SERVED_ROUTES } from './served-routes.generated';
 import {
   declarationKey,
   isRouteSource,
@@ -32,7 +34,6 @@ import {
 
 const repo = (path: string) => readFileSync(new URL(`../../../../../${path}`, import.meta.url), 'utf8');
 
-const ROUTE_LIST = new URL('../../../../../services/svc-trade/src/published-routes.txt', import.meta.url);
 const TRADE_SRC = new URL('../../../../../services/svc-trade/src/', import.meta.url);
 
 /** svc-trade's sources, walked here; the parser is svc-trade's own, which tooling/ci/published-routes.mjs also runs. */
@@ -68,20 +69,31 @@ describe('the published route list matches what the services really mount', () =
     }
   });
 
-  it('lists every /api/v1 route svc-trade declares, each exactly once, with its access and its scopes', () => {
+  it('publishes every /api/v1 route svc-trade declares, each once, with the access and scopes its registration declares', () => {
     const declared = tradeDeclarations();
     // Every registration resolved to a real /api/v1 path; none is left as a variable name.
     for (const route of declared) expect(route.path, `${route.method} ${route.path} in ${route.file}`).toMatch(/^\/api\/v1\//);
+    // The access and scopes are generated from the registrations, never written by hand (tooling/ci/published-routes.mjs).
+    expect([...SERVED_ROUTES], 'served-routes.generated.ts is stale: run node tooling/ci/published-routes.mjs --write').toEqual(
+      [...new Set(declared.map(declarationKey))].sort(),
+    );
     const ours = REST_REFERENCE.map((route) => declarationKey({ ...route, scopes: scopesOf(route) }));
-    // The whole list, pinned in its own file one route per line, sorted: as strict as an exact count (a route that
-    // leaves both the service and the reference still fails here), and two changes adding different routes edit
-    // different lines. `WRITE_ROUTE_LIST=1` rewrites it after a deliberate change.
-    const listed = [...ours].sort();
-    if (process.env.WRITE_ROUTE_LIST === '1') writeFileSync(ROUTE_LIST, `${listed.join('\n')}\n`);
-    const pinned = readFileSync(ROUTE_LIST, 'utf8').split('\n').filter(Boolean);
-    expect(listed, 'services/svc-trade/src/published-routes.txt: run WRITE_ROUTE_LIST=1 after a deliberate route change').toEqual(pinned);
     expect(new Set(ours).size).toBe(ours.length);
-    expect([...ours].sort()).toEqual([...new Set(declared.map(declarationKey))].sort());
+    expect([...ours].sort()).toEqual([...SERVED_ROUTES]);
+  });
+
+  it('words every served route once, and words no route svc-trade does not serve', () => {
+    const served = new Set(SERVED_ROUTES.map((line) => line.split(' ').slice(0, 2).join(' ')));
+    const worded = ROUTE_WORDS.map(routeLine);
+    expect(new Set(worded).size, 'a route worded twice in ROUTE_WORDS').toBe(worded.length);
+    expect(
+      [...served].filter((line) => !worded.includes(line)),
+      'served with no words: give each its name, product and summary in ROUTE_WORDS (developers-reference.ts)',
+    ).toEqual([]);
+    expect(
+      worded.filter((line) => !served.has(line)),
+      'worded but not served: remove its row from ROUTE_WORDS',
+    ).toEqual([]);
   });
 
   it('registers a route twice only where the resting refusal stands in for futures matching, and marks both sets', () => {

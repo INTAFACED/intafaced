@@ -40,6 +40,7 @@ import { type LifecycleAdmissionProof } from '../../lifecycle-proof.js';
 import { TradeError, type Market, type OrderRecord, type OrderType, type TimeInForce } from '../types.js';
 import type { PlaceOrderInput, TradeServiceInternal } from '../trade-service.js';
 import { assertSamePlaceCommand } from './internal.js';
+import { assertAdmittedUnderOverload } from '../../futures/overload.js';
 
 // ── The order flow (§5.2) ──────────────────────────────────────────────────
 export async function placeOrder(svc: TradeServiceInternal, principal: Principal, input: PlaceOrderInput): Promise<OrderRecord> {
@@ -86,6 +87,10 @@ export async function placeOrderInner(
   if (isBuybackUser(userId)) {
     throw new TradeError('the token buyback places only through its service door', BUYBACK_INVALID);
   }
+
+  // OVERLOAD (Binance -1008 shape): while the operator switch is on, new risk is refused here, where every order
+  // kind passes, so a copy mirror, a grid level and a TWAP child are refused like a direct place.
+  assertAdmittedUnderOverload(input as { readonly reduceOnly?: boolean; readonly closePosition?: boolean });
 
   // NO ORDERABLE PLANE AT ALL — refused before the registry is touched.
   //

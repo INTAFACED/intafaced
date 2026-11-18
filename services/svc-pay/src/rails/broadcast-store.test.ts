@@ -27,6 +27,15 @@ function fakePgSql(): BroadcastSql & {
       existing.signed_raw = signedRaw;
       return [{ idempotency_key: key }];
     }
+    if (text.includes('update pay.crypto_broadcasts') && text.includes('signed_raw is null')) {
+      const closed = String(values[0]);
+      const key = String(values[1]);
+      const pending = String(values[2]);
+      const existing = rows.get(key);
+      if (!existing || existing.tx_hash !== pending || existing.signed_raw !== null) return [];
+      existing.tx_hash = closed;
+      return [{ idempotency_key: key }];
+    }
     if (text.includes('update pay.crypto_broadcasts') && text.includes('set tx_hash')) {
       const hash = String(values[0]);
       const key = String(values[1]);
@@ -237,8 +246,8 @@ describe.each([
 ] as const)('%s close', (_name, make) => {
   it('a closed key signs and broadcasts nothing, and reads as no hash', async () => {
     const store = make();
-    expect(await store.close('payout:closed:1')).toBe('closed');
-    expect(await store.close('payout:closed:1')).toBe('closed');
+    expect(await store.close('payout:closed:1')).toEqual({ closedKey: 'payout:closed:1' });
+    expect(await store.close('payout:closed:1')).toEqual({ closedKey: 'payout:closed:1' });
     expect(await store.claim('payout:closed:1')).toEqual({ kind: 'closed' });
     const sign = vi.fn(async () => '0xraw');
     const broadcast = vi.fn(async () => '0xhash');
@@ -252,14 +261,44 @@ describe.each([
     await expect(store.put('payout:closed:1', '0xlate')).rejects.toThrow(/closed/);
   });
 
-  it('a key a send has claimed cannot be closed, before or after its hash lands', async () => {
+  it('a key a send has journalled signed bytes for cannot be closed, before or after its hash lands', async () => {
     const store = make();
     expect(await store.claim('payout:held:1')).toEqual({ kind: 'mine' });
-    expect(await store.close('payout:held:1')).toBe('held');
     await store.putSigned('payout:held:1', '0xraw');
     expect(await store.close('payout:held:1')).toBe('held');
     await store.put('payout:held:1', '0xhash');
     expect(await store.close('payout:held:1')).toBe('held');
     expect(await store.get('payout:held:1')).toBe('0xhash');
+  });
+
+  // A send that claimed its key and died, or whose signer threw, before journalling signed bytes must not strand the
+  // payout's hold: the query takes that claim, and the sender, if it is only slow, fails at putSigned and sends nothing.
+  it('closes a claim with no signed bytes, and the sender that held it then signs nothing into the journal', async () => {
+    const store = make();
+    expect(await store.claim('payout:stranded:1')).toEqual({ kind: 'mine' });
+    expect(await store.close('payout:stranded:1')).toEqual({ closedKey: 'payout:stranded:1' });
+    await expect(store.putSigned('payout:stranded:1', '0xraw-late')).rejects.toThrow(/closed/);
+    expect(await store.hasSigned('payout:stranded:1')).toBe(false);
+    expect(await store.claim('payout:stranded:1')).toEqual({ kind: 'closed' });
+  });
+
+  it('a send whose signer throws leaves a key the next query closes, and its retry sends nothing', async () => {
+    const store = make();
+    const broadcast = vi.fn(async () => '0xhash');
+    await expect(
+      runDurableBroadcast({
+        store,
+        idempotencyKey: 'payout:signer-threw:1',
+        sign: async () => {
+          throw new Error('remote signer timed out');
+        },
+        broadcast,
+      }),
+    ).rejects.toThrow(/timed out/);
+    expect(await store.close('payout:signer-threw:1')).toEqual({ closedKey: 'payout:signer-threw:1' });
+    await expect(
+      runDurableBroadcast({ store, idempotencyKey: 'payout:signer-threw:1', sign: async () => '0xraw', broadcast }),
+    ).rejects.toBeInstanceOf(BroadcastClosedError);
+    expect(broadcast).not.toHaveBeenCalled();
   });
 });

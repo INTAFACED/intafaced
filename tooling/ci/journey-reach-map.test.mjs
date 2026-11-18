@@ -39,7 +39,6 @@ import {
 } from './journey-reach-map.mjs';
 import { checkoutHead, journeyTouch } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, reachInputs, sealPull } from './journey-seal.mjs';
-import { manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -1232,22 +1231,35 @@ test('the harness: what tooling/scripts and the real-app files run in Node, foll
   assert.equal(h.includes('services/svc-tax'), false, 'a service the harness does not import is not the harness');
 });
 
-test('the committed map’s money list is REVIEW.md’s money code: ledger-client, every workspace folder depending on it directly, the named services and svc-ledger (CI review on a50417c8)', () => {
+test('replay #7633: a checkout adding a money package passes with the committed map untouched; verify holds a committed map to it', () => {
+  // The money list is the builder's (workspaceInputs), never written by hand. A test that required the committed map's
+  // copy to equal the checkout's money code turned tooling-tests red for every pull request merging main once #7602 added
+  // a money package (reverted in #7633). Nothing reads the list to narrow (pathReach above), so only `verify` holds it:
+  // a pull request that commits a map is rebuilt from its own checkout's workspace (ci.yml, --workspace).
   const map = loadMap();
   if (map?.mode !== 'reach') return; // a full map narrows nothing
-  const want = [...new Set([...moneyCodeDirs(manifestsAt(ROOT_DIR)), ...MONEY_SERVICES])].sort();
-  assert.deepEqual(map.money, want);
-  // apps/customer reaches ledger-client only through other packages (consumers follows dependencies through packages),
-  // so it is not money code by the definition; its money journeys run through the money services it calls.
-  const customer = JSON.parse(readFileSync(join(ROOT_DIR, 'apps/customer/package.json'), 'utf8'));
-  const direct = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some(
-    (k) => customer[k] && Object.hasOwn(customer[k], '@intafaced/ledger-client'),
-  );
-  assert.equal(
-    map.money.includes('apps/customer'),
-    direct,
-    'apps/customer is money code exactly when it depends on ledger-client directly',
-  );
+  const dir = mkdtempSync(join(tmpdir(), 'reach-7633-'));
+  try {
+    const pkg = (d, name, deps = {}) => {
+      mkdirSync(join(dir, d, 'src'), { recursive: true });
+      writeFileSync(join(dir, d, 'package.json'), JSON.stringify({ name, dependencies: deps }));
+      writeFileSync(join(dir, d, 'src/index.ts'), 'export {};\n');
+    };
+    pkg('packages/ledger-client', '@intafaced/ledger-client');
+    pkg('packages/venue-hyperliquid-next', '@intafaced/venue-hyperliquid-next', { '@intafaced/ledger-client': 'workspace:*' });
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    execFileSync('git', ['add', '-A'], { cwd: dir });
+    const money = workspaceInputs(dir).money;
+    assert.ok(money.includes('packages/venue-hyperliquid-next'), "the checkout's new package is money code");
+    assert.equal(map.money.includes('packages/venue-hyperliquid-next'), false, 'the committed map, untouched, does not name it');
+    // A committed map is held to the money list the builder writes from that checkout, and told to rebuild.
+    const rebuilt = mapText({ ...map, money: [...new Set([...money, ...MONEY_SERVICES])].sort() });
+    const r = verifyMap(mapText(map), () => rebuilt);
+    assert.equal(r.ok, false);
+    assert.match(r.why, /differs .* in: money \(only what main's code holds: main moved since it was built, so rebuild it\)/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('planted: verify reads the workspace inputs from the checkout it is given, so a pull request adding a money package holds its own map (B1, #7724)', () => {
