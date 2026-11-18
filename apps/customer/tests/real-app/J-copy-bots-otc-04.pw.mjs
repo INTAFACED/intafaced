@@ -281,7 +281,7 @@ test(`${J} #3 completes a new-trader mission: its progress is shown`, async ({ p
   await expect(fund).toContainText('Done');
   await expect(page.getByText('2 of 3 missions done')).toBeVisible();
   // Not yet a lead: no lead account opens before the founders approve.
-  await expect(page.getByRole('region', { name: 'Your lead account', exact: true })).toContainText('You are not a lead yet');
+  await expect(page.getByRole('region', { name: 'Your lead account', exact: true })).toContainText('No lead account');
 });
 
 test(`${J} #4 after approval opens the lead account: the lead's level ("Not set" where blank) and the lead trading screen`, async ({

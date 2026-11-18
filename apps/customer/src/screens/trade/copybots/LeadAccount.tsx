@@ -46,39 +46,37 @@ export function LeadAccount({ api }: { api: RoomApi }) {
         ) : null}
       </PageSection>
 
-      <section aria-label={t('Your lead account')}>
-        <PageSection title={t('Your lead account')} headingLevel={2}>
-          {mine.status === 'error' && mine.failure ? <RefusalNote failure={mine.failure} retry={mine.reload} /> : null}
-          {mine.status === 'ready' && !lead ? (
-            <EmptyState
-              size="inline"
-              title={t('No lead account')}
-              reason={t('Your lead account opens when two founders approve your application.')}
+      <PageSection title={t('Your lead account')} headingLevel={2}>
+        {mine.status === 'error' && mine.failure ? <RefusalNote failure={mine.failure} retry={mine.reload} /> : null}
+        {mine.status === 'ready' && !lead ? (
+          <EmptyState
+            size="inline"
+            title={t('No lead account')}
+            reason={t('Your lead account opens when two founders approve your application.')}
+          />
+        ) : null}
+        {lead ? (
+          <>
+            <KeyValue
+              items={[
+                { label: t('Lead account'), value: lead.leaderRef },
+                { label: t('Application'), value: lead.applicationId.slice(0, 8) },
+                { label: t('Display name'), value: lead.displayName },
+                { label: t('Listing'), value: lead.state },
+                {
+                  label: t('Leading instruments'),
+                  value: lead.instruments.length > 0 ? lead.instruments.join(', ') : t('Not set by the platform'),
+                },
+              ]}
             />
-          ) : null}
-          {lead ? (
-            <>
-              <KeyValue
-                items={[
-                  { label: t('Lead account'), value: lead.leaderRef },
-                  { label: t('Application'), value: lead.applicationId.slice(0, 8) },
-                  { label: t('Display name'), value: lead.displayName },
-                  { label: t('Listing'), value: lead.state },
-                  {
-                    label: t('Leading instruments'),
-                    value: lead.instruments.length > 0 ? lead.instruments.join(', ') : t('Not set by the platform'),
-                  },
-                ]}
-              />
-              <p>
-                <a href={`/trade/spot/${(lead.instruments[0] ?? 'BTC/USDT').replace('/', '-')}?lead=1`}>
-                  {t('Open the lead trading screen')}
-                </a>
-              </p>
-            </>
-          ) : null}
-        </PageSection>
-      </section>
+            <p>
+              <a href={`/trade/spot/${(lead.instruments[0] ?? 'BTC/USDT').replace('/', '-')}?lead=1`}>
+                {t('Open the lead trading screen')}
+              </a>
+            </p>
+          </>
+        ) : null}
+      </PageSection>
 
       {lead ? <LeadTrades api={api} /> : null}
     </>
@@ -127,37 +125,35 @@ function LeadTrades({ api }: { api: RoomApi }) {
 
   return (
     <>
-      <section aria-label={t('Lead trades')}>
-        <PageSection title={t('Lead trades')} headingLevel={2}>
-          {trades.status === 'error' && trades.failure ? <RefusalNote failure={trades.failure} retry={trades.reload} /> : null}
-          <Tabs value={tab} onValueChange={(v) => setTab(v as 'ongoing' | 'history')}>
-            <TabsList aria-label={t('Lead trades')}>
-              <TabsTab value="ongoing">{counts ? t('Ongoing ({n})', { n: String(counts.ongoing) }) : t('Ongoing')}</TabsTab>
-              <TabsTab value="history">{counts ? t('History ({n})', { n: String(counts.history) }) : t('History')}</TabsTab>
-            </TabsList>
-            {(['ongoing', 'history'] as const).map((which) => (
-              <TabsPanel key={which} value={which}>
-                <Table
-                  label={which === 'ongoing' ? t('Ongoing lead trades') : t('Lead trade history')}
-                  columns={columns}
-                  rows={trades.data?.[which] ?? []}
-                  getRowId={(r) => r.orderId}
-                  status={status(trades.status)}
-                  onRetry={trades.reload}
-                  minWidth={720}
-                  emptyState={
-                    <EmptyState
-                      size="inline"
-                      title={which === 'ongoing' ? t('No lead trade resting') : t('No lead trade in your history')}
-                      reason={t('An order you place with Lead trade on shows here.')}
-                    />
-                  }
-                />
-              </TabsPanel>
-            ))}
-          </Tabs>
-        </PageSection>
-      </section>
+      <PageSection title={t('Lead trades')} headingLevel={2}>
+        {trades.status === 'error' && trades.failure ? <RefusalNote failure={trades.failure} retry={trades.reload} /> : null}
+        <Tabs value={tab} onValueChange={(v) => setTab(v as 'ongoing' | 'history')}>
+          <TabsList aria-label={t('Lead trades')}>
+            <TabsTab value="ongoing">{counts ? t('Ongoing ({n})', { n: String(counts.ongoing) }) : t('Ongoing')}</TabsTab>
+            <TabsTab value="history">{counts ? t('History ({n})', { n: String(counts.history) }) : t('History')}</TabsTab>
+          </TabsList>
+          {(['ongoing', 'history'] as const).map((which) => (
+            <TabsPanel key={which} value={which}>
+              <Table
+                label={which === 'ongoing' ? t('Ongoing lead trades') : t('Lead trade history')}
+                columns={columns}
+                rows={trades.data?.[which] ?? []}
+                getRowId={(r) => r.orderId}
+                status={status(trades.status)}
+                onRetry={trades.reload}
+                minWidth={720}
+                emptyState={
+                  <EmptyState
+                    size="inline"
+                    title={which === 'ongoing' ? t('No lead trade resting') : t('No lead trade in your history')}
+                    reason={t('An order you place with Lead trade on shows here.')}
+                  />
+                }
+              />
+            </TabsPanel>
+          ))}
+        </Tabs>
+      </PageSection>
       <PageSection title={t('Your copiers')} headingLevel={2}>
         <Table
           label={t('Your copiers')}
