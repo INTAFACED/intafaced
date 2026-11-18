@@ -34,6 +34,7 @@ import {
   scheduleWindowIssue,
   startsField,
   useBankRead,
+  useSpaces,
   usePageLimit,
   type ActionSpec,
 } from './components';
@@ -212,7 +213,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
   const { userId } = useSession();
   const context = spaceContext(search, 'space');
   const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
-  const spaces = useBankRead('spaces.list', { limit });
+  const spaces = useSpaces(limit);
   const unnamed = useBankRead('spaces.unnamed', undefined);
   const held = useHoldings();
   const heldAssets = held.resource.status === 'ready' ? held.resource.data.assets : [];
@@ -644,7 +645,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const { api, userId } = useSession();
   const context = spaceContext(search, 'from');
   const [limit, setLimit] = useState(context.status === 'valid' ? 200 : 50);
-  const query = useBankRead('spaces.list', { limit });
+  const query = useSpaces(limit);
   // The plan's rule for paying more than the balance holds (J-bank-02 #8): shown under the form and in the review.
   const plan = usePlanTerms();
   // Read at review time, not when the dialog opened: terms that arrive or reload later still reach the review.

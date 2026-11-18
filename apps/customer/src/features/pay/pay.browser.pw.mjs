@@ -14,6 +14,10 @@ const source = {
   name: 'Main',
   goalTarget: null,
   lockedUntil: null,
+  unlocksAt: null,
+  unlockRequestedAt: null,
+  billsPot: null,
+  heldAt: null,
   balance: '4.000000000000000001',
   ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
 };
