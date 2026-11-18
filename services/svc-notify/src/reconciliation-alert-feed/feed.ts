@@ -10,7 +10,8 @@
  */
 import type { Sql } from 'postgres';
 import type { PayloadOf } from '@intafaced/events';
-import type { NotifyReconAlertFeedEntry } from '@intafaced/contracts/ops-reconciliation-alerts';
+import { z } from 'zod';
+import { NOTIFY_RECON_ALERT_FEED_KINDS, type NotifyReconAlertFeedEntry } from '@intafaced/contracts/ops-reconciliation-alerts';
 
 /** One received transition, as `reconciliationAlertFeed.list` answers it (`team` is set on `opened` only). */
 export type ReconAlertFeedEntry = NotifyReconAlertFeedEntry;
@@ -90,17 +91,17 @@ export class MemoryReconAlertFeedStore implements ReconAlertFeedStore {
   }
 }
 
-interface FeedRow {
-  event_key: string;
-  alert_id: string;
-  sequence: number;
-  kind: ReconAlertFeedKind;
-  team: 'finance' | 'platform' | null;
-  state: ReconAlertFeedEntry['state'];
-  actor: string;
-  occurred_at: Date;
-  received_at: Date;
-}
+const FeedRow = z.object({
+  event_key: z.string(),
+  alert_id: z.string(),
+  sequence: z.number().int(),
+  kind: z.enum(NOTIFY_RECON_ALERT_FEED_KINDS),
+  team: z.enum(['finance', 'platform']).nullable(),
+  state: z.enum(['open', 'acknowledged', 'snoozed', 'resolved', 'accepted']),
+  actor: z.string(),
+  occurred_at: z.date(),
+  received_at: z.date(),
+});
 
 /** On notify.reconciliation_alert_feed (20261118141504_notify_reconciliation_alert_feed.sql). */
 export class SqlReconAlertFeedStore implements ReconAlertFeedStore {
@@ -108,21 +109,25 @@ export class SqlReconAlertFeedStore implements ReconAlertFeedStore {
 
   async record(entry: ReconAlertTransition, receivedAt: Date): Promise<{ inserted: boolean }> {
     // ON CONFLICT DO NOTHING covers both keys: the business key and (alert, sequence), which name the same transition.
-    const rows = await this.sql<{ event_key: string }[]>`
+    const rows = z.array(z.object({ event_key: z.string() })).parse(
+      await this.sql`
       INSERT INTO notify.reconciliation_alert_feed (event_key, alert_id, sequence, kind, team, state, actor, occurred_at, received_at)
       VALUES (${entry.eventKey}, ${entry.alertId}, ${entry.sequence}, ${entry.kind}, ${entry.team}, ${entry.state}, ${entry.actor},
         ${entry.occurredAt}, ${receivedAt})
       ON CONFLICT DO NOTHING
       RETURNING event_key
-    `;
+    `,
+    );
     return { inserted: rows.length > 0 };
   }
 
   async list(alertId: string): Promise<ReconAlertFeedEntry[]> {
-    const rows = await this.sql<FeedRow[]>`
+    const rows = FeedRow.array().parse(
+      await this.sql`
       SELECT event_key, alert_id::text AS alert_id, sequence, kind, team, state, actor, occurred_at, received_at
         FROM notify.reconciliation_alert_feed WHERE alert_id = ${alertId} ORDER BY sequence
-    `;
+    `,
+    );
     return rows.map((r) => ({
       eventKey: r.event_key,
       alertId: r.alert_id,
@@ -131,8 +136,8 @@ export class SqlReconAlertFeedStore implements ReconAlertFeedStore {
       team: r.team,
       state: r.state,
       actor: r.actor,
-      occurredAt: new Date(r.occurred_at).toISOString(),
-      receivedAt: new Date(r.received_at).toISOString(),
+      occurredAt: r.occurred_at.toISOString(),
+      receivedAt: r.received_at.toISOString(),
     }));
   }
 }

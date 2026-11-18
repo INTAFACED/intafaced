@@ -1526,7 +1526,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     expect(
       before.map((e) => e.sequence),
       'in sequence order',
-    ).toEqual([...before.map((e) => e.sequence)].sort((x, y) => x - y));
+    ).toEqual(before.map((e) => e.sequence).sort((x, y) => x - y));
 
     const reopen = before.find((e) => e.kind === 'reopened');
     const row = a.locator(`[data-testid="alert-feed-entry"][data-event-key="${reopen.eventKey}"]`);
