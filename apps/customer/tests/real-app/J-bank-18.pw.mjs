@@ -556,9 +556,9 @@ test(`${J} #5 files a complaint: an acknowledgement once with the deadline from 
   try {
     restartWithAll('support', { LOCAL_STACK_SUPPORT_COMPLAINT_RESPONSE_DAYS: 'off' });
     await page.goto('/bank/safety/complaint');
-    await form.getByLabel('What is it about').selectOption('cards');
-    await form.getByLabel('What went wrong').fill(`TEST ${J} ${RUN}: no limit published, my card was charged twice.`);
-    await form.getByRole('button', { name: 'Send complaint' }).click();
+    await form.getByLabel('What is it about', { exact: true }).selectOption('cards');
+    await form.getByLabel('What went wrong', { exact: true }).fill(`TEST ${J} ${RUN}: no limit published, my card was charged twice.`);
+    await form.getByRole('button', { name: 'Send complaint', exact: true }).click();
     const unset = main.getByRole('status').filter({ hasText: 'Complaint received' });
     await expect(unset).toBeVisible();
     const unsetReference = await unset.getByTestId('safety-ack-reference').innerText();
