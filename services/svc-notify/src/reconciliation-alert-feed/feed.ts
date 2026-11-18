@@ -15,7 +15,6 @@ import { NOTIFY_RECON_ALERT_FEED_KINDS, type NotifyReconAlertFeedEntry } from '@
 
 /** One received transition, as `reconciliationAlertFeed.list` answers it (`team` is set on `opened` only). */
 export type ReconAlertFeedEntry = NotifyReconAlertFeedEntry;
-type ReconAlertFeedKind = ReconAlertFeedEntry['kind'];
 
 export type ReconAlertTransition = Omit<ReconAlertFeedEntry, 'receivedAt'>;
 
