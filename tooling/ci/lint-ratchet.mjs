@@ -11,7 +11,10 @@
  * There is no baseline file: main's own code is the baseline, so the count tightens by itself and a function moved from
  * one touched file to another does not fail (its finding leaves one file and arrives in the other).
  *
- * Every rule enforces: a copy or a pattern kept on purpose carries a suppression with its reason on that line. Rules in
+ * Every rule enforces. A suppression (`oxlint-disable…` / `eslint-disable…`) in a file outside tests is counted too, as
+ * `suppression/<rule>`, one per rule it names: silencing a finding never gets past the ratchet (a suppression in a test file
+ * stays free: a test may keep a pattern on purpose with its reason on that line). ratchet.json `fixes` maps a rule (or its
+ * plugin, or `suppression`) to the fix printed under each new finding. Rules in
  * ratchet.json `failInAddedFiles` replaced tests that judged the files a change ADDS: any finding in an added file
  * fails, even when a removal elsewhere pays for it, as the test did.
  *
@@ -68,6 +71,30 @@ export const ruleOf = (d) => {
   return kind ? `${rule}[${kind[1]}]` : rule;
 };
 
+/** A test file: its suppressions are not counted. */
+export const TEST_FILE = /(?:^|\/)(?:tests?|testing|__tests__|fixtures)\/|\.(?:test|spec|pw)\.[cm]?[jt]sx?$/u;
+const DIRECTIVE = /(?:\/\/|\/\*)\s*(?:oxlint|eslint)-disable(?:-next-line|-line)?(?=[\s*]|$)([^\n]*)/gu;
+
+/** The suppressions in one file's text: [{ rule: 'suppression/<rule>', line }], one per rule a directive names. */
+export function suppressionsOf(text) {
+  const out = [];
+  for (const m of text.matchAll(DIRECTIVE)) {
+    const line = text.slice(0, m.index).split('\n').length;
+    const names = m[1]
+      .split('*/')[0]
+      .split(/\s--\s|\s--$/u)[0]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const name of names.length ? names : ['(every rule)'])
+      out.push({ rule: `suppression/${name.replace(/^@typescript-eslint\//u, 'typescript/')}`, line });
+  }
+  return out;
+}
+
+/** The fix printed under a new finding: ratchet.json `fixes` by rule, then by plugin. */
+export const fixOf = (rule, fixes = {}) => fixes[rule.replace(/\[[\w-]+\]$/u, '')] ?? fixes[rule.split('/')[0]];
+
 /** Writes main's config and plugin into dir/rules and returns the config text with the plugin path made absolute. */
 function rulesFrom(ref, dir) {
   const configText = show(ref, CONFIG);
@@ -119,6 +146,14 @@ export function lintSide(files, config, dir, oxlint, found = {}) {
     counts[rule] ??= {};
     counts[rule][file] = (counts[rule][file] ?? 0) + 1;
     ((found[rule] ??= {})[file] ??= []).push({ line: d.labels?.[0]?.span?.line, text: [d.message, d.help].filter(Boolean).join(' ') });
+  }
+  for (const [file, text] of Object.entries(files)) {
+    if (TEST_FILE.test(file)) continue;
+    for (const s of suppressionsOf(text)) {
+      counts[s.rule] ??= {};
+      counts[s.rule][file] = (counts[s.rule][file] ?? 0) + 1;
+      ((found[s.rule] ??= {})[file] ??= []).push({ line: s.line, text: 'a suppression silences this rule here' });
+    }
   }
   return counts;
 }
@@ -230,6 +265,8 @@ export function run(argv = process.argv.slice(2)) {
             : `✖ lint-ratchet: ${r.rule} rose from ${r.was} to ${r.now} in the touched files (${r.files.join(', ')}); a finding removed elsewhere in them pays for one added.`,
         );
         for (const f of r.files) for (const d of (found[r.rule]?.[f] ?? []).slice(0, 10)) console.error(`  ${f}:${d.line}  ${d.text}`);
+        const fix = fixOf(r.rule, rules.starts.fixes);
+        if (fix) console.error(`  fix: ${fix}`);
       }
       return 1;
     }
