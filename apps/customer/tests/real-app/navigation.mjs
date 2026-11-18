@@ -1,6 +1,6 @@
 /**
  * The one way a journey reads an answer the page gets after a `reload` or a `goto` (docs/runbooks/harness-rewrite-plan.md,
- * piece 7). `garden/answer-after-navigation` refuses every other way in apps/customer/tests/real-app: a `waitForResponse` kept
+ * piece 7). `garden/no-stale-read` refuses every other way in apps/customer/tests/real-app: a `waitForResponse` kept
  * across a navigation, one raced against it in a `Promise.all`, or a hand-made `framenavigated` match.
  *
  * Why each rule below holds:
