@@ -369,27 +369,36 @@ const extended = base.extend({
     },
     { auto: true },
   ],
-  // The proof reader's picture of this step (tooling/ci/step-pictures.mjs): the whole page of this
-  // test's own page, as it ended. `screenshot: 'on'` alone left the reader the 900-pixel window, so a step whose rows sit
-  // lower on the page read NOT SHOWN, and one picture per page of every context still open in the worker, so a page an
-  // earlier file never closed could be the one the reader was shown. A test with no page of its own (an API-only step,
-  // or one on its own browser.newContext() pages) attaches none and keeps the end pictures. Never fails the test.
+  // The proof reader's picture of this step (tooling/ci/step-pictures.mjs): the whole page of this test's own page, taken
+  // when the test calls `await stepPicture()` (or `stepPicture(otherPage)`) at the moment the step's state is on screen,
+  // else as the test ended. A test that checks the step's state and then leaves it (clicks the link the step names, closes
+  // the menu, goes on to another room) calls it before it leaves, or the end picture shows the page it went on to and the
+  // reader answers NOT SHOWN (project-state #3062; garden/step-picture-before-leaving). The first picture is the step's:
+  // a later call takes none, and one that could not be taken leaves the end picture to try. A full page, since `screenshot: 'on'` alone left the reader the 900-pixel window. A test with
+  // no page of its own (an API-only step, or one on its own browser.newContext() pages and no call) attaches none and keeps
+  // the end pictures. A picture never fails a test.
   // It takes `context`, so it ends before the test's own context closes; its own time, apart from the test's.
   stepPicture: [
     async ({ context }, use, testInfo) => {
-      await use();
-      try {
-        const page = context
+      let taken = false;
+      const take = async (page) => {
+        if (taken || !page || page.isClosed()) return;
+        try {
+          const file = testInfo.outputPath('step-picture.png');
+          await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
+          await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });
+          taken = true;
+        } catch {
+          /* a picture never fails a test; one that could not be taken leaves the end picture to try */
+        }
+      };
+      const ownPage = () =>
+        context
           .pages()
           .filter((p) => !p.isClosed())
           .at(-1);
-        if (!page) return;
-        const file = testInfo.outputPath('step-picture.png');
-        await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
-        await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });
-      } catch {
-        /* a picture never fails a test; the end pictures stay */
-      }
+      await use((page = ownPage()) => take(page));
+      await take(ownPage());
     },
     { auto: true, timeout: 30_000 },
   ],
