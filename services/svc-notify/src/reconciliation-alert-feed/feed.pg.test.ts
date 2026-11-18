@@ -18,7 +18,6 @@ beforeAll(async () => {
   if (!client) return;
   const name = await client<{ db: string }[]>`SELECT current_database() AS db`;
   if (name[0]?.db !== 'test') await assertTestDatabase(client, 'svc-notify reconciliation alert feed.pg.test');
-  await client.unsafe('CREATE SCHEMA IF NOT EXISTS notify');
   await client.unsafe(readFileSync(join(migrations, '20261118141504_notify_reconciliation_alert_feed.sql'), 'utf8'));
 });
 
