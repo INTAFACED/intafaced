@@ -5,7 +5,7 @@
 > **Land status 2026-08-04:** code-path fixes ship with the wallet-rpc-auth land PR. Rotation + ADR below remain human/Class X.
 
 **Date:** 2026-08-02. **Raised by:** the `fix/wallet-rpc-auth` branch.
-**Companion:** [`A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md`](A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md) §2, §4, §5.
+**Companion:** [`SECRET-ROTATION-READINESS.md`](SECRET-ROTATION-READINESS.md) §1.5, the other values disclosed in git history.
 
 Everything on this page needs a **human with authority over a chain account or a
 third-party account**. None of it can be done by an agent, and none of it was attempted.

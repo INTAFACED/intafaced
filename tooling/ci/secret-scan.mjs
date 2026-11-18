@@ -44,7 +44,7 @@
  *
  * The paragraph above used to say a secret in a `.java`/`.ts` file was "a
  * different, rarer problem". That was wrong, and the A1.4 audit
- * (docs/A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md) only looked like it swept
+ * (2026-07-30, in git history; kept facts in docs/SECRET-ROTATION-READINESS.md §1.5) only looked like it swept
  * the vendored tree because it swept `.properties`. Reading source found a
  * live third-party captcha key pair hard-coded in a controller of a PUBLISHED,
  * RUNNING jar, and a node credential inside a URL in a test's `main()`. Neither
@@ -410,7 +410,7 @@ const SECRET_BY_CONVENTION = [
  * Rules for this list, and they are the only thing keeping it honest:
  *
  *   1. An entry is a promise that the finding is in the owner action list at
- *      `docs/SECRET-ROTATION-READINESS-2026-08-03.md`. `action` names the item.
+ *      `docs/SECRET-ROTATION-READINESS.md`. `action` names the item.
  *   2. An entry that no longer matches a real violation at that file and line
  *      is a FAILURE, not a silent pass. A register you can leave behind is a
  *      register that becomes an exemption list.
@@ -430,7 +430,7 @@ const KNOWN_DISCLOSED = [
   // 2026-10-19: the six vendored-tree rows (admin console key, captcha pair, geetest key,
   // 2FA demo seed, ACT node credential) left this register because vendor/ was deleted,
   // not because the RISK is gone. The values stay disclosed in git history; their owner
-  // rotations remain open in docs/SECRET-ROTATION-READINESS-2026-08-03.md.
+  // rotations remain open in docs/SECRET-ROTATION-READINESS.md.
   // NOT listed, and the omission is a checked result rather than an oversight:
   // `01_wallet_rpc/usdt/.../JsonrpcClient.java:163` also embeds a credentialled
   // URL in a `main()`, but its password is IDENTICAL to its username and the
@@ -455,7 +455,7 @@ const KNOWN_DISCLOSED = [
   // covering two findings that are gone while implying they are still there.
   //
   // What did NOT change: the seeds are still disclosed in git history, so
-  // OWNER-1 in docs/SECRET-ROTATION-READINESS-2026-08-03.md stays open. It is
+  // OWNER-1 in docs/SECRET-ROTATION-READINESS.md stays open. It is
   // an owner rotation, and removing a literal from HEAD has never been able to
   // un-disclose it. The entries left this register because the CODE finding is
   // gone, not because the RISK is.
@@ -566,7 +566,7 @@ const isCacheKeyField = (rel, key, value) => {
  * of not being a *disclosure*. If one of these ever guards something reachable,
  * the finding is the reachability, not the literal, and this scan is the wrong
  * tool for it. Host exposure is checked against `docker ps`; see
- * docs/A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md.
+ * docs/SECRET-ROTATION-READINESS.md §1.7.
  */
 const isMatchedDevPair = (user, password) => user.toLowerCase() === password.toLowerCase();
 
@@ -840,7 +840,7 @@ for (const v of violations) {
 // Rule 2: an entry that no longer describes a real finding is itself a failure.
 const staleRegisterEntries = REGISTERED.filter((e) => !seenRegisterKeys.has(registerKey(e)));
 
-const ROTATION_DOC = 'docs/SECRET-ROTATION-READINESS-2026-08-03.md';
+const ROTATION_DOC = 'docs/SECRET-ROTATION-READINESS.md';
 
 // Printed on EVERY run, green or red. A disclosure the owner has not yet
 // rotated should be as visible on the thousandth build as on the first.
