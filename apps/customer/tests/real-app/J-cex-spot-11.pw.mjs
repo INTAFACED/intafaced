@@ -24,7 +24,7 @@ import {
 
 // J-cex-spot-11, in the running app (docs/roadmap/journeys.json): I convert one coin to another in one tap and see it in
 // my history. One test per step, titled "J-cex-spot-11 #<n>", run in order on one TEST account. #9 (very large amounts
-// priced from our own book by the quote desk) is Later (OWNER 226: custody) and is not built here.
+// priced from our own book by the quote desk) is Later: it waits for the custodial layer, and is not built here.
 //
 // INTAFACED holds none of this person's money. With svc-trade's user-venue door on for this file (venueForThisFile), a
 // conversion is one order on the person's own account at the stack's TEST venue simulator, signed by the person's
@@ -69,6 +69,10 @@ const amountOf = (text, asset) =>
     .replace(new RegExp(`\\s*${asset}$`), '')
     .replace(/,/g, '')
     .trim();
+
+/** A line that shows `value` of `asset`, read again until the page shows it (the same decimal, however written). */
+const shows = (locator, asset, value) =>
+  expect.poll(async () => sameDecimal(amountOf(await locator.innerText(), asset), value), { timeout: 15_000 }).toBe(true);
 
 /** Every Convert request the page sends from now on, by path (quote, accept, limit, submit), so "nothing sent" is checked. */
 function convertCalls(page) {
@@ -314,7 +318,6 @@ test(`${J} #2 types a TEST amount below the minimum or above the balance: "Too s
   await short.getByRole('link', { name: 'Deposit USDC' }).click();
   const deposit = page.getByRole('dialog', { name: 'Deposit into your venue account' });
   await expect(deposit).toBeVisible();
-  await page.keyboard.press('Escape');
 
   expect(sent, 'no price was asked for and nothing was sent').toEqual([]);
 });
@@ -348,7 +351,7 @@ test(`${J} #3 gets a price: the venue's best price, our builder fee as none on a
   // Never more than the typed spend: the size at the limit price is at most 20 USDC.
   expect(toUnits(q.maxCost)).toBeLessThanOrEqual(toUnits('20'));
   expect((toUnits(q.size) * toUnits(q.limitPrice)) / toUnits('1')).toBeLessThanOrEqual(toUnits('20'));
-  expect(sameDecimal(amountOf(await line(shownQuote, 'max-cost').innerText(), 'USDC'), q.maxCost)).toBe(true);
+  await shows(line(shownQuote, 'max-cost'), 'USDC', q.maxCost);
   // Nothing is held: no countdown, the words say so, and the venue locked nothing and rests nothing for the person.
   await expect(shownQuote.getByTestId('cvt-no-hold')).toHaveText(
     'The venue holds no price and nothing is set aside: accept within the window, or get a fresh price.',
@@ -437,8 +440,8 @@ test(`${J} #5 presses Convert now, twice: one signed swap; a receipt from the ve
   expect(sameDecimal(got.size, q.size)).toBe(true);
   // The receipt is the venue's fill, and the venue's balances moved by exactly that.
   await expect(line(receipt, 'paid')).toHaveText(new RegExp(`USDC$`));
-  expect(sameDecimal(amountOf(await line(receipt, 'paid').innerText(), 'USDC'), got.paid)).toBe(true);
-  expect(sameDecimal(amountOf(await line(receipt, 'received').innerText(), A.base), got.received)).toBe(true);
+  await shows(line(receipt, 'paid'), 'USDC', got.paid);
+  await shows(line(receipt, 'received'), A.base, got.received);
   await expect(line(receipt, 'client-id')).toHaveText(cloid);
   const usdcAfter = await balanceOf(s.owner, 'USDC');
   const coinAfter = await balanceOf(s.owner, A.base);
@@ -446,9 +449,7 @@ test(`${J} #5 presses Convert now, twice: one signed swap; a receipt from the ve
   expect(fromUnits(toUnits(coinAfter.total) - toUnits(coinBefore.total))).toBe(fromUnits(toUnits(got.received)));
   const balances = card(page).getByTestId('cvt-balances');
   await expect(balances.locator(`tr[data-asset="${A.base}"]`)).toBeVisible();
-  await expect
-    .poll(async () => (await balances.locator(`tr[data-asset="${A.base}"] [data-cell="total"]`).innerText()).replace(/,/g, ''))
-    .toSatisfy((v) => sameDecimal(v, coinAfter.total));
+  await shows(balances.locator(`tr[data-asset="${A.base}"] [data-cell="total"]`), A.base, coinAfter.total);
 
   // Money: the ledger posts nothing for the swap, and a buy carries no builder fee, so none is posted for any fill.
   for (const f of fills) {
@@ -602,8 +603,8 @@ test(`${J} #10 opens Recent conversions: the conversion with paid and received a
     await expect(row).toHaveAttribute('data-state', 'filled');
     const base = markets[i].base;
     const got = fromFills(await fillsOf(s.owner, a.cloid), 'buy', base, 'USDC');
-    expect(sameDecimal(amountOf(await row.locator('[data-cell="paid"]').innerText(), 'USDC'), got.paid)).toBe(true);
-    expect(sameDecimal(amountOf(await row.locator('[data-cell="received"]').innerText(), base), got.received)).toBe(true);
+    await shows(row.locator('[data-cell="paid"]'), 'USDC', got.paid);
+    await shows(row.locator('[data-cell="received"]'), base, got.received);
     await expect(row.locator('[data-cell="time"]')).toHaveText(/\d{4}.*\d{2}:\d{2}:\d{2}/);
   }
   // Never the quotes that were not taken (#3's and #4's).
