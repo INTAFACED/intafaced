@@ -375,14 +375,16 @@ test(`${J} #5 reads the audit of the lookup: one row with the agent, the custome
 }) => {
   const { customerId, routed, customer } = run.read();
   const agent = await founderSignIn(page, 'b');
-  const before = lookupAudit(customerId, routed).length;
+  // The audit is read once, after the lookup: each read signs founder a in with a fresh TOTP step, and a founder has at
+  // most two steps per 30 s window. Every row on this order before `at` came from an earlier lookup (steps 1 and 2, or
+  // an earlier attempt of this test), so the rows from `at` on are this lookup's.
   const at = Date.now();
   await page.goto(`${ADMIN}/trade-ops/orders/${routed}?account=${customerId}`);
   await expect(venueRead(page)).toHaveAttribute('data-order-id', routed);
   // That one lookup wrote one row.
-  const rows = lookupAudit(customerId, routed);
-  expect(rows).toHaveLength(before + 1);
-  const row = rows.at(-1);
+  const rows = lookupAudit(customerId, routed).filter((r) => Date.parse(r.occurredAt) >= at);
+  expect(rows).toHaveLength(1);
+  const [row] = rows;
   expect(row.operatorId).toBe(agent.userId);
   expect(row.accountId).toBe(customerId);
   expect(Math.abs(Date.parse(row.occurredAt) - at)).toBeLessThan(60_000);
