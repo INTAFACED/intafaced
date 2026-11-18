@@ -33,7 +33,7 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
-const { state, codeFor, signInNow, door, bankGet, bankPost, signAndSend } = personDoor(J, run, test);
+const { state, codeFor, signInNow, door, resetSession, bankGet, bankPost, signAndSend } = personDoor(J, run, test);
 
 /** The partner's own figure for the person's main USDC balance, from its book on loopback (never through our doors). */
 async function partnerMain(userId) {
@@ -158,7 +158,7 @@ test(`${J} #2 moves TEST 600 USDC from spending into trading, with step-up: the 
   await signInNow(page, state().who);
   const { secret, step } = await addAuthenticator(page, totp);
   run.write({ secret, step });
-  session = undefined;
+  resetSession();
   await openAccount(page, { signedIn: true });
   const route = (await testVenue('/venue')).body.deposit;
   expect(route?.token, 'the TEST venue publishes its TEST deposit route').toBeTruthy();
@@ -291,7 +291,7 @@ test(`${J} #4 buys TEST 0.01 BTC on the venue's spot market (BTC-USDC, on this f
     const spendingBefore = await partnerMain(userId);
     const since = new Date(Date.now() - 1_000).toISOString();
     const ask = (await testVenue('/book', { symbol: SPOT, depth: 1 })).body.value.asks[0];
-    // The person's own key signs the buy through our venue door: a TEST market buy of 0.01 BTC, IOC, inside 0.4% of the ask (the venue door's price protection is 50 bps).
+    // The person's own key signs the buy through our venue door: a TEST market buy of 0.01 BTC, IOC, a whole USDC price (a multiple of the market's tick) inside 0.4% of the ask (the venue door's price protection is 50 bps).
     await signAndSend(
       {
         kind: 'place_order',
@@ -299,7 +299,7 @@ test(`${J} #4 buys TEST 0.01 BTC on the venue's spot market (BTC-USDC, on this f
         side: 'buy',
         type: 'market',
         amount: '0.01',
-        price: fromUnits((toUnits(ask.price) * 1004n) / 1000n),
+        price: fromUnits(((toUnits(ask.price) * 1004n) / 1000n / toUnits('1')) * toUnits('1')),
         timeInForce: 'IOC',
         reduceOnly: false,
         clientOrderKey: `order:${owner}:${J}:spot-buy`,

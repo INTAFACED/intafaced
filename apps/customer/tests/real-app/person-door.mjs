@@ -88,5 +88,10 @@ export function personDoor(J, run, test) {
     return sent.body;
   }
 
-  return { state, codeFor, signInNow, door, bankGet, bankPost, signAndSend };
+  /** The next API call signs in afresh: after the person adds an authenticator, their sessions take a code. */
+  const resetSession = () => {
+    session = undefined;
+  };
+
+  return { state, codeFor, signInNow, door, resetSession, bankGet, bankPost, signAndSend };
 }
