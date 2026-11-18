@@ -277,7 +277,7 @@ function psql(secrets, role, sql) {
     ],
     {
       encoding: 'utf8',
-      env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
+      env: { PATH: `${path.dirname(PSQL)}:/usr/bin:/bin`, PGPASSWORD: secrets.pgService },
     },
   );
   if (r.error) throw new Error(`psql could not start (${PSQL}): ${r.error.message}`);

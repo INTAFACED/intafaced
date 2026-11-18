@@ -2,18 +2,17 @@ import { defineConfig } from '@playwright/test';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
+import { findChromiumExecutable } from '../../../../../../../tooling/uiproof/playwright-browsers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.ROOMS_HARNESS_PORT ?? 4351);
-const shots = process.env.ROOMS_SHOTS ?? '/Users/Nitro/.codex/context/work/design/trade-rooms/TROPT/harness/';
+const shots = process.env.ROOMS_SHOTS ?? join(homedir(), '.codex/context/work/design/trade-rooms/TROPT/harness/');
 
 // Runs the Options, Execution and Quote desk rooms in a bare harness page with a mocked API (TEST data only).
 //   pnpm exec playwright test --config src/screens/trade/rooms/harness/rooms.playwright.config.mjs
 // Screenshots go to ROOMS_SHOTS (outside the repo; reference images are never committed).
 // Playwright's bundled headless Chromium is used, never the daily browser. Override with ROOMS_CHROMIUM.
-const chromium =
-  process.env.ROOMS_CHROMIUM ??
-  join(homedir(), 'Library/Caches/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell');
+const chromium = process.env.ROOMS_CHROMIUM ?? findChromiumExecutable();
 
 export default defineConfig({
   testDir: here,

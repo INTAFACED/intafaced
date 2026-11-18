@@ -2,6 +2,16 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+// Playwright's own download folders: macOS keeps them in ~/Library/Caches, Linux in ~/.cache.
+const CACHE_RELATIVE = [join('Library', 'Caches', 'ms-playwright'), join('.cache', 'ms-playwright')];
+
+const SHELL_RELATIVE = [
+  join('chrome-headless-shell-mac-arm64', 'chrome-headless-shell'),
+  join('chrome-headless-shell-mac-x64', 'chrome-headless-shell'),
+  join('chrome-headless-shell-linux64', 'chrome-headless-shell'),
+  join('chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
+];
+
 const CFT_RELATIVE = [
   join('chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
   join('chrome-mac', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
@@ -31,15 +41,50 @@ function hasChromiumDir(dir, listDir) {
   return listDir(dir).some((name) => name.startsWith('chromium'));
 }
 
-function chromiumRevisions(names) {
+function revisions(names, prefix) {
   return names
-    .filter((name) => /^chromium-\d+$/.test(name))
-    .sort((a, b) => Number(b.slice('chromium-'.length)) - Number(a.slice('chromium-'.length)));
+    .filter((name) => name.startsWith(prefix) && /^\d+$/.test(name.slice(prefix.length)))
+    .sort((a, b) => Number(b.slice(prefix.length)) - Number(a.slice(prefix.length)));
+}
+
+const chromiumRevisions = (names) => revisions(names, 'chromium-');
+
+/** Playwright's download folders on this machine's kind: PLAYWRIGHT_BROWSERS_PATH, then the macOS and Linux defaults. */
+export function playwrightCaches({ env = process.env, home = env.HOME || homedir() } = {}) {
+  const forced = typeof env.PLAYWRIGHT_BROWSERS_PATH === 'string' ? env.PLAYWRIGHT_BROWSERS_PATH.trim() : '';
+  return [...(forced ? [forced] : []), ...CACHE_RELATIVE.map((relative) => join(home, relative))];
+}
+
+/**
+ * The one finder of a browser a harness launches outside the journey runner: the newest installed headless shell, else
+ * the newest full Chrome for Testing (`full: true` skips the shell, for a harness that measures the real browser), from
+ * playwrightCaches, for any platform's build. Undefined when none is installed: Playwright then uses its own.
+ */
+export function findChromiumExecutable({
+  env = process.env,
+  home = env.HOME || homedir(),
+  listDir = defaultListDir,
+  isFile = defaultIsFile,
+  full = false,
+} = {}) {
+  const groups = [...(full ? [] : [['chromium_headless_shell-', SHELL_RELATIVE]]), ['chromium-', CFT_RELATIVE]];
+  for (const root of playwrightCaches({ env, home })) {
+    const names = listDir(root);
+    for (const [prefix, relatives] of groups) {
+      for (const revision of revisions(names, prefix)) {
+        for (const relative of relatives) {
+          const candidate = join(root, revision, relative);
+          if (isFile(candidate)) return candidate;
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
  * Env wins. Else worktree `.tools/ms-playwright` if it has a chromium dir.
- * Else `~/Library/Caches/ms-playwright` if it has chromium. Never an empty path.
+ * Else Playwright's own cache (`~/Library/Caches` on macOS, `~/.cache` on Linux) if it has chromium. Never an empty path.
  */
 export function resolvePlaywrightBrowsersPath({
   env = process.env,
@@ -53,10 +98,7 @@ export function resolvePlaywrightBrowsersPath({
   const worktree = join(repoRoot, '.tools', 'ms-playwright');
   if (hasChromiumDir(worktree, listDir)) return worktree;
 
-  const system = join(home, 'Library', 'Caches', 'ms-playwright');
-  if (hasChromiumDir(system, listDir)) return system;
-
-  return undefined;
+  return CACHE_RELATIVE.map((relative) => join(home, relative)).find((system) => hasChromiumDir(system, listDir));
 }
 
 /**

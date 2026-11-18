@@ -6,22 +6,19 @@
  * Browser: Playwright's headless shell with a throwaway profile (Playwright makes one per launch).
  * Never Nitro's Brave (see ~/.codex/context/work/brave-daily-browser.md).
  */
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
+import { findChromiumExecutable } from '../../../tooling/uiproof/playwright-browsers.mjs';
 import AxeBuilder from '@axe-core/playwright';
 
 const base = process.env.GALLERY_URL ?? 'http://127.0.0.1:3290/';
 const out = process.env.SHOTS_DIR ?? join(homedir(), '.codex/context/work/design/kit');
-const shell = join(
-  homedir(),
-  'Library/Caches/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell',
-);
 const sections = ['table', 'input', 'page', 'figures'];
 
 mkdirSync(out, { recursive: true });
-const browser = await chromium.launch({ executablePath: existsSync(shell) ? shell : undefined });
+const browser = await chromium.launch({ executablePath: findChromiumExecutable() });
 const report = {};
 // Desktop first, then a phone width: the pinned table column and the wrapping page actions only show narrow.
 const passes = [

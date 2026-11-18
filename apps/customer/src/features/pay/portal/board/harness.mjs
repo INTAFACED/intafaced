@@ -1,11 +1,9 @@
 // Shared by shoot.mjs and crawl.mjs: a throwaway dev server on a port this work owns, a headless browser with a
 // throwaway profile, and a signed-in page talking to the stand-in. Every figure is TEST data.
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
+import { findChromiumExecutable } from '../../../../../../../tooling/uiproof/playwright-browsers.mjs';
 import { board as money } from '../money/board.mjs';
 import { board as payments } from '../payments/board.mjs';
 import { board as settings } from '../settings/board.mjs';
@@ -57,22 +55,9 @@ function stopChild(child) {
   }
 }
 
-/** The newest chrome-headless-shell Playwright has downloaded, for when the build this package wants is not on the machine. */
-function installedHeadlessShell() {
-  const root = join(homedir(), 'Library', 'Caches', 'ms-playwright');
-  if (!existsSync(root)) return undefined;
-  const found = readdirSync(root)
-    .filter((name) => name.startsWith('chromium_headless_shell-'))
-    .sort()
-    .reverse()
-    .map((name) => join(root, name, 'chrome-headless-shell-mac-arm64', 'chrome-headless-shell'))
-    .find((path) => existsSync(path));
-  return found;
-}
-
 export async function launch() {
   // Playwright's headless shell with a throwaway profile; the daily browser is never opened.
-  const executablePath = process.env.PORTAL_CHROMIUM ?? installedHeadlessShell();
+  const executablePath = process.env.PORTAL_CHROMIUM ?? findChromiumExecutable();
   return chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
 }
 
