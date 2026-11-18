@@ -81,13 +81,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The pinned release, checked by SHA-256 and kept in the Actions cache, so only a cache miss reaches the network
-      # (a bad download turned this check red, #7662). Change the cache key with VER and SHA256.
+      # (a bad download turned this check red, #7662). Keyed on this file, which holds VER and SHA256.
       - name: Restore the pinned gitleaks
         id: gitleaks-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/gitleaks-cache
-          key: gitleaks-8.24.3-linux-x64-9991e0b2
+          key: gitleaks-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/pr-checks.yml') }}
       - name: Install gitleaks
         if: steps.gitleaks-cache.outputs.cache-hit != 'true'
         run: |

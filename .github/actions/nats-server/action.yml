@@ -17,8 +17,8 @@ runs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/nats-server-cache
-        # The version and checksum live in the step below; change the key with them.
-        key: nats-server-2.10.24-linux-amd64-ee6500f3
+        # Keyed on this file, which holds the version and checksum, so a new pin is a new cache entry.
+        key: nats-server-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/actions/nats-server/action.yml') }}
 
     - name: Fetch the pinned nats-server on a cache miss
       if: steps.restore.outputs.cache-hit != 'true'
