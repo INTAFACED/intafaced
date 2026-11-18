@@ -10,7 +10,7 @@ import { cleanText, messageEchoed, noteProblem, referenceProblem } from './trans
  * Money's check over each row of `bank` `spaces.list` (the record in `@intafaced/contracts/bank-spaces-list`): a ledger
  * space is a view of its own available account in its own asset; a space with no ledger account is one the partner holds.
  */
-export function spaceAccepted(space: BankSpace): boolean {
+function spaceAccepted(space: BankSpace): boolean {
   return space.ledgerAccount
     ? space.assetId === space.ledgerAccount.assetId && space.ledgerAccount.kind === 'available'
     : Boolean(space.heldAt);
