@@ -126,6 +126,16 @@ export const GATES = [
     why: 'a suite pointed at the shared database is how someone else’s main goes red',
   },
   {
+    id: 'conflict-keys',
+    script: 'tooling/ci/conflict-keys.mjs',
+    doctrine: 'a lost insert race returns the row that won (project-state#3052)',
+    why:
+      'an INSERT … ON CONFLICT (<columns>) absorbs a clash only on the key those columns name; when its table has another ' +
+      'unique key, two inserts at once make the loser raise 23505 (svc-academy #8378, svc-pay #8526). Reads every ' +
+      "service's unique keys from its migrations and fails a new insert that leaves one unabsorbed; the inserts on main " +
+      'when it landed are listed with their verdicts in tooling/ci/conflict-keys-baseline.json, which only shrinks. Under a second, no network.',
+  },
+  {
     id: 'published-routes',
     script: 'tooling/ci/published-routes.mjs',
     doctrine: 'the developer portal publishes every route svc-trade serves',
