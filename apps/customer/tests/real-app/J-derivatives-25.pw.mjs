@@ -154,12 +154,11 @@ test(`${J} #2 moves TEST 600 USDC from spending into trading, with step-up: the 
 }) => {
   test.setTimeout(420_000);
   const { owner, userId, ledger } = state();
-  const wallet = await installTestWallet(page, { chainId: CHAIN_ID, privateKey: state().walletKey, rpcUrl: testChain().gateUrl });
   await signInNow(page, state().who);
   const { secret, step } = await addAuthenticator(page, totp);
   run.write({ secret, step });
   resetSession();
-  await openAccount(page, { signedIn: true });
+  const wallet = await openAccount(page, { signedIn: true });
   const route = (await testVenue('/venue')).body.deposit;
   expect(route?.token, 'the TEST venue publishes its TEST deposit route').toBeTruthy();
   const walletBefore = await chainBalance(route.token, owner);
