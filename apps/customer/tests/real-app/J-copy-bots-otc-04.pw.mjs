@@ -33,7 +33,7 @@ const THRESHOLD = PROFILE.TRADE_COPY_LEAD_MIN_VENUE_USDC.value;
 /** The new-trader mission minimum and the lead daily buy cap, as the stack's TEST profile sets them. */
 const MISSION_MIN = PROFILE.TRADE_COPY_LEAD_MISSION_MIN_USDC.value;
 const DAILY_BUY_CAP = PROFILE.TRADE_COPY_LEAD_DAILY_BUY_CAP.value;
-/** The TEST lead book, `TLED/USDT`, and its desk path. */
+/** The TEST lead book, `USDC/USDT`, and its desk path. */
 const BOOK = LEAD_TEST_SPOT;
 const BOOK_PATH = BOOK.replace('/', '-');
 const BOOK_QUERY = encodeURIComponent(BOOK);

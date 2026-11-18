@@ -93,8 +93,8 @@
     },
     "TRADE_COPY_LEAD_PAIR_HOLDING_LIMITS": {
       "service": "trade",
-      "value": "{\"TLED/USDT\":\"5000\"}",
-      "note": "TEST lead holding limit of 5000 USDT on TLED/USDT (the TEST lead book J-copy-bots-otc-04 alone trades) and none on any other pair, so its #7 sees ETH/USDT refused. Not an owner decision."
+      "value": "{\"USDC/USDT\":\"5000\"}",
+      "note": "TEST lead holding limit of 5000 USDT on USDC/USDT (the TEST lead book J-copy-bots-otc-04 alone trades) and none on any other pair, so its #7 sees ETH/USDT refused. Not an owner decision."
     },
     "TRADE_COPY_MIN_INVESTMENT": {
       "service": "trade",
