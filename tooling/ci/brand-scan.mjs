@@ -229,11 +229,6 @@ const ALLOWLIST = [
       'its KNOWN_DISCLOSED register keys each finding by exact tracked path, and the scan FAILS on a register entry that no longer matches — so a paraphrased path would not merely be unhelpful, it would break the rule that stops the register rotting into an exemption list. Seven entries, each a real path plus line and check name, no values. The synthetic paths in secret-scan.mutation.mjs need no such exception and deliberately use none. Remove this entry once the Java package root is renamed.',
   },
   {
-    path: join('docs', 'runbooks', 'RUNBOOK-ETH-KEYSTORE-REENCRYPTION.md'),
-    reason:
-      'internal custody runbook; an operator following it must be able to copy the real module paths and MongoDB collection names verbatim. A runbook that paraphrases the path it wants you to act on is how the wrong directory gets re-encrypted. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
-  },
-  {
     path: 'NOTICE',
     reason:
       'root third-party attribution record; an attribution that omits the upstream it attributes is a false legal statement, so this file must name upstreams verbatim. It has no file extension and so currently falls outside EXTENSIONS below — this entry is deliberate belt-and-braces, so that widening EXTENSIONS later cannot silently fail CI on the one file whose whole job is naming upstreams accurately.',
