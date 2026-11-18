@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { MemoryResponseTargetBook, ResponseTargetError, type ResponseTargetBook, type ResponseTargetPolicy } from './response-targets.js';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
   SUPPORT_CATEGORY_ROUTES,
@@ -649,6 +650,9 @@ export class SupportService implements SupportContract {
         });
         if (grouped === 'unknown_group') throw new SupportError('the fraud report group does not exist', SUPPORT_FRAUD_ROUTE_MISSING);
       }
+      // A new request starts its first-reply clock while a response target is active (SP-sla-01). Keyed by the ticket, so a
+      // replay keeps the first clock; a crash before this line leaves the request with no due time (its replay starts it).
+      await this.responseTargetBook.startClock(ticket.id, ticket.createdAt, await this.responseTargetBook.policy());
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       return ticket;
     });
@@ -1340,6 +1344,58 @@ export class SupportService implements SupportContract {
     return toPublicKb(result.article);
   }
 
+  /** The desk's response targets (SP-sla-01). In memory until the process wires its own book. */
+  private responseTargetBook: ResponseTargetBook = new MemoryResponseTargetBook();
+  /** Wires the desk to its stored response targets. */
+  useResponseTargets(book: ResponseTargetBook): void {
+    this.responseTargetBook = book;
+  }
+
+  /** The desk's response target policy as stored. */
+  async responseTargets(): Promise<ResponseTargetPolicy> {
+    return this.responseTargetBook.policy();
+  }
+
+  /** A lead's change to the response targets, from the revision they read; on with no target refuses `support.sla_targets_unset`. */
+  async saveResponseTargets(input: {
+    actorId: string;
+    firstReplyMinutes?: number | null;
+    active?: boolean;
+    expectedRevision: number;
+    reason: string;
+  }): Promise<ResponseTargetPolicy> {
+    const actor = await this.staff.get(input.actorId);
+    if (actor?.role !== 'lead') throw new SupportError('only a lead can change response targets', 'support.not_lead');
+    try {
+      return await this.responseTargetBook.save({
+        ...(input.firstReplyMinutes !== undefined ? { firstReplyMinutes: input.firstReplyMinutes } : {}),
+        ...(input.active !== undefined ? { active: input.active } : {}),
+        expectedRevision: input.expectedRevision,
+        by: input.actorId,
+        reason: input.reason,
+        at: this.now().toISOString(),
+      });
+    } catch (err) {
+      if (err instanceof ResponseTargetError) throw new SupportError(err.code, err.code);
+      throw err;
+    }
+  }
+
+  /** The queue's entries with each one's first-reply due time, while a response target is active; none otherwise. */
+  private async withResponseDue<T extends QueueEntry>(entries: readonly T[]): Promise<T[]> {
+    const policy = await this.responseTargetBook.policy();
+    if (!policy.active || entries.length === 0) return entries.map((entry) => ({ ...entry, responseDue: null }));
+    const clocks = await this.responseTargetBook.clocks(entries.map((entry) => entry.ticketId));
+    return entries.map((entry) => {
+      const clock = clocks.get(entry.ticketId);
+      return { ...entry, responseDue: clock ? { dueAt: clock.dueAt, targetMinutes: clock.targetMinutes } : null };
+    });
+  }
+
+  private async queueWithResponseDue(result: QueueResult): Promise<QueueResult> {
+    return result.status === 'empty' ? result : { status: 'ok', entries: await this.withResponseDue(result.entries) };
+  }
+
   /** The requests linked to a `recovery_required` order (J-support-public-20 #1); none until links are wired. */
   private recoveryLinks: () => Promise<ReadonlySet<string>> = async () => new Set();
   /** Wires the queue to the ticket links, so a request with a recovery-required order ranks first. */
@@ -1360,7 +1416,8 @@ export class SupportService implements SupportContract {
         tickets = tickets.filter((t) => carrying.has(t.id));
       }
       const recovery = await this.recoveryLinks();
-      if (!this.deskQueryAsked(options)) return buildOperatorQueue(tickets, { limit, now: this.now(), recovery });
+      if (!this.deskQueryAsked(options))
+        return this.queueWithResponseDue(buildOperatorQueue(tickets, { limit, now: this.now(), recovery }));
       const facts = await this.narrow(await this.deskFacts(options.viewerId), { ...options, label: undefined });
       const allowed = new Set(tickets.map((ticket) => ticket.id));
       const visible = facts.filter((fact) => allowed.has(fact.ticket.id));
@@ -1381,11 +1438,13 @@ export class SupportService implements SupportContract {
         const page = ordered.slice(0, limit);
         if (page.length === 0) return { status: 'empty' };
         const entryById = new Map(ranked.map((entry) => [entry.ticketId, entry]));
-        return { status: 'ok', entries: page.map((fact) => entryById.get(fact.ticket.id)!) };
+        return this.queueWithResponseDue({ status: 'ok', entries: page.map((fact) => entryById.get(fact.ticket.id)!) });
       }
-      return buildOperatorQueue(
-        visible.map((fact) => fact.ticket),
-        { limit, now: this.now(), recovery },
+      return this.queueWithResponseDue(
+        buildOperatorQueue(
+          visible.map((fact) => fact.ticket),
+          { limit, now: this.now(), recovery },
+        ),
       );
     });
   }
@@ -1394,7 +1453,8 @@ export class SupportService implements SupportContract {
   async peekNext(viewerId?: string): Promise<QueueEntry | null> {
     return withSupportSpan('support.peekNext', { op: 'peekNext' }, async () => {
       const tickets = await this.visibleTickets(viewerId, await this.store.listAll());
-      return assignNext(tickets, { recovery: await this.recoveryLinks() });
+      const next = assignNext(tickets, { recovery: await this.recoveryLinks() });
+      return next ? ((await this.withResponseDue([next]))[0] ?? null) : null;
     });
   }
 

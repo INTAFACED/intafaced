@@ -5,7 +5,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { awayBid, fundedTrader, signIn, signUp } from './desk.mjs';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
-import { api, restartWith, ROOT, tool } from './stack.mjs';
+import { api, restartWith, ROOT, tool, toolAwaited } from './stack.mjs';
 
 // J-support-public-10, in the running app (docs/roadmap/journeys.json): work the support queue and answer customers. Tests
 // titled "J-support-public-10 #<n>" prove a whole step. The agent works in the founder console (apps/admin) as the stack's
@@ -164,7 +164,48 @@ async function accountStateAsIdentityStops(ticketId) {
   throw new Error(`Edge refused every accountState read as identity stopped: ${refusal}`);
 }
 
-test(`${J} #1 /support lists unassigned open and pending requests by score, "not a promise", with no due time`, async ({ page }) => {
+/** The console's way of writing a time (apps/admin lib/as-of.ts formatWhen): "17 Nov 2026, 07:19:36 UTC". */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const two = (n) => String(n).padStart(2, '0');
+const when = (iso) => {
+  const d = new Date(iso);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())} UTC`;
+};
+
+/**
+ * svc-support restarted on the stack's empty-catalogue database (LOCAL_STACK_SUPPORT_CATALOGUE=off, made new on that start)
+ * or back on the stack's own; awaited, so Edge's closed keep-alive sockets are dropped before the next call.
+ */
+async function onEmptyCatalogue(on) {
+  const before = process.env.LOCAL_STACK_SUPPORT_CATALOGUE;
+  if (on) process.env.LOCAL_STACK_SUPPORT_CATALOGUE = 'off';
+  else delete process.env.LOCAL_STACK_SUPPORT_CATALOGUE;
+  try {
+    await toolAwaited('local-test-stack.mjs', 'restart', 'support');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_SUPPORT_CATALOGUE;
+    else process.env.LOCAL_STACK_SUPPORT_CATALOGUE = before;
+  }
+}
+
+/** The desk's response target turned on with `minutes`, or off; from the revision it reads now. */
+async function setResponseTarget(change) {
+  const now = await desk('lead', 'query', 'responseTargets', undefined);
+  return desk('lead', 'mutation', 'responseTargetsSave', {
+    ...change,
+    expectedRevision: now.revision,
+    reason: `TEST ${J} #1 response target`,
+  });
+}
+
+test(`${J} #1 /support lists unassigned open and pending requests by score, "not a promise", with no due time until a response target is active and then the due time from it; an empty queue says so`, async ({
+  page,
+  founders,
+}) => {
+  // Two restarts of support for the empty queue (each up to tool()'s two minutes), on top of the browser steps.
+  test.setTimeout(420_000);
+  // No response target is active at the start: a run that stopped before putting it back is undone first.
+  if ((await desk('lead', 'query', 'responseTargets', undefined)).active) await setResponseTarget({ active: false });
   const ticket = await request(`TEST queue ${RUN}`);
   // A request someone holds is not in the queue.
   const held = await request(`TEST queue held ${RUN}`);
@@ -173,13 +214,17 @@ test(`${J} #1 /support lists unassigned open and pending requests by score, "not
     const queue = await openQueue(page);
     await expect(rowOf(queue, ticket.subject)).toBeVisible();
     await expect(rowOf(queue, held.subject)).toHaveCount(0);
-    await expect(queue.getByRole('columnheader', { name: 'Score' })).toBeVisible();
+    await expect(queue.getByRole('columnheader', { name: 'Score', exact: true })).toBeVisible();
+    // No response target is active: no row shows a due time.
     await expect(queue.getByRole('columnheader', { name: /due/i })).toHaveCount(0);
+    await expect(queue.getByTestId('queue-due')).toHaveCount(0);
     await expect(page.getByTestId('queue-metrics')).toContainText('it is not a response-time promise');
     // Ranked by score, highest first.
     const scores = (await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[4]?.textContent ?? ''))).map(
       Number,
     );
+    expect(scores.length).toBeGreaterThan(0);
+    expect(scores.every(Number.isFinite), `every Score cell is a number: ${scores.join(', ')}`).toBe(true);
     expect(scores).toEqual([...scores].sort((a, b) => b - a));
     // Only open and pending requests.
     for (const status of await queue.getByRole('row').evaluateAll((rows) => rows.slice(1).map((row) => row.cells[3]?.textContent ?? '')))
@@ -190,9 +235,59 @@ test(`${J} #1 /support lists unassigned open and pending requests by score, "not
     expect(entries.length).toBeGreaterThan(0);
     await expect(queue.getByRole('row')).toHaveCount(entries.length + 1);
     for (const entry of entries) expect((await desk('lead', 'query', 'get', { ticketId: entry.ticketId })).assigneeId ?? null).toBeNull();
+
+    // A response target becomes active (J-support-public-13 #5's policy, a TEST 30 minutes): a request sent after it shows
+    // the due time from it, its creation plus the target, and the one sent before shows none.
+    await setResponseTarget({ firstReplyMinutes: 30, active: true });
+    const timed = await request(`TEST queue timed ${RUN}`);
+    await page.reload();
+    const timedQueue = page.getByRole('region', { name: 'Support queue', exact: true });
+    await expect(timedQueue.getByRole('columnheader', { name: 'Due', exact: true })).toBeVisible();
+    await expect(rowOf(timedQueue, timed.subject).getByTestId('queue-due')).toHaveText(
+      `${when(Date.parse(timed.createdAt) + 30 * 60_000)} (first reply within 30 min)`,
+    );
+    await expect(rowOf(timedQueue, ticket.subject).getByTestId('queue-due')).toHaveText('No target');
+    // The score is still a ranking, not a promise.
+    await expect(page.getByTestId('queue-metrics')).toContainText('it is not a response-time promise');
+    const due = await desk('lead', 'query', 'listQueue', { limit: 100 });
+    const timedEntry = due.status === 'ok' ? due.entries.find((e) => e.ticketId === timed.id) : undefined;
+    expect(timedEntry?.responseDue).toEqual({
+      dueAt: new Date(Date.parse(timed.createdAt) + 30 * 60_000).toISOString(),
+      targetMinutes: 30,
+    });
+
+    // Turned off again, no row shows a due time.
+    await setResponseTarget({ active: false });
+    await page.reload();
+    await expect(rowOf(page.getByRole('region', { name: 'Support queue', exact: true }), timed.subject)).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /due/i })).toHaveCount(0);
   } finally {
+    if ((await desk('lead', 'query', 'responseTargets', undefined)).active) await setResponseTarget({ active: false });
     await desk('lead', 'mutation', 'unclaim', { ticketId: held.id, idempotencyKey: `${J}:${RUN}:held` });
   }
+
+  // An empty queue says so. The shared stack's queue always holds other journeys' requests, so support is restarted on the
+  // stack's empty-catalogue profile (LOCAL_STACK_SUPPORT_CATALOGUE=off: a database of its own, made new, holding no
+  // request; tooling/scripts/local-stack-services/support.mjs) and put back on the stack's database after, whatever happened.
+  let failure = null;
+  try {
+    await onEmptyCatalogue(true);
+    const { page: lead } = await founders.console('a');
+    await lead.goto(`${ADMIN}/support`);
+    await expect(lead.getByRole('heading', { name: 'Support queue', level: 1, exact: true })).toBeVisible();
+    await expect(lead.getByTestId('queue-empty')).toHaveText('svc-support says the queue is empty: no open or waiting tickets.');
+    await expect(lead.getByTestId('queue-metrics')).toContainText('0 shown');
+    await expect(lead.getByRole('region', { name: 'Support queue', exact: true })).toHaveCount(0);
+    await expect(lead.getByRole('row')).toHaveCount(0);
+  } catch (err) {
+    failure = err;
+  }
+  try {
+    await onEmptyCatalogue(false);
+  } catch (err) {
+    failure ??= err;
+  }
+  if (failure) throw failure;
 });
 
 test(`${J} #2 a filter by field saves as a view and is shared: list and count agree, a lead's shared view is read-only to others, a bad field is refused`, async ({

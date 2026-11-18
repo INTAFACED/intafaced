@@ -91,6 +91,7 @@ import { SupportError, SupportService, kbViewerOf, requireSupportOps } from './s
 import type { TicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { ticketOrderReadSchema } from './ticket-order.js';
 import { userCopy } from './user-copy.js';
+import { SLA_POLICY_STALE, SLA_TARGETS_UNSET } from './response-targets.js';
 
 const queueEntrySchema = z.object({
   ticketId: z.string().guid(),
@@ -103,6 +104,20 @@ const queueEntrySchema = z.object({
   createdAt: z.string().datetime(),
   timingKind: z.literal('score_not_promise'),
   sla: z.literal(false),
+  responseDue: z.object({ dueAt: z.string().datetime(), targetMinutes: z.number().int().positive() }).nullable(),
+});
+
+/** The caller a scoped procedure has already checked; a missing one is refused, never assumed. */
+function principalOf<P>(principal: P | null | undefined): P {
+  if (!principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: userCopy('scope.denied') });
+  return principal;
+}
+
+const responseTargetPolicySchema = z.object({
+  firstReplyMinutes: z.number().int().positive().nullable(),
+  active: z.boolean(),
+  revision: z.number().int().nonnegative(),
+  updatedAt: z.string().datetime().nullable(),
 });
 
 const queueResultSchema = z.discriminatedUnion('status', [
@@ -879,6 +894,41 @@ export function createSupportRouter(
           if (q.status === 'empty') return q;
           return { status: 'ok' as const, entries: [...q.entries] };
         } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The desk's response targets (SP-sla-01): the first-reply target in minutes, or null, and whether it is on. */
+    responseTargets: scopedProcedure('support:ops')
+      .output(responseTargetPolicySchema)
+      .query(async ({ ctx }) => {
+        requireSupportOps(principalOf(ctx.principal));
+        return support.responseTargets();
+      }),
+
+    /** A lead sets the first-reply target or turns it on or off, from the revision they read, with a reason. */
+    responseTargetsSave: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          firstReplyMinutes: z.number().int().min(1).max(525_600).nullable().optional(),
+          active: z.boolean().optional(),
+          expectedRevision: z.number().int().nonnegative(),
+          reason: z.string().trim().min(1).max(500),
+        }),
+      )
+      .output(responseTargetPolicySchema)
+      .mutation(async ({ ctx, input }) => {
+        const principal = principalOf(ctx.principal);
+        requireSupportOps(principal);
+        try {
+          return await support.saveResponseTargets({ actorId: principal.userId, ...input });
+        } catch (err) {
+          if (err instanceof SupportError && err.code === 'support.not_lead')
+            throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('support.not_lead') });
+          if (err instanceof SupportError && err.code === SLA_POLICY_STALE)
+            throw new TRPCError({ code: 'CONFLICT', message: SLA_POLICY_STALE });
+          if (err instanceof SupportError && err.code === SLA_TARGETS_UNSET)
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: SLA_TARGETS_UNSET });
           mapError(err);
         }
       }),

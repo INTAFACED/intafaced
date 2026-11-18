@@ -9,6 +9,7 @@
 
 import type { SupportTicket, SupportTicketStatus } from '@intafaced/contracts';
 import { queueTimingHonesty, type QueueTimingHonesty } from './sla-honesty.js';
+import type { ResponseDue } from './response-targets.js';
 
 /** Higher = more urgent. Product may retune; defaults are checkable. */
 export const CATEGORY_WEIGHT: Readonly<Record<string, number>> = {
@@ -40,6 +41,11 @@ export type QueueEntry = {
   /** Score is ranking, not a timed promise (DIRECTION §8 item 9). */
   readonly timingKind: QueueTimingHonesty['timingKind'];
   readonly sla: false;
+  /**
+   * The request's first-reply due time from the desk's stored response target (SP-sla-01), only while that target is
+   * active and the request started a clock under it; null otherwise. The score above stays a ranking, not a promise.
+   */
+  readonly responseDue: ResponseDue | null;
 };
 
 export type QueueResult = { readonly status: 'ok'; readonly entries: readonly QueueEntry[] } | { readonly status: 'empty' };
@@ -108,6 +114,7 @@ export function rankOperatorQueue(tickets: readonly SupportTicket[], now: Date, 
       ageMs,
       createdAt: t.createdAt,
       ...queueTimingHonesty(),
+      responseDue: null,
     });
   }
 
