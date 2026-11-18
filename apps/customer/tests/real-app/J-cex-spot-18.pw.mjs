@@ -3,14 +3,25 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { awayBid, fundedTrader, signIn } from './desk.mjs';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
+import { keccak256, toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { api, bestPrices, fromUnits, journeyState, times, toUnits, tool } from './stack.mjs';
+import { openVenueDesk, otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
 
-// J-cex-spot-18 "I look up a customer's order and reconcile or bust a trade", in the running app and the founder console.
-// One test per step, titled "J-cex-spot-18 #<n>". The support agent is founder B (the stack's TEST desk agent, as in
-// J-support-public-10); the finance operator who approves is founder A. The customer is a fresh TEST account funded with
-// TEST 1000 USDT, with one filled buy (the order they report), one resting buy that stays live, and one resting buy whose
-// book entry the stack drops and whose cancel it loses (`local-test-gates.mjs engine-drop`, a LOCAL TEST fault that
-// stops and restarts svc-trade): its hold is then an orphan.
+// J-cex-spot-18 "I look up a customer's routed order, and later reconcile or bust a trade on our own book", in the
+// running app and the founder console. One test per step, titled "J-cex-spot-18 #<n>". The support agent is founder B
+// (the stack's TEST desk agent, as in J-support-public-10); the finance operator who approves is founder A.
+//
+// #1 #2 #5 (row d115): the customer is a fresh verified TEST account with a TEST wallet whose own venue account on the
+// stack's TEST venue holds TEST USDC. Through svc-trade's user-venue door (on for this file) they buy TEST BTC-USDC
+// against another TEST trader's resting ask, so the order fills: that routed order is the one they report. The agent
+// reads it from the venue by the customer's own address, the customer's own order page agrees, and the lookup's audit
+// row is in the customer's own access list. INTAFACED holds none of it.
+//
+// #3 #4 (Later, OWNER 226: our own book, the custodial layer): the same customer is funded with TEST 1000 USDT on our own
+// book, with one filled buy, one resting buy that stays live, and one resting buy whose book entry the stack drops and
+// whose cancel it loses (`local-test-gates.mjs engine-drop`, a LOCAL TEST fault that stops and restarts svc-trade): its
+// hold is then an orphan.
 const J = 'J-cex-spot-18';
 const SYMBOL = 'BTC/USDT';
 const AMOUNT = '0.001';
@@ -18,6 +29,19 @@ const RUN = Date.now().toString(36);
 const run = journeyState(J);
 
 test.describe.configure({ mode: 'serial' });
+venueForThisFile(test);
+// #3's fault restarts svc-trade: it keeps the door on for the rest of the file, as the restart above set it.
+const DOOR = 'LOCAL_STACK_USER_VENUE';
+const doorBefore = process.env[DOOR];
+test.beforeAll(() => {
+  process.env[DOOR] = 'on';
+});
+test.afterAll(() => {
+  if (doorBefore === undefined) delete process.env[DOOR];
+  else process.env[DOOR] = doorBefore;
+});
+const VENUE_SYMBOL = 'BTC-USDC';
+const VENUE_ASK = '60010';
 
 const usdtUsed = async (who) => toUnits((await (await api(who)).balances()).USDT?.used ?? '0');
 const usdtTotal = async (who) => toUnits((await (await api(who)).balances()).USDT?.total ?? '0');
@@ -49,12 +73,38 @@ async function desk(who, kind, procedure, input) {
   return res.json.result.data;
 }
 
-/** The stack's own audit read of order lookups on one customer (svc-trade admin.audit.feed, as founder A). */
+/** The stack's own audit read of routed-order lookups on one customer (svc-trade admin.audit.feed, as founder A). */
 function lookupAudit(customerId, orderId) {
-  const out = tool('local-test-gates.mjs', 'trade-audit', '--kind', 'orders.get', '--account', customerId);
+  const out = tool('local-test-gates.mjs', 'trade-audit', '--kind', 'venue_orders.get', '--account', customerId);
   const line = out.split('\n').find((l) => l.startsWith('TRADE_AUDIT_JSON '));
   if (!line) throw new Error(`trade-audit printed no rows line: ${out.slice(-300)}`);
   return JSON.parse(line.slice('TRADE_AUDIT_JSON '.length)).filter((row) => row.objectId === orderId);
+}
+
+/** One order through svc-trade's user-venue door as `who`, from their own venue account: prepare, sign with their TEST key, submit. */
+async function doorOrder(who, walletKey, intent) {
+  const key = privateKeyToAccount(walletKey);
+  const owner = key.address.toLowerCase();
+  const session = await api(who);
+  const prepared = await session.post('/api/v1/venue/prepare', { owner, signer: { role: 'owner', address: owner }, intent });
+  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
+  const p = prepared.body.prepared;
+  const t = p.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await session.post('/api/v1/venue/submit', {
+    actionKey: prepared.body.actionKey,
+    signature: { digest: p.digest, signature, signedBy: owner },
+  });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
+  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
+  return p.venueClientOrderId;
+}
+
+/** The routed order as the venue itself keeps it, and its fills: what every read of it must equal. */
+async function venueTruth(owner, cloid, since) {
+  const order = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: cloid })).value;
+  const fills = (await venueRecord(owner, '/fills', { since })).value.filter((f) => f.venueClientOrderId === cloid);
+  return { order, fills };
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -63,6 +113,39 @@ test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   const customer = await fundedTrader(page, 'jcs18', '1000');
   await page.close();
+  // The routed order the customer reports: their own venue account buys against another TEST trader's resting ask.
+  const walletKey = keccak256(toHex(`intafaced TEST venue journey trader ${J} customer ${RUN}`));
+  const owner = privateKeyToAccount(walletKey).address.toLowerCase();
+  await testDeposit(owner, 'USDC', '1000', `84532:${keccak256(toHex(`${J} ${RUN} ${owner} USDC`))}:0`);
+  const seller = `${J}-seller-${RUN}`;
+  await testDeposit(otherTraderKey(seller).address, 'BTC', '1', `84532:${keccak256(toHex(`${J} ${RUN} seller BTC`))}:0`);
+  const ask = await otherTraderRun(seller, {
+    kind: 'place_order',
+    symbol: VENUE_SYMBOL,
+    side: 'sell',
+    type: 'limit',
+    amount: AMOUNT,
+    price: VENUE_ASK,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${seller}:ask`,
+    builderFee: null,
+  });
+  expect(ask, JSON.stringify(ask).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+  const venueSince = new Date(Date.now() - 60_000).toISOString();
+  const routed = await doorOrder(customer, walletKey, {
+    kind: 'place_order',
+    symbol: VENUE_SYMBOL,
+    side: 'buy',
+    type: 'limit',
+    amount: AMOUNT,
+    price: VENUE_ASK,
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${owner}:${VENUE_SYMBOL}:${J}-${RUN}`,
+    builderFee: null,
+  });
+  await expect.poll(async () => (await venueTruth(owner, routed, venueSince)).order?.status, { timeout: 30_000 }).toBe('filled');
   // The order the customer reports: a buy priced through the best ask, so it fills.
   const { ask } = await bestPrices(SYMBOL);
   const one = toUnits('1');
@@ -95,8 +178,8 @@ test.beforeAll(async ({ browser }) => {
     await api(customer)
   ).post('/api/support/trpc/create', {
     category: 'trading',
-    subject: `TEST ${J} my order ${reported.id}`,
-    body: `TEST ${J}: something is wrong with order ${reported.id}.`,
+    subject: `TEST ${J} my order ${routed}`,
+    body: `TEST ${J}: something is wrong with my order ${routed}. (My order ${reported.id} on the TEST book too.)`,
     clientRequestId: `${J}:${RUN}:report`,
   });
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
@@ -110,53 +193,75 @@ test.beforeAll(async ({ browser }) => {
   if (!group.memberIds.includes(agent)) await desk('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
   await desk('lead', 'mutation', 'ticketSetGroup', { ticketId: ticket.id, groupId: group.id });
   const customerId = (await api(customer)).userId;
-  run.write({ customer, customerId, ticketId: ticket.id, reported: reported.id, live: live.id, orphan: orphan.id, placedAt: Date.now() });
+  run.write({
+    customer,
+    customerId,
+    ticketId: ticket.id,
+    walletKey,
+    owner,
+    routed,
+    venueSince,
+    reported: reported.id,
+    live: live.id,
+    orphan: orphan.id,
+    placedAt: Date.now(),
+  });
 });
 
-const orderRead = (page) => page.locator('[data-order-read]');
+const venueRead = (page) => page.locator('[data-venue-order-read]');
 
-test(`${J} #1 opens /trade-ops/orders/:id from the support desk: status, fills and reject reason from the read`, async ({ page }) => {
-  const { ticketId, reported, customer, customerId } = run.read();
+test(`${J} #1 opens a customer's routed order from the support desk: the venue order, fills and reject reason, read from the venue by the customer's address`, async ({
+  page,
+}) => {
+  const { ticketId, routed, customerId, owner, venueSince } = run.read();
+  const truth = await venueTruth(owner, routed, venueSince);
+  expect(truth.fills.length).toBeGreaterThan(0);
   await founderSignIn(page, 'b');
   await page.goto(`${ADMIN}/support/${ticketId}`);
   const workspace = page.getByRole('region', { name: 'Ticket', exact: true });
-  await workspace.getByRole('link', { name: `Open order ${reported}` }).click();
-  await expect(page).toHaveURL(new RegExp(`/trade-ops/orders/${reported}$`));
-  // From the order read, whatever the order's state: a filled order is not "not in the open projection".
-  await expect(page.getByText('This order is not in the open projection')).toHaveCount(0);
-  const read = orderRead(page);
-  await expect(read).toHaveAttribute('data-order-id', reported);
+  await workspace.getByRole('link', { name: `Open order ${routed}` }).click();
+  await expect(page).toHaveURL(new RegExp(`/trade-ops/orders/${routed}\\?account=${customerId}$`));
+  const read = venueRead(page);
+  // Read by the customer's own address, the one their wallet placed it from: never one an operator typed.
+  await expect(read).toHaveAttribute('data-order-id', routed);
   await expect(read).toHaveAttribute('data-account-id', customerId);
-  await expect(read.getByTestId('order-read-status')).toHaveText('Filled');
-  const fills = await customerFills(customer, reported);
-  expect(fills.length).toBeGreaterThan(0);
-  await expect(page.getByRole('region', { name: 'Fills' }).getByTestId('order-read-fill')).toHaveCount(fills.length);
-  await expect(read.getByTestId('order-read-reject')).toHaveText('None recorded');
+  await expect(read).toHaveAttribute('data-owner', owner);
+  await expect(read.getByTestId('venue-read-owner')).toHaveText(owner);
+  // The venue order as the venue keeps it: its status, what filled, every fill, and no reject reason recorded.
+  await expect(read).toHaveAttribute('data-status', truth.order.status);
+  await expect(read.getByTestId('venue-read-status')).toHaveText('Filled');
+  expect(toUnits(await read.getAttribute('data-filled'))).toBe(toUnits(truth.order.filled));
+  const shown = page.getByRole('region', { name: 'Venue fills' }).getByTestId('venue-read-fill');
+  await expect(shown).toHaveCount(truth.fills.length);
+  for (const fill of truth.fills) await expect(shown.and(page.locator(`[data-fill-id="${fill.fillId}"]`))).toHaveCount(1);
+  await expect(read.getByTestId('venue-read-reject')).toHaveText('None recorded');
   await expect(page.locator('[data-not-connected]')).toHaveCount(0);
 });
 
-test(`${J} #2 reads the same order as the customer sees it: the customer's view and the operator's read agree`, async ({
-  page,
-  browser,
-}) => {
-  const { reported, customer } = run.read();
-  const mine = await customerOrder(customer, reported);
-  const fills = await customerFills(customer, reported);
+test(`${J} #2 reads the same order as the customer sees it: the customer's view and the venue read agree`, async ({ page, browser }) => {
+  const { routed, customer, customerId, walletKey, owner, venueSince } = run.read();
+  const truth = await venueTruth(owner, routed, venueSince);
   await founderSignIn(page, 'b');
-  await page.goto(`${ADMIN}/trade-ops/orders/${reported}`);
-  const read = orderRead(page);
-  // The operator's read in the customer's own words, and the same figures.
-  await expect(read).toHaveAttribute('data-customer-status', mine.status);
-  expect(Number(await read.getAttribute('data-filled'))).toBe(Number(mine.filled));
-  await expect(read.getByTestId('order-read-filled')).toContainText(fromUnits(toUnits(mine.filled)).replace(/\.?0+$/, ''));
-  await expect(page.getByRole('region', { name: 'Fills' }).getByTestId('order-read-fill')).toHaveCount(fills.length);
-  // And the customer's own page says the same.
+  await page.goto(`${ADMIN}/trade-ops/orders/${routed}?account=${customerId}`);
+  const read = venueRead(page);
+  await expect(read).toHaveAttribute('data-order-id', routed);
+  const operatorStatus = (await read.getByTestId('venue-read-status').textContent()).trim();
+  const operatorFilled = await read.getAttribute('data-filled');
+  const operatorFills = await page
+    .getByRole('region', { name: 'Venue fills' })
+    .getByTestId('venue-read-fill')
+    .evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill-id')).sort());
+  // The customer's own order page, on their own wallet, says the same.
   const context = await browser.newContext();
   const theirs = await context.newPage();
-  await signIn(theirs, customer);
-  await theirs.goto(`/trade/orders/${reported}`);
-  await expect(theirs.getByTestId('page-heading')).toContainText('Filled');
-  await expect(theirs.getByTestId('orders-fill')).toHaveCount(fills.length);
+  await openVenueDesk(theirs, customer, `/trade/orders/${routed}`, walletKey);
+  const mine = theirs.getByTestId('venue-order');
+  await expect(mine.getByTestId('venue-order-heading').locator('[data-cell="status"]')).toHaveText(operatorStatus);
+  const theirFills = await mine.getByTestId('venue-order-fill').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-fill')).sort());
+  expect(theirFills).toEqual(operatorFills);
+  expect(theirFills).toEqual(truth.fills.map((f) => f.fillId).sort());
+  await expect(mine.getByTestId('venue-order-facts')).toContainText(fromUnits(toUnits(operatorFilled)).replace(/\.?0+$/, ''));
+  expect(toUnits(operatorFilled)).toBe(toUnits(truth.order.filled));
   await context.close();
 });
 
@@ -271,25 +376,44 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
   expect(await btcTotal(customer)).toBe(btcBefore);
 });
 
-test(`${J} #5 reads the audit of the lookup: one row with the agent, the customer and the time`, async ({ page }) => {
-  const { customerId, reported } = run.read();
+test(`${J} #5 reads the audit of the lookup: one row with the agent, the customer and the time, which the customer sees in their own access list`, async ({
+  page,
+  browser,
+}) => {
+  const { customerId, routed, customer } = run.read();
   const agent = await founderSignIn(page, 'b');
-  const before = lookupAudit(customerId, reported).length;
+  const before = lookupAudit(customerId, routed).length;
   const at = Date.now();
-  await page.goto(`${ADMIN}/trade-ops/orders/${reported}`);
-  await expect(orderRead(page)).toHaveAttribute('data-order-id', reported);
+  await page.goto(`${ADMIN}/trade-ops/orders/${routed}?account=${customerId}`);
+  await expect(venueRead(page)).toHaveAttribute('data-order-id', routed);
   // That one lookup wrote one row.
-  const rows = lookupAudit(customerId, reported);
+  const rows = lookupAudit(customerId, routed);
   expect(rows).toHaveLength(before + 1);
   const row = rows.at(-1);
   expect(row.operatorId).toBe(agent.userId);
   expect(row.accountId).toBe(customerId);
   expect(Math.abs(Date.parse(row.occurredAt) - at)).toBeLessThan(60_000);
   // The console's audit room shows it: the agent, the customer and the time.
-  await page.goto(`${ADMIN}/trade-ops/audit?kind=orders.get&account=${customerId}`);
+  await page.goto(`${ADMIN}/trade-ops/audit?kind=venue_orders.get&account=${customerId}`);
   const shown = page.getByRole('table', { name: 'Audit rows' }).locator(`tr[data-audit-id="${row.id}"]`);
   await expect(shown).toHaveCount(1);
   await expect(shown.getByTestId('audit-operator')).toContainText(agent.userId);
   await expect(shown.getByTestId('audit-account')).toContainText(customerId);
   await expect(shown.locator('time')).toHaveAttribute('datetime', row.occurredAt);
+  // And the customer sees that same row in their own access list: who looked, at which order, and when.
+  const context = await browser.newContext();
+  const theirs = await context.newPage();
+  await signIn(theirs, customer);
+  await theirs.goto('/uc/safe');
+  await theirs.getByTestId('staff-access-link').click();
+  await expect(theirs).toHaveURL(/\/uc\/safe\/staff-access$/);
+  const list = theirs.getByTestId('staff-access');
+  const mine = list.locator(`tr[data-access-id="${row.id}"]`);
+  await expect(mine).toHaveCount(1);
+  await expect(mine).toHaveAttribute('data-kind', 'venue_orders.get');
+  await expect(mine).toHaveAttribute('data-object-id', routed);
+  await expect(mine).toContainText('Looked up one of your routed orders');
+  await expect(mine.getByTestId('staff-access-operator')).toHaveText(agent.userId);
+  await expect(mine.locator('time')).toHaveAttribute('datetime', row.occurredAt);
+  await context.close();
 });

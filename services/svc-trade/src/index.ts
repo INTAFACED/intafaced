@@ -804,6 +804,7 @@ export const appRouter = createTradeRouter(
       deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
     },
     venueDesk: { venue: userVenue ? () => userVenue.venue() : null, store: venueListings, notices: venueDelistingNotices },
+    venueOrders: { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
     venueRouting:
       userVenueDoors.length > 0 ? (from, to) => routingReport({ doors: userVenueDoors, store: userVenueStore }, from, to) : null,
     // The builder-fee caps the venue itself publishes, read through the user-venue door (J-cex-spot-17 #3). Off: null.
