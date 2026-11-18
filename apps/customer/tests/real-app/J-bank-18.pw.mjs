@@ -30,8 +30,8 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 //
 // #5 and #6 (BK-safe-03): a complaint and a bereavement report, each a request on the support desk with one
 // acknowledgement. The stack publishes a TEST final-response limit of 14 calendar days (SUPPORT_COMPLAINT_RESPONSE_DAYS
-// in tooling/profiles/test-owner-values/support.json); production stays blank and every deadline reads "not set"
-// (proved in services/svc-support/src/safety-cases.test.ts).
+// in tooling/profiles/test-owner-values/support.json); production stays blank and every deadline reads "not set", as #5
+// shows on a restart of support with `LOCAL_STACK_SUPPORT_COMPLAINT_RESPONSE_DAYS=off`, put back in the same step.
 const J = 'J-bank-18';
 const RUN = Date.now().toString(36);
 const LIMIT_DAYS = 14;
@@ -486,7 +486,7 @@ test(`${J} #4 reports a lost phone or a compromised account from the bank: step-
   await page.context().close();
 });
 
-test(`${J} #5 files a complaint: an acknowledgement once with the deadline from the owner's limit`, async ({ browser }) => {
+test(`${J} #5 files a complaint: an acknowledgement once with the deadline from the owner's limit, or "not set"`, async ({ browser }) => {
   const page = await visitor(browser);
   const who = await signUp(page, 'jb18c');
   const desk = await support(who);
@@ -550,6 +550,32 @@ test(`${J} #5 files a complaint: an acknowledgement once with the deadline from 
   await earlier.locator(`[data-reference="${reference}"]`).getByRole('link', { name: 'Open the request' }).click();
   await expect(page).toHaveURL(new RegExp(`/support/tickets/${one.ticketId}$`));
   await expect(page.locator('main')).toContainText('Complaint about payments and transfers');
+
+  // With no limit published, a complaint is still acknowledged once, and its deadline reads "not set"; a deadline
+  // stored under the limit keeps it.
+  try {
+    restartWithAll('support', { LOCAL_STACK_SUPPORT_COMPLAINT_RESPONSE_DAYS: 'off' });
+    await page.goto('/bank/safety/complaint');
+    await form.getByLabel('What is it about').selectOption('cards');
+    await form.getByLabel('What went wrong').fill(`TEST ${J} ${RUN}: no limit published, my card was charged twice.`);
+    await form.getByRole('button', { name: 'Send complaint' }).click();
+    const unset = main.getByRole('status').filter({ hasText: 'Complaint received' });
+    await expect(unset).toBeVisible();
+    const unsetReference = await unset.getByTestId('safety-ack-reference').innerText();
+    expect(unsetReference).toMatch(/^CP-[0-9A-F]{8}$/);
+    expect(unsetReference).not.toBe(reference);
+    const unsetDeadline = unset.getByTestId('safety-ack-deadline');
+    await expect(unsetDeadline).toHaveAttribute('data-status', 'not_set');
+    await expect(unsetDeadline).toContainText('not set');
+    await expect(unsetDeadline).toContainText('no deadline is given');
+    await expect(unsetDeadline).not.toContainText('Final response due by');
+    const after = (await desk.mine()).filter((a) => a.kind === 'complaint');
+    expect(after).toHaveLength(3);
+    expect(after.find((a) => a.reference === unsetReference).responseDeadline).toEqual({ status: 'not_set' });
+    expect(after.find((a) => a.reference === reference).responseDeadline).toEqual(one.responseDeadline);
+  } finally {
+    restartWithAll('support', { LOCAL_STACK_SUPPORT_COMPLAINT_RESPONSE_DAYS: undefined });
+  }
   await page.context().close();
 });
 
