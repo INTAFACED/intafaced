@@ -182,12 +182,11 @@ test('the tooling tests that read every journey file carry the marker, and each 
     .split('\n')
     .filter(Boolean)
     .sort();
-  // journey-navigation.test.mjs is the rule two journey builds broke on 14 Nov, each found only by a red Doctrine gates job;
-  // journey-world.test.mjs ("every real journey file declares at least what it changes") the one J-algo-dev-02 broke on
+  // journey-navigation.test.mjs, the rule two journey builds broke on 14 Nov, is now the lint garden/no-stale-read, which
+  // the lint ratchet runs before a push; journey-world.test.mjs ("every real journey file declares at least what it changes") the one J-algo-dev-02 broke on
   // 7d8e66a1 the same day.
   assert.deepEqual(marked, [
     'tooling/scripts/journey-freeze-guard.test.mjs',
-    'tooling/scripts/journey-navigation.test.mjs',
     'tooling/scripts/journey-world.test.mjs',
     'tooling/scripts/local-test-market-history.test.mjs',
     'tooling/scripts/real-app-navigation.test.mjs',
