@@ -127,7 +127,46 @@ test.beforeAll(async ({ browser }) => {
     builderFee: null,
   });
   await expect.poll(async () => (await venueTruth(owner, routed, venueSince)).order?.status, { timeout: 30_000 }).toBe('filled');
-  // The order the customer reports: a buy priced through the best ask, so it fills.
+  // The customer reports the problem through their own support API, naming the order.
+  const res = await (
+    await api(customer)
+  ).post('/api/support/trpc/create', {
+    category: 'trading',
+    subject: `TEST ${J} my order ${routed}`,
+    body: `TEST ${J}: something is wrong with my order ${routed}.`,
+    clientRequestId: `${J}:${RUN}:report`,
+  });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  const ticket = res.body.result.data;
+  // In the TEST agents' group, so founder B (the agent) may work it.
+  // Founder B is appointed the desk's agent on the first agent call (help-centre.mjs appointAgent), as in
+  // J-support-public-10; before that the lead cannot put B in a group (support.not_staff, run 42201499550).
+  await deskData('agent', 'query', 'staffList', undefined);
+  const { agent } = await deskPeople();
+  const group = await ensureDeskGroup(`TEST ${J} agents`);
+  if (!group.memberIds.includes(agent)) await deskData('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
+  await deskData('lead', 'mutation', 'ticketSetGroup', { ticketId: ticket.id, groupId: group.id });
+  const customerId = (await api(customer)).userId;
+  run.write({
+    customer,
+    customerId,
+    ticketId: ticket.id,
+    walletKey,
+    owner,
+    routed,
+    venueSince,
+  });
+});
+
+/**
+ * #3 #4 only (Later): the customer's orders on our own TEST book, placed once on the first step that needs them, so the
+ * routed-order steps never wait on our book.
+ */
+async function ownBook() {
+  const state = run.read();
+  if (state.reported) return state;
+  const { customer } = state;
+  // The order on our book the bust is about: a buy priced through the best ask, so it fills.
   const { ask } = await bestPrices(SYMBOL);
   const one = toUnits('1');
   const through = fromUnits(((toUnits(ask) * 105n) / 100n / one) * one);
@@ -154,40 +193,9 @@ test.beforeAll(async ({ browser }) => {
     price: await awayBid(81),
     clientOrderId: `${J}-orphan-${RUN}`,
   });
-  // The customer reports the problem through their own support API, naming the order.
-  const res = await (
-    await api(customer)
-  ).post('/api/support/trpc/create', {
-    category: 'trading',
-    subject: `TEST ${J} my order ${routed}`,
-    body: `TEST ${J}: something is wrong with my order ${routed}. (My order ${reported.id} on the TEST book too.)`,
-    clientRequestId: `${J}:${RUN}:report`,
-  });
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  const ticket = res.body.result.data;
-  // In the TEST agents' group, so founder B (the agent) may work it.
-  // Founder B is appointed the desk's agent on the first agent call (help-centre.mjs appointAgent), as in
-  // J-support-public-10; before that the lead cannot put B in a group (support.not_staff, run 42201499550).
-  await deskData('agent', 'query', 'staffList', undefined);
-  const { agent } = await deskPeople();
-  const group = await ensureDeskGroup(`TEST ${J} agents`);
-  if (!group.memberIds.includes(agent)) await deskData('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
-  await deskData('lead', 'mutation', 'ticketSetGroup', { ticketId: ticket.id, groupId: group.id });
-  const customerId = (await api(customer)).userId;
-  run.write({
-    customer,
-    customerId,
-    ticketId: ticket.id,
-    walletKey,
-    owner,
-    routed,
-    venueSince,
-    reported: reported.id,
-    live: live.id,
-    orphan: orphan.id,
-    placedAt: Date.now(),
-  });
-});
+  run.write({ ...state, reported: reported.id, live: live.id, orphan: orphan.id, placedAt: Date.now() });
+  return run.read();
+}
 
 const venueRead = (page) => page.locator('[data-venue-order-read]');
 
@@ -248,7 +256,7 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
 
 test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts; a second run releases none`, async ({ page }) => {
   test.setTimeout(300_000);
-  const { customer, orphan, live, placedAt } = run.read();
+  const { customer, orphan, live, placedAt } = await ownBook();
   // A sweep looks only at orders unchanged for the owner's age floor (the stack's TEST value is 15 s,
   // tooling/scripts/local-stack-services/trade.mjs): the first sweep must already see the orphan.
   // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- the sweep compares the engine's live book with trade's own order age; the engine's book has no age door
@@ -314,7 +322,7 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
   page,
   browser,
 }) => {
-  const { customer, reported } = run.read();
+  const { customer, reported } = await ownBook();
   const fillsBefore = await ownOrderFills(customer, reported);
   const usdtBefore = await usdtTotal(customer);
   const btcBefore = await btcTotal(customer);
