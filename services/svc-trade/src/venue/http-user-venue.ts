@@ -1,61 +1,16 @@
-import type { Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   decodeVenueWire,
   encodeVenueWire,
-  type AsOf,
-  type MaybeKnown,
-  type VenueBuilderTotals,
-  type VenueFeeStatus,
-  type UserVenueBuilderClaim,
-  type PlaceUserOrderIntent,
+  userVenueReads,
   type PreparedVenueAction,
   type UserVenue,
-  type UserVenueAccount,
-  type UserVenueScheduledCancel,
-  type UserVenueAgent,
-  type UserVenueBalance,
-  type UserVenueArrival,
-  type UserVenueDeposit,
-  type UserVenueWithdrawalTerms,
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
-  type UserVenueFill,
-  type UserVenueFundingPayment,
-  type VenuePriceSample,
-  type UserVenueLeverage,
-  type UserVenueLeverageChange,
-  type UserVenueIsolatedMargin,
-  type UserVenueAccountSummary,
-  type UserVenueAdlRules,
-  type UserVenueDeleverage,
-  type UserVenueInsuranceFund,
-  type UserVenueLiquidation,
-  type UserVenueLiquidationStatus,
-  type VenueLiquidationAlert,
-  type UserVenueMarketMargin,
-  type UserVenueSettlement,
-  type UserVenueMarket,
-  type UserVenueOrder,
-  type UserVenueOrderRecord,
-  type UserVenuePosition,
-  type UserVenueSubAccount,
-  type UserVenueSubAccountReads,
-  type UserVenueTransfer,
-  type UserVenueWithdrawal,
-  type VenueIntent,
-  type VenueBook,
-  type VenueOrderPreview,
-  type VenueBestPrices,
-  type VenueFundingRow,
-  type VenueCandle,
-  type VenueCandleInterval,
-  type VenuePrint,
+  type UserVenueReads,
   type VenueRefusal,
   type VenueSignature,
-  type VenueSigner,
   type VenueSubmitOutcome,
-  type VenueMarginMode,
 } from '@intafaced/venue-contracts';
 
 /**
@@ -149,7 +104,10 @@ export function classifyFetchFailure(err: unknown): Failure {
   return { kind: 'connection_lost', detail: `the connection was lost (${code ?? (err as Error)?.message ?? 'unknown'})` };
 }
 
-export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
+/** The client `connect` answers: the transport and `submit`, with every read from USER_VENUE_READS on it. */
+export type ConnectedHttpUserVenue = HttpUserVenue & UserVenueReads;
+
+export class HttpUserVenue implements Pick<UserVenue, 'venue' | 'submit'> {
   private constructor(
     readonly venue: UserVenueDescriptor,
     readonly chainId: number,
@@ -158,9 +116,14 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   ) {}
 
   /** Read the venue's descriptor (`GET /venue`) and build the client. Throws `VenueRefusalError('venue_down')` when unreachable. */
-  static async connect(opts: HttpUserVenueOptions): Promise<HttpUserVenue> {
+  static async connect(opts: HttpUserVenueOptions): Promise<ConnectedHttpUserVenue> {
     const info = await HttpUserVenue.info(opts);
-    return new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute);
+    const client = new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute);
+    // Every read (venue-contracts user-venue-calls.ts): a new read is a line there, never a method here.
+    return Object.assign(
+      client,
+      userVenueReads((path, body) => client.read(path, body)),
+    );
   }
 
   static async info(opts: HttpUserVenueOptions): Promise<HttpVenueInfo> {
@@ -230,7 +193,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     try {
       return { ok: true, value: decodeVenueWire<T>(parsed) };
     } catch (err) {
-      return { ok: false, failure: { kind: 'error_after_send', detail: `the answer did not parse: ${(err as Error).message}` } };
+      return {
+        ok: false,
+        failure: { kind: 'error_after_send', detail: `the answer did not parse: ${err instanceof Error ? err.message : String(err)}` },
+      };
     }
   }
 
@@ -239,48 +205,6 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     const answer = await this.post<T>(path, body);
     if (!answer.ok) throw this.down(`${this.venue.displayName}: ${path}: ${answer.failure.detail}`);
     return answer.value;
-  }
-
-  markets(account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
-    return this.read('/markets', { account });
-  }
-
-  book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
-    return this.read('/book', { symbol, depth });
-  }
-
-  preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
-    return this.read('/preview', { account, intent });
-  }
-
-  bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
-    return this.read('/best-prices', { symbol });
-  }
-
-  fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
-    return this.read('/funding-history', { symbol, since });
-  }
-
-  /** The perpetual's mark or index as the venue published it since `since`, or not known with its reason (J-derivatives-08 #6). */
-  priceHistory(
-    symbol: string,
-    kind: 'mark' | 'index',
-    since: Date,
-  ): Promise<AsOf<{ known: true; value: readonly VenuePriceSample[] } | { known: false; reason: string }>> {
-    return this.read('/price-history', { symbol, kind, since });
-  }
-
-  trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
-    return this.read('/trades', { symbol, limit });
-  }
-
-  candles(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>> {
-    return this.read('/candles', { symbol, interval, limit });
-  }
-
-  /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
-  prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
-    return this.read('/prepare', { account, signer, intent });
   }
 
   async submit(prepared: PreparedVenueAction, signature: VenueSignature): Promise<VenueSubmitOutcome> {
@@ -302,151 +226,5 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
       case 'error_after_send':
         return { definite: false, reason: 'venue_error_after_send' };
     }
-  }
-
-  balances(account: UserVenueAccount): Promise<AsOf<readonly UserVenueBalance[]>> {
-    return this.read('/balances', { account });
-  }
-
-  openOrders(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrder[]>> {
-    return this.read('/open-orders', { account });
-  }
-
-  orderByClientId(account: UserVenueAccount, venueClientOrderId: string): Promise<AsOf<UserVenueOrder | null>> {
-    return this.read('/order-by-client-id', { account, venueClientOrderId });
-  }
-
-  orderHistory(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>> {
-    return this.read('/order-history', { account });
-  }
-
-  fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
-    return this.read('/fills', { account, since });
-  }
-
-  positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>> {
-    return this.read('/positions', { account });
-  }
-
-  withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>> {
-    return this.read('/withdrawal', { account, nonce });
-  }
-
-  withdrawalTerms(asset: string): Promise<AsOf<UserVenueWithdrawalTerms>> {
-    return this.read('/withdrawal-terms', { asset });
-  }
-
-  deposits(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>> {
-    return this.read('/deposits', { account });
-  }
-
-  arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
-    return this.read('/arrivals', { account });
-  }
-
-  builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
-    return this.read('/builder-fee-approval', { account, builder });
-  }
-
-  feeStatus(account: UserVenueAccount | null): Promise<AsOf<VenueFeeStatus>> {
-    return this.read('/fee-status', { account });
-  }
-
-  /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
-  builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
-    return this.read('/builder-totals', { builder });
-  }
-
-  /** The TEST venue's own record of each claim of our builder fees (J-derivatives-17). */
-  builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
-    return this.read('/builder-claims', { builder });
-  }
-
-  agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
-    return this.read('/agents', { account });
-  }
-
-  leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
-    return this.read('/leverage', { account, symbol });
-  }
-
-  /** What a leverage change would do to the open position on `symbol`, by the venue's own rule (J-derivatives-05 #4). */
-  leverageChange(
-    account: UserVenueAccount,
-    symbol: string,
-    leverageBps: number,
-    marginMode: VenueMarginMode,
-  ): Promise<AsOf<UserVenueLeverageChange>> {
-    return this.read('/leverage-change', { account, symbol, leverageBps, marginMode });
-  }
-
-  /** The open isolated position's margin and the venue's removal limit (J-derivatives-06 #2 #3). */
-  isolatedMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueIsolatedMargin>> {
-    return this.read('/isolated-margin', { account, symbol });
-  }
-
-  /** The account's margin summary as the venue reports it (J-derivatives-06 #1). */
-  accountSummary(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>> {
-    return this.read('/account-summary', { account });
-  }
-
-  /** The position's liquidation state on `symbol` and the venue's price and fee rules (J-derivatives-07 #1 #3). */
-  liquidationStatus(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLiquidationStatus>> {
-    return this.read('/liquidation-status', { account, symbol });
-  }
-
-  /** The account's liquidations since `since`, each with its parts (J-derivatives-07 #2). */
-  liquidations(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueLiquidation[]>> {
-    return this.read('/liquidations', { account, since });
-  }
-
-  /** The venue's insurance fund, or not published (J-derivatives-07 #4). */
-  insuranceFund(): Promise<AsOf<MaybeKnown<UserVenueInsuranceFund>>> {
-    return this.read('/insurance-fund', {});
-  }
-
-  /** The venue's auto-deleveraging rules and their version, or none (J-derivatives-07 #5). */
-  adlRules(): Promise<AsOf<UserVenueAdlRules | null>> {
-    return this.read('/adl-rules', {});
-  }
-
-  /** The account's auto-deleveragings since `since`, with the venue's notice (J-derivatives-07 #6). */
-  deleverages(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueDeleverage[]>> {
-    return this.read('/deleverages', { account, since });
-  }
-
-  /** The newest public liquidation and auto-deleveraging alerts, with no account in them (J-derivatives-07 #7). */
-  liquidationAlerts(symbol: string | null, limit: number): Promise<AsOf<readonly VenueLiquidationAlert[]>> {
-    return this.read('/liquidation-alerts', { symbol, limit });
-  }
-
-  /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
-  marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
-    return this.read('/market-margin', { account, symbol });
-  }
-
-  /** The account's scheduled cancel as the venue records it (J-cex-spot-07). */
-  scheduledCancel(account: UserVenueAccount): Promise<AsOf<UserVenueScheduledCancel>> {
-    return this.read('/scheduled-cancel', { account });
-  }
-
-  /** The account's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
-  settlements(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>> {
-    return this.read('/settlements', { account, since });
-  }
-
-  /** The funding the venue charged or paid on the account's positions since `since` (J-derivatives-08 #3 #4 #5). */
-  fundingPayments(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFundingPayment[]>> {
-    return this.read('/funding-payments', { account, since });
-  }
-
-  // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──
-
-  subAccounts(account: UserVenueAccount): Promise<AsOf<readonly UserVenueSubAccount[]>> {
-    return this.read('/sub-accounts', { account });
-  }
-
-  transfer(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueTransfer | null>> {
-    return this.read('/transfer', { account, nonce });
   }
 }
