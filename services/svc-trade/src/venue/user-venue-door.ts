@@ -236,7 +236,10 @@ export type UserVenueDoorCode =
   | 'trade.venue_sell_quote_market_unknown'
   | 'trade.venue_sell_quote_not_spot'
   | 'trade.venue_sell_quote_key_reused'
-  | VenueRouteRefusalCode;
+  | VenueRouteRefusalCode
+  // J-derivatives-07 #5: the auto-deleveraging acknowledgement routes are off here, or name a version the venue replaced.
+  | 'trade.venue_adl_acks_unmounted'
+  | 'trade.venue_adl_version_stale';
 
 /**
  * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a

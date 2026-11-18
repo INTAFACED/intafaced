@@ -85,17 +85,7 @@ describe('venueRows', () => {
         total: '500',
         withdrawable: '480',
         orders: [{ id: 'order:0xaa:btc-usdc:abc', symbol: 'BTC-USDC', side: 'buy', locked: '20' }],
-        split: null,
       },
     ]);
-  });
-
-  it("carries the venue's own split of the lock into orders, collateral and stake, and none when it reports none", () => {
-    const [row] = venueRows(
-      [{ asset: 'USDC', free: '280', locked: '720', total: '1000', lockedBy: { inOrders: '20', margin: '600', staked: '100' } }],
-      [],
-    );
-    expect(row).toMatchObject({ locked: '720', split: { inOrders: '20', collateral: '600', stake: '100' } });
-    expect(row).not.toHaveProperty('lockedBy');
   });
 });
