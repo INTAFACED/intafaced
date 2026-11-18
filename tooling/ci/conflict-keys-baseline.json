@@ -322,15 +322,6 @@
       "why": "id = recoveryClaimId(owner, noticeId) is a deterministic hash (recovery-claims.ts:151). open() inserts on this.sql with no lock (recovery-claims.ts:229-234). Two concurrent opens by the heir (double click or retry) carry the same owner_user_id and id, and the loser raises 23505 recovery_claims_pkey instead of reading the claim."
     },
     {
-      "file": "services/svc-bank/src/rules/scheduled-notices.ts",
-      "table": "reminder_rules",
-      "target": "(user_id)",
-      "constraint": "reminder_rules_key_uq",
-      "verdict": "race",
-      "issue": 8901,
-      "why": "rule_key = `reminder:${userId}` is built from the target user_id (scheduled-notices.ts:182). Two concurrent first writes at expectedRevision 0 (a retry with the same clientRequestId, or two tabs) can both pass the user_id pre-check. The loser raises 23505 reminder_rules_key_uq instead of the read-back or bank.reminder_revision_conflict."
-    },
-    {
       "file": "services/svc-bank/src/spaces/bills-pot.ts",
       "table": "bills_pots",
       "target": "(user_id, asset_id)",
