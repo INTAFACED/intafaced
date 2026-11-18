@@ -54,8 +54,8 @@ describe('sqlVenueAdlAcks (Postgres)', () => {
     // Another venue and another person are their own rows.
     expect(await acks.get(A, 'test-venue-b')).toBeNull();
     expect(await acks.get(B, 'test-venue-sim')).toBeNull();
-    const [{ n }] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM trade.venue_adl_acks`;
-    expect(n).toBe(1);
+    const rows = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM trade.venue_adl_acks`;
+    expect(rows).toEqual([{ n: 1 }]);
   });
 
   it('refuses an empty version', async () => {
