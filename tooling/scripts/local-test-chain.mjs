@@ -429,11 +429,14 @@ function toUnits(amount, decimals) {
 const word = (hex) => hex.replace(/^0x/, '').toLowerCase().padStart(64, '0');
 
 /**
- * POST /payin-deliver {to, asset, amount} (amount a decimal string): the TEST pay-in partner delivers `amount` of `asset`
- * to `to` on the TEST chain. It mints the TEST token to its own address, then sends one transfer from there to `to`,
- * each mined before the next. Only the assets PAYIN_TOKENS lists; anything else is refused by name. Answers {hash} (the
- * transfer's) or {error}.
+ * POST /payin-deliver {to, asset, amount, key?} (amount a decimal string): the TEST pay-in partner delivers `amount` of
+ * `asset` to `to` on the TEST chain. It mints the TEST token to its own address, then sends one transfer from there to
+ * `to`, each mined before the next. Only the assets PAYIN_TOKENS lists; anything else is refused by name. Answers {hash}
+ * (the transfer's) or {error}. With a `key` (a move from a person's own partner account to their wallet,
+ * J-derivatives-25 #2) it sends once per key, as a partner must: the same key and terms answer the first hash and send
+ * nothing more, other terms are refused, and two calls under one key at once share the one send.
  */
+const payinSent = new Map();
 async function payinDeliver(req, res) {
   const answer = (status, body) => {
     res.statusCode = status;
@@ -457,28 +460,49 @@ async function payinDeliver(req, res) {
   if (!token) return answer(400, { error: `payin.wrong_asset: only ${Object.keys(PAYIN_TOKENS).join(', ')} is delivered` });
   const units = toUnits(call.amount, token.decimals);
   if (units === null) return answer(400, { error: 'payin.bad_amount' });
+  if (call.key !== undefined && (typeof call.key !== 'string' || call.key.length < 8 || call.key.length > 160)) {
+    return answer(400, { error: 'payin.bad_key' });
+  }
+  if (call.key !== undefined) {
+    const terms = `${call.to.toLowerCase()}|${call.asset}|${units}`;
+    const prior = payinSent.get(call.key);
+    if (prior && prior.terms !== terms) return answer(409, { error: 'payin.key_conflict: this key was sent with other terms' });
+    const sending = prior ?? { terms, hash: send(token, call.to, units) };
+    if (!prior) payinSent.set(call.key, sending);
+    try {
+      return answer(200, { hash: await sending.hash });
+    } catch (err) {
+      // Nothing was sent under the key (a send that failed before its transfer was mined): it may be asked again.
+      if (payinSent.get(call.key) === sending) payinSent.delete(call.key);
+      return answer(502, { error: `payin.send_failed: ${err.message}` });
+    }
+  }
   try {
-    await anvilRpc('anvil_impersonateAccount', [PAYIN_PARTNER]);
-    // TEST ETH for gas only; neither call carries value.
-    await anvilRpc('anvil_setBalance', [PAYIN_PARTNER, '0x56bc75e2d63100000']);
-    // mint(address,uint256): the TEST token mints to anyone; the partner holds exactly what it then delivers.
-    await sendMined({
-      from: PAYIN_PARTNER,
-      to: token.address,
-      data: `0x40c10f19${word(PAYIN_PARTNER)}${word(units.toString(16))}`,
-      value: '0x0',
-    });
-    // transfer(address,uint256): the delivery itself.
-    const hash = await sendMined({
-      from: PAYIN_PARTNER,
-      to: token.address,
-      data: `0xa9059cbb${word(call.to)}${word(units.toString(16))}`,
-      value: '0x0',
-    });
-    return answer(200, { hash });
+    return answer(200, { hash: await send(token, call.to, units) });
   } catch (err) {
     return answer(502, { error: `payin.send_failed: ${err.message}` });
   }
+}
+
+/** The TEST pay-in partner's one delivery: mint to itself, then transfer to `to`, each mined; the transfer's hash. */
+async function send(token, to, units) {
+  await anvilRpc('anvil_impersonateAccount', [PAYIN_PARTNER]);
+  // TEST ETH for gas only; neither call carries value.
+  await anvilRpc('anvil_setBalance', [PAYIN_PARTNER, '0x56bc75e2d63100000']);
+  // mint(address,uint256): the TEST token mints to anyone; the partner holds exactly what it then delivers.
+  await sendMined({
+    from: PAYIN_PARTNER,
+    to: token.address,
+    data: `0x40c10f19${word(PAYIN_PARTNER)}${word(units.toString(16))}`,
+    value: '0x0',
+  });
+  // transfer(address,uint256): the delivery itself.
+  return await sendMined({
+    from: PAYIN_PARTNER,
+    to: token.address,
+    data: `0xa9059cbb${word(to)}${word(units.toString(16))}`,
+    value: '0x0',
+  });
 }
 
 async function cmdGate(state, network) {
