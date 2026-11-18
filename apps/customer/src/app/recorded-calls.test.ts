@@ -6,7 +6,8 @@ import { CONTRACT_PROCEDURES } from '@intafaced/contracts/procedure-registry';
 
 // A call with a written record (`@intafaced/contracts/procedure`) is made with `api.call(RECORD, input)`, which takes its
 // path, its input type and its reply parser from the record the service mounts. A string-named call with its own schema
-// is the hand copy that drifted (#8841: Pay's copy of `spaces.list` refused every held space), so none may be written.
+// is a hand copy that can drift from what the service sends (Pay's copy of `spaces.list` refused every held space), so
+// none may be written.
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

@@ -6,8 +6,8 @@ import { orderSideSchema, timeInForceSchema } from './schemas.js';
 /**
  * svc-matching `POST /markets/:marketId/orders`: place one order on one book. Served by svc-matching, which parses the body
  * with this record's input, and sent by svc-trade, svc-execution and svc-fix, which build the body from this record's
- * input type and read the reply by its output. A caller's own copy of the body once missed the lifecycle proof and sent a
- * client order id where a GUID is required, so every order it sent would have been refused (#8847).
+ * input type and read the reply by its output. A caller with its own copy of the body can miss a required field, such as
+ * the lifecycle proof, and every order it sends is refused.
  */
 
 const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are positive decimal strings with at most 18 decimal places');
