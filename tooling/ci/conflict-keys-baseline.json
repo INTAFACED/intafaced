@@ -618,50 +618,15 @@
       "target": "(user_id, market_id, client_order_id)",
       "constraint": "futures_orders_liquidation_rung_uniq",
       "verdict": "safe",
-      "why": "liquidation_rung_id is not in the column list of this insert (matched-orders.ts:1137-1140), so it is NULL and outside the partial index."
-    },
-    {
-      "file": "services/svc-trade/src/futures/matched-orders.ts",
-      "table": "futures_orders",
-      "target": "(user_id, market_id, client_order_id)",
-      "constraint": "futures_orders_liquidation_rung_uniq",
-      "verdict": "safe",
       "why": "liquidation_rung_id is not written by this reduce-only insert (matched-orders.ts:1505-1509), so it is NULL."
     },
     {
       "file": "services/svc-trade/src/futures/matched-orders.ts",
       "table": "futures_orders",
       "target": "(user_id, market_id, client_order_id)",
-      "constraint": "futures_orders_liquidation_rung_uniq",
-      "verdict": "race",
-      "issue": 8877,
-      "why": "Same path as the pkey entry: liquidation_rung_id = input.rungId is written with the derived client id (matched-orders.ts:2750). Two processes on one rung carry the same rung id, and the loser gets 23505 futures_orders_liquidation_rung_uniq."
-    },
-    {
-      "file": "services/svc-trade/src/futures/matched-orders.ts",
-      "table": "futures_orders",
-      "target": "(user_id, market_id, client_order_id)",
-      "constraint": "futures_orders_pkey",
-      "verdict": "race",
-      "issue": 8877,
-      "why": "orderId = matchedOrderIdFor(user, market, clientOrderId) (futures/ids.ts:33; matched-orders.ts:1110), so a double-submit of one clientOrderId carries equal target and equal id. The insert uses this.deps.sql with no lock. Both calls pass the findOrderByClientId pre-check (matched-orders.ts:1036), and the loser gets 23505 futures_orders_pkey instead of reaching the 'raced' branch (matched-orders.ts:1162-1166) that the code expects."
-    },
-    {
-      "file": "services/svc-trade/src/futures/matched-orders.ts",
-      "table": "futures_orders",
-      "target": "(user_id, market_id, client_order_id)",
       "constraint": "futures_orders_pkey",
       "verdict": "safe",
-      "why": "Runs in the transaction that first takes SELECT … FOR UPDATE on the open position row (matched-orders.ts:1411-1415), so two retries of one reduce serialise, and the second sees the committed row in the arbiter pre-check. Residual: an opening place() (line 1149) reusing the same clientOrderId takes no such lock and could raise a raw 23505 on pkey; that is a different command, not a duplicate of this row."
-    },
-    {
-      "file": "services/svc-trade/src/futures/matched-orders.ts",
-      "table": "futures_orders",
-      "target": "(user_id, market_id, client_order_id)",
-      "constraint": "futures_orders_pkey",
-      "verdict": "race",
-      "issue": 8877,
-      "why": "Only with two processes driving the same liquidation rung: id and client id both derive from (liquidationId, rungId) (matched-orders.ts:2457-2458), and driveLiquidationBook takes no lock before its SELECT-then-insert (2460, 2488). Its only caller is the in-process futures.liquidation job (job-host.ts:44 guards overlap only inside one process). Two replicas give equal target and equal id, and the loser gets 23505 futures_orders_pkey."
+      "why": "Runs in the transaction that first takes SELECT … FOR UPDATE on the open position row (matched-orders.ts:1411-1415), so two retries of one reduce serialise, and the second sees the committed row in the arbiter pre-check."
     },
     {
       "file": "services/svc-trade/src/index.ts",
