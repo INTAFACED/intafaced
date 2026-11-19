@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ArrowUpRight } from 'lucide-react';
 import { EmptyState, Field } from '../../ui-kit';
 import { useResource, type Resource } from '../../../../shared/resource';
-import { useSession } from '../../../session/session';
+import { useSession } from '../../../session';
 import { PaySection } from '../../components';
 import { validatedMutation } from '../../BusinessPay';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
