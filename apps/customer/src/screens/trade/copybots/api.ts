@@ -2,6 +2,7 @@
 // the local stack on 2026-10-17); the shapes mirror the legacy `features/trade/tool-api.ts`, which stays the owner of
 // the calls both rooms share. Only fields the screen shows are kept, and no service sentence is ever kept
 // (`residual` and `statusLine` are deliberately left out of the schema).
+import { GRID_SUBMIT_PERMISSION, venueGridSchema } from '@intafaced/contracts/trade-grid-procedures';
 import { z } from 'zod';
 import { decimalSchema, signedDecimalSchema } from '../../../shared/money';
 import type { ApiClient } from '../../../shared/api';
@@ -229,7 +230,7 @@ export const gridBotSchema = z.object({
   gridCount: z.number(),
   investment: decimalSchema,
   reinitCount: z.number(),
-  status: z.enum(['initializing', 'running', 'paused_range', 'initialization_failed', 'stopped']),
+  status: z.enum(['signing', 'initializing', 'running', 'paused_range', 'initialization_failed', 'stopped']),
   statusReason: z.string().nullable(),
   reserve: z.object({ key: z.string(), asset: z.string(), amount: decimalSchema, releasedAt: z.string().nullable() }).nullable(),
   levels: z.array(
@@ -263,6 +264,12 @@ export const gridBotSchema = z.object({
     z.object({ state: z.literal('set'), percent: signedDecimalSchema }),
   ]),
   createdAt: z.string(),
+  /** A grid on the person's own venue account (svc-trade venue-grid.ts): the venue and the agent permission it trades under. */
+  venue: venueGridSchema.shape.venue.optional(),
+  /** The grid agent permission the wallet is asked to sign, while the bot is signing. */
+  next: venueGridSchema.shape.next.optional(),
+  /** The fees the venue charged on the bot's fills, by asset: its own and our builder fee. */
+  fees: venueGridSchema.shape.fees.optional(),
 });
 export type GridBot = z.infer<typeof gridBotSchema>;
 /** A grid profit withdrawal receipt: the stored withdrawal row (trade.bots.grid.withdrawProfit, CB-bots-05). */
@@ -317,6 +324,8 @@ export type GridRequest = {
   upperPrice: string;
   gridCount: number | null;
   investment: string;
+  /** The person's own venue account the grid trades on, while the venue door is on. */
+  owner?: string;
 };
 /** One copied buy and what of it is still open (CB-copy-09/10). Amounts are in the market's base asset. */
 export const copiedPositionSchema = z.object({
@@ -561,6 +570,11 @@ export function createRoomApi(api: ApiClient) {
     gridGet: (botId: string, signal?: AbortSignal) => api.query('trade', 'bots.grid.get', { botId }, gridBotSchema, { signal }),
     gridList: (signal?: AbortSignal) => api.query('trade', 'bots.grid.list', undefined, z.array(gridBotSchema), { signal }),
     gridStop: (botId: string) => api.mutate('trade', 'bots.grid.stop', { botId }, gridBotSchema),
+    gridSubmitPermission: (input: {
+      botId: string;
+      actionKey: string;
+      signature: { digest: string; signature: string; signedBy: string };
+    }) => api.call(GRID_SUBMIT_PERMISSION, input),
     gridTopUpFree: (botId: string, signal?: AbortSignal) =>
       api.query('trade', 'bots.grid.topUpFree', { botId }, z.object({ asset: z.string(), free: decimalSchema }), { signal }),
     gridTopUp: (input: GridTopUpRequest) => api.mutate('trade', 'bots.grid.topUp', input, gridTopUpSchema),

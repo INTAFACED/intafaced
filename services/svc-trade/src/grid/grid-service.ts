@@ -242,7 +242,7 @@ export function gridBotIdFor(userId: string, clientRequestId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
-function positiveAmount(raw: string | null | undefined, code: GridError['code'], label: string): Amount {
+export function positiveAmount(raw: string | null | undefined, code: GridError['code'], label: string): Amount {
   const value = typeof raw === 'string' ? raw.trim() : '';
   if (value === '') throw new GridError(`${label} is required`, code, { field: label });
   let amount: Amount;
@@ -253,6 +253,32 @@ function positiveAmount(raw: string | null | undefined, code: GridError['code'],
   }
   if (amount <= 0n) throw new GridError(`${label} must be above zero`, code, { field: label });
   return amount;
+}
+
+/**
+ * The create's own fields, each refused by a code naming it, in the order the person reads them: both bounds, the
+ * investment, the grid count and the owner's count range (blank refuses). Shared by the venue grid (venue-grid.ts).
+ */
+export function checkGridFields(
+  input: Pick<GridCreateInput, 'lowerPrice' | 'upperPrice' | 'gridCount' | 'investment'>,
+  policy: Pick<GridPolicy, 'countRange'>,
+): { lower: Amount; upper: Amount; investment: Amount; count: number } {
+  const lower = positiveAmount(input.lowerPrice, 'trade.bots_grid_bounds_not_set', 'Lower price');
+  const upper = positiveAmount(input.upperPrice, 'trade.bots_grid_bounds_not_set', 'Upper price');
+  if (!(lower < upper)) throw new GridError('Lower price must be below upper price', 'trade.grid_bounds_inverted');
+  const investment = positiveAmount(input.investment, 'trade.grid_investment_required', 'Investment');
+  const count = input.gridCount;
+  if (count === null || count === undefined) throw new GridError('Grids is required', 'trade.grid_count_required', { field: 'Grids' });
+  const range = policy.countRange;
+  if (!range) throw new GridError('The platform has not set how many grids a bot may use', 'trade.grid_count_range_not_set');
+  if (!Number.isInteger(count) || count < range.min || count > range.max) {
+    throw new GridError(`Grids must be from ${range.min} to ${range.max}`, 'trade.bots_grid_count_out_of_range', {
+      field: 'Grids',
+      min: String(range.min),
+      max: String(range.max),
+    });
+  }
+  return { lower, upper, investment, count };
 }
 
 const withdrawHash = (botId: string, asset: string, amount: Amount): string =>
@@ -305,7 +331,7 @@ const DAY_MS = 86_400_000;
 const HUNDREDTH = parseAmount('0.01');
 
 /** Each bound within the owner's distance of the market price (CB-bots-02); a blank distance refuses every create. */
-function assertBoundsInBand(bps: number | null, lower: Amount, upper: Amount, mark: Amount): void {
+export function assertBoundsInBand(bps: number | null, lower: Amount, upper: Amount, mark: Amount): void {
   if (bps === null) {
     throw new GridError('The platform has not set how far the bounds may be from the market price', 'trade.bots_grid_bounds_band_not_set');
   }
@@ -378,21 +404,7 @@ export class GridService {
     const already = await this.ports.store.findBot(botId);
     if (already) return this.sameRequest(already, hash);
 
-    const lower = positiveAmount(input.lowerPrice, 'trade.bots_grid_bounds_not_set', 'Lower price');
-    const upper = positiveAmount(input.upperPrice, 'trade.bots_grid_bounds_not_set', 'Upper price');
-    if (!(lower < upper)) throw new GridError('Lower price must be below upper price', 'trade.grid_bounds_inverted');
-    const investment = positiveAmount(input.investment, 'trade.grid_investment_required', 'Investment');
-    const count = input.gridCount;
-    if (count === null || count === undefined) throw new GridError('Grids is required', 'trade.grid_count_required', { field: 'Grids' });
-    const range = this.ports.policy.countRange;
-    if (!range) throw new GridError('The platform has not set how many grids a bot may use', 'trade.grid_count_range_not_set');
-    if (!Number.isInteger(count) || count < range.min || count > range.max) {
-      throw new GridError(`Grids must be from ${range.min} to ${range.max}`, 'trade.bots_grid_count_out_of_range', {
-        field: 'Grids',
-        min: String(range.min),
-        max: String(range.max),
-      });
-    }
+    const { lower, upper, investment, count } = checkGridFields(input, this.ports.policy);
 
     const market = await this.ports.marketBySymbol(input.symbol);
     if (!market) throw new GridError(`Market ${input.symbol} not found`, 'trade.grid_market_not_found');
@@ -985,7 +997,8 @@ export class GridService {
       try {
         await this.tick(bot);
       } catch (error) {
-        const reason = (error as { code?: string })?.code ?? 'trade.grid_tick_failed';
+        const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+        const reason = typeof code === 'string' ? code : 'trade.grid_tick_failed';
         await this.ports.store.setStatus(bot.botId, bot.status, reason, this.now(), [bot.status]);
       }
     }
