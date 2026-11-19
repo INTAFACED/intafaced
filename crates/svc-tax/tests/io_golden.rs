@@ -780,3 +780,42 @@ fn the_signatures_are_the_typescripts_byte_for_byte() {
         object_headers(v.get("dual").unwrap())
     );
 }
+
+/// edge-trust.test.ts: each forwarded principal the TypeScript edge context accepted or refused at the golden's clock.
+#[test]
+fn the_edge_principal_is_trusted_as_the_typescript_trusts_it() {
+    let g = golden();
+    let edge = g.get("edge").unwrap();
+    let secret = s(edge, "secret");
+    let region = s(edge, "region");
+    let cases = arr(edge, "cases");
+    assert_eq!(cases.len(), 5);
+    let now = Instant(NOW_S * 1000);
+    for c in cases {
+        let env = c.get("env").unwrap();
+        let key = env.get("EDGE_PRINCIPAL_PUBLIC_KEY").map(|k| {
+            let n = |name: &str| s(env, name).parse::<i64>().ok();
+            svc_tax::edge::EdgeKey::from_env(
+                "svc-tax",
+                &text(k),
+                n("EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS"),
+                n("EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS"),
+            )
+            .unwrap()
+        });
+        let got = svc_tax::edge::verify_with(
+            Some(&s(c, "raw")),
+            Some(&s(c, "signature")),
+            &secret,
+            key.as_ref(),
+            now,
+            &region,
+        )
+        .map(|p| p.user_id);
+        let want = match c.get("userId") {
+            Some(Json::String(u)) => Some(u.clone()),
+            _ => None,
+        };
+        assert_eq!(got, want, "{}", s(c, "name"));
+    }
+}

@@ -17,6 +17,16 @@ import {
   serviceAuthHeadersForBody,
   serviceCallSigner,
 } from '@intafaced/contracts';
+import { edgeEnvSchema, edgeTrustFromEnv, loadEnv } from '@intafaced/config';
+import {
+  createEdgeContext,
+  EDGE_PRINCIPAL_HEADER,
+  EDGE_SIGNATURE_HEADER,
+  encodeForwardedPrincipal,
+  encodePrincipal,
+  signPrincipalHeader,
+  signPrincipalHeaderEd25519,
+} from '@intafaced/contracts';
 import { TaxError } from './codes.js';
 import { createTaxLedgerReads } from './ledger-reads.js';
 import { createTradePrices } from './prices.js';
@@ -306,6 +316,55 @@ const SCENARIOS: Scenario[] = [
           ? { body: page([entry({ txId: 'mv', reason: 'bank.transfer.manual', postedAt: '2026-10-05T00:00:00.000Z' })], 'c2') }
           : { body: page([entry({ txId: 'gift', reason: 'bank.transfer.manual', direction: 'credit', amount: '0.5' })]) },
   },
+  {
+    name: 'ledger balances signed dual',
+    client: 'ledger',
+    call: 'balances',
+    args: ['user', USER],
+    s2s: 'dual',
+    answer: () => ({ body: [{ accountId: 'a1', assetId: 'USDT', kind: 'available', purpose: '', amount: '1' }] }),
+  },
+  {
+    name: 'ledger history signed keypair',
+    client: 'ledger',
+    call: 'history',
+    args: [
+      { ownerType: 'user', ownerId: USER, assetId: 'BTC', kind: 'available' },
+      { from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z' },
+    ],
+    s2s: 'keypair',
+    answer: () => ({ body: [] }),
+  },
+  {
+    name: 'trade fills: a buyback sale and a house-quote fill are fills like any other',
+    client: 'ledger',
+    call: 'tradeFills',
+    args: [USER],
+    answer: (url, body) => {
+      if (url.pathname === '/trpc/balances') return { body: [] };
+      if (body?.kind === 'available')
+        return {
+          body: page([
+            entry({
+              txId: 'bb',
+              reason: 'trade.fill.buyback',
+              amount: '50',
+              assetId: 'USDT',
+              orderId: 'o1',
+              postedAt: '2026-10-02T00:00:00.000Z',
+            }),
+            entry({ txId: 'mm', reason: 'trade.fill.mm_maker', amount: '1', assetId: 'BTC', orderId: 'o2' }),
+          ]),
+        };
+      if (body?.purpose === 'order:o1')
+        return { body: page([entry({ txId: 'bb', reason: 'trade.fill.buyback', direction: 'credit', amount: '1', assetId: 'ITF' })]) };
+      if (body?.purpose === 'order:o2')
+        return {
+          body: page([entry({ txId: 'mm', reason: 'trade.fill.mm_maker', direction: 'credit', amount: '60000', assetId: 'USDT' })]),
+        };
+      return { body: page([]) };
+    },
+  },
   // prices.test.ts, door by door.
   {
     name: 'price at: the minute it arrived in',
@@ -574,6 +633,48 @@ async function play(s: Scenario) {
   }
 }
 
+/** edge-trust.test.ts, as vectors: what the edge context made of each forwarded principal at NOW. */
+function edgeCases() {
+  const secret = 's'.repeat(32);
+  const otherSeed = Buffer.from([...Array(32).keys()].map((i) => i + 32));
+  const other = Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), otherSeed]).toString('base64url');
+  const limits = { EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: '120', EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS: '10' };
+  const withKey = { EDGE_PRINCIPAL_PUBLIC_KEY: PUBLIC, ...limits };
+  const principal = {
+    sub: USER,
+    userId: USER,
+    sid: '22222222-2222-4222-8222-222222222222',
+    scopes: ['trade:read'],
+    tier: 'basic',
+    mfa: false,
+    expiresAt: new Date(NOW.getTime() + 600_000),
+  } as Parameters<typeof encodeForwardedPrincipal>[0];
+  const signed = (key: string, lifetime: number) => {
+    const raw = encodeForwardedPrincipal(principal, lifetime);
+    return { raw, signature: signPrincipalHeaderEd25519(raw, key, 'DE') };
+  };
+  const shared = encodePrincipal(principal);
+  const cases: { name: string; env: Record<string, string>; raw: string; signature: string }[] = [
+    { name: 'the edge key with the public key and both limits set', env: withKey, ...signed(PKCS8, 120) },
+    { name: 'the edge key with the public key unset', env: {}, ...signed(PKCS8, 120) },
+    { name: 'another key', env: withKey, ...signed(other, 120) },
+    { name: 'a lifetime over the maximum', env: withKey, ...signed(PKCS8, 300) },
+    { name: 'the shared-secret form', env: withKey, raw: shared, signature: signPrincipalHeader(shared, secret, 'DE') },
+  ];
+  return {
+    secret,
+    region: 'DE',
+    cases: cases.map((c) => {
+      const env = loadEnv(edgeEnvSchema, { EDGE_PRINCIPAL_SECRET: secret, ...c.env });
+      const context = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: 'svc-tax' });
+      const got = context({
+        headers: { [EDGE_PRINCIPAL_HEADER]: c.raw, [EDGE_SIGNATURE_HEADER]: c.signature, 'x-intafaced-region': 'DE' },
+      });
+      return { ...c, userId: got.principal?.userId ?? null };
+    }),
+  };
+}
+
 describe('the I/O golden the Rust clients replay', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -608,10 +709,11 @@ describe('the I/O golden the Rust clients replay', () => {
         },
       ),
     };
+    const edge = edgeCases();
     const scenarios = [];
     for (const scenario of SCENARIOS) scenarios.push(await play(scenario));
     // Compared as data: the file is kept in the repository's format (prettier), which JSON.stringify does not write.
-    const golden = JSON.parse(JSON.stringify({ vectors, scenarios })) as unknown;
+    const golden = JSON.parse(JSON.stringify({ vectors, edge, scenarios })) as unknown;
     if (process.env.RECORD_IO_GOLDEN === '1') writeFileSync(GOLDEN, `${JSON.stringify(golden, null, 2)}\n`);
     expect(golden).toEqual(JSON.parse(readFileSync(GOLDEN, 'utf8')));
   });

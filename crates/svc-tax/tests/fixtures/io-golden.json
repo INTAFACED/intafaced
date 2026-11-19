@@ -32,6 +32,63 @@
       "x-intafaced-service-sig": "fcd6b671c047bffdfeabeaa2272c652548899edecaf579a3607c921cbd6d308f"
     }
   },
+  "edge": {
+    "secret": "ssssssssssssssssssssssssssssssss",
+    "region": "DE",
+    "cases": [
+      {
+        "name": "the edge key with the public key and both limits set",
+        "env": {
+          "EDGE_PRINCIPAL_PUBLIC_KEY": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+          "EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS": "120",
+          "EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS": "10"
+        },
+        "raw": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"trade:read\"],\"tier\":\"basic\",\"mfa\":false,\"sid\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2026-11-19T00:02:00.000Z\",\"iat\":1795046400}",
+        "signature": "ed25519:gzSx-qH4jmd8NStWM53kDoKJhbWRox1VJYJAnp2siwhn7IhiJ0P9RibwWHLu7Lq_Fmp0UsQfFOii4uis8cs2Ag",
+        "userId": "11111111-1111-4111-8111-111111111111"
+      },
+      {
+        "name": "the edge key with the public key unset",
+        "env": {},
+        "raw": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"trade:read\"],\"tier\":\"basic\",\"mfa\":false,\"sid\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2026-11-19T00:02:00.000Z\",\"iat\":1795046400}",
+        "signature": "ed25519:gzSx-qH4jmd8NStWM53kDoKJhbWRox1VJYJAnp2siwhn7IhiJ0P9RibwWHLu7Lq_Fmp0UsQfFOii4uis8cs2Ag",
+        "userId": null
+      },
+      {
+        "name": "another key",
+        "env": {
+          "EDGE_PRINCIPAL_PUBLIC_KEY": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+          "EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS": "120",
+          "EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS": "10"
+        },
+        "raw": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"trade:read\"],\"tier\":\"basic\",\"mfa\":false,\"sid\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2026-11-19T00:02:00.000Z\",\"iat\":1795046400}",
+        "signature": "ed25519:_8GXEPF2SZA-oUFh0HRvCAwvZ8HkMdtPnU0lGE93YZjpEMsFuRUQKEzutjVp0fC3XgCYe_J6vQc9pGyIlK_1Bw",
+        "userId": null
+      },
+      {
+        "name": "a lifetime over the maximum",
+        "env": {
+          "EDGE_PRINCIPAL_PUBLIC_KEY": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+          "EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS": "120",
+          "EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS": "10"
+        },
+        "raw": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"trade:read\"],\"tier\":\"basic\",\"mfa\":false,\"sid\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2026-11-19T00:05:00.000Z\",\"iat\":1795046400}",
+        "signature": "ed25519:CqdhvHuTZ5vpWhTMCDWSAXIKEVc-BwKf_QcYcSv_71THe4YJtwzec4vYO2gI9g2flYJ66_8-T5XDKYAFkZupAg",
+        "userId": null
+      },
+      {
+        "name": "the shared-secret form",
+        "env": {
+          "EDGE_PRINCIPAL_PUBLIC_KEY": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+          "EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS": "120",
+          "EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS": "10"
+        },
+        "raw": "{\"sub\":\"11111111-1111-4111-8111-111111111111\",\"scopes\":[\"trade:read\"],\"tier\":\"basic\",\"mfa\":false,\"sid\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"expiresAt\":\"2026-11-19T00:10:00.000Z\"}",
+        "signature": "6b84bf50b70b4ce6317572180c0f5bef2706cd47cd4a66709bfd977ea8b21017",
+        "userId": "11111111-1111-4111-8111-111111111111"
+      }
+    ]
+  },
   "scenarios": [
     {
       "name": "ledger balances",
@@ -4970,6 +5027,217 @@
             }
           ],
           "truncated": false
+        }
+      }
+    },
+    {
+      "name": "ledger balances signed dual",
+      "client": "ledger",
+      "call": "balances",
+      "args": ["user", "11111111-1111-4111-8111-111111111111"],
+      "s2s": "dual",
+      "messageDiffers": false,
+      "exchanges": [
+        {
+          "request": {
+            "method": "POST",
+            "url": "http://ledger.test/trpc/balances",
+            "headers": [
+              ["content-type", "application/json"],
+              ["x-intafaced-s2s-kid", "svc-tax.a"],
+              ["x-intafaced-s2s-aud", "svc-ledger"],
+              ["x-intafaced-s2s-ts", "1795046400"],
+              ["x-intafaced-s2s-nonce", "q6urq6urq6urq6urq6urqw"],
+              ["x-intafaced-s2s-body", "653f1aa72f9eacc96b0e24aaae197368c23e54ce160b38e7187e510e5eb0c565"],
+              ["x-intafaced-s2s-sig", "R2Wqh0c0I6cO4uLLaEsoeyuJewJHKsSDS3bVllU9gRnE9H8RlBXQGjLxaP060Xr5rOqsESGHbMElOy73Ps00CQ"],
+              ["x-intafaced-service", "svc-tax"],
+              ["x-intafaced-service-ts", "1795046400"],
+              ["x-intafaced-service-body", "653f1aa72f9eacc96b0e24aaae197368c23e54ce160b38e7187e510e5eb0c565"],
+              ["x-intafaced-service-sig", "48d7025684b312ec1b66cb7c4a66deddede484c03b5127c7a168cec46dbba28e"]
+            ],
+            "body": "{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\"}"
+          },
+          "response": {
+            "status": 200,
+            "body": "[{\"accountId\":\"a1\",\"assetId\":\"USDT\",\"kind\":\"available\",\"purpose\":\"\",\"amount\":\"1\"}]"
+          }
+        }
+      ],
+      "result": {
+        "ok": [
+          {
+            "account": {
+              "ownerType": "user",
+              "ownerId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDT",
+              "kind": "available"
+            },
+            "accountId": "a1",
+            "amount": "1000000000000000000"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ledger history signed keypair",
+      "client": "ledger",
+      "call": "history",
+      "args": [
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available"
+        },
+        {
+          "from": "2026-01-01T00:00:00.000Z",
+          "to": "2026-02-01T00:00:00.000Z"
+        }
+      ],
+      "s2s": "keypair",
+      "messageDiffers": false,
+      "exchanges": [
+        {
+          "request": {
+            "method": "POST",
+            "url": "http://ledger.test/trpc/history",
+            "headers": [
+              ["content-type", "application/json"],
+              ["x-intafaced-s2s-kid", "svc-tax.a"],
+              ["x-intafaced-s2s-aud", "svc-ledger"],
+              ["x-intafaced-s2s-ts", "1795046400"],
+              ["x-intafaced-s2s-nonce", "q6urq6urq6urq6urq6urqw"],
+              ["x-intafaced-s2s-body", "71c62a3c5630c5da9d24adec4968b3307dd416760712ad67b8c1d237c61204c2"],
+              ["x-intafaced-s2s-sig", "BCVPSiC4OMz0acgFtsr_NuwK3htc4ZRfcDxd-okil1zfkxReqGyiKODzqqL4IBYDwQQRcxcFiTq4UEB-ZL7YCA"]
+            ],
+            "body": "{\"account\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"BTC\",\"kind\":\"available\"},\"from\":\"2026-01-01T00:00:00.000Z\",\"to\":\"2026-02-01T00:00:00.000Z\"}"
+          },
+          "response": {
+            "status": 200,
+            "body": "[]"
+          }
+        }
+      ],
+      "result": {
+        "ok": []
+      }
+    },
+    {
+      "name": "trade fills: a buyback sale and a house-quote fill are fills like any other",
+      "client": "ledger",
+      "call": "tradeFills",
+      "args": ["11111111-1111-4111-8111-111111111111"],
+      "s2s": null,
+      "messageDiffers": false,
+      "exchanges": [
+        {
+          "request": {
+            "method": "POST",
+            "url": "http://ledger.test/trpc/historyPage",
+            "headers": [
+              ["content-type", "application/json"],
+              ["x-intafaced-service", "svc-tax"],
+              ["x-intafaced-service-ts", "1795046400"],
+              ["x-intafaced-service-body", "1c834db5bfe8699a7e575521cf02b47995773bcde7ed42f0643316c787fd677c"],
+              ["x-intafaced-service-sig", "1e59d728b3d0f86eec663a54fcfa7295353fb97c6accd7b575fefff18ca44dec"]
+            ],
+            "body": "{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"kind\":\"available\",\"limit\":200}"
+          },
+          "response": {
+            "status": 200,
+            "body": "{\"entries\":[{\"txId\":\"bb\",\"module\":\"trade\",\"reason\":\"trade.fill.buyback\",\"direction\":\"debit\",\"amount\":\"50\",\"postedAt\":\"2026-10-02T00:00:00.000Z\",\"assetId\":\"USDT\",\"entryId\":\"1\",\"rail\":null,\"product\":null,\"orderId\":\"o1\",\"fee\":null,\"withdrawalId\":null},{\"txId\":\"mm\",\"module\":\"trade\",\"reason\":\"trade.fill.mm_maker\",\"direction\":\"debit\",\"amount\":\"1\",\"postedAt\":\"2026-10-01T00:00:00.000Z\",\"assetId\":\"BTC\",\"entryId\":\"1\",\"rail\":null,\"product\":null,\"orderId\":\"o2\",\"fee\":null,\"withdrawalId\":null}],\"nextCursor\":null}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "http://ledger.test/trpc/balances",
+            "headers": [
+              ["content-type", "application/json"],
+              ["x-intafaced-service", "svc-tax"],
+              ["x-intafaced-service-ts", "1795046400"],
+              ["x-intafaced-service-body", "653f1aa72f9eacc96b0e24aaae197368c23e54ce160b38e7187e510e5eb0c565"],
+              ["x-intafaced-service-sig", "48d7025684b312ec1b66cb7c4a66deddede484c03b5127c7a168cec46dbba28e"]
+            ],
+            "body": "{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\"}"
+          },
+          "response": {
+            "status": 200,
+            "body": "[]"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "http://ledger.test/trpc/historyPage",
+            "headers": [
+              ["content-type", "application/json"],
+              ["x-intafaced-service", "svc-tax"],
+              ["x-intafaced-service-ts", "1795046400"],
+              ["x-intafaced-service-body", "da91d1cc9045fe81595017932335ec9252f4032db3d1ad60aa75255f44e424c6"],
+              ["x-intafaced-service-sig", "8d33656a0be0e6ccf0fb57028c9cd093a375b7a4815cd86d2a344ddd7c3ae0aa"]
+            ],
+            "body": "{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"kind\":\"hold\",\"purpose\":\"order:o1\",\"limit\":200}"
+          },
+          "response": {
+            "status": 200,
+            "body": "{\"entries\":[{\"txId\":\"bb\",\"module\":\"trade\",\"reason\":\"trade.fill.buyback\",\"direction\":\"credit\",\"amount\":\"1\",\"postedAt\":\"2026-10-01T00:00:00.000Z\",\"assetId\":\"ITF\",\"entryId\":\"1\",\"rail\":null,\"product\":null,\"orderId\":null,\"fee\":null,\"withdrawalId\":null}],\"nextCursor\":null}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "url": "http://ledger.test/trpc/historyPage",
+            "headers": [
+              ["content-type", "application/json"],
+              ["x-intafaced-service", "svc-tax"],
+              ["x-intafaced-service-ts", "1795046400"],
+              ["x-intafaced-service-body", "b58eed625deac3af6b73767760ba6dd789c0e5570025b4d56bba3af0b0b6024d"],
+              ["x-intafaced-service-sig", "25a19e4035367138e288406c17f856c1ad9e8bed928d9a9cfadb16b5496a0c2d"]
+            ],
+            "body": "{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"kind\":\"hold\",\"purpose\":\"order:o2\",\"limit\":200}"
+          },
+          "response": {
+            "status": 200,
+            "body": "{\"entries\":[{\"txId\":\"mm\",\"module\":\"trade\",\"reason\":\"trade.fill.mm_maker\",\"direction\":\"credit\",\"amount\":\"60000\",\"postedAt\":\"2026-10-01T00:00:00.000Z\",\"assetId\":\"USDT\",\"entryId\":\"1\",\"rail\":null,\"product\":null,\"orderId\":null,\"fee\":null,\"withdrawalId\":null}],\"nextCursor\":null}"
+          }
+        }
+      ],
+      "result": {
+        "ok": {
+          "fills": [
+            {
+              "txId": "bb",
+              "postedAt": "2026-10-02T00:00:00.000Z",
+              "received": {
+                "assetId": "USDT",
+                "amount": "50000000000000000000"
+              },
+              "paid": {
+                "assetId": "ITF",
+                "amount": "1000000000000000000"
+              },
+              "fee": null
+            },
+            {
+              "txId": "mm",
+              "postedAt": "2026-10-01T00:00:00.000Z",
+              "received": {
+                "assetId": "BTC",
+                "amount": "1000000000000000000"
+              },
+              "paid": {
+                "assetId": "USDT",
+                "amount": "60000000000000000000000"
+              },
+              "fee": null
+            }
+          ],
+          "truncated": false,
+          "outsideInflows": [],
+          "inflows": [],
+          "outflows": [],
+          "withdrawalHolds": []
         }
       }
     },
