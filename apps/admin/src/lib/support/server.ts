@@ -2,6 +2,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import {
   supportAccountGroundingSchema,
+  supportChartsLookupSchema,
   supportCaseFileSchema,
   supportCommentSchema,
   supportKbArticleSchema,
@@ -43,6 +44,7 @@ import type {
   SupportLifecycleView,
   SupportMacrosView,
   SupportCustomerView,
+  SupportChartsLookupView,
   SupportPropertiesView,
   SupportRatingSummaryView,
   SupportBulkPolicyView,
@@ -238,6 +240,29 @@ export async function loadCustomerCard(ctx: FounderCallContext, ticketId: string
     founderCall(ctx, 'support', 'ticketLinks', 'GET', { ticketId }, readLinkedOrders),
   ]);
   return { asOf: now.toISOString(), account: partFrom(account, (a) => a, LABELS), orders: partFrom(orders, (o) => o, LABELS) };
+}
+
+/**
+ * A customer's price alerts with their history and saved desk layouts, for this ticket (J-charts-desk-19 #1). svc-support
+ * takes the customer from the ticket and writes one audit row before it reads; a lookup whose row did not land is refused,
+ * and the part says so.
+ */
+export async function loadChartsLookup(
+  ctx: FounderCallContext,
+  ticketId: string,
+  now: Date = new Date(),
+): Promise<SupportChartsLookupView> {
+  const result = await founderCall(ctx, 'support', 'ticketChartsLookup', 'GET', { ticketId }, parseWith(supportChartsLookupSchema));
+  return {
+    asOf: now.toISOString(),
+    lookup: partFrom(result, (l) => l, {
+      ...LABELS,
+      refusedMessage: (code) =>
+        code === 'support.charts_lookup_unaudited'
+          ? 'svc-support could not record this lookup in the request history, so it read nothing. Try again.'
+          : null,
+    }),
+  };
 }
 
 /** Who a ticket waits on and the request it follows. Its own read, so a refusal here never hides the ticket. */

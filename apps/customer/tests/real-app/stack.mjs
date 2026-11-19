@@ -652,3 +652,12 @@ export function fromUnits(units) {
 }
 /** price x amount, in units. */
 export const times = (a, b) => (toUnits(a) * toUnits(b)) / SCALE;
+
+/** The svc-trade market id of a listed spot symbol, from the public markets list; throws by name when it is not listed. */
+export async function marketIdOf(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  if (res.status !== 200) throw new Error(`the public markets list answered ${res.status}`);
+  const market = (await res.json()).find((m) => m.symbol === symbol);
+  if (!market) throw new Error(`${symbol} is not listed on the stack`);
+  return market.id;
+}

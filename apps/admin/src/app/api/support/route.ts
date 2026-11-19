@@ -24,6 +24,7 @@ import {
   loadTicketRouting,
   loadRatingSummary,
   loadCustomerCard,
+  loadChartsLookup,
   loadTicketLifecycle,
   loadTicketProperties,
   loadViews,
@@ -113,6 +114,12 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadCustomerCard(session, id), { headers: NO_STORE });
+  }
+  // A charts lookup (J-charts-desk-19 #1): svc-support records it on the request before it reads, so it runs on the click only.
+  if (url.searchParams.get('view') === 'charts') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadChartsLookup(session, id), { headers: NO_STORE });
   }
   if (url.searchParams.get('view') === 'lifecycle') {
     const id = url.searchParams.get('id');

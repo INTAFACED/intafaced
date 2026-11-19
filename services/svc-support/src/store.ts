@@ -34,7 +34,7 @@ import { checkSupportSettlement } from './settlement-refuse.js';
  * uses when they would rather there were no record. `create`, `setStatus` and
  * `claimTicket` each write ticket and trail together or write neither.
  *
- * `appendEvent` exists for `grounding_read` alone — a pure read with nothing
+ * `appendEvent` exists for the pure reads (`grounding_read`, `charts_lookup`) alone, with nothing
  * else to pair. Escalation is different: the case file and the `escalated`
  * trail row are two halves of one fact, so they go through
  * `putCaseFileWithEscalated` (same transaction). A path that wrote the case
@@ -129,7 +129,7 @@ function assertNoteAuthor(input: AddCommentInput): void {
 export type AppendEventInput = {
   ticketId: string;
   /** Pure read only. Escalation uses `putCaseFileWithEscalated`. */
-  kind: Extract<SupportTicketEventKind, 'grounding_read'>;
+  kind: Extract<SupportTicketEventKind, 'grounding_read' | 'charts_lookup'>;
   actorId: string;
   actorRole: 'user' | 'operator';
   note?: string | null;
@@ -150,11 +150,14 @@ export type SetStatusResult =
 
 /**
  * The trail rows after `expectedSequence` written by someone other than `actorId`, oldest first: what makes a write that
- * names `expectedSequence` stale. An account read (`grounding_read`) changes nothing and does not count.
+ * names `expectedSequence` stale. An account or charts read (`grounding_read`, `charts_lookup`) changes nothing and does not count.
  */
+/** Trail rows that record a read: they change nothing on the ticket. */
+const PURE_READS: ReadonlySet<SupportTicketEventKind> = new Set(['grounding_read', 'charts_lookup']);
+
 export function newerByOthers(events: readonly SupportTicketEvent[], expectedSequence: number, actorId: string): SupportTicketEvent[] {
   return events
-    .filter((row) => row.sequence > expectedSequence && row.actorId !== actorId && row.kind !== 'grounding_read')
+    .filter((row) => row.sequence > expectedSequence && row.actorId !== actorId && !PURE_READS.has(row.kind))
     .sort((a, b) => a.sequence - b.sequence);
 }
 
@@ -262,7 +265,7 @@ export interface SupportStore {
   previewMerge(input: { sourceId: string; survivorId: string }): Promise<MergePreviewResult>;
   /** The merge that closed this request into another, or null. */
   findMergeBySource(sourceId: string): Promise<TicketMergeRecord | null>;
-  /** Non-state-change trail row for a pure read: `grounding_read` only. */
+  /** Non-state-change trail row for a pure read: `grounding_read` or `charts_lookup`. */
   appendEvent(input: AppendEventInput): Promise<SupportTicketEvent>;
   /** The trail, oldest first. Omit `limit` for the full trail (tests / internal dumps). */
   listEvents(ticketId: string, options?: { limit?: number }): Promise<SupportTicketEvent[]>;
@@ -902,7 +905,7 @@ async function pgNewerByOthers(
   const rows = await tx<PgEvent[]>`
     SELECT id, ticket_id, sequence, kind, actor_id, actor_role, from_status, to_status, note, occurred_at
     FROM support.ticket_events
-    WHERE ticket_id = ${ticketId} AND sequence > ${expectedSequence} AND actor_id <> ${actorId} AND kind <> 'grounding_read'
+    WHERE ticket_id = ${ticketId} AND sequence > ${expectedSequence} AND actor_id <> ${actorId} AND kind NOT IN ('grounding_read', 'charts_lookup')
     ORDER BY sequence ASC
   `;
   return rows.map(eventFromPg);
