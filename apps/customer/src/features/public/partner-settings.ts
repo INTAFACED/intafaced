@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { OPS_OUTREACH_PUBLIC_SETTINGS } from '@intafaced/contracts/ops-public-procedures';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { partnerEnquiryHref } from './public-pages';
 
 export type PartnerSettings = {

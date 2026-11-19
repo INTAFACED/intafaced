@@ -11,8 +11,8 @@ const state: { session: { userId: string } | null; restoreFailed: boolean } = {
   session: null,
   restoreFailed: false,
 };
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   return { ...real, useSession: () => ({ ...state }) };
 });
 

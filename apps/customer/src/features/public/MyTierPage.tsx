@@ -4,7 +4,7 @@ import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
 import { useLocation } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { feeTierFetcher, snapshotTime, type FeeTier, type FeeTierBenefits } from './fee-tier';
 import { feeTierCopy } from './fee-tier-copy';
 import { VipApply } from './VipApply';
