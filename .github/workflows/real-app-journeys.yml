@@ -502,12 +502,13 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # Lets deferred runs go (main-first.mjs --release): on main, once the planner has queued main's shards, so the
+  # Lets deferred runs go (main-first.mjs --release): on main, once main's shards are queued (after the build), so the
   # deferred runs' jobs queue behind them; after a hand-dispatched full run off main, so the ones the cap deferred run.
   # It re-runs only the newest run of each branch, only one its touch job marked deferred, and at most 40 a time.
   release:
     name: Let deferred runs go
-    needs: [touch]
+    # Main's shards queue when its build ends (they need it), so deferred runs go only after that.
+    needs: [touch, build]
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5 # seconds
@@ -587,7 +588,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: node .base/tooling/ci/main-first.mjs --release
 
-  # The stack's builds, once per run, beside the shards' own setup; every shard then starts on them
+  # The stack's builds, once per run, before the shards start; every shard then starts on them
   # instead of building again (measured on run 1138: 1m37s of each of 21 shards' setup was these same builds). The outputs travel with the stack's
   # build stamp, which `start` checks against its own checkout (same commit, no edits), so a shard that receives anything
   # else, or nothing, builds it itself as before (local-test-stack.mjs buildStillFresh).
@@ -655,11 +656,12 @@ jobs:
 
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
-    # Not on the build job: a shard's own setup runs beside it, and only the step that takes its build waits for it.
-    needs: [touch]
+    # After the build job, so no shard holds a runner while the build runs or waits for a runner of its own. A failed
+    # build still lets the shards run (`!cancelled()`), each building the stack itself.
+    needs: [touch, build]
     permissions:
       contents: read
-      actions: read # to read the build job's state and download its build
+      actions: read # to download the build job's build
     # The shards run even when planning failed (the Plan step goes on, and they fall back to Playwright's split); a targeted
     # run without its plan fails the touch job, so its shards don't run.
     if: ${{ !cancelled() && needs.touch.result == 'success' && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -766,61 +768,13 @@ jobs:
         timeout-minutes: 15
         uses: ./.github/actions/browser
 
-      # The run's one build (the build job), with its stamp in this shard's stack state, taken as late as possible so the
-      # setup above runs beside the build. It waits for that job at most 10 minutes, asking as the step below says; an
-      # answer that fails is asked again, and a run with no such job (in any attempt) stops at once. Best effort: without the build
-      # (the job failed or is late), or when the stamp does not vouch for this checkout, `start` builds as before.
-      # Why 60 s and actions/download-artifact (row d25 of project-state #2065): every shard asks the workflow token's API,
-      # which the seals, the CI review, the gate guards and Main trust share at 15,000 calls an hour. Asking every 20 s,
-      # then `gh run download`, cost about 4,900 calls in the hour to 03:20 UTC on 13 Nov (597 shards, 110 s mean wait),
-      # a third of that budget, and the hour ran out at 03:19. download-artifact reads this run's own artifact through
-      # the runner's artifact service, which spends no API call.
-      - name: Wait for the run's build
-        id: build
-        continue-on-error: true
-        timeout-minutes: 12
-        # Asked when the shard gets here, then once the build has had BUILD_SECONDS since it started (it took 134 s on
-        # main's run 44464621638), then every 15 s: three or four asks a shard, as the 60-second asks made, without the
-        # 36 s shard 23 of that run sat between the build ending and its next ask (INTAFACED/project-state#3240).
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BUILD_SECONDS: 120
-        run: |
-          state=""
-          until_s=$(( $(date +%s) + 600 ))
-          while [ "$(date +%s)" -lt "$until_s" ]; do
-            started=""
-            if jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100"); then
-              # The newest attempt's build job (a re-run of failed jobs carries the passed one over).
-              build=$(jq -c '[.jobs[] | select(.name == "Build the stack once")] | sort_by(.run_attempt) | last' <<<"$jobs")
-              state=$(jq -r 'if . == null then "none" else "\(.status) \(.conclusion)" end' <<<"$build")
-              case "$state" in completed\ * | none) break ;; esac
-              started=$(jq -r '.started_at // empty | fromdateiso8601' <<<"$build" 2>/dev/null || true)
-            fi
-            # Not started yet, or unread: 30 s. Started: until BUILD_SECONDS after its start, then every 15 s for a minute,
-            # then every 60 s, so a slow build costs no more asks than before.
-            wait_s=30
-            if [ -n "$started" ]; then
-              since=$(( $(date +%s) - started ))
-              if [ "$since" -lt "$BUILD_SECONDS" ]; then
-                wait_s=$(( BUILD_SECONDS - since ))
-              elif [ "$since" -lt $(( BUILD_SECONDS + 60 )) ]; then
-                wait_s=15
-              else
-                wait_s=60
-              fi
-            fi
-            sleep "$wait_s"
-          done
-          echo "build job: ${state:-not read}"
-          if [ "$state" != "completed success" ]; then
-            echo "::warning::no build from this run (${state:-not read}); this shard builds the stack itself"
-            exit 0
-          fi
-          echo "ready=true" >> "$GITHUB_OUTPUT"
+      # The run's one build (the build job), with its stamp in this shard's stack state. The shard starts only once that
+      # job has ended (`needs` above), so it never polls for the build while holding a runner. Best effort: without the
+      # build (the job failed), or when the stamp does not vouch for this checkout, `start` builds as before.
+      # download-artifact reads this run's own artifact through the runner's artifact service, which spends no API call.
       - name: Download the run's build
         id: build-download
-        if: steps.build.outputs.ready == 'true'
+        if: needs.build.result == 'success'
         continue-on-error: true
         timeout-minutes: 5
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
