@@ -1,3 +1,4 @@
+import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
 import type { ServiceName } from '@intafaced/contracts';
 import { LEDGER_CALLER_SERVICES } from './caller-allowlist.js';
 
@@ -20,7 +21,7 @@ const READERS_WITHOUT_POSTS = ['svc-matching', 'svc-tax'] as const satisfies rea
 const POSTERS_WITHOUT_READS = ['svc-ops', 'svc-campaigns', 'svc-academy'] as const satisfies readonly ServiceName[];
 
 const POSTERS: readonly ServiceName[] = LEDGER_CALLER_SERVICES;
-const READERS: readonly ServiceName[] = [
+export const READERS: readonly ServiceName[] = [
   ...POSTERS.filter((s) => !(POSTERS_WITHOUT_READS as readonly ServiceName[]).includes(s)),
   ...READERS_WITHOUT_POSTS,
 ];
@@ -32,7 +33,8 @@ export const LEDGER_DOOR_CALLERS = {
   txByKey: [...READERS, ...POSTERS_WITHOUT_READS],
   txById: READERS,
   history: READERS,
-  historyPage: READERS,
+  /** From its record (`@intafaced/contracts/ledger-history-page`); `door-callers.record.test.ts` holds it equal to READERS. */
+  historyPage: LEDGER_HISTORY_PAGE.access.callers,
   /** What one owner holds now and how it moved since a point in time: svc-bank's value-over-time read (J-portfolio-05). */
   holdingsHistory: ['svc-bank'],
   /** The asset and network registry (W-balances-05): read by every service that reads balances. */

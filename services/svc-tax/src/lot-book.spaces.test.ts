@@ -1,3 +1,5 @@
+import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
+import type { z } from 'zod';
 import { afterEach, describe, expect, it } from 'vitest';
 import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { BankOwnSpacesPort } from '@intafaced/contracts';
@@ -13,19 +15,19 @@ const USER = '11111111-1111-4111-8111-111111111111';
 const SPACE = '33333333-3333-4333-8333-333333333333';
 const realFetch = globalThis.fetch;
 
-type Entry = {
-  txId: string;
-  reason: string;
-  direction: 'debit' | 'credit';
-  amount: string;
-  postedAt: string;
-  assetId: string;
-  orderId: string | null;
-};
+/** One line of the ledger's history page on the wire, as its record says (`ledger.historyPage`). */
+type Entry = z.input<(typeof LEDGER_HISTORY_PAGE)['output']>['entries'][number];
 const entry = (e: Partial<Entry> & Pick<Entry, 'txId' | 'direction' | 'amount' | 'assetId'>): Entry => ({
   reason: 'trade.fill',
   postedAt: '2026-10-01T00:00:00.000Z',
   orderId: null,
+  // The rest of the door's wire line: the reply is parsed by its record.
+  module: 'trade',
+  entryId: '1',
+  rail: null,
+  product: null,
+  fee: null,
+  withdrawalId: null,
   ...e,
 });
 

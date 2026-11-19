@@ -7,6 +7,12 @@
       "transport": "trpc",
       "kind": "query",
       "path": "spaces.list",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -171,7 +177,2447 @@
           ],
           "additionalProperties": false
         }
-      }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "EUR",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": ""
+          }
+        }
+      ]
+    },
+    "ledger.historyPage": {
+      "service": "svc-ledger",
+      "transport": "http",
+      "method": "POST",
+      "path": "/trpc/historyPage",
+      "access": {
+        "caller": "service",
+        "callers": [
+          "svc-agents",
+          "svc-bank",
+          "svc-identity",
+          "svc-market",
+          "svc-mining-pool",
+          "svc-p2p",
+          "svc-pay",
+          "svc-token",
+          "svc-trade",
+          "svc-matching",
+          "svc-tax"
+        ]
+      },
+      "refusals": {
+        "ledger.history_cursor_invalid": "BAD_REQUEST",
+        "ledger.unauthenticated": "UNAUTHORIZED",
+        "s2s.caller_forbidden": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ownerType": {
+            "type": "string",
+            "enum": ["user", "subaccount", "module", "house", "treasury"]
+          },
+          "ownerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["available", "hold", "escrow", "stake", "collateral"]
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": ["ownerType", "ownerId", "kind"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "txId": {
+                  "type": "string"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": ["debit", "credit"]
+                },
+                "amount": {
+                  "type": "string"
+                },
+                "postedAt": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "entryId": {
+                  "type": "string"
+                },
+                "rail": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["crypto-native", "card-sandbox", "bank-crypto-ledger", "local-test"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "product": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["convert"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "orderId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "fee": {
+                  "type": ["string", "null"]
+                },
+                "withdrawalId": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [
+                "txId",
+                "module",
+                "reason",
+                "direction",
+                "amount",
+                "postedAt",
+                "assetId",
+                "entryId",
+                "rail",
+                "product",
+                "orderId",
+                "fee",
+                "withdrawalId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["entries", "nextCursor"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "ledger.owner_id_space": {
+          "at": "input",
+          "says": "ownerId is drawn from the space its ownerType declares (a lowercase UUID for a person's account, a slug for a platform one)"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "ownerType": "user",
+            "ownerId": "11111111-1111-4111-8111-111111111111",
+            "kind": "available"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "ownerType": "user",
+            "ownerId": "11111111-1111-4111-8111-111111111111",
+            "kind": "available",
+            "assetId": "USDT",
+            "limit": 200,
+            "cursor": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "ledger.owner_id_space",
+          "input": {
+            "ownerType": "user",
+            "ownerId": "fees:trade",
+            "kind": "available"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "ownerType": "user",
+            "ownerId": "11111111-1111-4111-8111-111111111111",
+            "kind": "available",
+            "limit": 201
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "ownerType": "user",
+            "ownerId": "11111111-1111-4111-8111-111111111111",
+            "kind": "available",
+            "before": "x"
+          }
+        }
+      ]
+    },
+    "tax.basisOverride.remove": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "basisOverride.remove",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:write",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.basis_store_unwired": "PRECONDITION_FAILED",
+        "tax.basis_lot_unknown": "PRECONDITION_FAILED",
+        "tax.basis_override_absent": "PRECONDITION_FAILED",
+        "tax.basis_price_invalid": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "lotId": {
+            "type": "string"
+          }
+        },
+        "required": ["lotId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "businessKey": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lotId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["override", "manual", "tombstone"]
+          },
+          "basisSource": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "customer-entered"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["businessKey", "version", "lotId", "kind", "basisSource"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "lotId": "l1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "lotId": "l1",
+            "extra": 1
+          }
+        }
+      ]
+    },
+    "tax.basisOverride.set": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "basisOverride.set",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:write",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.lot_method_required": "PRECONDITION_FAILED",
+        "tax.ledger_unwired": "PRECONDITION_FAILED",
+        "tax.ledger_history_unavailable": "PRECONDITION_FAILED",
+        "tax.basis_price_invalid": "PRECONDITION_FAILED",
+        "tax.basis_store_unwired": "PRECONDITION_FAILED",
+        "tax.basis_price_unset": "PRECONDITION_FAILED",
+        "tax.basis_date_unset": "PRECONDITION_FAILED",
+        "tax.basis_date_invalid": "PRECONDITION_FAILED",
+        "tax.basis_note_unset": "PRECONDITION_FAILED",
+        "tax.basis_lot_unknown": "PRECONDITION_FAILED",
+        "tax.manual_position_incomplete": "PRECONDITION_FAILED",
+        "portfolio.basis_override_not_allowed": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "lotId": {
+            "type": "string"
+          },
+          "pricePerUnit": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "sourceNote": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "qty": {
+            "type": "string"
+          }
+        },
+        "required": ["lotId", "pricePerUnit", "date", "sourceNote"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "businessKey": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lotId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["override", "manual", "tombstone"]
+          },
+          "basisSource": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "customer-entered"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["businessKey", "version", "lotId", "kind", "basisSource"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "lotId": "l1",
+            "pricePerUnit": "1.5",
+            "date": "2026-01-01",
+            "sourceNote": "n"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "lotId": "m1",
+            "pricePerUnit": "1.5",
+            "date": "2026-01-01",
+            "sourceNote": "n",
+            "assetId": "BTC",
+            "qty": "2"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "lotId": "l1",
+            "pricePerUnit": 1.5,
+            "date": "2026-01-01",
+            "sourceNote": "n"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "lotId": "l1",
+            "pricePerUnit": "1.5",
+            "date": "2026-01-01"
+          }
+        }
+      ]
+    },
+    "tax.exportPack": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "exportPack",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:read",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.jurisdiction_unmapped": "PRECONDITION_FAILED",
+        "tax.jurisdiction_map_invalid": "PRECONDITION_FAILED",
+        "tax.export_incomplete": "PRECONDITION_FAILED",
+        "tax.history_years_unset": "PRECONDITION_FAILED",
+        "tax.lot_method_required": "PRECONDITION_FAILED",
+        "tax.ledger_unwired": "PRECONDITION_FAILED",
+        "tax.ledger_history_unavailable": "PRECONDITION_FAILED",
+        "tax.basis_price_invalid": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "lotMethod": {
+            "type": "string",
+            "enum": ["FIFO", "LIFO", "HIFO"]
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": ["lotMethod"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "empty": {
+            "type": "boolean"
+          },
+          "complete": {
+            "type": "boolean",
+            "const": false
+          },
+          "lotMethod": {
+            "type": "string",
+            "enum": ["FIFO", "LIFO", "HIFO"]
+          },
+          "jurisdiction": {
+            "type": "string"
+          },
+          "lotCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "realized": {
+            "type": ["string", "null"]
+          },
+          "unrealized": {
+            "type": ["string", "null"]
+          },
+          "lake": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "absent"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": ["tax.data_lake_unavailable", "tax.indexer_unavailable"]
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "configured"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": ["tax.data_lake_unprobed", "tax.indexer_unprobed"]
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "indexer": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "absent"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": ["tax.data_lake_unavailable", "tax.indexer_unavailable"]
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "configured"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": ["tax.data_lake_unprobed", "tax.indexer_unprobed"]
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "residuals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subAccountBooks": {
+            "type": "string",
+            "enum": ["unwired", "read"]
+          },
+          "subAccounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subAccountId": {
+                  "type": "string"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": ["fill", "convert"]
+                      },
+                      "postedAt": {
+                        "type": "string"
+                      },
+                      "assetId": {
+                        "type": "string"
+                      },
+                      "qty": {
+                        "type": "string"
+                      },
+                      "fee": {
+                        "type": ["string", "null"]
+                      },
+                      "makerRebate": {
+                        "type": ["string", "null"]
+                      },
+                      "costBasis": {
+                        "type": ["string", "null"]
+                      },
+                      "proceeds": {
+                        "type": ["string", "null"]
+                      },
+                      "realized": {
+                        "type": ["string", "null"]
+                      }
+                    },
+                    "required": ["kind", "postedAt", "assetId", "qty", "fee", "makerRebate", "costBasis", "proceeds", "realized"],
+                    "additionalProperties": false
+                  }
+                },
+                "realized": {
+                  "type": ["string", "null"]
+                },
+                "residuals": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["subAccountId", "lines", "realized", "residuals"],
+              "additionalProperties": false
+            }
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mime": {
+            "type": "string",
+            "const": "application/json"
+          },
+          "bodyBase64": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "empty",
+          "complete",
+          "lotMethod",
+          "jurisdiction",
+          "lotCount",
+          "realized",
+          "unrealized",
+          "lake",
+          "indexer",
+          "residuals",
+          "subAccountBooks",
+          "subAccounts",
+          "filename",
+          "mime",
+          "bodyBase64"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "lotMethod": "HIFO"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "lotMethod": "FIFO",
+            "complete": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "lotMethod": "AVERAGE"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "tax.exportPreview": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "exportPreview",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:read",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.jurisdiction_unmapped": "PRECONDITION_FAILED",
+        "tax.jurisdiction_map_invalid": "PRECONDITION_FAILED",
+        "tax.export_incomplete": "PRECONDITION_FAILED",
+        "tax.history_years_unset": "PRECONDITION_FAILED",
+        "tax.lot_method_required": "PRECONDITION_FAILED",
+        "tax.ledger_unwired": "PRECONDITION_FAILED",
+        "tax.ledger_history_unavailable": "PRECONDITION_FAILED",
+        "tax.basis_price_invalid": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "lotMethod": {
+            "type": "string",
+            "enum": ["FIFO", "LIFO", "HIFO"]
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": ["lotMethod"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "empty": {
+            "type": "boolean"
+          },
+          "complete": {
+            "type": "boolean",
+            "const": false
+          },
+          "lotMethod": {
+            "type": "string",
+            "enum": ["FIFO", "LIFO", "HIFO"]
+          },
+          "jurisdiction": {
+            "type": "string"
+          },
+          "lotCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "realized": {
+            "type": ["string", "null"]
+          },
+          "unrealized": {
+            "type": ["string", "null"]
+          },
+          "lake": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "absent"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": ["tax.data_lake_unavailable", "tax.indexer_unavailable"]
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "configured"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": ["tax.data_lake_unprobed", "tax.indexer_unprobed"]
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "indexer": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "absent"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": ["tax.data_lake_unavailable", "tax.indexer_unavailable"]
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "configured"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": ["tax.data_lake_unprobed", "tax.indexer_unprobed"]
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "residuals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subAccountBooks": {
+            "type": "string",
+            "enum": ["unwired", "read"]
+          },
+          "subAccounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subAccountId": {
+                  "type": "string"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": ["fill", "convert"]
+                      },
+                      "postedAt": {
+                        "type": "string"
+                      },
+                      "assetId": {
+                        "type": "string"
+                      },
+                      "qty": {
+                        "type": "string"
+                      },
+                      "fee": {
+                        "type": ["string", "null"]
+                      },
+                      "makerRebate": {
+                        "type": ["string", "null"]
+                      },
+                      "costBasis": {
+                        "type": ["string", "null"]
+                      },
+                      "proceeds": {
+                        "type": ["string", "null"]
+                      },
+                      "realized": {
+                        "type": ["string", "null"]
+                      }
+                    },
+                    "required": ["kind", "postedAt", "assetId", "qty", "fee", "makerRebate", "costBasis", "proceeds", "realized"],
+                    "additionalProperties": false
+                  }
+                },
+                "realized": {
+                  "type": ["string", "null"]
+                },
+                "residuals": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["subAccountId", "lines", "realized", "residuals"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "empty",
+          "complete",
+          "lotMethod",
+          "jurisdiction",
+          "lotCount",
+          "realized",
+          "unrealized",
+          "lake",
+          "indexer",
+          "residuals",
+          "subAccountBooks",
+          "subAccounts"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "lotMethod": "HIFO"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "lotMethod": "FIFO",
+            "complete": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "lotMethod": "AVERAGE"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "tax.health": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "health",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "service": {
+            "type": "string",
+            "const": "svc-tax"
+          }
+        },
+        "required": ["ok", "service"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "tax.lotBook": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "lotBook",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:read",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.lot_method_required": "PRECONDITION_FAILED",
+        "tax.ledger_unwired": "PRECONDITION_FAILED",
+        "tax.ledger_history_unavailable": "PRECONDITION_FAILED",
+        "tax.basis_price_invalid": "PRECONDITION_FAILED"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": ["FIFO", "LIFO", "HIFO", "AVERAGE"]
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": ["FIFO", "LIFO", "HIFO", "AVERAGE"]
+          },
+          "preview": {
+            "type": "boolean"
+          },
+          "choices": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "saved"
+                  },
+                  "accountMethod": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["FIFO", "LIFO", "HIFO", "AVERAGE"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "assetMethods": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "assetId": {
+                          "type": "string"
+                        },
+                        "method": {
+                          "type": "string",
+                          "enum": ["FIFO", "LIFO", "HIFO", "AVERAGE"]
+                        }
+                      },
+                      "required": ["assetId", "method"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "days": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "day": {
+                          "type": "string"
+                        },
+                        "assetId": {
+                          "type": ["string", "null"]
+                        },
+                        "method": {
+                          "type": "string",
+                          "enum": ["FIFO", "LIFO", "HIFO", "AVERAGE"]
+                        }
+                      },
+                      "required": ["day", "assetId", "method"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "picks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "saleTxId": {
+                          "type": "string"
+                        },
+                        "assetId": {
+                          "type": "string"
+                        },
+                        "lotId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["saleTxId", "assetId", "lotId"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "includeTransfers": {
+                    "type": ["boolean", "null"]
+                  }
+                },
+                "required": ["status", "accountMethod", "assetMethods", "days", "picks", "includeTransfers"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unwired"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "tax.basis_store_unwired"
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unavailable"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "tax.choices_unavailable"
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "indicator": {
+            "type": "string",
+            "const": "indicator_not_tax_advice"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "assetId": {
+                  "type": "string"
+                },
+                "openQty": {
+                  "type": "string"
+                },
+                "openCostUsd": {
+                  "type": ["string", "null"]
+                },
+                "held": {
+                  "type": "string"
+                },
+                "uncountedQty": {
+                  "type": "string"
+                },
+                "venueAccount": {
+                  "type": "string"
+                }
+              },
+              "required": ["assetId", "openQty", "openCostUsd", "held", "uncountedQty"],
+              "additionalProperties": false
+            }
+          },
+          "sales": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": ["sale", "moved_out"]
+                },
+                "counted": {
+                  "type": "string",
+                  "enum": ["all", "part", "none"]
+                },
+                "fee": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "known"
+                        },
+                        "assetId": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "string"
+                        },
+                        "usd": {
+                          "type": ["string", "null"]
+                        }
+                      },
+                      "required": ["status", "assetId", "amount", "usd"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "unknown"
+                        }
+                      },
+                      "required": ["status"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "market": {
+                  "type": "string"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": ["FIFO", "LIFO", "HIFO", "AVERAGE"]
+                },
+                "methodSource": {
+                  "type": "string",
+                  "enum": ["preview", "day", "asset", "account", "default"]
+                },
+                "pickedLotId": {
+                  "type": ["string", "null"]
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "txId": {
+                  "type": "string"
+                },
+                "disposedAt": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "string"
+                },
+                "unmatchedQty": {
+                  "type": "string"
+                },
+                "proceedsUsd": {
+                  "type": ["string", "null"]
+                },
+                "costUsd": {
+                  "type": ["string", "null"]
+                },
+                "realizedUsd": {
+                  "type": ["string", "null"]
+                },
+                "matches": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "lotId": {
+                        "type": "string"
+                      },
+                      "qty": {
+                        "type": "string"
+                      },
+                      "costUsd": {
+                        "type": ["string", "null"]
+                      },
+                      "proceedsUsd": {
+                        "type": ["string", "null"]
+                      },
+                      "realizedUsd": {
+                        "type": ["string", "null"]
+                      },
+                      "basisSource": {
+                        "type": "string",
+                        "const": "customer-entered"
+                      },
+                      "counted": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["lotId", "qty", "costUsd", "proceedsUsd", "realizedUsd", "counted"],
+                    "additionalProperties": false
+                  }
+                },
+                "basisSource": {
+                  "type": "string",
+                  "const": "customer-entered"
+                },
+                "venueAccount": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "counted",
+                "method",
+                "methodSource",
+                "pickedLotId",
+                "assetId",
+                "txId",
+                "disposedAt",
+                "qty",
+                "unmatchedQty",
+                "proceedsUsd",
+                "costUsd",
+                "realizedUsd",
+                "matches"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "lots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "acquiredAt": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": ["trade", "deposit", "reward", "transfer_in", "other_in"]
+                },
+                "qty": {
+                  "type": "string"
+                },
+                "remaining": {
+                  "type": "string"
+                },
+                "costUsd": {
+                  "type": ["string", "null"]
+                },
+                "remainingCostUsd": {
+                  "type": ["string", "null"]
+                },
+                "valuedAt": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "usd": {
+                          "type": "string"
+                        },
+                        "price": {
+                          "type": "string"
+                        },
+                        "market": {
+                          "type": "string"
+                        },
+                        "timeframe": {
+                          "type": ["string", "null"]
+                        },
+                        "candleAt": {
+                          "type": ["string", "null"]
+                        }
+                      },
+                      "required": ["usd", "price", "market", "timeframe", "candleAt"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "daysHeld": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "termClass": {
+                  "type": "null"
+                },
+                "basisSource": {
+                  "type": "string",
+                  "const": "customer-entered"
+                },
+                "spaceId": {
+                  "type": "string"
+                },
+                "basisLotId": {
+                  "type": "string"
+                },
+                "carriedFrom": {
+                  "type": "object",
+                  "properties": {
+                    "lotId": {
+                      "type": "string"
+                    },
+                    "txId": {
+                      "type": "string"
+                    },
+                    "movedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["lotId", "txId", "movedAt"],
+                  "additionalProperties": false
+                },
+                "counted": {
+                  "type": "boolean"
+                },
+                "fee": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "known"
+                        },
+                        "assetId": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "string"
+                        },
+                        "usd": {
+                          "type": ["string", "null"]
+                        }
+                      },
+                      "required": ["status", "assetId", "amount", "usd"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "unknown"
+                        }
+                      },
+                      "required": ["status"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "venueAccount": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "assetId",
+                "acquiredAt",
+                "source",
+                "qty",
+                "remaining",
+                "costUsd",
+                "remainingCostUsd",
+                "valuedAt",
+                "daysHeld",
+                "termClass",
+                "counted"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "realizedUsd": {
+            "type": ["string", "null"]
+          },
+          "includeTransfers": {
+            "type": "boolean"
+          },
+          "feesUsd": {
+            "type": ["string", "null"]
+          },
+          "termRule": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "unset"
+              },
+              "code": {
+                "type": "string",
+                "const": "tax.term_rule_unset"
+              }
+            },
+            "required": ["status", "code"],
+            "additionalProperties": false
+          },
+          "residuals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outsideAssets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "spaces": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "read"
+                  },
+                  "list": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "spaceId": {
+                          "type": "string"
+                        },
+                        "assetId": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "archived": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["spaceId", "assetId", "name", "archived"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["status", "list"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unwired"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "tax.own_spaces_unwired"
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unavailable"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "tax.own_spaces_unavailable"
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "venue": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "read"
+                  },
+                  "test": {
+                    "type": "boolean"
+                  },
+                  "accounts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "account": {
+                          "type": "string"
+                        },
+                        "venueId": {
+                          "type": "string"
+                        },
+                        "owner": {
+                          "type": "string"
+                        },
+                        "subAccount": {
+                          "type": ["string", "null"]
+                        },
+                        "asOf": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["account", "venueId", "owner", "subAccount", "asOf"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["status", "test", "accounts"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unwired"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "tax.venue_unwired"
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "off"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "tax.venue_off"
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unavailable"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "tax.venue_unavailable"
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "manualPositions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "acquiredAt": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "string"
+                },
+                "costUsd": {
+                  "type": "string"
+                },
+                "pricePerUnit": {
+                  "type": "string"
+                },
+                "sourceNote": {
+                  "type": "string"
+                },
+                "basisSource": {
+                  "type": "string",
+                  "const": "customer-entered"
+                },
+                "heldApart": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": ["id", "assetId", "acquiredAt", "qty", "costUsd", "pricePerUnit", "sourceNote", "basisSource", "heldApart"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "method",
+          "preview",
+          "choices",
+          "indicator",
+          "assets",
+          "sales",
+          "lots",
+          "realizedUsd",
+          "includeTransfers",
+          "feesUsd",
+          "termRule",
+          "residuals"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        },
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "method": "HIFO"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "method": "NEWEST"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "method": "FIFO",
+            "extra": 1
+          }
+        }
+      ]
+    },
+    "tax.missingBasis": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "missingBasis",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:read",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.lot_method_required": "PRECONDITION_FAILED",
+        "tax.ledger_unwired": "PRECONDITION_FAILED",
+        "tax.ledger_history_unavailable": "PRECONDITION_FAILED",
+        "tax.basis_price_invalid": "PRECONDITION_FAILED"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": ["FIFO", "LIFO", "HIFO", "AVERAGE"]
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "lotId": {
+                  "type": ["string", "null"]
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["open", "disposal"]
+                },
+                "qty": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string",
+                  "enum": ["tax.cost_basis_unavailable", "tax.lot_underflow"]
+                },
+                "effect": {
+                  "type": "string",
+                  "const": "unknown share"
+                },
+                "saleTxId": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["lotId", "assetId", "kind", "qty", "code", "effect", "saleTxId"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "method": "LIFO"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "method": 7
+          }
+        }
+      ]
+    },
+    "tax.pickSaleLot": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "pickSaleLot",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:write",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.basis_store_unwired": "PRECONDITION_FAILED",
+        "tax.lot_method_required": "PRECONDITION_FAILED",
+        "tax.ledger_unwired": "PRECONDITION_FAILED",
+        "tax.ledger_history_unavailable": "PRECONDITION_FAILED",
+        "tax.basis_price_invalid": "PRECONDITION_FAILED",
+        "tax.lot_pick_invalid": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "saleTxId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "assetId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]{1,20}$"
+          },
+          "lotId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["saleTxId", "assetId", "lotId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "saved": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["saved"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "saleTxId": "s1",
+            "assetId": "BTC",
+            "lotId": null
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "saleTxId": "s1",
+            "assetId": "BTC",
+            "lotId": "l1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "saleTxId": "",
+            "assetId": "BTC",
+            "lotId": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "saleTxId": "s1",
+            "assetId": "BTC",
+            "lotId": ""
+          }
+        }
+      ]
+    },
+    "tax.pnlOverTime": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "pnlOverTime",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:read",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.lot_method_required": "PRECONDITION_FAILED",
+        "tax.ledger_unwired": "PRECONDITION_FAILED",
+        "tax.ledger_history_unavailable": "PRECONDITION_FAILED",
+        "tax.basis_price_invalid": "PRECONDITION_FAILED",
+        "tax.pnl_range_invalid": "PRECONDITION_FAILED",
+        "tax.pnl_range_too_long": "PRECONDITION_FAILED",
+        "tax.pnl_prices_unavailable": "PRECONDITION_FAILED",
+        "tax.pnl_breakdown_mismatch": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "utcOffsetMinutes": {
+            "type": "integer",
+            "minimum": -840,
+            "maximum": 840
+          }
+        },
+        "required": ["from", "utcOffsetMinutes"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "indicator": {
+            "type": "string",
+            "const": "indicator_not_tax_advice"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string",
+            "enum": ["5m", "1h", "4h", "1d", "1w"]
+          },
+          "includeTransfers": {
+            "type": "boolean"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "type": "string"
+                },
+                "totalUsd": {
+                  "type": ["string", "null"]
+                },
+                "realizedUsd": {
+                  "type": ["string", "null"]
+                },
+                "unrealizedUsd": {
+                  "type": ["string", "null"]
+                },
+                "missing": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "assetId": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": ["no_price", "cost_unknown"]
+                      }
+                    },
+                    "required": ["assetId", "reason"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["at", "totalUsd", "realizedUsd", "unrealizedUsd", "missing"],
+              "additionalProperties": false
+            }
+          },
+          "periodUsd": {
+            "type": ["string", "null"]
+          },
+          "feesUsd": {
+            "type": ["string", "null"]
+          },
+          "byAsset": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "usd": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["key", "usd"],
+              "additionalProperties": false
+            }
+          },
+          "byMarket": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "usd": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["key", "usd"],
+              "additionalProperties": false
+            }
+          },
+          "byDay": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "usd": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["key", "usd"],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "utcOffsetMinutes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "residuals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "indicator",
+          "from",
+          "to",
+          "interval",
+          "includeTransfers",
+          "points",
+          "periodUsd",
+          "feesUsd",
+          "byAsset",
+          "byMarket",
+          "byDay",
+          "utcOffsetMinutes",
+          "residuals"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "from": "2026-01-01T00:00:00Z",
+            "utcOffsetMinutes": 60
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "from": "2026-01-01T00:00:00+08:00",
+            "to": "2026-02-01T00:00:00.000Z",
+            "utcOffsetMinutes": -840
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "from": "2026-01-01T00:00:00Z",
+            "utcOffsetMinutes": 900
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "from": "2026-01-01T00:00:00Z",
+            "utcOffsetMinutes": 1.5
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "from": "2026-01-01",
+            "utcOffsetMinutes": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "utcOffsetMinutes": 0
+          }
+        }
+      ]
+    },
+    "tax.setDayMethod": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "setDayMethod",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:write",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.basis_store_unwired": "PRECONDITION_FAILED",
+        "tax.lot_method_required": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "assetId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]{1,20}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["FIFO", "LIFO", "HIFO", "AVERAGE"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["day", "assetId", "method"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "saved": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["saved"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "tax.day_exists": {
+          "at": "input.day",
+          "says": "the day is a real calendar day (no 30 February)"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "day": "2026-01-01",
+            "assetId": "BTC",
+            "method": "LIFO"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "day": "2024-02-29",
+            "assetId": null,
+            "method": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "tax.day_exists",
+          "input": {
+            "day": "2026-02-30",
+            "assetId": null,
+            "method": "FIFO"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "day": "2026-1-01",
+            "assetId": null,
+            "method": "FIFO"
+          }
+        }
+      ]
+    },
+    "tax.setIncludeTransfers": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "setIncludeTransfers",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:write",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.basis_store_unwired": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "include": {
+            "type": ["boolean", "null"]
+          }
+        },
+        "required": ["include"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "saved": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["saved"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "include": true
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "include": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "include": "yes"
+          }
+        }
+      ]
+    },
+    "tax.setLotMethod": {
+      "service": "svc-tax",
+      "module": "tax",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "setLotMethod",
+      "access": {
+        "caller": "scope",
+        "scope": "tax:write",
+        "module": "tax",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "tax.basis_store_unwired": "PRECONDITION_FAILED",
+        "tax.lot_method_required": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9]{1,20}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["FIFO", "LIFO", "HIFO", "AVERAGE"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["assetId", "method"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "saved": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["saved"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": null,
+            "method": "FIFO"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "BTC",
+            "method": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": "B-T",
+            "method": "FIFO"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "method": "FIFO"
+          }
+        }
+      ]
     }
   }
 }

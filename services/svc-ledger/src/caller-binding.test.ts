@@ -1,3 +1,4 @@
+import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
 import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -394,7 +395,9 @@ describe('every door names its callers', () => {
 
   it('declares exactly the 21 doors registerS2sHttp serves', () => {
     const source = readFileSync(join(ROOT, 'services/svc-ledger/src/s2s-http.ts'), 'utf8');
-    const served = [...source.matchAll(/'\/trpc\/([A-Za-z]+)'/g)].map((match) => match[1]).sort();
+    // A door mounted from its record names its route by the record (`app.post(LEDGER_HISTORY_PAGE.path, ...)`).
+    const fromRecords = source.includes('app.post(LEDGER_HISTORY_PAGE.path,') ? [LEDGER_HISTORY_PAGE.path.slice('/trpc/'.length)] : [];
+    const served = [...[...source.matchAll(/'\/trpc\/([A-Za-z]+)'/g)].map((match) => match[1]), ...fromRecords].sort();
     expect(Object.keys(LEDGER_DOOR_CALLERS).sort()).toEqual([...new Set(served)]);
     expect(served).toHaveLength(21);
   });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { accountRefSchema, describeOwnerIdSpace, formatAmount, isValidOwnerId, LedgerError, type Amount } from '@intafaced/ledger-client';
+import { accountRefSchema, formatAmount, LedgerError, type Amount } from '@intafaced/ledger-client';
+import { HISTORY_PRODUCTS, HISTORY_RAILS, historyPageInputSchema } from '@intafaced/contracts/ledger-history-page';
 
 /**
  * ENTRY HISTORY — the read behind svc-bank's spend view (§8.1).
@@ -228,26 +229,7 @@ export function parseHistoryDoorInput(body: unknown): HistoryInput {
  * time bound would have to walk every newer entry. The schema is strict, so a
  * stray `before` (or any unknown key) is refused, not silently ignored.
  */
-export const HISTORY_PAGE_DEFAULT_LIMIT = 50;
-export const HISTORY_PAGE_MAX_LIMIT = 200;
-
-export const historyPageInputSchema = z
-  .object({
-    ...accountRefSchema.shape,
-    /** Optional here (required on a plain AccountRef): omitted = all of the owner's assets. */
-    assetId: z.string().min(1).max(16).optional(),
-    limit: z.number().int().min(1).max(HISTORY_PAGE_MAX_LIMIT).default(HISTORY_PAGE_DEFAULT_LIMIT),
-    cursor: z.string().min(1).max(256).optional(),
-  })
-  .strict()
-  .superRefine((ref, ctx) => {
-    if (isValidOwnerId(ref.ownerType, ref.ownerId)) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['ownerId'],
-      message: `owner_type "${ref.ownerType}" requires ${describeOwnerIdSpace(ref.ownerType)} — got "${ref.ownerId}"`,
-    });
-  });
+export { HISTORY_PAGE_DEFAULT_LIMIT, HISTORY_PAGE_MAX_LIMIT, historyPageInputSchema } from '@intafaced/contracts/ledger-history-page';
 
 export type HistoryPageInput = z.infer<typeof historyPageInputSchema>;
 
@@ -265,7 +247,6 @@ export type HistoryPageInput = z.infer<typeof historyPageInputSchema>;
  *    (tooling/scripts/local-test-world.mjs:10, stack worktree). A display label only;
  *    production has no welcome rail.
  */
-export const HISTORY_RAILS = ['crypto-native', 'card-sandbox', 'bank-crypto-ledger', 'local-test'] as const;
 export type HistoryRail = (typeof HISTORY_RAILS)[number];
 
 const HISTORY_RAIL_SET: ReadonlySet<string> = new Set(HISTORY_RAILS);
@@ -281,7 +262,6 @@ export function allowedHistoryRail(raw: unknown): HistoryRail | null {
  *  - `convert`  a Convert fill (`recipes.marketMakerMakerFill` with `product: 'convert'`, svc-trade convert/settle.ts),
  *    so the bank's activity can tell a conversion from a desk trade that posts the same reason.
  */
-export const HISTORY_PRODUCTS = ['convert'] as const;
 export type HistoryProduct = (typeof HISTORY_PRODUCTS)[number];
 
 const HISTORY_PRODUCT_SET: ReadonlySet<string> = new Set(HISTORY_PRODUCTS);
