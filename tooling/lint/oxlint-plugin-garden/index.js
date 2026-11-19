@@ -24,6 +24,7 @@ import { handClockRules } from './hand-clock-rule.js';
 import { restartServiceRules } from './restart-service-rule.js';
 import { storedSearchRules } from './stored-search-rule.js';
 import { callByNameRules } from './call-by-name-rule.js';
+import { runtimeSwapRules } from './runtime-swap-rule.js';
 import { crossFeatureImportRules } from './cross-feature-import-rule.js';
 import { sourceTextTestRules } from './source-text-test-rule.js';
 
@@ -226,6 +227,7 @@ export default {
     ...restartServiceRules,
     ...storedSearchRules,
     ...callByNameRules,
+    ...runtimeSwapRules,
     ...crossFeatureImportRules,
     ...sourceTextTestRules,
   },

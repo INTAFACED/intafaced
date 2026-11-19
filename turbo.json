@@ -275,10 +275,7 @@
       "outputs": [],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/auth/**",
-        "$TURBO_ROOT$/packages/config/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
-        "$TURBO_ROOT$/packages/contracts/**",
         "$TURBO_ROOT$/packages/db/**",
         "$TURBO_ROOT$/packages/events/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",

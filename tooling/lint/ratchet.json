@@ -6,6 +6,7 @@
     "garden/no-sign-in-in-step",
     "garden/no-call-by-name",
     "garden/no-source-text-test",
+    "garden/no-runtime-swap",
     "garden/no-cross-feature-import"
   ],
   "fixes": {

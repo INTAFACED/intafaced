@@ -512,8 +512,10 @@ export class BankApiService {
         ${userId}, ${input.idempotencyKey}, ${PAY_KEY(userId, input.idempotencyKey)}, ${from.id}::uuid, ${from.assetId},
         ${input.method}, ${this.sql.json(input.recipient as never)}, ${amount}::numeric, 'asked'
       )
-      ON CONFLICT (user_id, idempotency_key) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
+    // No conflict target: partner_key is PAY_KEY of (user_id, idempotency_key), so both unique keys name the same row, and a
+    // call that loses the insert race to the same key reads the row that won instead of raising 23505 on partner_key.
     const row = await this.paymentByKey(userId, input.idempotencyKey);
     if (
       row.from_space_id !== from.id ||

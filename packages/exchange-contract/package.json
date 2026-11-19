@@ -21,7 +21,7 @@
     "test": "tsc -p tsconfig.json && vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo",
-    "procedures:write": "tsc -p tsconfig.json && node scripts/write-procedures.mjs && prettier --write procedures.schema.json"
+    "procedures:write": "node ../contracts/scripts/procedure-registry.mjs . EXCHANGE_PROCEDURES @intafaced/contracts/procedure && tsc -p tsconfig.json && node scripts/write-procedures.mjs && prettier --write procedures.schema.json"
   },
   "dependencies": {
     "@intafaced/contracts": "workspace:*",
