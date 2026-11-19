@@ -8,9 +8,8 @@ import {
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Failure } from '../../shared/ui';
-import { useApi } from '../session/session';
-import { formatUnits } from '../protocol/swap/swap-math';
-import { utcTime } from '../protocol/wallet/SessionKeysPanel';
+import { useApi } from '../session';
+import { formatUnits, utcTime } from '../protocol';
 import { navigatorOnchainCopy } from './navigator-onchain-copy';
 
 type T = ReturnType<typeof navigatorOnchainCopy.forLocale>['t'];

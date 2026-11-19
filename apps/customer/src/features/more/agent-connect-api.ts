@@ -13,8 +13,8 @@ import {
 } from '@intafaced/contracts/api-keys';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { requestPasskeyAssertion } from '../session/webauthn';
-import type { StepUpBegin } from '../account/security-step-up';
+import { requestPasskeyAssertion } from '../session';
+import type { StepUpBegin } from '../account';
 
 const decimal = z.string().regex(/^-?[0-9]+(\.[0-9]+)?$/);
 
