@@ -1,10 +1,9 @@
 import 'server-only';
-import { accountSearchSpec } from '@/lib/account-search/search';
+import { accountSearchSpec } from '@/lib/account-search';
 import type { AdminSessionConfig, FounderSession } from '@/lib/founder-session';
-import { readLedgerLookup, type LedgerLookupOutcome } from '@/lib/ledger/lookup-server';
+import { readLedgerLookup, type LedgerLookupOutcome } from '@/lib/ledger';
 import { isModuleEnabled } from '@/lib/modules';
-import { loadRead } from '@/lib/ops-desk/server';
-import type { ReadOutcome, ReadSpec } from '@/lib/ops-desk/types';
+import { loadRead, type ReadOutcome, type ReadSpec } from '@/lib/ops-desk';
 import type { SearchPlan } from './cross-search';
 
 /** A section whose console module is switched off on this deployment is not asked, and says so. */
