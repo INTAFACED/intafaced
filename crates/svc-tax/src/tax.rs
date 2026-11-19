@@ -172,7 +172,7 @@ pub trait SubAccountReads {
 }
 
 /// `parseJurisdictionMap`: the counsel map, a JSON array or object of ISO alpha-2 codes. Blank, `[]` and `{}` map nothing.
-fn parse_map(raw: &str) -> Result<Vec<String>, TaxError> {
+pub fn parse_map(raw: &str) -> Result<Vec<String>, TaxError> {
     let text = raw.trim();
     if text.is_empty() {
         return Ok(Vec::new());

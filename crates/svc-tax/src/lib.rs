@@ -9,11 +9,22 @@
 //! when they are not attached (`tax.ledger_unwired`, `tax.basis_store_unwired`).
 
 pub mod access;
+pub mod clients;
 pub mod edge;
+pub mod env;
+pub mod http;
 pub mod inputs;
 pub mod json;
+pub mod money;
 pub mod ports;
+pub mod posture;
+pub mod ready;
+pub mod s2s;
+pub mod server;
+pub mod service;
+pub mod stores;
 pub mod tax;
+pub mod telemetry;
 pub mod time;
 pub mod wire;
 pub mod zod;

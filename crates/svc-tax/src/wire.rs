@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::access::{self, Jurisdiction};
-use crate::edge::{self, MIN_SECRET_LENGTH, Principal};
+use crate::edge::{self, EdgeKey, MIN_SECRET_LENGTH, Principal};
 use crate::inputs;
 use crate::json::{self, Json};
 use crate::tax::{Failure, TaxService};
@@ -173,6 +173,8 @@ pub struct Wire {
     tax: TaxService,
     /// Fastify's request ids: `req-1`, `req-2`, ... in base 36, one per request this process takes.
     requests: AtomicU64,
+    /// `EDGE_PRINCIPAL_PUBLIC_KEY` with its limits: the edge's Ed25519 principals are believed too.
+    edge_key: Option<EdgeKey>,
 }
 
 impl Wire {
@@ -190,10 +192,18 @@ impl Wire {
             dev: config.env.get("NODE_ENV").map(String::as_str) != Some("production"),
             tax: config.tax,
             requests: AtomicU64::new(0),
+            edge_key: None,
         })
     }
 
-    fn next_request_id(&self) -> String {
+    /// Also believes principals the edge signed with its key (`edgeTrustFromEnv`).
+    pub fn with_edge_key(mut self, key: EdgeKey) -> Wire {
+        self.edge_key = Some(key);
+        self
+    }
+
+    /// The next Fastify request id. The server takes one for every request, whatever its route.
+    pub fn next_request_id(&self) -> String {
         let mut n = self
             .requests
             .fetch_add(1, Ordering::Relaxed)
@@ -209,6 +219,11 @@ impl Wire {
     /// Answers one request.
     pub fn handle(&self, req: &Request<'_>) -> Response {
         let request_id = self.next_request_id();
+        self.handle_as(req, &request_id)
+    }
+
+    /// Answers one request under the id the server already gave it.
+    pub fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
         let (path_part, query) = req.url.split_once('?').unwrap_or((req.url, ""));
         let Some(raw_path) = path_part
             .strip_prefix("/trpc/")
@@ -235,7 +250,7 @@ impl Wire {
                 status: 200,
                 body: Json::obj([("result", Json::obj([("data", data)]))]).compact(),
             },
-            Err(e) => self.error(&e, &path, &request_id),
+            Err(e) => self.error(&e, &path, request_id),
         }
     }
 
@@ -322,10 +337,11 @@ impl Wire {
         }
 
         let region = Self::header(req, "x-intafaced-region").unwrap_or_else(|| "XX".to_owned());
-        let principal = edge::verify(
+        let principal = edge::verify_with(
             Self::header(req, "x-intafaced-principal").as_deref(),
             Self::header(req, "x-intafaced-principal-sig").as_deref(),
             &self.secret,
+            self.edge_key.as_ref(),
             self.tax.now(),
             &region,
         );
