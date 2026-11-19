@@ -4,8 +4,8 @@
 
 use postgres::{GenericClient, Transaction};
 
-use service_kit::json::Json;
 use crate::db::Store;
+use service_kit::json::Json;
 use service_kit::schema::Value;
 
 use super::sql::{self, P, at, first, get, int, iso_of, ms, opt_int, query};
@@ -29,8 +29,7 @@ fn columns(items: &str) -> String {
 }
 
 /// Items a learner can open, counted in the same read.
-const COUNTED: &str =
-    "(SELECT count(*)::int FROM academy.course_items i WHERE i.course_id = c.id AND i.kind <> 'subheader')";
+const COUNTED: &str = "(SELECT count(*)::int FROM academy.course_items i WHERE i.course_id = c.id AND i.kind <> 'subheader')";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CourseRow {
@@ -171,7 +170,10 @@ impl Limits {
     }
 }
 
-#[expect(clippy::too_many_arguments, reason = "one course event row: its columns, as the TypeScript inserts them")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one course event row: its columns, as the TypeScript inserts them"
+)]
 fn event<C: GenericClient>(
     c: &mut C,
     course_id: &str,
@@ -188,13 +190,27 @@ fn event<C: GenericClient>(
         c,
         "INSERT INTO academy.course_events (course_id, revision, kind, from_state, to_state, actor, reason, at) \
          VALUES ($1::text::uuid, $2::int4, $3::text, $4::text, $5::text, $6::text::uuid, $7::text, $8::text::timestamptz)",
-        &[&course_id, &rev, &kind, &from, &to, &actor, &reason, &at(now)],
+        &[
+            &course_id,
+            &rev,
+            &kind,
+            &from,
+            &to,
+            &actor,
+            &reason,
+            &at(now),
+        ],
     )?;
     Ok(())
 }
 
 /// The kind (and target state) of this operator's own event at `revision`, when there is one.
-fn own_event<C: GenericClient>(c: &mut C, course_id: &str, revision: i64, actor: &str) -> Result<Option<(String, String)>, Refusal> {
+fn own_event<C: GenericClient>(
+    c: &mut C,
+    course_id: &str,
+    revision: i64,
+    actor: &str,
+) -> Result<Option<(String, String)>, Refusal> {
     let rev = i32::try_from(revision).unwrap_or(i32::MAX);
     first(
         c,
@@ -285,14 +301,22 @@ impl OutlineSection {
     fn shape(&self) -> Json {
         shape_json(
             &self.title,
-            self.items
-                .iter()
-                .map(|i| (i.kind.as_str(), i.title.as_str(), i.indent, i.url.as_deref())),
+            self.items.iter().map(|i| {
+                (
+                    i.kind.as_str(),
+                    i.title.as_str(),
+                    i.indent,
+                    i.url.as_deref(),
+                )
+            }),
         )
     }
 }
 
-fn shape_json<'a>(title: &str, items: impl Iterator<Item = (&'a str, &'a str, i64, Option<&'a str>)>) -> Json {
+fn shape_json<'a>(
+    title: &str,
+    items: impl Iterator<Item = (&'a str, &'a str, i64, Option<&'a str>)>,
+) -> Json {
     Json::Array(vec![
         Json::str(title),
         Json::Array(
@@ -353,7 +377,13 @@ fn sections_of(input: &Value) -> Vec<SectionIn<'_>> {
 
 impl CourseRecords {
     /// `create`: `assertSlugFree` before anything is read, then the insert keyed by the slug.
-    pub fn create(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn create(
+        &self,
+        pool: &Store,
+        input: &Value,
+        operator: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let slug = text(input, "slug");
         assert_slug_free(slug)?;
         let d = Details::of(input);
@@ -369,16 +399,31 @@ impl CourseRecords {
                      ON CONFLICT (slug) DO NOTHING RETURNING {}",
                     columns("0")
                 ),
-                &[&slug, &d.title, &d.summary, &d.thumbnail_url, &d.pricing, &price, &d.price_asset, &operator, &at(now)],
+                &[
+                    &slug,
+                    &d.title,
+                    &d.summary,
+                    &d.thumbnail_url,
+                    &d.pricing,
+                    &price,
+                    &d.price_asset,
+                    &operator,
+                    &at(now),
+                ],
             )?;
             if let Some(r) = inserted {
                 let row = CourseRow::of(&r)?;
-                event(tx, &row.id, 1, "created", None, "draft", operator, None, now)?;
+                event(
+                    tx, &row.id, 1, "created", None, "draft", operator, None, now,
+                )?;
                 return Ok(row.json());
             }
             let existing = first(
                 tx,
-                &format!("SELECT {} FROM academy.courses c WHERE c.slug = $1::text", columns("0")),
+                &format!(
+                    "SELECT {} FROM academy.courses c WHERE c.slug = $1::text",
+                    columns("0")
+                ),
                 &[&slug],
             )?
             .map(|r| CourseRow::of(&r))
@@ -398,7 +443,13 @@ impl CourseRecords {
     }
 
     /// `duplicate`: a new draft at its own address, copied from any course; no learner record is read or written.
-    pub fn duplicate(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn duplicate(
+        &self,
+        pool: &Store,
+        input: &Value,
+        operator: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let slug = text(input, "slug");
         assert_slug_free(slug)?;
         let title = text(input, "title");
@@ -458,7 +509,17 @@ impl CourseRecords {
                 );
             };
             let copy = CourseRow::of(&copy)?;
-            event(tx, &copy.id, 1, "created", None, "draft", operator, Some(&reason), now)?;
+            event(
+                tx,
+                &copy.id,
+                1,
+                "created",
+                None,
+                "draft",
+                operator,
+                Some(&reason),
+                now,
+            )?;
             sql::exec(
                 tx,
                 "INSERT INTO academy.course_topics (course_id, topic_id) \
@@ -478,7 +539,10 @@ impl CourseRecords {
                 let mut values = Vec::new();
                 let mut params: Vec<Box<dyn postgres::types::ToSql + Sync>> = Vec::new();
                 for (n, s) in sections.iter().enumerate() {
-                    let new_id = section_ids.get(n).map(|(_, v)| v.clone()).unwrap_or_default();
+                    let new_id = section_ids
+                        .get(n)
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or_default();
                     let b = params.len();
                     values.push(format!(
                         "(${}::text::uuid, ${}::text::uuid, ${}::int4, ${}::text)",
@@ -579,7 +643,13 @@ impl CourseRecords {
         })
     }
 
-    pub fn update(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn update(
+        &self,
+        pool: &Store,
+        input: &Value,
+        operator: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let d = Details::of(input);
         let price = canonical_price(d.price);
         let revision = super::int(input, "revision");
@@ -594,7 +664,10 @@ impl CourseRecords {
             }
             stale(&row, revision)?;
             if row.state != "draft" {
-                return refuse(format!("a {} course is not edited here", row.state), "academy.course_not_editable");
+                return refuse(
+                    format!("a {} course is not edited here", row.state),
+                    "academy.course_not_editable",
+                );
             }
             let next = first(
                 tx,
@@ -605,16 +678,42 @@ impl CourseRecords {
                      WHERE c.id = $1::text::uuid RETURNING {}",
                     columns("$9::int4")
                 ),
-                &[&row.id, &d.title, &d.summary, &d.thumbnail_url, &d.pricing, &price, &d.price_asset, &at(now), &i4(row.items)],
+                &[
+                    &row.id,
+                    &d.title,
+                    &d.summary,
+                    &d.thumbnail_url,
+                    &d.pricing,
+                    &price,
+                    &d.price_asset,
+                    &at(now),
+                    &i4(row.items),
+                ],
             )?;
             let next = CourseRow::of(&next.ok_or_else(missing)?)?;
-            event(tx, &row.id, next.revision, "updated", Some(&row.state), &row.state, operator, None, now)?;
+            event(
+                tx,
+                &row.id,
+                next.revision,
+                "updated",
+                Some(&row.state),
+                &row.state,
+                operator,
+                None,
+                now,
+            )?;
             Ok(next.json())
         })
     }
 
     /// `setTopics`: the topics as a whole over the revision read.
-    pub fn set_topics(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn set_topics(
+        &self,
+        pool: &Store,
+        input: &Value,
+        operator: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let revision = super::int(input, "revision");
         let topic_ids: Vec<String> = input
             .get("topicIds")
@@ -635,14 +734,18 @@ impl CourseRecords {
                 .iter()
                 .map(|r| get(r, "topic_id"))
                 .collect::<Result<_, _>>()?;
-                let same = held.len() == topic_ids.len() && held.iter().all(|h| topic_ids.contains(h));
+                let same =
+                    held.len() == topic_ids.len() && held.iter().all(|h| topic_ids.contains(h));
                 if own.is_some_and(|(k, _)| k == "topics") && same {
                     return Ok(self.get_in(tx, &row.id)?.json(self.limits));
                 }
             }
             stale(&row, revision)?;
             if row.state != "draft" && row.state != "published" {
-                return refuse(format!("a {} course is not filed here", row.state), "academy.course_not_editable");
+                return refuse(
+                    format!("a {} course is not filed here", row.state),
+                    "academy.course_not_editable",
+                );
             }
             if !topic_ids.is_empty() {
                 let found = query(
@@ -654,7 +757,11 @@ impl CourseRecords {
                     return refuse("no topic with one of those ids", "academy.topic_not_found");
                 }
             }
-            sql::exec(tx, "DELETE FROM academy.course_topics WHERE course_id = $1::text::uuid", &[&row.id])?;
+            sql::exec(
+                tx,
+                "DELETE FROM academy.course_topics WHERE course_id = $1::text::uuid",
+                &[&row.id],
+            )?;
             if !topic_ids.is_empty() {
                 sql::exec(
                     tx,
@@ -664,12 +771,28 @@ impl CourseRecords {
                 )?;
             }
             let next = bump(tx, &row.id, now)?;
-            event(tx, &row.id, next, "topics", Some(&row.state), &row.state, operator, None, now)?;
+            event(
+                tx,
+                &row.id,
+                next,
+                "topics",
+                Some(&row.state),
+                &row.state,
+                operator,
+                None,
+                now,
+            )?;
             Ok(self.get_in(tx, &row.id)?.json(self.limits))
         })
     }
 
-    pub fn set_state(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn set_state(
+        &self,
+        pool: &Store,
+        input: &Value,
+        operator: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let revision = super::int(input, "revision");
         let to = text(input, "to");
         let reason = text(input, "reason");
@@ -691,7 +814,10 @@ impl CourseRecords {
                 );
             }
             if row.pricing == "paid" && row.price.is_none() {
-                return refuse("a paid course has no price, so it is not published", "academy.price_unset");
+                return refuse(
+                    "a paid course has no price, so it is not published",
+                    "academy.price_unset",
+                );
             }
             if row.items == 0 {
                 return refuse(
@@ -710,12 +836,28 @@ impl CourseRecords {
                 &[&row.id, &to, &at(now), &i4(row.items)],
             )?;
             let next = CourseRow::of(&next.ok_or_else(missing)?)?;
-            event(tx, &row.id, next.revision, "state", Some(&row.state), to, operator, Some(reason), now)?;
+            event(
+                tx,
+                &row.id,
+                next.revision,
+                "state",
+                Some(&row.state),
+                to,
+                operator,
+                Some(reason),
+                now,
+            )?;
             Ok(next.json())
         })
     }
 
-    pub fn withdraw_price(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn withdraw_price(
+        &self,
+        pool: &Store,
+        input: &Value,
+        operator: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let revision = super::int(input, "revision");
         let reason = text(input, "reason");
         sql::begin(pool, |tx| {
@@ -730,15 +872,24 @@ impl CourseRecords {
             stale(&row, revision)?;
             if row.state != "published" {
                 return refuse(
-                    format!("a {} course's price is not withdrawn here; edit the draft", row.state),
+                    format!(
+                        "a {} course's price is not withdrawn here; edit the draft",
+                        row.state
+                    ),
                     "academy.course_not_editable",
                 );
             }
             if row.pricing != "paid" {
-                return refuse("a free course has no price to withdraw", "academy.course_not_editable");
+                return refuse(
+                    "a free course has no price to withdraw",
+                    "academy.course_not_editable",
+                );
             }
             if row.price.is_none() {
-                return refuse("the course has no price to withdraw", "academy.course_not_editable");
+                return refuse(
+                    "the course has no price to withdraw",
+                    "academy.course_not_editable",
+                );
             }
             let next = first(
                 tx,
@@ -751,13 +902,29 @@ impl CourseRecords {
                 &[&row.id, &at(now), &i4(row.items)],
             )?;
             let next = CourseRow::of(&next.ok_or_else(missing)?)?;
-            event(tx, &row.id, next.revision, "price_withdrawn", Some(&row.state), &row.state, operator, Some(reason), now)?;
+            event(
+                tx,
+                &row.id,
+                next.revision,
+                "price_withdrawn",
+                Some(&row.state),
+                &row.state,
+                operator,
+                Some(reason),
+                now,
+            )?;
             Ok(next.json())
         })
     }
 
     /// `saveOutline`: both limits set and the outline inside them before anything is read.
-    pub fn save_outline(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn save_outline(
+        &self,
+        pool: &Store,
+        input: &Value,
+        operator: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let (max_sections, max_items) = self.limits.both()?;
         let sections = sections_of(input);
         let item_count: usize = sections
@@ -768,14 +935,21 @@ impl CourseRecords {
         let n_items = i64::try_from(item_count).unwrap_or(i64::MAX);
         if n_sections > max_sections || n_items > max_items {
             return refuse(
-                format!("{n_sections} sections and {n_items} items; the limits are {max_sections} and {max_items}"),
+                format!(
+                    "{n_sections} sections and {n_items} items; the limits are {max_sections} and {max_items}"
+                ),
                 "academy.outline_too_large",
             );
         }
         let wanted = Json::Array(
             sections
                 .iter()
-                .map(|s| shape_json(s.title, s.items.iter().map(|i| (i.kind, i.title, i.indent, i.url))))
+                .map(|s| {
+                    shape_json(
+                        s.title,
+                        s.items.iter().map(|i| (i.kind, i.title, i.indent, i.url)),
+                    )
+                })
                 .collect(),
         )
         .compact();
@@ -788,18 +962,32 @@ impl CourseRecords {
                 && kind == "outline"
             {
                 let stored = outline(tx, &row.id)?;
-                let have = Json::Array(stored.iter().map(OutlineSection::shape).collect()).compact();
+                let have =
+                    Json::Array(stored.iter().map(OutlineSection::shape).collect()).compact();
                 if have == wanted {
                     return Ok(self.get_in(tx, course_id)?.json(self.limits));
                 }
             }
             stale(&row, revision)?;
             if row.state != "draft" {
-                return refuse(format!("a {} course is not edited here", row.state), "academy.course_not_editable");
+                return refuse(
+                    format!("a {} course is not edited here", row.state),
+                    "academy.course_not_editable",
+                );
             }
             write_outline(tx, &row.id, &sections)?;
             let next = bump(tx, &row.id, now)?;
-            event(tx, &row.id, next, "outline", Some(&row.state), &row.state, operator, None, now)?;
+            event(
+                tx,
+                &row.id,
+                next,
+                "outline",
+                Some(&row.state),
+                &row.state,
+                operator,
+                None,
+                now,
+            )?;
             Ok(self.get_in(tx, course_id)?.json(self.limits))
         })
     }
@@ -810,7 +998,10 @@ impl CourseRecords {
     }
 
     pub fn get_in<C: GenericClient>(&self, c: &mut C, course_id: &str) -> Result<Detail, Refusal> {
-        let sql = format!("SELECT {} FROM academy.courses c WHERE c.id = $1::text::uuid", columns(COUNTED));
+        let sql = format!(
+            "SELECT {} FROM academy.courses c WHERE c.id = $1::text::uuid",
+            columns(COUNTED)
+        );
         let Some(r) = first(c, &sql, &[&course_id])? else {
             return refuse("no course with that id", "academy.course_not_found");
         };
@@ -861,7 +1052,10 @@ impl CourseRecords {
     /// `list({ state, limit })`: a missing page size refuses before anything is read.
     pub fn list(&self, pool: &Store, input: &Value) -> Result<Json, Refusal> {
         let Some(limit) = super::opt_int(input, "limit") else {
-            return refuse("the course list needs a page size", "academy.courses_list_limit_unset");
+            return refuse(
+                "the course list needs a page size",
+                "academy.courses_list_limit_unset",
+            );
         };
         let state = opt_text(input, "state");
         sql::client(pool, |c| {
@@ -883,8 +1077,15 @@ impl CourseRecords {
                     &[&limit],
                 )?,
             };
-            let tally = query(c, "SELECT state, count(*)::int AS n FROM academy.courses GROUP BY state", &[])?;
-            let mut counts: Vec<(String, Json)> = STATES.iter().map(|s| ((*s).to_owned(), Json::int(0))).collect();
+            let tally = query(
+                c,
+                "SELECT state, count(*)::int AS n FROM academy.courses GROUP BY state",
+                &[],
+            )?;
+            let mut counts: Vec<(String, Json)> = STATES
+                .iter()
+                .map(|s| ((*s).to_owned(), Json::int(0)))
+                .collect();
             for t in &tally {
                 let s: String = get(t, "state")?;
                 let n = int(t, "n")?;
@@ -910,7 +1111,12 @@ impl CourseRecords {
     }
 
     /// `assertRoomForOneMore(tx, courseId, kind)`.
-    pub fn assert_room_for_one_more(&self, tx: &mut Transaction<'_>, course_id: &str, kind: &str) -> Result<(), Refusal> {
+    pub fn assert_room_for_one_more(
+        &self,
+        tx: &mut Transaction<'_>,
+        course_id: &str,
+        kind: &str,
+    ) -> Result<(), Refusal> {
         let (_, max_items) = self.limits.both()?;
         if kind == "subheader" {
             return Ok(());
@@ -922,7 +1128,10 @@ impl CourseRecords {
         )?
         .map_or(Ok(0), |r| int(&r, "items"))?;
         if n + 1 > max_items {
-            return refuse(format!("{} items; the limit is {max_items}", n + 1), "academy.outline_too_large");
+            return refuse(
+                format!("{} items; the limit is {max_items}", n + 1),
+                "academy.outline_too_large",
+            );
         }
         Ok(())
     }
@@ -968,7 +1177,10 @@ impl Detail {
         Json::obj([
             ("course", self.course.json()),
             ("topics", Json::Array(self.topics.clone())),
-            ("outline", Json::Array(self.outline.iter().map(OutlineSection::json).collect())),
+            (
+                "outline",
+                Json::Array(self.outline.iter().map(OutlineSection::json).collect()),
+            ),
             ("limits", limits.json()),
             ("events", Json::Array(self.events.clone())),
         ])
@@ -1029,7 +1241,11 @@ fn outline<C: GenericClient>(c: &mut C, course_id: &str) -> Result<Vec<OutlineSe
 }
 
 /// `writeOutline`: stored sections and items keep their ids; positions move out of the way first.
-fn write_outline(tx: &mut Transaction<'_>, course_id: &str, sections: &[SectionIn<'_>]) -> Result<(), Refusal> {
+fn write_outline(
+    tx: &mut Transaction<'_>,
+    course_id: &str,
+    sections: &[SectionIn<'_>],
+) -> Result<(), Refusal> {
     let have = first(
         tx,
         "SELECT \
@@ -1048,15 +1264,24 @@ fn write_outline(tx: &mut Transaction<'_>, course_id: &str, sections: &[SectionI
     distinct.sort_unstable();
     distinct.dedup();
     if distinct.len() != named.len() {
-        return refuse("the outline names one section or item twice", "academy.outline_item_unknown");
+        return refuse(
+            "the outline names one section or item twice",
+            "academy.outline_item_unknown",
+        );
     }
     for s in sections {
         if s.id.is_some_and(|id| !own_sections.iter().any(|o| o == id)) {
-            return refuse("the outline names a section this course does not hold", "academy.outline_item_unknown");
+            return refuse(
+                "the outline names a section this course does not hold",
+                "academy.outline_item_unknown",
+            );
         }
         for i in &s.items {
             if i.id.is_some_and(|id| !own_items.iter().any(|o| o == id)) {
-                return refuse("the outline names an item this course does not hold", "academy.outline_item_unknown");
+                return refuse(
+                    "the outline names an item this course does not hold",
+                    "academy.outline_item_unknown",
+                );
             }
         }
     }
@@ -1074,10 +1299,17 @@ fn write_outline(tx: &mut Transaction<'_>, course_id: &str, sections: &[SectionI
         )?
         .map_or(Ok(0), |r| int(&r, "n"))?;
         if n > 0 {
-            return refuse("an item with a lesson does not become a subheader or a link", "academy.item_kind_locked");
+            return refuse(
+                "an item with a lesson does not become a subheader or a link",
+                "academy.item_kind_locked",
+            );
         }
     }
-    let kept: Vec<&str> = all.iter().filter(|i| i.kind == "assignment").filter_map(|i| i.id).collect();
+    let kept: Vec<&str> = all
+        .iter()
+        .filter(|i| i.kind == "assignment")
+        .filter_map(|i| i.id)
+        .collect();
     let listed: Vec<&str> = all.iter().filter_map(|i| i.id).collect();
     let briefs = query(
         tx,
@@ -1098,10 +1330,17 @@ fn write_outline(tx: &mut Transaction<'_>, course_id: &str, sections: &[SectionI
             );
         }
         if listed.contains(&id.as_str()) {
-            return refuse("an assignment with a brief stays an assignment", "academy.item_kind_locked");
+            return refuse(
+                "an assignment with a brief stays an assignment",
+                "academy.item_kind_locked",
+            );
         }
     }
-    let quiz_kept: Vec<&str> = all.iter().filter(|i| i.kind == "quiz").filter_map(|i| i.id).collect();
+    let quiz_kept: Vec<&str> = all
+        .iter()
+        .filter(|i| i.kind == "quiz")
+        .filter_map(|i| i.id)
+        .collect();
     let quizzes = query(
         tx,
         "SELECT q.item_id::text AS item_id, (EXISTS (SELECT 1 FROM academy.course_quiz_attempts t WHERE t.item_id = q.item_id) \
@@ -1116,7 +1355,10 @@ fn write_outline(tx: &mut Transaction<'_>, course_id: &str, sections: &[SectionI
         }
         let attempted: Option<bool> = get(q, "attempted")?;
         if attempted == Some(true) && !listed.contains(&id.as_str()) {
-            return refuse("learners attempted this quiz, so it stays in the outline", "academy.item_has_attempts");
+            return refuse(
+                "learners attempted this quiz, so it stays in the outline",
+                "academy.item_has_attempts",
+            );
         }
         if listed.contains(&id.as_str()) {
             return refuse("a saved quiz stays a quiz", "academy.item_kind_locked");
@@ -1151,7 +1393,9 @@ fn write_outline(tx: &mut Transaction<'_>, course_id: &str, sections: &[SectionI
                 b + 3,
                 b + 4
             ));
-            params.push(Box::new(section_ids.get(position).cloned().unwrap_or_default()));
+            params.push(Box::new(
+                section_ids.get(position).cloned().unwrap_or_default(),
+            ));
             params.push(Box::new(course_id.to_owned()));
             params.push(Box::new(i32::try_from(position).unwrap_or(i32::MAX)));
             params.push(Box::new(s.title.to_owned()));
@@ -1243,7 +1487,10 @@ mod tests {
     #[test]
     fn a_price_drops_its_trailing_zeros_and_point() {
         assert_eq!(canonical_price(Some("25.50")).as_deref(), Some("25.5"));
-        assert_eq!(canonical_price(Some("25.500000000000000000")).as_deref(), Some("25.5"));
+        assert_eq!(
+            canonical_price(Some("25.500000000000000000")).as_deref(),
+            Some("25.5")
+        );
         assert_eq!(canonical_price(Some("100.00")).as_deref(), Some("100"));
         assert_eq!(canonical_price(Some("100")).as_deref(), Some("100"));
         assert_eq!(canonical_price(None), None);

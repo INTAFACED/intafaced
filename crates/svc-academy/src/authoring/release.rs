@@ -6,8 +6,8 @@
 
 use postgres::{GenericClient, Transaction};
 
-use service_kit::json::Json;
 use crate::db::Store;
+use service_kit::json::Json;
 use service_kit::schema::{Value, js_trim};
 use service_kit::time::js_date;
 
@@ -25,20 +25,33 @@ pub fn require_slug(slug: &str) -> Result<String, Refusal> {
 }
 
 /// `clearedOrWindow`: both ends or neither; the end after the start; a due inside the span.
-pub fn cleared_or_window(from: Option<i64>, until: Option<i64>, due: Option<i64>) -> Result<Option<Window>, Refusal> {
+pub fn cleared_or_window(
+    from: Option<i64>,
+    until: Option<i64>,
+    due: Option<i64>,
+) -> Result<Option<Window>, Refusal> {
     if from.is_none() && until.is_none() && due.is_none() {
         return Ok(None);
     }
     let (Some(from), Some(until)) = (from, until) else {
-        return refuse("availability start and end are both required", "academy.window_invalid");
+        return refuse(
+            "availability start and end are both required",
+            "academy.window_invalid",
+        );
     };
     if until <= from {
-        return refuse("availability end must be after the start", "academy.window_invalid");
+        return refuse(
+            "availability end must be after the start",
+            "academy.window_invalid",
+        );
     }
     if let Some(d) = due
         && (d < from || d > until)
     {
-        return refuse("due is outside the availability window", "academy.window_invalid");
+        return refuse(
+            "due is outside the availability window",
+            "academy.window_invalid",
+        );
     }
     Ok(Some(Window { from, until, due }))
 }
@@ -56,7 +69,10 @@ pub fn require_extension_reason(reason: &str) -> Result<&str, Refusal> {
 pub fn assert_extension_extends(window: Window, extended_until: i64) -> Result<(), Refusal> {
     let bound = window.due.map_or(window.until, |d| d.min(window.until));
     if extended_until <= bound {
-        return refuse("extension does not pass the published window", "academy.window_invalid");
+        return refuse(
+            "extension does not pass the published window",
+            "academy.window_invalid",
+        );
     }
     Ok(())
 }
@@ -68,7 +84,10 @@ pub fn normalize_prerequisites(item_slug: &str, raw: &[&str]) -> Result<Vec<Stri
     for v in raw {
         let slug = require_slug(v)?;
         if slug == item {
-            return refuse(format!("academy.prerequisite_cycle path={item}>{item}"), "academy.prerequisite_cycle");
+            return refuse(
+                format!("academy.prerequisite_cycle path={item}>{item}"),
+                "academy.prerequisite_cycle",
+            );
         }
         if !out.contains(&slug) {
             out.push(slug);
@@ -152,11 +171,17 @@ fn outside(w: Window, ext: Option<i64>, now: i64) -> bool {
     if now >= open_until {
         return true;
     }
-    w.due.is_some_and(|d| now >= ext.filter(|e| *e > d).unwrap_or(d))
+    w.due
+        .is_some_and(|d| now >= ext.filter(|e| *e > d).unwrap_or(d))
 }
 
 /// `releaseOpensAt`.
-pub fn release_opens_at(window: Option<Window>, ext: Option<i64>, course_starts_at: Option<i64>, now: i64) -> Option<i64> {
+pub fn release_opens_at(
+    window: Option<Window>,
+    ext: Option<i64>,
+    course_starts_at: Option<i64>,
+    now: i64,
+) -> Option<i64> {
     let own = window.map(|w| w.from);
     let own_closed = window.is_some_and(|w| now >= w.from && outside(w, ext, now));
     let pending = course_starts_at.filter(|c| now < *c);
@@ -180,7 +205,10 @@ pub fn release_opens_at(window: Option<Window>, ext: Option<i64>, course_starts_
 pub fn course_start<C: GenericClient>(c: &mut C, path: &str) -> Result<Option<i64>, Refusal> {
     first(
         c,
-        &format!("SELECT {} AS starts_at FROM academy.course_starts WHERE path = $1::text", ms("starts_at")),
+        &format!(
+            "SELECT {} AS starts_at FROM academy.course_starts WHERE path = $1::text",
+            ms("starts_at")
+        ),
         &[&path],
     )?
     .map_or(Ok(None), |r| get(&r, "starts_at"))
@@ -210,7 +238,10 @@ impl View {
         Json::obj([
             ("itemSlug", Json::str(&self.item_slug)),
             ("state", Json::str(self.decision.state)),
-            ("missing", Json::Array(self.decision.missing.iter().map(Json::str).collect())),
+            (
+                "missing",
+                Json::Array(self.decision.missing.iter().map(Json::str).collect()),
+            ),
             ("lock", self.decision.lock.map_or(Json::Null, Json::str)),
             ("availableFrom", opt_ms(self.available_from)),
             ("availableUntil", opt_ms(self.available_until)),
@@ -224,7 +255,13 @@ impl View {
 }
 
 /// `ReleaseAccess.load`: the learner's view of one item.
-pub fn load<C: GenericClient>(c: &mut C, user_id: &str, item_slug: &str, now: i64, course_starts_at: Option<i64>) -> Result<View, Refusal> {
+pub fn load<C: GenericClient>(
+    c: &mut C,
+    user_id: &str,
+    item_slug: &str,
+    now: i64,
+    course_starts_at: Option<i64>,
+) -> Result<View, Refusal> {
     let required: Vec<String> = query(
         c,
         "SELECT prerequisite_slug FROM academy.item_prerequisites WHERE item_slug = $1::text",
@@ -297,7 +334,15 @@ pub fn load<C: GenericClient>(c: &mut C, user_id: &str, item_slug: &str, now: i6
         ),
         None => (None, None, None, None),
     };
-    let decision = gates::decide(completed, started, &missing, window, ext_until, now, course_starts_at);
+    let decision = gates::decide(
+        completed,
+        started,
+        &missing,
+        window,
+        ext_until,
+        now,
+        course_starts_at,
+    );
     Ok(View {
         item_slug: item_slug.to_owned(),
         decision,
@@ -312,7 +357,12 @@ pub fn load<C: GenericClient>(c: &mut C, user_id: &str, item_slug: &str, now: i6
 }
 
 /// `ReleaseAccess.itemRelease`: the spine check, the course start, then the view.
-pub fn item_release(pool: &Store, user_id: &str, item_slug: &str, now: i64) -> Result<View, Refusal> {
+pub fn item_release(
+    pool: &Store,
+    user_id: &str,
+    item_slug: &str,
+    now: i64,
+) -> Result<View, Refusal> {
     let slug = require_slug(item_slug)?;
     sql::client(pool, |c| {
         let starts = match spine::get(&slug) {
@@ -335,8 +385,16 @@ pub fn set_item_prerequisites(pool: &Store, input: &Value) -> Result<Json, Refus
         .collect();
     let prerequisites = normalize_prerequisites(&item, &raw)?;
     sql::serializable(pool, |tx| {
-        sql::exec(tx, "SELECT pg_advisory_xact_lock(hashtextextended('academy.item_prerequisites', 0))", &[])?;
-        sql::exec(tx, "DELETE FROM academy.item_prerequisites WHERE item_slug = $1::text", &[&item])?;
+        sql::exec(
+            tx,
+            "SELECT pg_advisory_xact_lock(hashtextextended('academy.item_prerequisites', 0))",
+            &[],
+        )?;
+        sql::exec(
+            tx,
+            "DELETE FROM academy.item_prerequisites WHERE item_slug = $1::text",
+            &[&item],
+        )?;
         for p in &prerequisites {
             sql::exec(
                 tx,
@@ -344,18 +402,28 @@ pub fn set_item_prerequisites(pool: &Store, input: &Value) -> Result<Json, Refus
                 &[&item, p],
             )?;
         }
-        let edges: Vec<(String, String)> = query(tx, "SELECT item_slug, prerequisite_slug FROM academy.item_prerequisites", &[])?
-            .iter()
-            .map(|r| Ok((get(r, "item_slug")?, get(r, "prerequisite_slug")?)))
-            .collect::<Result<_, Refusal>>()?;
+        let edges: Vec<(String, String)> = query(
+            tx,
+            "SELECT item_slug, prerequisite_slug FROM academy.item_prerequisites",
+            &[],
+        )?
+        .iter()
+        .map(|r| Ok((get(r, "item_slug")?, get(r, "prerequisite_slug")?)))
+        .collect::<Result<_, Refusal>>()?;
         if let Some(cycle) = find_cycle(&edges) {
-            return refuse(format!("academy.prerequisite_cycle path={}", cycle.join(">")), "academy.prerequisite_cycle");
+            return refuse(
+                format!("academy.prerequisite_cycle path={}", cycle.join(">")),
+                "academy.prerequisite_cycle",
+            );
         }
         Ok(())
     })?;
     Ok(Json::obj([
         ("itemSlug", Json::str(&item)),
-        ("prerequisites", Json::Array(prerequisites.iter().map(Json::str).collect())),
+        (
+            "prerequisites",
+            Json::Array(prerequisites.iter().map(Json::str).collect()),
+        ),
     ]))
 }
 
@@ -372,7 +440,13 @@ pub fn set_item_window(pool: &Store, input: &Value) -> Result<Json, Refusal> {
         date_field(input, "dueAt"),
     )?;
     let Some(w) = window else {
-        sql::client(pool, |c| sql::exec(c, "DELETE FROM academy.item_windows WHERE item_slug = $1::text", &[&item]))?;
+        sql::client(pool, |c| {
+            sql::exec(
+                c,
+                "DELETE FROM academy.item_windows WHERE item_slug = $1::text",
+                &[&item],
+            )
+        })?;
         return Ok(Json::obj([
             ("itemSlug", Json::str(&item)),
             ("availableFrom", Json::Null),
@@ -404,12 +478,20 @@ pub fn published_course(slug: &str) -> Result<&'static str, Refusal> {
     let s = js_trim(slug);
     match spine::PATHS.iter().find(|p| **p == s) {
         Some(p) if !spine::list(Some(p), None).is_empty() => Ok(p),
-        _ => refuse(format!("Course \"{slug}\" is not published"), "academy.course_not_found"),
+        _ => refuse(
+            format!("Course \"{slug}\" is not published"),
+            "academy.course_not_found",
+        ),
     }
 }
 
 /// `CourseStarts.set`: the published-course check and the reason before the write.
-pub fn set_course_start(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_course_start(
+    pool: &Store,
+    input: &Value,
+    operator: &str,
+    now: i64,
+) -> Result<Json, Refusal> {
     let slug = published_course(text(input, "slug"))?;
     let reason = js_trim(text(input, "reason"));
     if reason.is_empty() {
@@ -445,7 +527,9 @@ pub fn assert_peer_counts_set<C: GenericClient>(c: &mut C, course_id: &str) -> R
     )? {
         let title: String = get(&r, "title")?;
         return refuse(
-            format!("\"{title}\" has peer review on with no review count, so the course is not published"),
+            format!(
+                "\"{title}\" has peer review on with no review count, so the course is not published"
+            ),
             "academy.peer_count_unset",
         );
     }
@@ -465,7 +549,10 @@ impl Rule {
     pub fn json(&self) -> Json {
         match self {
             Rule::At(t) => Json::obj([("kind", Json::str("at")), ("at", Json::String(iso(*t)))]),
-            Rule::AfterEnrolment(d) => Json::obj([("kind", Json::str("after_enrolment")), ("days", Json::int(*d))]),
+            Rule::AfterEnrolment(d) => Json::obj([
+                ("kind", Json::str("after_enrolment")),
+                ("days", Json::int(*d)),
+            ]),
         }
     }
 
@@ -503,12 +590,20 @@ fn rule_in(input: &Value) -> Result<Option<Rule>, Refusal> {
 }
 
 /// `assertItemOpen(sql, itemId, userId, now)`: the section's release, then the course items it requires.
-pub fn assert_item_open<C: GenericClient>(c: &mut C, item_id: &str, user_id: &str, now: i64) -> Result<(), Refusal> {
+pub fn assert_item_open<C: GenericClient>(
+    c: &mut C,
+    item_id: &str,
+    user_id: &str,
+    now: i64,
+) -> Result<(), Refusal> {
     let done = |item: &str, begun: bool| {
         let (s, t) = if begun {
             ("", "")
         } else {
-            (" AND s.state NOT IN ('draft', 'withdrawn')", " AND t.state <> 'open'")
+            (
+                " AND s.state NOT IN ('draft', 'withdrawn')",
+                " AND t.state <> 'open'",
+            )
         };
         format!(
             "(EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = {item} AND s.user_id = $2::text::uuid{s}) \
@@ -544,12 +639,18 @@ pub fn assert_item_open<C: GenericClient>(c: &mut C, item_id: &str, user_id: &st
         let opens = rule.opens_at(get(&r, "enrolled_at")?);
         if opens.is_none_or(|o| o > now) {
             let when = opens.map_or_else(|| "after enrolment".to_owned(), iso);
-            return refuse(format!("academy.not_released_yet opens={when}"), "academy.not_released_yet");
+            return refuse(
+                format!("academy.not_released_yet opens={when}"),
+                "academy.not_released_yet",
+            );
         }
     }
     let unmet: Vec<String> = get(&r, "unmet")?;
     if !unmet.is_empty() {
-        return refuse(format!("academy.prerequisite_unmet items={}", unmet.join(",")), "academy.prerequisite_unmet");
+        return refuse(
+            format!("academy.prerequisite_unmet items={}", unmet.join(",")),
+            "academy.prerequisite_unmet",
+        );
     }
     Ok(())
 }
@@ -564,7 +665,13 @@ fn started<C: GenericClient>(c: &mut C, course_id: &str) -> Result<bool, Refusal
 }
 
 fn lock_course(tx: &mut Transaction<'_>, course_id: &str) -> Result<(), Refusal> {
-    if first(tx, "SELECT id FROM academy.courses WHERE id = $1::text::uuid FOR UPDATE", &[&course_id])?.is_none() {
+    if first(
+        tx,
+        "SELECT id FROM academy.courses WHERE id = $1::text::uuid FOR UPDATE",
+        &[&course_id],
+    )?
+    .is_none()
+    {
         return refuse("no course has that id", "academy.course_not_found");
     }
     Ok(())
@@ -604,7 +711,8 @@ pub fn release_view<C: GenericClient>(c: &mut C, course_id: &str) -> Result<Json
                 ("title", Json::String(get(s, "title")?)),
                 (
                     "rule",
-                    rule_of(get(s, "release_at")?, opt_int(s, "after_days")?).map_or(Json::Null, |r| r.json()),
+                    rule_of(get(s, "release_at")?, opt_int(s, "after_days")?)
+                        .map_or(Json::Null, |r| r.json()),
                 ),
                 ("setBy", nullable(get(s, "set_by")?)),
                 ("setAt", nullable(opt_iso_of(s, "set_at")?)),
@@ -627,7 +735,12 @@ pub fn course_release(pool: &Store, course_id: &str) -> Result<Json, Refusal> {
 }
 
 /// `CourseRelease.setSectionRelease`.
-pub fn set_section_release(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_section_release(
+    pool: &Store,
+    input: &Value,
+    operator: &str,
+    now: i64,
+) -> Result<Json, Refusal> {
     let course_id = text(input, "courseId");
     let section_id = text(input, "sectionId");
     let reason = text(input, "reason");
@@ -644,16 +757,26 @@ pub fn set_section_release(pool: &Store, input: &Value, operator: &str, now: i64
             &[&section_id, &course_id],
         )?
         else {
-            return refuse("no section of this course has that id", "academy.outline_item_unknown");
+            return refuse(
+                "no section of this course has that id",
+                "academy.outline_item_unknown",
+            );
         };
-        let stored = rule_of(get(&section, "release_at")?, opt_int(&section, "after_days")?);
+        let stored = rule_of(
+            get(&section, "release_at")?,
+            opt_int(&section, "after_days")?,
+        );
         let wanted = rule_in(input)?;
         if stored == wanted {
             return release_view(tx, course_id);
         }
         match &wanted {
             None => {
-                sql::exec(tx, "DELETE FROM academy.course_section_releases WHERE section_id = $1::text::uuid", &[&section_id])?;
+                sql::exec(
+                    tx,
+                    "DELETE FROM academy.course_section_releases WHERE section_id = $1::text::uuid",
+                    &[&section_id],
+                )?;
             }
             Some(rule) => {
                 let at_text = match rule {
@@ -679,7 +802,14 @@ pub fn set_section_release(pool: &Store, input: &Value, operator: &str, now: i64
             tx,
             "INSERT INTO academy.course_release_events (course_id, section_id, kind, rule, reason, actor_id, at) \
              VALUES ($1::text::uuid, $2::text::uuid, 'section_release', $3::text::jsonb, $4::text, $5::text::uuid, $6::text::timestamptz)",
-            &[&course_id, &section_id, &rule_json, &reason, &operator, &at(now)],
+            &[
+                &course_id,
+                &section_id,
+                &rule_json,
+                &reason,
+                &operator,
+                &at(now),
+            ],
         )?;
         release_view(tx, course_id)
     })
@@ -692,14 +822,21 @@ pub fn set_pacing(pool: &Store, input: &Value, operator: &str, now: i64) -> Resu
     let reason = text(input, "reason");
     sql::begin(pool, |tx| {
         lock_course(tx, course_id)?;
-        let current: Option<String> = first(tx, "SELECT pacing FROM academy.course_pacing WHERE course_id = $1::text::uuid", &[&course_id])?
-            .map(|r| get(&r, "pacing"))
-            .transpose()?;
+        let current: Option<String> = first(
+            tx,
+            "SELECT pacing FROM academy.course_pacing WHERE course_id = $1::text::uuid",
+            &[&course_id],
+        )?
+        .map(|r| get(&r, "pacing"))
+        .transpose()?;
         if current.as_deref() == Some(pacing) {
             return release_view(tx, course_id);
         }
         if started(tx, course_id)? {
-            return refuse("learners have enrolled, so the pacing stays as it is", "academy.pacing_locked");
+            return refuse(
+                "learners have enrolled, so the pacing stays as it is",
+                "academy.pacing_locked",
+            );
         }
         sql::exec(
             tx,
@@ -752,7 +889,11 @@ mod tests {
 
     #[test]
     fn an_item_opens_at_the_later_of_its_window_and_the_course_start() {
-        let w = Window { from: 100, until: 1000, due: None };
+        let w = Window {
+            from: 100,
+            until: 1000,
+            due: None,
+        };
         assert_eq!(release_opens_at(Some(w), None, Some(200), 50), Some(200));
         assert_eq!(release_opens_at(Some(w), None, Some(50), 60), Some(100));
         assert_eq!(release_opens_at(Some(w), None, Some(2000), 50), None);

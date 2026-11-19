@@ -73,7 +73,10 @@ pub fn transcript_for(row: Option<&Transcript>) -> Option<Transcript> {
 pub fn require_spine_item<'a>(slug: &str, spine: &'a [Entry]) -> Result<&'a Entry, Refusal> {
     match spine.iter().find(|e| e.slug == slug) {
         Some(e) => Ok(e),
-        None => refuse(format!("Video \"{slug}\" is not on the named spine"), "academy.video_not_found"),
+        None => refuse(
+            format!("Video \"{slug}\" is not on the named spine"),
+            "academy.video_not_found",
+        ),
     }
 }
 
@@ -81,7 +84,10 @@ pub fn require_spine_item<'a>(slug: &str, spine: &'a [Entry]) -> Result<&'a Entr
 pub fn require_watch_threshold(v: Option<i64>) -> Result<i64, Refusal> {
     match v {
         Some(t) if t >= 1 => Ok(t),
-        _ => refuse("academy.watch_threshold_unset", "academy.watch_threshold_unset"),
+        _ => refuse(
+            "academy.watch_threshold_unset",
+            "academy.watch_threshold_unset",
+        ),
     }
 }
 
@@ -123,7 +129,9 @@ fn gate_refuse<T>(message: &str) -> Result<T, Refusal> {
 /// `assertVideoEntitled`.
 pub fn assert_entitled(gate: &Gate, tier: &str, stake: Amount) -> Result<(), Refusal> {
     if !gate.published() {
-        return gate_refuse("Video entitlement magnitudes are unset — owner must publish min tier and min stake; no invent");
+        return gate_refuse(
+            "Video entitlement magnitudes are unset — owner must publish min tier and min stake; no invent",
+        );
     }
     let Some(need) = tier_rank(js_trim(&gate.min_tier)) else {
         return gate_refuse("Video min tier is not a known verification tier");
@@ -168,14 +176,22 @@ impl Library<'_> {
                         ("slug", Json::str(e.slug)),
                         ("title", Json::str(e.title)),
                         ("path", Json::str(e.path)),
-                        ("durationSeconds", e.duration_seconds.map_or(Json::Null, Json::int)),
-                        ("thumbnailUrl", e.thumbnail_url.map_or(Json::Null, Json::str)),
+                        (
+                            "durationSeconds",
+                            e.duration_seconds.map_or(Json::Null, Json::int),
+                        ),
+                        (
+                            "thumbnailUrl",
+                            e.thumbnail_url.map_or(Json::Null, Json::str),
+                        ),
                         ("language", e.language.map_or(Json::Null, Json::str)),
                         ("captionsUrl", e.captions_url.map_or(Json::Null, Json::str)),
                         ("captionsPublished", Json::Bool(filled(e.captions_url))),
                         (
                             "transcriptPublished",
-                            Json::Bool(transcript_for(shipped_transcript(e.slug).as_ref()).is_some()),
+                            Json::Bool(
+                                transcript_for(shipped_transcript(e.slug).as_ref()).is_some(),
+                            ),
                         ),
                     ])
                 })
@@ -189,7 +205,13 @@ impl Library<'_> {
         Ok(Json::Array(
             SPINE
                 .iter()
-                .map(|e| Json::obj([("slug", Json::str(e.slug)), ("title", Json::str(e.title)), ("path", Json::str(e.path))]))
+                .map(|e| {
+                    Json::obj([
+                        ("slug", Json::str(e.slug)),
+                        ("title", Json::str(e.title)),
+                        ("path", Json::str(e.path)),
+                    ])
+                })
                 .collect(),
         ))
     }
@@ -210,7 +232,10 @@ impl Library<'_> {
     pub fn playback(&self, slug: &str, caller: &Caller<'_>, now: i64) -> Result<Json, Refusal> {
         let s = storage::assert_configured(self.storage)?;
         let Some(item) = get(slug) else {
-            return refuse(format!("Video \"{slug}\" is not on the named spine"), "academy.video_grant_required");
+            return refuse(
+                format!("Video \"{slug}\" is not on the named spine"),
+                "academy.video_grant_required",
+            );
         };
         let stake = if self.gate.needs_stake() {
             self.stake.stake_of(caller.user_id)?
@@ -223,17 +248,36 @@ impl Library<'_> {
         Ok(Json::obj([
             ("slug", Json::str(item.slug)),
             ("playbackUrl", Json::str(&issued.url)),
-            ("expiresAt", Json::String(super::sql::iso(issued.expires_at))),
-            ("grant", Json::String(storage::issue_grant(&s.secret_key, &bound, issued.expires_at))),
+            (
+                "expiresAt",
+                Json::String(super::sql::iso(issued.expires_at)),
+            ),
+            (
+                "grant",
+                Json::String(storage::issue_grant(
+                    &s.secret_key,
+                    &bound,
+                    issued.expires_at,
+                )),
+            ),
         ]))
     }
 
     /// `grantAcademyVideoCaptions`.
-    pub fn captions(&self, slug: &str, caller: &Caller<'_>, now: i64, spine: &[Entry]) -> Result<Json, Refusal> {
+    pub fn captions(
+        &self,
+        slug: &str,
+        caller: &Caller<'_>,
+        now: i64,
+        spine: &[Entry],
+    ) -> Result<Json, Refusal> {
         let s = self.entitle(caller)?;
         let item = require_spine_item(slug, spine)?;
         let Some(url) = item.captions_url.filter(|u| filled(Some(u))) else {
-            return refuse("academy.video_captions_unpublished", "academy.video_captions_unpublished");
+            return refuse(
+                "academy.video_captions_unpublished",
+                "academy.video_captions_unpublished",
+            );
         };
         let url = js_trim(url);
         let language = item.language.filter(|l| filled(Some(l))).map(js_trim);
@@ -243,8 +287,18 @@ impl Library<'_> {
             ("slug", Json::str(item.slug)),
             ("captionsUrl", Json::str(&issued.url)),
             ("language", language.map_or(Json::Null, Json::str)),
-            ("expiresAt", Json::String(super::sql::iso(issued.expires_at))),
-            ("grant", Json::String(storage::issue_grant(&s.secret_key, &bound, issued.expires_at))),
+            (
+                "expiresAt",
+                Json::String(super::sql::iso(issued.expires_at)),
+            ),
+            (
+                "grant",
+                Json::String(storage::issue_grant(
+                    &s.secret_key,
+                    &bound,
+                    issued.expires_at,
+                )),
+            ),
         ]))
     }
 
@@ -260,7 +314,10 @@ impl Library<'_> {
         let s = self.entitle(caller)?;
         let item = require_spine_item(slug, spine)?;
         let Some(t) = transcript_for(transcripts(item.slug).as_ref()) else {
-            return refuse("academy.video_transcript_unpublished", "academy.video_transcript_unpublished");
+            return refuse(
+                "academy.video_transcript_unpublished",
+                "academy.video_transcript_unpublished",
+            );
         };
         let issued = storage::sign_get(s, &format!("transcripts/{}.txt", item.slug), now)?;
         let bound = format!("{}|{}|transcript|{}", caller.user_id, item.slug, t.language);
@@ -269,8 +326,18 @@ impl Library<'_> {
             ("language", Json::str(&t.language)),
             ("text", Json::str(&t.text)),
             ("transcriptUrl", Json::str(&issued.url)),
-            ("expiresAt", Json::String(super::sql::iso(issued.expires_at))),
-            ("grant", Json::String(storage::issue_grant(&s.secret_key, &bound, issued.expires_at))),
+            (
+                "expiresAt",
+                Json::String(super::sql::iso(issued.expires_at)),
+            ),
+            (
+                "grant",
+                Json::String(storage::issue_grant(
+                    &s.secret_key,
+                    &bound,
+                    issued.expires_at,
+                )),
+            ),
         ]))
     }
 
@@ -300,14 +367,23 @@ mod tests {
     fn the_gate_refuses_closed_on_blank_values() {
         let blank = Gate::default();
         assert!(!blank.needs_stake());
-        assert_eq!(code(assert_entitled(&blank, "full", 0)), "academy.video_grant_required");
+        assert_eq!(
+            code(assert_entitled(&blank, "full", 0)),
+            "academy.video_grant_required"
+        );
         let g = Gate {
             min_tier: "basic".into(),
             min_stake: "10".into(),
         };
         assert!(g.needs_stake());
-        assert_eq!(code(assert_entitled(&g, "none", 100_000_000_000_000_000_000)), "academy.video_grant_required");
-        assert_eq!(code(assert_entitled(&g, "basic", 0)), "academy.video_grant_required");
+        assert_eq!(
+            code(assert_entitled(&g, "none", 100_000_000_000_000_000_000)),
+            "academy.video_grant_required"
+        );
+        assert_eq!(
+            code(assert_entitled(&g, "basic", 0)),
+            "academy.video_grant_required"
+        );
         let zero = Gate {
             min_tier: "basic".into(),
             min_stake: "0".into(),
@@ -326,7 +402,14 @@ mod tests {
         };
         assert_eq!(code(lib.list()), "academy.video_storage_unconfigured");
         assert_eq!(
-            code(lib.playback("nope", &Caller { user_id: "u", tier: "full" }, 0)),
+            code(lib.playback(
+                "nope",
+                &Caller {
+                    user_id: "u",
+                    tier: "full"
+                },
+                0
+            )),
             "academy.video_storage_unconfigured"
         );
     }

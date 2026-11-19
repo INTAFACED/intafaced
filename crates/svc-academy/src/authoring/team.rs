@@ -49,7 +49,13 @@ pub fn builtin(role: &str) -> Option<&'static [&'static str]> {
             "discussion.assign",
             "roles.assign",
         ],
-        "author" => &["content.edit", "content.publish", "content.delete", "reports", "discussion.assign"],
+        "author" => &[
+            "content.edit",
+            "content.publish",
+            "content.delete",
+            "reports",
+            "discussion.assign",
+        ],
         "staff" => &[
             "content.edit",
             "grade",
@@ -61,7 +67,11 @@ pub fn builtin(role: &str) -> Option<&'static [&'static str]> {
             "discussion.endorse",
         ],
         "limited_staff" | "data_researcher" => &["reports"],
-        "discussion_admin" => &["discussion.moderate", "discussion.endorse", "discussion.assign"],
+        "discussion_admin" => &[
+            "discussion.moderate",
+            "discussion.endorse",
+            "discussion.assign",
+        ],
         "moderator" => &["discussion.moderate", "discussion.endorse"],
         "community_ta" => &["discussion.endorse"],
         _ => return None,
@@ -69,7 +79,10 @@ pub fn builtin(role: &str) -> Option<&'static [&'static str]> {
 }
 
 /// `rolePermissions(db, role)`: what a role permits and whether it is active.
-fn role_permissions<C: GenericClient>(c: &mut C, role: &str) -> Result<(Vec<String>, bool), Refusal> {
+fn role_permissions<C: GenericClient>(
+    c: &mut C,
+    role: &str,
+) -> Result<(Vec<String>, bool), Refusal> {
     if let Some(p) = builtin(role) {
         return Ok((p.iter().map(|s| (*s).to_owned()).collect(), true));
     }
@@ -82,13 +95,23 @@ fn role_permissions<C: GenericClient>(c: &mut C, role: &str) -> Result<(Vec<Stri
         None => None,
     };
     let Some(row) = row else {
-        return refuse(format!("academy.role_not_found role={role}"), "academy.role_not_found");
+        return refuse(
+            format!("academy.role_not_found role={role}"),
+            "academy.role_not_found",
+        );
     };
-    Ok((get::<Vec<String>>(&row, "permissions")?, get::<bool>(&row, "active")?))
+    Ok((
+        get::<Vec<String>>(&row, "permissions")?,
+        get::<bool>(&row, "active")?,
+    ))
 }
 
 /// `permissionsOf(accountId, courseId)`.
-pub fn permissions_of<C: GenericClient>(c: &mut C, account_id: &str, course_id: Option<&str>) -> Result<Vec<&'static str>, Refusal> {
+pub fn permissions_of<C: GenericClient>(
+    c: &mut C,
+    account_id: &str,
+    course_id: Option<&str>,
+) -> Result<Vec<&'static str>, Refusal> {
     let scope = course_id.unwrap_or(ACADEMY_SCOPE);
     let rows = query(
         c,
@@ -106,14 +129,25 @@ pub fn permissions_of<C: GenericClient>(c: &mut C, account_id: &str, course_id: 
             on.extend(permissions);
         }
     }
-    Ok(PERMISSIONS.iter().copied().filter(|p| on.iter().any(|o| o == p)).collect())
+    Ok(PERMISSIONS
+        .iter()
+        .copied()
+        .filter(|p| on.iter().any(|o| o == p))
+        .collect())
 }
 
 /// `CourseTeam.require(accountId, courseId, permission)`.
-pub fn require<C: GenericClient>(c: &mut C, account_id: &str, course_id: Option<&str>, permission: &str) -> Result<(), Refusal> {
+pub fn require<C: GenericClient>(
+    c: &mut C,
+    account_id: &str,
+    course_id: Option<&str>,
+    permission: &str,
+) -> Result<(), Refusal> {
     if !permissions_of(c, account_id, course_id)?.contains(&permission) {
         return refuse(
-            format!("academy.permission_denied your role on this course does not permit {permission}"),
+            format!(
+                "academy.permission_denied your role on this course does not permit {permission}"
+            ),
             "academy.permission_denied",
         );
     }
@@ -128,6 +162,9 @@ pub fn course_of_item<C: GenericClient>(c: &mut C, item_id: &str) -> Result<Stri
         &[&item_id],
     )? {
         Some(r) => get(&r, "course_id"),
-        None => refuse("no outline item with that id", "academy.outline_item_unknown"),
+        None => refuse(
+            "no outline item with that id",
+            "academy.outline_item_unknown",
+        ),
     }
 }

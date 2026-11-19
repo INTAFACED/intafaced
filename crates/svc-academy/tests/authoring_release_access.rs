@@ -29,11 +29,18 @@ const THIRD: &str = "foundations-fees-are-real";
 const DAY: i64 = 86_400_000;
 
 fn edges(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-    pairs.iter().map(|(a, b)| ((*a).to_owned(), (*b).to_owned())).collect()
+    pairs
+        .iter()
+        .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+        .collect()
 }
 
 fn w(from: &str, until: &str, due: Option<&str>) -> Window {
-    Window { from: at(from), until: at(until), due: due.map(at) }
+    Window {
+        from: at(from),
+        until: at(until),
+        due: due.map(at),
+    }
 }
 
 const FROM: &str = "2026-10-01T00:00:00.000Z";
@@ -57,53 +64,97 @@ fn accepts_a_one_way_prerequisite() {
 
 #[test]
 fn refuses_a_self_prerequisite_before_a_write() {
-    assert_eq!(code(release::normalize_prerequisites(FIRST, &[FIRST])), "academy.prerequisite_cycle");
+    assert_eq!(
+        code(release::normalize_prerequisites(FIRST, &[FIRST])),
+        "academy.prerequisite_cycle"
+    );
 }
 
 #[test]
 fn refuses_an_availability_end_that_is_not_after_the_start() {
-    assert_eq!(code(release::cleared_or_window(Some(at(UNTIL)), Some(at(FROM)), None)), "academy.window_invalid");
+    assert_eq!(
+        code(release::cleared_or_window(
+            Some(at(UNTIL)),
+            Some(at(FROM)),
+            None
+        )),
+        "academy.window_invalid"
+    );
 }
 
 #[test]
 fn refuses_a_window_with_only_one_end() {
-    assert_eq!(code(release::cleared_or_window(Some(at(FROM)), None, None)), "academy.window_invalid");
+    assert_eq!(
+        code(release::cleared_or_window(Some(at(FROM)), None, None)),
+        "academy.window_invalid"
+    );
 }
 
 #[test]
 fn clears_a_window_only_when_start_end_and_due_are_all_absent() {
     assert_eq!(release::cleared_or_window(None, None, None).unwrap(), None);
-    assert_eq!(code(release::cleared_or_window(None, None, Some(at(DUE)))), "academy.window_invalid");
+    assert_eq!(
+        code(release::cleared_or_window(None, None, Some(at(DUE)))),
+        "academy.window_invalid"
+    );
 }
 
 #[test]
 fn refuses_an_extension_with_no_reason_and_keeps_a_trimmed_reason() {
-    assert_eq!(code(release::require_extension_reason("   ")), "academy.reason_required");
-    assert_eq!(release::require_extension_reason("  late start  ").unwrap(), "late start");
+    assert_eq!(
+        code(release::require_extension_reason("   ")),
+        "academy.reason_required"
+    );
+    assert_eq!(
+        release::require_extension_reason("  late start  ").unwrap(),
+        "late start"
+    );
 }
 
 #[test]
 fn an_extension_must_pass_the_due() {
-    assert_eq!(code(release::assert_extension_extends(w(FROM, UNTIL, Some(DUE)), at("2026-10-14T00:00:00.000Z"))), "academy.window_invalid");
-    release::assert_extension_extends(w(FROM, UNTIL, Some(DUE)), at("2026-10-18T00:00:00.000Z")).unwrap();
+    assert_eq!(
+        code(release::assert_extension_extends(
+            w(FROM, UNTIL, Some(DUE)),
+            at("2026-10-14T00:00:00.000Z")
+        )),
+        "academy.window_invalid"
+    );
+    release::assert_extension_extends(w(FROM, UNTIL, Some(DUE)), at("2026-10-18T00:00:00.000Z"))
+        .unwrap();
 }
 
 #[test]
 fn opens_at_the_later_of_the_window_and_the_course_start() {
     let start = at("2026-10-30T09:00:00.000Z");
     let before = at("2026-10-29T09:00:00.000Z");
-    let opens = |window: Option<Window>| release::release_opens_at(window, None, Some(start), before);
+    let opens =
+        |window: Option<Window>| release::release_opens_at(window, None, Some(start), before);
     assert_eq!(opens(None), Some(start));
     let later = "2026-11-05T00:00:00.000Z";
-    assert_eq!(opens(Some(w(later, "2026-12-01T00:00:00.000Z", None))), Some(at(later)));
+    assert_eq!(
+        opens(Some(w(later, "2026-12-01T00:00:00.000Z", None))),
+        Some(at(later))
+    );
     // A window that has already closed keeps its own (past) start: no opening is promised.
     let closed = w(FROM, UNTIL, None);
     assert_eq!(opens(Some(closed)), Some(at(FROM)));
-    assert_eq!(release::release_opens_at(Some(closed), None, None, before), Some(at(FROM)));
+    assert_eq!(
+        release::release_opens_at(Some(closed), None, None, before),
+        Some(at(FROM))
+    );
     // A window that ends before the course starts never opens, so it gets no date; an extension past the start gives it one.
     let short = w("2026-10-29T12:00:00.000Z", "2026-10-30T00:00:00.000Z", None);
     assert_eq!(opens(Some(short)), None);
-    assert_eq!(release::release_opens_at(Some(short), Some(at("2026-11-02T00:00:00.000Z")), Some(start), before), Some(start));
+    assert_eq!(
+        release::release_opens_at(
+            Some(short),
+            Some(at("2026-11-02T00:00:00.000Z")),
+            Some(start),
+            before
+        ),
+        Some(start)
+    );
 }
 
 // ── release/access.db.test.ts: over Postgres ────────────────────────────────────────────────────────────────────────
@@ -112,16 +163,29 @@ fn now() -> i64 {
     svc_academy::door::system_now().0
 }
 
-fn prerequisites(st: &Store, item: &str, pre: &[&str]) -> Result<Json, svc_academy::errors::Refusal> {
+fn prerequisites(
+    st: &Store,
+    item: &str,
+    pre: &[&str],
+) -> Result<Json, svc_academy::errors::Refusal> {
     let list = Json::Array(pre.iter().map(|p| Json::str(*p)).collect()).compact();
-    release::set_item_prerequisites(st, &v(&format!(r#"{{"itemSlug":"{item}","prerequisites":{list}}}"#)))
+    release::set_item_prerequisites(
+        st,
+        &v(&format!(
+            r#"{{"itemSlug":"{item}","prerequisites":{list}}}"#
+        )),
+    )
 }
 
 fn window(st: &Store, item: &str, from: i64, until: i64, due: Option<i64>) {
     let due = due.map_or("null".to_owned(), |d| format!(r#""{}""#, iso(d)));
     release::set_item_window(
         st,
-        &v(&format!(r#"{{"itemSlug":"{item}","availableFrom":"{}","availableUntil":"{}","dueAt":{due}}}"#, iso(from), iso(until))),
+        &v(&format!(
+            r#"{{"itemSlug":"{item}","availableFrom":"{}","availableUntil":"{}","dueAt":{due}}}"#,
+            iso(from),
+            iso(until)
+        )),
     )
     .unwrap();
 }
@@ -140,7 +204,8 @@ fn complete(db: &TestDb, user: &str, item: &str) {
 }
 
 #[test]
-fn a_prerequisite_locks_the_item_until_the_one_it_requires_is_complete_and_completed_shows_no_window() {
+fn a_prerequisite_locks_the_item_until_the_one_it_requires_is_complete_and_completed_shows_no_window()
+ {
     let Some((db, st)) = store() else { return };
     prerequisites(&st, SECOND, &[FIRST]).unwrap();
     matches(
@@ -159,13 +224,24 @@ fn a_prerequisite_locks_the_item_until_the_one_it_requires_is_complete_and_compl
 fn rolls_back_a_prerequisite_cycle_and_keeps_the_earlier_edge() {
     let Some((db, st)) = store() else { return };
     prerequisites(&st, SECOND, &[FIRST]).unwrap();
-    assert_eq!(code(prerequisites(&st, FIRST, &[SECOND])), "academy.prerequisite_cycle");
-    matches(&item_release(&st, USER, SECOND, now()), &format!(r#"{{"lock":"prerequisite","missing":["{FIRST}"]}}"#));
+    assert_eq!(
+        code(prerequisites(&st, FIRST, &[SECOND])),
+        "academy.prerequisite_cycle"
+    );
+    matches(
+        &item_release(&st, USER, SECOND, now()),
+        &format!(r#"{{"lock":"prerequisite","missing":["{FIRST}"]}}"#),
+    );
     matches(
         &item_release(&st, USER, FIRST, now()),
         r#"{"lock":null,"availableFrom":null,"availableUntil":null,"dueAt":null}"#,
     );
-    assert!(db.texts(&format!("SELECT prerequisite_slug FROM academy.item_prerequisites WHERE item_slug = '{FIRST}'")).is_empty());
+    assert!(
+        db.texts(&format!(
+            "SELECT prerequisite_slug FROM academy.item_prerequisites WHERE item_slug = '{FIRST}'"
+        ))
+        .is_empty()
+    );
 }
 
 #[test]
@@ -175,7 +251,10 @@ fn locks_a_closed_window_and_one_extension_opens_it_for_that_learner_only() {
     let (open, shut) = (t - DAY, t - 3_600_000);
     window(&st, THIRD, open, shut, Some(shut));
     window(&st, SECOND, open, shut, None);
-    matches(&item_release(&st, USER, THIRD, t), r#"{"state":"locked","lock":"window"}"#);
+    matches(
+        &item_release(&st, USER, THIRD, t),
+        r#"{"state":"locked","lock":"window"}"#,
+    );
     let extended = t + DAY;
     // `grantItemExtension(...)`: the row the staff call leaves.
     db.client()

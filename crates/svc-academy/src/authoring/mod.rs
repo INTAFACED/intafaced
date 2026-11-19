@@ -123,7 +123,10 @@ pub fn int(input: &Value, key: &str) -> i64 {
 }
 
 pub fn opt_int(input: &Value, key: &str) -> Option<i64> {
-    input.get(key).as_number().and_then(|n| format!("{n}").parse().ok())
+    input
+        .get(key)
+        .as_number()
+        .and_then(|n| format!("{n}").parse().ok())
 }
 
 /// A nullable string as JSON.

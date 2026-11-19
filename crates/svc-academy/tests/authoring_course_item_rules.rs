@@ -43,7 +43,12 @@ struct Course {
 
 /// A published free course: an assignment (due yesterday), a published quiz and a lesson, with learner L enrolled.
 fn course(db: &TestDb, st: &Store, t: i64) -> Course {
-    let c = CourseRecords { limits: Limits { max_sections: Some(5), max_items: Some(5) } };
+    let c = CourseRecords {
+        limits: Limits {
+            max_sections: Some(5),
+            max_items: Some(5),
+        },
+    };
     let created = c
         .create(
             st,
@@ -66,7 +71,11 @@ fn course(db: &TestDb, st: &Store, t: i64) -> Course {
             t,
         )
         .unwrap();
-    let (work, quiz, lesson) = (s(&detail, "outline.0.items.0.id"), s(&detail, "outline.0.items.1.id"), s(&detail, "outline.0.items.2.id"));
+    let (work, quiz, lesson) = (
+        s(&detail, "outline.0.items.0.id"),
+        s(&detail, "outline.0.items.1.id"),
+        s(&detail, "outline.0.items.2.id"),
+    );
     let mut client = db.client();
     client
         .execute(
@@ -83,21 +92,42 @@ fn course(db: &TestDb, st: &Store, t: i64) -> Course {
         )
         .unwrap();
     let revision = authoring_kit::n(&c.get(st, &id).unwrap(), "course.revision");
-    c.set_state(st, &v(&format!(r#"{{"courseId":"{id}","to":"published","revision":{revision},"reason":"TEST"}}"#)), A, t).unwrap();
+    c.set_state(
+        st,
+        &v(&format!(
+            r#"{{"courseId":"{id}","to":"published","revision":{revision},"reason":"TEST"}}"#
+        )),
+        A,
+        t,
+    )
+    .unwrap();
     client
         .execute(
             "INSERT INTO academy.course_enrolments (course_id, user_id, track, enrolled_at) VALUES ($1::text::uuid, $2::text::uuid, 'audit', $3::text::timestamptz)",
             &[&id, &L, &iso(t)],
         )
         .unwrap();
-    Course { id, work, quiz, lesson }
+    Course {
+        id,
+        work,
+        quiz,
+        lesson,
+    }
 }
 
-fn set(st: &Store, course_id: &str, item: &str, prerequisites: &[&str], reason: &str) -> Result<Json, Refusal> {
+fn set(
+    st: &Store,
+    course_id: &str,
+    item: &str,
+    prerequisites: &[&str],
+    reason: &str,
+) -> Result<Json, Refusal> {
     let ids = Json::Array(prerequisites.iter().map(|p| Json::str(*p)).collect()).compact();
     item_rules::set_prerequisites(
         st,
-        &v(&format!(r#"{{"courseId":"{course_id}","itemId":"{item}","prerequisiteIds":{ids},"reason":"{reason}"}}"#)),
+        &v(&format!(
+            r#"{{"courseId":"{course_id}","itemId":"{item}","prerequisiteIds":{ids},"reason":"{reason}"}}"#
+        )),
         A,
         now(),
     )
@@ -111,32 +141,62 @@ fn item<'a>(view: &'a Json, id: &str) -> &'a Json {
 }
 
 fn events(db: &TestDb) -> Vec<String> {
-    db.texts("SELECT kind || '|' || reason FROM academy.course_item_rule_events ORDER BY at, reason")
+    db.texts(
+        "SELECT kind || '|' || reason FROM academy.course_item_rule_events ORDER BY at, reason",
+    )
 }
 
 #[test]
 fn due_for_takes_the_learners_own_date_only_while_it_is_later_than_the_briefs() {
     let brief = at("2026-11-01T00:00:00Z");
-    assert_eq!(iso(item_rules::due_for(Some(brief), Some(at("2026-11-03T00:00:00Z"))).unwrap()), "2026-11-03T00:00:00.000Z");
     assert_eq!(
-        iso(item_rules::due_for(Some(at("2026-11-10T00:00:00Z")), Some(at("2026-11-03T00:00:00Z"))).unwrap()),
+        iso(item_rules::due_for(Some(brief), Some(at("2026-11-03T00:00:00Z"))).unwrap()),
+        "2026-11-03T00:00:00.000Z"
+    );
+    assert_eq!(
+        iso(item_rules::due_for(
+            Some(at("2026-11-10T00:00:00Z")),
+            Some(at("2026-11-03T00:00:00Z"))
+        )
+        .unwrap()),
         "2026-11-10T00:00:00.000Z"
     );
-    assert_eq!(item_rules::due_for(None, Some(at("2026-11-03T00:00:00Z"))), None);
+    assert_eq!(
+        item_rules::due_for(None, Some(at("2026-11-03T00:00:00Z"))),
+        None
+    );
     assert_eq!(item_rules::due_for(Some(brief), None), Some(brief));
 }
 
 #[test]
-fn b_requiring_a_saves_with_who_and_why_a_requiring_b_then_refuses_as_a_cycle_and_nothing_is_written() {
+fn b_requiring_a_saves_with_who_and_why_a_requiring_b_then_refuses_as_a_cycle_and_nothing_is_written()
+ {
     let Some((db, st)) = store() else { return };
     let c = course(&db, &st, now());
     let view = set(&st, &c.id, &c.quiz, &[&c.work], "TEST order").unwrap();
-    matches(item(&view, &c.quiz), &format!(r#"{{"prerequisites":["{}"],"setBy":"{A}","reason":"TEST order"}}"#, c.work));
+    matches(
+        item(&view, &c.quiz),
+        &format!(
+            r#"{{"prerequisites":["{}"],"setBy":"{A}","reason":"TEST order"}}"#,
+            c.work
+        ),
+    );
     let loop_ = set(&st, &c.id, &c.work, &[&c.quiz], "TEST loop");
-    assert!(message(set(&st, &c.id, &c.work, &[&c.quiz], "TEST loop")).contains(&format!("{}>{}>{}", c.work, c.quiz, c.work)));
+    assert!(
+        message(set(&st, &c.id, &c.work, &[&c.quiz], "TEST loop"))
+            .contains(&format!("{}>{}>{}", c.work, c.quiz, c.work))
+    );
     assert_eq!(code(loop_), "academy.prerequisite_cycle");
-    assert_eq!(code(set(&st, &c.id, &c.work, &[&c.work], "TEST order")), "academy.prerequisite_cycle");
-    equals(item(&item_rules::admin_view(&st, &c.id).unwrap(), &c.work).get("prerequisites").unwrap(), "[]");
+    assert_eq!(
+        code(set(&st, &c.id, &c.work, &[&c.work], "TEST order")),
+        "academy.prerequisite_cycle"
+    );
+    equals(
+        item(&item_rules::admin_view(&st, &c.id).unwrap(), &c.work)
+            .get("prerequisites")
+            .unwrap(),
+        "[]",
+    );
     // The same set again writes nothing.
     set(&st, &c.id, &c.quiz, &[&c.work], "TEST again").unwrap();
     assert_eq!(events(&db), ["prerequisites|TEST order"]);
@@ -146,9 +206,18 @@ fn b_requiring_a_saves_with_who_and_why_a_requiring_b_then_refuses_as_a_cycle_an
 fn refuses_a_lesson_as_a_prerequisite_an_item_of_another_course_and_a_lesson_as_the_gated_item() {
     let Some((db, st)) = store() else { return };
     let c = course(&db, &st, now());
-    assert_eq!(code(set(&st, &c.id, &c.quiz, &[&c.lesson], "TEST order")), "academy.prerequisite_unmeasured");
-    assert_eq!(code(set(&st, &c.id, &c.quiz, &[UNKNOWN], "TEST order")), "academy.outline_item_unknown");
-    assert_eq!(code(set(&st, &c.id, &c.lesson, &[], "TEST order")), "academy.outline_item_unknown");
+    assert_eq!(
+        code(set(&st, &c.id, &c.quiz, &[&c.lesson], "TEST order")),
+        "academy.prerequisite_unmeasured"
+    );
+    assert_eq!(
+        code(set(&st, &c.id, &c.quiz, &[UNKNOWN], "TEST order")),
+        "academy.outline_item_unknown"
+    );
+    assert_eq!(
+        code(set(&st, &c.id, &c.lesson, &[], "TEST order")),
+        "academy.outline_item_unknown"
+    );
 }
 
 #[test]

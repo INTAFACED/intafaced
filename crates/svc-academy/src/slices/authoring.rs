@@ -14,7 +14,8 @@ use crate::authoring::lessons::Lessons;
 use crate::authoring::media::{self, HttpReadBack, Media};
 use crate::authoring::video::{self, Caller, Library};
 use crate::authoring::{
-    Options, int, item_rules, learn_hub, outline, programmes, refuse, release, sql, team, terms, text, tracks,
+    Options, int, item_rules, learn_hub, outline, programmes, refuse, release, sql, team, terms,
+    text, tracks,
 };
 use crate::curriculum::spine;
 use crate::db::Store;
@@ -32,7 +33,9 @@ fn enter(ctx: &Ctx<'_>) -> Result<(), Refusal> {
 
 /// `academy.team.require(userId, courseId, permission)`.
 fn require(ctx: &Ctx<'_>, course_id: &str, permission: &str) -> Result<(), Refusal> {
-    sql::client(ctx.store, |c| team::require(c, ctx.user_id(), Some(course_id), permission))
+    sql::client(ctx.store, |c| {
+        team::require(c, ctx.user_id(), Some(course_id), permission)
+    })
 }
 
 /// `academy.team.require(userId, await academy.team.courseOfItem(itemId), permission)`.
@@ -66,15 +69,28 @@ fn curriculum_slug(raw: &str) -> Result<&str, Refusal> {
 
 fn video_calls(ctx: &Ctx<'_>, o: &Options) -> Option<Answer> {
     let input = &ctx.input;
-    let lib = Library { storage: o.storage.as_ref(), gate: &o.gate, stake: ctx.ports.stake.as_ref() };
-    let caller = Caller { user_id: ctx.user_id(), tier: ctx.principal.map_or("", |p| p.tier.as_str()) };
+    let lib = Library {
+        storage: o.storage.as_ref(),
+        gate: &o.gate,
+        stake: ctx.ports.stake.as_ref(),
+    };
+    let caller = Caller {
+        user_id: ctx.user_id(),
+        tier: ctx.principal.map_or("", |p| p.tier.as_str()),
+    };
     let now = ctx.now.0;
     let slug = text(input, "slug");
     let out = match ctx.call.path {
         "videos" => lib.list(),
         "publicVideos" => lib.public_list(),
         "videoCaptions" => lib.captions(slug, &caller, now, &video::SPINE),
-        "videoTranscript" => lib.transcript(slug, &caller, now, &video::SPINE, &video::shipped_transcript),
+        "videoTranscript" => lib.transcript(
+            slug,
+            &caller,
+            now,
+            &video::SPINE,
+            &video::shipped_transcript,
+        ),
         "videoPlayback" => (|| {
             if let Some(url) = input.get("url").as_str().filter(|u| !u.is_empty()) {
                 lib.assert_url_granted(url, now)?;
@@ -89,10 +105,23 @@ fn video_calls(ctx: &Ctx<'_>, o: &Options) -> Option<Answer> {
             Ok(Json::obj([
                 ("slug", Json::str(v.slug)),
                 ("title", Json::str(v.title)),
-                ("renditions", Json::Array(vec![Json::obj([("id", Json::str("original"))])])),
-                ("tracks", Json::Array(tracks.iter().map(tracks::Track::json).collect())),
-                ("saveEverySeconds", o.video_save_every_seconds.map_or(Json::Null, Json::int)),
-                ("watchThresholdSeconds", o.video_watch_threshold_seconds.map_or(Json::Null, Json::int)),
+                (
+                    "renditions",
+                    Json::Array(vec![Json::obj([("id", Json::str("original"))])]),
+                ),
+                (
+                    "tracks",
+                    Json::Array(tracks.iter().map(tracks::Track::json).collect()),
+                ),
+                (
+                    "saveEverySeconds",
+                    o.video_save_every_seconds.map_or(Json::Null, Json::int),
+                ),
+                (
+                    "watchThresholdSeconds",
+                    o.video_watch_threshold_seconds
+                        .map_or(Json::Null, Json::int),
+                ),
             ]))
         })(),
         _ => return None,
@@ -110,23 +139,46 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
     let store = ctx.store;
     let op = ctx.user_id();
     let now = ctx.now.0;
-    let courses = CourseRecords { limits: Limits { max_sections: o.outline_max_sections, max_items: o.outline_max_items } };
-    let lessons = Lessons { pool: store, courses: &courses, import_max_bytes: o.lesson_import_max_bytes };
+    let courses = CourseRecords {
+        limits: Limits {
+            max_sections: o.outline_max_sections,
+            max_items: o.outline_max_items,
+        },
+    };
+    let lessons = Lessons {
+        pool: store,
+        courses: &courses,
+        import_max_bytes: o.lesson_import_max_bytes,
+    };
     let limits = media::Limits {
         max_bytes: o.upload_max_bytes,
         video_types: o.upload_video_types.clone(),
         handout_types: o.upload_handout_types.clone(),
     };
-    let media = Media { pool: store, storage: o.storage.as_ref(), limits: &limits, read_back: &HttpReadBack };
+    let media = Media {
+        pool: store,
+        storage: o.storage.as_ref(),
+        limits: &limits,
+        read_back: &HttpReadBack,
+    };
     let course_id = text(input, "courseId");
     let out = match ctx.call.path {
         // Learner calls.
-        "courseOutline" => outline::course_outline(store, op, text(input, "itemSlug"), now, o.video_watch_threshold_seconds)?,
+        "courseOutline" => outline::course_outline(
+            store,
+            op,
+            text(input, "itemSlug"),
+            now,
+            o.video_watch_threshold_seconds,
+        )?,
         "itemRelease" => release::item_release(store, op, text(input, "itemSlug"), now)?.json(),
         "itemVideo" => {
             let slug = curriculum_slug(text(input, "itemSlug"))?;
             let video = sql::client(store, |c| tracks::item_video(c, slug))?;
-            Json::obj([("itemSlug", Json::str(slug)), ("videoSlug", video.map_or(Json::Null, Json::String))])
+            Json::obj([
+                ("itemSlug", Json::str(slug)),
+                ("videoSlug", video.map_or(Json::Null, Json::String)),
+            ])
         }
         "programme" => programmes::programme(store, op, text(input, "slug"), now)?,
         "programmes" => {
@@ -214,7 +266,10 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
                 Some(v) => Some(spine_video(js_trim(v))?.slug),
             };
             tracks::set_item_video(store, item_slug, video, op, reason, now)?;
-            Json::obj([("itemSlug", Json::str(item_slug)), ("videoSlug", video.map_or(Json::Null, Json::str))])
+            Json::obj([
+                ("itemSlug", Json::str(item_slug)),
+                ("videoSlug", video.map_or(Json::Null, Json::str)),
+            ])
         }
         "admin.setVideoTracks" => {
             let v = spine_video(js_trim(text(input, "videoSlug")))?;
@@ -222,12 +277,19 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
             let given = input.get("tracks").as_array().unwrap_or_default();
             let wanted: Vec<tracks::TrackIn<'_>> = given
                 .iter()
-                .map(|t| tracks::TrackIn { language: text(t, "language"), label: text(t, "label"), vtt: text(t, "vtt") })
+                .map(|t| tracks::TrackIn {
+                    language: text(t, "language"),
+                    label: text(t, "label"),
+                    vtt: text(t, "vtt"),
+                })
                 .collect();
             let saved = tracks::set_tracks(store, v.slug, &wanted, op, reason, now)?;
             Json::obj([
                 ("videoSlug", Json::str(v.slug)),
-                ("tracks", Json::Array(saved.iter().map(tracks::Track::json).collect())),
+                (
+                    "tracks",
+                    Json::Array(saved.iter().map(tracks::Track::json).collect()),
+                ),
             ])
         }
         _ => return not_ported(ctx),

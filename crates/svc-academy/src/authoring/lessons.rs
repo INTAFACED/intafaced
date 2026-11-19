@@ -5,8 +5,8 @@
 
 use postgres::{GenericClient, Transaction};
 
-use service_kit::json::{self, Json};
 use crate::db::Store;
+use service_kit::json::{self, Json};
 use service_kit::schema::{Value, js_trim};
 
 use super::courses::CourseRecords;
@@ -45,7 +45,10 @@ fn block_part() -> Result<usize, Refusal> {
 fn as_output(blocks: &Json) -> Result<Json, Refusal> {
     match inputs::parse_part(blocks_part()?, Value::from_json(blocks)).map_err(internal)? {
         Ok(v) => Ok(v.to_json().unwrap_or(Json::Null)),
-        Err(r) => Err(internal(format!("Output validation failed: {}", r.message()))),
+        Err(r) => Err(internal(format!(
+            "Output validation failed: {}",
+            r.message()
+        ))),
     }
 }
 
@@ -67,7 +70,10 @@ fn check_blocks(blocks: &Json) -> Result<(), Refusal> {
 /// `canonical`: keys sorted, so jsonb's key order does not matter.
 fn canonical(v: &Json) -> String {
     match v {
-        Json::Array(a) => format!("[{}]", a.iter().map(canonical).collect::<Vec<_>>().join(",")),
+        Json::Array(a) => format!(
+            "[{}]",
+            a.iter().map(canonical).collect::<Vec<_>>().join(",")
+        ),
         Json::Object(o) => {
             let mut keys: Vec<&(String, Json)> = o.iter().collect();
             keys.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
@@ -92,7 +98,12 @@ fn js_slice(s: &str, n: usize) -> String {
 }
 
 /// `templateDraft`: the lesson's place and headings for a person to fill in; it states nothing as fact.
-pub fn template_draft(course_title: &str, section_title: &str, item_title: &str, neighbours: &[String]) -> Json {
+pub fn template_draft(
+    course_title: &str,
+    section_title: &str,
+    item_title: &str,
+    neighbours: &[String],
+) -> Json {
     let text = |m: String| Json::obj([("type", Json::str("text")), ("markdown", Json::String(m))]);
     let mut blocks = vec![
         text(format!("# {item_title}\n\nPart of “{section_title}” in “{course_title}”.")),
@@ -101,9 +112,16 @@ pub fn template_draft(course_title: &str, section_title: &str, item_title: &str,
         text("## Try it\n\n(Write one short practice step.)".to_owned()),
     ];
     if !neighbours.is_empty() {
-        let mut shown: Vec<String> = neighbours.iter().take(NEIGHBOURS_SHOWN).map(|t| format!("- {t}")).collect();
+        let mut shown: Vec<String> = neighbours
+            .iter()
+            .take(NEIGHBOURS_SHOWN)
+            .map(|t| format!("- {t}"))
+            .collect();
         if neighbours.len() > NEIGHBOURS_SHOWN {
-            shown.push(format!("- and {} more", neighbours.len() - NEIGHBOURS_SHOWN));
+            shown.push(format!(
+                "- and {} more",
+                neighbours.len() - NEIGHBOURS_SHOWN
+            ));
         }
         blocks.push(text(format!("## In this section\n\n{}", shown.join("\n"))));
     }
@@ -118,7 +136,10 @@ pub struct Problem {
 }
 
 fn whole(problem: String) -> Vec<Problem> {
-    vec![Problem { block: None, problem }]
+    vec![Problem {
+        block: None,
+        problem,
+    }]
 }
 
 fn path_text(p: &Json) -> String {
@@ -184,7 +205,11 @@ pub fn check_lesson_file(document: &str) -> Result<Result<Json, Vec<Problem>>, R
             Err(inputs::Refused::Thrown(m)) => return Err(internal(m)),
         }
     }
-    Ok(if problems.is_empty() { Ok(Json::Array(blocks)) } else { Err(problems) })
+    Ok(if problems.is_empty() {
+        Ok(Json::Array(blocks))
+    } else {
+        Err(problems)
+    })
 }
 
 /// The item and its course, as `lockItem` reads them.
@@ -242,11 +267,17 @@ fn lock_item(tx: &mut Transaction<'_>, item_id: &str, holds_lesson: bool) -> Res
         &[&item_id],
     )?
     else {
-        return refuse("no outline item with that id", "academy.outline_item_unknown");
+        return refuse(
+            "no outline item with that id",
+            "academy.outline_item_unknown",
+        );
     };
     let kind: String = get(&r, "kind")?;
     if holds_lesson && (kind == "subheader" || kind == "link") {
-        return refuse(format!("a {kind} holds no lesson"), "academy.item_has_no_lesson");
+        return refuse(
+            format!("a {kind} holds no lesson"),
+            "academy.item_has_no_lesson",
+        );
     }
     Ok(Item {
         id: get(&r, "id")?,
@@ -277,7 +308,10 @@ fn newest<C: GenericClient>(c: &mut C, item_id: &str) -> Result<Option<Revision>
     .transpose()
 }
 
-#[expect(clippy::too_many_arguments, reason = "one lesson revision row: its columns, as the TypeScript inserts them")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one lesson revision row: its columns, as the TypeScript inserts them"
+)]
 fn insert(
     tx: &mut Transaction<'_>,
     item_id: &str,
@@ -296,13 +330,29 @@ fn insert(
         tx,
         "INSERT INTO academy.lesson_revisions (item_id, revision, source, from_revision, from_item_id, blocks, actor, at) \
          VALUES ($1::text::uuid, $2::int4, $3::text, $4::int4, $5::text::uuid, $6::text::jsonb, $7::text::uuid, $8::text::timestamptz)",
-        &[&item_id, &rev, &source, &from, &from_item_id, &blocks.compact(), &actor, &at(now)],
+        &[
+            &item_id,
+            &rev,
+            &source,
+            &from,
+            &from_item_id,
+            &blocks.compact(),
+            &actor,
+            &at(now),
+        ],
     )?;
     Ok(())
 }
 
 /// `courseEvent`: the course revision moves on and an event names who and why.
-fn course_event(tx: &mut Transaction<'_>, item: &Item, kind: &str, actor: &str, reason: Option<&str>, now: i64) -> Result<i64, Refusal> {
+fn course_event(
+    tx: &mut Transaction<'_>,
+    item: &Item,
+    kind: &str,
+    actor: &str,
+    reason: Option<&str>,
+    now: i64,
+) -> Result<i64, Refusal> {
     let next = first(
         tx,
         "UPDATE academy.courses SET revision = revision + 1, updated_at = $2::text::timestamptz WHERE id = $1::text::uuid RETURNING revision",
@@ -315,7 +365,15 @@ fn course_event(tx: &mut Transaction<'_>, item: &Item, kind: &str, actor: &str, 
         tx,
         "INSERT INTO academy.course_events (course_id, revision, kind, from_state, to_state, actor, reason, at) \
          VALUES ($1::text::uuid, $2::int4, $3::text, $4::text, $4::text, $5::text::uuid, $6::text, $7::text::timestamptz)",
-        &[&item.course_id, &rev, &kind, &item.course_state, &actor, &reason, &at(now)],
+        &[
+            &item.course_id,
+            &rev,
+            &kind,
+            &item.course_state,
+            &actor,
+            &reason,
+            &at(now),
+        ],
     )?;
     Ok(next)
 }
@@ -323,7 +381,10 @@ fn course_event(tx: &mut Transaction<'_>, item: &Item, kind: &str, actor: &str, 
 fn stale(newest: Option<&Revision>, revision: i64) -> Result<(), Refusal> {
     let at = newest.map_or(0, |n| n.revision);
     if at != revision {
-        return refuse(format!("lesson is at revision {at}, not {revision}"), "academy.revision_stale");
+        return refuse(
+            format!("lesson is at revision {at}, not {revision}"),
+            "academy.revision_stale",
+        );
     }
     Ok(())
 }
@@ -331,7 +392,10 @@ fn stale(newest: Option<&Revision>, revision: i64) -> Result<(), Refusal> {
 fn course_stale(item: &Item, revision: i64) -> Result<(), Refusal> {
     if item.course_revision != revision {
         return refuse(
-            format!("course is at revision {}, not {revision}", item.course_revision),
+            format!(
+                "course is at revision {}, not {revision}",
+                item.course_revision
+            ),
             "academy.course_revision_stale",
         );
     }
@@ -339,7 +403,12 @@ fn course_stale(item: &Item, revision: i64) -> Result<(), Refusal> {
 }
 
 /// Whether this operator's own event at the item's course revision is `kind`.
-fn own_course_event(tx: &mut Transaction<'_>, item: &Item, actor: &str, kind: &str) -> Result<bool, Refusal> {
+fn own_course_event(
+    tx: &mut Transaction<'_>,
+    item: &Item,
+    actor: &str,
+    kind: &str,
+) -> Result<bool, Refusal> {
     let rev = i32::try_from(item.course_revision).unwrap_or(i32::MAX);
     Ok(first(
         tx,
@@ -398,7 +467,10 @@ impl Lessons<'_> {
             &[&item_id],
         )?;
         let Some(row) = row else {
-            return refuse("no outline item with that id", "academy.outline_item_unknown");
+            return refuse(
+                "no outline item with that id",
+                "academy.outline_item_unknown",
+            );
         };
         let revisions = revisions
             .iter()
@@ -418,9 +490,15 @@ impl Lessons<'_> {
         let draft = match draft {
             None => Json::Null,
             Some(d) => Json::obj([
-                ("basedOnRevision", Json::int(sql::int(&d, "based_on_revision")?)),
+                (
+                    "basedOnRevision",
+                    Json::int(sql::int(&d, "based_on_revision")?),
+                ),
                 ("kind", Json::String(get(&d, "kind")?)),
-                ("blocks", as_output(&parse_json(&get::<String>(&d, "blocks")?)?)?),
+                (
+                    "blocks",
+                    as_output(&parse_json(&get::<String>(&d, "blocks")?)?)?,
+                ),
                 ("createdBy", Json::String(get(&d, "created_by")?)),
                 ("createdAt", Json::String(iso_of(&d, "created_at")?)),
             ]),
@@ -429,7 +507,10 @@ impl Lessons<'_> {
             ("courseId", Json::String(get(&row, "course_id")?)),
             ("courseTitle", Json::String(get(&row, "course_title")?)),
             ("courseState", Json::String(get(&row, "course_state")?)),
-            ("courseRevision", Json::int(sql::int(&row, "course_revision")?)),
+            (
+                "courseRevision",
+                Json::int(sql::int(&row, "course_revision")?),
+            ),
             (
                 "item",
                 Json::obj([
@@ -438,8 +519,14 @@ impl Lessons<'_> {
                     ("title", Json::String(get(&row, "title")?)),
                     ("indent", Json::int(sql::int(&row, "indent")?)),
                     ("url", nullable(get(&row, "url")?)),
-                    ("lessonRevision", nullable_int(opt_int(&row, "lesson_revision")?)),
-                    ("liveRevision", nullable_int(opt_int(&row, "live_revision")?)),
+                    (
+                        "lessonRevision",
+                        nullable_int(opt_int(&row, "lesson_revision")?),
+                    ),
+                    (
+                        "liveRevision",
+                        nullable_int(opt_int(&row, "live_revision")?),
+                    ),
                 ]),
             ),
             ("revisions", Json::Array(revisions)),
@@ -468,7 +555,17 @@ impl Lessons<'_> {
                 return self.read(tx, &item.id);
             }
             stale(n.as_ref(), revision)?;
-            insert(tx, &item.id, revision + 1, "saved", None, None, &blocks, operator, now)?;
+            insert(
+                tx,
+                &item.id,
+                revision + 1,
+                "saved",
+                None,
+                None,
+                &blocks,
+                operator,
+                now,
+            )?;
             self.read(tx, &item.id)
         })
     }
@@ -498,10 +595,23 @@ impl Lessons<'_> {
                 &[&item.id, &to4],
             )?
             else {
-                return refuse(format!("the lesson has no revision {to}"), "academy.lesson_revision_unknown");
+                return refuse(
+                    format!("the lesson has no revision {to}"),
+                    "academy.lesson_revision_unknown",
+                );
             };
             let old = revision_of(&old)?;
-            insert(tx, &item.id, revision + 1, "reverted", Some(to), None, &old.blocks, operator, now)?;
+            insert(
+                tx,
+                &item.id,
+                revision + 1,
+                "reverted",
+                Some(to),
+                None,
+                &old.blocks,
+                operator,
+                now,
+            )?;
             self.read(tx, &item.id)
         })
     }
@@ -527,10 +637,16 @@ impl Lessons<'_> {
                 &[&item.id, &lr],
             )?;
             if item.course_state != "draft" && item.course_state != "published" {
-                return refuse(format!("a {} course's lessons are not published", item.course_state), "academy.course_not_editable");
+                return refuse(
+                    format!("a {} course's lessons are not published", item.course_state),
+                    "academy.course_not_editable",
+                );
             }
             if exists.is_none() {
-                return refuse(format!("the lesson has no revision {lesson_revision}"), "academy.lesson_revision_unknown");
+                return refuse(
+                    format!("the lesson has no revision {lesson_revision}"),
+                    "academy.lesson_revision_unknown",
+                );
             }
             let next = course_event(tx, &item, "lesson", operator, Some(reason), now)?;
             let next4 = i32::try_from(next).unwrap_or(i32::MAX);
@@ -557,10 +673,16 @@ impl Lessons<'_> {
             }
             course_stale(&item, course_revision)?;
             if item.live_revision.is_none() {
-                return refuse("learners see no revision of this lesson", "academy.lesson_not_live");
+                return refuse(
+                    "learners see no revision of this lesson",
+                    "academy.lesson_not_live",
+                );
             }
             if item.course_state != "draft" && item.course_state != "published" {
-                return refuse(format!("a {} course's lessons are not changed", item.course_state), "academy.course_not_editable");
+                return refuse(
+                    format!("a {} course's lessons are not changed", item.course_state),
+                    "academy.course_not_editable",
+                );
             }
             let next = course_event(tx, &item, "withdrawn", operator, Some(reason), now)?;
             let next4 = i32::try_from(next).unwrap_or(i32::MAX);
@@ -601,11 +723,15 @@ impl Lessons<'_> {
             course_stale(&item, course_revision)?;
             if item.course_state != "draft" {
                 return refuse(
-                    format!("a {} course's outline is not edited here", item.course_state),
+                    format!(
+                        "a {} course's outline is not edited here",
+                        item.course_state
+                    ),
                     "academy.course_not_editable",
                 );
             }
-            self.courses.assert_room_for_one_more(tx, &item.course_id, &item.kind)?;
+            self.courses
+                .assert_room_for_one_more(tx, &item.course_id, &item.kind)?;
             let pos = i32::try_from(item.position).unwrap_or(i32::MAX);
             sql::exec(
                 tx,
@@ -625,10 +751,31 @@ impl Lessons<'_> {
                 tx,
                 "INSERT INTO academy.course_items (id, course_id, section_id, position, kind, title, indent, url, copied_from, copied_at_revision) \
                  VALUES ($1::text::uuid, $2::text::uuid, $3::text::uuid, $4::int4, $5::text, $6::text, $7::int4, $8::text, $9::text::uuid, $10::int4)",
-                &[&copy_id, &item.course_id, &item.section_id, &(pos + 1), &item.kind, &item.title, &indent, &item.url, &item.id, &at4],
+                &[
+                    &copy_id,
+                    &item.course_id,
+                    &item.section_id,
+                    &(pos + 1),
+                    &item.kind,
+                    &item.title,
+                    &indent,
+                    &item.url,
+                    &item.id,
+                    &at4,
+                ],
             )?;
             if let Some(n) = newest(tx, &item.id)? {
-                insert(tx, &copy_id, 1, "duplicated", None, Some(&item.id), &n.blocks, operator, now)?;
+                insert(
+                    tx,
+                    &copy_id,
+                    1,
+                    "duplicated",
+                    None,
+                    Some(&item.id),
+                    &n.blocks,
+                    operator,
+                    now,
+                )?;
             }
             sql::exec(
                 tx,
@@ -644,12 +791,18 @@ impl Lessons<'_> {
     /// `import`: the owner's size limit before the file is parsed; a bad file reports every problem and creates nothing.
     pub fn import(&self, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
         let Some(max) = self.import_max_bytes else {
-            return refuse("the owner has not set the lesson import size limit", "academy.import_limit_unset");
+            return refuse(
+                "the owner has not set the lesson import size limit",
+                "academy.import_limit_unset",
+            );
         };
         let document = text(input, "document");
         let bytes = i64::try_from(document.len()).unwrap_or(i64::MAX);
         if bytes > max {
-            return refuse(format!("the file is {bytes} bytes; the limit is {max}"), "academy.import_too_large");
+            return refuse(
+                format!("the file is {bytes} bytes; the limit is {max}"),
+                "academy.import_too_large",
+            );
         }
         let item_id = text(input, "itemId");
         let blocks = match check_lesson_file(document)? {
@@ -662,7 +815,12 @@ impl Lessons<'_> {
                         Json::Array(
                             problems
                                 .iter()
-                                .map(|p| Json::obj([("block", nullable_int(p.block)), ("problem", Json::str(&p.problem))]))
+                                .map(|p| {
+                                    Json::obj([
+                                        ("block", nullable_int(p.block)),
+                                        ("problem", Json::str(&p.problem)),
+                                    ])
+                                })
                                 .collect(),
                         ),
                     ),
@@ -680,16 +838,37 @@ impl Lessons<'_> {
                 && v.actor == operator
                 && same_blocks(&v.blocks, &blocks)
             {
-                return Ok(Json::obj([("outcome", Json::str("imported")), ("lesson", self.read(tx, &item.id)?)]));
+                return Ok(Json::obj([
+                    ("outcome", Json::str("imported")),
+                    ("lesson", self.read(tx, &item.id)?),
+                ]));
             }
             stale(n.as_ref(), revision)?;
-            insert(tx, &item.id, revision + 1, "imported", None, None, &blocks, operator, now)?;
-            Ok(Json::obj([("outcome", Json::str("imported")), ("lesson", self.read(tx, &item.id)?)]))
+            insert(
+                tx,
+                &item.id,
+                revision + 1,
+                "imported",
+                None,
+                None,
+                &blocks,
+                operator,
+                now,
+            )?;
+            Ok(Json::obj([
+                ("outcome", Json::str("imported")),
+                ("lesson", self.read(tx, &item.id)?),
+            ]))
         })
     }
 
     /// `assistantDraft`: the model path refuses `owner.decision`; the template draft is keyed by the revision it is on.
-    pub fn assistant_draft(&self, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn assistant_draft(
+        &self,
+        input: &Value,
+        operator: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         if text(input, "path") == "model" {
             return Err(Refusal::OwnerDecision(
                 "drafting with a model waits for the owner to choose a provider; the template draft works without one".to_owned(),
@@ -748,13 +927,20 @@ impl Lessons<'_> {
             else {
                 return refuse("no such draft for this lesson", "academy.draft_not_found");
             };
-            let done = if decision == "accept" { "accepted" } else { "discarded" };
+            let done = if decision == "accept" {
+                "accepted"
+            } else {
+                "discarded"
+            };
             let state: String = get(&draft, "state")?;
             if state == done {
                 return self.read(tx, &item.id);
             }
             if state != "open" {
-                return refuse(format!("the draft was already {state}"), "academy.draft_not_found");
+                return refuse(
+                    format!("the draft was already {state}"),
+                    "academy.draft_not_found",
+                );
             }
             let mut accepted: Option<i32> = None;
             if decision == "accept" {
@@ -763,12 +949,24 @@ impl Lessons<'_> {
                 let draft_based = sql::int(&draft, "based_on_revision")?;
                 if at_rev != draft_based {
                     return refuse(
-                        format!("the lesson moved on to revision {at_rev} since the draft was made"),
+                        format!(
+                            "the lesson moved on to revision {at_rev} since the draft was made"
+                        ),
                         "academy.revision_stale",
                     );
                 }
                 let blocks = parse_json(&get::<String>(&draft, "blocks")?)?;
-                insert(tx, &item.id, draft_based + 1, "assisted", None, None, &blocks, operator, now)?;
+                insert(
+                    tx,
+                    &item.id,
+                    draft_based + 1,
+                    "assisted",
+                    None,
+                    None,
+                    &blocks,
+                    operator,
+                    now,
+                )?;
                 accepted = Some(i32::try_from(draft_based + 1).unwrap_or(i32::MAX));
             }
             sql::exec(
@@ -801,10 +999,21 @@ mod tests {
             panic!("expected problems");
         };
         assert_eq!(problems.len(), 2);
-        assert_eq!(problems.first().map(|p| p.problem.as_str()), Some("unknown block type \"video\""));
-        assert_eq!(problems.get(1).map(|p| (p.block, p.problem.as_str())), Some((Some(2), "a image block with url not valid")));
+        assert_eq!(
+            problems.first().map(|p| p.problem.as_str()),
+            Some("unknown block type \"video\"")
+        );
+        assert_eq!(
+            problems.get(1).map(|p| (p.block, p.problem.as_str())),
+            Some((Some(2), "a image block with url not valid"))
+        );
         assert!(matches!(check_lesson_file("nope"), Ok(Err(_))));
-        assert!(matches!(check_lesson_file(r#"{"format":"intafaced.lesson.v1","blocks":[{"type":"text","markdown":" a "}]}"#), Ok(Ok(_))));
+        assert!(matches!(
+            check_lesson_file(
+                r#"{"format":"intafaced.lesson.v1","blocks":[{"type":"text","markdown":" a "}]}"#
+            ),
+            Ok(Ok(_))
+        ));
     }
 
     #[test]

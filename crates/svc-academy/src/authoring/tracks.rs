@@ -3,8 +3,8 @@
 
 use postgres::GenericClient;
 
-use service_kit::json::Json;
 use crate::db::Store;
+use service_kit::json::Json;
 use service_kit::schema::js_trim;
 
 use super::refuse;
@@ -45,13 +45,19 @@ impl Track {
         Json::obj([
             ("language", Json::str(&self.language)),
             ("label", Json::str(&self.label)),
-            ("cues", Json::Array(self.cues.iter().map(Cue::json).collect())),
+            (
+                "cues",
+                Json::Array(self.cues.iter().map(Cue::json).collect()),
+            ),
         ])
     }
 }
 
 fn invalid<T>(why: &str) -> Result<T, Refusal> {
-    refuse(format!("academy.captions_invalid {why}"), "academy.captions_invalid")
+    refuse(
+        format!("academy.captions_invalid {why}"),
+        "academy.captions_invalid",
+    )
 }
 
 /// `s.slice(0, n)` in UTF-16 code units.
@@ -74,13 +80,20 @@ fn num(s: &str) -> Option<i64> {
 
 /// `((h * 60 + m) * 60 + s) * 1000 + ms`; hours past i64 are not a timestamp here (JavaScript would read a float).
 fn stamp_ms(h: i64, m: i64, s: i64, frac: i64) -> Option<i64> {
-    h.checked_mul(60)?.checked_add(m)?.checked_mul(60)?.checked_add(s)?.checked_mul(1000)?.checked_add(frac)
+    h.checked_mul(60)?
+        .checked_add(m)?
+        .checked_mul(60)?
+        .checked_add(s)?
+        .checked_mul(1000)?
+        .checked_add(frac)
 }
 
 /// `[0-5]\d`.
 fn sixty(s: &str) -> bool {
     let b = s.as_bytes();
-    b.len() == 2 && matches!(b.first(), Some(b'0'..=b'5')) && b.get(1).is_some_and(u8::is_ascii_digit)
+    b.len() == 2
+        && matches!(b.first(), Some(b'0'..=b'5'))
+        && b.get(1).is_some_and(u8::is_ascii_digit)
 }
 
 /// `^(?:(\d{2,}):)?([0-5]\d):([0-5]\d)\.(\d{3})$`.
@@ -124,7 +137,11 @@ fn lines_of(text: &str) -> Vec<&str> {
         match rest.find(['\r', '\n']) {
             Some(i) => {
                 out.push(rest.get(..i).unwrap_or(""));
-                let skip = if rest.get(i..i + 2) == Some("\r\n") { 2 } else { 1 };
+                let skip = if rest.get(i..i + 2) == Some("\r\n") {
+                    2
+                } else {
+                    1
+                };
                 rest = rest.get(i + skip..).unwrap_or("");
             }
             None => {
@@ -154,7 +171,8 @@ pub fn parse_vtt(vtt: &str) -> Result<Vec<Cue>, Refusal> {
     let lines = lines_of(vtt);
     let head = lines.first().copied().unwrap_or("");
     let ok = head.strip_prefix("WEBVTT").is_some_and(|rest| {
-        rest.is_empty() || ((rest.starts_with(' ') || rest.starts_with('\t')) && no_terminator(rest))
+        rest.is_empty()
+            || ((rest.starts_with(' ') || rest.starts_with('\t')) && no_terminator(rest))
     });
     if !ok {
         return invalid("the file does not start with WEBVTT");
@@ -164,7 +182,10 @@ pub fn parse_vtt(vtt: &str) -> Result<Vec<Cue>, Refusal> {
     let mut i = 1;
     while i < lines.len() && !js_trim(line(i)).is_empty() {
         if line(i).contains("-->") {
-            return invalid(&format!("line {}: a cue needs a blank line after the header", i + 1));
+            return invalid(&format!(
+                "line {}: a cue needs a blank line after the header",
+                i + 1
+            ));
         }
         i += 1;
     }
@@ -182,15 +203,19 @@ pub fn parse_vtt(vtt: &str) -> Result<Vec<Cue>, Refusal> {
         let block: Vec<&str> = lines.get(start..i).unwrap_or_default().to_vec();
         let b0 = block.first().copied().unwrap_or("");
         let skipped = ["NOTE", "STYLE", "REGION"].iter().any(|k| {
-            b0.strip_prefix(k)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' ') || rest.starts_with('\t'))
+            b0.strip_prefix(k).is_some_and(|rest| {
+                rest.is_empty() || rest.starts_with(' ') || rest.starts_with('\t')
+            })
         });
         if skipped {
             continue;
         }
         let at = block.iter().position(|l| l.contains("-->"));
         let Some(at) = at.filter(|a| *a <= 1) else {
-            return invalid(&format!("line {}: a cue block has no timing line", start + 1));
+            return invalid(&format!(
+                "line {}: a cue block has no timing line",
+                start + 1
+            ));
         };
         let timing = block.get(at).copied().unwrap_or("");
         let mut parts = timing.split("-->").map(js_trim);
@@ -198,11 +223,17 @@ pub fn parse_vtt(vtt: &str) -> Result<Vec<Cue>, Refusal> {
         let rest = parts.next().unwrap_or("");
         let n = start + at + 1;
         let Some(start_ms) = vtt_stamp(from) else {
-            return invalid(&format!("line {n}: \"{}\" is not a WebVTT timestamp", js_slice(from, 40)));
+            return invalid(&format!(
+                "line {n}: \"{}\" is not a WebVTT timestamp",
+                js_slice(from, 40)
+            ));
         };
         let to = first_token(rest);
         let Some(end_ms) = vtt_stamp(to) else {
-            return invalid(&format!("line {n}: \"{}\" is not a WebVTT timestamp", js_slice(to, 40)));
+            return invalid(&format!(
+                "line {n}: \"{}\" is not a WebVTT timestamp",
+                js_slice(to, 40)
+            ));
         };
         if end_ms <= start_ms {
             return invalid(&format!("line {n}: a cue ends before it starts"));
@@ -212,9 +243,15 @@ pub fn parse_vtt(vtt: &str) -> Result<Vec<Cue>, Refusal> {
             return invalid(&format!("line {n}: a cue has no text"));
         }
         if js_len(&text) > MAX_CUE_TEXT {
-            return invalid(&format!("line {n}: a cue is longer than {MAX_CUE_TEXT} characters"));
+            return invalid(&format!(
+                "line {n}: a cue is longer than {MAX_CUE_TEXT} characters"
+            ));
         }
-        cues.push(Cue { start_ms, end_ms, text });
+        cues.push(Cue {
+            start_ms,
+            end_ms,
+            text,
+        });
         if cues.len() > MAX_CUES {
             return invalid(&format!("more than {MAX_CUES} cues"));
         }
@@ -237,7 +274,11 @@ pub fn parse_srt(srt: &str) -> Result<Vec<Cue>, Refusal> {
             break;
         }
         if !digits(js_trim(line(i))) {
-            return invalid(&format!("line {}: \"{}\" is not a cue number", i + 1, js_slice(line(i), 40)));
+            return invalid(&format!(
+                "line {}: \"{}\" is not a cue number",
+                i + 1,
+                js_slice(line(i), 40)
+            ));
         }
         let timing = lines.get(i + 1).copied();
         let Some(timing) = timing.filter(|t| t.contains("-->")) else {
@@ -247,10 +288,18 @@ pub fn parse_srt(srt: &str) -> Result<Vec<Cue>, Refusal> {
         let from = parts.next().unwrap_or("");
         let to = first_token(parts.next().unwrap_or(""));
         let Some(start_ms) = srt_stamp(from) else {
-            return invalid(&format!("line {}: \"{}\" is not an SRT timestamp", i + 2, js_slice(from, 40)));
+            return invalid(&format!(
+                "line {}: \"{}\" is not an SRT timestamp",
+                i + 2,
+                js_slice(from, 40)
+            ));
         };
         let Some(end_ms) = srt_stamp(to) else {
-            return invalid(&format!("line {}: \"{}\" is not an SRT timestamp", i + 2, js_slice(to, 40)));
+            return invalid(&format!(
+                "line {}: \"{}\" is not an SRT timestamp",
+                i + 2,
+                js_slice(to, 40)
+            ));
         };
         if end_ms <= start_ms {
             return invalid(&format!("line {}: a cue ends before it starts", i + 2));
@@ -266,7 +315,10 @@ pub fn parse_srt(srt: &str) -> Result<Vec<Cue>, Refusal> {
             return invalid(&format!("line {}: a cue has no text", i + 2));
         }
         if js_len(&joined) > MAX_CUE_TEXT {
-            return invalid(&format!("line {}: a cue is longer than {MAX_CUE_TEXT} characters", i + 2));
+            return invalid(&format!(
+                "line {}: a cue is longer than {MAX_CUE_TEXT} characters",
+                i + 2
+            ));
         }
         cues.push(Cue {
             start_ms,
@@ -287,13 +339,20 @@ pub fn parse_srt(srt: &str) -> Result<Vec<Cue>, Refusal> {
 
 /// `VideoTracks.itemVideo`.
 pub fn item_video<C: GenericClient>(c: &mut C, item_slug: &str) -> Result<Option<String>, Refusal> {
-    first(c, "SELECT video_slug FROM academy.item_videos WHERE item_slug = $1::text", &[&item_slug])?
-        .map(|r| get(&r, "video_slug"))
-        .transpose()
+    first(
+        c,
+        "SELECT video_slug FROM academy.item_videos WHERE item_slug = $1::text",
+        &[&item_slug],
+    )?
+    .map(|r| get(&r, "video_slug"))
+    .transpose()
 }
 
 /// `VideoTracks.itemVideos(itemSlugs)`: item → video for the given items.
-pub fn item_videos<C: GenericClient>(c: &mut C, item_slugs: &[String]) -> Result<Vec<(String, String)>, Refusal> {
+pub fn item_videos<C: GenericClient>(
+    c: &mut C,
+    item_slugs: &[String],
+) -> Result<Vec<(String, String)>, Refusal> {
     if item_slugs.is_empty() {
         return Ok(Vec::new());
     }
@@ -308,10 +367,21 @@ pub fn item_videos<C: GenericClient>(c: &mut C, item_slugs: &[String]) -> Result
 }
 
 /// `VideoTracks.setItemVideo`.
-pub fn set_item_video(pool: &Store, item_slug: &str, video_slug: Option<&str>, operator: &str, reason: &str, now: i64) -> Result<(), Refusal> {
+pub fn set_item_video(
+    pool: &Store,
+    item_slug: &str,
+    video_slug: Option<&str>,
+    operator: &str,
+    reason: &str,
+    now: i64,
+) -> Result<(), Refusal> {
     sql::client(pool, |c| {
         match video_slug {
-            None => sql::exec(c, "DELETE FROM academy.item_videos WHERE item_slug = $1::text", &[&item_slug])?,
+            None => sql::exec(
+                c,
+                "DELETE FROM academy.item_videos WHERE item_slug = $1::text",
+                &[&item_slug],
+            )?,
             Some(v) => sql::exec(
                 c,
                 "INSERT INTO academy.item_videos (item_slug, video_slug, reason, set_by, set_at) \
@@ -353,7 +423,14 @@ pub struct TrackIn<'a> {
 }
 
 /// `VideoTracks.setTracks`: every file checked before anything is written; `[]` removes them all.
-pub fn set_tracks(pool: &Store, video_slug: &str, input: &[TrackIn<'_>], operator: &str, reason: &str, now: i64) -> Result<Vec<Track>, Refusal> {
+pub fn set_tracks(
+    pool: &Store,
+    video_slug: &str,
+    input: &[TrackIn<'_>],
+    operator: &str,
+    reason: &str,
+    now: i64,
+) -> Result<Vec<Track>, Refusal> {
     let mut languages: Vec<&str> = input.iter().map(|t| t.language).collect();
     languages.sort_unstable();
     languages.dedup();
@@ -371,14 +448,27 @@ pub fn set_tracks(pool: &Store, video_slug: &str, input: &[TrackIn<'_>], operato
         })
         .collect::<Result<Vec<_>, Refusal>>()?;
     sql::serializable(pool, |tx| {
-        sql::exec(tx, "DELETE FROM academy.video_tracks WHERE video_slug = $1::text", &[&video_slug])?;
+        sql::exec(
+            tx,
+            "DELETE FROM academy.video_tracks WHERE video_slug = $1::text",
+            &[&video_slug],
+        )?;
         for (position, t) in input.iter().enumerate() {
             let pos = i32::try_from(position).unwrap_or(i32::MAX);
             sql::exec(
                 tx,
                 "INSERT INTO academy.video_tracks (video_slug, language, label, vtt, position, reason, set_by, set_at) \
                  VALUES ($1::text, $2::text, $3::text, $4::text, $5::int4, $6::text, $7::text::uuid, $8::text::timestamptz)",
-                &[&video_slug, &t.language, &js_trim(t.label), &t.vtt, &pos, &reason, &operator, &at(now)],
+                &[
+                    &video_slug,
+                    &t.language,
+                    &js_trim(t.label),
+                    &t.vtt,
+                    &pos,
+                    &reason,
+                    &operator,
+                    &at(now),
+                ],
             )?;
         }
         Ok(())
@@ -402,12 +492,19 @@ mod tests {
         let cues = parse_vtt("WEBVTT\nKind: captions\n\nNOTE hi\n\n2\n00:00:05.000 --> 00:00:06.000 align:start\nlater\n\n1\n00:01.000 --> 00:02.500\nfirst\nline")
             .unwrap_or_default();
         assert_eq!(cues.len(), 2);
-        assert_eq!(cues.first().map(|c| (c.start_ms, c.end_ms, c.text.as_str())), Some((1000, 2500, "first\nline")));
+        assert_eq!(
+            cues.first()
+                .map(|c| (c.start_ms, c.end_ms, c.text.as_str())),
+            Some((1000, 2500, "first\nline"))
+        );
     }
 
     #[test]
     fn a_bad_vtt_names_its_line() {
-        assert_eq!(code(parse_vtt("hello")), "academy.captions_invalid the file does not start with WEBVTT");
+        assert_eq!(
+            code(parse_vtt("hello")),
+            "academy.captions_invalid the file does not start with WEBVTT"
+        );
         assert_eq!(
             code(parse_vtt("WEBVTT\n\n00:02.000 --> 00:01.000\nx")),
             "academy.captions_invalid line 3: a cue ends before it starts"
@@ -420,9 +517,18 @@ mod tests {
 
     #[test]
     fn an_srt_file_reads_and_an_empty_one_refuses() {
-        let cues = parse_srt("1\n00:00:01,000 --> 00:00:04,000\nHello\n\n2\n00:00:05,000 --> 00:00:06,000\nBye").unwrap_or_default();
+        let cues = parse_srt(
+            "1\n00:00:01,000 --> 00:00:04,000\nHello\n\n2\n00:00:05,000 --> 00:00:06,000\nBye",
+        )
+        .unwrap_or_default();
         assert_eq!(cues.len(), 2);
-        assert_eq!(code(parse_srt("")), "academy.captions_invalid the file has no cues");
-        assert_eq!(code(parse_srt("x")), "academy.captions_invalid line 1: \"x\" is not a cue number");
+        assert_eq!(
+            code(parse_srt("")),
+            "academy.captions_invalid the file has no cues"
+        );
+        assert_eq!(
+            code(parse_srt("x")),
+            "academy.captions_invalid line 1: \"x\" is not a cue number"
+        );
     }
 }

@@ -102,7 +102,9 @@ pub fn field_part(path: &str, key: &str) -> Result<Option<usize>, String> {
     };
     Ok(shape.iter().find_map(|f| match f {
         Json::Array(kv) => match (kv.first(), kv.get(1)) {
-            (Some(Json::String(k)), Some(Json::Number(n))) if k == key => format!("{n}").parse().ok(),
+            (Some(Json::String(k)), Some(Json::Number(n))) if k == key => {
+                format!("{n}").parse().ok()
+            }
             _ => None,
         },
         _ => None,

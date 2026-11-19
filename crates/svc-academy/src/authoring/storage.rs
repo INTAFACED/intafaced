@@ -39,7 +39,14 @@ fn filled(s: &str) -> bool {
 
 impl Storage {
     /// `videoStorageFromEnv`: the store when endpoint, bucket and both keys are set.
-    pub fn from_env(endpoint: &str, bucket: &str, access_key: &str, secret_key: &str, region: &str, ttl: Option<i64>) -> Option<Storage> {
+    pub fn from_env(
+        endpoint: &str,
+        bucket: &str,
+        access_key: &str,
+        secret_key: &str,
+        region: &str,
+        ttl: Option<i64>,
+    ) -> Option<Storage> {
         let s = Storage {
             endpoint: endpoint.to_owned(),
             bucket: bucket.to_owned(),
@@ -53,7 +60,10 @@ impl Storage {
 
     /// `isVideoStorageConfigured`.
     pub fn configured(&self) -> bool {
-        filled(&self.endpoint) && filled(&self.bucket) && filled(&self.access_key) && filled(&self.secret_key)
+        filled(&self.endpoint)
+            && filled(&self.bucket)
+            && filled(&self.access_key)
+            && filled(&self.secret_key)
     }
 }
 
@@ -111,7 +121,10 @@ pub fn sha256_hex(data: &[u8]) -> String {
 pub fn aws_encode(value: &str, keep_slash: bool) -> String {
     let mut out = String::new();
     for ch in value.chars() {
-        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '~' | '-') || (keep_slash && ch == '/') {
+        if ch.is_ascii_alphanumeric()
+            || matches!(ch, '.' | '_' | '~' | '-')
+            || (keep_slash && ch == '/')
+        {
             out.push(ch);
         } else {
             let mut buf = [0u8; 4];
@@ -159,11 +172,19 @@ fn amz_date_of(at: i64) -> (String, String) {
 }
 
 /// `presign`: a path-style presigned URL for one object and method, valid for the owner's lifetime.
-fn presign(s: &Storage, method: &str, object_key: &str, at: i64) -> Result<(String, i64, String), Refusal> {
+fn presign(
+    s: &Storage,
+    method: &str,
+    object_key: &str,
+    at: i64,
+) -> Result<(String, i64, String), Refusal> {
     let storage = assert_configured(Some(s))?;
     let key = object_key.trim_start_matches('/').to_owned();
     if key.is_empty() {
-        return refuse("Video object key is missing — no grant", "academy.video_grant_required");
+        return refuse(
+            "Video object key is missing — no grant",
+            "academy.video_grant_required",
+        );
     }
     let ttl = assert_ttl(storage.ttl_seconds)?;
     let expires_at = at + ttl * 1000;
@@ -186,10 +207,31 @@ fn presign(s: &Storage, method: &str, object_key: &str, at: i64) -> Result<(Stri
         .map(|(k, v)| format!("{}={}", aws_encode(k, false), aws_encode(v, false)))
         .collect::<Vec<_>>()
         .join("&");
-    let canonical_request = [method, &canonical_uri, &canonical_query, &format!("host:{host}\n"), "host", UNSIGNED].join("\n");
-    let string_to_sign = ["AWS4-HMAC-SHA256", &amz_date, &scope, &sha256_hex(canonical_request.as_bytes())].join("\n");
-    let signature = hex(&hmac(&signing_key(&storage.secret_key, &date_stamp, region), &string_to_sign));
-    Ok((format!("{origin}{canonical_uri}?{canonical_query}&X-Amz-Signature={signature}"), expires_at, key))
+    let canonical_request = [
+        method,
+        &canonical_uri,
+        &canonical_query,
+        &format!("host:{host}\n"),
+        "host",
+        UNSIGNED,
+    ]
+    .join("\n");
+    let string_to_sign = [
+        "AWS4-HMAC-SHA256",
+        &amz_date,
+        &scope,
+        &sha256_hex(canonical_request.as_bytes()),
+    ]
+    .join("\n");
+    let signature = hex(&hmac(
+        &signing_key(&storage.secret_key, &date_stamp, region),
+        &string_to_sign,
+    ));
+    Ok((
+        format!("{origin}{canonical_uri}?{canonical_query}&X-Amz-Signature={signature}"),
+        expires_at,
+        key,
+    ))
 }
 
 /// `signGetObjectUrl`.
@@ -211,7 +253,10 @@ pub fn sign_put(s: &Storage, object_key: &str, at: i64) -> Result<(String, i64),
 /// `issueGrant`: `v1.<exp seconds>.<hmac hex>`.
 pub fn issue_grant(secret: &str, bound: &str, expires_at: i64) -> String {
     let exp = expires_at.div_euclid(1000);
-    format!("v1.{exp}.{}", hex(&hmac(secret.as_bytes(), &format!("v1|{bound}|{exp}"))))
+    format!(
+        "v1.{exp}.{}",
+        hex(&hmac(secret.as_bytes(), &format!("v1|{bound}|{exp}")))
+    )
 }
 
 fn hex_bytes(s: &str) -> Vec<u8> {
@@ -220,8 +265,10 @@ fn hex_bytes(s: &str) -> Vec<u8> {
     let b = s.as_bytes();
     let mut i = 0;
     while i + 1 < b.len() {
-        let (Some(h), Some(l)) = (b.get(i).and_then(|c| (*c as char).to_digit(16)), b.get(i + 1).and_then(|c| (*c as char).to_digit(16)))
-        else {
+        let (Some(h), Some(l)) = (
+            b.get(i).and_then(|c| (*c as char).to_digit(16)),
+            b.get(i + 1).and_then(|c| (*c as char).to_digit(16)),
+        ) else {
             break;
         };
         out.push(u8::try_from(h * 16 + l).unwrap_or(0));
@@ -231,7 +278,9 @@ fn hex_bytes(s: &str) -> Vec<u8> {
 }
 
 fn same(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && !a.is_empty() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.len() == b.len()
+        && !a.is_empty()
+        && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// `grantIsValid`.
@@ -260,7 +309,10 @@ fn js_integer(s: &str) -> Option<i64> {
         return Some(0);
     }
     let f: f64 = t.parse().ok()?;
-    #[expect(clippy::cast_possible_truncation, reason = "checked to be an integer in range first")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "checked to be an integer in range first"
+    )]
     (f.fract() == 0.0 && f.abs() < 9.0e15).then_some(f as i64)
 }
 
@@ -269,15 +321,26 @@ fn grant_required<T>(message: &str) -> Result<T, Refusal> {
 }
 
 /// `assertPlaybackUrlGranted`: the SigV4 signature present, unexpired and matching.
-pub fn assert_playback_url_granted(s: &Storage, playback_url: &str, now: i64) -> Result<(), Refusal> {
+pub fn assert_playback_url_granted(
+    s: &Storage,
+    playback_url: &str,
+    now: i64,
+) -> Result<(), Refusal> {
     let storage = assert_configured(Some(s))?;
     let Ok(parsed) = url::Url::parse(playback_url) else {
         return grant_required("Video URL is not a grant");
     };
-    let param = |name: &str| parsed.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.into_owned());
-    let (Some(signature), Some(amz_date), Some(expires_raw)) =
-        (param("X-Amz-Signature"), param("X-Amz-Date"), param("X-Amz-Expires"))
-    else {
+    let param = |name: &str| {
+        parsed
+            .query_pairs()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.into_owned())
+    };
+    let (Some(signature), Some(amz_date), Some(expires_raw)) = (
+        param("X-Amz-Signature"),
+        param("X-Amz-Date"),
+        param("X-Amz-Expires"),
+    ) else {
         return grant_required("Video URL has no grant signature");
     };
     if signature.is_empty() || amz_date.is_empty() || expires_raw.is_empty() {
@@ -291,12 +354,26 @@ pub fn assert_playback_url_granted(s: &Storage, playback_url: &str, now: i64) ->
     let shaped = b.len() == 16
         && b.get(8) == Some(&b'T')
         && b.get(15) == Some(&b'Z')
-        && b.iter().enumerate().all(|(i, c)| i == 8 || i == 15 || c.is_ascii_digit());
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| i == 8 || i == 15 || c.is_ascii_digit());
     if !shaped {
         return grant_required("Video URL grant date is not a grant");
     }
-    let n = |r: std::ops::Range<usize>| amz_date.get(r).and_then(|x| x.parse::<i64>().ok()).unwrap_or(0);
-    let signed_at = utc_ms(n(0..4), n(4..6) - 1, n(6..8), n(9..11), n(11..13), n(13..15));
+    let n = |r: std::ops::Range<usize>| {
+        amz_date
+            .get(r)
+            .and_then(|x| x.parse::<i64>().ok())
+            .unwrap_or(0)
+    };
+    let signed_at = utc_ms(
+        n(0..4),
+        n(4..6) - 1,
+        n(6..8),
+        n(9..11),
+        n(11..13),
+        n(13..15),
+    );
     if signed_at + expires * 1000 <= now {
         return grant_required("Video URL grant has expired");
     }
@@ -313,7 +390,11 @@ pub fn assert_playback_url_granted(s: &Storage, playback_url: &str, now: i64) ->
     )?;
     let expected = url::Url::parse(&issued.url)
         .ok()
-        .and_then(|u| u.query_pairs().find(|(k, _)| k == "X-Amz-Signature").map(|(_, v)| v.into_owned()))
+        .and_then(|u| {
+            u.query_pairs()
+                .find(|(k, _)| k == "X-Amz-Signature")
+                .map(|(_, v)| v.into_owned())
+        })
         .unwrap_or_default();
     if !same(&hex_bytes(&signature), &hex_bytes(&expected)) {
         return grant_required("Video URL grant signature does not match");
@@ -343,7 +424,10 @@ fn percent_decode(s: &str) -> Result<String, Refusal> {
     let mut i = 0;
     while let Some(c) = b.get(i) {
         if *c == b'%' {
-            let h = b.get(i + 1..i + 3).and_then(|x| std::str::from_utf8(x).ok()).and_then(|x| u8::from_str_radix(x, 16).ok());
+            let h = b
+                .get(i + 1..i + 3)
+                .and_then(|x| std::str::from_utf8(x).ok())
+                .and_then(|x| u8::from_str_radix(x, 16).ok());
             let Some(v) = h else {
                 return Err(Refusal::Internal {
                     message: "URI malformed".to_owned(),
@@ -381,8 +465,11 @@ mod tests {
     #[test]
     fn a_signed_get_is_a_grant_until_it_expires() {
         let at = 1_767_225_600_000;
-        let issued = sign_get(&store(), "foundations/risk-first.mp4", at).unwrap_or_else(|_| unreachable!());
-        assert!(issued.url.starts_with("http://minio:9000/academy/foundations/risk-first.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256"));
+        let issued =
+            sign_get(&store(), "foundations/risk-first.mp4", at).unwrap_or_else(|_| unreachable!());
+        assert!(issued.url.starts_with(
+            "http://minio:9000/academy/foundations/risk-first.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256"
+        ));
         assert!(issued.url.contains("X-Amz-Date=20260101T000000Z"));
         assert_eq!(issued.expires_at, at + 300_000);
         assert!(assert_playback_url_granted(&store(), &issued.url, at + 1000).is_ok());

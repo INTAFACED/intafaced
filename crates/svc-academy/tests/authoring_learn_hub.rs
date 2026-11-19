@@ -32,11 +32,20 @@ fn later() -> i64 {
 }
 
 fn courses() -> CourseRecords {
-    CourseRecords { limits: Limits { max_sections: Some(5), max_items: Some(3) } }
+    CourseRecords {
+        limits: Limits {
+            max_sections: Some(5),
+            max_items: Some(3),
+        },
+    }
 }
 
 fn text(markdown: &str) -> String {
-    Json::Array(vec![Json::obj([("type", Json::str("text")), ("markdown", Json::str(markdown))])]).compact()
+    Json::Array(vec![Json::obj([
+        ("type", Json::str("text")),
+        ("markdown", Json::str(markdown)),
+    ])])
+    .compact()
 }
 
 struct Draft {
@@ -76,8 +85,19 @@ fn draft_with_outline(st: &Store) -> Draft {
     }
 }
 
-fn feature(st: &Store, item: &str, reason: &str, op: &str, t: i64) -> Result<Json, svc_academy::errors::Refusal> {
-    learn_hub::feature_lesson(st, &v(&format!(r#"{{"itemId":"{item}","reason":"{reason}"}}"#)), op, t)
+fn feature(
+    st: &Store,
+    item: &str,
+    reason: &str,
+    op: &str,
+    t: i64,
+) -> Result<Json, svc_academy::errors::Refusal> {
+    learn_hub::feature_lesson(
+        st,
+        &v(&format!(r#"{{"itemId":"{item}","reason":"{reason}"}}"#)),
+        op,
+        t,
+    )
 }
 
 fn public_lesson(st: &Store) -> Json {
@@ -86,7 +106,16 @@ fn public_lesson(st: &Store) -> Json {
 
 /// Save one revision and publish it: the course revision after.
 fn go_live(l: &Lessons<'_>, item: &str) -> i64 {
-    let saved = l.save(&v(&format!(r#"{{"itemId":"{item}","revision":0,"blocks":{}}}"#, text("One"))), A, now()).unwrap();
+    let saved = l
+        .save(
+            &v(&format!(
+                r#"{{"itemId":"{item}","revision":0,"blocks":{}}}"#,
+                text("One")
+            )),
+            A,
+            now(),
+        )
+        .unwrap();
     let live = l
         .publish(
             &v(&format!(
@@ -103,14 +132,28 @@ fn go_live(l: &Lessons<'_>, item: &str) -> i64 {
 // ── the Learn hub featured article (AC-articles-01) ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn only_a_lesson_learners_can_read_is_featured_withdrawing_it_empties_the_slot_a_repeat_withdrawal_answers_the_same() {
+fn only_a_lesson_learners_can_read_is_featured_withdrawing_it_empties_the_slot_a_repeat_withdrawal_answers_the_same()
+ {
     let Some((db, st)) = store() else { return };
     let d = draft_with_outline(&st);
     let c = courses();
-    let l = Lessons { pool: &st, courses: &c, import_max_bytes: None };
-    assert_eq!(code(feature(&st, &d.lesson, "TEST", A, now())), "academy.featured_not_live");
-    assert_eq!(code(feature(&st, &d.subheader, "TEST", A, now())), "academy.item_has_no_lesson");
-    equals(&learn_hub::slot(&st).unwrap(), r#"{"curriculum":null,"lesson":null,"reason":null,"chosenBy":null,"chosenAt":null}"#);
+    let l = Lessons {
+        pool: &st,
+        courses: &c,
+        import_max_bytes: None,
+    };
+    assert_eq!(
+        code(feature(&st, &d.lesson, "TEST", A, now())),
+        "academy.featured_not_live"
+    );
+    assert_eq!(
+        code(feature(&st, &d.subheader, "TEST", A, now())),
+        "academy.item_has_no_lesson"
+    );
+    equals(
+        &learn_hub::slot(&st).unwrap(),
+        r#"{"curriculum":null,"lesson":null,"reason":null,"chosenBy":null,"chosenAt":null}"#,
+    );
 
     let live_revision = go_live(&l, &d.lesson);
     let slot = feature(&st, &d.lesson, "TEST first article", B, later()).unwrap();
@@ -121,49 +164,88 @@ fn only_a_lesson_learners_can_read_is_featured_withdrawing_it_empties_the_slot_a
             d.lesson
         ),
     );
-    assert_eq!(at_path(&l.get(&d.lesson).unwrap(), "featured").compact(), "true");
+    assert_eq!(
+        at_path(&l.get(&d.lesson).unwrap(), "featured").compact(),
+        "true"
+    );
     // Visitors see its title and course; the course's address only once the course is published.
-    equals(&public_lesson(&st), r#"{"title":"Position size","courseTitle":"Risk basics","courseSlug":null}"#);
+    equals(
+        &public_lesson(&st),
+        r#"{"title":"Position size","courseTitle":"Risk basics","courseSlug":null}"#,
+    );
     let course_id = s(&d.course, "id");
     let slug: String = db
         .client()
         .query_one("UPDATE academy.courses SET state = 'published' WHERE id = $1::text::uuid RETURNING slug", &[&course_id])
         .unwrap()
         .get(0);
-    equals(&public_lesson(&st), &format!(r#"{{"title":"Position size","courseTitle":"Risk basics","courseSlug":"{slug}"}}"#));
-    db.client().execute("UPDATE academy.courses SET state = 'draft' WHERE id = $1::text::uuid", &[&course_id]).unwrap();
+    equals(
+        &public_lesson(&st),
+        &format!(
+            r#"{{"title":"Position size","courseTitle":"Risk basics","courseSlug":"{slug}"}}"#
+        ),
+    );
+    db.client()
+        .execute(
+            "UPDATE academy.courses SET state = 'draft' WHERE id = $1::text::uuid",
+            &[&course_id],
+        )
+        .unwrap();
 
     let withdraw = |course_revision: i64, reason: &str, op: &str| {
         l.withdraw(
-            &v(&format!(r#"{{"itemId":"{}","courseRevision":{course_revision},"reason":"{reason}"}}"#, d.lesson)),
+            &v(&format!(
+                r#"{{"itemId":"{}","courseRevision":{course_revision},"reason":"{reason}"}}"#,
+                d.lesson
+            )),
             op,
             later(),
         )
     };
     let withdrawn = withdraw(live_revision, "TEST pulled", A).unwrap();
-    matches(&withdrawn, &format!(r#"{{"featured":false,"item":{{"liveRevision":null}},"courseRevision":{}}}"#, live_revision + 1));
+    matches(
+        &withdrawn,
+        &format!(
+            r#"{{"featured":false,"item":{{"liveRevision":null}},"courseRevision":{}}}"#,
+            live_revision + 1
+        ),
+    );
     assert!(is_null(&learn_hub::slot(&st).unwrap(), "lesson"));
     equals(&public_lesson(&st), "null");
     assert_eq!(
         db.texts("SELECT action || '|' || reason || '|' || actor::text FROM academy.featured_events ORDER BY at, action"),
         [format!("featured|TEST first article|{B}"), format!("withdrawn|TEST pulled|{A}")]
     );
-    same(&withdraw(live_revision, "TEST pulled", A).unwrap(), &withdrawn);
-    assert_eq!(code(withdraw(n(&withdrawn, "courseRevision"), "TEST", A)), "academy.lesson_not_live");
-    assert_eq!(code(withdraw(live_revision, "TEST", B)), "academy.course_revision_stale");
+    same(
+        &withdraw(live_revision, "TEST pulled", A).unwrap(),
+        &withdrawn,
+    );
+    assert_eq!(
+        code(withdraw(n(&withdrawn, "courseRevision"), "TEST", A)),
+        "academy.lesson_not_live"
+    );
+    assert_eq!(
+        code(withdraw(live_revision, "TEST", B)),
+        "academy.course_revision_stale"
+    );
 }
 
 #[test]
 fn the_one_slot_shows_a_curriculum_item_too_clearing_empties_it_and_records_who_and_why() {
     let Some((db, st)) = store() else { return };
-    let slug = svc_academy::curriculum::spine::list(None, None)[0].slug.clone();
+    let slug = svc_academy::curriculum::spine::list(None, None)[0]
+        .slug
+        .clone();
     db.client()
         .execute(
             "INSERT INTO academy.featured_items (slot, item_slug, reason, chosen_by, chosen_at) VALUES ('hub', $1::text, 'TEST', $2::text::uuid, $3::text::timestamptz)",
             &[&slug, &A, &NOW],
         )
         .unwrap();
-    matches(&learn_hub::slot(&st).unwrap(), &format!(r#"{{"curriculum":{{"slug":"{slug}"}},"lesson":null,"reason":"TEST"}}"#));
+    matches(
+        &learn_hub::slot(&st).unwrap(),
+        &format!(r#"{{"curriculum":{{"slug":"{slug}"}},"lesson":null,"reason":"TEST"}}"#),
+    );
     equals(&public_lesson(&st), "null");
     learn_hub::clear_featured(&st, &v(r#"{"reason":"TEST tidy"}"#), B, later()).unwrap();
     assert!(is_null(&learn_hub::slot(&st).unwrap(), "curriculum"));
@@ -178,53 +260,100 @@ fn a_lesson_in_a_course_that_is_no_longer_draft_or_published_leaves_the_slot_and
     let Some((db, st)) = store() else { return };
     let d = draft_with_outline(&st);
     let c = courses();
-    let l = Lessons { pool: &st, courses: &c, import_max_bytes: None };
+    let l = Lessons {
+        pool: &st,
+        courses: &c,
+        import_max_bytes: None,
+    };
     go_live(&l, &d.lesson);
     feature(&st, &d.lesson, "TEST", A, now()).unwrap();
     db.client()
-        .execute("UPDATE academy.courses SET state = 'archived' WHERE id = $1::text::uuid", &[&s(&d.course, "id")])
+        .execute(
+            "UPDATE academy.courses SET state = 'archived' WHERE id = $1::text::uuid",
+            &[&s(&d.course, "id")],
+        )
         .unwrap();
     assert!(is_null(&learn_hub::slot(&st).unwrap(), "lesson"));
     equals(&public_lesson(&st), "null");
-    assert_eq!(code(feature(&st, &d.lesson, "TEST", A, now())), "academy.course_not_editable");
+    assert_eq!(
+        code(feature(&st, &d.lesson, "TEST", A, now())),
+        "academy.course_not_editable"
+    );
 }
 
 // ── topics (AC-articles-01) ─────────────────────────────────────────────────────────────────────────────────────────
 
-fn topic(st: &Store, slug: &str, name: &str, op: &str, t: i64) -> Result<Json, svc_academy::errors::Refusal> {
-    learn_hub::create_topic(st, &v(&format!(r#"{{"slug":"{slug}","name":"{name}"}}"#)), op, t)
+fn topic(
+    st: &Store,
+    slug: &str,
+    name: &str,
+    op: &str,
+    t: i64,
+) -> Result<Json, svc_academy::errors::Refusal> {
+    learn_hub::create_topic(
+        st,
+        &v(&format!(r#"{{"slug":"{slug}","name":"{name}"}}"#)),
+        op,
+        t,
+    )
 }
 
 #[test]
-fn a_tab_address_is_refused_a_repeat_answers_with_the_topic_another_name_is_refused_the_list_needs_its_limit() {
+fn a_tab_address_is_refused_a_repeat_answers_with_the_topic_another_name_is_refused_the_list_needs_its_limit()
+ {
     let Some((_db, st)) = store() else { return };
-    assert_eq!(code(topic(&st, "learning", "Learning", A, now())), "academy.slug_reserved");
+    assert_eq!(
+        code(topic(&st, "learning", "Learning", A, now())),
+        "academy.slug_reserved"
+    );
     let risk = topic(&st, "risk", "Risk", A, now()).unwrap();
     same(&topic(&st, "risk", "Risk", B, later()).unwrap(), &risk);
-    assert_eq!(code(topic(&st, "risk", "Other", A, now())), "academy.topic_slug_taken");
+    assert_eq!(
+        code(topic(&st, "risk", "Other", A, now())),
+        "academy.topic_slug_taken"
+    );
     topic(&st, "charts", "Charts", A, later()).unwrap();
     let one = learn_hub::topics(&st, Some(1)).unwrap();
     assert_eq!(authoring_kit::len(&one, "topics"), 1);
     assert_eq!(s(&one, "topics.0.slug"), "charts");
     assert_eq!(n(&one, "limit"), 1);
-    assert_eq!(code(learn_hub::topics(&st, None)), "academy.topics_list_limit_unset");
+    assert_eq!(
+        code(learn_hub::topics(&st, None)),
+        "academy.topics_list_limit_unset"
+    );
 }
 
 #[test]
-fn a_course_is_filed_under_topics_over_the_revision_read_a_repeat_answers_with_it_an_unknown_topic_is_refused() {
+fn a_course_is_filed_under_topics_over_the_revision_read_a_repeat_answers_with_it_an_unknown_topic_is_refused()
+ {
     let Some((_db, st)) = store() else { return };
     let d = draft_with_outline(&st);
     let c = courses();
     let risk = topic(&st, "risk", "Risk", A, now()).unwrap();
     let course_id = s(&d.course, "id");
     let revision = n(&d.course, "revision");
-    let set = |ids: &str| c.set_topics(&st, &v(&format!(r#"{{"courseId":"{course_id}","revision":{revision},"topicIds":{ids}}}"#)), A, now());
-    assert_eq!(code(set(r#"["99999999-9999-4999-8999-999999999999"]"#)), "academy.topic_not_found");
+    let set = |ids: &str| {
+        c.set_topics(
+            &st,
+            &v(&format!(
+                r#"{{"courseId":"{course_id}","revision":{revision},"topicIds":{ids}}}"#
+            )),
+            A,
+            now(),
+        )
+    };
+    assert_eq!(
+        code(set(r#"["99999999-9999-4999-8999-999999999999"]"#)),
+        "academy.topic_not_found"
+    );
     let ids = format!(r#"["{}"]"#, s(&risk, "id"));
     let filed = set(&ids).unwrap();
     same(at_path(&filed, "topics"), &Json::Array(vec![risk.clone()]));
     assert_eq!(n(&filed, "course.revision"), revision + 1);
-    matches(at_path(&filed, "events.0"), &format!(r#"{{"kind":"topics","actor":"{A}"}}"#));
+    matches(
+        at_path(&filed, "events.0"),
+        &format!(r#"{{"kind":"topics","actor":"{A}"}}"#),
+    );
     same(&set(&ids).unwrap(), &filed);
     assert_eq!(code(set("[]")), "academy.course_revision_stale");
 }

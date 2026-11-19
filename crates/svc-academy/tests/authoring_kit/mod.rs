@@ -59,8 +59,12 @@ pub fn at_path<'a>(j: &'a Json, path: &str) -> &'a Json {
     let mut cur = j;
     for part in path.split('.') {
         cur = match (cur, part.parse::<usize>()) {
-            (Json::Array(a), Ok(i)) => a.get(i).unwrap_or_else(|| panic!("no index {part} in {}", cur.compact())),
-            _ => cur.get(part).unwrap_or_else(|| panic!("no field {part} in {}", cur.compact())),
+            (Json::Array(a), Ok(i)) => a
+                .get(i)
+                .unwrap_or_else(|| panic!("no index {part} in {}", cur.compact())),
+            _ => cur
+                .get(part)
+                .unwrap_or_else(|| panic!("no field {part} in {}", cur.compact())),
         };
     }
     cur
@@ -98,7 +102,9 @@ pub fn matches(actual: &Json, expected: &str) {
         match (a, w) {
             (Json::Object(_), Json::Object(fields)) => {
                 for (k, wv) in fields {
-                    let av = a.get(k).unwrap_or_else(|| panic!("{path}.{k} missing in {}", a.compact()));
+                    let av = a
+                        .get(k)
+                        .unwrap_or_else(|| panic!("{path}.{k} missing in {}", a.compact()));
                     check(av, wv, &format!("{path}.{k}"));
                 }
             }
@@ -112,7 +118,8 @@ pub fn matches(actual: &Json, expected: &str) {
 pub fn norm(j: &Json) -> Json {
     match j {
         Json::Object(fields) => {
-            let mut f: Vec<(String, Json)> = fields.iter().map(|(k, v)| (k.clone(), norm(v))).collect();
+            let mut f: Vec<(String, Json)> =
+                fields.iter().map(|(k, v)| (k.clone(), norm(v))).collect();
             f.sort_by(|a, b| a.0.cmp(&b.0));
             Json::Object(f)
         }
@@ -135,7 +142,11 @@ pub fn same(a: &Json, b: &Json) {
 pub const SECRET: &str = "an-academy-authoring-test-edge-secret-long";
 
 /// The door over a database, with the test process's switches (`curriculum_release.rs`'s `door`).
-pub fn door(db: &TestDb, settings: svc_academy::settings::Settings, ports: svc_academy::ports::Ports) -> svc_academy::door::AcademyDoor {
+pub fn door(
+    db: &TestDb,
+    settings: svc_academy::settings::Settings,
+    ports: svc_academy::ports::Ports,
+) -> svc_academy::door::AcademyDoor {
     svc_academy::door::AcademyDoor::new(svc_academy::door::DoorConfig {
         edge_secret: SECRET.to_owned(),
         env: [
@@ -173,7 +184,10 @@ fn encode(input: &Json) -> String {
 pub fn principal(user: &str, scopes: &[&str], tier: &str) -> Vec<(String, String)> {
     let raw = Json::obj([
         ("sub", Json::str(user)),
-        ("scopes", Json::Array(scopes.iter().map(|s| Json::str(*s)).collect())),
+        (
+            "scopes",
+            Json::Array(scopes.iter().map(|s| Json::str(*s)).collect()),
+        ),
         ("tier", Json::str(tier)),
         ("mfa", Json::Bool(false)),
         ("sid", Json::str("22222222-2222-4222-8222-222222222222")),
@@ -182,30 +196,57 @@ pub fn principal(user: &str, scopes: &[&str], tier: &str) -> Vec<(String, String
     ])
     .compact();
     vec![
-        ("x-intafaced-principal-sig".to_owned(), service_kit::edge::sign(&raw, SECRET, "DE").unwrap()),
+        (
+            "x-intafaced-principal-sig".to_owned(),
+            service_kit::edge::sign(&raw, SECRET, "DE").unwrap(),
+        ),
         ("x-intafaced-principal".to_owned(), raw),
         ("x-intafaced-region".to_owned(), "DE".to_owned()),
     ]
 }
 
 /// `GET /trpc/<path>?input=...` with these headers: the status and the parsed body.
-pub fn query(door: &svc_academy::door::AcademyDoor, headers: &[(String, String)], path: &str, input: Option<&Json>) -> (u16, Json) {
+pub fn query(
+    door: &svc_academy::door::AcademyDoor,
+    headers: &[(String, String)],
+    path: &str,
+    input: Option<&Json>,
+) -> (u16, Json) {
     let url = match input {
         Some(i) => format!("/trpc/{path}?input={}", encode(i)),
         None => format!("/trpc/{path}"),
     };
-    let res = door.handle(&service_kit::server::Request { method: "GET", url: &url, headers, body: "" });
+    let res = door.handle(&service_kit::server::Request {
+        method: "GET",
+        url: &url,
+        headers,
+        body: "",
+    });
     (res.status, json::parse(&res.body).unwrap())
 }
 
 /// A visitor (no principal) asking a public call.
-pub fn visitor(door: &svc_academy::door::AcademyDoor, path: &str, input: Option<&Json>) -> (u16, Json) {
-    query(door, &[("x-intafaced-region".to_owned(), "DE".to_owned())], path, input)
+pub fn visitor(
+    door: &svc_academy::door::AcademyDoor,
+    path: &str,
+    input: Option<&Json>,
+) -> (u16, Json) {
+    query(
+        door,
+        &[("x-intafaced-region".to_owned(), "DE".to_owned())],
+        path,
+        input,
+    )
 }
 
 pub fn data(answer: &(u16, Json)) -> Json {
     assert_eq!(answer.0, 200, "{}", answer.1.compact());
-    answer.1.get("result").and_then(|r| r.get("data")).cloned().unwrap_or(Json::Null)
+    answer
+        .1
+        .get("result")
+        .and_then(|r| r.get("data"))
+        .cloned()
+        .unwrap_or(Json::Null)
 }
 
 /// The refusal's tRPC status and academy code (`data.academyCode` or the message's prefix).
@@ -216,9 +257,12 @@ pub fn refused(answer: &(u16, Json)) -> (u16, String) {
         .get("error")
         .and_then(|e| e.get("data"))
         .and_then(|d| d.get("academyCode").or_else(|| d.get("code")))
-        .map_or_else(|| body.clone(), |c| match c {
-            Json::String(s) => s.clone(),
-            other => other.compact(),
-        });
+        .map_or_else(
+            || body.clone(),
+            |c| match c {
+                Json::String(s) => s.clone(),
+                other => other.compact(),
+            },
+        );
     (answer.0, code)
 }

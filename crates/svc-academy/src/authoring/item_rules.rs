@@ -5,8 +5,8 @@
 
 use postgres::{GenericClient, Transaction};
 
-use service_kit::json::Json;
 use crate::db::Store;
+use service_kit::json::Json;
 use service_kit::schema::Value;
 
 use super::release::find_cycle;
@@ -23,7 +23,13 @@ pub fn due_for(brief: Option<i64>, extended: Option<i64>) -> Option<i64> {
 }
 
 fn lock_course(tx: &mut Transaction<'_>, course_id: &str) -> Result<(), Refusal> {
-    if first(tx, "SELECT id FROM academy.courses WHERE id = $1::text::uuid FOR UPDATE", &[&course_id])?.is_none() {
+    if first(
+        tx,
+        "SELECT id FROM academy.courses WHERE id = $1::text::uuid FOR UPDATE",
+        &[&course_id],
+    )?
+    .is_none()
+    {
         return refuse("no course has that id", "academy.course_not_found");
     }
     Ok(())
@@ -31,7 +37,13 @@ fn lock_course(tx: &mut Transaction<'_>, course_id: &str) -> Result<(), Refusal>
 
 /// `viewIn`.
 pub fn view<C: GenericClient>(c: &mut C, course_id: &str) -> Result<Json, Refusal> {
-    if first(c, "SELECT id FROM academy.courses WHERE id = $1::text::uuid", &[&course_id])?.is_none() {
+    if first(
+        c,
+        "SELECT id FROM academy.courses WHERE id = $1::text::uuid",
+        &[&course_id],
+    )?
+    .is_none()
+    {
         return refuse("no course has that id", "academy.course_not_found");
     }
     let items = query(
@@ -73,7 +85,12 @@ pub fn view<C: GenericClient>(c: &mut C, course_id: &str) -> Result<Json, Refusa
                 ("dueAt", nullable(opt_iso_of(i, "due_at")?)),
                 (
                     "prerequisites",
-                    Json::Array(get::<Vec<String>>(i, "prerequisites")?.into_iter().map(Json::String).collect()),
+                    Json::Array(
+                        get::<Vec<String>>(i, "prerequisites")?
+                            .into_iter()
+                            .map(Json::String)
+                            .collect(),
+                    ),
                 ),
                 ("setBy", nullable(get(i, "set_by")?)),
                 ("setAt", nullable(opt_iso_of(i, "set_at")?)),
@@ -110,7 +127,12 @@ fn gated(kind: &str) -> bool {
 }
 
 /// `setPrerequisites`.
-pub fn set_prerequisites(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_prerequisites(
+    pool: &Store,
+    input: &Value,
+    operator: &str,
+    now: i64,
+) -> Result<Json, Refusal> {
     let course_id = text(input, "courseId");
     let item_id = text(input, "itemId");
     let reason = text(input, "reason");
@@ -139,26 +161,44 @@ pub fn set_prerequisites(pool: &Store, input: &Value, operator: &str, now: i64) 
         .iter()
         .map(|r| Ok((get(r, "id")?, get(r, "kind")?, get::<Option<bool>>(r, "completable")? == Some(true))))
         .collect::<Result<_, Refusal>>()?;
-        let kind_of = |id: &str| items.iter().find(|(i, _, _)| i == id).map(|(_, k, c)| (k.as_str(), *c));
+        let kind_of = |id: &str| {
+            items
+                .iter()
+                .find(|(i, _, _)| i == id)
+                .map(|(_, k, c)| (k.as_str(), *c))
+        };
         if !kind_of(item_id).is_some_and(|(k, _)| gated(k)) {
-            return refuse("no assignment or quiz of this course has that id", "academy.outline_item_unknown");
+            return refuse(
+                "no assignment or quiz of this course has that id",
+                "academy.outline_item_unknown",
+            );
         }
         for id in &wanted {
             let Some((kind, completable)) = kind_of(id) else {
-                return refuse(format!("no item of this course has the id {id}"), "academy.outline_item_unknown");
+                return refuse(
+                    format!("no item of this course has the id {id}"),
+                    "academy.outline_item_unknown",
+                );
             };
             if id == item_id {
-                return refuse(format!("academy.prerequisite_cycle path={id}>{id}"), "academy.prerequisite_cycle");
+                return refuse(
+                    format!("academy.prerequisite_cycle path={id}>{id}"),
+                    "academy.prerequisite_cycle",
+                );
             }
             if !gated(kind) {
                 return refuse(
-                    format!("a {kind} records no completion on a course staff made, so it cannot be required"),
+                    format!(
+                        "a {kind} records no completion on a course staff made, so it cannot be required"
+                    ),
                     "academy.prerequisite_unmeasured",
                 );
             }
             if !completable {
                 return refuse(
-                    format!("item {id} has no saved brief or quiz (or was withdrawn), so no learner can finish it yet"),
+                    format!(
+                        "item {id} has no saved brief or quiz (or was withdrawn), so no learner can finish it yet"
+                    ),
                     "academy.prerequisite_unmeasured",
                 );
             }
@@ -179,7 +219,11 @@ pub fn set_prerequisites(pool: &Store, input: &Value, operator: &str, now: i64) 
                 None => edges.push((from, vec![to])),
             }
         }
-        let mut current = edges.iter().find(|(k, _)| k == item_id).map(|(_, v)| v.clone()).unwrap_or_default();
+        let mut current = edges
+            .iter()
+            .find(|(k, _)| k == item_id)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
         current.sort();
         if current == wanted {
             return view(tx, course_id);
@@ -190,9 +234,16 @@ pub fn set_prerequisites(pool: &Store, input: &Value, operator: &str, now: i64) 
             .flat_map(|(from, to)| to.into_iter().map(move |t| (from.clone(), t)))
             .collect();
         if let Some(cycle) = find_cycle(&flat) {
-            return refuse(format!("academy.prerequisite_cycle path={}", cycle.join(">")), "academy.prerequisite_cycle");
+            return refuse(
+                format!("academy.prerequisite_cycle path={}", cycle.join(">")),
+                "academy.prerequisite_cycle",
+            );
         }
-        sql::exec(tx, "DELETE FROM academy.course_item_prerequisites WHERE item_id = $1::text::uuid", &[&item_id])?;
+        sql::exec(
+            tx,
+            "DELETE FROM academy.course_item_prerequisites WHERE item_id = $1::text::uuid",
+            &[&item_id],
+        )?;
         if !wanted.is_empty() {
             sql::exec(
                 tx,
@@ -208,7 +259,11 @@ pub fn set_prerequisites(pool: &Store, input: &Value, operator: &str, now: i64) 
              ON CONFLICT (item_id) DO UPDATE SET reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at",
             &[&item_id, &reason, &operator, &at(now)],
         )?;
-        let detail = Json::obj([("prerequisites", Json::Array(wanted.iter().map(Json::str).collect()))]).compact();
+        let detail = Json::obj([(
+            "prerequisites",
+            Json::Array(wanted.iter().map(Json::str).collect()),
+        )])
+        .compact();
         sql::exec(
             tx,
             "INSERT INTO academy.course_item_rule_events (item_id, kind, user_id, detail, reason, actor_id, at) \

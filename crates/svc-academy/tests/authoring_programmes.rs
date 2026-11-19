@@ -51,7 +51,11 @@ fn save(st: &Store, max: Option<i64>, over: &[(&str, &str)], at_ms: i64) -> Resu
             slot.1 = (*val).to_owned();
         }
     }
-    let body = fields.iter().map(|(k, val)| format!(r#""{k}":{val}"#)).collect::<Vec<_>>().join(",");
+    let body = fields
+        .iter()
+        .map(|(k, val)| format!(r#""{k}":{val}"#))
+        .collect::<Vec<_>>()
+        .join(",");
     programmes::save(st, &v(&format!("{{{body}}}")), OPERATOR, at_ms, max)
 }
 
@@ -86,10 +90,14 @@ fn counts(j: &Json) -> String {
 }
 
 #[test]
-fn saves_a_programme_as_revision_1_with_its_courses_in_order_and_one_event_row_a_repeat_writes_nothing() {
+fn saves_a_programme_as_revision_1_with_its_courses_in_order_and_one_event_row_a_repeat_writes_nothing()
+ {
     let Some((db, st)) = store() else { return };
     let first = save(&st, Some(4), &[], t0()).unwrap();
-    matches(&first, &format!(r#"{{"slug":"trader-path","courseSlugs":{COURSES},"revision":1}}"#));
+    matches(
+        &first,
+        &format!(r#"{{"slug":"trader-path","courseSlugs":{COURSES},"revision":1}}"#),
+    );
     same(&save(&st, Some(4), &[], t0()).unwrap(), &first);
     assert_eq!(
         db.texts("SELECT revision || '|' || array_to_string(course_slugs, ',') || '|' || operator_id::text || '|' || reason FROM academy.programme_events"),
@@ -101,34 +109,88 @@ fn saves_a_programme_as_revision_1_with_its_courses_in_order_and_one_event_row_a
 fn replaces_the_courses_over_the_revision_read_and_refuses_a_stale_revision_or_a_taken_address() {
     let Some((_db, st)) = store() else { return };
     save(&st, Some(4), &[], t0()).unwrap();
-    let two = [("courseSlugs", r#"["builder","markets"]"#), ("expectedRevision", "1")];
+    let two = [
+        ("courseSlugs", r#"["builder","markets"]"#),
+        ("expectedRevision", "1"),
+    ];
     let second = save(&st, Some(4), &two, t0()).unwrap();
-    matches(&second, r#"{"courseSlugs":["builder","markets"],"revision":2}"#);
+    matches(
+        &second,
+        r#"{"courseSlugs":["builder","markets"],"revision":2}"#,
+    );
     // The reply was lost and staff send the same save again over revision 1: it answers the stored programme.
     same(&save(&st, Some(4), &two, t0()).unwrap(), &second);
-    assert_eq!(code(save(&st, Some(4), &[("title", r#""TEST late""#), ("expectedRevision", "1")], t0())), "academy.revision_stale");
-    assert_eq!(code(save(&st, Some(4), &[("title", r#""TEST another""#)], t0())), "academy.programme_slug_taken");
-    assert_eq!(code(save(&st, Some(4), &[("slug", r#""nowhere""#), ("expectedRevision", "1")], t0())), "academy.programme_not_found");
+    assert_eq!(
+        code(save(
+            &st,
+            Some(4),
+            &[("title", r#""TEST late""#), ("expectedRevision", "1")],
+            t0()
+        )),
+        "academy.revision_stale"
+    );
+    assert_eq!(
+        code(save(&st, Some(4), &[("title", r#""TEST another""#)], t0())),
+        "academy.programme_slug_taken"
+    );
+    assert_eq!(
+        code(save(
+            &st,
+            Some(4),
+            &[("slug", r#""nowhere""#), ("expectedRevision", "1")],
+            t0()
+        )),
+        "academy.programme_not_found"
+    );
 }
 
 #[test]
-fn refuses_a_save_with_courses_while_the_owner_limit_is_blank_past_the_limit_and_at_a_reserved_address() {
+fn refuses_a_save_with_courses_while_the_owner_limit_is_blank_past_the_limit_and_at_a_reserved_address()
+ {
     let Some((db, st)) = store() else { return };
-    assert_eq!(code(save(&st, None, &[], t0())), "academy.programme_limit_unset");
+    assert_eq!(
+        code(save(&st, None, &[], t0())),
+        "academy.programme_limit_unset"
+    );
     // A programme with no course needs no limit: it is shown with its empty state.
-    matches(&save(&st, None, &[("slug", r#""empty-path""#), ("courseSlugs", "[]")], t0()).unwrap(), r#"{"courseSlugs":[]}"#);
-    assert_eq!(code(save(&st, Some(2), &[], t0())), "academy.programme_too_large");
-    assert_eq!(code(save(&st, Some(4), &[("slug", r#""invitations""#)], t0())), "academy.slug_reserved");
-    assert_eq!(db.texts("SELECT slug FROM academy.programmes"), ["empty-path"]);
+    matches(
+        &save(
+            &st,
+            None,
+            &[("slug", r#""empty-path""#), ("courseSlugs", "[]")],
+            t0(),
+        )
+        .unwrap(),
+        r#"{"courseSlugs":[]}"#,
+    );
+    assert_eq!(
+        code(save(&st, Some(2), &[], t0())),
+        "academy.programme_too_large"
+    );
+    assert_eq!(
+        code(save(&st, Some(4), &[("slug", r#""invitations""#)], t0())),
+        "academy.slug_reserved"
+    );
+    assert_eq!(
+        db.texts("SELECT slug FROM academy.programmes"),
+        ["empty-path"]
+    );
 }
 
 #[test]
-fn counts_completed_enrolled_and_not_enrolled_as_the_learner_goes_and_issues_the_certificate_once_at_the_end() {
+fn counts_completed_enrolled_and_not_enrolled_as_the_learner_goes_and_issues_the_certificate_once_at_the_end()
+ {
     let Some((db, st)) = store() else { return };
     save(&st, Some(4), &[], t0()).unwrap();
-    assert_eq!(counts(&read(&st, USER)), r#"{"completed":0,"enrolled":0,"notEnrolled":3}"#);
+    assert_eq!(
+        counts(&read(&st, USER)),
+        r#"{"completed":0,"enrolled":0,"notEnrolled":3}"#
+    );
     enrol(&db, USER, "markets");
-    assert_eq!(counts(&read(&st, USER)), r#"{"completed":0,"enrolled":1,"notEnrolled":2}"#);
+    assert_eq!(
+        counts(&read(&st, USER)),
+        r#"{"completed":0,"enrolled":1,"notEnrolled":2}"#
+    );
     // The learner slice's completion of a whole path ends its enrolment's count as enrolled: completed wins.
     for row in spine::list(Some("markets"), None) {
         db.client()
@@ -138,17 +200,32 @@ fn counts_completed_enrolled_and_not_enrolled_as_the_learner_goes_and_issues_the
             )
             .unwrap();
     }
-    assert_eq!(counts(&read(&st, USER)), r#"{"completed":1,"enrolled":0,"notEnrolled":2}"#);
+    assert_eq!(
+        counts(&read(&st, USER)),
+        r#"{"completed":1,"enrolled":0,"notEnrolled":2}"#
+    );
     finish(&db, "builder", USER);
-    equals(read(&st, USER).get("certificate").unwrap(), &format!(r#"{{"state":"not_earned","certId":"{CERT}"}}"#));
+    equals(
+        read(&st, USER).get("certificate").unwrap(),
+        &format!(r#"{{"state":"not_earned","certId":"{CERT}"}}"#),
+    );
     finish(&db, "sovereign", USER);
     let done = read(&st, USER);
-    assert_eq!(counts(&done), r#"{"completed":3,"enrolled":0,"notEnrolled":0}"#);
+    assert_eq!(
+        counts(&done),
+        r#"{"completed":3,"enrolled":0,"notEnrolled":0}"#
+    );
     match done.get("courses").unwrap() {
-        Json::Array(rows) => assert_eq!(rows.iter().map(|r| s(r, "state")).collect::<Vec<_>>(), ["completed"; 3]),
+        Json::Array(rows) => assert_eq!(
+            rows.iter().map(|r| s(r, "state")).collect::<Vec<_>>(),
+            ["completed"; 3]
+        ),
         _ => panic!(),
     }
-    matches(done.get("certificate").unwrap(), &format!(r#"{{"state":"earned","certId":"{CERT}","status":"valid"}}"#));
+    matches(
+        done.get("certificate").unwrap(),
+        &format!(r#"{{"state":"earned","certId":"{CERT}","status":"valid"}}"#),
+    );
     // Issued once; every later read answers the same grant.
     same(&read(&st, USER), &done);
     assert_eq!(
@@ -156,7 +233,10 @@ fn counts_completed_enrolled_and_not_enrolled_as_the_learner_goes_and_issues_the
         [format!("{CERT}|cert:{USER}:{CERT}")]
     );
     // Another learner's counts are their own.
-    assert_eq!(counts(&read(&st, OTHER)), r#"{"completed":0,"enrolled":0,"notEnrolled":3}"#);
+    assert_eq!(
+        counts(&read(&st, OTHER)),
+        r#"{"completed":0,"enrolled":0,"notEnrolled":3}"#
+    );
     // The public check (certVerify, the certs slice's) finds the grant by its public id.
     let public_id = s(&done, "certificate.publicId");
     assert_eq!(
@@ -166,7 +246,8 @@ fn counts_completed_enrolled_and_not_enrolled_as_the_learner_goes_and_issues_the
 }
 
 #[test]
-fn issues_on_the_next_read_when_the_completion_could_not_and_an_undo_after_the_issue_keeps_the_certificate() {
+fn issues_on_the_next_read_when_the_completion_could_not_and_an_undo_after_the_issue_keeps_the_certificate()
+ {
     let Some((db, st)) = store() else { return };
     for course in ["markets", "builder", "sovereign"] {
         finish(&db, course, USER);
@@ -175,7 +256,11 @@ fn issues_on_the_next_read_when_the_completion_could_not_and_an_undo_after_the_i
     save(&st, Some(4), &[], t0()).unwrap();
     let first = read(&st, USER);
     assert_eq!(s(&first, "certificate.state"), "earned");
-    let last = spine::list(Some("sovereign"), None).last().unwrap().slug.clone();
+    let last = spine::list(Some("sovereign"), None)
+        .last()
+        .unwrap()
+        .slug
+        .clone();
     db.client()
         .execute(
             "DELETE FROM academy.cert_item_completions WHERE user_id = $1::text::uuid AND item_slug = $2::text",
@@ -184,13 +269,23 @@ fn issues_on_the_next_read_when_the_completion_could_not_and_an_undo_after_the_i
         .unwrap();
     let after = read(&st, USER);
     assert_eq!(authoring_kit::n(&after, "counts.completed"), 2);
-    same(after.get("certificate").unwrap(), first.get("certificate").unwrap());
+    same(
+        after.get("certificate").unwrap(),
+        first.get("certificate").unwrap(),
+    );
 }
 
 #[test]
-fn lists_programmes_newest_first_up_to_the_limit_an_empty_programme_with_no_counts_and_refuses_an_unknown_one() {
+fn lists_programmes_newest_first_up_to_the_limit_an_empty_programme_with_no_counts_and_refuses_an_unknown_one()
+ {
     let Some((_db, st)) = store() else { return };
-    save(&st, Some(4), &[("slug", r#""empty-path""#), ("courseSlugs", "[]")], t0()).unwrap();
+    save(
+        &st,
+        Some(4),
+        &[("slug", r#""empty-path""#), ("courseSlugs", "[]")],
+        t0(),
+    )
+    .unwrap();
     save(&st, Some(4), &[], t0() + 1000).unwrap();
     let list = programmes::programmes(&st, USER, 1, false, t0()).unwrap();
     assert_eq!(authoring_kit::len(&list, ""), 1);
@@ -201,26 +296,57 @@ fn lists_programmes_newest_first_up_to_the_limit_an_empty_programme_with_no_coun
         r#"{"slug":"empty-path","courses":[],"counts":{"completed":0,"enrolled":0,"notEnrolled":0}}"#,
     );
     assert_eq!(s(&all, "1.certificate.state"), "not_earned");
-    assert_eq!(code(programmes::programme(&st, USER, "missing", t0())), "academy.programme_not_found");
+    assert_eq!(
+        code(programmes::programme(&st, USER, "missing", t0())),
+        "academy.programme_not_found"
+    );
 }
 
 #[test]
-fn lists_only_the_programmes_the_learner_started_or_holds_a_certificate_for_however_old_with_mine() {
+fn lists_only_the_programmes_the_learner_started_or_holds_a_certificate_for_however_old_with_mine()
+{
     let Some((db, st)) = store() else { return };
-    save(&st, Some(4), &[("slug", r#""old-path""#), ("courseSlugs", r#"["foundations"]"#)], t0()).unwrap();
+    save(
+        &st,
+        Some(4),
+        &[
+            ("slug", r#""old-path""#),
+            ("courseSlugs", r#"["foundations"]"#),
+        ],
+        t0(),
+    )
+    .unwrap();
     save(&st, Some(4), &[], t0() + 1000).unwrap();
-    save(&st, Some(4), &[("slug", r#""empty-path""#), ("courseSlugs", "[]")], t0() + 2000).unwrap();
-    equals(&programmes::programmes(&st, USER, 10, true, t0()).unwrap(), "[]");
+    save(
+        &st,
+        Some(4),
+        &[("slug", r#""empty-path""#), ("courseSlugs", "[]")],
+        t0() + 2000,
+    )
+    .unwrap();
+    equals(
+        &programmes::programmes(&st, USER, 10, true, t0()).unwrap(),
+        "[]",
+    );
     finish(&db, "foundations", USER);
     // The oldest programme is past a one-row page of everything, and still the learner's own.
-    assert_eq!(s(&programmes::programmes(&st, USER, 1, false, t0()).unwrap(), "0.slug"), "empty-path");
+    assert_eq!(
+        s(
+            &programmes::programmes(&st, USER, 1, false, t0()).unwrap(),
+            "0.slug"
+        ),
+        "empty-path"
+    );
     let mine = programmes::programmes(&st, USER, 10, true, t0()).unwrap();
     assert_eq!(authoring_kit::len(&mine, ""), 1);
     assert_eq!(s(&mine, "0.slug"), "old-path");
     assert_eq!(s(&mine, "0.certificate.state"), "earned");
     enrol(&db, USER, "markets");
     let mine = programmes::programmes(&st, USER, 10, true, t0()).unwrap();
-    assert_eq!([s(&mine, "0.slug"), s(&mine, "1.slug")], ["trader-path", "old-path"]);
+    assert_eq!(
+        [s(&mine, "0.slug"), s(&mine, "1.slug")],
+        ["trader-path", "old-path"]
+    );
     assert_eq!(authoring_kit::len(&mine, ""), 2);
 }
 
@@ -229,7 +355,10 @@ fn lists_only_the_programmes_the_learner_started_or_holds_a_certificate_for_howe
 #[test]
 fn ships_an_empty_prerequisite_list_on_every_path() {
     let c = programmes::catalog();
-    assert_eq!(c.iter().map(|d| d.slug).collect::<Vec<_>>(), programmes::PROGRAMME_SLUGS);
+    assert_eq!(
+        c.iter().map(|d| d.slug).collect::<Vec<_>>(),
+        programmes::PROGRAMME_SLUGS
+    );
     assert!(c.iter().all(|d| d.prerequisites.is_empty()));
     assert_eq!(programmes::assert_catalog(&c), Ok(()));
 }
@@ -240,10 +369,17 @@ fn fails_when_a_prerequisite_slug_is_not_a_programme() {
         .iter()
         .map(|slug| programmes::Definition {
             slug,
-            prerequisites: if *slug == "markets" { vec!["not-a-programme".to_owned()] } else { Vec::new() },
+            prerequisites: if *slug == "markets" {
+                vec!["not-a-programme".to_owned()]
+            } else {
+                Vec::new()
+            },
         })
         .collect();
-    assert_eq!(programmes::assert_catalog(&bad), Err("unknown prerequisite slug: not-a-programme".to_owned()));
+    assert_eq!(
+        programmes::assert_catalog(&bad),
+        Err("unknown prerequisite slug: not-a-programme".to_owned())
+    );
 }
 
 #[test]
@@ -270,7 +406,8 @@ fn reads_at_once_issue_one_certificate() {
             let url = url.clone();
             std::thread::spawn(move || {
                 let st = Store::Pool(service_kit::pg::Pool::new(&url, 2));
-                programmes::programme(&st, USER, "trader-path", t0()).map(|j| s(&j, "certificate.publicId"))
+                programmes::programme(&st, USER, "trader-path", t0())
+                    .map(|j| s(&j, "certificate.publicId"))
             })
         })
         .collect();
@@ -286,10 +423,20 @@ fn reads_at_once_issue_one_certificate() {
         }
     }
     assert!(ids.iter().all(|i| *i == ids[0]), "{ids:?}");
-    assert_eq!(db.texts(&format!("SELECT cert_id FROM academy.cert_grants WHERE user_id = '{USER}'")), [CERT]);
+    assert_eq!(
+        db.texts(&format!(
+            "SELECT cert_id FROM academy.cert_grants WHERE user_id = '{USER}'"
+        )),
+        [CERT]
+    );
     let after = s(&read(&st, USER), "certificate.publicId");
     assert!(ids.is_empty() || ids[0] == after);
-    assert_eq!(db.texts(&format!("SELECT public_id::text FROM academy.cert_grants WHERE user_id = '{USER}'")), [after]);
+    assert_eq!(
+        db.texts(&format!(
+            "SELECT public_id::text FROM academy.cert_grants WHERE user_id = '{USER}'"
+        )),
+        [after]
+    );
 }
 
 #[test]
@@ -307,7 +454,10 @@ fn a_store_that_fails_mid_read_issues_nothing_and_the_next_read_issues_once() {
         )
         .unwrap();
     assert!(programmes::programme(&st, USER, "trader-path", t0()).is_err());
-    assert!(db.texts("SELECT cert_id FROM academy.cert_grants").is_empty());
+    assert!(
+        db.texts("SELECT cert_id FROM academy.cert_grants")
+            .is_empty()
+    );
     db.client()
         .batch_execute("DROP TRIGGER test_refuse_grant ON academy.cert_grants; DROP FUNCTION academy.test_refuse_grant();")
         .unwrap();

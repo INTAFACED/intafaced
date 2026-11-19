@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
-use service_kit::json::{self, Json};
 use crate::db::Store;
+use service_kit::json::{self, Json};
 use service_kit::schema::Value;
 
 use super::sql::{self, at, first, get, iso_of, ms, query};
@@ -27,22 +27,35 @@ pub const SIGNATURES: [(&str, usize, &[u8]); 7] = [
     ("video/mp4", 4, &[0x66, 0x74, 0x79, 0x70]),
     ("video/quicktime", 4, &[0x66, 0x74, 0x79, 0x70]),
     ("application/pdf", 0, &[0x25, 0x50, 0x44, 0x46, 0x2d]),
-    ("image/png", 0, &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    (
+        "image/png",
+        0,
+        &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    ),
     ("image/jpeg", 0, &[0xff, 0xd8, 0xff]),
     ("image/gif", 0, &[0x47, 0x49, 0x46, 0x38]),
 ];
 
 fn signature(content_type: &str) -> Option<(usize, &'static [u8])> {
-    SIGNATURES.iter().find(|(t, _, _)| *t == content_type).map(|(_, o, b)| (*o, *b))
+    SIGNATURES
+        .iter()
+        .find(|(t, _, _)| *t == content_type)
+        .map(|(_, o, b)| (*o, *b))
 }
 
 /// `signatureMatches`.
 pub fn signature_matches(head: &[u8], offset: usize, bytes: &[u8]) -> bool {
-    bytes.iter().enumerate().all(|(i, b)| head.get(offset + i) == Some(b))
+    bytes
+        .iter()
+        .enumerate()
+        .all(|(i, b)| head.get(offset + i) == Some(b))
 }
 
 fn sniff(head: &[u8]) -> Option<&'static str> {
-    SIGNATURES.iter().find(|(_, o, b)| signature_matches(head, *o, b)).map(|(t, _, _)| *t)
+    SIGNATURES
+        .iter()
+        .find(|(_, o, b)| signature_matches(head, *o, b))
+        .map(|(t, _, _)| *t)
 }
 
 /// What a read-back saw: the status, how many bytes (stopping past the declared size), the first 16 and the SHA-256.
@@ -115,7 +128,11 @@ pub struct Limits {
 
 impl Limits {
     fn json(&self) -> Json {
-        let list = |l: &Option<Vec<String>>| l.as_ref().map_or(Json::Null, |v| Json::Array(v.iter().map(Json::str).collect()));
+        let list = |l: &Option<Vec<String>>| {
+            l.as_ref().map_or(Json::Null, |v| {
+                Json::Array(v.iter().map(Json::str).collect())
+            })
+        };
         Json::obj([
             ("maxBytes", self.max_bytes.map_or(Json::Null, Json::int)),
             ("videoTypes", list(&self.video_types)),
@@ -124,11 +141,17 @@ impl Limits {
     }
 
     fn for_kind(&self, kind: &str) -> Result<(i64, &[String]), Refusal> {
-        let types = if kind == "video" { &self.video_types } else { &self.handout_types };
+        let types = if kind == "video" {
+            &self.video_types
+        } else {
+            &self.handout_types
+        };
         match (self.max_bytes, types) {
             (Some(m), Some(t)) if !t.is_empty() => Ok((m, t)),
             _ => refuse(
-                format!("the owner has not set the upload size limit and the accepted {kind} types"),
+                format!(
+                    "the owner has not set the upload size limit and the accepted {kind} types"
+                ),
                 "academy.upload_limits_unset",
             ),
         }
@@ -180,7 +203,10 @@ fn row_of(r: &postgres::Row) -> Result<Row, Refusal> {
 fn require_storage(s: Option<&Storage>) -> Result<&Storage, Refusal> {
     match s {
         Some(s) if s.configured() => Ok(s),
-        _ => refuse("Video object storage is not configured", "academy.video_storage_unconfigured"),
+        _ => refuse(
+            "Video object storage is not configured",
+            "academy.video_storage_unconfigured",
+        ),
     }
 }
 
@@ -198,7 +224,11 @@ impl Media<'_> {
     }
 
     fn media_json(&self, r: &Row, now: i64) -> Result<Json, Refusal> {
-        let url = if r.state == "ready" { self.view_url(&r.object_key, now)? } else { None };
+        let url = if r.state == "ready" {
+            self.view_url(&r.object_key, now)?
+        } else {
+            None
+        };
         Ok(Json::obj([
             ("id", Json::str(&r.id)),
             ("kind", Json::str(&r.kind)),
@@ -222,11 +252,17 @@ impl Media<'_> {
             )
         })?
         else {
-            return refuse("no outline item with that id", "academy.outline_item_unknown");
+            return refuse(
+                "no outline item with that id",
+                "academy.outline_item_unknown",
+            );
         };
         let kind: String = get(&r, "kind")?;
         if kind == "subheader" || kind == "link" {
-            return refuse(format!("a {kind} holds no files"), "academy.item_has_no_lesson");
+            return refuse(
+                format!("a {kind} holds no files"),
+                "academy.item_has_no_lesson",
+            );
         }
         Ok((get(&r, "id")?, get(&r, "course_id")?))
     }
@@ -275,10 +311,11 @@ impl Media<'_> {
         let captions = captions
             .iter()
             .map(|c| {
-                let cues = json::parse(&get::<String>(c, "cues")?).map_err(|e| Refusal::Internal {
-                    message: e.message,
-                    code: None,
-                })?;
+                let cues =
+                    json::parse(&get::<String>(c, "cues")?).map_err(|e| Refusal::Internal {
+                        message: e.message,
+                        code: None,
+                    })?;
                 let list = match &cues {
                     Json::Array(a) => a.clone(),
                     _ => Vec::new(),
@@ -316,13 +353,22 @@ impl Media<'_> {
         let bytes = super::int(input, "bytes");
         let (max, types) = self.limits.for_kind(kind)?;
         if bytes > max {
-            return refuse(format!("the file is {bytes} bytes; the limit is {max}"), "academy.upload_too_large");
+            return refuse(
+                format!("the file is {bytes} bytes; the limit is {max}"),
+                "academy.upload_too_large",
+            );
         }
         if !types.iter().any(|t| t == content_type) {
-            return refuse(format!("{content_type} is not an accepted {kind} type"), "academy.upload_type_refused");
+            return refuse(
+                format!("{content_type} is not an accepted {kind} type"),
+                "academy.upload_type_refused",
+            );
         }
         if signature(content_type).is_none() {
-            return refuse(format!("the content of {content_type} files cannot be checked"), "academy.upload_type_refused");
+            return refuse(
+                format!("the content of {content_type} files cannot be checked"),
+                "academy.upload_type_refused",
+            );
         }
         let (item, course) = self.item(text(input, "itemId"))?;
         let sha = text(input, "sha256");
@@ -353,16 +399,29 @@ impl Media<'_> {
         })?;
         let row = row_of(&row)?;
         if row.state == "ready" {
-            return Ok(Json::obj([("media", self.media_json(&row, now)?), ("uploadUrl", Json::Null)]));
+            return Ok(Json::obj([
+                ("media", self.media_json(&row, now)?),
+                ("uploadUrl", Json::Null),
+            ]));
         }
         let (url, _) = storage::sign_put(require_storage(self.storage)?, &key, now)?;
-        Ok(Json::obj([("media", self.media_json(&row, now)?), ("uploadUrl", Json::String(url))]))
+        Ok(Json::obj([
+            ("media", self.media_json(&row, now)?),
+            ("uploadUrl", Json::String(url)),
+        ]))
     }
 
     /// `confirm`.
     pub fn confirm(&self, media_id: &str, now: i64) -> Result<Json, Refusal> {
         let Some(r) = sql::client(self.pool, |c| {
-            first(c, &format!("SELECT {} FROM academy.course_media WHERE id = $1::text::uuid", cols()), &[&media_id])
+            first(
+                c,
+                &format!(
+                    "SELECT {} FROM academy.course_media WHERE id = $1::text::uuid",
+                    cols()
+                ),
+                &[&media_id],
+            )
         })?
         else {
             return refuse("no upload with that id", "academy.media_not_found");
@@ -372,19 +431,31 @@ impl Media<'_> {
             return self.media_json(&row, now);
         }
         if row.state == "refused" {
-            let why = row.refusal.clone().unwrap_or_else(|| "the stored file was refused".to_owned());
+            let why = row
+                .refusal
+                .clone()
+                .unwrap_or_else(|| "the stored file was refused".to_owned());
             return Err(AcademyError::new(why, "academy.file_type_mismatch").into());
         }
         let issued = storage::sign_get(require_storage(self.storage)?, &row.object_key, now)?;
         let declared = row.bytes;
-        let back = self.read_back.read_back(&issued.url, u64::try_from(declared).unwrap_or(0))?;
+        let back = self
+            .read_back
+            .read_back(&issued.url, u64::try_from(declared).unwrap_or(0))?;
         if back.status != 200 {
-            return refuse("the file has not reached storage; send it again", "academy.upload_incomplete");
+            return refuse(
+                "the file has not reached storage; send it again",
+                "academy.upload_incomplete",
+            );
         }
         let got = i64::try_from(back.bytes).unwrap_or(i64::MAX);
         if got != declared || back.sha256 != row.sha256 {
             let message = if got != declared {
-                let held = if got > declared { "more than".to_owned() } else { got.to_string() };
+                let held = if got > declared {
+                    "more than".to_owned()
+                } else {
+                    got.to_string()
+                };
                 format!("storage holds {held} bytes; {declared} were declared")
             } else {
                 "the stored bytes are not the file that was declared; send it again".to_owned()
@@ -392,10 +463,14 @@ impl Media<'_> {
             return refuse(message, "academy.upload_incomplete");
         }
         let same = "id = $1::text::uuid AND state = 'pending' AND content_type = $2::text AND bytes = $3::int8";
-        let matches = signature(&row.content_type).is_some_and(|(o, b)| signature_matches(&back.head, o, b));
+        let matches =
+            signature(&row.content_type).is_some_and(|(o, b)| signature_matches(&back.head, o, b));
         if !matches {
             let seen = sniff(&back.head).unwrap_or("not a type we recognise");
-            let refusal = format!("the file was declared {} but its content is {seen}", row.content_type);
+            let refusal = format!(
+                "the file was declared {} but its content is {seen}",
+                row.content_type
+            );
             sql::client(self.pool, |c| {
                 sql::exec(
                     c,
@@ -418,7 +493,10 @@ impl Media<'_> {
             )
         })?;
         let Some(ready) = ready else {
-            return refuse("the upload changed while it was checked; check it again", "academy.upload_incomplete");
+            return refuse(
+                "the upload changed while it was checked; check it again",
+                "academy.upload_incomplete",
+            );
         };
         self.media_json(&row_of(&ready)?, now)
     }
@@ -428,15 +506,25 @@ impl Media<'_> {
         let item_id = text(input, "itemId");
         self.item(item_id)?;
         let Some(video) = self.current_video(item_id)? else {
-            return refuse("upload and confirm a video before its captions", "academy.item_video_missing");
+            return refuse(
+                "upload and confirm a video before its captions",
+                "academy.item_video_missing",
+            );
         };
         let format = text(input, "format");
         let source = text(input, "text");
-        let parsed = if format == "srt" { tracks::parse_srt(source) } else { tracks::parse_vtt(source) };
+        let parsed = if format == "srt" {
+            tracks::parse_srt(source)
+        } else {
+            tracks::parse_vtt(source)
+        };
         let cues: Vec<Cue> = match parsed {
             Ok(c) => c,
             Err(Refusal::Academy(e)) if e.code == "academy.captions_invalid" => {
-                let problem = e.message.strip_prefix("academy.captions_invalid").map_or(e.message.as_str(), str::trim_start);
+                let problem = e
+                    .message
+                    .strip_prefix("academy.captions_invalid")
+                    .map_or(e.message.as_str(), str::trim_start);
                 return Ok(Json::obj([
                     ("outcome", Json::str("invalid")),
                     ("problem", Json::str(problem)),
@@ -466,10 +554,23 @@ impl Media<'_> {
                  VALUES ($1::text::uuid, $2::text::uuid, $3::text, $4::text, $5::text, $6::text, $7::text::jsonb, $8::text::uuid, $9::text::timestamptz) \
                  ON CONFLICT (media_id, language) DO UPDATE SET label = excluded.label, format = excluded.format, \
                    source = excluded.source, cues = excluded.cues, set_by = excluded.set_by, set_at = excluded.set_at",
-                &[&item_id, &video, &language, &label, &format, &source, &cues_json, &operator, &at(now)],
+                &[
+                    &item_id,
+                    &video,
+                    &language,
+                    &label,
+                    &format,
+                    &source,
+                    &cues_json,
+                    &operator,
+                    &at(now),
+                ],
             )
         })?;
-        Ok(Json::obj([("outcome", Json::str("saved")), ("media", self.item_media(item_id, now)?)]))
+        Ok(Json::obj([
+            ("outcome", Json::str("saved")),
+            ("media", self.item_media(item_id, now)?),
+        ]))
     }
 }
 
@@ -479,8 +580,15 @@ mod tests {
 
     #[test]
     fn leading_bytes_name_their_type() {
-        assert!(signature_matches(&[0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70], 4, &[0x66, 0x74, 0x79, 0x70]));
-        assert_eq!(sniff(&[0x25, 0x50, 0x44, 0x46, 0x2d]), Some("application/pdf"));
+        assert!(signature_matches(
+            &[0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70],
+            4,
+            &[0x66, 0x74, 0x79, 0x70]
+        ));
+        assert_eq!(
+            sniff(&[0x25, 0x50, 0x44, 0x46, 0x2d]),
+            Some("application/pdf")
+        );
         assert_eq!(sniff(&[1, 2, 3]), None);
     }
 }

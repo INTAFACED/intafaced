@@ -35,12 +35,20 @@ pub fn iso(ms: i64) -> String {
     Instant(ms).iso()
 }
 
-pub fn query<C: GenericClient>(c: &mut C, sql: &str, params: &[P<'_>]) -> Result<Vec<Row>, Refusal> {
+pub fn query<C: GenericClient>(
+    c: &mut C,
+    sql: &str,
+    params: &[P<'_>],
+) -> Result<Vec<Row>, Refusal> {
     c.query(sql, params).map_err(|e| db::refusal(&e))
 }
 
 /// The first row, when there is one (`const [row] = await sql...`).
-pub fn first<C: GenericClient>(c: &mut C, sql: &str, params: &[P<'_>]) -> Result<Option<Row>, Refusal> {
+pub fn first<C: GenericClient>(
+    c: &mut C,
+    sql: &str,
+    params: &[P<'_>],
+) -> Result<Option<Row>, Refusal> {
     Ok(query(c, sql, params)?.into_iter().next())
 }
 
@@ -72,7 +80,10 @@ pub fn opt_iso_of(row: &Row, column: &str) -> Result<Option<String>, Refusal> {
 }
 
 /// `sql.begin(fn)`: one transaction at the server's default isolation.
-pub fn begin<T>(store: &Store, f: impl FnOnce(&mut Transaction<'_>) -> Result<T, Refusal>) -> Result<T, Refusal> {
+pub fn begin<T>(
+    store: &Store,
+    f: impl FnOnce(&mut Transaction<'_>) -> Result<T, Refusal>,
+) -> Result<T, Refusal> {
     db::with_client(store.pool()?, |client| {
         let mut tx = client.transaction().map_err(|e| db::refusal(&e))?;
         let out = f(&mut tx)?;
@@ -82,15 +93,24 @@ pub fn begin<T>(store: &Store, f: impl FnOnce(&mut Transaction<'_>) -> Result<T,
 }
 
 /// `@intafaced/db` `transaction(sql, fn)`: serializable, up to five tries on `40001` or `40P01`, with jittered backoff.
-pub fn serializable<T>(store: &Store, mut f: impl FnMut(&mut Transaction<'_>) -> Result<T, Refusal>) -> Result<T, Refusal> {
+pub fn serializable<T>(
+    store: &Store,
+    mut f: impl FnMut(&mut Transaction<'_>) -> Result<T, Refusal>,
+) -> Result<T, Refusal> {
     let mut attempt: u32 = 1;
     loop {
-        match db::transaction(store.pool()?, postgres::IsolationLevel::Serializable, &mut f) {
-            Err(Refusal::Internal { code: Some(code), .. })
-                if (code == db::SERIALIZATION_FAILURE || code == "40P01") && attempt < 5 =>
-            {
+        match db::transaction(
+            store.pool()?,
+            postgres::IsolationLevel::Serializable,
+            &mut f,
+        ) {
+            Err(Refusal::Internal {
+                code: Some(code), ..
+            }) if (code == db::SERIALIZATION_FAILURE || code == "40P01") && attempt < 5 => {
                 let ceiling = 5u64 << attempt;
-                std::thread::sleep(std::time::Duration::from_millis(random_u64() % ceiling.max(1)));
+                std::thread::sleep(std::time::Duration::from_millis(
+                    random_u64() % ceiling.max(1),
+                ));
                 attempt += 1;
             }
             other => return other,
@@ -99,7 +119,10 @@ pub fn serializable<T>(store: &Store, mut f: impl FnMut(&mut Transaction<'_>) ->
 }
 
 /// One statement or more outside a transaction, on one connection.
-pub fn client<T>(store: &Store, f: impl FnOnce(&mut postgres::Client) -> Result<T, Refusal>) -> Result<T, Refusal> {
+pub fn client<T>(
+    store: &Store,
+    f: impl FnOnce(&mut postgres::Client) -> Result<T, Refusal>,
+) -> Result<T, Refusal> {
     db::with_client(store.pool()?, f)
 }
 
@@ -138,7 +161,10 @@ pub fn uuid() -> Result<String, Refusal> {
 
 /// `randomBytes(n).toString('hex')`.
 pub fn random_hex<const N: usize>() -> Result<String, Refusal> {
-    Ok(random_bytes::<N>()?.iter().map(|x| format!("{x:02x}")).collect())
+    Ok(random_bytes::<N>()?
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect())
 }
 
 #[cfg(test)]

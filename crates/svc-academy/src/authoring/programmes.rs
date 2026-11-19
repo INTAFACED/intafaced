@@ -5,8 +5,8 @@
 
 use postgres::GenericClient;
 
-use service_kit::json::Json;
 use crate::db::Store;
+use service_kit::json::Json;
 use service_kit::schema::Value;
 
 use super::sql::{self, at, first, get, iso, ms, query};
@@ -35,7 +35,10 @@ impl Record {
             ("slug", Json::str(&self.slug)),
             ("title", Json::str(&self.title)),
             ("summary", Json::str(&self.summary)),
-            ("courseSlugs", Json::Array(self.course_slugs.iter().map(Json::str).collect())),
+            (
+                "courseSlugs",
+                Json::Array(self.course_slugs.iter().map(Json::str).collect()),
+            ),
             ("revision", Json::int(self.revision)),
             ("updatedAt", Json::String(iso(self.updated_at))),
         ])
@@ -75,7 +78,11 @@ pub fn select<C: GenericClient>(c: &mut C, w: &Where<'_>) -> Result<Vec<Record>,
         }
         None => "LIMIT ALL".to_owned(),
     };
-    let filter = if clauses.is_empty() { "TRUE".to_owned() } else { clauses.join(" AND ") };
+    let filter = if clauses.is_empty() {
+        "TRUE".to_owned()
+    } else {
+        clauses.join(" AND ")
+    };
     let refs: Vec<sql::P<'_>> = params.iter().map(|p| p.as_ref() as sql::P<'_>).collect();
     query(
         c,
@@ -109,27 +116,45 @@ fn is_published(course: &str) -> bool {
 /// `assertProgrammeSave`.
 pub fn assert_save(slug: &str, courses: &[&str], max: Option<i64>) -> Result<(), Refusal> {
     if RESERVED.contains(&slug) {
-        return refuse(format!("slug \"{slug}\" is a reserved academy address"), "academy.slug_reserved");
+        return refuse(
+            format!("slug \"{slug}\" is a reserved academy address"),
+            "academy.slug_reserved",
+        );
     }
     for c in courses {
         if !is_published(c) {
-            return refuse(format!("academy.path_not_found course={c}"), "academy.path_not_found");
+            return refuse(
+                format!("academy.path_not_found course={c}"),
+                "academy.path_not_found",
+            );
         }
     }
     if courses.is_empty() {
         return Ok(());
     }
     let Some(max) = max else {
-        return refuse("academy.programme_limit_unset", "academy.programme_limit_unset");
+        return refuse(
+            "academy.programme_limit_unset",
+            "academy.programme_limit_unset",
+        );
     };
     if i64::try_from(courses.len()).unwrap_or(i64::MAX) > max {
-        return refuse(format!("academy.programme_too_large max={max}"), "academy.programme_too_large");
+        return refuse(
+            format!("academy.programme_too_large max={max}"),
+            "academy.programme_too_large",
+        );
     }
     Ok(())
 }
 
 /// `ProgrammeRecords.save`: the checks, then one serializable transaction under the programme's advisory lock.
-pub fn save(pool: &Store, input: &Value, operator: &str, now: i64, max: Option<i64>) -> Result<Json, Refusal> {
+pub fn save(
+    pool: &Store,
+    input: &Value,
+    operator: &str,
+    now: i64,
+    max: Option<i64>,
+) -> Result<Json, Refusal> {
     let slug = text(input, "slug");
     let title = text(input, "title");
     let summary = text(input, "summary");
@@ -145,7 +170,11 @@ pub fn save(pool: &Store, input: &Value, operator: &str, now: i64, max: Option<i
     assert_save(slug, &courses, max)?;
     let lock = format!("programme:{slug}");
     let record = sql::serializable(pool, |tx| {
-        sql::exec(tx, "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", &[&lock])?;
+        sql::exec(
+            tx,
+            "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+            &[&lock],
+        )?;
         let current = select(
             tx,
             &Where {
@@ -158,19 +187,36 @@ pub fn save(pool: &Store, input: &Value, operator: &str, now: i64, max: Option<i
         if let Some(c) = &current
             && c.title == title
             && c.summary == summary
-            && c.course_slugs.iter().map(String::as_str).eq(courses.iter().copied())
+            && c.course_slugs
+                .iter()
+                .map(String::as_str)
+                .eq(courses.iter().copied())
         {
             return Ok(c.clone());
         }
         match (expected, &current) {
-            (None, Some(_)) => return refuse(format!("academy.programme_slug_taken slug={slug}"), "academy.programme_slug_taken"),
-            (Some(_), None) => return refuse(format!("academy.programme_not_found slug={slug}"), "academy.programme_not_found"),
+            (None, Some(_)) => {
+                return refuse(
+                    format!("academy.programme_slug_taken slug={slug}"),
+                    "academy.programme_slug_taken",
+                );
+            }
+            (Some(_), None) => {
+                return refuse(
+                    format!("academy.programme_not_found slug={slug}"),
+                    "academy.programme_not_found",
+                );
+            }
             (Some(e), Some(c)) if c.revision != e => {
-                return refuse(format!("academy.revision_stale revision={}", c.revision), "academy.revision_stale");
+                return refuse(
+                    format!("academy.revision_stale revision={}", c.revision),
+                    "academy.revision_stale",
+                );
             }
             _ => {}
         }
-        let revision = i32::try_from(current.as_ref().map_or(0, |c| c.revision) + 1).unwrap_or(i32::MAX);
+        let revision =
+            i32::try_from(current.as_ref().map_or(0, |c| c.revision) + 1).unwrap_or(i32::MAX);
         sql::exec(
             tx,
             "INSERT INTO academy.programmes (slug, title, summary, revision, created_by, created_at, updated_at) \
@@ -179,7 +225,11 @@ pub fn save(pool: &Store, input: &Value, operator: &str, now: i64, max: Option<i
                revision = EXCLUDED.revision, updated_at = EXCLUDED.updated_at",
             &[&slug, &title, &summary, &revision, &operator, &at(now)],
         )?;
-        sql::exec(tx, "DELETE FROM academy.programme_courses WHERE programme_slug = $1::text", &[&slug])?;
+        sql::exec(
+            tx,
+            "DELETE FROM academy.programme_courses WHERE programme_slug = $1::text",
+            &[&slug],
+        )?;
         for (position, course) in courses.iter().enumerate() {
             let pos = i32::try_from(position).unwrap_or(i32::MAX);
             sql::exec(
@@ -294,7 +344,10 @@ fn learner<C: GenericClient>(c: &mut C, user_id: &str) -> Result<Learner, Refusa
     let mut started = enrolled.clone();
     for p in spine::PATHS {
         let items = spine::list(Some(p), None);
-        if !items.is_empty() && items.iter().all(|i| completed.contains(&i.slug)) && !started.iter().any(|s| s == p) {
+        if !items.is_empty()
+            && items.iter().all(|i| completed.contains(&i.slug))
+            && !started.iter().any(|s| s == p)
+        {
             started.push(p.to_owned());
         }
     }
@@ -307,7 +360,12 @@ fn learner<C: GenericClient>(c: &mut C, user_id: &str) -> Result<Learner, Refusa
 }
 
 /// `issueProgrammeCert`: the grant once, then the row as stored.
-fn issue<C: GenericClient>(c: &mut C, user_id: &str, cert_id: &str, now: i64) -> Result<Grant, Refusal> {
+fn issue<C: GenericClient>(
+    c: &mut C,
+    user_id: &str,
+    cert_id: &str,
+    now: i64,
+) -> Result<Grant, Refusal> {
     let key = format!("cert:{user_id}:{cert_id}");
     let public_id = sql::random_hex::<16>()?;
     sql::exec(
@@ -329,7 +387,10 @@ fn issue<C: GenericClient>(c: &mut C, user_id: &str, cert_id: &str, now: i64) ->
         &[&user_id, &cert_id],
     )?
     else {
-        return refuse(format!("Programme certificate left no row for {cert_id}"), "academy.cert_invalid");
+        return refuse(
+            format!("Programme certificate left no row for {cert_id}"),
+            "academy.cert_invalid",
+        );
     };
     let status: String = get(&r, "status")?;
     Ok(Grant {
@@ -340,12 +401,21 @@ fn issue<C: GenericClient>(c: &mut C, user_id: &str, cert_id: &str, now: i64) ->
 }
 
 /// `programmeStanding`.
-fn standing<C: GenericClient>(c: &mut C, user_id: &str, record: &Record, l: &Learner, now: i64) -> Result<Json, Refusal> {
+fn standing<C: GenericClient>(
+    c: &mut C,
+    user_id: &str,
+    record: &Record,
+    l: &Learner,
+    now: i64,
+) -> Result<Json, Refusal> {
     let mut rows = Vec::new();
     let (mut done, mut enrolled, mut not) = (0, 0, 0);
     for slug in &record.course_slugs {
         let items = spine::list(Some(slug), None);
-        let completed = items.iter().filter(|i| l.completed.contains(&i.slug)).count();
+        let completed = items
+            .iter()
+            .filter(|i| l.completed.contains(&i.slug))
+            .count();
         let state = if !items.is_empty() && completed == items.len() {
             done += 1;
             "completed"
@@ -360,12 +430,19 @@ fn standing<C: GenericClient>(c: &mut C, user_id: &str, record: &Record, l: &Lea
             ("slug", Json::str(slug)),
             ("state", Json::str(state)),
             ("items", Json::int(i64::try_from(items.len()).unwrap_or(0))),
-            ("completed", Json::int(i64::try_from(completed).unwrap_or(0))),
+            (
+                "completed",
+                Json::int(i64::try_from(completed).unwrap_or(0)),
+            ),
         ]));
     }
     let cert_id = format!("{CERT_PREFIX}{}", record.slug);
     let finished = !record.course_slugs.is_empty() && done == record.course_slugs.len();
-    let held = l.grants.iter().find(|(s, _)| *s == record.slug).map(|(_, g)| g.clone());
+    let held = l
+        .grants
+        .iter()
+        .find(|(s, _)| *s == record.slug)
+        .map(|(_, g)| g.clone());
     let grant = match held {
         Some(g) => Some(g),
         None if finished => Some(issue(c, user_id, &cert_id, now)?),
@@ -379,7 +456,10 @@ fn standing<C: GenericClient>(c: &mut C, user_id: &str, record: &Record, l: &Lea
             ("grantedAt", Json::String(iso(g.granted_at))),
             ("status", Json::str(g.status)),
         ]),
-        None => Json::obj([("state", Json::str("not_earned")), ("certId", Json::str(&cert_id))]),
+        None => Json::obj([
+            ("state", Json::str("not_earned")),
+            ("certId", Json::str(&cert_id)),
+        ]),
     };
     let n = |x: usize| Json::int(i64::try_from(x).unwrap_or(0));
     Ok(Json::obj([
@@ -387,7 +467,14 @@ fn standing<C: GenericClient>(c: &mut C, user_id: &str, record: &Record, l: &Lea
         ("title", Json::str(&record.title)),
         ("summary", Json::str(&record.summary)),
         ("courses", Json::Array(rows)),
-        ("counts", Json::obj([("completed", n(done)), ("enrolled", n(enrolled)), ("notEnrolled", n(not))])),
+        (
+            "counts",
+            Json::obj([
+                ("completed", n(done)),
+                ("enrolled", n(enrolled)),
+                ("notEnrolled", n(not)),
+            ]),
+        ),
         ("certificate", certificate),
     ]))
 }
@@ -404,7 +491,10 @@ pub fn programme(pool: &Store, user_id: &str, slug: &str, now: i64) -> Result<Js
         )?
         .into_iter()
         .next() else {
-            return refuse(format!("academy.programme_not_found slug={slug}"), "academy.programme_not_found");
+            return refuse(
+                format!("academy.programme_not_found slug={slug}"),
+                "academy.programme_not_found",
+            );
         };
         let l = learner(c, user_id)?;
         standing(c, user_id, &record, &l, now)
@@ -412,14 +502,25 @@ pub fn programme(pool: &Store, user_id: &str, slug: &str, now: i64) -> Result<Js
 }
 
 /// `programmes({ userId, limit, mine })`.
-pub fn programmes(pool: &Store, user_id: &str, limit: i64, mine: bool, now: i64) -> Result<Json, Refusal> {
+pub fn programmes(
+    pool: &Store,
+    user_id: &str,
+    limit: i64,
+    mine: bool,
+    now: i64,
+) -> Result<Json, Refusal> {
     sql::client(pool, |c| {
         let l = learner(c, user_id)?;
         let records = select(
             c,
             &Where {
                 limit: Some(limit),
-                mine: mine.then(|| (l.grants.iter().map(|(s, _)| s.clone()).collect(), l.started.clone())),
+                mine: mine.then(|| {
+                    (
+                        l.grants.iter().map(|(s, _)| s.clone()).collect(),
+                        l.started.clone(),
+                    )
+                }),
                 ..Where::default()
             },
         )?;
@@ -443,7 +544,13 @@ pub struct Definition {
 
 /// `PROGRAMME_CATALOG`: none of the owner's prerequisites is authored, so every path ships an empty list.
 pub fn catalog() -> Vec<Definition> {
-    PROGRAMME_SLUGS.iter().map(|slug| Definition { slug, prerequisites: Vec::new() }).collect()
+    PROGRAMME_SLUGS
+        .iter()
+        .map(|slug| Definition {
+            slug,
+            prerequisites: Vec::new(),
+        })
+        .collect()
 }
 
 /// `assertProgrammeCatalog`: the `ProgrammeCatalogError` message, when the list is not a catalog.
@@ -458,7 +565,11 @@ pub fn assert_catalog(defs: &[Definition]) -> Result<(), String> {
         return Err(format!("programme catalog missing {missing}"));
     }
     for def in defs {
-        if let Some(pre) = def.prerequisites.iter().find(|p| !slugs.contains(&p.as_str())) {
+        if let Some(pre) = def
+            .prerequisites
+            .iter()
+            .find(|p| !slugs.contains(&p.as_str()))
+        {
             return Err(format!("unknown prerequisite slug: {pre}"));
         }
     }
@@ -472,5 +583,9 @@ pub fn by_slug<'a>(defs: &'a [Definition], slug: &str) -> Option<&'a Definition>
 
 /// `unmetPrerequisites`: the prerequisite slugs the caller holds no active enrolment for.
 pub fn unmet(def: &Definition, active: &[String]) -> Vec<String> {
-    def.prerequisites.iter().filter(|p| !active.contains(p)).cloned().collect()
+    def.prerequisites
+        .iter()
+        .filter(|p| !active.contains(p))
+        .cloned()
+        .collect()
 }

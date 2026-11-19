@@ -3,8 +3,8 @@
 //! item's course with the caller's own release state, completion rule and due date. Titles, kinds and lock reasons only:
 //! no body, and no staff name or reason from an extension.
 
-use service_kit::json::Json;
 use crate::db::Store;
+use service_kit::json::Json;
 use service_kit::schema::js_trim;
 
 use super::release::{self, course_start};
@@ -23,7 +23,13 @@ fn due_for(due: Option<i64>, extended: Option<i64>) -> (Json, bool) {
 }
 
 /// `courseOutline({ userId, itemSlug })`.
-pub fn course_outline(pool: &Store, user_id: &str, item_slug: &str, now: i64, watch_threshold: Option<i64>) -> Result<Json, Refusal> {
+pub fn course_outline(
+    pool: &Store,
+    user_id: &str,
+    item_slug: &str,
+    now: i64,
+    watch_threshold: Option<i64>,
+) -> Result<Json, Refusal> {
     let Some(item) = spine::get(js_trim(item_slug)) else {
         return refuse("Unknown curriculum item", "academy.curriculum_not_found");
     };
@@ -87,7 +93,11 @@ pub fn course_outline(pool: &Store, user_id: &str, item_slug: &str, now: i64, wa
                 .iter()
                 .map(|r| get(r, "video_slug"))
                 .collect::<Result<_, _>>()?;
-                videos.iter().filter(|(_, v)| seen.contains(v)).map(|(i, _)| i.clone()).collect()
+                videos
+                    .iter()
+                    .filter(|(_, v)| seen.contains(v))
+                    .map(|(i, _)| i.clone())
+                    .collect()
             }
             _ => Vec::new(),
         };
@@ -95,7 +105,8 @@ pub fn course_outline(pool: &Store, user_id: &str, item_slug: &str, now: i64, wa
             .iter()
             .zip(&views)
             .map(|(row, view)| {
-                let opens_later = view.decision.lock == Some("window") && view.available_from.is_some_and(|f| f > now);
+                let opens_later = view.decision.lock == Some("window")
+                    && view.available_from.is_some_and(|f| f > now);
                 let has_quiz = quizzes.contains(&row.slug);
                 let rule = if has_quiz {
                     "score"
@@ -104,7 +115,12 @@ pub fn course_outline(pool: &Store, user_id: &str, item_slug: &str, now: i64, wa
                 } else {
                     "view"
                 };
-                let met = rule == "view" || if rule == "score" { passed.contains(&row.slug) } else { watched.contains(&row.slug) };
+                let met = rule == "view"
+                    || if rule == "score" {
+                        passed.contains(&row.slug)
+                    } else {
+                        watched.contains(&row.slug)
+                    };
                 let (due, extended) = due_for(view.due_at, view.extended_until);
                 Json::obj([
                     ("slug", Json::str(&row.slug)),
@@ -113,11 +129,15 @@ pub fn course_outline(pool: &Store, user_id: &str, item_slug: &str, now: i64, wa
                     ("type", Json::str(spine::item_type(&row.kind, has_quiz))),
                     ("state", Json::str(view.decision.state)),
                     ("lock", view.decision.lock.map_or(Json::Null, Json::str)),
-                    ("missing", Json::Array(view.decision.missing.iter().map(Json::str).collect())),
+                    (
+                        "missing",
+                        Json::Array(view.decision.missing.iter().map(Json::str).collect()),
+                    ),
                     (
                         "opensAt",
                         if opens_later {
-                            view.available_from.map_or(Json::Null, |f| Json::String(iso(f)))
+                            view.available_from
+                                .map_or(Json::Null, |f| Json::String(iso(f)))
                         } else {
                             Json::Null
                         },
@@ -136,6 +156,9 @@ pub fn course_outline(pool: &Store, user_id: &str, item_slug: &str, now: i64, wa
                 ])
             })
             .collect();
-        Ok(Json::obj([("slug", Json::str(&path)), ("items", Json::Array(items))]))
+        Ok(Json::obj([
+            ("slug", Json::str(&path)),
+            ("items", Json::Array(items)),
+        ]))
     })
 }
