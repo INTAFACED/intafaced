@@ -33,7 +33,7 @@ import type { DailyMetadata, DailyPlan } from './zoned-daily-history';
 import { TIMEFRAMES } from './trade-api';
 import { PriceAlerts } from './PriceAlerts';
 import { utc8DailyStart } from './daily-history';
-import { currentSharedCardRoute, subscribeSharedCardRoute } from '../more/blueprint-shared-card-contract';
+import { currentRoute, subscribeRoute } from '../../shared/route-watch';
 
 type HistorySnapshot = { rows: readonly OHLCV[]; metadata?: DailyMetadata; plan?: DailyPlan };
 async function readHistory(
@@ -74,7 +74,7 @@ function useChartHistory(
 ) {
   const { session } = useSession();
   const epoch = useDailyPreferenceEpoch();
-  const route = useSyncExternalStore(subscribeSharedCardRoute, currentSharedCardRoute);
+  const route = useSyncExternalStore(subscribeRoute, currentRoute);
   const [revision, setRevision] = useState(0);
   const key = `${identity(api)}:${identity(session)}:${owner}:${symbol}:${interval}:${preferences.dailyStart}:${preferences.dailyZone}:${epoch}:${route.epoch}:${refresh}:${revision}:${empty}`;
   const observed = useRef<{ key: string } | null>(null);
@@ -91,7 +91,7 @@ function useChartHistory(
     mounted.current &&
     observed.current === captured &&
     currentDailyPreferenceEpoch() === epoch &&
-    currentSharedCardRoute() === route &&
+    currentRoute() === route &&
     (admit?.() ?? true);
   const [state, setState] = useState<{ key: string; resource: Resource<HistorySnapshot> }>({ key, resource: { status: 'loading' } });
   useEffect(() => {

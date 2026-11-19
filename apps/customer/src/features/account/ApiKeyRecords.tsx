@@ -5,11 +5,8 @@ import { safeReturnTo } from '../../app/navigation';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { Button, Loading } from '../../shared/ui';
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
-import { useSession } from '../session/session';
-import {
-  currentSharedCardRoute as currentReadRoute,
-  subscribeSharedCardRoute as subscribeReadRoute,
-} from '../more/blueprint-shared-card-contract';
+import { useSession } from '../session';
+import { currentRoute as currentReadRoute, subscribeRoute as subscribeReadRoute } from '../../shared/route-watch';
 import { readApiKeyRecords, type ApiKeyReadWindow, type ApiKeyRecord } from './api-key-records-api';
 import { copy } from './copy';
 import { ApiKeyRevocation, useApiKeyRevocation } from './ApiKeyRevocation';

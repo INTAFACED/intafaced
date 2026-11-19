@@ -4,7 +4,7 @@ export { WALLET_SECTIONS } from './routes';
 export { formatUnits } from './swap/swap-math';
 export { withDomainTypes } from './venue-wallet/venue-account-api';
 export { isFactoryUnset } from './wallet/AccountsPanel';
-export type { TypedDataDocument } from './wallet/eip1193';
+export { shortAddress, type TypedDataDocument } from './wallet/eip1193';
 export { RepresentationPanel } from './wallet/RepresentationPanel';
 export { toWei, utcTime } from './wallet/SessionKeysPanel';
 export { useWallet, waitMined, WalletProvider } from './wallet/WalletProvider';
