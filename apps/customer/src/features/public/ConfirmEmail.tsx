@@ -4,7 +4,7 @@ import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { confirmEmailCopy } from './confirm-email-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 // hand-declared-ok: svc-identity's auth.confirmEmail answer has no browser-safe schema in packages/contracts yet
 const confirmedSchema = z.object({ confirmed: z.literal(true) });
