@@ -444,7 +444,7 @@ export interface AuthorizationRecord {
   status: 'pending' | 'settled' | 'rejected';
   holdLedgerTxId: string | null;
   /**
-   * WHOSE BOOK HOLDS IT (OWNER 226). `ledger`: the custodial layer, every movement a ledger post. `partner`: the card
+   * WHOSE BOOK HOLDS IT. `ledger`: the custodial layer, every movement a ledger post. `partner`: the card
    * partner holds it from the partner balance, and our ledger posts nothing for it (`partner-card-holds.ts`). Decided once,
    * at the decision, and every later movement of this authorisation follows it, whatever the switch says by then.
    */
@@ -541,7 +541,7 @@ export type RoundUpOutcome =
   | { readonly status: 'settled'; readonly amount: Amount; readonly positionId: string }
   /** Into one of the person's own spaces (BK-pots-02): the space and the own-space transfer that moved it. */
   | { readonly status: 'settled'; readonly amount: Amount; readonly spaceId: string; readonly ledgerTxId: string }
-  /** Into one of the person's own spaces the partner bank holds (OWNER 226): the partner's one move, nothing on the ledger. */
+  /** Into one of the person's own spaces the partner bank holds: the partner's one move, nothing on the ledger. */
   | {
       readonly status: 'settled';
       readonly amount: Amount;
@@ -556,7 +556,7 @@ export type CaptureSettledHook = (event: {
   assetId: string;
   authorizationId: string;
   captured: Amount;
-  /** The card partner captured it (OWNER 226): the spare change may move only where the partner bank holds the money. */
+  /** The card partner captured it: the spare change may move only where the partner bank holds the money. */
   partnerHeld?: boolean;
 }) => Promise<RoundUpOutcome>;
 
@@ -623,7 +623,7 @@ export interface CardServiceOptions {
    */
   readonly threeDSTryLimit?: number | null;
   /**
-   * WHOSE BOOK HOLDS THIS PERSON'S CARD MONEY (OWNER 226), asked once per new authorisation: `ledger` (the custodial
+   * WHOSE BOOK HOLDS THIS PERSON'S CARD MONEY, asked once per new authorisation: `ledger` (the custodial
    * layer, as before), `partner` (the card partner holds it; `partnerHolds` below) or `none` (no partner and the custodial
    * layer off: refused `bank.partner_unset`, nothing written). Absent: always `ledger`, exactly as before.
    */
@@ -2019,7 +2019,7 @@ export class CardService {
       return this.redriveHold(card, already);
     }
 
-    // WHOSE BOOK (OWNER 226), decided before anything is written. `none` refuses by name: no partner holds this person's
+    // WHOSE BOOK, decided before anything is written. `none` refuses by name: no partner holds this person's
     // money and the custodial layer is off, so there is nowhere honest to hold it. On the partner path the partner must
     // have said how it holds and what the person has, or nothing is decided: a decline is an answer, and nobody gave one.
     const heldBy = this.heldByOf(card.userId);
@@ -2589,7 +2589,7 @@ export class CardService {
     );
   }
 
-  // ── Partner-held authorisations (OWNER 226; `partner-card-holds.ts`) ──────
+  // ── Partner-held authorisations (`partner-card-holds.ts`) ──────
   //
   // IF THE PROCESS DIES EXACTLY HERE, WHOSE FUNDS ARE STRANDED? None of them are in our book: the partner holds the
   // money, and every instruction goes under a key derived from our authorisation id, so a re-drive asks the partner the
@@ -2622,7 +2622,7 @@ export class CardService {
     }
     if (figures.available === null) {
       // The assets the partner says it spends from, when it says: the card's own asset is not among the ones it holds
-      // (J-bank-07 #3, #8410 `ef45f97a`: a TEST card in USDT on a partner that spends from USDC, BTC and USD).
+      // (J-bank-07 #3: a TEST card in USDT on a partner that spends from USDC, BTC and USD).
       const from = this.partnerTerms().spendFrom;
       const spends = from && from.length > 0 ? ` It spends from ${from.join(', ')}; a card in one of those can be held.` : '';
       throw new BankError(
@@ -3430,7 +3430,7 @@ export class CardService {
   }
 
   /**
-   * CASHBACK ON A PARTNER-HELD CAPTURE (launch money model, OWNER 226 and 288; J-bank-13 #7). The card's money is the
+   * CASHBACK ON A PARTNER-HELD CAPTURE (launch money model; J-bank-13 #7). The card's money is the
    * partner's, so nothing is credited in our book or anywhere else here: the cashback is recorded once for the
    * authorisation (`paid_by = 'wallet'`, the rate and tier read now, never re-rated), then handed to the rewards programme,
    * which owes it in USDC (our liability, `rewardOwe`) and pays it to the person's own wallet. If this crashes after the

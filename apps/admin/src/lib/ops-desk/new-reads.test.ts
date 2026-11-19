@@ -71,6 +71,8 @@ describe('protocol reads', () => {
     tokenFactoryDeployed: false,
     refusalCode: null,
     reason: null,
+    expectedChainId: null,
+    actualChainId: null,
     usable: true,
     launchUsable: false,
   };
@@ -174,7 +176,14 @@ describe('protocol reads', () => {
   });
   it('protocol health: reads relay and factory flags and tolerates the optional vault flag it does not show', () => {
     expect(
-      readData(read('protocol.health'), { ok: true, relayEnabled: false, factoryConfigured: false, venueVaultConfigured: true }),
+      readData(read('protocol.health'), {
+        ok: true,
+        service: 'svc-protocol',
+        relayEnabled: false,
+        factoryConfigured: false,
+        venueVaultConfigured: true,
+        chain: { status: 'unprobed', code: 'protocol.chain_unprobed', observedChainId: null },
+      }),
     ).toMatchObject({
       shape: 'record',
     });

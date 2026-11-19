@@ -95,7 +95,7 @@ import { type ListMarketInput } from '../spot/trade-service.js';
 import { parseFeeScheduleJson } from '../spot/fee-schedule.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
 
-// #3699: placeOrder takes the owner fee schedule (not the listing's bps), so the
+// placeOrder takes the owner fee schedule (not the listing's bps), so the
 // "fees are 0 bps" balances below need an explicitly published zero schedule.
 // A futures fill also needs the perpetual block published; a spot-only schedule refuses.
 const ZERO_FEE_SCHEDULE = parseFeeScheduleJson(
@@ -371,18 +371,18 @@ describe('futures orderable path', () => {
 
     tradeOff = new TradeService(sql, ledger, matching, perks, bus, {
       feeSchedule: ZERO_FEE_SCHEDULE,
-      // #3202: placeOrder refuses without a market lifecycle port.
+      // placeOrder refuses without a market lifecycle port.
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
       futuresEnabled: false,
     });
     tradeOn = new TradeService(sql, ledger, matching, perks, bus, {
       feeSchedule: ZERO_FEE_SCHEDULE,
-      // #3202: placeOrder refuses without a market lifecycle port.
+      // placeOrder refuses without a market lifecycle port.
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
       futuresEnabled: true,
-      // #3446 (f05d34ce1): convert refuses with convert_spread_unset / quote_ttl_unset before the
+      // Convert refuses with convert_spread_unset / quote_ttl_unset before the
       // market-kind check, so the convert-on-futures refusal needs an owner-published spread + TTL.
       convertEnabled: true,
       convertSpreadBps: 25,
@@ -449,7 +449,7 @@ describe('futures orderable path', () => {
     it('refuses futures on a service constructed without the option at all', async () => {
       const unconfigured = new TradeService(sql, ledger, matching, perks, bus, {
         feeSchedule: ZERO_FEE_SCHEDULE,
-        // #3202: placeOrder refuses without a market lifecycle port.
+        // placeOrder refuses without a market lifecycle port.
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: true,
       });
@@ -558,7 +558,7 @@ describe('futures orderable path', () => {
     it('takes a futures order while SPOT is killed — one plane per switch', async () => {
       const spotDead = new TradeService(sql, ledger, matching, perks, bus, {
         feeSchedule: ZERO_FEE_SCHEDULE,
-        // #3202: placeOrder refuses without a market lifecycle port.
+        // placeOrder refuses without a market lifecycle port.
         marketLifecycle: READY_MARKET_LIFECYCLE,
         spotEnabled: false,
         futuresEnabled: true,
@@ -754,7 +754,7 @@ describe('futures orderable path', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
 
       // The mechanism behind those numbers. A close with no usable mark FREEZES
-      // rather than failing (#995 / the dark-feed ADR) — refusing to price is not
+      // rather than failing (the dark-feed ADR) — refusing to price is not
       // refusing to release — and the reason it had no mark is that both sides of a
       // two-sided book were worth ~2e-13 quote units.
       expect(closed).toMatchObject({ status: 'closing', closingReason: 'trade.mark_missing' });
@@ -1113,7 +1113,7 @@ describe('futures orderable path', () => {
     });
 
     /**
-     * THE `numeric(8, 2)` OVERFLOW, WHICH USED TO BE A 500.
+     * THE `numeric(8, 2)` OVERFLOW IS A REFUSAL, NOT A 500.
      *
      * `leverage: '1000000'` reached the INSERT and raised Postgres `22003`. The
      * compensating `futuresMarginRelease` fired so no money was stranded — but a

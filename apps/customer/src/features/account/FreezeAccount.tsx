@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { selfFreezeCopy as copy } from './self-freeze-copy';
-import { StepUpConfirm } from '../money/StepUpConfirm';
+import { StepUpConfirm } from '../money';
 import {
   FREEZE_REASONS,
   FREEZE_REFUSAL_KEYS,
