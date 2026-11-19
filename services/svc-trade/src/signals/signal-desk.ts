@@ -280,8 +280,10 @@ export class SignalDesk {
         (id, user_id, client_request_id, symbol, venue_owner, region, token_hash, token_prefix, place_grant, grant_expires_at, state, created_at, updated_at)
       VALUES (${webhookId}, ${principal.userId}, ${requestId}, ${symbol}, ${owner}, ${region}, ${sha256(token)}, ${token.slice(0, 6)},
         ${this.ports.sql.json(grant as never)}, ${expires.toISOString()}, 'active', ${now.toISOString()}, ${now.toISOString()})
-      ON CONFLICT (user_id, client_request_id) DO NOTHING
+      ON CONFLICT DO NOTHING
       RETURNING *`;
+    // No conflict target: the id and (user_id, client_request_id) both name this one row (idFor), and Postgres absorbs a
+    // racing clash only on the key a target names, so a target would let the loser raise 23505 on the other key.
     if (!row) {
       const [raced] = await this.ports.sql<WebhookRow[]>`
         SELECT * FROM trade.signal_webhooks WHERE user_id = ${principal.userId} AND client_request_id = ${requestId}`;

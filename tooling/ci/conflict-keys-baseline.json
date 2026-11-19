@@ -791,15 +791,6 @@
       "why": "id = idFor(intent_key) (signal-desk.ts:364-368), a hash of the target. A redelivered alert (same webhook and alertId) arriving concurrently passes the signal_alert_results check (343-345) twice, and the loser gets 23505 signal_intents_pkey instead of DO NOTHING."
     },
     {
-      "file": "services/svc-trade/src/signals/signal-desk.ts",
-      "table": "signal_webhooks",
-      "target": "(user_id, client_request_id)",
-      "constraint": "signal_webhooks_pkey",
-      "verdict": "race",
-      "issue": 8881,
-      "why": "webhookId = idFor('signal-webhook:'+userId+':'+requestId) (signals/signal-desk.ts:141, 271), the same inputs as the target. A concurrent retried create passes the SELECT at 256 twice, and the loser gets 23505 signal_webhooks_pkey instead of the 'raced' read-back the code expects (signal-desk.ts:283-287)."
-    },
-    {
       "file": "services/svc-trade/src/spot/trade-service/fills.ts",
       "table": "fills",
       "target": "(id)",
