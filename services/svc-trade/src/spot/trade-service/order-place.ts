@@ -509,7 +509,9 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
       ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
       ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
     )
-    ON CONFLICT (id) DO NOTHING
+    -- No target: the id is orderIdFor(user, market, client id), so the id and orders_client_id_idx name the same row,
+    -- and a racing twin must land in the branch below instead of raising 23505 on the client-id key.
+    ON CONFLICT DO NOTHING
     RETURNING id, created_at
   `;
 
@@ -636,7 +638,8 @@ export async function placePaperOrderIsolated(
       ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
       ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
     )
-    ON CONFLICT (id) DO NOTHING
+    -- No target, for the same reason as the live insert above.
+    ON CONFLICT DO NOTHING
     RETURNING id
   `;
   if (inserted.length === 0) {
