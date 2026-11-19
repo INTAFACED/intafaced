@@ -2,7 +2,7 @@ import { portalAmount } from './portal/presentation';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useMemo, useState } from 'react';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
 import { displayAmount } from '../../shared/money';

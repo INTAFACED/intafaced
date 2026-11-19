@@ -8,4 +8,4 @@ export { shortAddress, type Eip1193Provider, type TypedDataDocument } from './wa
 export { TabList } from './tokens/TabList';
 export { RepresentationPanel } from './wallet/RepresentationPanel';
 export { toWei, utcTime } from './wallet/SessionKeysPanel';
-export { useWallet, waitMined, WalletProvider } from './wallet/WalletProvider';
+export { useWallet, waitMined, WalletProvider, type SequenceResult } from './wallet/WalletProvider';
