@@ -11,7 +11,7 @@ import { codeSignInCode, loginCodeAcceptedSchema } from './code-sign-in';
 import { codeSignInCopy } from './code-sign-in-copy';
 import { DeviceApproval } from './DeviceApproval';
 import { RecoveryCodeUsed, signInAnswerSchema } from './RecoveryCodeUsed';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Pending = { flowId: string; name: string; resendAt: number };

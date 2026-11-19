@@ -4,7 +4,7 @@ import { contractProcedure, readContract } from '../../shared/contract-call';
 import { defineCopy } from '../../shared/i18n';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading, Page } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 
 const copy = defineCopy('staff-access', {
   title: 'Staff access',

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StatusTag } from '@intafaced/ui';
 import { kycHistoryOutputSchema, type KycCase, type KycCaseState } from '@intafaced/contracts/identity-kyc-cases';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';

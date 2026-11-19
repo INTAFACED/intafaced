@@ -40,7 +40,7 @@ import { BotPolicyPage } from './trading/BotPolicyPage';
 import { OrderTypesPage } from './trading/OrderTypesPage';
 import { IdempotencyPage } from './idempotency/IdempotencyPage';
 import { QuantApiPage } from './quant/QuantApiPage';
-import '../public/public-pages.css';
+import '../../shared/public-pages.css';
 
 const key = (id: string) => id.replace(/-/g, '_');
 type SectionKey = Extract<Parameters<ReturnType<typeof developersCopy.useCopy>['t']>[0], `section_${string}`>;

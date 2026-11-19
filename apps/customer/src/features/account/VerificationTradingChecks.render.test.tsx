@@ -11,7 +11,7 @@ const world = vi.hoisted(() => ({
   sent: [] as Array<{ procedure: string; input: unknown }>,
 }));
 vi.mock('../session/session', async (original) => ({
-  ...(await original<typeof import('../session/session')>()),
+  ...(await original<object>()),
   useSession: () => ({
     userId: USER,
     api: {

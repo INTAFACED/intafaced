@@ -3,7 +3,7 @@ import type { ApiKeyDetail as Detail } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { RevokedReason, stateOf } from './ApiKeys';
 import { KeyCallLog } from './KeyCallLog';

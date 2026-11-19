@@ -4,7 +4,7 @@ import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { freezeConfirmCopy } from './freeze-confirm-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Done = { since: string; firstUse: boolean; frozenNow: boolean };

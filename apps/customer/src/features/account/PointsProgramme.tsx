@@ -6,7 +6,7 @@ import {
   type PointsCatalogueItem,
   type PointsProgramme as Programme,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Page, Panel } from '../../shared/ui';

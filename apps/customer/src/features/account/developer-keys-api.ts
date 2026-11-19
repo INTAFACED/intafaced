@@ -24,7 +24,7 @@ import {
 } from '@intafaced/contracts/api-keys';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { requestPasskeyAssertion } from '../session/webauthn';
+import { requestPasskeyAssertion } from '../session';
 import type { ApiKeysCopyKey } from './api-keys-copy';
 import { subaccountsIn, type Subaccount } from './subaccount-guards';
 

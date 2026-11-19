@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { partnerProgrammeCopy as copy } from './partner-programme-copy';
 
 // Become an affiliate partner (CM-referral-05, RC-campaigns-07; J-campaigns-07). Apply against the owner's qualified

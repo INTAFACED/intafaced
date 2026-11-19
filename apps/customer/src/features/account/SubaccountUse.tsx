@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 import { Button } from '../../shared/ui';

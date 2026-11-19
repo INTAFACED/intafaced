@@ -1,6 +1,6 @@
 import { ContactSupport } from './ContactSupport';
 import { supportRecoveryCopy } from './support-recovery-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * /cannot-sign-in: what happens when nothing else gets a person back in (I-signin-sessions-24, J-identity-05 #5). It says

@@ -9,7 +9,7 @@ import { usePartnerSettings } from './partner-settings';
 import { useAppStoreLink } from './app-store-link';
 import { pagesCopy } from './public-pages-copy';
 import { publicCopy } from './public-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * /partner: where a partnership enquiry goes. The form is on the invitation site at the founders' join address; this page
