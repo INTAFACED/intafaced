@@ -845,6 +845,11 @@ try {
       assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'pom.xml')), true, `no services/svc-${sv.name}/pom.xml`);
       continue;
     }
+    if (sv.rust) {
+      // svc-tax runs its Rust binary, which the stack builds from its crate (ensureTaxBinary).
+      assert.equal(existsSync(join(repo, 'crates', `svc-${sv.name}`, 'Cargo.toml')), true, `no crates/svc-${sv.name}/Cargo.toml`);
+      continue;
+    }
     assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'src', 'index.ts')), true, `no services/svc-${sv.name}`);
     assert.equal(plan.backendPackages.includes(`svc-${sv.name}`), true, `svc-${sv.name} is started but never built`);
   }
@@ -853,6 +858,12 @@ try {
     // (`pnpm --filter <service> db:migrate`), pointing at a file that exists (svc-ops keeps it in src/db).
     const owner = plan.services.find((x) => x.schema === schema);
     assert.ok(owner, `schema ${schema} has no service`);
+    if (owner.rust) {
+      // A Rust service applies its own migrations (`svc-<name> migrate`) from the SQL files in its crate.
+      const dir = join(repo, 'crates', `svc-${owner.name}`, 'migrations');
+      assert.ok(existsSync(dir) && readdirSync(dir).some((f) => f.endsWith('.sql')), `crates/svc-${owner.name} has no migrations`);
+      continue;
+    }
     const dir = join(repo, 'services', `svc-${owner.name}`);
     const migrate = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts?.['db:migrate'] ?? '';
     const file = /^(?:tsx|node) (\S+\.(?:ts|mjs))$/.exec(migrate)?.[1];

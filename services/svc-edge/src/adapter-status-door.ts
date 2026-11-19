@@ -5,21 +5,22 @@
  * Each adapter is read on its own, signed as `svc-edge` with that adapter's dedicated read key (`FIX_STATUS_READ_SECRET`,
  * `WS_STATUS_READ_SECRET`), never a fleet secret: the edge holds none. A blank URL or key leaves that half refused by name,
  * and the other half still reads. Only the named fields go on, so nothing an adapter might add (and no balance, margin
- * or Greeks: neither adapter holds one) reaches the console through here. svc-ws's half is called through its record
- * (`WS_SBE_CONSUMERS`), which names its path and parses its reply.
+ * or Greeks: neither adapter holds one) reaches the console through here. Each half is called through its record
+ * (`FIX_ADAPTER_STATUS`, `WS_SBE_CONSUMERS`), which names its path and parses its reply.
  */
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import { serviceCallSigner } from '@intafaced/contracts';
+import { FIX_ADAPTER_STATUS } from '@intafaced/contracts/fix-procedures';
 import { callHttpRecord } from '@intafaced/contracts/procedure-http';
+import type { HttpTransport, ProcedureRecord } from '@intafaced/contracts/procedure';
 import { sbeConsumerSchema, WS_SBE_CONSUMERS } from '@intafaced/contracts/ws-procedures';
 import { z } from 'zod';
 import { statusForAuthError } from './admin-api.js';
 import type { EdgeS2s } from './s2s.js';
 
 export const ADAPTER_STATUS_EDGE_PATH = '/admin/trade-ops/adapters/status';
-const FIX_STATUS_UPSTREAM_PATH = '/internal/status';
 
 export type AdapterRead =
   | { readonly kind: 'answered'; readonly status: number; readonly body: unknown }
@@ -58,72 +59,48 @@ function unanswered(err: unknown, service: string, timeoutMs: number): AdapterRe
   return { kind: 'unavailable', error: `${service} did not answer: ${err instanceof Error ? err.message : String(err)}` };
 }
 
-/** A signed GET of exactly `${baseUrl}${path}`, as svc-edge, with svc-fix's own read key. */
-export function httpAdapterStatusRead(
-  baseUrl: string,
-  path: string,
-  secret: string,
-  timeoutMs: number,
-  service: 'svc-fix',
-  fetchFn: typeof fetch = globalThis.fetch,
-  s2s?: EdgeS2s,
-): AdapterStatusRead {
-  const target = `${baseUrl.replace(/\/$/, '')}${path}`;
-  // The adapter's read key signs the body digest; with S2S on, the edge's own key also signs method, path and audience.
-  const sign = serviceCallSigner({ service: 'svc-edge', audience: service, legacySecret: secret, s2s });
-  return async () => {
-    try {
-      const res = await fetchFn(target, {
-        method: 'GET',
-        headers: sign('', { method: 'GET', url: new URL(target), contentType: '' }),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      return { kind: 'answered', status: res.status, body: jsonOrNull(await res.text()) };
-    } catch (err) {
-      return unanswered(err, service, timeoutMs);
-    }
-  };
-}
-
-/** svc-ws's refusal, as `callHttpRecord` hands it back: its status and its body as sent. */
-class SbeRefused extends Error {
+/** An adapter's refusal, as `callHttpRecord` hands it back: its status and its body as sent. */
+class AdapterRefused extends Error {
   constructor(
     readonly status: number,
     readonly body: unknown,
   ) {
-    super(`svc-ws answered ${status}`);
+    super(`adapter answered ${status}`);
   }
 }
 
 /**
- * svc-ws's SBE consumer list through its record, signed as svc-edge with `WS_STATUS_READ_SECRET`. A refusal comes back
+ * One adapter's status through its record, signed as svc-edge with that adapter's own read key. A refusal comes back
  * answered with its status and body; a reply the record does not parse comes back with no body, so it reads as unreadable.
  */
-export function sbeStatusRead(options: {
-  readonly baseUrl: string;
-  readonly secret: string;
-  readonly timeoutMs: number;
-  readonly fetchFn?: typeof fetch;
-  readonly s2s?: EdgeS2s | undefined;
-}): AdapterStatusRead {
+export function recordStatusRead(
+  record: ProcedureRecord & HttpTransport & { readonly service: 'svc-fix' | 'svc-ws' },
+  options: {
+    readonly baseUrl: string;
+    readonly secret: string;
+    readonly timeoutMs: number;
+    readonly fetchFn?: typeof fetch;
+    readonly s2s?: EdgeS2s | undefined;
+  },
+): AdapterStatusRead {
   const { baseUrl, secret, timeoutMs, s2s, fetchFn = globalThis.fetch } = options;
-  const sign = serviceCallSigner({ service: 'svc-edge', audience: WS_SBE_CONSUMERS.service, legacySecret: secret, s2s });
+  const sign = serviceCallSigner({ service: 'svc-edge', audience: record.service, legacySecret: secret, s2s });
   const fetcher: typeof fetch = (input, init) => fetchFn(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   return async () => {
     try {
-      const body = await callHttpRecord(WS_SBE_CONSUMERS, {
+      const body: unknown = await callHttpRecord(record, {
         baseUrl,
         input: undefined,
         sign,
-        errorOf: (_path, status, detail) => new SbeRefused(status, jsonOrNull(detail)),
+        errorOf: (_path, status, detail) => new AdapterRefused(status, jsonOrNull(detail)),
         fetcher,
       });
       return { kind: 'answered', status: 200, body };
     } catch (err) {
-      if (err instanceof SbeRefused) return { kind: 'answered', status: err.status, body: err.body };
+      if (err instanceof AdapterRefused) return { kind: 'answered', status: err.status, body: err.body };
       // A 2xx whose body is not JSON, or not the record's shape: answered, with nothing readable.
       if (err instanceof z.ZodError || err instanceof SyntaxError) return { kind: 'answered', status: 200, body: null };
-      return unanswered(err, WS_SBE_CONSUMERS.service, timeoutMs);
+      return unanswered(err, record.service, timeoutMs);
     }
   };
 }
@@ -143,65 +120,15 @@ export function adapterRead(
 ): AdapterStatusRead | AdapterBlock {
   if (!url) return { code: spec.code, key: spec.urlKey };
   if (!secret) return { code: spec.code, key: spec.secretKey };
-  return spec.service === 'svc-ws'
-    ? sbeStatusRead({ baseUrl: url, secret, timeoutMs, s2s })
-    : httpAdapterStatusRead(url, FIX_STATUS_UPSTREAM_PATH, secret, timeoutMs, spec.service, undefined, s2s);
+  return recordStatusRead(spec.service === 'svc-ws' ? WS_SBE_CONSUMERS : FIX_ADAPTER_STATUS, { baseUrl: url, secret, timeoutMs, s2s });
 }
 
-const isText = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
-const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+export type FixSession = z.output<typeof FIX_ADAPTER_STATUS.output>['sessions'][number];
 
-export interface FixSession {
-  readonly role: 'order-entry' | 'drop-copy';
-  readonly beginString: string;
-  readonly senderCompId: string;
-  readonly targetCompId: string;
-  readonly state: string;
-  readonly accountId: string | null;
-  /** Null when the FIX engine could not read its store. */
-  readonly nextSenderSeq: number | null;
-  readonly nextTargetSeq: number | null;
-}
-
-export function parseFixStatus(raw: unknown): {
-  sessions: FixSession[];
-  compIdMapSet: boolean;
-  compIdMap: { compId: string; accountId: string }[];
-  asOf: string;
-} | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  if (!Array.isArray(r.sessions) || !Array.isArray(r.compIdMap) || typeof r.compIdMapSet !== 'boolean' || !isText(r.asOf)) return null;
-  const sessions: FixSession[] = [];
-  for (const s of r.sessions as unknown[]) {
-    if (!s || typeof s !== 'object') return null;
-    const x = s as Record<string, unknown>;
-    if (x.role !== 'order-entry' && x.role !== 'drop-copy') return null;
-    if (!isText(x.beginString) || !isText(x.senderCompId) || !isText(x.targetCompId) || !isText(x.state)) return null;
-    if (
-      !(x.accountId === null || isText(x.accountId)) ||
-      !(x.nextSenderSeq === null || isCount(x.nextSenderSeq)) ||
-      !(x.nextTargetSeq === null || isCount(x.nextTargetSeq))
-    )
-      return null;
-    sessions.push({
-      role: x.role,
-      beginString: x.beginString,
-      senderCompId: x.senderCompId,
-      targetCompId: x.targetCompId,
-      state: x.state,
-      accountId: x.accountId,
-      nextSenderSeq: x.nextSenderSeq,
-      nextTargetSeq: x.nextTargetSeq,
-    });
-  }
-  const compIdMap: { compId: string; accountId: string }[] = [];
-  for (const m of r.compIdMap as unknown[]) {
-    const x = m && typeof m === 'object' ? (m as Record<string, unknown>) : null;
-    if (!x || !isText(x.compId) || !isText(x.accountId)) return null;
-    compIdMap.push({ compId: x.compId, accountId: x.accountId });
-  }
-  return { sessions, compIdMapSet: r.compIdMapSet, compIdMap, asOf: r.asOf };
+/** svc-fix's reply by its record, named fields only (anything else svc-fix sends is dropped by the parse). */
+export function parseFixStatus(raw: unknown): z.output<typeof FIX_ADAPTER_STATUS.output> | null {
+  const read = FIX_ADAPTER_STATUS.output.safeParse(raw);
+  return read.success ? read.data : null;
 }
 
 export type SbeConsumer = z.output<typeof sbeConsumerSchema>;

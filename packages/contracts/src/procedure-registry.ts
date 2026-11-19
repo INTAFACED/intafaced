@@ -15,6 +15,7 @@ import {
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
+import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
 import { IDENTITY_RECIPIENTS_LIST, IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_REMOVE } from './identity-recipients-procedures.js';
 import {
   MINING_WORKERS_MINE,
@@ -35,6 +36,7 @@ import {
   MINING_POW,
   MINING_PROBE,
 } from './mining-procedures.js';
+import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } from './ops-public-procedures.js';
 import {
   P2P_HEALTH,
   P2P_FIAT_LIST,
@@ -82,6 +84,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BLUEPRINT_MENTORS,
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
+  FIX_ADAPTER_STATUS,
+  FIX_DROP_COPY_FILL,
   IDENTITY_RECIPIENTS_LIST,
   IDENTITY_RECIPIENTS_ADD,
   IDENTITY_RECIPIENTS_REMOVE,
@@ -102,6 +106,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   MINING_CONNECTION,
   MINING_POW,
   MINING_PROBE,
+  OPS_HOME_CONFIG,
+  OPS_VALUATION_PRICES,
+  OPS_OUTREACH_PUBLIC_SETTINGS,
   P2P_HEALTH,
   P2P_FIAT_LIST,
   P2P_FEES_SCHEDULE,

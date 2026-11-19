@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { fieldsOf, helpersOf, render } from './services-map.mjs';
+import { fieldsOf, helpersOf, render, rustPurpose, rustRequiredEnv } from './services-map.mjs';
 
 const requiredNames = (src) => {
   const helpers = helpersOf(src);
@@ -118,4 +118,21 @@ test('SERVICES.md still lists the fields that refuse boot when blank', () => {
 test('the committed docs/SERVICES.md is the rendered one', () => {
   const committed = readFileSync(new URL('../../docs/SERVICES.md', import.meta.url), 'utf8');
   assert.equal(committed, render());
+});
+
+test("a Rust service's required env is each field env.rs refuses when unset, and its purpose is lib.rs's first sentence", () => {
+  const env = `
+    let a = field("A_SECRET", get("A_SECRET").map_or(Err(REQUIRED_STRING.to_owned()), |v| min_len(v, 32)));
+    let b = field("B_PORT", get("B_PORT").map_or(Ok(4020), |v| coerce_int(v)));
+    let c = get("C_NAME").unwrap_or("x");`;
+  assert.deepEqual(rustRequiredEnv(env), ['A_SECRET']);
+  assert.equal(
+    rustPurpose('//! svc-x: the lot export over ledger reads. It posts nothing.\n//! More.\nuse a;'),
+    'The lot export over ledger reads.',
+  );
+  const real = render();
+  assert.match(
+    real,
+    /\| `svc-tax` \(Rust, `crates\/svc-tax`\) \| .+ \| 4020 \| compose network only \| `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` \|/,
+  );
 });

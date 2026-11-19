@@ -378,7 +378,8 @@ async function main() {
   // Tax, for the profit and loss journey: it reads the caller's fills from the ledger (no database of its own). The jurisdiction map,
   // history window and data lake stay unset; the lot book needs none of them.
   if (WITH_PAY)
-    start('tax', 'node', ['services/svc-tax/dist/index.js'], {
+    // svc-tax is the Rust binary the workflow builds (`cargo build --release -p svc-tax`).
+    start('tax', process.env.SVC_TAX_BIN ?? 'target/release/svc-tax', [], {
       ...common,
       SERVICE_NAME: 'svc-tax',
       HTTP_HOST: '127.0.0.1',

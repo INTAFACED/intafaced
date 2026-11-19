@@ -42,7 +42,11 @@ function capture(): Sent[] {
       headers: init?.headers as Record<string, string>,
       body: init?.body === undefined ? '' : String(init.body),
     });
-    return new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } });
+    // svc-fix's answer to an accepted fill (its wire replay).
+    return new Response(JSON.stringify({ ok: true, delivered: 1, included: ['rest'] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
   }) as typeof fetch;
   return sent;
 }

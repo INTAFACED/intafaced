@@ -2072,6 +2072,293 @@
         }
       ]
     },
+    "fix.adapterStatus": {
+      "service": "svc-fix",
+      "transport": "http",
+      "method": "GET",
+      "path": "/internal/status",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-edge"]
+      },
+      "refusals": {
+        "unauthenticated": "UNAUTHORIZED",
+        "forbidden": "FORBIDDEN",
+        "fix_status_unconfigured": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["order-entry", "drop-copy"]
+                },
+                "beginString": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "senderCompId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetCompId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "state": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "accountId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "nextSenderSeq": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "nextTargetSeq": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["role", "beginString", "senderCompId", "targetCompId", "state", "accountId", "nextSenderSeq", "nextTargetSeq"],
+              "additionalProperties": false
+            }
+          },
+          "compIdMapSet": {
+            "type": "boolean"
+          },
+          "compIdMap": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "compId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": ["compId", "accountId"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["sessions", "compIdMapSet", "compIdMap", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "x": 1
+          }
+        }
+      ]
+    },
+    "fix.dropCopyFill": {
+      "service": "svc-fix",
+      "transport": "http",
+      "method": "POST",
+      "path": "/internal/drop-copy/fills",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-trade"]
+      },
+      "refusals": {
+        "unauthenticated": "UNAUTHORIZED",
+        "forbidden": "FORBIDDEN",
+        "dropcopy_execution_missing": "BAD_REQUEST",
+        "dropcopy_source_missing": "BAD_REQUEST",
+        "dropcopy_price_missing": "BAD_REQUEST",
+        "invalid_decimal": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "fillId": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "marketId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "qty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "quoteAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "feeAsset": {
+            "type": "string",
+            "minLength": 1
+          },
+          "feeAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "ts": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["rest", "rfq", "liquidation"]
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "fillId",
+          "orderId",
+          "userId",
+          "marketId",
+          "side",
+          "price",
+          "qty",
+          "quoteAmount",
+          "feeAsset",
+          "feeAmount",
+          "ts",
+          "source"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "delivered": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "included": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["ok", "delivered", "included"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "fillId": "fill-7",
+            "orderId": "ord-1",
+            "userId": "user-1",
+            "marketId": "BTC/USDT",
+            "side": "buy",
+            "price": "100.25",
+            "qty": "1.50",
+            "quoteAmount": "150.375",
+            "feeAsset": "USDT",
+            "feeAmount": "0.15",
+            "ts": "2026-09-18T00:00:00Z",
+            "source": "rest",
+            "sequence": 11
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "fillId": "fill-7",
+            "orderId": "ord-1",
+            "userId": "user-1",
+            "marketId": "BTC/USDT",
+            "side": "buy",
+            "price": 100.25,
+            "qty": "1.50",
+            "quoteAmount": "150.375",
+            "feeAsset": "USDT",
+            "feeAmount": "0.15",
+            "ts": "2026-09-18T00:00:00Z",
+            "source": "rest"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "fillId": "fill-7",
+            "orderId": "ord-1",
+            "userId": "user-1",
+            "marketId": "BTC/USDT",
+            "side": "buy",
+            "price": "100.25",
+            "qty": "1.50",
+            "quoteAmount": "150.375",
+            "feeAsset": "USDT",
+            "feeAmount": "0.15",
+            "ts": "2026-09-18T00:00:00Z",
+            "source": "ui"
+          }
+        }
+      ]
+    },
     "identity.recipients.add": {
       "service": "svc-identity",
       "module": "identity",
@@ -3586,6 +3873,265 @@
       "output": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "not": {}
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "ops.home.config": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "home.config",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "workListCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workListOrder": {
+            "anyOf": [
+              {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["verification", "new_device", "margin_health", "loan_payment_due", "card_frozen", "payout_waiting"]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "searchResultCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "noticeStripLimit": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recentActivityLimit": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["workListCap", "workListOrder", "searchResultCap", "noticeStripLimit", "recentActivityLimit", "revision"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "eachKindOnce": "no kind appears twice in workListOrder"
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "ops.outreach.publicSettings": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "outreach.publicSettings",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {
+        "ops.crm.storage_unconfigured": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "joinUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "partnerTerms": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appStoreUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["joinUrl", "partnerTerms", "appStoreUrl", "revision", "updatedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "ops.valuation.prices": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "valuation.prices",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "published": {
+                "type": "boolean",
+                "const": false
+              },
+              "code": {
+                "type": "string",
+                "const": "valuation.prices_unset"
+              }
+            },
+            "required": ["published", "code"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "published": {
+                "type": "boolean",
+                "const": true
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "asOf": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "prices": {
+                "maxItems": 500,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "asset": {
+                      "type": "string",
+                      "pattern": "^[A-Z0-9]{2,16}$"
+                    },
+                    "usd": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    }
+                  },
+                  "required": ["asset", "usd"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["published", "test", "source", "asOf", "prices"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "accept": {
+        "aboveZero": "every published price is greater than zero",
+        "onePerAsset": "no asset is priced twice"
       },
       "samples": [
         {
