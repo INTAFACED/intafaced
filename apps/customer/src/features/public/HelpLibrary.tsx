@@ -3,7 +3,7 @@ import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
 import { readContract } from '../../shared/contract-call';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { ContactSupport } from './ContactSupport';
 import { helpCopy as copy } from './help-copy';
 import { helpHref } from './help-guards';

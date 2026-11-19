@@ -35,7 +35,7 @@ import { supportRequestFormsSchema, type SupportField, type SupportFieldValue } 
 import { SUPPORT_MESSAGE_HEADERS_MAX, supportCategoriesSchema } from '@intafaced/contracts/support-categories';
 import { formAnswers, formReady, RequestTypeFields, type FormAnswers } from './SupportRequestForm';
 
-import './support-desk.css';
+import '../../shared/support-desk.css';
 
 /** An answer as the review step reads it: a choice by its label, a box as yes or no, text as typed. */
 function answerText(field: SupportField | undefined, value: SupportFieldValue): string {

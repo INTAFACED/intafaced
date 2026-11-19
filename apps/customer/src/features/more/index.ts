@@ -9,6 +9,6 @@ export { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from './guest-r
 export { utcInput } from './quant-analysis';
 export { sendArticleFeedback } from './support-calls';
 export { chatCopy } from './support-chat-copy';
-export { useSupportContact, type SupportContact } from './support-contact';
+export { mergeSupportContact, supportContactEmail, useSupportContact, type SupportContact } from './support-contact';
 export { supportMailto, supportNewHref, supportRequestHref } from './support-desk';
 export { preservePaperHref } from './trade-context';
