@@ -233,7 +233,7 @@ export const TAX_SET_LOT_METHOD = defineProcedure({
 export const TAX_SET_DAY_METHOD = defineProcedure({
   ...base,
   name: 'tax.setDayMethod',
-  accept: { 'tax.day_exists': { at: 'input.day', says: 'the day is a real calendar day (no 30 February)' } },
+  checks: { 'tax.day_exists': { at: 'input.day', says: 'the day is a real calendar day (no 30 February)' } },
   kind: 'mutation',
   path: 'setDayMethod',
   access: TAX_WRITE,

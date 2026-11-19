@@ -74,15 +74,26 @@ export type Refusals = Readonly<Record<string, RefusalStatus>>;
  * sits; `says` is the rule in words.
  * The export refuses an unnamed refinement and a named one that is no longer there.
  */
-export interface AcceptCheck {
+export interface InputCheck {
   readonly at: string | readonly string[];
   readonly says: string;
 }
 
+/** A caller's check over a reply the schema already parsed; `says` is the rule in words, for other languages. */
+export interface ReplyCheck {
+  readonly says: string;
+  readonly holds: (reply: unknown) => boolean;
+}
+
+/** True when the reply passes every one of the record's `accept` checks. */
+export function replyAccepted(record: Pick<ProcedureRecord, 'accept'>, reply: unknown): boolean {
+  return Object.values(record.accept ?? {}).every((check) => check.holds(reply));
+}
+
 /**
  * One input and the verdict every side that implements the record must reach on it: the record's own schema, its
- * language-neutral export, and the mounted route. `by` names the `accept` check that alone refuses it, so the export
- * (which carries that check only by name) accepts it. `input` absent means the call is sent with no input.
+ * language-neutral export, and the mounted route. `by` names the input check (`checks`) that alone refuses it, so the
+ * export (which carries that check only by name) accepts it. `input` absent means the call is sent with no input.
  */
 export interface ProcedureSample {
   readonly verdict: 'accept' | 'refuse';
@@ -104,8 +115,14 @@ export type ProcedureRecord<I extends z.ZodType = z.ZodType, O extends z.ZodType
   /** The named refusals the handler may send. A refusal not listed here fails the strict mount (tests, `procedure-mount.ts`). */
   readonly refusals: Refusals;
   /** The input checks JSON Schema cannot carry, by name. */
-  readonly accept?: Readonly<Record<string, AcceptCheck>>;
-  /** Inputs every implementation must accept or refuse alike: at least one accepted, one refused, one per `accept` check. */
+  readonly checks?: Readonly<Record<string, InputCheck>>;
+  /**
+   * The callers' own checks over the reply, beyond its schema, by name: a caller holding the answer to a stricter rule
+   * writes it here, where every caller (`api.call`, `callHttpRecord`) runs it, rather than in one caller's copy. A reply one
+   * of them refuses reads as unverified, never as data.
+   */
+  readonly accept?: Readonly<Record<string, ReplyCheck>>;
+  /** Inputs every implementation must accept or refuse alike: at least one accepted, one refused, one per input check. */
   readonly samples: readonly ProcedureSample[];
 };
 
@@ -130,13 +147,13 @@ export function defineProcedure<const R extends ProcedureRecord>(record: R): R {
   if (!verdicts.has('accept') || (record.input !== NO_INPUT && !verdicts.has('refuse'))) {
     throw new Error(`${record.name}: samples need at least one accepted input${record.input === NO_INPUT ? '' : ' and one refused input'}`);
   }
-  for (const name of Object.keys(record.accept ?? {})) {
+  for (const name of Object.keys(record.checks ?? {})) {
     if (!record.samples.some((s) => s.verdict === 'refuse' && s.by === name))
-      throw new Error(`${record.name}: no sample is refused by accept check ${name}`);
+      throw new Error(`${record.name}: no sample is refused by input check ${name}`);
   }
   for (const s of record.samples) {
-    if (s.by !== undefined && (s.verdict !== 'refuse' || record.accept?.[s.by] === undefined)) {
-      throw new Error(`${record.name}: a sample names ${s.by}, which is not a refusing accept check of this record`);
+    if (s.by !== undefined && (s.verdict !== 'refuse' || record.checks?.[s.by] === undefined)) {
+      throw new Error(`${record.name}: a sample names ${s.by}, which is not a refusing input check of this record`);
     }
   }
   return Object.freeze(record);
@@ -166,7 +183,10 @@ export function procedureJsonSchema(record: ProcedureRecord): Record<string, unk
     refusals: record.refusals,
     ...inputJsonSchema(record),
     output: strictJsonSchema(`${record.name}.output`, record.output, 'output'),
-    ...(record.accept === undefined ? {} : { accept: record.accept }),
+    ...(record.checks === undefined ? {} : { checks: record.checks }),
+    ...(record.accept === undefined
+      ? {}
+      : { accept: Object.fromEntries(Object.entries(record.accept).map(([name, check]) => [name, check.says])) }),
     samples: record.samples.map((sample) => ({
       verdict: sample.verdict,
       ...(sample.by === undefined ? {} : { by: sample.by }),
@@ -178,14 +198,14 @@ export function procedureJsonSchema(record: ProcedureRecord): Record<string, unk
 /**
  * The input side of the export. No input is `input: null`. An input that may be absent as a whole is
  * `inputOptional: true` beside the schema of what it is when present, since JSON Schema has no absent document. A
- * refinement must be named in `accept` at the place it sits; the rest must export exactly.
+ * refinement must be named in `checks` at the place it sits; the rest must export exactly.
  */
 function inputJsonSchema(record: ProcedureRecord): Record<string, unknown> {
   if (record.input === NO_INPUT) return { input: null };
   const optional = record.input instanceof z.ZodOptional;
   const present = record.input instanceof z.ZodOptional ? record.input.unwrap() : record.input;
   const named = new Map(
-    Object.entries(record.accept ?? {}).flatMap(([name, check]) =>
+    Object.entries(record.checks ?? {}).flatMap(([name, check]) =>
       (typeof check.at === 'string' ? [check.at] : check.at).map((at) => [at, name] as const),
     ),
   );
@@ -198,7 +218,7 @@ function inputJsonSchema(record: ProcedureRecord): Record<string, unknown> {
   });
   const stale = [...named]
     .filter(([at]) => !used.has(at))
-    .map(([at, name]) => ({ at, construct: `accept check ${name} names no refinement here` }));
+    .map(([at, name]) => ({ at, construct: `input check ${name} names no refinement here` }));
   if (left.length > 0 || stale.length > 0) throw new SchemaNotPortableError(`${record.name}.input`, [...left, ...stale]);
   const schema: Record<string, unknown> = z.toJSONSchema(present, { io: 'input', unrepresentable: 'throw' });
   return optional ? { inputOptional: true, input: schema } : { input: schema };

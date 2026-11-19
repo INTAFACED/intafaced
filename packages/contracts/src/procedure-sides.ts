@@ -5,7 +5,7 @@ import { NO_INPUT, type ProcedureRecord, type ProcedureSample } from './procedur
 /**
  * Runs every record's sample inputs through the sides that implement it here: the record's own zod schema, and its
  * language-neutral export as committed in `procedures.schema.json`, checked by an independent JSON Schema validator
- * (ajv, draft 2020-12, with formats). A sample refused only by a named `accept` check must pass the export (which names
+ * (ajv, draft 2020-12, with formats). A sample refused only by a named input check (`checks`) must pass the export (which names
  * that check rather than encoding it) and be refused by zod with nothing but custom issues. Each mounted route runs the
  * same samples in its own service's tests. Returns one line per disagreement; empty when every side agrees.
  *

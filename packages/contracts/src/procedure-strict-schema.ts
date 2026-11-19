@@ -7,7 +7,7 @@ import { z } from 'zod';
  * `.superRefine` disappears, an optional root input becomes a required object, and `z.unknown()` becomes `{}` (accept
  * anything). A Rust service built from that export would accept what the TypeScript service refuses. So every construct
  * is checked first, and one that the export would erase or cannot express is a named refusal, never a looser schema.
- * A refinement the record names in `accept` is carried by name instead (`procedure.ts`).
+ * A refinement the record names in `checks` is carried by name instead (`procedure.ts`).
  */
 
 export interface PortabilityFinding {
@@ -17,7 +17,7 @@ export interface PortabilityFinding {
   readonly construct: string;
 }
 
-/** The construct name a refinement finding carries; `procedure.ts` matches it against the record's `accept` checks. */
+/** The construct name a refinement finding carries; `procedure.ts` matches it against the record's input `checks`. */
 export const REFINEMENT = '.refine/.superRefine (a TypeScript predicate the export drops)';
 
 export class SchemaNotPortableError extends Error {

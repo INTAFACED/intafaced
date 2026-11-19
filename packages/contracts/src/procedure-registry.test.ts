@@ -4,7 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import { BANK_SPACES_LIST } from './bank-spaces-list.js';
-import { defineProcedure, NO_INPUT, procedureJsonSchema, procedureSchemaFile, routePath, type ProcedureRecord } from './procedure.js';
+import {
+  defineProcedure,
+  NO_INPUT,
+  procedureJsonSchema,
+  procedureSchemaFile,
+  replyAccepted,
+  routePath,
+  type ProcedureRecord,
+} from './procedure.js';
 import { CONTRACT_PROCEDURES } from './procedure-registry.js';
 import { sampleDisagreements } from './procedure-sides.js';
 import { TAX_LOT_BOOK, TAX_SET_DAY_METHOD } from './tax-procedures.js';
@@ -75,8 +83,8 @@ describe('the written records of calls', () => {
       );
     });
     it('a named check that no longer names a refinement', () => {
-      expect(() => procedureJsonSchema(plant({ accept: { gone: { at: 'input.a', says: 'was there' } } }))).toThrow(
-        'accept check gone names no refinement here',
+      expect(() => procedureJsonSchema(plant({ checks: { gone: { at: 'input.a', says: 'was there' } } }))).toThrow(
+        'input check gone names no refinement here',
       );
     });
     it('an input or output that accepts anything', () => {
@@ -89,12 +97,29 @@ describe('the written records of calls', () => {
     });
     it('carries each named check and every sample', () => {
       const json = procedureJsonSchema(TAX_SET_DAY_METHOD);
-      expect(json.accept).toEqual({ 'tax.day_exists': { at: 'input.day', says: expect.any(String) } });
+      expect(json.checks).toEqual({ 'tax.day_exists': { at: 'input.day', says: expect.any(String) } });
       expect(json.samples).toContainEqual({
         verdict: 'refuse',
         by: 'tax.day_exists',
         input: { day: '2026-02-30', assetId: null, method: 'FIFO' },
       });
+    });
+  });
+
+  describe("a caller's own checks over the reply live in the record (`accept`)", () => {
+    const strict = plant({
+      output: z.object({ ok: z.boolean() }),
+      accept: {
+        'plant.ok_is_true': { says: 'the reply says ok', holds: (reply) => z.object({ ok: z.literal(true) }).safeParse(reply).success },
+      },
+    });
+    it('every check must hold for the reply to be accepted', () => {
+      expect(replyAccepted(strict, { ok: true })).toBe(true);
+      expect(replyAccepted(strict, { ok: false })).toBe(false);
+      expect(replyAccepted(plant({}), { ok: false })).toBe(true);
+    });
+    it('the export names each check and its rule, for other callers to carry', () => {
+      expect(procedureJsonSchema(strict)).toMatchObject({ accept: { 'plant.ok_is_true': 'the reply says ok' } });
     });
   });
 
@@ -104,9 +129,9 @@ describe('the written records of calls', () => {
         'at least one accepted input and one refused input',
       );
     });
-    it('with a named check no sample is refused by', () => {
-      expect(() => defineProcedure(plant({ accept: { c: { at: 'input.a', says: 's' } } }))).toThrow(
-        'no sample is refused by accept check c',
+    it('with a named input check no sample is refused by', () => {
+      expect(() => defineProcedure(plant({ checks: { c: { at: 'input.a', says: 's' } } }))).toThrow(
+        'no sample is refused by input check c',
       );
     });
     it('with route parameters its template does not have', () => {

@@ -199,7 +199,7 @@ export const MATCHING_SUBMIT_ORDER = defineProcedure({
   access: { caller: 'service', callers: ['svc-trade', 'svc-execution', 'svc-fix'] },
   /** Its refusals are 400 `{ code: 'BadRequest', issues }` with no machine code per cause, so none is listed by code yet. */
   refusals: {},
-  accept: {
+  checks: {
     'matching.proof_binds_snapshot': {
       at: 'input.lifecycleProof',
       says: "the proof's action is one the snapshot allows; its checkedAt, transitionId and evidenceRefs equal the snapshot's; its snapshotId is the SHA-256 of the snapshot as parsed",

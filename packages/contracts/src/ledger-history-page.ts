@@ -84,7 +84,7 @@ export const LEDGER_HISTORY_PAGE = defineProcedure({
     'ledger.unauthenticated': 'UNAUTHORIZED',
     's2s.caller_forbidden': 'FORBIDDEN',
   },
-  accept: {
+  checks: {
     'ledger.owner_id_space': {
       at: 'input',
       says: "ownerId is drawn from the space its ownerType declares (a lowercase UUID for a person's account, a slug for a platform one)",

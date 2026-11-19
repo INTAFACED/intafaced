@@ -874,7 +874,7 @@
         "required": ["accepted", "sequence", "fills", "resting", "rejected", "cancellations", "triggered"],
         "additionalProperties": false
       },
-      "accept": {
+      "checks": {
         "matching.proof_binds_snapshot": {
           "at": "input.lifecycleProof",
           "says": "the proof's action is one the snapshot allows; its checkedAt, transitionId and evidenceRefs equal the snapshot's; its snapshotId is the SHA-256 of the snapshot as parsed"

@@ -370,7 +370,7 @@
         "required": ["entries", "nextCursor"],
         "additionalProperties": false
       },
-      "accept": {
+      "checks": {
         "ledger.owner_id_space": {
           "at": "input",
           "says": "ownerId is drawn from the space its ownerType declares (a lowercase UUID for a person's account, a slug for a platform one)"
@@ -2430,7 +2430,7 @@
         "required": ["saved"],
         "additionalProperties": false
       },
-      "accept": {
+      "checks": {
         "tax.day_exists": {
           "at": "input.day",
           "says": "the day is a real calendar day (no 30 February)"

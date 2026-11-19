@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { routePath, type HttpTransport, type ProcedureRecord } from './procedure.js';
+import { replyAccepted, routePath, type HttpTransport, type ProcedureRecord } from './procedure.js';
 
 type HttpRecord = ProcedureRecord & HttpTransport;
 
@@ -31,7 +31,11 @@ export async function callHttpRecord<R extends HttpRecord>(
     ...(record.method === 'GET' ? {} : { body: payload }),
   });
   if (!response.ok) throw options.errorOf(path, response.status, await response.text().catch(() => ''));
-  return z.parse<R['output']>(record.output, await response.json());
+  const reply = z.parse<R['output']>(record.output, await response.json());
+  // The callers' own checks the record names: a reply one of them refuses is never handed on as data.
+  if (!replyAccepted(record, reply))
+    throw options.errorOf(path, response.status, `${record.name}: the reply fails the record's accept checks`);
+  return reply;
 }
 
 /** The serving side of a plain HTTP door: parse the body by the record, answer what the record says comes back. */
