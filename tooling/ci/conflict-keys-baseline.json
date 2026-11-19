@@ -163,15 +163,6 @@
     },
     {
       "file": "services/svc-bank/src/business/business-team.ts",
-      "table": "business_departments",
-      "target": "(id)",
-      "constraint": "business_departments_name_uq",
-      "verdict": "race",
-      "issue": 8894,
-      "why": "Two concurrent addDepartment calls with the same departmentId and name, in a transaction with no lock (business-team.ts:950-958), clash on (account_id, lower(name)) before the id. The catch maps that 23505 to bank.business_role_name_taken (business-team.ts:961), so a retry is wrongly told the name is taken instead of getting its own department."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-team.ts",
       "table": "business_payments",
       "target": "(id)",
       "constraint": "business_payments_partner_key_key",

@@ -524,4 +524,34 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     expect(self).toMatchObject({ scope: 'self', departments: [] });
     expect(self.members.map((m) => m.handle)).toEqual(['approver1']);
   });
+
+  it('concurrent adds of one department id are one department, and every call gets it; another id with the same name is refused by name (#8894)', async () => {
+    const { accountId, owner } = await business();
+    for (let round = 0; round < 25; round++) {
+      const departmentId = randomUUID();
+      const name = `TEST Dept ${round}`;
+      const results = await Promise.allSettled(
+        Array.from({ length: 8 }, () => owner.businessTeam.addDepartment({ accountId, departmentId, name, budget: '100' })),
+      );
+      const failures = results.flatMap((r) => (r.status === 'rejected' ? [codeOf(r.reason) ?? String(r.reason)] : []));
+      expect(failures, `round ${round}`).toEqual([]);
+      for (const r of results) expect(r.status === 'fulfilled' && r.value).toEqual({ id: departmentId, name, budget: '100' });
+    }
+    const rows = await sql`SELECT count(*)::int AS n FROM bank.business_departments WHERE account_id = ${accountId}::uuid`;
+    expect(rows[0]!.n).toBe(25);
+
+    // Different ids racing for one name: exactly one is made, every other is refused by name, never an internal error.
+    const racing = await Promise.allSettled(
+      Array.from({ length: 8 }, () =>
+        owner.businessTeam.addDepartment({ accountId, departmentId: randomUUID(), name: 'TEST Ops', budget: null }),
+      ),
+    );
+    expect(racing.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(racing.flatMap((r) => (r.status === 'rejected' ? [codeOf(r.reason)] : []))).toEqual(
+      Array(7).fill('bank.business_role_name_taken'),
+    );
+    expect(await refused(owner.businessTeam.addDepartment({ accountId, departmentId: randomUUID(), name: 'test ops', budget: null }))).toBe(
+      'bank.business_role_name_taken',
+    );
+  });
 });
