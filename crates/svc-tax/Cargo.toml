@@ -10,6 +10,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+service-kit = { path = "../service-kit" }
 hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.22"

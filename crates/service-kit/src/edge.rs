@@ -14,7 +14,7 @@ use crate::time::{self, Instant};
 /// `MIN_SECRET_LENGTH`: shorter is guessable offline.
 pub const MIN_SECRET_LENGTH: usize = 32;
 
-/// The verified caller, with the fields svc-tax's guards read.
+/// The verified caller, with the fields a service's guards read (svc-tax's today).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Principal {
     pub user_id: String,
