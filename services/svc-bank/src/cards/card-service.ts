@@ -1867,8 +1867,12 @@ export class CardService {
         ${card.id}, ${card.cardType === 'physical' ? null : this.clock()}, ${card.usesAllowed ?? null}, ${card.designId ?? null}, ${card.deliverySpeed ?? null},
         ${card.residenceCountry ?? null}
       )
-      ON CONFLICT (id) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
+    // No conflict target: the issuer ref is the issuer's answer for this card id, so `cards_pkey` and
+    // `cards_issuer_ref_idx` name the same row, and a same-id call that loses the race must read the winner's card
+    // instead of raising 23505 on whichever key Postgres checks first. A row that is not this replacement is
+    // refused just below.
     const created = await this.card(input.replacementId);
     if (created.replacesCardId !== card.id) {
       throw new BankError('This replacement id already belongs to another card', 'bank.card_replace_conflict');

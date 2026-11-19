@@ -199,15 +199,6 @@
     {
       "file": "services/svc-bank/src/cards/card-service.ts",
       "table": "cards",
-      "target": "(id)",
-      "constraint": "cards_issuer_ref_idx",
-      "verdict": "race",
-      "issue": 8896,
-      "why": "replace() inserts the replacement card ON CONFLICT (id) with issuer_ref from issuer.issue({cardId: replacementId}), which is deterministic (issuer.ts:372). It takes no lock (card-service.ts:1853). Two concurrent replace calls with the same replacementId carry equal (issuer, issuer_ref), and the loser raises 23505 cards_issuer_ref_idx instead of reaching this.card(replacementId)."
-    },
-    {
-      "file": "services/svc-bank/src/cards/card-service.ts",
-      "table": "cards",
       "target": "(issuer, issuer_ref)",
       "constraint": "cards_pkey",
       "verdict": "safe",
