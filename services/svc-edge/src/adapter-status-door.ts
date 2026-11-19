@@ -19,7 +19,7 @@ import { statusForAuthError } from './admin-api.js';
 import type { EdgeS2s } from './s2s.js';
 
 export const ADAPTER_STATUS_EDGE_PATH = '/admin/trade-ops/adapters/status';
-export const SBE_STATUS_UPSTREAM_PATH = '/internal/sbe/consumers';
+const SBE_STATUS_UPSTREAM_PATH = '/internal/sbe/consumers';
 
 export type AdapterRead =
   | { readonly kind: 'answered'; readonly status: number; readonly body: unknown }
