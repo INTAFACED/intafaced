@@ -358,7 +358,12 @@ pub mod door {
 
     /// svc-tax's vitest environment.
     pub fn serve(tax: TaxService) -> Wire {
-        let env: BTreeMap<String, String> = [
+        serve_with(tax, &[])
+    }
+
+    /// svc-tax's vitest environment with these variables set over it (`vi.stubEnv`).
+    pub fn serve_with(tax: TaxService, over: &[(&str, &str)]) -> Wire {
+        let mut env: BTreeMap<String, String> = [
             ("APP_ENV", "test"),
             ("INTAFACED_SCREENING_FAIL_CLOSED", "off"),
             ("NODE_ENV", "test"),
@@ -366,6 +371,9 @@ pub mod door {
         .iter()
         .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
         .collect();
+        for (k, v) in over {
+            env.insert((*k).to_owned(), (*v).to_owned());
+        }
         Wire::new(WireConfig {
             edge_secret: SECRET.to_owned(),
             env,
