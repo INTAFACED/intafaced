@@ -1,12 +1,6 @@
-import type { BroadcastStore } from './broadcast-store.js';
+import { BroadcastClosedError, type BroadcastStore } from './broadcast-store.js';
 
-/** The key was answered `not_sent` and its money may already be given back: nothing is signed or sent under it. */
-export class BroadcastClosedError extends Error {
-  constructor(readonly idempotencyKey: string) {
-    super(`durable broadcast refused for ${idempotencyKey}: the key was answered not_sent and is closed`);
-    this.name = 'BroadcastClosedError';
-  }
-}
+export { BroadcastClosedError };
 
 /**
  * Class M outbound broadcast with DIRECTION §3.1 durability:

@@ -9,6 +9,7 @@ import {
 } from './alerts/owner-values.js';
 import { guestNotificationsRouter } from './guests/router.js';
 import { guestVerificationRouter } from './guests/verification-router.js';
+import { supportChartsRouter } from './alerts/support-charts-router.js';
 import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
 import { navMetricsRouter } from './nav-metrics/router.js';
 import { reconAlertFeedRouter } from './reconciliation-alert-feed/router.js';
@@ -682,6 +683,7 @@ export function createNotifyRouter(
     reconciliationAlertFeed: reconAlertFeedRouter(reconAlertFeed.store, reconAlertFeed.attached),
     guestNotifications: guestNotificationsRouter(guests),
     guestVerification: guestVerificationRouter(verifications),
+    supportCharts: supportChartsRouter(alerts),
     navMetrics: navMetricsRouter(navMetrics),
     statusPage: statusPageRouter(statusPage),
     health: publicProcedure

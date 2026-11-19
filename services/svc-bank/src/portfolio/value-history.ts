@@ -7,6 +7,8 @@ import {
   type LedgerHoldingsHistory,
   type LedgerHoldingsHistoryBucket,
   type ValueSeriesInterval,
+  asAssetId,
+  type AssetId,
 } from '@intafaced/contracts';
 import { classify, type ActivityKind } from '../activity/activity-kind.js';
 import { SERIES_TIMEFRAME_MS, closeAt, type CloseSeries } from './candles.js';
@@ -180,7 +182,7 @@ export function holdingsChange(input: ValueInputs): BankHoldingsChange {
     const endPrice = priceAt(assetId, endAt, live);
     return [
       {
-        assetId,
+        assetId: asAssetId(assetId),
         startAmount: formatAmount(before),
         endAmount: formatAmount(after),
         change: formatAmount(after - before),
@@ -202,11 +204,11 @@ export function valueOverTime(input: ValueInputs): BankValueOverTime {
 
   const valueOf = (holdings: Map<string, Amount>, at: number, liveEnd: boolean) => {
     let total: Amount = 0n;
-    const missing: Array<{ assetId: string; reason: 'no_price' }> = [];
+    const missing: Array<{ assetId: AssetId; reason: 'no_price' }> = [];
     for (const [assetId, qty] of [...holdings].sort(([a], [b]) => a.localeCompare(b))) {
       if (qty === 0n) continue;
       const price = priceAt(assetId, at, liveEnd);
-      if (price === null) missing.push({ assetId, reason: 'no_price' });
+      if (price === null) missing.push({ assetId: asAssetId(assetId), reason: 'no_price' });
       else total += mul(qty, price);
     }
     return { value: missing.length === 0 ? total : null, missing };
@@ -235,18 +237,18 @@ export function valueOverTime(input: ValueInputs): BankValueOverTime {
 
 function bridgeOf(
   rows: readonly Row[],
-  opening: { value: Amount | null; missing: Array<{ assetId: string; reason: 'no_price' }> },
-  closing: { value: Amount | null; missing: Array<{ assetId: string; reason: 'no_price' }> },
+  opening: { value: Amount | null; missing: Array<{ assetId: AssetId; reason: 'no_price' }> },
+  closing: { value: Amount | null; missing: Array<{ assetId: AssetId; reason: 'no_price' }> },
   priceOf: (row: Row) => Amount | null,
 ): BankValueBridge {
   const legs = { deposits: 0n, withdrawals: 0n, fees: 0n, otherFlows: 0n };
-  const missing = new Map<string, { assetId: string; reason: 'no_price' }>();
+  const missing = new Map<string, { assetId: AssetId; reason: 'no_price' }>();
   for (const m of [...opening.missing, ...closing.missing]) missing.set(m.assetId, m);
   for (const row of rows) {
     if (row.leg === null && row.fee === 0n) continue;
     const price = priceOf(row);
     if (price === null) {
-      missing.set(row.assetId, { assetId: row.assetId, reason: 'no_price' });
+      missing.set(row.assetId, { assetId: asAssetId(row.assetId), reason: 'no_price' });
       continue;
     }
     if (row.leg === 'deposits') legs.deposits += mul(row.net, price);

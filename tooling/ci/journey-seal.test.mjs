@@ -2362,7 +2362,7 @@ test('planted: the seal reads GitHub through getTried, not one bare fetch', () =
 
 // ---- The revert main-bisect opens runs narrow (project-state #1786 item 5) ----
 test('an automatic revert runs the journeys that failed on main and the reverted change own; anything forged is ordinary', async () => {
-  const { autoRevertScope, readAutoRevertScope, AUTO_REVERT_AUTHOR } = await import('./journey-seal.mjs');
+  const { autoRevertPlan, autoRevertScope, readAutoRevertScope, AUTO_REVERT_AUTHOR } = await import('./journey-seal.mjs');
   const SHA = 'c'.repeat(40);
   const pull = {
     state: 'open',
@@ -2404,8 +2404,16 @@ test('an automatic revert runs the journeys that failed on main and the reverted
     paths: [...paths, 'tooling/scripts/local-test-market.mjs'],
     culprit: { sha: SHA, files: [...paths, 'tooling/scripts/local-test-market.mjs'].map((filename) => ({ filename })) },
   });
-  assert.equal(shared.ok, true, 'shared journey setup the reverted commit changed keeps the revert narrow');
+  assert.equal(shared.ok, true, 'shared journey setup the reverted commit changed is still an automatic revert');
   assert.deepEqual(shared.files, v.files, "the same journeys: the failing ones and the reverted change's own");
+  // project-state #2997 (#8813, #8817 on 18 Nov): the seal asks a full run of shared setup, so the revert's own run is it.
+  assert.equal(shared.full, true, 'shared setup: its own run is the full run');
+  assert.match(shared.why, /full run the seal asks for/);
+  assert.deepEqual(autoRevertPlan(shared), { files: null, why: shared.why }, 'the planner runs it full, not narrow');
+  assert.equal(v.full, false, 'no shared setup: narrow');
+  assert.deepEqual(autoRevertPlan(v), { files: v.files, why: v.why }, 'the planner runs only its journeys');
+  assert.deepEqual(autoRevertPlan(null), { files: null, why: '' }, 'not an automatic revert: the ordinary scope');
+  assert.equal(autoRevertPlan(autoRevertScope({ ...ok, culprit: null })).files, null, 'a refused scope: the ordinary scope');
   no({ paths: [...paths, 'tooling/scripts/local-test-market.mjs'] }, 'shared journey setup the reverted commit did not change');
   no({ pull: { ...pull, body: '' }, paths: ['services/svc-bank/src/cards.ts'], culpritTitle: '' }, 'no journey named');
   // sealPull judges the narrow files, and names them; a forged revert gets the ordinary scope.

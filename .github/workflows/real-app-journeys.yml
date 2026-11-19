@@ -241,9 +241,10 @@ jobs:
             exit 0
           fi
           # The revert main-bisect opens (journey-seal.mjs autoRevertScope: the App's revert/auto- branch, one commit that
-          # reverts that commit, no other file, no shared setup) runs only the journeys that failed on main and the reverted
-          # change's own, as the seal judges it; main's full run after the merge guards main. An unreadable scope, or
-          # any other pull request, goes on to the ordinary scope below.
+          # reverts that commit, no other file) runs only the journeys that failed on main and the reverted change's own,
+          # as the seal judges it; main's full run after the merge guards main. One that touches shared setup prints no
+          # files (its `full`), so it goes on below to journey-touch's full run, the one the seal asks for. An unreadable
+          # scope, or any other pull request, goes on to the ordinary scope below.
           auto=$(REPO="$GITHUB_REPOSITORY" node "$seal" --auto-revert-scope "$PR") || auto='{}'
           narrow=$(jq -r '(.files // []) | join(" ")' <<<"$auto") || narrow=''
           if [ -n "$narrow" ] && [[ "$narrow" =~ ^[A-Za-z0-9._\ -]+$ ]]; then
@@ -346,7 +347,7 @@ jobs:
       # last finished runs on main, so the shards end together (Playwright's own --shard split by count left one shard 33
       # minutes behind the shortest in run 338). A full run, on main or a pull request's, aims at 10 minutes of journeys
       # a shard, up to 64 shards, so a break is named as its shorter shard ends and a pull request's journey meets the
-      # same neighbours as on main (MAIN_MAX_SHARDS says why); a targeted run aims near the longest journey file's time
+      # same neighbours as on main (MAX_SHARDS says why); a targeted run aims near the longest journey file's time
       # less the spread of a shard's setup, 10 to 25 minutes, in at most 10 shards. The plan is checked to run every
       # journey file exactly once before it is used. If planning fails for any reason the run falls back to 8 shards and
       # Playwright's split, so a broken planner never stops a run; journeys past a shard's limit then count as not run and

@@ -2,6 +2,7 @@ import type { BankPartnerReserves, OpsCapitalReserve } from '@intafaced/contract
 import { BankError } from '../errors.js';
 import { partnerFiguresAsOf, type CardPartnerTerms } from '../cards/partner-terms.js';
 import { programmeReserve, type TestPartnerDoors } from './test-partner.js';
+import { asAssetId } from '@intafaced/contracts';
 
 /**
  * ANY RESERVE A PARTNER HOLDS OF OURS, as each partner adapter reports it (J-ops-console-24 #1), for svc-ops' capital
@@ -37,7 +38,7 @@ export function partnerReservesRead(input: {
       r === null || at === null
         ? { status: 'not_known' }
         : r.required
-          ? { status: 'reported', assetId: r.assetId, amount: r.amount, asOf: at.toISOString() }
+          ? { status: 'reported', assetId: asAssetId(r.assetId), amount: r.amount, asOf: at.toISOString() }
           : { status: 'none' };
     partners.push({
       partner: 'card',

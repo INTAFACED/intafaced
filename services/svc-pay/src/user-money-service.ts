@@ -32,7 +32,12 @@ import {
   type WithdrawalAllowanceView,
   type WithdrawalLimitReader,
 } from './limits/reader.js';
-import { bankInternalWithdrawalInputSchema, internalWithdrawalTransferId, type BankInternalWithdrawalPort } from '@intafaced/contracts';
+import {
+  bankInternalWithdrawalInputSchema,
+  internalWithdrawalTransferId,
+  type BankInternalWithdrawalPort,
+  asAssetId,
+} from '@intafaced/contracts';
 import {
   INTERNAL_RAIL,
   publicUnavailableReason,
@@ -1226,7 +1231,7 @@ export class UserMoneyService {
               transferId: internalWithdrawalTransferId(claimed.id),
               fromUserId: claimed.userId,
               toUserId,
-              assetId: claimed.assetId,
+              assetId: asAssetId(claimed.assetId),
               amount: formatAmount(claimed.amount),
             });
 

@@ -21,6 +21,8 @@
  *            full run on the revert's head starts at once (plant 2: it waited 39 minutes behind such a run).
  *   back     The `confirm` job's result on each journey's break issue. It closes nothing: main trust closes the issue
  *            when main's full run passes the steps.
+ *   spent    After each journeys run on main: an open revert whose failing steps all passed outright on a head that still
+ *            holds the culprit and is past the red run's head is closed, as main no longer needs it (spentWhy).
  *   find     The commits between the good and the bad commit (first parent, oldest first). The red run must show the
  *            named steps failing outright on the bad commit, or nothing is reverted (a known-good state opens nothing).
  *            Only the commits whose changed files can reach a failing journey (journey-touch.mjs with the
@@ -46,6 +48,7 @@
  *   (early)   GH_TOKEN GITHUB_REPOSITORY WORKFLOW_ID RUN_ID HEAD_SHA
  *   (confirm) GH_TOKEN GITHUB_REPOSITORY HEAD_SHA SUBJECT
  *   (back)    GH_TOKEN GITHUB_REPOSITORY STEPS BAD BACK RUN_URL;  (confirm-files) STEPS BAD   (writes GITHUB_OUTPUT)
+ *   (spent)   GH_TOKEN GITHUB_REPOSITORY RUN_ID
  */
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -878,6 +881,14 @@ async function openRevert(env, revoke) {
   }
 }
 
+/** main-bisect's own revert: its revert/auto- branch in this repository, opened by the App as a Bot, not a draft. Pure. */
+export const isAutoRevert = (pr, repo) =>
+  AUTO_REVERT_BRANCH.test(String(pr?.head?.ref ?? '')) &&
+  pr?.user?.login === AUTO_REVERT_AUTHOR &&
+  pr?.user?.type === 'Bot' &&
+  pr?.head?.repo?.full_name === repo &&
+  !pr?.draft;
+
 // ── refresh: an open revert's red checks run again on main's newer rules ──────
 
 /** At most this many rebases of one revert by `refresh`: one per merge into main while its checks stay red. */
@@ -897,13 +908,7 @@ export const REFRESH_WORKFLOWS = [
  * never reads main's newer check (intafaced #8138 after #8166: its re-run guard couldn't import exact-revert.mjs).
  */
 export function refreshWhy(pr, { repo, runs, mainAt, rebased }) {
-  const ok =
-    AUTO_REVERT_BRANCH.test(String(pr?.head?.ref ?? '')) &&
-    pr?.user?.login === AUTO_REVERT_AUTHOR &&
-    pr?.user?.type === 'Bot' &&
-    pr?.head?.repo?.full_name === repo &&
-    !pr?.draft;
-  if (!ok) return { refresh: false, why: "not main-bisect's revert" };
+  if (!isAutoRevert(pr, repo)) return { refresh: false, why: "not main-bisect's revert" };
   const newest = REFRESH_WORKFLOWS.map(
     ({ file, event }) =>
       (runs[file] ?? []).filter((r) => r.event === event && r.conclusion !== 'skipped').sort((a, b) => b.run_number - a.run_number)[0],
@@ -973,6 +978,83 @@ async function refresh(env) {
     }
   }
   summary(lines);
+}
+
+// ── spent: an open revert main no longer needs is closed ─────────────────────
+
+/** The red run a revert's body names on its `- Red run:` line (revertBody), or null. Pure. */
+export const redRunOf = (body) =>
+  Number(/^- Red run: \S*\/actions\/runs\/(\d+)\b/m.exec(String(body ?? '').replace(/\r/g, ''))?.[1]) || null;
+
+/**
+ * Whether `spent` closes this open automatic revert, or why not. Pure. Main's journeys run (`states`: its outrightStates)
+ * passed every step the revert's `- Failing:` line names, outright, on a head that still holds the culprit
+ * (`holdsCulprit`) and is at or after the red run's head (`pastRed`): main is green with the merge the revert would
+ * remove, so the revert would undo a change that is not the cause (project-state #2997: #8817 stayed armed from
+ * 01:15 UTC on 18 Nov after main went green at 02:42, until a person closed it). A step the run lacks, failed or passed
+ * only on its retry, or a head the compare couldn't place, leaves it.
+ */
+export function spentWhy(pr, { repo, states, holdsCulprit, pastRed }) {
+  if (!isAutoRevert(pr, repo)) return { close: false, why: "not main-bisect's revert" };
+  const steps = failingSteps(pr.body);
+  if (!steps.length) return { close: false, why: 'its body names no failing step' };
+  const open = steps.filter((s) => states.get(s) !== 'passed');
+  if (open.length) return { close: false, why: `${open.join(', ')} did not pass outright in this run` };
+  if (holdsCulprit !== true) return { close: false, why: "this run's head does not hold the culprit, or the compare couldn't say" };
+  if (pastRed !== true) return { close: false, why: "this run's head is not at or after the red run's, or the compare couldn't say" };
+  return { close: true, why: `${steps.join(', ')} passed outright on main with the culprit still in` };
+}
+
+/**
+ * After each Real-app journeys run on main (main-trust.yml post-merge): close each open automatic revert that spentWhy
+ * picks, with a comment that names the run. The culprit stays on main; a later break opens its own revert. Closing only
+ * stops a merge, so GITHUB_TOKEN does it (pull-requests: write); a refusal is said and the step fails.
+ */
+async function spent(env) {
+  need(env, 'GITHUB_REPOSITORY', 'GH_TOKEN', 'RUN_ID');
+  const repo = env.GITHUB_REPOSITORY;
+  const gh = client(env.GH_TOKEN);
+  const lines = ['### Open automatic reverts main no longer needs', ''];
+  const { json: run } = await gh('GET', `/repos/${repo}/actions/runs/${env.RUN_ID}`);
+  if (run?.head_branch !== 'main' || !SHA.test(String(run?.head_sha ?? '')))
+    return summary([...lines, `- run ${env.RUN_ID} is not on main: nothing to do`]);
+  const pulls = ((await gh('GET', `/repos/${repo}/pulls?state=open&per_page=100`)).json ?? []).filter((pr) => isAutoRevert(pr, repo));
+  if (!pulls.length) return summary([...lines, '- none open']);
+  const report = await runReport(gh, repo, run.id, env.GH_TOKEN);
+  if (!report) return summary([...lines, `- run ${run.id} kept no journey report: every revert is left`]);
+  const states = outrightStates(report);
+  const holds = async (base, head) =>
+    ['ahead', 'identical'].includes((await gh('GET', `/repos/${repo}/compare/${base}...${head}`)).json?.status);
+  let failed = false;
+  for (const pr of pulls) {
+    const culprit = culpritOf(pr.body) ?? AUTO_REVERT_BRANCH.exec(pr.head.ref)?.[1];
+    const red = redRunOf(pr.body);
+    const redHead = red ? (await gh('GET', `/repos/${repo}/actions/runs/${red}`)).json?.head_sha : null;
+    const d = spentWhy(pr, {
+      repo,
+      states,
+      holdsCulprit: culprit ? await holds(culprit, run.head_sha) : false,
+      pastRed: SHA.test(String(redHead ?? '')) ? await holds(redHead, run.head_sha) : false,
+    });
+    if (!d.close) {
+      lines.push(`- #${pr.number}: left (${d.why})`);
+      continue;
+    }
+    const runUrl = `https://github.com/${repo}/actions/runs/${run.id}`;
+    const said = await gh('POST', `/repos/${repo}/issues/${pr.number}/comments`, {
+      body: `Main's [journeys run ${run.run_number ?? run.id}](${runUrl}) on \`${run.head_sha.slice(0, 10)}\` passed ${failingSteps(pr.body)
+        .map((k) => `\`${k.replace('#', ' #')}\``)
+        .join(
+          ', ',
+        )} outright with commit \`${String(culprit).slice(0, 10)}\` still in, so this revert would undo a change that is not the cause. It closes; the change stays on main, and a later break opens its own revert.\n\n_Posted by tooling/ci/journeys-revert.mjs spent._`,
+    });
+    const closed = await gh('PATCH', `/repos/${repo}/pulls/${pr.number}`, { state: 'closed' });
+    const ok = [0, 200].includes(closed.status);
+    if (!ok || ![0, 201].includes(said.status)) failed = true;
+    lines.push(`- #${pr.number}: ${ok ? 'closed' : `close refused (HTTP ${closed.status})`} (${d.why})`);
+  }
+  summary(lines);
+  if (failed) return 1;
 }
 
 /** How many times, and how long apart, a revoked token's refusal is asked for: about 20 s in all. */
@@ -1347,7 +1429,7 @@ async function confirmFiles(env) {
   output({ files: files.join(' '), steps: parseSteps(env.STEPS).join(',') });
 }
 
-const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles, refresh };
+const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles, refresh, spent };
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const cmd = COMMANDS[process.argv[2]];
   if (!cmd) {

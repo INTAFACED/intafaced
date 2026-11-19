@@ -67,8 +67,20 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
   await expect(entry.locator('time')).toHaveAttribute('datetime', changedAt);
   await expect(entry.locator('time')).toHaveText(new RegExp(`${new Date(changedAt).getUTCFullYear()}.*\\d{1,2}:\\d{2}`));
 
-  // The change is the service's record, not the page's memory.
-  await page.reload();
+  // The change is the service's record, not the page's memory: after a reload the service holds the owner's own choice,
+  // Export ready off and saved by the owner, and every other kind still on and saved by no one.
+  const ownerPrefs = await answerAfterNavigation(
+    page,
+    (r) => r.url().includes('merchantOps.notifications.preferences.list') && r.request().method() === 'GET',
+    () => page.reload(),
+  );
+  expect(ownerPrefs.status(), 'the owner reads their own preferences').toBe(200);
+  expect(owner.userId).toMatch(/^[0-9a-f-]{36}$/);
+  const ownerKinds = (await ownerPrefs.json()).result.data;
+  expect(ownerKinds.find((p) => p.kind === 'export_ready')).toMatchObject({ inApp: false, updatedBy: owner.userId });
+  const othersOf = (kinds) => kinds.filter((p) => p.kind !== 'export_ready');
+  expect(othersOf(ownerKinds).length, 'the other kinds the owner reads').toBeGreaterThan(0);
+  expect(othersOf(ownerKinds).every((p) => p.inApp === true && p.updatedBy === null)).toBe(true);
   await expect(historyOf(page)).toContainText('Export ready turned off');
   await expect(historyOf(page).getByRole('listitem').filter({ hasText: 'Export ready turned off' }).locator('time')).toHaveAttribute(
     'datetime',
@@ -85,8 +97,10 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
   for (const name of ['Help articles', 'Your requests', 'New request']) await expect(desk.getByRole('button', { name })).toBeVisible();
   expect(refused).toEqual([]);
 
-  // The team half needs a verified business: the founder pair approves this one now, and the owner's own choice, saved
-  // before it, stays as it was.
+  // The team half needs a second person, and only the owner of a verified business can add one (svc-pay
+  // team-member-write.ts: inviting takes the owner's `pay:write`, which a business whose verification is not done never
+  // holds). So everything above ran in the Starts state; the founder pair approves this business only now, for the clause
+  // about a person who lacks a permission (the owner holds every one), and the owner's own choice, saved before it, stays.
   await verifiedBusiness(page, owner, merchantId);
   await forgetSession(page);
   await signInWithCode(page, owner, '/pay/settings/notifications');

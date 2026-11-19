@@ -361,7 +361,7 @@ A **counterparty's** snapshot is never touched: that is their account, on a trad
 
 Every publish carries a **business** idempotency key (`p2p.escrow.release:<tradeId>`, `p2p:trade.completed.seller:<tradeId>:<userId>`), never a random uuid. A redelivered envelope finds the original, which is what makes svc-identity's XP dedupe work.
 
-**Consumes** — nothing yet. When svc-trade's mark-price surface lands it supplies the `ReferencePriceSource` that floating offers need; until then a floating offer is **refused** rather than priced from a stale number (§13 socket: cross-venue pricing).
+**Consumes** — nothing yet. When svc-trade's mark-price surface lands it supplies the `ReferencePriceSource` that floating offers need; until then a floating offer is **refused** rather than priced from a stale number (§13 socket: cross-venue pricing). A test stack may name a labelled TEST price per pair in `LOCAL_TEST_P2P_REFERENCE_PRICES` (JSON, `{"USDT/EUR": "0.92"}`; `src/local-test-reference.ts`), which refuses to start outside an explicit dev or test process; the local stack sets it only under `LOCAL_STACK_P2P_REFERENCE_FEED=on`, so by default it publishes no reference, as production does.
 
 Event subjects live in `packages/events` (catalog). Payloads are additive; business idempotency keys (not random uuids) are what make redelivery safe.
 

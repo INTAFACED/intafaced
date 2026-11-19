@@ -12,6 +12,7 @@ import type {
   SupportTicketPropertyChange,
 } from '@intafaced/contracts';
 import type { Part } from '@/lib/desk/part';
+import type { SupportChartsLookup } from '@intafaced/contracts/support-charts-lookup';
 import type { BulkPolicyView } from './bulk';
 import type { SupportRatingSummary } from './ratings';
 import type { QueueQuery } from './queue-query';
@@ -29,6 +30,8 @@ export interface QueueEntry {
   readonly score: number;
   readonly ageMs: number;
   readonly createdAt: string;
+  /** The first-reply due time from the desk's active response target (SP-sla-01); null while none is active for it. */
+  readonly responseDue: { readonly dueAt: string; readonly targetMinutes: number } | null;
 }
 
 export interface QueueRead {
@@ -117,6 +120,12 @@ export interface SupportCustomerView {
   readonly account: Part<SupportAccountGrounding>;
   /** The order ids the desk has linked to this request; empty means it names none. */
   readonly orders: Part<readonly string[]>;
+}
+
+/** A charts lookup on one ticket (J-charts-desk-19 #1): the customer's alerts with history and layouts, and its audit row. */
+export interface SupportChartsLookupView {
+  readonly asOf: string;
+  readonly lookup: Part<SupportChartsLookup>;
 }
 
 export interface SupportPropertiesView {

@@ -89,6 +89,8 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'equity',
   'usedMargin',
   'marginRatio',
+  // UserVenueCrossMargin (J-derivatives-26 #1 #3)
+  'liquidationEquity',
   // UserVenueInsuranceFund (J-derivatives-07 #4)
   'balance',
   // VenueFeeTier and VenueAccountFees (J-cex-spot-10 #2 #6)

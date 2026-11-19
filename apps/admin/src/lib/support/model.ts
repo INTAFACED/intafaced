@@ -25,7 +25,7 @@ export const isTicketId = (value: unknown): value is string => typeof value === 
 
 function readEntry(raw: unknown): QueueEntry | null {
   if (!isRecord(raw)) return null;
-  const { ticketId, userId, category, status, subject, score, ageMs, createdAt, timingKind, sla } = raw;
+  const { ticketId, userId, category, status, subject, score, ageMs, createdAt, timingKind, sla, responseDue } = raw;
   if (!isTicketId(ticketId) || !isTicketId(userId)) return null;
   if (typeof category !== 'string' || category === '' || typeof subject !== 'string' || subject === '') return null;
   if (typeof status !== 'string' || !STATUSES.includes(status)) return null;
@@ -34,7 +34,19 @@ function readEntry(raw: unknown): QueueEntry | null {
   if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) return null;
   // The service promises these two. If they ever change, the desk must not keep implying a score is not a promise.
   if (timingKind !== 'score_not_promise' || sla !== false) return null;
-  return { ticketId, userId, category, status: status as TicketStatus, subject, score, ageMs, createdAt };
+  const due = readResponseDue(responseDue);
+  if (due === undefined) return null;
+  return { ticketId, userId, category, status: status as TicketStatus, subject, score, ageMs, createdAt, responseDue: due };
+}
+
+/** A row's due time from an active response target: null (none, or an older service that sends none), or undefined when malformed. */
+function readResponseDue(raw: unknown): QueueEntry['responseDue'] | undefined {
+  if (raw === null || raw === undefined) return null;
+  if (!isRecord(raw)) return undefined;
+  const { dueAt, targetMinutes } = raw;
+  if (typeof dueAt !== 'string' || !Number.isFinite(Date.parse(dueAt))) return undefined;
+  if (typeof targetMinutes !== 'number' || !Number.isInteger(targetMinutes) || targetMinutes < 1) return undefined;
+  return { dueAt, targetMinutes };
 }
 
 /** `listQueue`: `{status:'ok',entries}` or `{status:'empty'}`. Anything else is null, never an empty queue. */

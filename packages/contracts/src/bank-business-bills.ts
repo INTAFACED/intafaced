@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { businessTeamRuleSchema } from './bank-business-team.js';
 
 /**
@@ -52,7 +53,7 @@ export const businessBillPaymentSchema = z
     billId: z.string(),
     attempt: z.number().int(),
     madeByHandle: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount,
     /** The day a scheduled payment is sent; null for one paid at once. */
     scheduledFor: day.nullable(),
@@ -78,7 +79,7 @@ export const businessBillSchema = z
   .object({
     ...summary,
     accountId: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     fileName: z.string(),
     contentType: z.string(),
     fileSize: z.number().int(),
@@ -109,7 +110,7 @@ export const businessBillVendorSchema = z.object({ name: z.string(), cap: amount
 
 export const businessBillSettingsSchema = z
   .object({
-    assetId: z.string(),
+    assetId: assetIdSchema,
     /** The bill reader, or null while none is set: every field is then typed by hand. */
     reader: z.object({ id: z.string(), label: z.string() }).strict().nullable(),
     vendors: z.array(businessBillVendorSchema),

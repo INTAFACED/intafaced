@@ -77,6 +77,25 @@ test("Node is CI's: .node-version's major, from Homebrew's keg when the default 
   assert.match(ciNode('lts/*', '26.3.1').error, /node-version/);
 });
 
+test("on a Linux home Node CI runs comes from CI_NODE_BIN, else nvm's newest of that major", () => {
+  const nvm = '/home/builder/.nvm/versions/node';
+  const linux = {
+    env: {},
+    home: '/home/builder',
+    list: (dir) => (dir === nvm ? ['v20.19.0', 'v22.9.0', 'v22.23.5', 'v24.1.0'] : []),
+  };
+  const nvmHas = (p) => p.startsWith(`${nvm}/`);
+  assert.deepEqual(ciNode('22', '26.3.1', nvmHas, linux), { bin: `${nvm}/v22.23.5/bin`, want: '22' });
+  assert.deepEqual(
+    ciNode('22', '26.3.1', (p) => p === '/opt/node22/bin/node', { ...linux, env: { CI_NODE_BIN: '/opt/node22/bin' } }),
+    {
+      bin: '/opt/node22/bin',
+      want: '22',
+    },
+  );
+  assert.match(ciNode('22', '26.3.1', () => false, linux).error, /nvm install 22/);
+});
+
 test("tests run in the packages holding a changed file, each on its own changes; a dependent's tests are CI's", () => {
   const tested = [
     { name: '@intafaced/contracts', directory: 'packages/contracts' },

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { defineProcedure } from './procedure.js';
 
 /**
@@ -10,11 +11,11 @@ import { defineProcedure } from './procedure.js';
 const amount = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
 
 /** The ledger account a space is a view of, so a client can check it against the space. */
-export const spaceLedgerAccountSchema = z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() });
+export const spaceLedgerAccountSchema = z.object({ ownerType: z.string(), ownerId: z.string(), assetId: assetIdSchema, kind: z.string() });
 
 export const bankSpaceSchema = z.object({
   id: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   kind: z.enum(['primary', 'named']),
   name: z.string(),
   goalTarget: z.string().nullable(),
@@ -63,7 +64,7 @@ export const BANK_SPACES_LIST = defineProcedure({
   kind: 'query',
   path: 'spaces.list',
   input: z.object({
-    assetId: z.string().min(1).max(16).optional(),
+    assetId: assetIdSchema.min(1).max(16).optional(),
     /** Page size. Optional so omit reaches `bank.spaces_list_limit_unset` instead of a Zod "Required". Blank is not 50. */
     limit: z.number().int().min(1).max(200).optional(),
   }),

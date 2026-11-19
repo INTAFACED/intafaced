@@ -1,5 +1,6 @@
 // World: none
 import { test, expect } from './journey.mjs';
+import { DAY, MINUTE, utcMinuteOf } from './clock.mjs';
 import { ADMIN, assertAdminUp, founderSignIn } from './admin.mjs';
 import { EDGE, ORIGIN, journeyState } from './stack.mjs';
 
@@ -10,8 +11,6 @@ import { EDGE, ORIGIN, journeyState } from './stack.mjs';
 // RC-more-catalogue-22 to 24 and fail by name.
 const J = 'J-more-catalogue-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const MINUTE = 60_000;
-const DAY = 86_400_000;
 
 test.describe.configure({ mode: 'default' });
 
@@ -114,7 +113,6 @@ function launchStep(founderPages, launchId, to) {
 const issuerRow = (page, id) => page.getByRole('table', { name: 'Issuers' }).locator(`tr[data-issuer="${id}"]`);
 const launchRow = (page, id) => page.getByRole('table', { name: 'Launches' }).locator(`tr[data-launch="${id}"]`);
 /** A `datetime-local` value in UTC, the way the draft form reads it. */
-const utcMinute = (ms) => new Date(Math.floor(ms / MINUTE) * MINUTE).toISOString().slice(0, 16);
 
 test(`${J} starts: signed in to the admin app at /launch (issuer lens); an issuer applied`, async ({ browser }) => {
   test.setTimeout(240_000);
@@ -135,7 +133,7 @@ test(`${J} #1 Opens /launch/new as an issuer and saves a draft, then reloads: th
   const launch = { id: `j14-${nonce}`, name: `TEST Launch ${nonce}`, symbol: `T${nonce.slice(-5).toUpperCase()}` };
   // Every period has begun except close and distribution, so each later move is due as soon as it is approved.
   const now = Date.now();
-  const periods = [now - 3 * MINUTE, now - 2 * MINUTE, now - MINUTE, now + DAY, now + 2 * DAY].map(utcMinute);
+  const periods = [now - 3 * MINUTE, now - 2 * MINUTE, now - MINUTE, now + DAY, now + 2 * DAY].map(utcMinuteOf);
   const reply = await twoFounders(pages, {
     path: '/launch/new',
     heading: 'Save this launch as a draft',

@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test, expect } from './journey.mjs';
+import { DAY as DAY_MS, utcDay } from './clock.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { ORIGIN, api, restartWithSetting } from './stack.mjs';
 import { signUp } from './desk.mjs';
@@ -49,8 +50,6 @@ async function staff(kind, procedure, input) {
   return JSON.parse(res.text).result.data;
 }
 
-const DAY_MS = 86_400_000;
-const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 /** The console's activity window: the last 14 whole UTC days, today last (apps/admin analytics-model.ts). */
 const windowNow = () => ({ from: utcDay(Date.now() - 13 * DAY_MS), to: utcDay(Date.now()) });
 const today = () => utcDay(Date.now());

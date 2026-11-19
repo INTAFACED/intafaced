@@ -787,6 +787,27 @@ export interface UserVenueAccountSummary {
   readonly usedMargin: Amount;
   readonly maintenanceMargin: Amount;
   readonly marginRatio: MaybeKnown<Amount>;
+  /**
+   * The account's cross margin as the venue judges it (J-derivatives-26), or `null` with no cross position open (and on a
+   * venue that reads none). Absent where the venue reports no cross figure at all.
+   */
+  readonly cross?: UserVenueCrossMargin | null;
+}
+
+/**
+ * Cross margin on one venue account, every figure the venue's own: the cross positions share the account's equity, the
+ * venue calls for margin while equity is below their maintenance requirement (`margin_call`), and liquidates every cross
+ * position of the account once equity falls to `liquidationEquity`, the account's liquidation level. `rule` is the venue's
+ * own words for both. A cross loss reaches only this venue account, never a balance outside it.
+ */
+export interface UserVenueCrossMargin {
+  readonly state: 'healthy' | 'margin_call';
+  readonly equity: Amount;
+  readonly maintenanceMargin: Amount;
+  /** Maintenance over equity, a fraction; `known: false` where equity is not above zero. */
+  readonly marginRatio: MaybeKnown<Amount>;
+  readonly liquidationEquity: Amount;
+  readonly rule: string;
 }
 
 // ── Liquidation and its aftermath, as the venue reports them (J-derivatives-07) ─────────────────────────────────────
