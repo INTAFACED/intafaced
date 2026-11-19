@@ -3,7 +3,7 @@ import { PaymentCell } from '../payments/PaymentCell';
 import { RefundsIssuedValue } from '../payments/RefundsIssued';
 import { Button } from '@intafaced/ui';
 import { EmptyState, Field } from '../../ui-kit';
-import { useSession } from '../../../session/session';
+import { useSession } from '../../../session';
 import { useResource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';

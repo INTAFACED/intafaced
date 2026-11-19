@@ -15,7 +15,7 @@ import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { createMoneyClient } from '../money/client';
+import { createMoneyClient } from '../money';
 import { createMerchantRefundApi } from './merchant-refund-api';
 import * as s from './schemas';
 import { shareCopy } from './personal/p2p-share-copy';
