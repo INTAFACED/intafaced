@@ -1,0 +1,10 @@
+[package]
+name = "svc-tax"
+version = "0.0.0"
+description = "svc-tax in Rust. Empty: it builds and serves nothing yet; services/svc-tax is the running service."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
