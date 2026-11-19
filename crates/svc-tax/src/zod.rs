@@ -146,6 +146,17 @@ impl Ctx {
         }
     }
 
+    /// `.superRefine` adding `{ code: 'custom', path, message }`.
+    pub fn custom(&mut self, ok: bool, path: &[String], message: String) {
+        if !ok {
+            self.issues.push(Issue::new(
+                vec![("code", Json::str("custom"))],
+                path,
+                message,
+            ));
+        }
+    }
+
     /// `.refine(...)` with no message.
     pub fn refine(&mut self, ok: bool, path: &[String]) {
         if !ok {
