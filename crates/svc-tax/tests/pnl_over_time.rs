@@ -578,7 +578,7 @@ fn lands_on_the_book_own_open_lots_whatever_the_method() {
                 ..Extra::default()
             },
         );
-        let at = BookTimeline::new(&book).positions_at(now())["BTC"].clone();
+        let at = BookTimeline::new(&book).positions_at(now())["BTC"];
         let j = book.json();
         let asset = find(list(&j, "assets"), "assetId", "BTC").unwrap();
         assert_eq!(Some(f(at.qty)), text(asset, "openQty"), "{method:?}");
