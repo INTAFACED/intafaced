@@ -4147,12 +4147,10 @@ export function createP2pRouter(
   const userOf = (ctx: Context): string => signed(ctx).principal.userId;
   const setContact = async (
     ctx: Context,
-    input: { peerId: string; idempotencyKey: string },
-    kind: 'follow' | 'block',
-    present: boolean,
+    change: { peerId: string; idempotencyKey: string; kind: 'follow' | 'block'; present: boolean },
   ) => {
     await merchantApi(ctx);
-    return p2p.setContact({ ownerId: userOf(ctx), peerId: input.peerId, kind, present, idempotencyKey: input.idempotencyKey });
+    return p2p.setContact({ ownerId: userOf(ctx), ...change });
   };
 
   const fromRecords = mountRecords(
@@ -4198,10 +4196,10 @@ export function createP2pRouter(
         await merchantApi(ctx);
         return p2p.listContacts(userOf(ctx));
       },
-      'p2p.contacts.follow': ({ ctx, input }) => setContact(ctx, input, 'follow', true),
-      'p2p.contacts.unfollow': ({ ctx, input }) => setContact(ctx, input, 'follow', false),
-      'p2p.contacts.block': ({ ctx, input }) => setContact(ctx, input, 'block', true),
-      'p2p.contacts.unblock': ({ ctx, input }) => setContact(ctx, input, 'block', false),
+      'p2p.contacts.follow': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'follow', present: true }),
+      'p2p.contacts.unfollow': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'follow', present: false }),
+      'p2p.contacts.block': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'block', present: true }),
+      'p2p.contacts.unblock': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'block', present: false }),
     },
     p2pRefusal,
   );
