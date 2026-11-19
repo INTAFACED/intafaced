@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useDebouncedValue } from '../pay/portal/payments/use-debounced';
-import { useApi } from '../session/session';
+import { useDebouncedValue } from '../../shared/use-debounced';
+import { useApi } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { displayAmount } from '../../shared/money';
 import { useResource } from '../../shared/resource';

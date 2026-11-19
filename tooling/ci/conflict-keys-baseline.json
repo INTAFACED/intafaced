@@ -825,24 +825,6 @@
       "why": "The house MM stub row writes no client_order_id (fills.ts:524-532), so it is NULL, and NULLs never clash in the plain index (0000_trade_init.sql:145)."
     },
     {
-      "file": "services/svc-trade/src/spot/trade-service/order-place.ts",
-      "table": "orders",
-      "target": "(id)",
-      "constraint": "orders_client_id_idx",
-      "verdict": "race",
-      "issue": 8885,
-      "why": "orderId comes from the admitted evidence, which is orderIdFor(userId, market, clientOrderId) (order-place.ts:127, 458), so a concurrent identical submit carries equal id and equal (user_id, market_id, client_order_id). The loser gets 23505 orders_client_id_idx instead of the 'Lost a race with a concurrent identical submission' branch (order-place.ts:511-517)."
-    },
-    {
-      "file": "services/svc-trade/src/spot/trade-service/order-place.ts",
-      "table": "orders",
-      "target": "(id)",
-      "constraint": "orders_client_id_idx",
-      "verdict": "race",
-      "issue": 8885,
-      "why": "orderId = orderIdFor(userId, market, clientOrderId) (order-place.ts:614). A concurrent identical submit passes findOrder (615) twice and gets 23505 orders_client_id_idx instead of the inserted.length===0 branch at 637."
-    },
-    {
       "file": "services/svc-trade/src/venue/agent-desk-store.ts",
       "table": "user_venue_agent_desk_audit",
       "target": "(key_id) WHERE action='quarantine'",
