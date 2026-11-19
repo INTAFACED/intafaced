@@ -9,9 +9,9 @@ import {
   tokenWatchlistPreferenceSchema,
   type AddressWatch,
 } from '@intafaced/contracts/protocol-watch-preferences';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import type { ApiResult } from '../../../shared/api';
-import { CONFLICT, rebaseAndWrite, type RecordIo } from '../../watchlists/rebase';
+import { CONFLICT, rebaseAndWrite, type RecordIo } from '../../watchlists';
 
 type Namespace = typeof TOKEN_WATCHLIST_NAMESPACE | typeof ADDRESS_WATCHES_NAMESPACE;
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
