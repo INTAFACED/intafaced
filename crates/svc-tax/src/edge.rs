@@ -1,8 +1,9 @@
 //! The edge trust boundary (`packages/contracts/src/edge.ts`): the principal the edge forwards is believed only when its
 //! HMAC over the exact header bytes and the region verifies, it parses as a principal, and it has not expired.
 //!
-//! The HMAC form only. A principal signed with Ed25519 (`ed25519:` signatures) is refused here exactly as the TypeScript
-//! service refuses it when it holds only `EDGE_PRINCIPAL_SECRET` and no `EDGE_PRINCIPAL_PUBLIC_KEY`.
+//! Two forms: the HMAC over the shared secret, and, when `EDGE_PRINCIPAL_PUBLIC_KEY` is set, the edge's Ed25519
+//! signature (`ed25519:`), which also needs an issue time and both lifetime limits (`edgeTrustFromEnv`,
+//! `createEdgeContext`). Without the public key an `ed25519:` principal is refused, as the TypeScript refuses it.
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -120,7 +121,7 @@ fn strings(v: &Json) -> Option<Vec<&str>> {
 
 /// `principalHeaderSchema.safeParse`: the access claims, `userId`, `expiresAt` and an optional `iat`. Unknown keys are
 /// ignored; a present key of the wrong shape (null included) refuses the whole principal.
-fn parse_principal(v: &Json) -> Option<(Principal, Instant)> {
+fn parse_principal(v: &Json) -> Option<(Principal, Instant, Option<i64>)> {
     let Json::Object(_) = v else { return None };
     let guid = |key: &str, required: bool| match v.get(key) {
         None => !required,
@@ -179,6 +180,14 @@ fn parse_principal(v: &Json) -> Option<(Principal, Instant)> {
         Some(Json::String(t)) => t.clone(),
         _ => "none".to_owned(),
     };
+    let iat = match v.get("iat") {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a positive whole number below 2^53, checked above"
+        )]
+        Some(Json::Number(n)) => Some(*n as i64),
+        _ => None,
+    };
     Some((
         Principal {
             user_id: user_id.clone(),
@@ -186,7 +195,88 @@ fn parse_principal(v: &Json) -> Option<(Principal, Instant)> {
             tier,
         },
         expires_at,
+        iat,
     ))
+}
+
+/// `EdgePrincipalLimits`: positive whole seconds, both required with the public key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    pub max_lifetime_seconds: i64,
+    pub clock_skew_seconds: i64,
+}
+
+/// The edge's public key and the limits its principals are held to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeKey {
+    pub public_key: [u8; 32],
+    pub limits: Limits,
+}
+
+/// `EDGE_PRINCIPAL_LIMITS_REQUIRED`.
+pub const EDGE_PRINCIPAL_LIMITS_REQUIRED: &str = "EDGE_PRINCIPAL_LIMITS_REQUIRED";
+
+impl EdgeKey {
+    /// `createEdgeContext`'s boot checks for the asymmetric form: a raw 32-byte key, base64url, and both limits
+    /// (`edgeTrustFromEnv` leaves them out unless both are set). The error is `EdgeTrustError`'s message.
+    pub fn from_env(
+        service: &str,
+        public_key: &str,
+        max_lifetime_seconds: Option<i64>,
+        clock_skew_seconds: Option<i64>,
+    ) -> Result<EdgeKey, String> {
+        let Some(key) = crate::s2s::canonical_key(public_key) else {
+            return Err(format!(
+                "{service}: EDGE_PRINCIPAL_PUBLIC_KEY must be a raw 32-byte Ed25519 public key, base64url."
+            ));
+        };
+        let (Some(max), Some(skew)) = (max_lifetime_seconds, clock_skew_seconds) else {
+            return Err(format!(
+                "{service}: Forwarded-principal maxLifetimeSeconds and clockSkewSeconds are required configuration and have no default."
+            ));
+        };
+        if max <= 0 || skew <= 0 {
+            return Err(format!(
+                "{service}: Forwarded-principal maxLifetimeSeconds and clockSkewSeconds must be positive integers (seconds)."
+            ));
+        }
+        Ok(EdgeKey {
+            public_key: key,
+            limits: Limits {
+                max_lifetime_seconds: max,
+                clock_skew_seconds: skew,
+            },
+        })
+    }
+}
+
+/// `ed25519Matches`: 86 base64url characters after the prefix, verified over `intafaced-principal-v2\n<raw>\nregion=<r>`.
+fn ed25519_matches(raw: &str, signature: &str, key: &[u8; 32], region: &str) -> bool {
+    use base64::Engine as _;
+    let Some(body) = signature.strip_prefix("ed25519:") else {
+        return false;
+    };
+    if body.len() != 86
+        || !body
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return false;
+    }
+    let Ok(sig) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(body) else {
+        return false;
+    };
+    let Ok(sig) = ed25519_dalek::Signature::from_slice(&sig) else {
+        return false;
+    };
+    let Ok(vk) = ed25519_dalek::VerifyingKey::from_bytes(key) else {
+        return false;
+    };
+    vk.verify_strict(
+        format!("intafaced-principal-v2\n{raw}\nregion={region}").as_bytes(),
+        &sig,
+    )
+    .is_ok()
 }
 
 /// `verifyForwardedPrincipal` with an HMAC secret: the principal, or none (the caller is then anonymous).
@@ -197,14 +287,52 @@ pub fn verify(
     now: Instant,
     region: &str,
 ) -> Option<Principal> {
+    verify_with(raw, signature, secret, None, now, region)
+}
+
+/// `verifyForwardedPrincipal` with the shared secret and, when set, the edge's public key.
+pub fn verify_with(
+    raw: Option<&str>,
+    signature: Option<&str>,
+    secret: &str,
+    edge_key: Option<&EdgeKey>,
+    now: Instant,
+    region: &str,
+) -> Option<Principal> {
     let raw = raw.filter(|r| !r.is_empty())?;
     let signature = signature.filter(|s| !s.is_empty())?;
-    if signature.starts_with("ed25519:") || !signature_matches(raw, signature, secret, region) {
+    let asymmetric = signature.starts_with("ed25519:");
+    if asymmetric {
+        let key = edge_key?;
+        if !ed25519_matches(raw, signature, &key.public_key, region) {
+            return None;
+        }
+    } else if !signature_matches(raw, signature, secret, region) {
         return None;
     }
     let parsed = json::parse(raw).ok()?;
-    let (principal, expires_at) = parse_principal(&parsed)?;
-    (expires_at > now).then_some(principal)
+    let (principal, expires_at, iat) = parse_principal(&parsed)?;
+    if expires_at <= now {
+        return None;
+    }
+    if let (true, Some(key)) = (asymmetric, edge_key) {
+        // Short-lived by construction: iat is required, not in the future past the skew, and the expiry at most the
+        // configured lifetime after it.
+        let iat_ms = iat?.checked_mul(1000)?;
+        if iat_ms
+            > now
+                .0
+                .saturating_add(key.limits.clock_skew_seconds.saturating_mul(1000))
+        {
+            return None;
+        }
+        if expires_at.0.saturating_sub(iat_ms)
+            > key.limits.max_lifetime_seconds.saturating_mul(1000)
+        {
+            return None;
+        }
+    }
+    Some(principal)
 }
 
 #[cfg(test)]

@@ -153,8 +153,7 @@ pub fn cmp_products(a: Amount, b: Amount, c: Amount, d: Amount) -> Ordering {
 pub fn parse_amount(input: &str) -> Result<Amount, String> {
     let malformed =
         || format!("Malformed amount \"{input}\" — expected an optionally signed decimal string");
-    // `String#trim` takes the ASCII and Unicode white space; Rust's `trim` takes the same set for what reaches here.
-    let t = input.trim();
+    let t = js_trim(input);
     let (negative, body) = match t.strip_prefix('-') {
         Some(rest) => (true, rest),
         None => (false, t),
@@ -195,6 +194,26 @@ pub fn parse_amount(input: &str) -> Result<Amount, String> {
         return Err(too_big());
     }
     Ok(if negative { -value } else { value })
+}
+
+/// `String.prototype.trim`'s whitespace: ECMAScript WhiteSpace and LineTerminator.
+pub fn is_js_whitespace(c: char) -> bool {
+    matches!(
+        c,
+        '\u{9}' | '\u{a}' | '\u{b}' | '\u{c}' | '\u{d}' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
+}
+
+/// `String.prototype.trim`.
+pub fn js_trim(s: &str) -> &str {
+    s.trim_matches(is_js_whitespace)
 }
 
 #[cfg(test)]
