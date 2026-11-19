@@ -209,7 +209,13 @@ function main() {
   /** Reversal files actually OPENED — the number the old success line implied and never had. */
   let downsRead = 0;
 
-  for (const { service, dir: drizzleDir, onMain } of migrationDirs()) {
+  const dirs = migrationDirs();
+  // Nothing to read is not clean: a services/ or crates/ that stopped resolving would look the same (empty-denominator law).
+  if (dirs.length === 0) {
+    console.error('MIGRATION CHECK FAILED: found no migration folder under services/<svc>/drizzle or crates/<svc>/migrations');
+    process.exit(1);
+  }
+  for (const { service, dir: drizzleDir, onMain } of dirs) {
     servicesChecked++;
 
     const files = readdirSync(drizzleDir).filter((f) => f.endsWith('.sql'));
