@@ -345,28 +345,26 @@ function differences(answers: Record<string, string>): string[] {
     .map(([key, answer]) => `${key}: ${was[key]?.slice(0, 200)} != ${answer.slice(0, 200)}`);
 }
 
-beforeAll(() => {
+/** `WIRE_REPLAY_WRITE=1` writes the recording from the router in this checkout before the replay reads it. */
+async function writeRecording(): Promise<void> {
+  const calls = makeCalls();
+  const answers = await replayCalls(calls);
+  Object.assign(answers, await replayRefusals(REFUSALS, throughOf(calls, answers)));
+  writeFileSync(GOLDEN, `${JSON.stringify(pack({ callers: callersNow(), calls, answers }), null, 2)}\n`);
+  // The repo's format check covers JSON: the written file leaves in the shape it checks.
+  execFileSync(fileURLToPath(new URL('../../../node_modules/.bin/prettier', import.meta.url)), ['--write', fileURLToPath(GOLDEN)]);
+  recordedCache = undefined;
+}
+
+beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['Date'], now: NOW });
-});
+  if (process.env.WIRE_REPLAY_WRITE === '1') await writeRecording();
+}, 600_000);
 afterAll(() => {
   vi.useRealTimers();
 });
 
 describe('the wire replay: svc-academy answers as main did before its calls were mounted from records', () => {
-  it.runIf(process.env.WIRE_REPLAY_WRITE === '1')(
-    'writes the recording from the router in this checkout',
-    async () => {
-      const calls = makeCalls();
-      const answers = await replayCalls(calls);
-      Object.assign(answers, await replayRefusals(REFUSALS, throughOf(calls, answers)));
-      writeFileSync(GOLDEN, `${JSON.stringify(pack({ callers: callersNow(), calls, answers }), null, 2)}\n`);
-      // The repo's format check covers JSON: the written file leaves in the shape it checks.
-      execFileSync(fileURLToPath(new URL('../../../node_modules/.bin/prettier', import.meta.url)), ['--write', fileURLToPath(GOLDEN)]);
-      recordedCache = undefined;
-    },
-    600_000,
-  );
-
   it('serves the recorded calls, each from the same kind of caller rule', () => {
     expect(Object.keys(recorded().answers)).toHaveLength(7_588);
     expect(callersNow()).toEqual(recorded().callers);
