@@ -215,7 +215,10 @@ test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger pri
   await box.getByLabel('Start when the price reaches').fill(trigger);
 
   await page.getByRole('button', { name: 'Review schedule' }).click();
-  const sizes = await page.getByRole('alertdialog').getByRole('list', { name: 'Slice sizes' }).getByRole('listitem').allInnerTexts();
+  // The dialog reads the sizes from the service after it opens ("Reading the slice sizes…"), so wait for the list.
+  const slices = page.getByRole('alertdialog').getByRole('list', { name: 'Slice sizes' }).getByRole('listitem');
+  await expect(slices).toHaveCount(10);
+  const sizes = await slices.allInnerTexts();
   expect(sizes.length).toBe(10);
   const sum = sizes.reduce((acc, s) => acc + toUnits(s.replace(/[^\d.]/g, '')), 0n);
   expect(sum).toBe(toUnits('0.003'));
