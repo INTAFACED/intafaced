@@ -597,9 +597,13 @@ jobs:
     needs: [touch]
     if: ${{ !cancelled() && needs.touch.result == 'success' && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20 # healthy run: about 3 minutes
+    timeout-minutes: 30 # healthy run: about 3 minutes, and about 5 more when it seeds the stack
     permissions:
       contents: read
+    outputs:
+      # 'true' when this job kept a seeded stack in the Actions cache (real-app-journeys-seed-<sha>), empty when it kept
+      # none: each shard then seeds its own.
+      seeded: ${{ steps.seed-save.outcome == 'success' && 'true' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -653,6 +657,104 @@ jobs:
           path: ${{ runner.temp }}/stack-build
           retention-days: 1
           if-no-files-found: error
+
+      # Seed once (project-state#3330): the TEST gates, the market maker's two TEST accounts and the TEST chart history
+      # are written here, on one stack, and every shard starts from a copy of it instead of writing them again. Each
+      # shard spent about 1 minute on the gates and 2.3 more on the history (run 44622933722: 225 of its 1,318 shard
+      # runner-minutes), the same work 90 times. The founder console's build goes with it (about 37 s a shard).
+      # Best effort: every step below goes on when it fails, so the build above still serves the shards, and a shard
+      # that gets no seeded stack (no key, a cache miss, a copy it cannot take) seeds its own exactly as before.
+      # The copy holds the stack's TEST passwords and keys and the console's build keys, so it goes in the Actions cache,
+      # which only this repository's workflows read, never in an artifact, which anyone can download here; the
+      # `Drop the seeded stack` job deletes it when the shards are done. A run with fewer than 4 shards seeds in its
+      # shards, where seeding once would add to its time and save nothing.
+      - name: Seed once for the shards?
+        id: seed-want
+        env:
+          COUNT: ${{ needs.touch.outputs.count }}
+        run: |
+          if [ "${COUNT:-8}" -ge 4 ]; then echo "want=true" >> "$GITHUB_OUTPUT"; else echo "$COUNT shards: each seeds its own stack"; fi
+      - name: Get a nats-server binary
+        if: steps.seed-want.outputs.want == 'true'
+        continue-on-error: true
+        uses: ./.github/actions/nats-server
+        with:
+          path: ${{ runner.temp }}/nats-server
+      # The same TEST chain launcher as the shards' (see there).
+      - name: Get an anvil launcher
+        if: steps.seed-want.outputs.want == 'true'
+        continue-on-error: true
+        run: |
+          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+          cat > "$RUNNER_TEMP/anvil" <<'EOF'
+          #!/bin/sh
+          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+          EOF
+          chmod +x "$RUNNER_TEMP/anvil"
+      # The same steps as a shard's `Start the local test stack` and `Open the TEST markets` on a shard that writes the
+      # history (`--markets journeys`), and the market maker stopped at the end, so the copy holds no resting order.
+      - name: Seed the stack (TEST funds only)
+        id: seed
+        if: steps.seed-want.outputs.want == 'true'
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+          INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+        run: |
+          export LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" LOCAL_STACK_NATS_BIN="$RUNNER_TEMP/nats-server" LOCAL_STACK_ANVIL_BIN="$RUNNER_TEMP/anvil"
+          if [ -z "$INTAFACED_SANCTIONS_REGIONS" ] || [ -z "$INTAFACED_SANCTIONS_LIST_SOURCE" ]; then
+            echo "::warning::no screening placeholder, so no seeded stack: each shard says why"
+            exit 1
+          fi
+          node tooling/scripts/local-test-stack.mjs start
+          node tooling/scripts/local-test-stack.mjs restart matching
+          node tooling/scripts/local-test-gates.mjs apply
+          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
+            node tooling/scripts/local-test-market.mjs
+            node tooling/scripts/local-test-gates.mjs verify
+          else
+            node tooling/scripts/local-test-market.mjs
+            for _ in $(seq 1 30); do
+              grep -Eq 'taker (created|existing) \(test_taker\)' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && break
+              sleep 2
+            done
+            node tooling/scripts/local-test-market.mjs stop
+            node tooling/scripts/local-test-gates.mjs verify
+            node tooling/scripts/local-test-market.mjs history --markets journeys
+          fi
+          node tooling/scripts/local-test-market.mjs stop || true
+          node tooling/scripts/local-test-stack.mjs stop
+      # The stopped stack's state folder (its database, NATS store, TEST secrets, founders and stamp) and the console's
+      # build. Not the logs, the process records (another runner's PIDs) or the JDK archives (the shards' own cache).
+      - name: Pack the seeded stack
+        id: seed-pack
+        if: steps.seed.outcome == 'success'
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/stack-seed"
+          tar -C "$RUNNER_TEMP/stack-state" -cf "$RUNNER_TEMP/stack-seed/state.tar" \
+            --exclude=./logs --exclude=./tmp --exclude=./java-tools --exclude=./run/processes.json --exclude=./csp-violations.jsonl .
+          tar -cf "$RUNNER_TEMP/stack-seed/admin.tar" --exclude=apps/admin/.next/cache apps/admin/.next
+          du -sh "$RUNNER_TEMP/stack-seed"
+      # Keyed on the run's commit, in the run's own ref's cache scope. A copy already there under the key (a run again
+      # on the same commit before `Drop the seeded stack` ran) fails this step, and the shards seed their own.
+      - name: Keep the seeded stack for the shards
+        id: seed-save
+        if: steps.seed-pack.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/stack-seed
+          key: real-app-journeys-seed-${{ github.sha }}
+      - name: Stack logs when seeding failed
+        if: steps.seed.outcome == 'failure'
+        run: |
+          for f in "$RUNNER_TEMP"/stack-state/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; tail -100 "$f" || true; echo "::endgroup::"
+          done
+          LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs stop || true
 
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
@@ -782,6 +884,7 @@ jobs:
           name: real-app-journeys-build
           path: ${{ runner.temp }}/stack-build
       - name: Take the run's build
+        id: build-take
         if: steps.build-download.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 5
@@ -800,6 +903,38 @@ jobs:
             ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
             ${{ runner.temp }}/stack-state/java-tools/maven.tgz
           key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
+
+      # The stack the build job seeded (its `Seed once` steps): the TEST gates, the market maker's accounts and the chart
+      # history already written, and the console already built. Only on top of the run's build, whose stamp it extends.
+      # Best effort, like the build: a miss or a copy that does not unpack leaves the state folder as it was, and the
+      # shard seeds its own stack in `Open the TEST markets` below.
+      - name: Download the seeded stack
+        id: seed-download
+        if: steps.build-take.outcome == 'success' && needs.build.outputs.seeded == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/stack-seed
+          key: real-app-journeys-seed-${{ github.sha }}
+      - name: Take the seeded stack
+        id: seed-take
+        if: steps.seed-download.outputs.cache-hit == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          rm -rf "$RUNNER_TEMP/seed-state"
+          mkdir -p "$RUNNER_TEMP/seed-state"
+          tar -C "$RUNNER_TEMP/seed-state" -xf "$RUNNER_TEMP/stack-seed/state.tar"
+          tar -tf "$RUNNER_TEMP/stack-seed/admin.tar" > /dev/null
+          [ -d "$RUNNER_TEMP/seed-state/data/postgres" ] && [ -f "$RUNNER_TEMP/seed-state/build-stamp.json" ]
+          # Only now, with both copies read whole, into place: the seeded state folder, then the console's build.
+          mkdir -p "$LOCAL_STACK_STATE"
+          cp -a "$RUNNER_TEMP/seed-state/." "$LOCAL_STACK_STATE/"
+          chmod 700 "$LOCAL_STACK_STATE"
+          tar -xf "$RUNNER_TEMP/stack-seed/admin.tar"
+          rm -rf "$RUNNER_TEMP/seed-state" "$RUNNER_TEMP/stack-seed"
+          echo "seeded stack from the build job: $(du -sh "$LOCAL_STACK_STATE" | cut -f1)"
 
       - name: Start the local test stack (TEST funds only)
         run: |
@@ -826,7 +961,10 @@ jobs:
       # request's) as a targeted run's: 43 of a full plan's 90 shards read none (project-state#3329: full runs held all
       # 500 hosted runners). Any doubt writes it, and a run without a plan always does. A journey that reads the past
       # without it sees an empty chart and fails; it never passes on one.
+      # A shard on the build job's seeded stack skips it: the gates, the accounts and the history are already there,
+      # and `Start the TEST market maker` below starts the maker alone.
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
+        if: steps.seed-take.outcome != 'success'
         env:
           SHARDS: ${{ needs.touch.outputs.shards }}
           SHARD: ${{ matrix.shard }}
@@ -861,6 +999,17 @@ jobs:
       # published the limits they need (docs/LOCAL-TEST-STACK.md, "Local test content"). Production stays blank.
       - name: Load the TEST content
         run: LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
+
+      # On the seeded stack the market maker was stopped before the copy, so it starts here, as the last line of
+      # `Open the TEST markets` does on a stack the shard seeds itself.
+      - name: Start the TEST market maker (seeded stack)
+        if: steps.seed-take.outcome == 'success'
+        run: |
+          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
+            echo "custody off: no TEST market maker on our own order book"
+            exit 0
+          fi
+          node tooling/scripts/local-test-market.mjs
 
       - name: Wait for the first BTC/USDT trade
         run: |
@@ -1120,6 +1269,26 @@ jobs:
           name: real-app-journeys-pass-history
           path: ${{ runner.temp }}/journeys/pass-history.json
           if-no-files-found: ignore
+
+  # The build job's seeded stack (its `Seed once` steps) holds TEST passwords and keys and is needed only by this
+  # attempt's shards: deleted once they are done, so it neither waits out the cache's 7 days nor pushes the pnpm and
+  # browser caches out. A shard re-run after this finds no copy and seeds its own stack. A failed delete leaves it to
+  # the cache's own expiry, and fails nothing.
+  seed-drop:
+    name: Drop the seeded stack
+    needs: [build, journeys]
+    if: ${{ always() && needs.build.outputs.seeded == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      actions: write # delete this run's own cache entry
+    steps:
+      - name: Delete the cache entry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          name="real-app-journeys-seed-$GITHUB_SHA"
+          gh cache delete "$name" --repo "$GITHUB_REPOSITORY" || echo "::warning::could not delete cache $name; it expires on its own"
 
   # A journeys run on a branch ends here, dispatched or on a pull request in this repository (never main's or a schedule's).
   # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI
