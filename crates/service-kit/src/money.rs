@@ -1,4 +1,6 @@
 //! The ledger client's money arithmetic (`packages/ledger-client/src/money.ts`) on `Amount` (18 places in an i128).
+//! Read-side only: a service formats, parses and divides amounts here; it never posts (money moves only through the
+//! ledger client's recipes).
 //!
 //! JavaScript's bigint has no width, so a product of two amounts (a price times a quantity, a cost times a share) is exact
 //! there before it is divided back down. Here every such product is formed in 256 bits and divided there, so the quotient
@@ -7,12 +9,25 @@
 
 use std::cmp::Ordering;
 
-use crate::tax::Amount;
+/// Money is a scaled integer: 18 decimal places (`packages/ledger-client/src/money.ts`).
+pub type Amount = i128;
 
 const DECIMALS: usize = 18;
 const SCALE: u128 = 1_000_000_000_000_000_000;
 /// `MAX_AMOUNT`: `10n ** 38n - 1n`, what `numeric(38,18)` holds.
 pub const MAX_AMOUNT: Amount = 99_999_999_999_999_999_999_999_999_999_999_999_999;
+
+/// `formatAmount`: the shortest decimal string, no trailing zeros.
+pub fn format_amount(value: Amount) -> String {
+    let sign = if value < 0 { "-" } else { "" };
+    let abs = value.unsigned_abs();
+    let (whole, frac) = (abs / SCALE, abs % SCALE);
+    if frac == 0 {
+        return format!("{sign}{whole}");
+    }
+    let digits = format!("{frac:0DECIMALS$}");
+    format!("{sign}{whole}.{}", digits.trim_end_matches('0'))
+}
 
 /// How a division that does not come out even is rounded (`Rounding`). `Trunc` is bigint `/`: toward zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,6 +252,14 @@ mod tests {
             share(123_456 * ONE, 7 * ONE, 3 * ONE),
             (123_456 * ONE) * 3 / 7
         );
+    }
+
+    #[test]
+    fn formats_amounts_as_the_ledger_client_does() {
+        assert_eq!(format_amount(0), "0");
+        assert_eq!(format_amount(1_500_000_000_000_000_000), "1.5");
+        assert_eq!(format_amount(-1), "-0.000000000000000001");
+        assert_eq!(format_amount(-2 * SCALE_AMOUNT), "-2");
     }
 
     #[test]

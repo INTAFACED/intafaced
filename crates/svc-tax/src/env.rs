@@ -1,11 +1,12 @@
 //! svc-tax's environment (`env.ts`): `baseEnvSchema`, `otelEnvSchema`, `httpEnvSchema`,
-//! `edgeEnvSchema`, `internalServiceEnvSchema` and `s2sEnvSchema` from `@intafaced/config`, merged with svc-tax's own
-//! fields, loaded by `loadEnv` (which first refuses development material in production posture). Same defaults, same
-//! blank-as-absent fields, same refusals; every problem is listed at once.
+//! `edgeEnvSchema`, `internalServiceEnvSchema` and `s2sEnvSchema` from `@intafaced/config` (the kit's slices,
+//! `service_kit::env`), merged with svc-tax's own fields, loaded by `loadEnv` (which first refuses development material
+//! in production posture). Same defaults, same blank-as-absent fields, same refusals; every problem is listed at once.
 
 use std::collections::BTreeMap;
 
-use crate::money::js_trim;
+pub use service_kit::env::{EnvError, js_number};
+use service_kit::env::{Fields, ServiceName, coerce_int, one_of, url_field};
 
 pub const TAX_DATABASE_POOL_MAX_UNSET: &str = "tax.database_pool_max_unset";
 
@@ -45,361 +46,78 @@ pub struct TaxEnv {
     pub raw: BTreeMap<String, String>,
 }
 
-/// `EnvError` / `ProductionPostureError`: refused at boot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnvError {
-    pub message: String,
-    pub issues: Vec<String>,
-}
-
-/// `Number(text)` as JavaScript reads a string: `None` is `NaN`.
-pub fn js_number(text: &str) -> Option<f64> {
-    let t = js_trim(text);
-    if t.is_empty() {
-        return Some(0.0);
-    }
-    let radix = |p: &str, r: u32| {
-        t.get(2..)
-            .filter(|_| t.len() > 2 && t.get(..2).is_some_and(|x| x.eq_ignore_ascii_case(p)))
-            .map(|digits| {
-                digits.chars().try_fold(0.0_f64, |acc, c| {
-                    #[expect(
-                        clippy::float_arithmetic,
-                        reason = "Number('0x..') is a float in JavaScript too"
-                    )]
-                    c.to_digit(r).map(|d| acc * f64::from(r) + f64::from(d))
-                })
-            })
-    };
-    for (p, r) in [("0x", 16), ("0o", 8), ("0b", 2)] {
-        if let Some(v) = radix(p, r) {
-            return v;
-        }
-    }
-    let body = t.strip_prefix(['+', '-']).unwrap_or(t);
-    if body == "Infinity" {
-        return Some(if t.starts_with('-') {
-            f64::NEG_INFINITY
-        } else {
-            f64::INFINITY
-        });
-    }
-    // StrDecimalLiteral: digits with an optional point and fraction (one side may be empty, not both), optional exponent.
-    let (mantissa, exponent) = match body.find(['e', 'E']) {
-        Some(i) => (body.get(..i)?, Some(body.get(i + 1..)?)),
-        None => (body, None),
-    };
-    let (whole, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-    let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
-    if !digits(whole) || !digits(frac) || (whole.is_empty() && frac.is_empty()) {
-        return None;
-    }
-    if let Some(e) = exponent {
-        let e = e.strip_prefix(['+', '-']).unwrap_or(e);
-        if e.is_empty() || !digits(e) {
-            return None;
-        }
-    }
-    t.parse::<f64>().ok()
-}
-
-/// One field's verdict.
-type Check<T> = Result<T, String>;
-
-const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
-
-/// `z.coerce.number().int()` with optional bounds; the zod 4 messages.
-fn coerce_int(raw: &str, min: Option<(i64, bool)>, max: Option<i64>) -> Check<i64> {
-    let n = js_number(raw).ok_or("Invalid input: expected number, received NaN")?;
-    if !n.is_finite() || n.fract() != 0.0 || n.abs() > MAX_SAFE {
-        return Err("Invalid input: expected int, received number".to_owned());
-    }
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "a safe integer, checked above"
-    )]
-    let v = n as i64;
-    if let Some((lo, exclusive)) = min {
-        if exclusive && v <= lo {
-            return Err(format!("Too small: expected number to be >{lo}"));
-        }
-        if !exclusive && v < lo {
-            return Err(format!("Too small: expected number to be >={lo}"));
-        }
-    }
-    if let Some(hi) = max.filter(|hi| v > *hi) {
-        return Err(format!("Too big: expected number to be <={hi}"));
-    }
-    Ok(v)
-}
-
-fn one_of(raw: &str, options: &[&str]) -> Check<String> {
-    if options.contains(&raw) {
-        Ok(raw.to_owned())
-    } else {
-        Err(format!(
-            "Invalid option: expected one of {}",
-            options
-                .iter()
-                .map(|o| format!("\"{o}\""))
-                .collect::<Vec<_>>()
-                .join("|")
-        ))
-    }
-}
-
-fn min_len(raw: &str, min: usize) -> Check<String> {
-    if crate::s2s::js_length(raw) < min {
-        Err(format!(
-            "Too small: expected string to have >={min} characters"
-        ))
-    } else {
-        Ok(raw.to_owned())
-    }
-}
-
-fn is_url(raw: &str) -> bool {
-    url::Url::parse(raw).is_ok()
-}
-
-fn url_field(raw: &str) -> Check<String> {
-    if is_url(raw) {
-        Ok(raw.to_owned())
-    } else {
-        Err("Invalid URL".to_owned())
-    }
-}
-
-const REQUIRED_STRING: &str = "Invalid input: expected string, received undefined";
-
-/// `bool`: a string is true when it is 1, true, yes or on (any case).
-fn truthy(raw: &str) -> bool {
-    ["1", "true", "yes", "on"].contains(&raw.to_lowercase().as_str())
-}
-
 /// `loadEnv(schema, source)`.
 pub fn load(source: &BTreeMap<String, String>) -> Result<TaxEnv, EnvError> {
     crate::posture::assert_production_posture(source)?;
-    let mut issues: Vec<String> = Vec::new();
-    let get = |k: &str| source.get(k).map(String::as_str);
-    fn blank(v: Option<&str>) -> Option<&str> {
-        v.filter(|s| !js_trim(s).is_empty())
-    }
-
-    macro_rules! field {
-        ($name:literal, $value:expr, $default:expr) => {
-            match $value {
-                Ok(v) => v,
-                Err(m) => {
-                    issues.push(format!("{}: {m}", $name));
-                    $default
-                }
-            }
-        };
-    }
-
-    let node_env = field!(
-        "NODE_ENV",
-        get("NODE_ENV").map_or(Ok("development".to_owned()), |v| one_of(
-            v,
-            &["development", "test", "production"]
-        )),
-        String::new()
-    );
-    let app_env = field!(
-        "APP_ENV",
-        get("APP_ENV").map_or(Ok("dev".to_owned()), |v| one_of(
-            v,
-            &["dev", "test", "staging", "prod"]
-        )),
-        String::new()
-    );
-    let log_level = field!(
-        "LOG_LEVEL",
-        get("LOG_LEVEL").map_or(Ok("info".to_owned()), |v| one_of(
-            v,
-            &["fatal", "error", "warn", "info", "debug", "trace"]
-        )),
-        String::new()
-    );
-    // svc-tax's own field replaces the base one in its place: any string, default svc-tax.
-    let service_name = get("SERVICE_NAME").unwrap_or("svc-tax").to_owned();
-    let launch_drop = field!(
-        "LAUNCH_DROP",
-        get("LAUNCH_DROP").map_or(Ok("0".to_owned()), |v| one_of(
-            v,
-            &["0", "I", "II", "III", "IV", "V"]
-        )),
-        String::new()
-    );
-    let otel_endpoint = field!(
-        "OTEL_EXPORTER_OTLP_ENDPOINT",
-        get("OTEL_EXPORTER_OTLP_ENDPOINT")
-            .map_or(Ok("http://localhost:4318".to_owned()), url_field),
-        String::new()
-    );
-    let otel_enabled = get("OTEL_ENABLED").is_none_or(truthy);
-    let http_host = get("HTTP_HOST").unwrap_or("0.0.0.0").to_owned();
-    let http_port = field!(
-        "HTTP_PORT",
-        get("HTTP_PORT").map_or(Ok(4020), |v| coerce_int(v, Some((0, true)), None)),
-        0
-    );
-    let edge_secret = field!(
-        "EDGE_PRINCIPAL_SECRET",
-        get("EDGE_PRINCIPAL_SECRET").map_or(Err(REQUIRED_STRING.to_owned()), |v| min_len(v, 32)),
-        String::new()
-    );
-    let edge_public_key = field!(
-        "EDGE_PRINCIPAL_PUBLIC_KEY",
-        get("EDGE_PRINCIPAL_PUBLIC_KEY")
-            .map(|v| {
-                let ok = v.len() == 43
-                    && v.bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-                if ok {
-                    Ok(v.to_owned())
-                } else {
-                    Err("must be a raw 32-byte Ed25519 public key, base64url".to_owned())
-                }
-            })
-            .transpose(),
-        None
-    );
-    let edge_max_lifetime_seconds = field!(
-        "EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS",
-        get("EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS")
-            .map(|v| coerce_int(v, Some((1, false)), Some(300)))
-            .transpose(),
-        None
-    );
-    let edge_clock_skew_seconds = field!(
-        "EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS",
-        get("EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS")
-            .map(|v| coerce_int(v, Some((1, false)), Some(60)))
-            .transpose(),
-        None
-    );
-    let internal_secret = field!(
-        "INTERNAL_SERVICE_SECRET",
-        get("INTERNAL_SERVICE_SECRET").map_or(Err(REQUIRED_STRING.to_owned()), |v| min_len(v, 32)),
-        String::new()
-    );
-    let internal_body_bind = field!(
-        "INTERNAL_SERVICE_BODY_BIND",
-        get("INTERNAL_SERVICE_BODY_BIND").map_or(Ok("accept-both".to_owned()), |v| one_of(
-            v,
-            &["accept-both", "require"]
-        )),
-        String::new()
-    );
-    let s2s_mode = field!(
-        "S2S_AUTH_MODE",
-        get("S2S_AUTH_MODE").map_or(Ok("off".to_owned()), |v| one_of(
-            v,
-            &["off", "dual", "keypair"]
-        )),
-        String::new()
-    );
-    let s2s_keyring = field!(
-        "S2S_KEYRING",
-        get("S2S_KEYRING").map(|v| min_len(v, 2)).transpose(),
-        None
-    );
-    let s2s_signing_kid = field!(
-        "S2S_SIGNING_KID",
-        get("S2S_SIGNING_KID")
-            .map(|v| {
-                let n = crate::s2s::js_length(v);
-                if n < 3 {
-                    Err("Too small: expected string to have >=3 characters".to_owned())
-                } else if n > 64 {
-                    Err("Too big: expected string to have <=64 characters".to_owned())
-                } else {
-                    Ok(v.to_owned())
-                }
-            })
-            .transpose(),
-        None
-    );
-    let s2s_signing_key = field!(
-        "S2S_SIGNING_KEY",
-        get("S2S_SIGNING_KEY").map(|v| min_len(v, 40)).transpose(),
-        None
-    );
-    let ledger_url = field!(
-        "LEDGER_URL",
-        get("LEDGER_URL").map_or(Ok("http://localhost:4001".to_owned()), url_field),
-        String::new()
-    );
-    let tax_jurisdiction_map_json = get("TAX_JURISDICTION_MAP_JSON").unwrap_or("").to_owned();
-    let tax_history_years = field!(
-        "TAX_HISTORY_YEARS",
-        blank(get("TAX_HISTORY_YEARS"))
-            .map(|v| coerce_int(v, Some((1, false)), Some(100)))
-            .transpose(),
-        None
-    );
-    let optional_url = |k: &str| blank(get(k)).map(url_field).transpose();
-    let data_lake_url = field!(
-        "CONNECT_DATA_LAKE_TSDB_URL",
-        optional_url("CONNECT_DATA_LAKE_TSDB_URL"),
-        None
-    );
-    let indexer_url = field!("INDEXER_URL", optional_url("INDEXER_URL"), None);
-    let trade_url = field!("TRADE_URL", optional_url("TRADE_URL"), None);
-    let bank_url = field!("BANK_URL", optional_url("BANK_URL"), None);
-    let tax_deposit_basis = field!(
-        "TAX_DEPOSIT_BASIS",
-        blank(get("TAX_DEPOSIT_BASIS"))
-            .map(|v| one_of(v, &["market", "customer"]))
-            .transpose(),
-        None
-    );
-    let database_url = field!("DATABASE_URL", optional_url("DATABASE_URL"), None);
+    let mut f = Fields::new(source);
+    // svc-tax's own SERVICE_NAME replaces the base one in its place: any string, default svc-tax.
+    let base = service_kit::env::base(&mut f, ServiceName::Own("svc-tax"));
+    let otel = service_kit::env::otel(&mut f);
+    let http = service_kit::env::http(&mut f, 4020);
+    let edge = service_kit::env::edge(&mut f);
+    let internal = service_kit::env::internal_service(&mut f);
+    let s2s = service_kit::env::s2s(&mut f);
+    let v = f
+        .get("LEDGER_URL")
+        .map_or(Ok("http://localhost:4001".to_owned()), url_field);
+    let ledger_url = f.field("LEDGER_URL", v, String::new());
+    let tax_jurisdiction_map_json = f.get("TAX_JURISDICTION_MAP_JSON").unwrap_or("").to_owned();
+    let v = f
+        .blank("TAX_HISTORY_YEARS")
+        .map(|v| coerce_int(v, Some((1, false)), Some(100)))
+        .transpose();
+    let tax_history_years = f.field("TAX_HISTORY_YEARS", v, None);
+    let mut optional_url = |k: &str| {
+        let v = f.blank(k).map(url_field).transpose();
+        f.field(k, v, None)
+    };
+    let data_lake_url = optional_url("CONNECT_DATA_LAKE_TSDB_URL");
+    let indexer_url = optional_url("INDEXER_URL");
+    let trade_url = optional_url("TRADE_URL");
+    let bank_url = optional_url("BANK_URL");
+    let v = f
+        .blank("TAX_DEPOSIT_BASIS")
+        .map(|v| one_of(v, &["market", "customer"]))
+        .transpose();
+    let tax_deposit_basis = f.field("TAX_DEPOSIT_BASIS", v, None);
+    let v = f.blank("DATABASE_URL").map(url_field).transpose();
+    let database_url = f.field("DATABASE_URL", v, None);
 
     // The superRefine runs once every field parsed: a set DATABASE_URL needs the shared schema's DATABASE_POOL_MAX.
     let mut database_pool_max = None;
-    if issues.is_empty() && database_url.is_some() {
-        match blank(get("DATABASE_POOL_MAX")) {
-            None => issues.push(format!("DATABASE_POOL_MAX: {TAX_DATABASE_POOL_MAX_UNSET}")),
+    if f.issues.is_empty() && database_url.is_some() {
+        match f.blank("DATABASE_POOL_MAX") {
+            None => f
+                .issues
+                .push(format!("DATABASE_POOL_MAX: {TAX_DATABASE_POOL_MAX_UNSET}")),
             Some(v) => match coerce_int(v, Some((1, false)), Some(200)) {
                 Ok(n) => database_pool_max = Some(n),
-                Err(m) => issues.push(format!("DATABASE_POOL_MAX: {m}")),
+                Err(m) => f.issues.push(format!("DATABASE_POOL_MAX: {m}")),
             },
         }
     }
 
-    if !issues.is_empty() {
-        return Err(EnvError {
-            message: format!(
-                "Invalid environment for {}:\n  - {}",
-                get("SERVICE_NAME").unwrap_or("process"),
-                issues.join("\n  - ")
-            ),
-            issues,
-        });
-    }
+    f.finish()?;
     Ok(TaxEnv {
-        node_env,
-        app_env,
-        log_level,
-        service_name,
-        launch_drop,
-        otel_endpoint,
-        otel_enabled,
-        http_host,
-        http_port,
-        edge_secret,
-        edge_public_key,
-        edge_max_lifetime_seconds,
-        edge_clock_skew_seconds,
-        internal_secret,
-        internal_body_bind,
-        s2s_mode,
-        s2s_keyring,
-        s2s_signing_kid,
-        s2s_signing_key,
+        node_env: base.node_env,
+        app_env: base.app_env,
+        log_level: base.log_level,
+        service_name: base.service_name,
+        launch_drop: base.launch_drop,
+        otel_endpoint: otel.endpoint,
+        otel_enabled: otel.enabled,
+        http_host: http.host,
+        http_port: http.port,
+        edge_secret: edge.secret,
+        edge_public_key: edge.public_key,
+        edge_max_lifetime_seconds: edge.max_lifetime_seconds,
+        edge_clock_skew_seconds: edge.clock_skew_seconds,
+        internal_secret: internal.secret,
+        internal_body_bind: internal.body_bind,
+        s2s_mode: s2s.mode,
+        s2s_keyring: s2s.keyring,
+        s2s_signing_kid: s2s.signing_kid,
+        s2s_signing_key: s2s.signing_key,
         ledger_url,
         tax_jurisdiction_map_json,
         tax_history_years,
@@ -521,20 +239,5 @@ mod tests {
             load(&env(&[("HTTP_PORT", "")])).is_err(),
             "Number('') is 0, not positive"
         );
-    }
-
-    #[test]
-    fn number_reads_strings_as_javascript_does() {
-        assert_eq!(js_number(" 12 "), Some(12.0));
-        assert_eq!(js_number(""), Some(0.0));
-        assert_eq!(js_number("1e3"), Some(1000.0));
-        assert_eq!(js_number(".5"), Some(0.5));
-        assert_eq!(js_number("5."), Some(5.0));
-        assert_eq!(js_number("0b101"), Some(5.0));
-        assert_eq!(js_number("-0x10"), None);
-        assert_eq!(js_number("inf"), None);
-        assert_eq!(js_number("NaN"), None);
-        assert_eq!(js_number("1_000"), None);
-        assert_eq!(js_number("-Infinity"), Some(f64::NEG_INFINITY));
     }
 }
