@@ -29,6 +29,7 @@ import {
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
 } from './tax-procedures.js';
+import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 import type { ProcedureRecord } from './procedure.js';
 
 /** Every call recorded in this package. `procedures.schema.json` is written from this list. */
@@ -59,4 +60,5 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   TAX_SET_INCLUDE_TRANSFERS,
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
+  WS_SBE_CONSUMERS,
 ];
