@@ -326,7 +326,7 @@ fn array_index(key: &str) -> Option<u32> {
 }
 
 /// JavaScript's own key order: array-index keys first, ascending, then every other key in the order it was added.
-fn js_key_order(fields: Vec<(String, Json)>) -> Vec<(String, Json)> {
+pub fn js_key_order(fields: Vec<(String, Json)>) -> Vec<(String, Json)> {
     let (mut indexed, rest): (Vec<_>, Vec<_>) = fields
         .into_iter()
         .partition(|(k, _)| array_index(k).is_some());
@@ -356,21 +356,63 @@ pub fn quote(out: &mut String, s: &str) {
     out.push('"');
 }
 
-/// A number as JavaScript prints it, for the numbers this service writes: integers, and ±Infinity as `null`.
+/// A number as JavaScript prints it in JSON: `Number.prototype.toString`, with ±Infinity and NaN as `null`.
 fn number(out: &mut String, n: f64) {
-    if !n.is_finite() {
-        out.push_str("null");
-    } else if n.fract() == 0.0 && n.abs() < 1e21 {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "an integral value below 1e21 fits an i128 exactly"
-        )]
-        let i = n as i128;
-        let _ = write!(out, "{i}");
+    if n.is_finite() {
+        out.push_str(&js_number_string(n));
     } else {
-        // Not reached by any answer this service gives; Rust's shortest round-trip form matches V8's for plain decimals.
-        let _ = write!(out, "{n}");
+        out.push_str("null");
     }
+}
+
+/// `Number.prototype.toString()` (`Number::toString(x)` in ECMAScript): the shortest digits that read back as the same
+/// number, written plainly from 1e-7 up to 1e21 and in exponent form (`1e+21`, `1.5e-7`) outside it.
+pub fn js_number_string(n: f64) -> String {
+    if n.is_nan() {
+        return "NaN".to_owned();
+    }
+    if n == 0.0 {
+        return "0".to_owned();
+    }
+    if n.is_infinite() {
+        return if n > 0.0 { "Infinity" } else { "-Infinity" }.to_owned();
+    }
+    let sign = if n < 0.0 { "-" } else { "" };
+    // Rust's `{:e}` is the shortest round-trip form: `d.ddde±x`.
+    let sci = format!("{:e}", n.abs());
+    let (mantissa, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let k = i64::try_from(digits.len()).unwrap_or(1);
+    // The value is 0.<digits> x 10^point.
+    let point = exp.parse::<i64>().unwrap_or(0) + 1;
+    let body = if k <= point && point <= 21 {
+        format!(
+            "{digits}{}",
+            "0".repeat(usize::try_from(point - k).unwrap_or(0))
+        )
+    } else if 0 < point && point <= 21 {
+        let (a, b) = digits.split_at(usize::try_from(point).unwrap_or(0));
+        format!("{a}.{b}")
+    } else if -6 < point && point <= 0 {
+        format!(
+            "0.{}{digits}",
+            "0".repeat(usize::try_from(-point).unwrap_or(0))
+        )
+    } else {
+        let e = point - 1;
+        let e = if e < 0 {
+            format!("-{}", -e)
+        } else {
+            format!("+{e}")
+        };
+        let (first, rest) = digits.split_at(1);
+        if rest.is_empty() {
+            format!("{first}e{e}")
+        } else {
+            format!("{first}.{rest}e{e}")
+        }
+    };
+    format!("{sign}{body}")
 }
 
 fn newline(out: &mut String, indent: Option<usize>, level: usize) {
@@ -467,5 +509,26 @@ mod tests {
             assert!(parse(bad).is_err(), "{bad:?} parsed");
         }
         assert_eq!(parse("1e400").unwrap(), Json::Number(f64::INFINITY));
+    }
+
+    #[test]
+    fn prints_numbers_as_javascript_does() {
+        for (n, text) in [
+            (0.0, "0"),
+            (-0.0, "0"),
+            (7.0, "7"),
+            (-1.5, "-1.5"),
+            (0.1, "0.1"),
+            (1e21, "1e+21"),
+            (1e20, "100000000000000000000"),
+            (1.5e-7, "1.5e-7"),
+            (0.000001, "0.000001"),
+            (9_007_199_254_740_991.0, "9007199254740991"),
+            (5_368_709_120.0, "5368709120"),
+            (123.456, "123.456"),
+            (2.5e300, "2.5e+300"),
+        ] {
+            assert_eq!(js_number_string(n), text, "{n}");
+        }
     }
 }

@@ -14,12 +14,17 @@ use crate::time::{self, Instant};
 /// `MIN_SECRET_LENGTH`: shorter is guessable offline.
 pub const MIN_SECRET_LENGTH: usize = 32;
 
-/// The verified caller, with the fields a service's guards read (svc-tax's today).
+/// The verified caller, with the fields a service's guards read: who, what they may do (`scopes`), their verification
+/// `tier`, whether the session passed two-factor (`mfa`), the API key it was minted for (`kid`), and the sub-account
+/// it acts for (`sub_account`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Principal {
     pub user_id: String,
     pub scopes: Vec<String>,
     pub tier: String,
+    pub mfa: bool,
+    pub kid: Option<String>,
+    pub sub_account: Option<String>,
 }
 
 /// `signPrincipalHeader`: HMAC-SHA256 over `<raw>\nregion=<region>`, lower-case hex.
@@ -193,6 +198,15 @@ fn parse_principal(v: &Json) -> Option<(Principal, Instant, Option<i64>)> {
             user_id: user_id.clone(),
             scopes: scopes.into_iter().map(str::to_owned).collect(),
             tier,
+            mfa: matches!(v.get("mfa"), Some(Json::Bool(true))),
+            kid: match v.get("kid") {
+                Some(Json::String(k)) => Some(k.clone()),
+                _ => None,
+            },
+            sub_account: match v.get("sub_account") {
+                Some(Json::String(k)) => Some(k.clone()),
+                _ => None,
+            },
         },
         expires_at,
         iat,

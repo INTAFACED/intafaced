@@ -1071,6 +1071,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "svc-academy"
+version = "0.0.0"
+dependencies = [
+ "postgres",
+ "service-kit",
+ "sha2 0.10.9",
+ "signal-hook",
+ "tiny_http",
+ "url",
+]
+
+[[package]]
 name = "svc-tax"
 version = "0.0.0"
 dependencies = [

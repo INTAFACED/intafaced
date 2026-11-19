@@ -13,16 +13,22 @@
 //! The tests that hold these bytes run in the services that use them (svc-tax: `tests/wire_replay.rs`,
 //! `tests/io_golden.rs`, `tests/service_parity.rs`, `tests/input_parity.rs`), beside each module's own tests here.
 
+pub mod access;
 pub mod edge;
 pub mod env;
 pub mod http;
 pub mod json;
+pub mod jsregex;
 pub mod migrate;
 pub mod money;
+pub mod nats;
 pub mod pg;
 pub mod posture;
 pub mod s2s;
+pub mod s2s_verify;
+pub mod schema;
 pub mod server;
 pub mod telemetry;
 pub mod time;
+pub mod trpc;
 pub mod zod;

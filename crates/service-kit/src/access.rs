@@ -1,11 +1,13 @@
-//! Who may call: the scope check (`packages/auth/src/guards.ts`) and the jurisdiction check
-//! (`packages/config/src/jurisdiction.ts` `checkAccess`, `screening.ts`) for svc-tax's one module, `tax`, on the fiat
-//! plane.
+//! Who may call: the scope check (`requireScope`, `requireMfa` in `packages/auth/src/guards.ts`, with the scope lists
+//! of `scopes.ts`) and the jurisdiction check (`packages/config/src/jurisdiction.ts` `checkAccess`, `screening.ts`) for a
+//! module the matrix keeps open everywhere with no verification tier (`tax`, `academy`), on the fiat plane.
 //!
 //! The TypeScript reads the process environment on each call; this reads the same variables once, when the service is
 //! put together, from the map it is given.
 
 use std::collections::BTreeMap;
+
+use crate::edge::Principal;
 
 /// A refusal from the guard, in the form tRPC sends it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,15 +18,87 @@ pub struct Refused {
     pub code: String,
 }
 
-/// `requireScope` for a tax scope. svc-tax's two scopes imply nothing and are in none of the key-forbidden, person-only
-/// or two-factor lists (`packages/auth/src/scopes.ts`), so holding the scope is the whole check.
-pub fn require_scope(scopes: &[String], scope: &str) -> Result<(), Refused> {
-    if scopes.iter().any(|s| s == scope) {
+/// What a scope grants beyond itself (`IMPLIED`).
+const IMPLIED: [(&str, &str); 2] = [
+    ("admin:treasury", "admin:read"),
+    ("admin:compliance", "admin:read"),
+];
+
+/// `INTERACTIVE_ONLY_SCOPES`: never exercised from an API key.
+const INTERACTIVE_ONLY_SCOPES: [&str; 11] = [
+    "trade:withdraw",
+    "admin:treasury",
+    "bank:card",
+    "pay:onboard",
+    "admin:read",
+    "admin:write",
+    "admin:compliance",
+    "support:ops",
+    "support:lookup",
+    "market:ops",
+    "campaigns:ops",
+];
+
+/// `PERSON_ONLY_SCOPES`: never from a key or a sub-account.
+const PERSON_ONLY_SCOPES: [&str; 1] = ["agents:execute"];
+
+/// `SESSION_MFA_SCOPES`: need a two-factor session.
+const SESSION_MFA_SCOPES: [&str; 4] = [
+    "trade:withdraw",
+    "admin:treasury",
+    "bank:card",
+    "pay:onboard",
+];
+
+/// `requireScope(principal, scope)`: the scope held (or implied), not exercised from an API key or sub-account when it
+/// may not be, and with two-factor where the scope needs it. `code` is `scope.denied`, `scope.interactive_only` or
+/// `mfa.required`.
+pub fn require_scope(p: &Principal, scope: &str) -> Result<(), Refused> {
+    let held = p
+        .scopes
+        .iter()
+        .any(|s| s == scope || IMPLIED.iter().any(|(from, to)| s == from && *to == scope));
+    if !held {
+        return Err(Refused {
+            message: format!("Scope \"{scope}\" is required"),
+            code: "scope.denied".to_owned(),
+        });
+    }
+    let key_forbidden =
+        INTERACTIVE_ONLY_SCOPES.contains(&scope) || PERSON_ONLY_SCOPES.contains(&scope);
+    if p.kid.is_some() && key_forbidden {
+        return Err(Refused {
+            message: format!(
+                "Scope \"{scope}\" requires an interactive session and cannot be used from an API key"
+            ),
+            code: "scope.interactive_only".to_owned(),
+        });
+    }
+    if p.sub_account.is_some() && PERSON_ONLY_SCOPES.contains(&scope) {
+        return Err(Refused {
+            message: format!(
+                "Scope \"{scope}\" is the person's own and cannot be used from a key or a sub-account"
+            ),
+            code: "scope.interactive_only".to_owned(),
+        });
+    }
+    if SESSION_MFA_SCOPES.contains(&scope) && !p.mfa {
+        return Err(Refused {
+            message: format!("Scope \"{scope}\" requires two-factor authentication"),
+            code: "mfa.required".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// `requireMfa(principal)`.
+pub fn require_mfa(p: &Principal) -> Result<(), Refused> {
+    if p.mfa {
         Ok(())
     } else {
         Err(Refused {
-            message: format!("Scope \"{scope}\" is required"),
-            code: "scope.denied".to_owned(),
+            message: "This action requires two-factor authentication".to_owned(),
+            code: "mfa.required".to_owned(),
         })
     }
 }
@@ -104,8 +178,8 @@ const SANCTIONED_LIST_ROWS: [(&str, &str); 8] = [
 ];
 const SANCTIONED_ROWS_SOURCE_UNSIGNED: &str = "config:SANCTIONED_LIST_ROWS (unsigned, agents' reading, not Hyperliquid's text; dev/test only)";
 
-/// The shipped matrix's business blocks (`JURISDICTION_MATRIX`, `blocked: true`). The matrix has no `tax` row, so the
-/// module's rule everywhere is its default: open, no verification tier.
+/// The shipped matrix's business blocks (`JURISDICTION_MATRIX`, `blocked: true`). The modules served here are open
+/// everywhere with no verification tier (`tax` by the matrix's default, `academy` by its row).
 const SHIPPED_BUSINESS_BLOCKS: [(&str, &str); 2] = [
     ("US", "The United States is not served at launch."),
     ("CA-ON", "Ontario, Canada is not served at launch."),
@@ -343,8 +417,9 @@ impl Jurisdiction {
             .find_map(|c| list.iter().find(|b| b.region == *c))
     }
 
-    /// `checkAccess({ module: 'tax', plane: 'fiat', region, kycTier })`: allowed, or the refusal with its code.
-    pub fn check_tax(&self, region: &str) -> Result<(), Refused> {
+    /// `checkAccess({ module, plane: 'fiat', region, kycTier })` for an open module: allowed, or the refusal with its
+    /// code.
+    pub fn check_open(&self, region: &str) -> Result<(), Refused> {
         let grade = self.money_grade();
         if self.screening_fail_closed && grade == "unconfigured" {
             return Err(Refused {
@@ -389,7 +464,7 @@ impl Jurisdiction {
                 message: reason.unwrap_or_else(|| format!("Not served in {region}")),
             });
         }
-        // The tax rule is open with no tier everywhere, so neither `denied.module_blocked` nor `denied.kyc_required` can
+        // The module's rule is open with no tier everywhere, so neither `denied.module_blocked` nor `denied.kyc_required` can
         // be reached for this module.
         Ok(())
     }
@@ -413,42 +488,42 @@ mod tests {
             (SCREENING_FAIL_CLOSED_ENV, "off"),
         ]))
         .unwrap();
-        assert_eq!(test.check_tax("DE"), Ok(()));
+        assert_eq!(test.check_open("DE"), Ok(()));
         assert_eq!(
-            test.check_tax("us").unwrap_err().message,
+            test.check_open("us").unwrap_err().message,
             "The United States is not served at launch."
         );
         assert_eq!(
-            test.check_tax("CA-ON").unwrap_err().code,
+            test.check_open("CA-ON").unwrap_err().code,
             "denied.region_blocked"
         );
-        assert_eq!(test.check_tax("CA-QC"), Ok(()));
+        assert_eq!(test.check_open("CA-QC"), Ok(()));
         assert!(
-            test.check_tax("UA-43")
+            test.check_open("UA-43")
                 .unwrap_err()
                 .message
                 .starts_with("Crimea")
         );
-        assert_eq!(test.check_tax("XX"), Ok(()));
+        assert_eq!(test.check_open("XX"), Ok(()));
         let prod = Jurisdiction::from_env(&env(&[
             ("APP_ENV", "prod"),
             (SCREENING_FAIL_CLOSED_ENV, "off"),
         ]))
         .unwrap();
         assert_eq!(
-            prod.check_tax("DE").unwrap_err().code,
+            prod.check_open("DE").unwrap_err().code,
             "denied.screening_unconfigured"
         );
         let listed =
             Jurisdiction::from_env(&env(&[(SANCTIONS_REGIONS_ENV, "DE:counsel says no")])).unwrap();
         assert_eq!(
-            listed.check_tax("de").unwrap_err().message,
+            listed.check_open("de").unwrap_err().message,
             "counsel says no"
         );
         let fixture =
             Jurisdiction::from_env(&env(&[(SANCTIONS_REGIONS_ENV, "AA:placeholder")])).unwrap();
         assert_eq!(
-            fixture.check_tax("DE").unwrap_err().code,
+            fixture.check_open("DE").unwrap_err().code,
             "denied.screening_fixture"
         );
         assert!(Jurisdiction::from_env(&env(&[(SANCTIONS_REGIONS_ENV, "D3")])).is_err());
