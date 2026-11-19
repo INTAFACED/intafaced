@@ -2,7 +2,7 @@
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { SupportMergePreview } from '@intafaced/contracts';
-import type { SupportMacroApplied } from '@intafaced/contracts/support-macros';
+import { supportMacroAppliedSchema, type SupportMacroApplied } from '@intafaced/contracts/support-macros';
 import { readMergePreview } from './merge';
 import type { SupportActionRequest } from './model';
 import { EMPTY_QUERY, queueQueryString, type QueueQuery } from './queue-query';
@@ -41,7 +41,7 @@ export async function fetchQueue(query: QueueQuery = EMPTY_QUERY, signal?: Abort
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.queue) ? (body as unknown as SupportQueueView) : null;
+    return isView<SupportQueueView>(body, ['queue']) ? body : null;
   } catch {
     return null;
   }
@@ -56,7 +56,7 @@ export async function fetchTicket(id: string, signal?: AbortSignal): Promise<Sup
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.detail) ? (body as unknown as SupportTicketView) : null;
+    return isView<SupportTicketView>(body, ['detail']) ? body : null;
   } catch {
     return null;
   }
@@ -143,9 +143,7 @@ export async function fetchTicketExtras(id: string, signal?: AbortSignal): Promi
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.caseFile) && isRecord(body.rating)
-      ? (body as unknown as TicketExtrasView)
-      : null;
+    return isView<TicketExtrasView>(body, ['caseFile', 'rating']) ? body : null;
   } catch {
     return null;
   }
@@ -176,9 +174,7 @@ export async function fetchCustomerCard(id: string, signal?: AbortSignal): Promi
     const body: unknown = await res.json().catch(() => null);
     // The console's own refusal (its founder check asks svc-identity first) keeps its code, so the card names why it is unread.
     if (!res.ok) return consoleRefusedCard(res.status, isRecord(body) && typeof body.code === 'string' ? body.code : null);
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.account) && isRecord(body.orders)
-      ? (body as unknown as SupportCustomerView)
-      : null;
+    return isView<SupportCustomerView>(body, ['account', 'orders']) ? body : null;
   } catch {
     return null;
   }
@@ -193,7 +189,7 @@ export async function fetchTicketProperties(id: string, signal?: AbortSignal): P
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.properties) ? (body as unknown as SupportPropertiesView) : null;
+    return isView<SupportPropertiesView>(body, ['properties']) ? body : null;
   } catch {
     return null;
   }
@@ -208,7 +204,7 @@ export async function fetchTicketLifecycle(id: string, signal?: AbortSignal): Pr
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.lifecycle) ? (body as unknown as SupportLifecycleView) : null;
+    return isView<SupportLifecycleView>(body, ['lifecycle']) ? body : null;
   } catch {
     return null;
   }
@@ -226,7 +222,7 @@ export async function fetchRatingSummary(
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.summary) ? (body as unknown as SupportRatingSummaryView) : null;
+    return isView<SupportRatingSummaryView>(body, ['summary']) ? body : null;
   } catch {
     return null;
   }
@@ -237,15 +233,7 @@ export async function fetchStaff(signal?: AbortSignal): Promise<SupportStaffView
     const res = await fetch('/api/support?view=staff', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) &&
-      typeof body.asOf === 'string' &&
-      typeof body.meId === 'string' &&
-      isRecord(body.roster) &&
-      isRecord(body.policy) &&
-      isRecord(body.routing) &&
-      isRecord(body.log)
-      ? (body as unknown as SupportStaffView)
-      : null;
+    return isView<SupportStaffView>(body, ['roster', 'policy', 'routing', 'log']) && typeof body.meId === 'string' ? body : null;
   } catch {
     return null;
   }
@@ -256,18 +244,15 @@ export async function fetchGroups(signal?: AbortSignal): Promise<SupportGroupsVi
     const res = await fetch('/api/support?view=groups', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) &&
-      typeof body.asOf === 'string' &&
-      typeof body.meId === 'string' &&
-      isRecord(body.groups) &&
-      isRecord(body.scope) &&
-      isRecord(body.roster) &&
-      isRecord(body.routing)
-      ? (body as unknown as SupportGroupsView)
-      : null;
+    return isView<SupportGroupsView>(body, ['groups', 'scope', 'roster', 'routing']) && typeof body.meId === 'string' ? body : null;
   } catch {
     return null;
   }
+}
+
+/** The console route's answer has the view's outer shape: `asOf` and each named part; the route built the rest from the parsed service answer. */
+function isView<T>(body: unknown, parts: readonly string[]): body is T {
+  return isRecord(body) && typeof body.asOf === 'string' && parts.every((k) => isRecord(body[k]));
 }
 
 async function readView(path: string, signal: AbortSignal | undefined, has: readonly string[]): Promise<unknown> {
@@ -275,7 +260,7 @@ async function readView(path: string, signal: AbortSignal | undefined, has: read
     const res = await fetch(path, { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && has.every((k) => isRecord(body[k])) ? body : null;
+    return isView<unknown>(body, has) ? body : null;
   } catch {
     return null;
   }
@@ -300,9 +285,7 @@ export async function fetchViews(signal?: AbortSignal): Promise<SupportViewsView
     const res = await fetch('/api/support?view=views', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.list) && isRecord(body.counts)
-      ? (body as unknown as SupportViewsView)
-      : null;
+    return isView<SupportViewsView>(body, ['list', 'counts']) ? body : null;
   } catch {
     return null;
   }
@@ -313,7 +296,7 @@ export async function fetchKb(signal?: AbortSignal): Promise<SupportKbView | nul
     const res = await fetch('/api/support?view=kb', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.articles) ? (body as unknown as SupportKbView) : null;
+    return isView<SupportKbView>(body, ['articles']) ? body : null;
   } catch {
     return null;
   }
@@ -442,9 +425,7 @@ export async function fetchMacros(signal?: AbortSignal): Promise<SupportMacrosVi
     const res = await fetch('/api/support?view=macros', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
     if (!res.ok) return null;
     const body: unknown = await res.json();
-    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.macros) && isRecord(body.signature)
-      ? (body as unknown as SupportMacrosView)
-      : null;
+    return isView<SupportMacrosView>(body, ['macros', 'signature']) ? body : null;
   } catch {
     return null;
   }
@@ -461,9 +442,8 @@ export async function fetchMacroApply(ticketId: string, macroId: string): Promis
       credentials: 'same-origin',
     });
     const body: unknown = await res.json().catch(() => null);
-    if (res.ok && isRecord(body) && body.ok === true && isRecord(body.applied) && typeof body.applied.text === 'string') {
-      return { ok: true, applied: body.applied as unknown as SupportMacroApplied };
-    }
+    const applied = res.ok && isRecord(body) && body.ok === true ? supportMacroAppliedSchema.safeParse(body.applied) : null;
+    if (applied?.success) return { ok: true, applied: applied.data };
     const read = readClaimReply(body);
     return { ok: false, refusal: read.ok ? null : read.refusal };
   } catch {
