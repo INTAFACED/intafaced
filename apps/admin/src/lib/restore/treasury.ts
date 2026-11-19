@@ -1,8 +1,7 @@
 import 'server-only';
-import { treasuryHolder } from '@/lib/accounts/holds-server';
-import { edgeCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
-import { treasuryTransport } from '@/lib/ledger/reconciliation-server';
+import { treasuryHolder } from '@/lib/accounts';
+import { edgeCall, explainRefusal, type FounderCallContext, type FounderCallResult, type RefusalView } from '@/lib/desk';
+import { treasuryTransport } from '@/lib/ledger';
 
 /**
  * The restore desk's treasury hops (OPS-ledger-desk-05, J-ops-console-08 #5-#7).
