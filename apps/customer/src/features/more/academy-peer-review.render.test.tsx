@@ -8,7 +8,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { academyLmsCopy } from './academy-lms-copy';
 import { academyRefusalKey } from './academy-flows';
 import { ReviewForm, reviewCountLine, reviewFileName } from './AcademyPeerReview';

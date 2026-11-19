@@ -6,7 +6,7 @@ import {
   type AcademyOutlineItemKind,
   type AcademyPublishedCourseCard,
 } from '@intafaced/contracts/academy-courses';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Loading, Panel } from '../../shared/ui';
