@@ -153,6 +153,33 @@ describe('propose', () => {
     const reply = await runStep(ctx, body({}), neverExecute);
     expect(!reply.ok && reply.refusal.changed).toBe('unknown');
   });
+  // The edge's own retryable 503 when identity answers its authority read late: nothing was forwarded, so it is no "outcome
+  // not known", and one more ask after its `retry-after` usually gets the packet.
+  const edgeAuthorityRefusal = () =>
+    Response.json(
+      { error: 'Identity could not confirm who is calling.', code: 'edge.authority_unavailable' },
+      { status: 503, headers: { 'retry-after': '0' } },
+    );
+  it("asks once more when the edge refused for want of identity's answer, and hands out the packet", async () => {
+    let calls = 0;
+    const fn = stub(() => (++calls === 1 ? edgeAuthorityRefusal() : trpcOk(row(kill))));
+    const reply = await runStep(ctx, body({}), neverExecute);
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fn.mock.calls[1]![1].body as string)).toEqual(proposeInputFor(kill));
+    expect(reply.ok && reply.step === 'propose' && decodePacket(reply.packet ?? '').ok).toBe(true);
+  });
+  it('a second edge authority refusal says nothing was sent, with its code, and asks no third time', async () => {
+    const fn = stub(() => edgeAuthorityRefusal());
+    const reply = await runStep(ctx, body({}), neverExecute);
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(!reply.ok && reply.refusal).toMatchObject({ code: 'edge.authority_unavailable', changed: 'no' });
+  });
+  it('any other 5xx is still "not known" and is not asked again', async () => {
+    const fn = stub(() => Response.json({ error: 'upstream', code: 'edge.upstream_unavailable' }, { status: 502 }));
+    const reply = await runStep(ctx, body({}), neverExecute);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(!reply.ok && reply.refusal.changed).toBe('unknown');
+  });
 });
 
 describe('approve', () => {

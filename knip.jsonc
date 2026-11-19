@@ -18,6 +18,8 @@
         "tooling/**/*.test.{mjs,js}",
         "tooling/ci/*.mjs",
         "tooling/ci/look-gate/look-gate.mjs",
+        // Started by path from the Customer app's render-record compare, in a Node child process.
+        "tooling/ci/look-gate/rooms.mjs",
         "tooling/infra/*.mjs",
         "tooling/t3/setup-worktree.mjs",
         "*.{mjs,js,cjs,ts}",

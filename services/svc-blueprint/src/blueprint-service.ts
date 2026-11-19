@@ -964,7 +964,15 @@ export class BlueprintService implements BlueprintContract {
           `
         : [];
 
-      const runs = await this.sql<Array<{ id: string; candidates: unknown; scores: unknown; placed_crew_id: string | null; ts: Date }>>`
+      const runs = await this.sql<
+        Array<{
+          id: string;
+          candidates: Array<{ crewId: string; size: number }>;
+          scores: Record<string, number>;
+          placed_crew_id: string | null;
+          ts: Date;
+        }>
+      >`
         SELECT id, candidates, scores, placed_crew_id, ts
           FROM blueprint.match_runs WHERE user_id = ${input.userId} ORDER BY ts ASC
       `;

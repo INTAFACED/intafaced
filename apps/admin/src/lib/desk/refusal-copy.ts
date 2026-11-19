@@ -1640,6 +1640,12 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The request carried an old session marker, so it was refused.',
     next: 'Reload the page and try again. Nothing was changed.',
   },
+  // svc-edge's own refusal: identity did not confirm who is calling in time (asked twice), so nothing was forwarded.
+  'edge.authority_unavailable': {
+    title: 'Your access could not be confirmed in time',
+    body: 'The gateway could not reach identity to check your session, so this step was not sent to the service.',
+    next: 'Nothing was changed. Try the step again in a moment.',
+  },
 };
 
 const UNKNOWN_UNCERTAIN: Entry = {

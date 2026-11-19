@@ -102,46 +102,11 @@
     },
     {
       "file": "services/svc-bank/src/business/business-cards.ts",
-      "table": "business_card_purchases",
-      "target": "(id)",
-      "constraint": "business_card_purchases_partner_key_key",
-      "verdict": "race",
-      "issue": 8888,
-      "why": "partner_key = cardCaptureKey(purchaseId) (business-cards.ts:53). testPurchase (business-cards.ts:375-399) checks for a prior row, then inserts on this.sql with no lock. Two presses or a retry with the same purchaseId both pass the check, and the loser raises 23505 business_card_purchases_partner_key_key instead of reading the purchase back."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-cards.ts",
       "table": "business_reimbursements",
       "target": "(id)",
       "constraint": "business_reimbursements_partner_key_key",
       "verdict": "safe",
       "why": "partner_key = reimbursementKey(claimId) (business-cards.ts:54) does match on a duplicate, but the same transaction first upserts the receipt with ON CONFLICT (id) DO UPDATE (insertReceipt, business-cards.ts:676). A retry carries the same receiptId, so it waits on the first transaction's receipt row until that commits. Its claim insert then finds the committed id and is absorbed. A retry with a different receiptId is a terms conflict that refuses either way."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-payouts.ts",
-      "table": "business_bulk_runs",
-      "target": "(id)",
-      "constraint": "business_bulk_runs_partner_key_key",
-      "verdict": "race",
-      "issue": 8889,
-      "why": "partner_key = bulkPayKey(runId) (business-payouts.ts:67). importRun reads the prior row outside the transaction (business-payouts.ts:406), then inserts with no lock. Two imports with the same runId (double submit or retry) both miss the prior row, and the loser raises 23505 on partner_key instead of returning the run."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-payouts.ts",
-      "table": "business_crypto_payroll_runs",
-      "target": "(run_key)",
-      "constraint": "business_crypto_payroll_runs_payroll_id_period_key",
-      "verdict": "race",
-      "issue": 8890,
-      "why": "run_key = cryptoPayrollKey(payrollId, period) (business-payouts.ts:69) is built from the same (payroll_id, period). Two concurrent prepareRun calls for one month both pass the 'SELECT 1 … WHERE run_key' check (business-payouts.ts:977) with no lock. The loser raises 23505 on (payroll_id, period), a key the run_key target does not absorb."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-payouts.ts",
-      "table": "business_crypto_payroll_runs",
-      "target": "(run_key)",
-      "constraint": "business_crypto_payroll_runs_pkey",
-      "verdict": "safe",
-      "why": "id is randomUUID() made fresh on every call (business-payouts.ts:997), so two inserts never share it."
     },
     {
       "file": "services/svc-bank/src/cards/card-service.ts",
@@ -894,15 +859,6 @@
       "verdict": "race",
       "issue": 8886,
       "why": "accountId is the caller's req.accountId (venue/agent-account.ts:349), and agent_address = agentAddressFor(seed, userId, accountId) (agent-account.ts:391), so a double-submitted open carries equal (user_id, account_id) and equal agent_address. The loser gets 23505 user_venue_agent_accounts_agent_uq instead of insertOnce returning the stored account (agent-account-store.ts:277-291)."
-    },
-    {
-      "file": "services/svc-trade/src/venue/agent-connection-store.ts",
-      "table": "user_venue_agent_connections",
-      "target": "(key_id) WHERE ended_atisnull",
-      "constraint": "user_venue_agent_connections_pkey",
-      "verdict": "race",
-      "issue": 8887,
-      "why": "Narrow: pkey is (key_id, created_at), and created_at is this.deps.now() in milliseconds (venue/agent-orders.ts:274-278). Two concurrent connects of one key that both pass active() (263) in the same millisecond carry equal pkey values, and the loser gets 23505 pkey instead of DO NOTHING. Calls in different milliseconds differ on created_at and resolve on the active partial arbiter."
     },
     {
       "file": "services/svc-trade/src/venue/agent-desk-store.ts",
