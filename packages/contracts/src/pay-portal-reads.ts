@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { payAmountStringSchema, payAssetCodeSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
 import { payListCursorSchema, payListSearchSchema, payMerchantFailureSchema, payPageSchema } from './pay-merchant-reads.js';
 
@@ -127,7 +128,7 @@ export const payExportJobSchema = z.object({
     from: z.string().optional(),
     to: z.string().optional(),
     status: z.string().optional(),
-    assetId: z.string().optional(),
+    assetId: assetIdSchema.optional(),
     amountMin: z.string().optional(),
     amountMax: z.string().optional(),
   }),
