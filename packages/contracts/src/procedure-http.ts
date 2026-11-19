@@ -17,18 +17,25 @@ export async function callHttpRecord<R extends HttpRecord>(
     sign: (payload: string, request: { method: string; url: URL; contentType: string }) => Record<string, string>;
     errorOf: (path: string, status: number, detail: string) => Error;
     fetcher?: typeof fetch;
+    /** Gives up after this long: the fetch rejects with a `TimeoutError`, which the caller reads as no answer. */
+    timeoutMs?: number;
   },
 ): Promise<z.output<R['output']>> {
   const path = routePath(record, options.params ?? {});
   const target = `${options.baseUrl.replace(/\/$/, '')}${path}`;
-  const payload = JSON.stringify(record.input.parse(options.input));
+  const input = record.input.parse(options.input);
+  // A GET carries no body, so it is signed over empty bytes with no content type; this caller sends no query.
+  if (record.method === 'GET' && input !== undefined) throw new Error(`${record.name}: a GET record here takes no input`);
+  const payload = record.method === 'GET' ? '' : JSON.stringify(input);
+  const contentType = record.method === 'GET' ? '' : 'application/json';
   const response = await (options.fetcher ?? fetch)(target, {
     method: record.method,
     headers: {
-      'content-type': 'application/json',
-      ...options.sign(payload, { method: record.method, url: new URL(target), contentType: 'application/json' }),
+      ...(contentType ? { 'content-type': contentType } : {}),
+      ...options.sign(payload, { method: record.method, url: new URL(target), contentType }),
     },
     ...(record.method === 'GET' ? {} : { body: payload }),
+    ...(options.timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(options.timeoutMs) }),
   });
   if (!response.ok) throw options.errorOf(path, response.status, await response.text().catch(() => ''));
   const reply = z.parse<R['output']>(record.output, await response.json());

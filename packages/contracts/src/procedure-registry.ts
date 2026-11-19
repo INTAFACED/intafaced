@@ -1,5 +1,6 @@
 // Written by `procedures:write` (scripts/procedure-registry.mjs) from every `defineProcedure` in src/. Do not edit by hand.
 import { BANK_SPACES_LIST } from './bank-spaces-list.js';
+import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
 import {
   TAX_HEALTH,
   TAX_LOT_BOOK,
@@ -19,6 +20,8 @@ import type { ProcedureRecord } from './procedure.js';
 /** Every call recorded in this package. `procedures.schema.json` is written from this list. */
 export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BANK_SPACES_LIST,
+  FIX_ADAPTER_STATUS,
+  FIX_DROP_COPY_FILL,
   TAX_HEALTH,
   TAX_LOT_BOOK,
   TAX_PNL_OVER_TIME,

@@ -204,6 +204,293 @@
         }
       ]
     },
+    "fix.adapterStatus": {
+      "service": "svc-fix",
+      "transport": "http",
+      "method": "GET",
+      "path": "/internal/status",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-edge"]
+      },
+      "refusals": {
+        "unauthenticated": "UNAUTHORIZED",
+        "forbidden": "FORBIDDEN",
+        "fix_status_unconfigured": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["order-entry", "drop-copy"]
+                },
+                "beginString": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "senderCompId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetCompId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "state": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "accountId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "nextSenderSeq": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "nextTargetSeq": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["role", "beginString", "senderCompId", "targetCompId", "state", "accountId", "nextSenderSeq", "nextTargetSeq"],
+              "additionalProperties": false
+            }
+          },
+          "compIdMapSet": {
+            "type": "boolean"
+          },
+          "compIdMap": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "compId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": ["compId", "accountId"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["sessions", "compIdMapSet", "compIdMap", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "x": 1
+          }
+        }
+      ]
+    },
+    "fix.dropCopyFill": {
+      "service": "svc-fix",
+      "transport": "http",
+      "method": "POST",
+      "path": "/internal/drop-copy/fills",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-trade"]
+      },
+      "refusals": {
+        "unauthenticated": "UNAUTHORIZED",
+        "forbidden": "FORBIDDEN",
+        "dropcopy_execution_missing": "BAD_REQUEST",
+        "dropcopy_source_missing": "BAD_REQUEST",
+        "dropcopy_price_missing": "BAD_REQUEST",
+        "invalid_decimal": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "fillId": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "marketId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "qty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "quoteAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "feeAsset": {
+            "type": "string",
+            "minLength": 1
+          },
+          "feeAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "ts": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["rest", "rfq", "liquidation"]
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "fillId",
+          "orderId",
+          "userId",
+          "marketId",
+          "side",
+          "price",
+          "qty",
+          "quoteAmount",
+          "feeAsset",
+          "feeAmount",
+          "ts",
+          "source"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "delivered": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "included": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["ok", "delivered", "included"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "fillId": "fill-7",
+            "orderId": "ord-1",
+            "userId": "user-1",
+            "marketId": "BTC/USDT",
+            "side": "buy",
+            "price": "100.25",
+            "qty": "1.50",
+            "quoteAmount": "150.375",
+            "feeAsset": "USDT",
+            "feeAmount": "0.15",
+            "ts": "2026-09-18T00:00:00Z",
+            "source": "rest",
+            "sequence": 11
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "fillId": "fill-7",
+            "orderId": "ord-1",
+            "userId": "user-1",
+            "marketId": "BTC/USDT",
+            "side": "buy",
+            "price": 100.25,
+            "qty": "1.50",
+            "quoteAmount": "150.375",
+            "feeAsset": "USDT",
+            "feeAmount": "0.15",
+            "ts": "2026-09-18T00:00:00Z",
+            "source": "rest"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "fillId": "fill-7",
+            "orderId": "ord-1",
+            "userId": "user-1",
+            "marketId": "BTC/USDT",
+            "side": "buy",
+            "price": "100.25",
+            "qty": "1.50",
+            "quoteAmount": "150.375",
+            "feeAsset": "USDT",
+            "feeAmount": "0.15",
+            "ts": "2026-09-18T00:00:00Z",
+            "source": "ui"
+          }
+        }
+      ]
+    },
     "tax.basisOverride.remove": {
       "service": "svc-tax",
       "module": "tax",
