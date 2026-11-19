@@ -645,14 +645,19 @@ export class BusinessCardsService {
     declineReason: CardDeclineReason | null,
     receiptOver: Amount | null,
   ): Promise<void> {
-    await sql`
+    const made = await sql`
       INSERT INTO bank.business_card_purchases
         (id, card_id, account_id, member_user_id, merchant, asset_id, amount, status, decline_reason, partner_key, receipt_over)
       VALUES (${purchaseId}::uuid, ${card.id}::uuid, ${card.account_id}::uuid, ${card.member_user_id}, ${merchant}, ${card.asset_id},
               ${formatAmount(amount)}::numeric, ${status}, ${declineReason}, ${cardCaptureKey(purchaseId)},
               ${receiptOver === null ? null : formatAmount(receiptOver)}::numeric)
-      ON CONFLICT (id) DO NOTHING
+      ON CONFLICT DO NOTHING
+      RETURNING id
     `;
+    if (made.length > 0) return;
+    // A copy racing this one recorded it first (id and partner_key name the same purchase): the same terms are that purchase.
+    const won = await this.purchaseRow(sql, purchaseId);
+    if (won.card_id !== card.id || won.merchant !== merchant || parseAmount(won.amount) !== amount) throw conflict('purchase');
   }
 
   private async insertReceipt(
@@ -772,11 +777,11 @@ export class BusinessCardsService {
     return row;
   }
 
-  private async purchaseRowOrNull(sql: Sql, id: string): Promise<PurchaseRow | null> {
+  private async purchaseRowOrNull(sql: Queryable, id: string): Promise<PurchaseRow | null> {
     return (await sql<PurchaseRow[]>`SELECT * FROM bank.business_card_purchases WHERE id = ${id}::uuid`)[0] ?? null;
   }
 
-  private async purchaseRow(sql: Sql, id: string): Promise<PurchaseRow> {
+  private async purchaseRow(sql: Queryable, id: string): Promise<PurchaseRow> {
     const row = await this.purchaseRowOrNull(sql, id);
     if (!row) throw new BankError('No card purchase has that id.', 'bank.business_card_not_found');
     return row;

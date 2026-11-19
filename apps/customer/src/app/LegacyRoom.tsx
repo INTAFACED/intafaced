@@ -2,9 +2,9 @@ import { lazy, Suspense } from 'react';
 import { Loading } from '../shared/ui';
 import { appCopy } from './app-copy';
 
-const TradeRoutes = lazy(() => import('../features/trade').then((module) => ({ default: module.TradeRoutes })));
+const TradeRoutes = lazy(() => import('../features/trade/TradeRoutes').then((module) => ({ default: module.TradeRoutes })));
 const PayRoutes = lazy(() => import('../features/pay').then((module) => ({ default: module.PayRoutes })));
-const MoneyRoutes = lazy(() => import('../features/money').then((module) => ({ default: module.MoneyRoutes })));
+const MoneyRoutes = lazy(() => import('../features/money/MoneyRoutes').then((module) => ({ default: module.MoneyRoutes })));
 export const preloadAccountRoutes = () => import('../features/account/AccountRoutes').then((module) => ({ default: module.AccountRoutes }));
 const AccountRoutes = lazy(preloadAccountRoutes);
 const MoreRoutes = lazy(() => import('../features/more').then((module) => ({ default: module.MoreRoutes })));

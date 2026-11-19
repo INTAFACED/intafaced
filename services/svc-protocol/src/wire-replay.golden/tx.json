@@ -1,0 +1,45 @@
+{
+  "inputs": {
+    "tx.buildReplacement": {
+      "sample": "{\"txHash\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"from\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mode\":\"speedUp\"}",
+      "sample-nulls": "{\"txHash\":null,\"from\":null,\"mode\":null}"
+    }
+  },
+  "bodies": [
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"tx.buildReplacement\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"tx.buildReplacement\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"tx.buildReplacement\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"tx.buildReplacement\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"txHash\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"from\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"speedUp\\\",\\n      \\\"cancel\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"mode\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"speedUp\\\\\\\"|\\\\\\\"cancel\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"tx.buildReplacement\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"protocol.fee_bump_unset: the fee bump for a speed-up or cancel is an owner setting (PROTOCOL_TX_FEE_BUMP_BPS).\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"tx.buildReplacement\",\"requestId\":\"req-replay\",\"cause\":{\"code\":\"protocol.fee_bump_unset\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"txHash\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"from\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"speedUp\\\",\\n      \\\"cancel\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"mode\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"speedUp\\\\\\\"|\\\\\\\"cancel\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"tx.buildReplacement\",\"requestId\":\"req-replay\"}}}"
+  ],
+  "answers": {
+    "tx.buildReplacement": {
+      "absent anon": [400, 0],
+      "absent no-scope": [400, 0],
+      "absent all": [400, 0],
+      "absent all-US": [403, 1],
+      "null anon": [400, 2],
+      "null no-scope": [400, 2],
+      "null all": [400, 2],
+      "null all-US": [403, 1],
+      "wrong-type anon": [400, 3],
+      "wrong-type no-scope": [400, 3],
+      "wrong-type all": [400, 3],
+      "wrong-type all-US": [403, 1],
+      "empty anon": [400, 4],
+      "empty no-scope": [400, 4],
+      "empty all": [400, 4],
+      "empty all-US": [403, 1],
+      "sample anon": [412, 5],
+      "sample no-scope": [412, 5],
+      "sample all": [412, 5],
+      "sample all-US": [403, 1],
+      "sample-nulls anon": [400, 6],
+      "sample-nulls no-scope": [400, 6],
+      "sample-nulls all": [400, 6],
+      "sample-nulls all-US": [403, 1]
+    }
+  }
+}

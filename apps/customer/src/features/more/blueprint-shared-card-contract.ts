@@ -1,43 +1,17 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import type { BLUEPRINT_CARD_OF } from '@intafaced/contracts/blueprint-procedures';
 
 export const sharedCardSelection = z.object({ userId: z.string().guid(), size: z.enum(['portrait', 'landscape']) }).strict();
 export type SharedCardSelection = z.infer<typeof sharedCardSelection>;
 export const sharedCardDimensions = { portrait: { width: 1080, height: 1350 }, landscape: { width: 1200, height: 630 } } as const;
-export function sharedCardResponse(selection: SharedCardSelection) {
+/** This caller's check over a `cardOf` reply: the card is the size asked for, at that size's canonical dimensions. */
+export function sharedCardMatches(selection: SharedCardSelection) {
   const dimensions = sharedCardDimensions[selection.size];
-  return z
-    .object({
-      size: z.literal(selection.size),
-      width: z.literal(dimensions.width),
-      height: z.literal(dimensions.height),
-      svg: z.string().min(1),
-      shareMode: z.enum(['svg', 'png']),
-      raster: z.discriminatedUnion('status', [
-        z
-          .object({
-            status: z.literal('rendered'),
-            url: z.string().url(),
-            contentType: z.literal('image/png'),
-            bytes: z.number().int().positive(),
-          })
-          .strict(),
-        z
-          .object({
-            status: z.literal('unavailable'),
-            code: z.enum([
-              'blueprint.card_renderer_unconfigured',
-              'blueprint.card_renderer_unreachable',
-              'blueprint.card_renderer_protocol',
-            ]),
-            reason: z.string().min(1),
-          })
-          .strict(),
-      ]),
-    })
-    .strict();
+  return (card: SharedCard) => card.size === selection.size && card.width === dimensions.width && card.height === dimensions.height;
 }
-export type SharedCard = z.infer<ReturnType<typeof sharedCardResponse>>;
+export type SharedCard = ProcedureOutput<typeof BLUEPRINT_CARD_OF>;
 export function sharedCardHref(selection: SharedCardSelection) {
   const exact = sharedCardSelection.parse(selection);
   return `/blueprint?subject=${encodeURIComponent(exact.userId)}&size=${exact.size}`;

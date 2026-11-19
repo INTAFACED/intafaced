@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import { Campaigns } from './Campaigns';
 import { LaunchJourney, LaunchParticipation } from './LaunchRooms';
 import { MiningRooms, RewardsView, SharesView, WorkersView } from './MiningRooms';
@@ -88,13 +89,13 @@ describe('rooms with no backing service', () => {
               name: 'rig-b',
               createdAt: '2026-10-11T08:00:00.000Z',
               hashrate: null,
-              hashrateReason: 'no_shares_in_window',
+              hashrateReason: 'no_shares_in_window' as const,
               minDifficulty: null,
               mode: 'solo' as const,
             },
           ],
           defaultDifficulty: null,
-          defaultDifficultyReason: 'mining.default_difficulty_unset',
+          defaultDifficultyReason: 'mining.default_difficulty_unset' as const,
           nextCursor: 'c1',
         },
       },
@@ -172,7 +173,10 @@ describe('rooms with no backing service', () => {
     expect(blank).not.toContain('TEST testnet');
   });
   it('Mining workers show a published default difficulty, a refused one by name, and paging back', () => {
-    const data = (defaultDifficulty: string | null, defaultDifficultyReason: string | null) => ({
+    const data = (
+      defaultDifficulty: string | null,
+      defaultDifficultyReason: 'mining.default_difficulty_unset' | 'mining.default_difficulty_invalid' | null,
+    ) => ({
       resource: {
         status: 'ready' as const,
         data: {
@@ -211,7 +215,7 @@ describe('rooms with no backing service', () => {
           windowMinutes: 60,
           workers: [],
           defaultDifficulty: null,
-          defaultDifficultyReason: 'mining.default_difficulty_unset',
+          defaultDifficultyReason: 'mining.default_difficulty_unset' as const,
           nextCursor: null,
         },
       },
@@ -226,8 +230,8 @@ describe('rooms with no backing service', () => {
         data: {
           asOf: '2026-10-18T03:00:00.000Z',
           windows: [
-            { windowId: 'win_aaaa1111', acceptedCount: 3, rejectedCount: 1, acceptedWeight: '9007199254740993' },
-            { windowId: 'win_bbbb2222', acceptedCount: 2, rejectedCount: 0, acceptedWeight: '7' },
+            { windowId: 'win_aaaa1111', acceptedCount: 3, rejectedCount: 1, soloCount: 0, acceptedWeight: '9007199254740993' },
+            { windowId: 'win_bbbb2222', acceptedCount: 2, rejectedCount: 0, soloCount: 0, acceptedWeight: '7' },
           ],
         },
       },
@@ -249,7 +253,7 @@ describe('rooms with no backing service', () => {
           windows: [
             {
               windowId: 'win_1',
-              assetId: 'BTC',
+              assetId: asAssetId('BTC'),
               callerWeight: '10',
               totalWeight: '40',
               reward: '0.04',
@@ -265,7 +269,7 @@ describe('rooms with no backing service', () => {
             {
               windowId: 'win_0',
               minerId: 'm1',
-              assetId: 'BTC',
+              assetId: asAssetId('BTC'),
               amount: '0.001',
               amountReason: null,
               paidAt: '2026-10-17T10:00:00.000Z',
@@ -286,10 +290,10 @@ describe('rooms with no backing service', () => {
   });
   it('Mining rewards never count an unreadable payout as zero, and mark an unconfirmed ledger entry', () => {
     const ok = <T,>(data: T) => ({ resource: { status: 'ready' as const, data }, reload: () => undefined });
-    const row = (amount: string | null, ledgerReason: string | null) => ({
+    const row = (amount: string | null, ledgerReason: 'mining.ledger_unavailable' | 'mining.ledger_tx_unrecorded' | null) => ({
       windowId: `w${amount}`,
       minerId: 'm1',
-      assetId: 'BTC',
+      assetId: asAssetId('BTC'),
       amount,
       amountReason: amount === null ? 'mining.emission_unpublished' : null,
       paidAt: '2026-10-17T10:00:00.000Z',

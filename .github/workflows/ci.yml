@@ -308,8 +308,8 @@ jobs:
         run: pnpm format:check
 
   # The Rust workspace (Cargo.toml, crates/): format, clippy with warnings as errors, and tests, by the same command a
-  # builder runs (`pnpm rust:check`). It runs when the change reaches Rust (ci-affected.mjs `rust`: a Rust file, this
-  # file or the root package.json) and on every run-everything run; the seal then needs it green, skipped or not.
+  # builder runs (`pnpm rust:check`). It runs when the change reaches Rust (ci-affected.mjs `rust`: a Rust file, the
+  # TypeScript service a crate replaces and whose recorded answers its tests read, this file or the root package.json) and on every run-everything run; the seal then needs it green, skipped or not.
   # The runner's rustup installs the toolchain rust-toolchain.toml pins; no third-party action is involved.
   rust:
     name: Rust
@@ -317,6 +317,25 @@ jobs:
     needs: [changes]
     runs-on: ubuntu-24.04
     timeout-minutes: 15 # healthy run: 1-2 min while the workspace holds one empty crate
+    # svc-tax's Postgres stores and its `migrate` command are tested against a real database, each test in a throwaway
+    # `*_test` database it makes from this one (crates/svc-tax/tests/stores_pg.rs). REQUIRE_POSTGRES makes a missing URL a
+    # failure, never a skip.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intafaced
+          POSTGRES_PASSWORD: intafaced
+          POSTGRES_DB: intafaced_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U intafaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://intafaced:intafaced@localhost:5432/intafaced_test
+      REQUIRE_POSTGRES: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1

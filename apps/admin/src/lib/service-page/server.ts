@@ -7,12 +7,9 @@ import {
   type ServiceGetOutput,
   type ServiceSetInput,
 } from '@intafaced/contracts/ops-console-services';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { opsReadOf } from '@/lib/desk/ops-read';
-import { writeRefusalOf } from '@/lib/desk/write-refusal';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
-import { HEALTH_ROWS, boardReads, buildBoard } from '@/lib/module-health/board';
-import { loadReads } from '@/lib/ops-desk/server';
+import { founderCall, opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView } from '@/lib/desk';
+import { HEALTH_ROWS, boardReads, buildBoard } from '@/lib/module-health';
+import { loadReads } from '@/lib/ops-desk';
 import { MODULE_ALERTS_PAGE, MODULE_ALERT_LABEL, UNWIRED_PANELS, panelOf, readModuleAlerts, type ServicePageView } from './model';
 
 const parseRecord = (raw: unknown): ServiceGetOutput | null => {

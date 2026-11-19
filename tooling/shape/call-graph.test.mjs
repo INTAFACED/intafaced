@@ -61,3 +61,13 @@ test('address variables name the service they point at', () => {
   assert.equal(targetOf('BANK_TEST_PAY_IN_RPC_URL', 'svc-bank', services), null);
   assert.equal(targetOf('DATABASE_URL', 'svc-bank', services), null);
 });
+
+test("a Rust service's call is the field its address is read into, and a marked line is not one", () => {
+  const services = ['svc-bank', 'svc-indexer', 'svc-ledger', 'svc-tax', 'svc-trade'];
+  const src = [
+    'ledger: Arc::new(HttpLedger::new(&env.ledger_url, signer)),',
+    'spaces: env.bank_url.as_deref().map(|u| u),',
+    `indexer: LakeStatus::indexer(env.indexer_url.as_deref()), // ${NOT_A_CALL} reports only whether it is set`,
+  ].join('\n');
+  assert.deepEqual([...callsInSource(src, 'svc-tax', services)].sort(), ['svc-bank', 'svc-ledger']);
+});

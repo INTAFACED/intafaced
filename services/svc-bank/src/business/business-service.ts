@@ -383,7 +383,8 @@ export class BusinessService {
       const inserted = await tx<AccountRow[]>`
         INSERT INTO bank.business_accounts (id, name, asset_id, spend_threshold, status, owner_user_id)
         VALUES (${input.accountId}::uuid, ${name}, ${input.assetId}, ${threshold}::numeric, 'active', ${input.creatorUserId})
-        ON CONFLICT (id) DO NOTHING
+        -- No target: both unique keys, id and (id, asset_id), name the same row, and a racing retry may clash on either.
+        ON CONFLICT DO NOTHING
         RETURNING id, name, asset_id, spend_threshold, status, created_at
       `;
       if (inserted[0]) {
@@ -1073,7 +1074,10 @@ export class BusinessService {
               ${input.payrollId}::uuid, ${input.accountId}::uuid, ${input.actorUserId},
               ${input.fromSpaceId}::uuid, ${account.assetId}, ${posted.id}
             )
-            ON CONFLICT (id) DO NOTHING
+            -- No target: id and ledger_tx_id name the same run (the ledger post is
+            -- idempotent on payrollId), so a racing copy absorbs on either key and
+            -- reads the row that won below (#8892).
+            ON CONFLICT DO NOTHING
             RETURNING id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
           `;
           if (inserted[0]) {

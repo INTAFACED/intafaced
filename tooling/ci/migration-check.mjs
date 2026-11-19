@@ -2,7 +2,8 @@
 /**
  * MIGRATION CHECK — §14 DoD: "All schema migrations reversible and applied in CI."
  *
- * For every service with a drizzle output directory:
+ * For every service with a drizzle output directory (`services/<svc>/drizzle`), and every Rust service's
+ * `crates/<svc>/migrations` (svc-tax applies those itself, `svc-tax migrate`):
  *   1. Every `NNNN_name.sql` has a matching `NNNN_name.down.sql`.
  *   2. The journal is consistent with the files on disk.
  *   3. No migration silently drops a column or table without a marker comment —
@@ -19,6 +20,26 @@ import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
 const SERVICES = join(ROOT, 'services');
+const CRATES = join(ROOT, 'crates');
+
+/**
+ * Each migration folder: a Node service's drizzle folder, or a Rust crate's migrations folder. `onMain` lists where main
+ * may hold the same files: a crate's migrations moved there from its TypeScript service's drizzle folder keep their names,
+ * so they are not new.
+ */
+function migrationDirs() {
+  const dirs = [];
+  const list = (root) => (existsSync(root) ? readdirSync(root) : []);
+  for (const service of list(SERVICES))
+    dirs.push({ service, dir: join(SERVICES, service, 'drizzle'), onMain: [`services/${service}/drizzle/`] });
+  for (const crate of list(CRATES))
+    dirs.push({
+      service: crate,
+      dir: join(CRATES, crate, 'migrations'),
+      onMain: [`crates/${crate}/migrations/`, `services/${crate}/drizzle/`],
+    });
+  return dirs.filter((d) => existsSync(d.dir) && statSync(d.dir).isDirectory());
+}
 
 /**
  * `DELETE FROM` was not on this list, and neither was constraint removal.
@@ -96,10 +117,10 @@ function stripSqlComments(sql) {
 }
 const ACKNOWLEDGEMENT = /--\s*intafaced:destructive\b/i;
 
-/** Migration file names under a service's drizzle dir on origin/main, or null when main is not fetched. */
-function mainMigrations(service) {
+/** Migration file names under a service's migration folders on origin/main, or null when main is not fetched. */
+function mainMigrations(paths) {
   try {
-    const out = execFileSync('git', ['ls-tree', '-r', '--name-only', 'origin/main', '--', `services/${service}/drizzle/`], {
+    const out = execFileSync('git', ['ls-tree', '-r', '--name-only', 'origin/main', '--', ...paths], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -188,14 +209,13 @@ function main() {
   /** Reversal files actually OPENED — the number the old success line implied and never had. */
   let downsRead = 0;
 
-  if (!existsSync(SERVICES)) {
-    console.log('✓ migration-check — no services yet');
-    process.exit(0);
+  const dirs = migrationDirs();
+  // Nothing to read is not clean: a services/ or crates/ that stopped resolving would look the same (empty-denominator law).
+  if (dirs.length === 0) {
+    console.error('MIGRATION CHECK FAILED: found no migration folder under services/<svc>/drizzle or crates/<svc>/migrations');
+    process.exit(1);
   }
-
-  for (const service of readdirSync(SERVICES)) {
-    const drizzleDir = join(SERVICES, service, 'drizzle');
-    if (!existsSync(drizzleDir) || !statSync(drizzleDir).isDirectory()) continue;
+  for (const { service, dir: drizzleDir, onMain } of dirs) {
     servicesChecked++;
 
     const files = readdirSync(drizzleDir).filter((f) => f.endsWith('.sql'));
@@ -241,7 +261,7 @@ function main() {
     }
 
     // Naming: a migration absent from origin/main is stamped with the UTC time it was written.
-    for (const { file, problem } of namingProblems(ups, mainMigrations(service))) {
+    for (const { file, problem } of namingProblems(ups, mainMigrations(onMain))) {
       problems.push({ service, file: relative(ROOT, join(drizzleDir, file)), problem });
     }
 

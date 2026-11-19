@@ -1671,12 +1671,33 @@ services:
     depends_on:
       svc-trade: { condition: service_healthy }
 
+  # svc-tax's own `tax` schema migrations, applied once by its Rust binary as its own role (svc_tax), the way
+  # `migrate` applies every Node service's: before the service starts, never by the service at start-up.
+  svc-tax-migrate:
+    image: intafaced/svc-tax:dev
+    build:
+      context: .
+      dockerfile: crates/svc-tax/Dockerfile
+    container_name: intafaced-svc-tax-migrate
+    restart: 'no'
+    command: ['/app/svc-tax', 'migrate']
+    environment:
+      DATABASE_URL: postgres://svc_tax:${SVC_TAX_DB_PASSWORD:-svc_tax}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Lot export (tax.engine). Reads ledger; no second book. Owner map blank →
   # tax.jurisdiction_unmapped at the door — never a silent country default.
+  # The Rust binary (crates/svc-tax), its own image, like svc-fix's.
   svc-tax:
-    <<: *app
+    image: intafaced/svc-tax:dev
+    build:
+      context: .
+      dockerfile: crates/svc-tax/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-tax
-    command: ['node', 'services/svc-tax/dist/index.js']
+    command: ['/app/svc-tax']
     environment:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-tax
@@ -1692,13 +1713,18 @@ services:
       CONNECT_DATA_LAKE_TSDB_URL: ${CONNECT_DATA_LAKE_TSDB_URL:-}
       INDEXER_URL: ${INDEXER_URL:-}
       # Role svc_tax and schema tax come from postgres-init.
-      # migrate-all applies the drizzle files. Blank DATABASE_POOL_MAX (x-service-env)
+      # svc-tax-migrate applies its migrations. Blank DATABASE_POOL_MAX (x-service-env)
       # refuses tax.database_pool_max_unset when this URL is set. Never invent a pool size.
       DATABASE_URL: postgres://svc_tax:${SVC_TAX_DB_PASSWORD:-svc_tax}@postgres:5432/intafaced
     expose: ['4020']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4020/health']
     depends_on:
-      <<: *needs-schema
+      postgres:
+        condition: service_healthy
+      svc-tax-migrate:
+        condition: service_completed_successfully
       svc-ledger:
         condition: service_healthy
 
