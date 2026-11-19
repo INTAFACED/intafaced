@@ -341,10 +341,9 @@ jobs:
             fi
             echo "rust:check failed the planted $1, as it must: $(grep -m1 "$3" "$RUNNER_TEMP/planted-$1.log")"
           }
-          mkdir crates/svc-tax/tests
           plant 'clippy warning' $'#[test]\nfn planted_warning() {\n    let v = vec![1];\n    assert_eq!(v.len(), 1);\n}' 'clippy::useless-vec. implied by .-D warnings'
           plant 'failing test' $'#[test]\nfn planted_failure() {\n    assert_eq!(svc_tax::SERVICE, "planted");\n}' 'test planted_failure ... FAILED'
-          rm -r crates/svc-tax/tests
+          rm crates/svc-tax/tests/planted.rs
 
   build:
     name: Typecheck & build
