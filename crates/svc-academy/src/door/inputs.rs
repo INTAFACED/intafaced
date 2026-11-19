@@ -85,3 +85,47 @@ pub fn parse(path: &str, input: Option<&Json>) -> Result<Result<Value, Refused>,
         Err(t) => Err(Refused::Thrown(t.0)),
     })
 }
+
+/// The part a call's input schema gives one field (`admin.saveLesson`'s `blocks` is `academyLessonBlocksSchema`), so a
+/// handler can run the same check on data that did not come in as input.
+pub fn field_part(path: &str, key: &str) -> Result<Option<usize>, String> {
+    let inputs = inputs()?;
+    let Some(root) = inputs.roots.get(path) else {
+        return Ok(None);
+    };
+    let doc = json::parse(SCHEMAS_JSON).map_err(|e| e.message)?;
+    let Some(Json::Array(nodes)) = doc.get("nodes") else {
+        return Ok(None);
+    };
+    let Some(Json::Array(shape)) = nodes.get(*root).and_then(|n| n.get("shape")) else {
+        return Ok(None);
+    };
+    Ok(shape.iter().find_map(|f| match f {
+        Json::Array(kv) => match (kv.first(), kv.get(1)) {
+            (Some(Json::String(k)), Some(Json::Number(n))) if k == key => format!("{n}").parse().ok(),
+            _ => None,
+        },
+        _ => None,
+    }))
+}
+
+/// `schema.safeParse(value)` for one recorded part.
+pub fn parse_part(part: usize, value: Value) -> Result<Result<Value, Refused>, String> {
+    Ok(match inputs()?.schema.parse(part, value, &AcademyRefines) {
+        Ok(Outcome::Ok(v)) => Ok(v),
+        Ok(Outcome::Issues(i)) => Err(Refused::Issues(i)),
+        Err(t) => Err(Refused::Thrown(t.0)),
+    })
+}
+
+/// The element part of a recorded array part (`academyLessonBlocksSchema` → `academyLessonBlockSchema`).
+pub fn element_part(part: usize) -> Result<Option<usize>, String> {
+    let doc = json::parse(SCHEMAS_JSON).map_err(|e| e.message)?;
+    let Some(Json::Array(nodes)) = doc.get("nodes") else {
+        return Ok(None);
+    };
+    Ok(match nodes.get(part).and_then(|n| n.get("el")) {
+        Some(Json::Number(n)) => format!("{n}").parse().ok(),
+        _ => None,
+    })
+}
