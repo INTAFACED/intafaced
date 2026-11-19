@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Field } from '../../../ui-kit';
 import { useResource, type Resource } from '../../../../../shared/resource';
-import { useSession } from '../../../../session/session';
+import { useSession } from '../../../../session';
 import { PaySection } from '../../../components';
 import { Chip, Gate, ListShell, MoreFooter, SelectField } from '../../components';
 import { useCursorList, useMemberNames, useUrlParam, type ListState } from '../../hooks';

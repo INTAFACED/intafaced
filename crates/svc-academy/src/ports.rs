@@ -366,6 +366,8 @@ pub struct Ports {
     pub refunds: Option<Box<dyn Refunds>>,
     pub objects: Box<dyn ObjectStore>,
     pub bus: Box<dyn Bus>,
+    /// How a service's call to the S2S door (`/internal/curriculum`) is judged: inbound, but an outside caller.
+    pub services: crate::curriculum::internal::ServiceAuth,
 }
 
 impl Ports {
@@ -385,6 +387,7 @@ impl Ports {
             refunds: None,
             objects: Box::new(NoObjectStore),
             bus: Box::new(NoBus),
+            services: crate::curriculum::internal::ServiceAuth::unwired(),
         }
     }
 
