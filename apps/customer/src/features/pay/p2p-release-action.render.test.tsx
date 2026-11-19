@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StepUpBegin } from '../account/security-step-up';
+import type { StepUpBegin } from '../account';
 import { OrderActions } from './P2P';
 import type { PersonalPayApi } from './pay-api';
 import type { Trade } from './schemas';

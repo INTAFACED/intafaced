@@ -14,5 +14,5 @@ export { TabList } from './tokens/TabList';
 export { RepresentationPanel } from './wallet/RepresentationPanel';
 export { transferCalldata } from './wallet/transfer';
 export { usePolled } from './wallet/use-polled';
-export { useWallet, waitMined, WalletProvider } from './wallet/WalletProvider';
+export { useWallet, waitMined, WalletProvider, type SequenceResult } from './wallet/WalletProvider';
 export { isFactoryUnset, toWei, utcTime } from './wallet/wallet-text';
