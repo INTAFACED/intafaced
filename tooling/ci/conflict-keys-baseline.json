@@ -162,41 +162,6 @@
       "why": "ledger_tx_id = posted.id, and the ledger post is idempotent on payrollId, so two concurrent runs of the same payroll get the same tx id. The insert (business-service.ts:1070) runs after the post with no lock, so the loser raises 23505 business_payroll_runs_ledger_tx_id_key instead of absorbing on id."
     },
     {
-      "file": "services/svc-bank/src/business/business-team.ts",
-      "table": "business_payments",
-      "target": "(id)",
-      "constraint": "business_payments_partner_key_key",
-      "verdict": "race",
-      "issue": 8893,
-      "why": "partner_key = businessPaymentKey(paymentId) (business-team.ts:58). propose checks paymentRowOrNull outside the transaction, and the transaction takes no lock: activeAccount and member are plain SELECTs (business-team.ts:1183-1222). Two concurrent proposals with the same paymentId make the loser raise 23505 on partner_key instead of reaching the `if (!created) return this.propose(input)` replay."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-team.ts",
-      "table": "business_payments",
-      "target": "(id)",
-      "constraint": "business_payments_partner_move_id_key",
-      "verdict": "safe",
-      "why": "partner_move_id is not written by this insert (business-team.ts:847), so it is NULL. NULLs never clash in a unique index."
-    },
-    {
-      "file": "services/svc-bank/src/cards/card-service.ts",
-      "table": "card_wallet_tokens",
-      "target": "(card_id, wallet)",
-      "constraint": "card_wallet_tokens_pkey",
-      "verdict": "race",
-      "issue": 8895,
-      "why": "id = input.provisionId, the caller's command id, so a retry repeats it. The insert (card-service.ts:1799) runs on this.sql with no lock, and auditSecret (ON CONFLICT DO NOTHING, card-service.ts:4242) does not serialise. Two concurrent same-provisionId requests can both pass the (card_id, wallet) pre-check, and the loser raises 23505 card_wallet_tokens_pkey."
-    },
-    {
-      "file": "services/svc-bank/src/cards/card-service.ts",
-      "table": "cards",
-      "target": "(id)",
-      "constraint": "cards_issuer_ref_idx",
-      "verdict": "race",
-      "issue": 8896,
-      "why": "replace() inserts the replacement card ON CONFLICT (id) with issuer_ref from issuer.issue({cardId: replacementId}), which is deterministic (issuer.ts:372). It takes no lock (card-service.ts:1853). Two concurrent replace calls with the same replacementId carry equal (issuer, issuer_ref), and the loser raises 23505 cards_issuer_ref_idx instead of reaching this.card(replacementId)."
-    },
-    {
       "file": "services/svc-bank/src/cards/card-service.ts",
       "table": "cards",
       "target": "(issuer, issuer_ref)",
@@ -219,15 +184,6 @@
       "constraint": "cash_out_requests_payout_ref_idx",
       "verdict": "safe",
       "why": "payout_ref is not written by this insert (cash-out.ts:265), so it is NULL, and the partial index is WHERE payout_ref IS NOT NULL."
-    },
-    {
-      "file": "services/svc-bank/src/developer-api/bank-api.ts",
-      "table": "api_moves",
-      "target": "(user_id, dedupe_id)",
-      "constraint": "api_moves_partner_key_key",
-      "verdict": "race",
-      "issue": 8897,
-      "why": "partner_key = MOVE_KEY(userId, dedupeId) (bank-api.ts:140) is built from the target columns. move() checks the row, then inserts on this.sql with no lock (bank-api.ts:415-432). An API client retrying the same dedupeId concurrently makes the loser raise 23505 api_moves_partner_key_key instead of re-reading the row."
     },
     {
       "file": "services/svc-bank/src/loans/loan-adjustments.ts",

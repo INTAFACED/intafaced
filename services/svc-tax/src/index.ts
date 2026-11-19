@@ -52,7 +52,7 @@ const tax = new TaxService({
     s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
   ),
   lake: lakeStatusFromUrl(env.CONNECT_DATA_LAKE_TSDB_URL),
-  indexer: indexerStatusFromUrl(env.INDEXER_URL),
+  indexer: indexerStatusFromUrl(env.INDEXER_URL), // shape-not-a-call: only says whether the address is set; no request is made
   historyYears: env.TAX_HISTORY_YEARS,
   ...(env.TAX_DEPOSIT_BASIS === undefined ? {} : { depositBasis: env.TAX_DEPOSIT_BASIS }),
   ...(trade === undefined ? {} : { prices: trade, closes: trade }),

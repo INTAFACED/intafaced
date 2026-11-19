@@ -426,6 +426,25 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     expect(await owner.businessTeam.payments({ accountId })).toEqual([]);
   });
 
+  it('the same payment proposed eight times at once is recorded once, and every call gets it, never a 23505 (#8893)', async () => {
+    const { accountId, owner } = await business();
+    await join(accountId, owner, A1, { role: 'checker' });
+    await owner.businessTeam.addRule({ accountId, ruleId: randomUUID(), overAmount: '1000', payee: null, paymentType: null, approvals: 1 });
+    for (let round = 0; round < 30; round += 1) {
+      const paymentId = randomUUID();
+      const input = { accountId, paymentId, payee: 'TEST Supplier', paymentType: 'domestic' as const, amount: '1500' };
+      const settled = await Promise.allSettled(Array.from({ length: 8 }, () => as(OWNER).businessTeam.propose(input)));
+      const failed = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected');
+      expect(failed.map((f) => `${(f.reason as Error)?.message} ${JSON.stringify((f.reason as { cause?: unknown }).cause)}`)).toEqual([]);
+      for (const s of settled) {
+        expect((s as PromiseFulfilledResult<{ id: string; status: string }>).value).toMatchObject({ id: paymentId, status: 'pending' });
+      }
+      const rows = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.business_payments WHERE id = ${paymentId}::uuid`;
+      expect(rows[0]!.n).toBe(1);
+    }
+    expect(ledger.journal()).toEqual([]);
+  });
+
   it('a payment sent at once whose partner answer is lost, pressed again with the same id, moves once', async () => {
     const { accountId, owner } = await business();
     const paymentId = randomUUID();

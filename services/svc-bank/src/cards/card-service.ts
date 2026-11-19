@@ -1794,11 +1794,13 @@ export class CardService {
       payloadHash,
     });
     // One token per card and wallet: adding the same card to the same wallet again keeps the first row. The payload is
-    // not kept.
+    // not kept. Both keys name the same row: the audit above binds a provision id to this card and wallet, so a row with
+    // this id is this card's token for this wallet. No conflict target, so a concurrent retry with the same id that loses
+    // on the id key keeps the row that won instead of raising.
     await this.sql`
       INSERT INTO bank.card_wallet_tokens (id, card_id, user_id, wallet)
       VALUES (${input.provisionId}, ${card.id}, ${input.userId}, ${input.wallet})
-      ON CONFLICT (card_id, wallet) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
     return { payload: provisioned.payload, expiresAt: this.secretExpiresAt() };
   }
@@ -1867,8 +1869,12 @@ export class CardService {
         ${card.id}, ${card.cardType === 'physical' ? null : this.clock()}, ${card.usesAllowed ?? null}, ${card.designId ?? null}, ${card.deliverySpeed ?? null},
         ${card.residenceCountry ?? null}
       )
-      ON CONFLICT (id) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
+    // No conflict target: the issuer ref is the issuer's answer for this card id, so `cards_pkey` and
+    // `cards_issuer_ref_idx` name the same row, and a same-id call that loses the race must read the winner's card
+    // instead of raising 23505 on whichever key Postgres checks first. A row that is not this replacement is
+    // refused just below.
     const created = await this.card(input.replacementId);
     if (created.replacesCardId !== card.id) {
       throw new BankError('This replacement id already belongs to another card', 'bank.card_replace_conflict');

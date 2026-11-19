@@ -46,6 +46,7 @@
     "garden/no-call-by-name": "error",
     "garden/no-runtime-swap": "error",
     "garden/no-cross-feature-import": "error",
+    "garden/no-source-text-test": "error",
     "typescript/no-explicit-any": "error",
     "react-hooks/exhaustive-deps": "error",
     "react/refs": "off",
