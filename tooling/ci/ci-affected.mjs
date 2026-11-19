@@ -73,9 +73,10 @@ export const isRustFile = (file) => {
   );
 };
 /**
- * The crates in `crates/`, each named after the TypeScript service it replaces: `crates/svc-tax` is tested against
- * `services/svc-tax`'s recorded answers (`wire-replay.golden.json`, `export-parity.golden.json`), so a change there runs
- * the Rust job before main does. Read from the folder, never kept by hand.
+ * The crates in `crates/`, each named after the TypeScript service it replaces. While a crate is built beside its
+ * TypeScript service, it is tested against that service's recorded answers, so a change there runs the Rust job before
+ * main does; once it replaced the service (`crates/svc-tax`), the answers live in the crate's own fixtures. Read from
+ * the folder, never kept by hand.
  */
 export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url))) {
   try {
@@ -86,9 +87,14 @@ export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url
     return [];
   }
 }
-/** A file the Rust job judges: a Rust file, or anything in a TypeScript service a crate replaces. */
+/**
+ * Files outside `crates/` that the crates' tests read (`include_str!`): svc-tax's records and their samples, and the
+ * compose file that starts it (crates/svc-tax/tests/procedure_samples.rs, refusal_coverage.rs, boot.rs).
+ */
+const RUST_READS = new Set(['packages/contracts/procedures.schema.json', 'docker-compose.apps.yml']);
+/** A file the Rust job judges: a Rust file, a file the crates' tests read, or anything in a TypeScript service a crate replaces. */
 export const reachesRust = (file, crates = rustCrates()) =>
-  isRustFile(file) || crates.some((name) => posix(file).startsWith(`services/${name}/`));
+  isRustFile(file) || RUST_READS.has(posix(file)) || crates.some((name) => posix(file).startsWith(`services/${name}/`));
 /** What defines the Rust job (its steps, and the `rust:check` script it runs): a change to one runs it too. */
 const RUST_JOB_FILES = ['.github/workflows/ci.yml', 'package.json'];
 
