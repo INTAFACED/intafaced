@@ -10,7 +10,8 @@ vi.mock('../../shared/preferences', async (original) => {
 
 const asked = vi.hoisted(() => [] as unknown[]);
 const who = vi.hoisted(() => ({ userId: 'user-1' }));
-vi.mock('../session/session', () => {
+vi.mock('../session/session', async (original) => {
+  const real = await original<typeof import('../session/session')>();
   const api = {
     query: async (_module: string, _procedure: string, input?: unknown) => {
       asked.push(input);
@@ -18,7 +19,7 @@ vi.mock('../session/session', () => {
     },
     mutate: async () => ({ ok: false }),
   };
-  return { useApi: () => api, useSession: () => ({ api, userId: who.userId, session: { accessToken: 'token' } }) };
+  return { ...real, useApi: () => api, useSession: () => ({ api, userId: who.userId, session: { accessToken: 'token' } }) };
 });
 
 import { SupportHelpArticles } from './SupportHelpArticles';
