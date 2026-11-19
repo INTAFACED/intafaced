@@ -3,6 +3,7 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createEdgeContext, router, VALUATION_PRICES_UNSET } from '@intafaced/contracts';
 import { OPS_PUBLIC_PROCEDURES } from '@intafaced/contracts/ops-public-procedures';
+import type { ProcedureSample } from '@intafaced/contracts/procedure';
 import { createHomeConfigRouter, homeConfigFromEnv } from './home-config.js';
 import { createValuationPricesRouter } from './valuation-prices.js';
 import { createOutreachRouter } from './outreach/router.js';
@@ -53,7 +54,7 @@ afterAll(async () => {
 });
 
 const cases = OPS_PUBLIC_PROCEDURES.flatMap((record) =>
-  record.samples.map((sample, i) => ({ record, sample, label: `${record.name} #${i} ${sample.verdict}` })),
+  record.samples.map((sample: ProcedureSample, i) => ({ record, sample, label: `${record.name} #${i} ${sample.verdict}` })),
 );
 
 describe("svc-ops' public routes reach each record sample's verdict", () => {
