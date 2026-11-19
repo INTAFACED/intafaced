@@ -1,6 +1,5 @@
 import { encodeAbiParameters, getContractAddress, isAddress, keccak256, getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
-import { PROTOCOL_DEFAULT_USER_SALT } from '@intafaced/contracts/protocol-procedures';
 
 /**
  * DETERMINISTIC ADDRESS DERIVATION (§17.4).
@@ -24,8 +23,12 @@ export const MINIMAL_PROXY_SUFFIX = '5af43d82803e903d91602b57fd5bf3' as const;
 /** 10 + 10 + 20 + 15. The EVM sees 0x37 bytes; so does `_cloneDeterministic`. */
 export const MINIMAL_PROXY_LENGTH_BYTES = 55;
 
-/** Default user salt — one account per owner unless the user asks for more. */
-export const DEFAULT_USER_SALT: Hex = PROTOCOL_DEFAULT_USER_SALT;
+/**
+ * Default user salt — one account per owner unless the user asks for more. Kept literal, not imported from
+ * `@intafaced/contracts`, because `scripts/deploy-dev.ts` loads this file before any package is built; address.test.ts
+ * pins it equal to the record default `PROTOCOL_DEFAULT_USER_SALT`.
+ */
+export const DEFAULT_USER_SALT: Hex = `0x${'00'.repeat(32)}`;
 
 export class AddressDerivationError extends Error {
   constructor(
