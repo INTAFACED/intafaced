@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { liveCopy } from './developers-live-copy';
 import {
   CHANGELOG_AREA_IDS,

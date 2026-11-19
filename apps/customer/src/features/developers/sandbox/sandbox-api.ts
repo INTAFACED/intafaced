@@ -20,7 +20,7 @@ import {
   type SandboxList,
 } from '@intafaced/contracts/developer-sandboxes';
 import type { ApiClient } from '../../../shared/api';
-import { requestPasskeyAssertion } from '../../session/webauthn';
+import { requestPasskeyAssertion } from '../../session';
 
 export const readSandboxes = (api: ApiClient, signal?: AbortSignal) =>
   api.query('identity', 'developerSandboxes.list', undefined, sandboxListOutputSchema, { signal });

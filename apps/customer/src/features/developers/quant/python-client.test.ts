@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { PYTHON_TEMPLATE } from '../../quant/python-template';
+import { PYTHON_TEMPLATE } from '../../quant';
 import { QUANT_PYTHON_CLIENT } from './python-client';
 
 // The download on /developers/quant is the package's own module, and its starter is the sandbox's template.

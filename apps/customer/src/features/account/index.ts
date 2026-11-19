@@ -1,5 +1,5 @@
 export { accountStatusCopy } from './account-status-copy';
-export { endOfDayUtc } from './developer-keys-api';
+export { endOfDayUtc, readDeveloperKeys } from './developer-keys-api';
 export { readRecoveryKey, signWithRecoveryKey } from './recovery-keys';
 export { factorStatus } from './security-checklist';
 export { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from './security-step-up';

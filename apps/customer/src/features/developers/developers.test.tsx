@@ -5,7 +5,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { findRoom } from '../../app/navigation';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { DevelopersRoutes } from './DevelopersRoutes';
 import { ENVIRONMENTS, PROTOCOLS, SECTIONS, connectivityOptions, developersRoute, hostTable } from './developers-model';
 import {
