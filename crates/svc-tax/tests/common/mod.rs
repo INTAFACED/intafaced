@@ -339,3 +339,132 @@ pub mod fake {
         Failure::Internal(message.to_owned())
     }
 }
+
+pub mod door {
+    //! svc-tax's own door (`createTaxRouter(tax).createCaller(signed principal)`): the request goes through `Wire`
+    //! with a signed principal, as svc-gateway would send it.
+    use std::collections::BTreeMap;
+
+    use svc_tax::edge;
+    use svc_tax::json::{self, Json};
+    use svc_tax::tax::TaxService;
+    use svc_tax::wire::{Request, Response, Wire, WireConfig};
+
+    pub const SECRET: &str = "a-tax-door-test-edge-secret-long-enough";
+
+    /// svc-tax's vitest environment.
+    pub fn serve(tax: TaxService) -> Wire {
+        let env: BTreeMap<String, String> = [
+            ("APP_ENV", "test"),
+            ("INTAFACED_SCREENING_FAIL_CLOSED", "off"),
+            ("NODE_ENV", "test"),
+        ]
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect();
+        Wire::new(WireConfig {
+            edge_secret: SECRET.to_owned(),
+            env,
+            tax,
+        })
+        .unwrap()
+    }
+
+    /// The headers of a signed principal for `user` with `scopes`, from `region`.
+    pub fn signed(user: &str, scopes: &[&str], region: &str) -> Vec<(String, String)> {
+        let raw = Json::obj([
+            ("sub", Json::str(user)),
+            (
+                "scopes",
+                Json::Array(scopes.iter().map(|s| Json::str(*s)).collect()),
+            ),
+            ("tier", Json::str("none")),
+            ("mfa", Json::Bool(false)),
+            ("sid", Json::str("22222222-2222-4222-8222-222222222222")),
+            ("userId", Json::str(user)),
+            ("expiresAt", Json::str("2099-01-01T00:00:00.000Z")),
+        ])
+        .compact();
+        let sig = edge::sign(&raw, SECRET, region).unwrap();
+        vec![
+            ("x-intafaced-principal".to_owned(), raw),
+            ("x-intafaced-principal-sig".to_owned(), sig),
+            ("x-intafaced-region".to_owned(), region.to_owned()),
+        ]
+    }
+
+    /// `encodeURIComponent`.
+    pub fn encode(s: &str) -> String {
+        s.bytes()
+            .map(|b| {
+                if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
+                    char::from(b).to_string()
+                } else {
+                    format!("%{b:02X}")
+                }
+            })
+            .collect()
+    }
+
+    /// A query: `GET /trpc/<path>?input=<json>`.
+    pub fn query(
+        wire: &Wire,
+        headers: &[(String, String)],
+        path: &str,
+        input: Option<&str>,
+    ) -> Response {
+        let url = match input {
+            Some(i) => format!("/trpc/{path}?input={}", encode(i)),
+            None => format!("/trpc/{path}"),
+        };
+        wire.handle(&Request {
+            method: "GET",
+            url: &url,
+            headers,
+            body: "",
+        })
+    }
+
+    /// A mutation: `POST /trpc/<path>` with a JSON body.
+    pub fn mutate(wire: &Wire, headers: &[(String, String)], path: &str, input: &str) -> Response {
+        let mut h = headers.to_vec();
+        h.push(("content-type".to_owned(), "application/json".to_owned()));
+        wire.handle(&Request {
+            method: "POST",
+            url: &format!("/trpc/{path}"),
+            headers: &h,
+            body: input,
+        })
+    }
+
+    /// The answer of a call that succeeded: `result.data`.
+    #[track_caller]
+    pub fn data(r: &Response) -> Json {
+        assert_eq!(r.status, 200, "{}", r.body);
+        let body = json::parse(&r.body).unwrap();
+        body.get("result")
+            .and_then(|x| x.get("data"))
+            .cloned()
+            .unwrap()
+    }
+
+    /// The error of a call that failed: (status, tRPC code, message).
+    #[track_caller]
+    pub fn error(r: &Response) -> (u16, String, String) {
+        let body = json::parse(&r.body).unwrap();
+        let e = body.get("error").unwrap();
+        let code = e
+            .get("data")
+            .and_then(|d| d.get("code"))
+            .and_then(|c| match c {
+                Json::String(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let message = match e.get("message") {
+            Some(Json::String(s)) => s.clone(),
+            _ => String::new(),
+        };
+        (r.status, code, message)
+    }
+}
