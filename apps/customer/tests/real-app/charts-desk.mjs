@@ -99,6 +99,39 @@ export async function pointerAt(page, point) {
   return { time: Number(await cell.getAttribute('data-crosshair')), price: Number(await cell.getAttribute('data-crosshair-price')) };
 }
 
+/**
+ * A click on a point, and what the chart read under it as it was clicked. The price scale follows the live feed, so a
+ * read made after the click by a fresh move can see a scale that moved since the click (#8999: stored 64892.75, read
+ * 65136.00 at the same pixel). Here the pointer is moved a pixel away and the marks cleared, and the click's own move onto
+ * the point makes the chart write the bar time and price it reads there; those are read without moving again (`atClick`).
+ * A fresh read just after is kept too (`after`): a scale that moved between the click's move and its press shows as the
+ * two differing, and the point stored at the press is then the one `after` reads.
+ */
+export async function clickAndRead(page, point) {
+  const cell = page.locator('[data-crosshair]').first();
+  await page.mouse.move(point.x - 1, point.y);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair')) ?? '').not.toBe('');
+  await cell.evaluate((el) => {
+    el.setAttribute('data-crosshair', '');
+    el.setAttribute('data-crosshair-price', '');
+  });
+  await page.mouse.click(point.x, point.y);
+  await expect.poll(async () => Number(await cell.getAttribute('data-crosshair'))).toBeGreaterThan(0);
+  await expect.poll(async () => (await cell.getAttribute('data-crosshair-price')) ?? '').not.toBe('');
+  const atClick = {
+    time: Number(await cell.getAttribute('data-crosshair')),
+    price: Number(await cell.getAttribute('data-crosshair-price')),
+  };
+  return { atClick, after: await pointerAt(page, point) };
+}
+
+/**
+ * A stored point (its bar time as the tree writes it, and its price) is what the chart read under the click: the read the
+ * click's own move took, or, when the scale moved between that move and the press, the read just after.
+ */
+export const storedAsRead = (time, price, read) =>
+  [read.atClick, read.after].some((r) => time === barTimeText(r.time) && atTick(price, r.price));
+
 /** A stored price is the pointer's price at the tick (0.01 for BTC-USDT): within half a tick of it. */
 export const atTick = (stored, price, tick = 0.01) => Math.abs(Number(stored) - price) <= tick / 2 + 1e-9;
 
