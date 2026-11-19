@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { z } from 'zod';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { DepthPanel, DisabledAction } from './DepthParts';
 import { RecipientPicker } from './RecipientPicker';
 import type { Payee } from './payees';

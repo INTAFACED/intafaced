@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { ResourceView, useBankRead } from './components';
 import { bankWrites, type CardControls, type cardSchema } from './contracts';
 import { ChannelSwitch, DepthPanel } from './DepthParts';
