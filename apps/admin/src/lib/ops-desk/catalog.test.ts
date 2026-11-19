@@ -470,14 +470,13 @@ describe('every read names a QUERY that exists in the owning router (drift guard
     // A top-level procedure built by its area's factory (svc-quant `health: healthRoutes(core)`) is read from that factory.
     const area = parts.length === 1 ? new RegExp(`\\b${name}: (\\w+Routes)\\(`).exec(text)?.[1] : undefined;
     if (area) from = text.indexOf(`export function ${area}(`);
-    // `operator` is svc-mining-pool's local alias for its admin:read procedure builder.
     const proc = area
       ? new RegExp(`export function ${area}\\(`).exec(text.slice(from))
-      : new RegExp(`\\b${name}: (\\w*Procedure|operator)\\b`).exec(text.slice(from));
+      : new RegExp(`\\b${name}: (\\w*Procedure)\\b`).exec(text.slice(from));
     expect(proc, `${service} has ${read.procedure}`).not.toBeNull();
     // From the procedure up to the next procedure definition, the call kind must be a query.
     const rest = text.slice(from + proc!.index + 1);
-    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure|operator|customer)\b/);
+    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure)\b/);
     let body = next === -1 ? rest : rest.slice(0, next);
     if (area) body = rest.slice(0, rest.search(/\nexport function /) >>> 0);
     // A procedure built in its own file (`poolTotals: poolTotalsProcedure(...)`) is judged by that factory's body.
