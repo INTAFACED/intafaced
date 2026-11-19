@@ -18,8 +18,11 @@ use service_kit::telemetry::{Logger, Telemetry};
 use svc_academy::db::Store;
 use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
 use svc_academy::env::{self, AcademyEnv};
+use svc_academy::identity_approvals::IdentityApprovals;
 use svc_academy::migrate;
 use svc_academy::ports::{JetStreamBus, Ports};
+use svc_academy::programme::ambassadors::check_laws;
+use svc_academy::programme::paper::flag::TradePaperFlags;
 use svc_academy::settings::Settings;
 
 fn process_env() -> BTreeMap<String, String> {
@@ -50,7 +53,11 @@ fn main() -> ExitCode {
 }
 
 /// The door, built once from the environment. Every outside port is its stand-in until its slice wires the real one.
-fn door(env: &AcademyEnv, bus: Option<JetStreamBus>) -> Result<AcademyDoor, String> {
+fn door(
+    env: &AcademyEnv,
+    bus: Option<JetStreamBus>,
+    fetch: &Arc<dyn Fetch>,
+) -> Result<AcademyDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let pool_max = usize::try_from(env.int("DATABASE_POOL_MAX").unwrap_or(1)).unwrap_or(1);
     let mut ports = Ports::unwired();
@@ -58,12 +65,32 @@ fn door(env: &AcademyEnv, bus: Option<JetStreamBus>) -> Result<AcademyDoor, Stri
     if let Some(bus) = bus {
         ports.bus = Box::new(bus);
     }
+    // As `index.ts`: identity consumes operator approvals whenever IDENTITY_URL is set (it has a default).
+    if let Some(identity) = env.str("IDENTITY_URL") {
+        ports.approvals = Box::new(IdentityApprovals::new(
+            identity,
+            &str_of("INTERNAL_SERVICE_SECRET"),
+            fetch.clone(),
+            service_kit::s2s::system_seconds,
+        ));
+    }
+    // svc-trade's public paper flags, only when TRADE_URL is set; unset, a drill claiming paper refuses unverified.
+    if let Some(trade) = env.str("TRADE_URL") {
+        ports.paper_flags = Box::new(TradePaperFlags::new(
+            trade,
+            env.int("ACADEMY_PAPER_MARKETS_LIMIT"),
+            fetch.clone(),
+        ));
+    }
+    let settings = Settings(env.json.clone());
+    // As `index.ts`, which parses both ambassador pay laws at load: a malformed one stops the boot.
+    check_laws(&settings).map_err(|r| format!("{} [{}]", r.message, r.code))?;
     let door = AcademyDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         env: env.raw.clone(),
         store: Store::Pool(Pool::new(&str_of("DATABASE_URL"), pool_max)),
         ports,
-        settings: Settings(env.json.clone()),
+        settings,
         now: system_now,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
@@ -87,7 +114,7 @@ fn run() -> Result<(), String> {
         &str_of("SERVICE_NAME"),
         &str_of("OTEL_EXPORTER_OTLP_ENDPOINT"),
         &str_of("APP_ENV"),
-        fetch,
+        fetch.clone(),
         log.clone(),
     );
     // As the TypeScript: a bus that cannot be reached is reported on /ready, not fatal.
@@ -105,7 +132,7 @@ fn run() -> Result<(), String> {
             None
         }
     };
-    let door = match door(&env, bus) {
+    let door = match door(&env, bus, &fetch) {
         Ok(d) => d,
         Err(e) => {
             telemetry.shutdown();
