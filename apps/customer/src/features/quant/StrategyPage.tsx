@@ -9,9 +9,8 @@ import {
 import { useState } from 'react';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Panel } from '../../shared/ui';
-import { Read } from '../more/common';
-import { preservePaperHref } from '../more/trade-context';
-import { useApi } from '../session/session';
+import { Read, preservePaperHref } from '../more';
+import { useApi } from '../session';
 import { PaperRuns } from './PaperRuns';
 import { StrategyAlerts, StrategyChannels } from './StrategyNotify';
 import { QuantRooms } from './QuantRooms';

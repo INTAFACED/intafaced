@@ -1,10 +1,9 @@
 import { quantQuickStartOutputSchema } from '@intafaced/contracts/quant-algo';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { EmptyState, Panel } from '../../shared/ui';
 import { StrategyTable } from './StrategyTable';
-import { Read } from '../more/common';
-import { preservePaperHref } from '../more/trade-context';
+import { Read, preservePaperHref } from '../more';
 import { algoCopy } from './algo-copy';
 import { QuantRooms } from './QuantRooms';
 import './algo.css';
