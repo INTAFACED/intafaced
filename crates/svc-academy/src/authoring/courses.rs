@@ -171,6 +171,7 @@ impl Limits {
     }
 }
 
+#[expect(clippy::too_many_arguments, reason = "one course event row: its columns, as the TypeScript inserts them")]
 fn event<C: GenericClient>(
     c: &mut C,
     course_id: &str,
@@ -382,10 +383,12 @@ impl CourseRecords {
             )?
             .map(|r| CourseRow::of(&r))
             .transpose()?;
-            if let Some(e) = existing {
-                if e.revision == 1 && e.created_by == operator && d.same(&e) {
-                    return Ok(e.json());
-                }
+            if let Some(e) = existing
+                && e.revision == 1
+                && e.created_by == operator
+                && d.same(&e)
+            {
+                return Ok(e.json());
             }
             refuse(
                 format!("slug \"{slug}\" is already the address of a course"),
@@ -582,12 +585,12 @@ impl CourseRecords {
         let revision = super::int(input, "revision");
         sql::begin(pool, |tx| {
             let row = lock(tx, text(input, "courseId"))?;
-            if row.revision == revision + 1 && d.same(&row) {
-                if let Some((kind, _)) = own_event(tx, &row.id, row.revision, operator)? {
-                    if kind == "updated" {
-                        return Ok(row.json());
-                    }
-                }
+            if row.revision == revision + 1
+                && d.same(&row)
+                && let Some((kind, _)) = own_event(tx, &row.id, row.revision, operator)?
+                && kind == "updated"
+            {
+                return Ok(row.json());
             }
             stale(&row, revision)?;
             if row.state != "draft" {
@@ -672,12 +675,13 @@ impl CourseRecords {
         let reason = text(input, "reason");
         sql::begin(pool, |tx| {
             let row = lock(tx, text(input, "courseId"))?;
-            if row.revision == revision + 1 && row.state == to {
-                if let Some((kind, to_state)) = own_event(tx, &row.id, row.revision, operator)? {
-                    if kind == "state" && to_state == to {
-                        return Ok(row.json());
-                    }
-                }
+            if row.revision == revision + 1
+                && row.state == to
+                && let Some((kind, to_state)) = own_event(tx, &row.id, row.revision, operator)?
+                && kind == "state"
+                && to_state == to
+            {
+                return Ok(row.json());
             }
             stale(&row, revision)?;
             if row.state != "draft" {
@@ -716,12 +720,12 @@ impl CourseRecords {
         let reason = text(input, "reason");
         sql::begin(pool, |tx| {
             let row = lock(tx, text(input, "courseId"))?;
-            if row.revision == revision + 1 && row.price.is_none() {
-                if let Some((kind, _)) = own_event(tx, &row.id, row.revision, operator)? {
-                    if kind == "price_withdrawn" {
-                        return Ok(row.json());
-                    }
-                }
+            if row.revision == revision + 1
+                && row.price.is_none()
+                && let Some((kind, _)) = own_event(tx, &row.id, row.revision, operator)?
+                && kind == "price_withdrawn"
+            {
+                return Ok(row.json());
             }
             stale(&row, revision)?;
             if row.state != "published" {
@@ -779,15 +783,14 @@ impl CourseRecords {
         let course_id = text(input, "courseId");
         sql::begin(pool, |tx| {
             let row = lock(tx, course_id)?;
-            if row.revision == revision + 1 {
-                if let Some((kind, _)) = own_event(tx, &row.id, row.revision, operator)? {
-                    if kind == "outline" {
-                        let stored = outline(tx, &row.id)?;
-                        let have = Json::Array(stored.iter().map(OutlineSection::shape).collect()).compact();
-                        if have == wanted {
-                            return Ok(self.get_in(tx, course_id)?.json(self.limits));
-                        }
-                    }
+            if row.revision == revision + 1
+                && let Some((kind, _)) = own_event(tx, &row.id, row.revision, operator)?
+                && kind == "outline"
+            {
+                let stored = outline(tx, &row.id)?;
+                let have = Json::Array(stored.iter().map(OutlineSection::shape).collect()).compact();
+                if have == wanted {
+                    return Ok(self.get_in(tx, course_id)?.json(self.limits));
                 }
             }
             stale(&row, revision)?;

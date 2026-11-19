@@ -6,17 +6,17 @@
 //! edit (`team/course-team.ts` `require`). `slices::authoring` answers the calls; every statement is the TypeScript's.
 
 pub mod courses;
-pub mod item_rules;
-pub mod learn_hub;
-pub mod lessons;
-pub mod media;
-pub mod outline;
-pub mod programmes;
+// pub mod item_rules;
+// pub mod learn_hub;
+// pub mod lessons;
+// pub mod media;
+// pub mod outline;
+// pub mod programmes;
 pub mod release;
 pub mod sql;
 pub mod storage;
 pub mod team;
-pub mod terms;
+// pub mod terms;
 pub mod tracks;
 pub mod video;
 
