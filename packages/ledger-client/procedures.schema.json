@@ -221,6 +221,476 @@
           }
         }
       ]
+    },
+    "ledger.postRecipe": {
+      "service": "svc-ledger",
+      "transport": "http",
+      "method": "POST",
+      "path": "/trpc/postRecipe",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-academy"]
+      },
+      "refusals": {
+        "ledger.recipe_unknown": "BAD_REQUEST",
+        "ledger.recipe_input_invalid": "BAD_REQUEST",
+        "ledger.recipe_required": "BAD_REQUEST",
+        "ledger.insufficient_funds": "BAD_REQUEST",
+        "ledger.owner_identity_space": "BAD_REQUEST",
+        "ledger.unauthenticated": "UNAUTHORIZED",
+        "ledger.caller_unbound": "UNAUTHORIZED",
+        "ledger.caller_forbidden": "FORBIDDEN",
+        "ledger.idempotency_conflict": "CONFLICT",
+        "ledger.frozen": "PRECONDITION_FAILED",
+        "ledger.custody_layer_off": "PRECONDITION_FAILED",
+        "ledger.writes_blocked_store_unavailable": "SERVICE_UNAVAILABLE",
+        "ledger.writes_blocked_store_disk_full": "SERVICE_UNAVAILABLE",
+        "ledger.writes_blocked_clock_skew": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "academyPurchase"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "course": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "n": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,18}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "to": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "treasury-wallet"
+                          },
+                          "walletId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9:_-]*$"
+                          }
+                        },
+                        "required": ["kind", "walletId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "venue-builder-account"
+                          },
+                          "venueId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9:_-]*$"
+                          }
+                        },
+                        "required": ["kind", "venueId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "partner-reserve"
+                          },
+                          "partnerId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9:_-]*$"
+                          }
+                        },
+                        "required": ["kind", "partnerId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "paymentId": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["course", "userId", "n", "assetId", "amount", "to", "paymentId"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "academyPurchaseRefund"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "course": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "n": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,18}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "from": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "treasury-wallet"
+                          },
+                          "walletId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9:_-]*$"
+                          }
+                        },
+                        "required": ["kind", "walletId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "venue-builder-account"
+                          },
+                          "venueId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9:_-]*$"
+                          }
+                        },
+                        "required": ["kind", "venueId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "partner-reserve"
+                          },
+                          "partnerId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9:_-]*$"
+                          }
+                        },
+                        "required": ["kind", "partnerId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "paymentId": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-f]{64}$"
+                  }
+                },
+                "required": ["course", "userId", "n", "assetId", "amount", "from", "paymentId"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "txId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "module": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1
+          },
+          "postedAt": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "txId": {
+                  "type": "string"
+                },
+                "accountId": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": ["debit", "credit"]
+                },
+                "amount": {
+                  "type": "string"
+                },
+                "balanceAfter": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "txId", "accountId", "assetId", "direction", "amount", "balanceAfter"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["txId", "idempotencyKey", "module", "reason", "hash", "postedAt", "entries"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "academyPurchase",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "1",
+              "assetId": "USDC",
+              "amount": "2.5",
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "academyPurchaseRefund",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "12",
+              "assetId": "USDC",
+              "amount": "0.000000000000000001",
+              "from": {
+                "kind": "partner-reserve",
+                "partnerId": "reserve-a"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "deposit",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "1",
+              "assetId": "USDC",
+              "amount": "2.5",
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "academyPurchase",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "1",
+              "assetId": "USDC",
+              "amount": 2.5,
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "academyPurchase",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "1",
+              "assetId": "USDC",
+              "amount": "-1",
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "academyPurchase",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "0",
+              "assetId": "USDC",
+              "amount": "2.5",
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "academyPurchase",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "1",
+              "assetId": "USDC",
+              "amount": "1.0000000000000000001",
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "academyPurchase",
+            "input": {
+              "course": "perps-101",
+              "userId": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+              "n": "1",
+              "assetId": "USDC",
+              "amount": "2.5",
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "academyPurchase",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "1",
+              "assetId": "USDC",
+              "amount": "2.5",
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab",
+              "extra": true
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "academyPurchase",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "1",
+              "assetId": "USDC",
+              "amount": "2.5",
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            },
+            "idempotencyKey": "mine"
+          }
+        }
+      ]
     }
   }
 }

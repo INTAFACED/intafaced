@@ -1,12 +1,5 @@
-import {
-  LedgerError,
-  classifyPostOutcome,
-  createHttpLedgerClient,
-  parseAmount,
-  recipes,
-  type HttpLedgerOptions,
-  type LedgerClient,
-} from '@intafaced/ledger-client';
+import { LedgerError, classifyPostOutcome, type HttpLedgerOptions } from '@intafaced/ledger-client';
+import { createHttpRecipePoster, type RecipePoster } from '@intafaced/ledger-client/post-recipe';
 import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 /**
@@ -15,6 +8,10 @@ import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@in
  *   `academyPurchase`        a buyer's wallet payment the chain confirmed, now at our receiving address, as Academy revenue,
  *                            keyed `academy:purchase:<course>:<learner>:<n>`;
  *   `academyPurchaseRefund`  our own send back to that wallet, the exact reverse, keyed `academy:refund:<course>:<learner>:<n>`.
+ *
+ * svc-academy names the recipe and its inputs on svc-ledger's `postRecipe` door, and the ledger runs the recipe from
+ * ledger-client itself: this service never builds ledger entries, and its Rust port will call the same door with the
+ * same body. The key is still the recipe's business key, built by the ledger from the same inputs.
  *
  * Neither touches a customer account. A post is made only after the chain shows the money moved, with the key stored on
  * the purchase row first, so a retry after a crash or a lost answer is the same key and the ledger answers it with the
@@ -55,37 +52,23 @@ async function answer(post: () => Promise<{ id: string }>): Promise<PostAnswer> 
   }
 }
 
-/** The posts, through any ledger client (the HTTP one in the service, the in-memory one in tests). */
-export function purchaseLedger(ledger: Pick<LedgerClient, 'post'>): PurchaseLedger {
+/** The wire inputs both recipes share: amounts and the purchase number as decimal strings, the place by its kind. */
+const inputs = (input: PurchasePost) => ({
+  course: input.course,
+  userId: input.userId,
+  n: String(input.n),
+  assetId: input.asset,
+  amount: input.amount,
+  paymentId: input.txHash,
+});
+
+/** The posts, through any recipe poster (the HTTP door in the service, the in-process one over a test ledger). */
+export function purchaseLedger(ledger: RecipePoster): PurchaseLedger {
   return {
     postPurchase: (input) =>
-      answer(() =>
-        ledger.post(
-          recipes.academyPurchase({
-            course: input.course,
-            userId: input.userId,
-            n: BigInt(input.n),
-            assetId: input.asset,
-            amount: parseAmount(input.amount),
-            to: place(input.receiver),
-            paymentId: input.txHash,
-          }),
-        ),
-      ),
+      answer(() => ledger.postRecipe({ recipe: 'academyPurchase', input: { ...inputs(input), to: place(input.receiver) } })),
     postRefund: (input) =>
-      answer(() =>
-        ledger.post(
-          recipes.academyPurchaseRefund({
-            course: input.course,
-            userId: input.userId,
-            n: BigInt(input.n),
-            assetId: input.asset,
-            amount: parseAmount(input.amount),
-            from: place(input.receiver),
-            paymentId: input.txHash,
-          }),
-        ),
-      ),
+      answer(() => ledger.postRecipe({ recipe: 'academyPurchaseRefund', input: { ...inputs(input), from: place(input.receiver) } })),
   };
 }
 
@@ -94,17 +77,17 @@ const POST_BUDGET = { timeoutMs: 10_000, retries: 2, deadlineMs: 25_000 } as con
 /** No post is still waiting on the ledger after this long: a `posting` row older than it is taken again. */
 export const POST_DEADLINE_SECONDS = Math.ceil(POST_BUDGET.deadlineMs / 1000) + 5;
 
-/** svc-academy's HTTP client for svc-ledger, signed as `svc-academy`. */
+/** svc-academy's HTTP client for svc-ledger's `postRecipe` door, signed as `svc-academy`. */
 export function createAcademyLedgerClient(
   baseUrl: string,
   internalSecret: string,
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
-): Pick<LedgerClient, 'post'> {
-  const shared: Pick<HttpLedgerOptions, 'baseUrl' | 'sign' | 'fetch'> = {
+): RecipePoster {
+  const options: HttpLedgerOptions = {
     baseUrl,
     sign: serviceCallSigner({ service: 'svc-academy', audience: 'svc-ledger', legacySecret: internalSecret, s2s }),
     fetch: (input, init) => globalThis.fetch(input, init),
+    ...POST_BUDGET,
   };
-  const writer = createHttpLedgerClient({ ...shared, ...POST_BUDGET });
-  return { post: (request) => writer.post(request) };
+  return createHttpRecipePoster(options);
 }

@@ -434,4 +434,4 @@ describe('the wire replay: svc-ledger answers every served call as recorded', ()
 });
 
 /** How many answers the recording holds: a matrix that shrinks fails here before it can pass on less. */
-const ANSWERS = 11_304;
+const ANSWERS = 11_772;

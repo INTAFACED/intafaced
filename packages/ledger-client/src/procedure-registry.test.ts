@@ -17,8 +17,8 @@ describe("the written records of the ledger's doors", () => {
     expect(() => execFileSync('node', args, { cwd: fileURLToPath(new URL('..', import.meta.url)), stdio: 'pipe' })).not.toThrow();
   });
 
-  it('holds the history door, and contracts holds none of the ledger records (so contracts never depends on this package)', () => {
-    expect(LEDGER_PROCEDURES.map((r) => r.name)).toEqual(['ledger.historyPage']);
+  it('holds the history and postRecipe doors, and contracts holds none of the ledger records (so contracts never depends on this package)', () => {
+    expect(LEDGER_PROCEDURES.map((r) => r.name)).toEqual(['ledger.historyPage', 'ledger.postRecipe']);
   });
 
   it("every record's samples get the same verdict from its zod schema and from its committed JSON export", () => {
