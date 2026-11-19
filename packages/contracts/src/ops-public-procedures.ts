@@ -1,7 +1,7 @@
-import { eachWorkKindOnce, homeConfigReplySchema, type HomeConfig } from './home-work-items.js';
+import { eachWorkKindOnce, homeConfigReplySchema } from './home-work-items.js';
 import { outreachPublicSettingsSchema } from './outreach-public.js';
 import { defineProcedure, NO_INPUT } from './procedure.js';
-import { everyPriceAboveZero, onePricePerAsset, valuationPricesReplySchema, type ValuationPrices } from './valuation-prices.js';
+import { everyPriceAboveZero, onePricePerAsset, valuationPricesReplySchema } from './valuation-prices.js';
 
 /**
  * svc-ops' public reads, one record per call: what a signed-out visitor or any customer screen reads from the ops desk.
@@ -18,7 +18,7 @@ export const OPS_HOME_CONFIG = defineProcedure({
   refusals: {},
   input: NO_INPUT,
   output: homeConfigReplySchema,
-  accept: { eachKindOnce: { says: 'no kind appears twice in workListOrder', holds: (reply) => eachWorkKindOnce(reply as HomeConfig) } },
+  accept: { eachKindOnce: { says: 'no kind appears twice in workListOrder', holds: eachWorkKindOnce } },
   samples: [{ verdict: 'accept' }],
 });
 
@@ -31,8 +31,8 @@ export const OPS_VALUATION_PRICES = defineProcedure({
   input: NO_INPUT,
   output: valuationPricesReplySchema,
   accept: {
-    aboveZero: { says: 'every published price is greater than zero', holds: (reply) => everyPriceAboveZero(reply as ValuationPrices) },
-    onePerAsset: { says: 'no asset is priced twice', holds: (reply) => onePricePerAsset(reply as ValuationPrices) },
+    aboveZero: { says: 'every published price is greater than zero', holds: everyPriceAboveZero },
+    onePerAsset: { says: 'no asset is priced twice', holds: onePricePerAsset },
   },
   samples: [{ verdict: 'accept' }],
 });

@@ -163,5 +163,7 @@ export type HomeConfig = z.infer<typeof homeConfigOutputSchema>;
  */
 export const homeConfigReplySchema = homeConfigOutputSchema.extend({ workListOrder: z.array(workItemKindSchema).min(1).nullable() });
 /** True when no kind appears twice in the owners' order (blank passes). */
-export const eachWorkKindOnce = (reply: { readonly workListOrder: readonly string[] | null }): boolean =>
-  reply.workListOrder === null || new Set(reply.workListOrder).size === reply.workListOrder.length;
+export const eachWorkKindOnce = (reply: unknown): boolean => {
+  const order = homeConfigReplySchema.safeParse(reply).data?.workListOrder;
+  return order !== undefined && (order === null || new Set(order).size === order.length);
+};

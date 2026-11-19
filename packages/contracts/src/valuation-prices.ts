@@ -54,10 +54,15 @@ export const valuationPricesReplySchema = z.discriminatedUnion('published', [
   valuationPricesOutputSchema.options[0],
   valuationPricesOutputSchema.options[1].extend({ prices: z.array(z.object({ asset: assetId, usd: decimalString })).max(500) }),
 ]);
-type PricesReply = z.infer<typeof valuationPricesReplySchema>;
-const pricesOf = (reply: PricesReply) => (reply.published ? reply.prices : []);
+/** The published rows of a reply, `[]` when unpublished, or `undefined` when it is not a reply at all. */
+const pricesOf = (reply: unknown) => {
+  const parsed = valuationPricesReplySchema.safeParse(reply);
+  return parsed.success ? (parsed.data.published ? parsed.data.prices : []) : undefined;
+};
 /** Every published price is greater than zero. */
-export const everyPriceAboveZero = (reply: PricesReply): boolean => pricesOf(reply).every((row) => /[1-9]/.test(row.usd));
+export const everyPriceAboveZero = (reply: unknown): boolean => pricesOf(reply)?.every((row) => /[1-9]/.test(row.usd)) ?? false;
 /** No asset is priced twice. */
-export const onePricePerAsset = (reply: PricesReply): boolean =>
-  new Set(pricesOf(reply).map((row) => row.asset)).size === pricesOf(reply).length;
+export const onePricePerAsset = (reply: unknown): boolean => {
+  const rows = pricesOf(reply);
+  return rows !== undefined && new Set(rows.map((row) => row.asset)).size === rows.length;
+};
