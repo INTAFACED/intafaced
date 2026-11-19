@@ -1,3 +1,4 @@
+import { CONTRACT_PROCEDURES } from '@intafaced/contracts/procedure-registry';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -433,15 +434,17 @@ function serviceSources(service: string): string[] {
 }
 
 describe('a read whose call has a record takes its module and path from the record', () => {
-  it.each(all.filter((a) => a.read.record !== undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
-    expect(read.record!.kind).toBe('query');
-    expect([read.module, read.procedure]).toEqual([read.record!.module, read.record!.path]);
+  it.each(all.filter((a) => a.read.recordName !== undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+    const record = CONTRACT_PROCEDURES.find((r) => r.name === read.recordName);
+    expect(record, `${read.recordName} is a record`).toBeDefined();
+    expect(record!.transport === 'trpc' && record!.kind).toBe('query');
+    expect([read.module, read.procedure]).toEqual([record!.module, record!.transport === 'trpc' ? record!.path : null]);
   });
 });
 
 // A read with a record is mounted from that record (`mountRecords`), so its query is checked there, not in router text.
 describe('every read names a QUERY that exists in the owning router (drift guard)', () => {
-  it.each(all.filter((a) => a.read.record === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
     // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`).

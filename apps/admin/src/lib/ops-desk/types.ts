@@ -75,10 +75,11 @@ export interface ReadSpec {
   readonly plainName?: string;
   readonly procedure: string;
   /**
-   * The call's record, when it has one (`readOf` in the catalog sets `module` and `procedure` from it). Its answer is then
-   * parsed by the record, with every caller's checks, before the columns read it; an answer off the record is unreadable.
+   * The name of the call's record, when it has one (`readOf` in the catalog sets it with `module` and `procedure`, all from the
+   * record). The spec reaches the browser, so it holds the name, not the schema; the server looks the record up and parses the
+   * answer by it, with every caller's checks, before the columns read it. An answer off the record is unreadable.
    */
-  readonly record?: DeskReadRecord;
+  readonly recordName?: string;
   readonly input?: Readonly<Record<string, unknown>>;
   /**
    * The service needs a time window (`from` and `to`) and has no default. The desk asks for the last N×24 hours ending at the

@@ -1,5 +1,6 @@
 import 'server-only';
-import { replyAccepted } from '@intafaced/contracts/procedure';
+import { replyAccepted, type ProcedureRecord } from '@intafaced/contracts/procedure';
+import { CONTRACT_PROCEDURES } from '@intafaced/contracts/procedure-registry';
 import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom } from '@/lib/desk/part';
 import {
@@ -13,7 +14,7 @@ import {
   readSpecFor,
 } from './catalog';
 import { inputFor, readData } from './model';
-import type { DeskReadRecord, DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec } from './types';
+import type { DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec } from './types';
 
 /**
  * Read a whole module desk as the signed-in founder.
@@ -59,8 +60,12 @@ function outcomeOf(spec: ReadSpec, result: FounderCallResult<ReadData>, asOf: st
   };
 }
 
-/** The answer parses by the call's record and passes every caller's checks on it (`accept`). */
-function onRecord(record: DeskReadRecord, raw: unknown): boolean {
+const RECORDS: ReadonlyMap<string, ProcedureRecord> = new Map(CONTRACT_PROCEDURES.map((r) => [r.name, r]));
+
+/** The answer parses by the read's record and passes every caller's checks on it (`accept`). A name with no record reads nothing. */
+function onRecord(recordName: string, raw: unknown): boolean {
+  const record = RECORDS.get(recordName);
+  if (record === undefined) return false;
   const parsed = record.output.safeParse(raw);
   return parsed.success && replyAccepted(record, parsed.data);
 }
@@ -73,7 +78,7 @@ async function loadGroup(ctx: FounderCallContext, specs: readonly ReadSpec[], no
   const asOf = new Date().toISOString();
   return specs.map((spec) => {
     if (answer.kind !== 'ok') return outcomeOf(spec, answer, asOf);
-    const data = spec.record === undefined || onRecord(spec.record, answer.data.raw) ? readData(spec, answer.data.raw) : null;
+    const data = spec.recordName === undefined || onRecord(spec.recordName, answer.data.raw) ? readData(spec, answer.data.raw) : null;
     return outcomeOf(
       spec,
       data === null ? { kind: 'invalid', requestId: answer.requestId } : { kind: 'ok', data, requestId: answer.requestId },
