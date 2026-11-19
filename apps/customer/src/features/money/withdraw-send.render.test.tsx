@@ -21,7 +21,10 @@ const query = vi.fn();
 // The form also reads the caller's campaign rewards (the locked-rewards note): none here.
 const noRewards = { ok: true, data: { rewards: [], totals: [], more: false } };
 const route = (module: string, ...rest: unknown[]) => (module === 'campaigns' ? Promise.resolve(noRewards) : query(module, ...rest));
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { mutate, query: route } }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: { mutate, query: route } }),
+}));
 const mint = vi.fn();
 vi.mock('./withdraw-step-up', async (original) => ({
   ...(await original<typeof import('./withdraw-step-up')>()),

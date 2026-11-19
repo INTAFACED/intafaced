@@ -2,7 +2,7 @@ import { useId, useMemo, useState } from 'react';
 import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
 import { Button, Failure, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { RailForm, filled, type Key } from './rail-form';
 import { date } from './components';
 import { railPayeeCheckSchema, railPayeeRemovedSchema, railPayeeSchema, type RailPayee, type RailRequirements } from './contracts';

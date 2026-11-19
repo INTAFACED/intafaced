@@ -12,7 +12,7 @@ import {
 import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 
 /**
  * Lost phone or compromised account (BK-safe-01, J-bank-18 #4), on the flow template. From the bank: the ordered steps
