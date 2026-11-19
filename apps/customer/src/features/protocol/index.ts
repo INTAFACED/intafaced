@@ -9,11 +9,10 @@ export {
   withDomainTypes,
   type VenueDepositRoute,
 } from './venue-wallet/venue-account-api';
-export { isFactoryUnset } from './wallet/AccountsPanel';
 export { APP_CHAIN_ID, refuseReason, shortAddress, type Eip1193Provider, type TypedDataDocument } from './wallet/eip1193';
 export { TabList } from './tokens/TabList';
 export { RepresentationPanel } from './wallet/RepresentationPanel';
-export { toWei, utcTime } from './wallet/SessionKeysPanel';
 export { transferCalldata } from './wallet/transfer';
 export { usePolled } from './wallet/use-polled';
 export { useWallet, waitMined, WalletProvider } from './wallet/WalletProvider';
+export { isFactoryUnset, toWei, utcTime } from './wallet/wallet-text';

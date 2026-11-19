@@ -2,7 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AccountsPanel, isFactoryUnset } from './AccountsPanel';
+import { AccountsPanel } from './AccountsPanel';
+import { isFactoryUnset } from './wallet-text';
 import { COMPROMISE_STEPS, SAFETY_LESSONS, SafetyPanel } from './SafetyPanel';
 import { WEB3_ROUTES } from '../routes';
 
