@@ -2,6 +2,7 @@
 #![allow(
     clippy::unwrap_used,
     clippy::indexing_slicing,
+    clippy::too_many_arguments,
     reason = "a test: a failure is the point"
 )]
 

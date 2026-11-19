@@ -1,6 +1,10 @@
 //! What the ported TypeScript tests share: amounts written as text, the TEST calendar, and figures read back as text.
 #![allow(dead_code, reason = "each test file uses its own part")]
-#![allow(clippy::unwrap_used, reason = "a test: a failure is the point")]
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "a test: a failure is the point"
+)]
 
 use svc_tax::money::parse_amount;
 use svc_tax::tax::{Amount, format_amount};
