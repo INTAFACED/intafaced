@@ -231,15 +231,6 @@
     },
     {
       "file": "services/svc-bank/src/developer-api/bank-api.ts",
-      "table": "api_moves",
-      "target": "(user_id, dedupe_id)",
-      "constraint": "api_moves_partner_key_key",
-      "verdict": "race",
-      "issue": 8897,
-      "why": "partner_key = MOVE_KEY(userId, dedupeId) (bank-api.ts:140) is built from the target columns. move() checks the row, then inserts on this.sql with no lock (bank-api.ts:415-432). An API client retrying the same dedupeId concurrently makes the loser raise 23505 api_moves_partner_key_key instead of re-reading the row."
-    },
-    {
-      "file": "services/svc-bank/src/developer-api/bank-api.ts",
       "table": "api_payments",
       "target": "(user_id, idempotency_key)",
       "constraint": "api_payments_partner_key_key",
