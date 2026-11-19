@@ -3,7 +3,7 @@ import { navigate } from '../../../app/location';
 import { useApi } from '../../session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useDebouncedValue } from '../../pay/portal/payments/use-debounced';
+import { useDebouncedValue } from '../../../shared/use-debounced';
 import type { ApiResult } from '../../../shared/api';
 import { Button, DataTable, Loading, Panel } from '../../../shared/ui';
 import { KNOWN_NETWORKS, networkLabel } from '../blockers';

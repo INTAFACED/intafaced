@@ -1,3 +1,3 @@
-export { useApi, useSession, SessionProvider, sessionSchema, type Session } from './session';
+export { SessionProvider, sessionSchema, useApi, useSession, type Session } from './session';
+export { findBrowserWallet, signTextWithBrowserWallet, signWithBrowserWallet, walletChallengeSchema } from './browser-wallet';
 export { requestPasskeyAssertion, signAssertion, signInWithPasskey } from './webauthn';
-export { findBrowserWallet, signWithBrowserWallet, walletChallengeSchema } from './browser-wallet';

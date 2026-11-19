@@ -1,13 +1,9 @@
 import { useMemo } from 'react';
 import { z } from 'zod';
-import {
-  HOME_CONFIG_PROCEDURE,
-  homeConfigOutputSchema,
-  WORK_ITEMS_PROCEDURE,
-  type WorkItemSource,
-} from '@intafaced/contracts/home-work-items';
+import { WORK_ITEMS_PROCEDURE, type HomeConfig, type WorkItemSource } from '@intafaced/contracts/home-work-items';
+import { OPS_HOME_CONFIG } from '@intafaced/contracts/ops-public-procedures';
 import { useSession } from '../../features/session/session';
-import { authoredRefusal, isServiceNotConnected, type ApiResult } from '../../shared/api';
+import { authoredRefusal, isServiceNotConnected, type ApiClient, type ApiResult } from '../../shared/api';
 import { useResource, type Resource } from '../../shared/resource';
 import { sourceAnswer, workList, WORK_SOURCES, type ConfigRead, type SourceRead, type WorkList } from './work-list';
 
@@ -20,18 +16,18 @@ type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 const unwired = (failure: Failure) => failure.reason === 'not_mounted' || isServiceNotConnected(failure.code);
 
 /** One read, keyed by person, so another person's answer is never shown. */
-function useRead<T>(module: string, procedure: string, schema: z.ZodType<T>, key: string): { resource: Resource<T>; reload: () => void } {
+function useRead<T>(
+  read: (api: ApiClient, signal: AbortSignal) => Promise<ApiResult<T>>,
+  key: string,
+): { resource: Resource<T>; reload: () => void } {
   const { api, userId } = useSession();
   return useResource(
-    (signal) =>
-      userId
-        ? api.query(module, procedure, undefined, schema, { signal })
-        : Promise.resolve(authoredRefusal('aborted', { key: 'beforeDispatch' })),
+    (signal) => (userId ? read(api, signal) : Promise.resolve(authoredRefusal('aborted', { key: 'beforeDispatch' }))),
     `work-${key}:${userId}`,
   );
 }
 
-function configRead(resource: Resource<z.infer<typeof homeConfigOutputSchema>>): ConfigRead {
+function configRead(resource: Resource<HomeConfig>): ConfigRead {
   if (resource.status === 'loading') return { state: 'loading' };
   if (resource.status === 'ready') return { state: 'ready', config: resource.data };
   return unwired(resource.failure) ? { state: 'unwired' } : { state: 'failed', code: resource.failure.code };
@@ -48,12 +44,16 @@ function sourceRead(source: WorkItemSource, resource: Resource<unknown>): Source
 /** The owner's answer is checked against the contract in `sourceAnswer`, where a wrong row drops the whole answer. */
 const anyAnswer = z.unknown();
 
+/** One owner's work items, by its module. */
+const useOwnerRead = (source: WorkItemSource) =>
+  useRead((api, signal) => api.query(source, WORK_ITEMS_PROCEDURE, undefined, anyAnswer, { signal }), source);
+
 /** Home's work list: the owner values from svc-ops, then each owner's own items. */
 export function useWorkList(): { list: WorkList; retry: () => void } {
-  const config = useRead('ops', HOME_CONFIG_PROCEDURE, homeConfigOutputSchema, 'config');
-  const identity = useRead('identity', WORK_ITEMS_PROCEDURE, anyAnswer, 'identity');
-  const bank = useRead('bank', WORK_ITEMS_PROCEDURE, anyAnswer, 'bank');
-  const pay = useRead('pay', WORK_ITEMS_PROCEDURE, anyAnswer, 'pay');
+  const config = useRead((api, signal) => api.call(OPS_HOME_CONFIG, undefined, { signal }), 'config');
+  const identity = useOwnerRead('identity');
+  const bank = useOwnerRead('bank');
+  const pay = useOwnerRead('pay');
   const reads = { identity, bank, pay } satisfies Record<(typeof WORK_SOURCES)[number], unknown>;
 
   const list = useMemo(

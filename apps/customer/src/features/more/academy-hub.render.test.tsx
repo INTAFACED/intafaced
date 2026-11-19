@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { FeaturedLessonCard } from './AcademyHub';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);

@@ -47,7 +47,7 @@ describe('valuation.prices (the prices Home and Assets value holdings with)', ()
     await expect(
       createValuationPricesRouter(prices)
         .createCaller({} as never)
-        .prices(),
+        .prices(undefined),
     ).resolves.toEqual(prices);
   });
 });
