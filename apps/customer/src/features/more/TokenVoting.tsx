@@ -1,8 +1,7 @@
 // hand-declared-ok: svc-token's governance outputs are declared in its router; packages/contracts has no token schemas yet
 import { useState, type FormEvent } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
-import { signTextWithBrowserWallet } from '../session/browser-wallet';
+import { signTextWithBrowserWallet, useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';

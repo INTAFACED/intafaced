@@ -9,10 +9,14 @@
  * (READS_PAST), or when it imports `local-test-market.mjs` itself. Anything this can't read (a missing file, an
  * import it can't resolve, an empty list) counts as reading the past, so a doubt always writes the history. A journey
  * that reads the past and is called history-free fails on the empty chart it then sees; it never passes on one.
- * Only a targeted run asks: main's runs and a pull request's full run always write it (.github/workflows/
- * real-app-journeys.yml, the market step).
+ * Every run with a shard plan asks, full runs too (main's, a pull request's): a shard is one stack, so only its own
+ * files decide (.github/workflows/real-app-journeys.yml, the market step). A run without a plan (Playwright's own
+ * split) always writes it. (Failure it prevents: project-state#3329, 19 Nov 2026: full runs of 90 shards held all 500
+ * of GitHub's hosted runners, run 44514711810 had 78 shards waiting, and every shard paid the history's minutes, though
+ * 43 of 90 shards of a full plan read no market's past.)
  *
  * Usage: node tooling/scripts/journey-market-past.mjs <journey file>...   (names in apps/customer/tests/real-app)
+ *        node tooling/scripts/journey-market-past.mjs --shard <n>        (the shard plan's JSON in the SHARDS env)
  * Prints `journeys` (write the history) or `none` on stdout, and each file that reads the past, with why, on stderr.
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -78,10 +82,30 @@ export function historyFor(files, opts = {}) {
   return { history: reasons.length ? 'journeys' : 'none', reasons };
 }
 
+/**
+ * The history for shard `n` (from 1) of a shard plan (journey-shards.mjs: a JSON array, one string of space-separated
+ * journey files per shard). A plan that can't be read, a shard it lacks or an empty shard writes the history.
+ */
+export function historyForShard(plan, n, opts = {}) {
+  let shards;
+  try {
+    shards = JSON.parse(plan);
+  } catch {
+    return { history: 'journeys', reasons: ['the shard plan is not JSON'] };
+  }
+  const files = Array.isArray(shards) && Number.isInteger(n) && n >= 1 ? shards[n - 1] : undefined;
+  if (typeof files !== 'string') return { history: 'journeys', reasons: [`the shard plan has no shard ${n}`] };
+  return historyFor(files.split(' '), opts);
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let out = { history: 'journeys', reasons: [] };
   try {
-    out = historyFor(process.argv.slice(2).flatMap((a) => a.split(/[\s,]+/)));
+    const args = process.argv.slice(2);
+    out =
+      args[0] === '--shard'
+        ? historyForShard(process.env.SHARDS ?? '', Number(args[1]))
+        : historyFor(args.flatMap((a) => a.split(/[\s,]+/)));
   } catch (err) {
     out.reasons.push(`unreadable: ${err.message}`);
   }
