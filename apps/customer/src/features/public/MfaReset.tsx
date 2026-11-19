@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { mfaResetViewSchema, type MfaResetView } from '@intafaced/contracts/identity';
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { mfaResetCopy } from './mfa-reset-copy';

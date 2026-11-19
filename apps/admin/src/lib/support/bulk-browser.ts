@@ -1,6 +1,6 @@
 /** Browser hop for the support desk's bulk bar. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import { readBulkResults, type BulkChange, type BulkExpected, type BulkRow } from './bulk';
 import { readClaimReply } from './browser';
 import type { SupportBulkPolicyView } from './types';

@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { LimitRequestQueueRow, LimitReviewInput } from '@intafaced/contracts/api-rate-limits';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import type { LimitDeskView } from '@/lib/identity-ops/limits-server';
 import './desk.css';
 

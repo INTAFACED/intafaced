@@ -9,7 +9,6 @@
 //! other than GET and POST, and the wording of a JSON syntax error (V8's own text). The replay sends none of them.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::access::{self, Jurisdiction};
 use crate::edge::{self, EdgeKey, MIN_SECRET_LENGTH, Principal};
@@ -18,22 +17,8 @@ use crate::json::{self, Json};
 use crate::tax::{Failure, TaxService};
 use crate::zod;
 
-/// One HTTP request as it reaches the service.
-pub struct Request<'a> {
-    pub method: &'a str,
-    /// The path and query, as sent (`/trpc/lotBook?input=...`).
-    pub url: &'a str,
-    /// Header names in lower case.
-    pub headers: &'a [(String, String)],
-    pub body: &'a str,
-}
-
-/// The answer: status and body. The body is always JSON.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Response {
-    pub status: u16,
-    pub body: String,
-}
+use service_kit::server::{Door, RequestIds};
+pub use service_kit::server::{Request, Response};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -172,7 +157,7 @@ pub struct Wire {
     dev: bool,
     tax: TaxService,
     /// Fastify's request ids: `req-1`, `req-2`, ... in base 36, one per request this process takes.
-    requests: AtomicU64,
+    requests: RequestIds,
     /// `EDGE_PRINCIPAL_PUBLIC_KEY` with its limits: the edge's Ed25519 principals are believed too.
     edge_key: Option<EdgeKey>,
 }
@@ -191,7 +176,7 @@ impl Wire {
             jurisdiction: Jurisdiction::from_env(&config.env)?,
             dev: config.env.get("NODE_ENV").map(String::as_str) != Some("production"),
             tax: config.tax,
-            requests: AtomicU64::new(0),
+            requests: RequestIds::new(),
             edge_key: None,
         })
     }
@@ -209,16 +194,7 @@ impl Wire {
 
     /// The next Fastify request id. The server takes one for every request, whatever its route.
     pub fn next_request_id(&self) -> String {
-        let mut n = self
-            .requests
-            .fetch_add(1, Ordering::Relaxed)
-            .saturating_add(1);
-        let mut digits = Vec::new();
-        while n > 0 {
-            digits.push(char::from_digit(u32::try_from(n % 36).unwrap_or(0), 36).unwrap_or('0'));
-            n /= 36;
-        }
-        format!("req-{}", digits.iter().rev().collect::<String>())
+        self.requests.next()
     }
 
     /// Answers one request.
@@ -469,6 +445,17 @@ fn percent_decode(s: &str, plus_is_space: bool) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The kit's server serves the wire as svc-tax's door.
+impl Door for Wire {
+    fn next_request_id(&self) -> String {
+        Wire::next_request_id(self)
+    }
+
+    fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
+        Wire::handle_as(self, req, request_id)
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent, type JSX } from 'react';
 import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { developersCopy } from './developers-copy';
 import { liveCopy } from './developers-live-copy';
 import { hostsView, readDeveloperHosts, readRegionalRule, regionalRuleView } from './developers-values';

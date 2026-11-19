@@ -55,6 +55,8 @@ Every one is in `docker-compose.apps.yml` (`svc-fix` only under its `fix` profil
 
 `svc-tax` (per-jurisdiction lot export from ledger reads) is the one service written in Rust: `crates/svc-tax`, its own image, its migrations applied by `svc-tax migrate` (compose's `svc-tax-migrate`).
 
+The generic server parts every Rust service shares (JSON and time as JavaScript has them, the edge and service-to-service checks, zod's input checks, telemetry, the server, the environment slices, the production posture, the Postgres pool, the migration runner) are one library crate, `crates/service-kit`: never a service, depending on none, held byte for byte to `@intafaced/contracts`, `@intafaced/config`, `@intafaced/telemetry` and the ledger client's money.
+
 Compose also runs `migrate` (one-shot, runs every TypeScript service's migrations: `tooling/infra/migrate-all.mjs`), `litellm`, `academy-minio`, `livekit`, and the two apps.
 
 ## Packages that matter

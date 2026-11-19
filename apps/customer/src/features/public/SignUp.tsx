@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'rea
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { singleFlight } from '../../shared/password';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { publicAuthContext, publicAuthHref } from './auth-context';
 import { validAuthSession } from './public-auth-guards';

@@ -1,8 +1,9 @@
-//! The checks zod 4 runs on svc-tax's inputs, with zod's own issues: same codes, same fields in the same order, same
+//! The checks zod 4 runs on a service's inputs, with zod's own issues: same codes, same fields in the same order, same
 //! messages. A refused input's wire message is `JSON.stringify(issues, null, 2)`, so every byte counts.
 //!
-//! Only the schema pieces svc-tax's records use are here (`packages/contracts/src/tax-procedures.ts`,
-//! `tax-lot-book.ts`). `crates/svc-tax/tests/input_parity.rs` holds each against zod's own verdicts.
+//! These are zod's primitives; each service's own schemas are built from them in the service (svc-tax's in its
+//! `inputs.rs`, from `packages/contracts/src/tax-procedures.ts` and `tax-lot-book.ts`). Only the pieces those schemas
+//! use are here so far; `crates/svc-tax/tests/input_parity.rs` holds each against zod's own verdicts.
 
 use crate::json::Json;
 use crate::time;

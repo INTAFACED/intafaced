@@ -1,6 +1,6 @@
 import { StateBlock } from '@intafaced/ui';
 import { spotOrderTypesSchema } from '@intafaced/contracts/spot-order-types';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { deskCopy } from '../../../screens/trade/desk/copy';
 import { useRead } from '../use-read';
 import { acceptedCells, refusedName } from './order-types-view';

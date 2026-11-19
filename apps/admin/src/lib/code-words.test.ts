@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actorRef, codeWords } from './words';
+import { actorRef, codeWords } from './code-words';
 
 describe('desk words', () => {
   it('turns the p2p moderation codes into sentences', () => {

@@ -773,24 +773,6 @@
       "why": "Rows inserted as open/expired never enter the partial index (lifecycle IN ('bound','settled')). saveBound/saveSettled reach it only via DO UPDATE on the existing quote row, so a retry of the same quote updates its own row. A 23505 there comes only from a different sibling quote of the same RFQ, which is a real second accept that must refuse, and saveBound maps it with refuseSecondAccept (otc/quote-store.ts:271-277)."
     },
     {
-      "file": "services/svc-trade/src/quant/live-run/sql-store.ts",
-      "table": "quant_live_runs",
-      "target": "(user_id, run_id)",
-      "constraint": "quant_live_runs_agent_uq",
-      "verdict": "race",
-      "issue": 8880,
-      "why": "runId is the caller's req.runId (quant/live-run/live-runs.ts:431), and agent_address = agentAddressFor(seed, userId, 'quant-live:'+runId) (live-runs.ts:528), so a double-submitted start carries equal (user_id, run_id) and equal agent_address. insertOnce (sql-store.ts:147) takes no lock, and the loser gets 23505 quant_live_runs_agent_uq instead of the stored run."
-    },
-    {
-      "file": "services/svc-trade/src/signals/signal-desk.ts",
-      "table": "signal_intents",
-      "target": "(intent_key)",
-      "constraint": "signal_intents_pkey",
-      "verdict": "race",
-      "issue": 8882,
-      "why": "id = idFor(intent_key) (signal-desk.ts:364-368), a hash of the target. A redelivered alert (same webhook and alertId) arriving concurrently passes the signal_alert_results check (343-345) twice, and the loser gets 23505 signal_intents_pkey instead of DO NOTHING."
-    },
-    {
       "file": "services/svc-trade/src/spot/trade-service/fills.ts",
       "table": "fills",
       "target": "(id)",

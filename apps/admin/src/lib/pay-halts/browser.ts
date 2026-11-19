@@ -1,7 +1,7 @@
 /** Browser hop for the pay halts desk. Same-origin BFF only; no credential is held here. */
 import type { PayHaltScope, PayHaltTarget } from '@intafaced/contracts';
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import type { Outcome } from './model';
 import type { PayHaltsRead } from './types';
 import { isRecord } from '@intafaced/contracts/guards';

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { referrerChangeCopy as copy } from './referrer-change-copy';
 
 // The person's reviewed referrer change (CM-referral-01, J-campaigns-05 #5 and #6): the latest request and its state,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Page } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { date } from './components';
 import { destinationSchema, type Destination } from './contracts';
 import { moneyRefusalWords } from './money-refusal-copy';

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { appealSchema } from '@intafaced/contracts/identity-appeals';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Button } from '../../shared/ui';
 import { publicAuthCopy } from './public-auth-copy';
 
