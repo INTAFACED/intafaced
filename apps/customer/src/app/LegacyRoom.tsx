@@ -7,7 +7,7 @@ const PayRoutes = lazy(() => import('../features/pay').then((module) => ({ defau
 const MoneyRoutes = lazy(() => import('../features/money/MoneyRoutes').then((module) => ({ default: module.MoneyRoutes })));
 export const preloadAccountRoutes = () => import('../features/account/AccountRoutes').then((module) => ({ default: module.AccountRoutes }));
 const AccountRoutes = lazy(preloadAccountRoutes);
-const MoreRoutes = lazy(() => import('../features/more').then((module) => ({ default: module.MoreRoutes })));
+const MoreRoutes = lazy(() => import('../features/more/MoreRoutes').then((module) => ({ default: module.MoreRoutes })));
 
 export type LegacyArea = 'money' | 'trade' | 'pay' | 'more' | 'person';
 
