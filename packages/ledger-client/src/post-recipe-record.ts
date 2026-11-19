@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isRecord } from '@intafaced/contracts/guards';
 import { defineProcedure } from '@intafaced/contracts/procedure';
 import { MoneyError, parseAmount } from './money.js';
 import { recipes, type RecipeName } from './recipes/index.js';
@@ -18,8 +19,8 @@ import { LedgerError, type PostRequest } from './types.js';
  * inputs are the same key and the same body: a retry books nothing twice, and the same key with a different body is
  * refused (`ledger.idempotency_conflict`) as on `/trpc/post`.
  *
- * Adding a recipe to the door is one line in `RECIPE_DOORS` (its inputs' wire shape) plus its grant in svc-ledger's
- * `caller-allowlist.ts`. Only svc-academy's two recipes are on the door now.
+ * Adding a recipe to the door is one entry in `RECIPE_DOORS` (its inputs' wire shape and the conversion to its bigints),
+ * its line in `postRecipeInput`, and its grant in svc-ledger's `caller-allowlist.ts`. Only svc-academy's two recipes are on the door now.
  */
 
 /** A positive or zero decimal string, at most 18 places: the recipe refuses zero where it must. */
@@ -47,71 +48,48 @@ const PLACE = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('partner-reserve'), partnerId: PLACE_ID }).strict(),
 ]);
 
-/** The wire form of one field of a recipe's input: a `bigint` field is an AMOUNT or a COUNTER; any other is its own schema. */
-type WireField<T> = [T] extends [bigint] ? typeof AMOUNT | typeof COUNTER : z.ZodType<T>;
-type WireShape<I> = { readonly [K in keyof I]-?: WireField<I[K]> };
-
-interface RecipeDoor<N extends RecipeName> {
-  readonly name: N;
+/** One recipe on the door: its inputs' wire shape, and how they become the registry recipe's own inputs. */
+interface RecipeDoor {
   readonly wire: z.ZodObject;
-  readonly build: (input: Record<string, unknown>) => PostRequest;
+  /** Parses the wire inputs by `wire` and builds the post with the registry recipe (`recipes.<name>`), never a copy. */
+  readonly run: (input: unknown) => PostRequest;
 }
 
-/** One recipe on the door: its name and the wire shape of its inputs. The recipe itself is `recipes[name]`, never copied. */
-function door<N extends RecipeName>(name: N, shape: WireShape<Parameters<(typeof recipes)[N]>[0]>): RecipeDoor<N> {
-  const fields = shape as Record<string, z.ZodType>;
-  const recipe = recipes[name] as (input: Record<string, unknown>) => PostRequest;
-  return {
-    name,
-    wire: z.object(fields).strict(),
-    build: (input) =>
-      recipe(
-        Object.fromEntries(
-          Object.entries(input).map(([key, value]) => [
-            key,
-            fields[key] === AMOUNT ? parseAmount(value as string) : fields[key] === COUNTER ? BigInt(value as string) : value,
-          ]),
-        ),
-      ),
-  };
+function door<S extends z.ZodObject>(wire: S, build: (input: z.output<S>) => PostRequest): RecipeDoor {
+  return { wire, run: (input) => build(wire.parse(input)) };
 }
 
-/** The recipes the door posts, one line each. */
+/** The fields both academy recipes take; only the place's side differs. */
+const academyFields = { course: COURSE, userId: UUID, n: COUNTER, assetId: ASSET, amount: AMOUNT, paymentId: CHAIN_TX };
+const academyPurchaseWire = z.object({ ...academyFields, to: PLACE }).strict();
+const academyRefundWire = z.object({ ...academyFields, from: PLACE }).strict();
+
+/**
+ * The recipes the door posts, one entry each, plus its line in `postRecipeInput` below. TypeScript checks each `build`
+ * against the recipe's own input type, so a wire shape that drifts from its recipe does not compile.
+ */
 const RECIPE_DOORS = {
-  academyPurchase: door('academyPurchase', {
-    course: COURSE,
-    userId: UUID,
-    n: COUNTER,
-    assetId: ASSET,
-    amount: AMOUNT,
-    to: PLACE,
-    paymentId: CHAIN_TX,
-  }),
-  academyPurchaseRefund: door('academyPurchaseRefund', {
-    course: COURSE,
-    userId: UUID,
-    n: COUNTER,
-    assetId: ASSET,
-    amount: AMOUNT,
-    from: PLACE,
-    paymentId: CHAIN_TX,
-  }),
-} as const;
+  academyPurchase: door(academyPurchaseWire, (i) => recipes.academyPurchase({ ...i, n: BigInt(i.n), amount: parseAmount(i.amount) })),
+  academyPurchaseRefund: door(academyRefundWire, (i) =>
+    recipes.academyPurchaseRefund({ ...i, n: BigInt(i.n), amount: parseAmount(i.amount) }),
+  ),
+} as const satisfies Partial<Record<RecipeName, RecipeDoor>>;
 
 export type PostRecipeName = keyof typeof RECIPE_DOORS;
-export const POST_RECIPE_NAMES = Object.keys(RECIPE_DOORS) as PostRecipeName[];
 
 export function isPostRecipeName(name: unknown): name is PostRecipeName {
   return typeof name === 'string' && Object.hasOwn(RECIPE_DOORS, name);
 }
+
+export const POST_RECIPE_NAMES: readonly PostRecipeName[] = Object.keys(RECIPE_DOORS).filter(isPostRecipeName);
 
 /** The door's refusal when the body names no recipe it posts. Nothing is read or booked. */
 export const POST_RECIPE_UNKNOWN = 'ledger.recipe_unknown';
 /** The door's refusal when the inputs are not that recipe's, or the recipe refuses them. Nothing is read or booked. */
 export const POST_RECIPE_INPUT_INVALID = 'ledger.recipe_input_invalid';
 
-const variants = POST_RECIPE_NAMES.map((name) => z.object({ recipe: z.literal(name), input: RECIPE_DOORS[name].wire }).strict());
-const postRecipeInput = z.discriminatedUnion('recipe', variants as unknown as [(typeof variants)[number], ...(typeof variants)[number][]]);
+const variant = <N extends PostRecipeName>(name: N) => z.object({ recipe: z.literal(name), input: RECIPE_DOORS[name].wire }).strict();
+const postRecipeInput = z.discriminatedUnion('recipe', [variant('academyPurchase'), variant('academyPurchaseRefund')]);
 
 const postedEntry = z.object({
   id: z.string(),
@@ -213,7 +191,7 @@ export type PostRecipeReceipt = z.output<typeof LEDGER_POST_RECIPE.output>;
  * `ledger.recipe_input_invalid`. Both before anything is read or booked. The server and the in-process poster share it.
  */
 export function postRecipeRequest(body: unknown): { readonly recipe: PostRecipeName; readonly request: PostRequest } {
-  const named = body !== null && typeof body === 'object' ? (body as { recipe?: unknown }).recipe : undefined;
+  const named = isRecord(body) ? body.recipe : undefined;
   if (!isPostRecipeName(named)) {
     throw new LedgerError(
       `postRecipe posts only ${POST_RECIPE_NAMES.join(', ')}; got ${JSON.stringify(named ?? null)}`,
@@ -229,7 +207,7 @@ export function postRecipeRequest(body: unknown): { readonly recipe: PostRecipeN
     );
   }
   try {
-    return { recipe: named, request: RECIPE_DOORS[named].build(parsed.data.input as Record<string, unknown>) };
+    return { recipe: named, request: RECIPE_DOORS[named].run(parsed.data.input) };
   } catch (err) {
     // The recipe's own refusal (`InvalidEntryError`) or an amount the book cannot hold (`MoneyError`): the caller's inputs.
     if (err instanceof MoneyError || (err instanceof LedgerError && err.code === 'ledger.invalid_entry')) {

@@ -122,7 +122,8 @@ describe('createHttpRecipePoster: the same transport as post', () => {
   it('posts the record body to /trpc/postRecipe and returns the receipt with real entries', async () => {
     const { fetch, sent } = scripted([json(200, ack())]);
     const tx = await poster(fetch).postRecipe(CALL);
-    expect(sent).toEqual([{ url: `http://ledger.test${LEDGER_POST_RECIPE.path}`, body: JSON.stringify(CALL) }]);
+    expect(sent.map((s) => s.url)).toEqual([`http://ledger.test${LEDGER_POST_RECIPE.path}`]);
+    expect(JSON.parse(sent[0]!.body)).toEqual(CALL);
     expect(tx).toMatchObject({ id: 'tx-1', idempotencyKey: KEY, module: 'academy' });
     expect(tx.entries.map((e) => e.amount)).toEqual([2_500_000_000_000_000_000n, 2_500_000_000_000_000_000n]);
   });
@@ -160,10 +161,10 @@ describe('createHttpRecipePoster: the same transport as post', () => {
     const realNow = Date.now;
     Date.now = () => now;
     try {
-      const sleep = async (ms: number) => {
+      const advanceClock = async (ms: number) => {
         now += ms + 1_000;
       };
-      const err = await poster(fetch, { deadlineMs: 500, retryBaseDelayMs: 100, sleep })
+      const err = await poster(fetch, { deadlineMs: 500, retryBaseDelayMs: 100, sleep: advanceClock })
         .postRecipe(CALL)
         .catch((e: unknown) => e);
       expect((err as LedgerError).code).toBe('ledger.writes_blocked_store_unavailable');

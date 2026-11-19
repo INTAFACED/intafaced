@@ -8,6 +8,7 @@ import {
   postRecipeRequest,
 } from '@intafaced/ledger-client/post-recipe';
 import { OutputBreaksRecordError } from '@intafaced/contracts/procedure-http';
+import { isRecord } from '@intafaced/contracts/guards';
 import { RESTORE_ASOF_INVALID, RESTORE_ASOF_UNANSWERABLE } from './ledger/postgres-ledger.js';
 import { SKEW_BOUND_UNSET } from './ledger/clock-skew.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -190,16 +191,17 @@ export interface PortfolioIndexerCompose {
 }
 
 export async function handleS2sPost(ledger: LedgerService, body: unknown, caller?: PostCaller, binding?: CallerBindingOptions) {
-  return postChecked(ledger, postRequestSchema.parse(body), caller, binding);
+  return postChecked(ledger, postRequestSchema.parse(body), { caller, binding });
+}
+
+/** Who sent a post, as the door proved it, and how its binding is judged. Omitted on direct unit calls. */
+interface PostSender {
+  readonly caller?: PostCaller;
+  readonly binding?: CallerBindingOptions;
 }
 
 /** Everything `post` does after parsing its body: the one pipeline both posting doors run. */
-async function postChecked(
-  ledger: LedgerService,
-  input: z.output<typeof postRequestSchema>,
-  caller?: PostCaller,
-  binding?: CallerBindingOptions,
-) {
+async function postChecked(ledger: LedgerService, input: z.output<typeof postRequestSchema>, { caller, binding }: PostSender) {
   // Direct unit calls omit the caller and stay on the recipe gate. Both doors
   // that accept a network post pass the verified caller in.
   if (caller) applyCallerBinding(caller, input, binding);
@@ -234,8 +236,8 @@ async function postChecked(
  * for some recipe with the same legs. A claimed name under the shared secret is counted by `applyCallerBinding`, as on
  * `post`; `keypair` mode refuses it at the door.
  */
-async function handleS2sPostRecipe(ledger: LedgerService, body: unknown, caller?: PostCaller, binding?: CallerBindingOptions) {
-  const named = body !== null && typeof body === 'object' ? (body as { recipe?: unknown }).recipe : undefined;
+async function handleS2sPostRecipe(ledger: LedgerService, body: unknown, { caller, binding }: PostSender) {
+  const named = isRecord(body) ? body.recipe : undefined;
   if (!isPostRecipeName(named)) throw new LedgerError(`postRecipe does not post ${JSON.stringify(named ?? null)}.`, POST_RECIPE_UNKNOWN);
   // Before the inputs are even read: a caller learns nothing about a recipe it may not post.
   const grant = caller?.kind === 'bound' ? grantFor(caller.service, named) : undefined;
@@ -244,7 +246,7 @@ async function handleS2sPostRecipe(ledger: LedgerService, body: unknown, caller?
   if (caller?.kind === 'bound' && grant?.module !== request.module) {
     throw new LedgerError(`Caller ${caller.service} may not post module ${request.module} as ${named}.`, CALLER_FORBIDDEN);
   }
-  const ack = await postChecked(ledger, postRequestSchema.parse(ledgerPostWire(request)), caller, binding);
+  const ack = await postChecked(ledger, postRequestSchema.parse(ledgerPostWire(request)), { caller, binding });
   const reply = LEDGER_POST_RECIPE.output.safeParse({
     ...ack,
     idempotencyKey: request.idempotencyKey,
@@ -643,7 +645,7 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   app.post(LEDGER_POST_RECIPE.path, async (req, reply) => {
     try {
       const caller = authenticate(req, 'postRecipe');
-      return await handleS2sPostRecipe(ledger, req.body, caller, bindingOptions);
+      return await handleS2sPostRecipe(ledger, req.body, { caller, binding: bindingOptions });
     } catch (err) {
       const { status, body } = httpError(err);
       return reply.code(status).send(body);

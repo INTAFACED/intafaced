@@ -283,6 +283,10 @@
                     "maxLength": 64,
                     "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
                   },
+                  "paymentId": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-f]{64}$"
+                  },
                   "to": {
                     "oneOf": [
                       {
@@ -334,13 +338,9 @@
                         "additionalProperties": false
                       }
                     ]
-                  },
-                  "paymentId": {
-                    "type": "string",
-                    "pattern": "^0x[0-9a-f]{64}$"
                   }
                 },
-                "required": ["course", "userId", "n", "assetId", "amount", "to", "paymentId"],
+                "required": ["course", "userId", "n", "assetId", "amount", "paymentId", "to"],
                 "additionalProperties": false
               }
             },
@@ -379,6 +379,10 @@
                     "type": "string",
                     "maxLength": 64,
                     "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "paymentId": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-f]{64}$"
                   },
                   "from": {
                     "oneOf": [
@@ -431,13 +435,9 @@
                         "additionalProperties": false
                       }
                     ]
-                  },
-                  "paymentId": {
-                    "type": "string",
-                    "pattern": "^0x[0-9a-f]{64}$"
                   }
                 },
-                "required": ["course", "userId", "n", "assetId", "amount", "from", "paymentId"],
+                "required": ["course", "userId", "n", "assetId", "amount", "paymentId", "from"],
                 "additionalProperties": false
               }
             },

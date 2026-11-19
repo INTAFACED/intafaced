@@ -9,12 +9,22 @@ import {
   type Keyring,
   type ServiceName,
 } from '@intafaced/contracts';
-import { MemoryLedger, formatAmount, ledgerPostWire, parseAmount, recipes, type LedgerTx } from '@intafaced/ledger-client';
+import postgres from 'postgres';
+import { MemoryEventBus } from '@intafaced/events';
+import {
+  MemoryLedger,
+  formatAmount,
+  ledgerPostWire,
+  parseAmount,
+  recipes,
+  type LedgerTx,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { LEDGER_POST_RECIPE, POST_RECIPE_NAMES } from '@intafaced/ledger-client/post-recipe';
 import { LEDGER_POST_ALLOWLIST, grantFor } from './caller-allowlist.js';
 import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { registerS2sHttp } from './s2s-http.js';
-import type { LedgerService } from './service.js';
+import { LedgerService } from './service.js';
 
 /**
  * `/trpc/postRecipe`: a service names a recipe and its inputs, and the ledger runs the recipe from ledger-client itself.
@@ -49,19 +59,30 @@ function pair() {
   };
 }
 
+/**
+ * The real `LedgerService`, every door and check of it, with its posts and the reads these tests make answered by an
+ * in-memory book. Its Postgres client is never connected: a call that reached it would fail the test.
+ */
+class BookLedger extends LedgerService {
+  constructor(
+    private readonly book: MemoryLedger,
+    private readonly posts: string[],
+  ) {
+    super(postgres('postgres://unused@127.0.0.1:1/unused_test', { max: 1 }), new MemoryEventBus('post-recipe-door'));
+  }
+  override async post(request: PostRequest): Promise<LedgerTx> {
+    this.posts.push(request.idempotencyKey);
+    return this.book.post(request);
+  }
+  override async getTxByKey(key: string): Promise<LedgerTx | null> {
+    return this.book.getTxByKey(key);
+  }
+}
+
 async function mount(options: { doorCallers?: Record<string, readonly string[]>; ledger?: MemoryLedger } = {}) {
   const book = options.ledger ?? new MemoryLedger({ idempotencyConflict: 'refuse' });
   const posts: string[] = [];
-  const service = new Proxy(book, {
-    get(target, prop, receiver) {
-      if (prop === 'post')
-        return async (req: Parameters<MemoryLedger['post']>[0]) => {
-          posts.push(req.idempotencyKey);
-          return target.post(req);
-        };
-      return Reflect.get(target, prop, receiver);
-    },
-  }) as unknown as LedgerService;
+  const service = new BookLedger(book, posts);
   const callers: ServiceName[] = ['svc-academy', 'svc-ops', 'svc-bank'];
   const keys = callers.map((svc) => ({ svc, ...pair() }));
   const keyring: Keyring = keys.map((k) => ({ kid: `${k.svc}.a`, svc: k.svc, use: 's2s' as const, x: k.x }));
