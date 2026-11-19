@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Button, Field } from '../../../shared/ui';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { readSandboxes } from '../sandbox/sandbox-api';
 import { explorerCopy } from './explorer-copy';
 import { codeOfAnswer, curlOf, EXPLORER_HEADER, EXPLORER_ROUTES, isSandboxKey, pathOf, type ExplorerRoute } from './explorer-model';
