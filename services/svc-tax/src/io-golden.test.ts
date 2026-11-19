@@ -635,7 +635,7 @@ async function play(s: Scenario) {
 
 /** edge-trust.test.ts, as vectors: what the edge context made of each forwarded principal at NOW. */
 function edgeCases() {
-  const secret = 's'.repeat(32);
+  const secret = 'placeholder-edge-principal-secret-32-chars';
   const otherSeed = Buffer.from([...Array(32).keys()].map((i) => i + 32));
   const other = Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), otherSeed]).toString('base64url');
   const limits = { EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: '120', EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS: '10' };
