@@ -11,7 +11,7 @@ import { fetchLesson, postLessonChange } from '@/lib/academy/lessons-browser';
 import { liveOf, type AcademyLesson, type AcademyLessonBlock, type LessonDeskReply, type LessonView } from '@/lib/academy/lessons-model';
 import { AcademyNav, Failed, Outcome } from '@/components/academy-courses-desk';
 import { move } from '@/components/academy-outline-editor';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 
 /**
  * LESSON EDITOR (AC-course-structure-03).

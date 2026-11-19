@@ -12,7 +12,7 @@ import {
   type ResidencyDecision,
   type VendorDecision,
 } from '@/lib/desk/approval-packet';
-import type { StepReply } from '@/lib/desk/approval-types';
+import type { StepReply } from '@/lib/approval-types';
 import { ambassadorVerb, disputeEscalationOffered, listingTakedownOffered, rowText, vendorDecisions } from '@/lib/ops-desk/actions-model';
 import { postDirect } from '@/lib/ops-desk/direct-browser';
 import { describeDirect, newRequestKey } from '@/lib/ops-desk/direct-model';

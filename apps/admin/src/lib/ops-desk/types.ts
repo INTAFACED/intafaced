@@ -1,7 +1,6 @@
 import type { ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
-import type { DeskModule } from '@/lib/desk/founder-call';
+import type { DeskModule, Part } from '@/lib/desk';
 import type { CommonDeskId } from './common-sections';
-import type { Part } from '@/lib/desk/part';
 import type { ModuleId as AdminModuleId } from '@/lib/modules';
 
 /**

@@ -1,6 +1,6 @@
 /** Browser hop for the support contact settings. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import { readContactChannels, type ContactChannels, type ContactSetRequest } from './contact';
 import type { SupportContactView } from './contact-server';
 import { isRecord } from '@intafaced/contracts/guards';
