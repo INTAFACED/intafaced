@@ -1,4 +1,5 @@
-import { EXPORT_KINDS, resolveExportColumns, type ExportFilters, type ExportKind } from './exports.js';
+import { PAY_EXPORT_KINDS, type PayExportKind } from '@intafaced/contracts';
+import { resolveExportColumns, type ExportFilters } from './exports.js';
 import { MerchantOpsError } from './errors.js';
 import { assertPermission, type MerchantCaller } from './roles.js';
 
@@ -21,7 +22,7 @@ const DATE_BASIS = {
   ledger_statement: 'none',
   disputes: 'opened',
   fees: 'recorded',
-} as const satisfies Record<ExportKind, 'created' | 'occurred' | 'opened' | 'recorded' | 'none'>;
+} as const satisfies Record<PayExportKind, 'created' | 'occurred' | 'opened' | 'recorded' | 'none'>;
 
 /** Only CSV is generated today. PDF and Excel are not offered until built. */
 export const REPORT_FORMATS = ['csv'] as const;
@@ -102,7 +103,7 @@ export function reportOptions(caller: MerchantCaller) {
   return {
     formats: [...REPORT_FORMATS],
     timeZones: 'iana' as const,
-    kinds: EXPORT_KINDS.map((kind) => ({
+    kinds: PAY_EXPORT_KINDS.map((kind) => ({
       kind,
       dateBasis: DATE_BASIS[kind],
       columns: resolveExportColumns(kind, role, undefined),

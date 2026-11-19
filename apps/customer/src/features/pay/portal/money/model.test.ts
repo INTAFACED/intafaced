@@ -30,7 +30,7 @@ import {
   type TrailEvent,
 } from './model';
 import type { Approval } from '../schemas';
-import type { StatementPage } from './schemas';
+import type { PayStatementPage as StatementPage } from '@intafaced/contracts/pay-portal-reads';
 import { ratePercent } from './fee-rate';
 import { pictureCount } from './payout-picture';
 
@@ -73,6 +73,7 @@ describe('statement running balance', () => {
 
 describe('statement tie-out', () => {
   const tie = (clearing: boolean | null, proceeds: boolean | null): StatementPage['tieOut'] => ({
+    reserve: 'not_booked',
     accounts: [
       {
         assetId: 'USDT',
