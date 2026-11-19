@@ -49,11 +49,38 @@ test('classify: each path lands in full, affected or neither', () => {
     { files: ['docs/x.md', 'services/svc-trade/src/a.ts'], expected: { full: false, affected: true } },
   ];
   for (const c of cases) {
-    const got = classify(c.files);
+    const { full, affected } = classify(c.files);
+    const got = { full, affected };
     assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
   }
   const forced = classify(['services/svc-protocol/x.ts'], { forceFull: true });
   assert(forced.full === true && forced.affected === false, 'forceFull must short-circuit to full');
+});
+
+test('classify: a change that reaches Rust runs the Rust job, and Rust files alone run no TypeScript tests', () => {
+  const cases = [
+    { files: ['crates/svc-tax/src/lib.rs'], expected: { full: false, affected: false, rust: true } },
+    { files: ['crates/svc-tax/Cargo.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['Cargo.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['Cargo.lock'], expected: { full: false, affected: false, rust: true } },
+    { files: ['rust-toolchain.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['clippy.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['.cargo/config.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['crates/svc-tax/src/lib.rs', 'services/svc-tax/src/a.ts'], expected: { full: false, affected: true, rust: true } },
+    { files: ['services/svc-x/src/main.rs'], expected: { full: false, affected: true, rust: true } },
+    { files: ['.github/workflows/ci.yml'], expected: { full: true, affected: false, rust: true } },
+    { files: ['package.json'], expected: { full: true, affected: false, rust: true } },
+    { files: ['services/svc-tax/package.json'], expected: { full: false, affected: true, rust: false } },
+    { files: ['services/svc-tax/src/a.ts'], expected: { full: false, affected: true, rust: false } },
+    { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false, rust: false } },
+    { files: ['docs/x.md'], expected: { full: false, affected: false, rust: false } },
+    { files: ['vendor/x/y.ts'], expected: { full: true, affected: false, rust: false } },
+  ];
+  for (const c of cases) {
+    const got = classify(c.files);
+    assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
+  }
+  assert(classify(['docs/x.md'], { forceFull: true }).rust === true, 'a run-everything run runs the Rust job');
 });
 
 test('filters: dependents of what changed, plus the readers of the changed package', () => {
@@ -121,6 +148,12 @@ test('seal: the required jobs a classification needs', () => {
   );
   assert(sealNeeded({ full: true, affected: false }, { ...ok, 'tests-full': 'failure' }).length === 1, 'full run red');
   assert(sealNeeded({ full: true, affected: false }, { ...ok, build: 'failure', 'tests-full': 'success' }).length === 1, 'build red');
+  const rust = { full: false, affected: false, rust: true };
+  assert(sealNeeded(rust, { ...ok, rust: 'success' }).length === 0, 'Rust job green');
+  assert(sealNeeded(rust, { ...ok, rust: 'failure' }).length === 1, 'Rust job red');
+  assert(sealNeeded(rust, { ...ok, rust: 'skipped' }).length === 1, 'a skipped Rust job is a failure when the change reaches Rust');
+  assert(sealNeeded(rust, ok).length === 1, 'a missing Rust job is a failure when the change reaches Rust');
+  assert(sealNeeded(none, { ...ok, rust: 'skipped' }).length === 0, 'a change that reaches no Rust needs no Rust job');
 });
 
 test('shards: how many test jobs a run takes', () => {
