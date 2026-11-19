@@ -3,7 +3,7 @@ import { opsAlertDetailSchema, type OpsAlertDetail } from '@intafaced/contracts/
 /** One finance alert as svc-ops answers it, for route and hash tests. TEST figures only. */
 export const FOUNDER = '11111111-1111-4111-8111-111111111111';
 export const ALERT = '22222222-2222-4222-8222-222222222222';
-export const T = '2026-10-29T12:00:00.000Z';
+const T = '2026-10-29T12:00:00.000Z';
 
 export const founderCtx = {
   session: {

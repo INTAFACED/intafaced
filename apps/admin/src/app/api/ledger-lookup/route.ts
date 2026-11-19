@@ -1,6 +1,6 @@
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
-import { lookupQuery } from '@/lib/ledger/lookup';
+import { lookupQuery } from '@/lib/ledger-lookup';
 import { readLedgerLookup } from '@/lib/ledger/lookup-server';
 
 /**
