@@ -127,23 +127,6 @@
       "why": "partner_key = bulkPayKey(runId) (business-payouts.ts:67). importRun reads the prior row outside the transaction (business-payouts.ts:406), then inserts with no lock. Two imports with the same runId (double submit or retry) both miss the prior row, and the loser raises 23505 on partner_key instead of returning the run."
     },
     {
-      "file": "services/svc-bank/src/business/business-payouts.ts",
-      "table": "business_crypto_payroll_runs",
-      "target": "(run_key)",
-      "constraint": "business_crypto_payroll_runs_payroll_id_period_key",
-      "verdict": "race",
-      "issue": 8890,
-      "why": "run_key = cryptoPayrollKey(payrollId, period) (business-payouts.ts:69) is built from the same (payroll_id, period). Two concurrent prepareRun calls for one month both pass the 'SELECT 1 … WHERE run_key' check (business-payouts.ts:977) with no lock. The loser raises 23505 on (payroll_id, period), a key the run_key target does not absorb."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-payouts.ts",
-      "table": "business_crypto_payroll_runs",
-      "target": "(run_key)",
-      "constraint": "business_crypto_payroll_runs_pkey",
-      "verdict": "safe",
-      "why": "id is randomUUID() made fresh on every call (business-payouts.ts:997), so two inserts never share it."
-    },
-    {
       "file": "services/svc-bank/src/business/business-service.ts",
       "table": "business_accounts",
       "target": "(id)",
