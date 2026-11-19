@@ -773,15 +773,6 @@
       "why": "Rows inserted as open/expired never enter the partial index (lifecycle IN ('bound','settled')). saveBound/saveSettled reach it only via DO UPDATE on the existing quote row, so a retry of the same quote updates its own row. A 23505 there comes only from a different sibling quote of the same RFQ, which is a real second accept that must refuse, and saveBound maps it with refuseSecondAccept (otc/quote-store.ts:271-277)."
     },
     {
-      "file": "services/svc-trade/src/signals/signal-desk.ts",
-      "table": "signal_webhooks",
-      "target": "(user_id, client_request_id)",
-      "constraint": "signal_webhooks_pkey",
-      "verdict": "race",
-      "issue": 8881,
-      "why": "webhookId = idFor('signal-webhook:'+userId+':'+requestId) (signals/signal-desk.ts:141, 271), the same inputs as the target. A concurrent retried create passes the SELECT at 256 twice, and the loser gets 23505 signal_webhooks_pkey instead of the 'raced' read-back the code expects (signal-desk.ts:283-287)."
-    },
-    {
       "file": "services/svc-trade/src/spot/trade-service/fills.ts",
       "table": "fills",
       "target": "(id)",
