@@ -12,6 +12,7 @@ pub mod db;
 pub mod door;
 pub mod env;
 pub mod errors;
+pub mod lobbies;
 pub mod migrate;
 pub mod ports;
 pub mod refines;

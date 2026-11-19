@@ -12,12 +12,15 @@ use service_kit::edge::EdgeKey;
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
 use service_kit::pg::Pool;
+use service_kit::s2s::{CallSigner, s2s_from_env};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
 use svc_academy::db::Store;
 use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
 use svc_academy::env::{self, AcademyEnv};
+use svc_academy::lobbies::clients::{HttpHostRights, HttpStake};
+use svc_academy::lobbies::stream::stream_from_env;
 use svc_academy::migrate;
 use svc_academy::ports::{JetStreamBus, Ports};
 use svc_academy::settings::Settings;
@@ -49,12 +52,48 @@ fn main() -> ExitCode {
     }
 }
 
-/// The door, built once from the environment. Every outside port is its stand-in until its slice wires the real one.
-fn door(env: &AcademyEnv, bus: Option<JetStreamBus>) -> Result<AcademyDoor, String> {
+/// The door, built once from the environment. An outside port is its stand-in until its slice wires the real one.
+fn door(
+    env: &AcademyEnv,
+    bus: Option<JetStreamBus>,
+    fetch: &Arc<dyn Fetch>,
+) -> Result<AcademyDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let pool_max = usize::try_from(env.int("DATABASE_POOL_MAX").unwrap_or(1)).unwrap_or(1);
     let mut ports = Ports::unwired();
     ports.stream_configured = env.str("ACADEMY_STREAM_PROVIDER").map(str::to_owned);
+    // The lobbies' outside reads and the stream (`index.ts`): signed with svc-academy's own key when S2S is on.
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-academy",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = str_of("INTERNAL_SERVICE_SECRET");
+    let signer = |audience: &str| CallSigner::new("svc-academy", audience, &secret, keyed.clone());
+    ports.stake = Box::new(HttpStake::new(
+        &str_of("TOKEN_URL"),
+        signer("svc-token"),
+        fetch.clone(),
+    ));
+    ports.host_rights = Box::new(HttpHostRights::new(
+        &str_of("IDENTITY_URL"),
+        signer("svc-identity"),
+        fetch.clone(),
+    ));
+    ports.stream = stream_from_env(
+        env.str("ACADEMY_STREAM_PROVIDER"),
+        env.str("LIVEKIT_URL"),
+        env.str("LIVEKIT_API_KEY"),
+        env.str("LIVEKIT_API_SECRET"),
+        env.int("LIVEKIT_TOKEN_TTL_SECONDS"),
+        fetch.clone(),
+    );
     if let Some(bus) = bus {
         ports.bus = Box::new(bus);
     }
@@ -87,7 +126,7 @@ fn run() -> Result<(), String> {
         &str_of("SERVICE_NAME"),
         &str_of("OTEL_EXPORTER_OTLP_ENDPOINT"),
         &str_of("APP_ENV"),
-        fetch,
+        fetch.clone(),
         log.clone(),
     );
     // As the TypeScript: a bus that cannot be reached is reported on /ready, not fatal.
@@ -105,7 +144,7 @@ fn run() -> Result<(), String> {
             None
         }
     };
-    let door = match door(&env, bus) {
+    let door = match door(&env, bus, &fetch) {
         Ok(d) => d,
         Err(e) => {
             telemetry.shutdown();

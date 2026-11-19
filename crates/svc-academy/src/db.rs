@@ -88,3 +88,33 @@ pub fn with_client<T>(
     let client = conn.client().map_err(pool_refusal)?;
     f(client)
 }
+
+/// `isSerializationFailure` (`packages/db`): `serialization_failure` or `deadlock_detected`.
+pub fn is_serialization_failure(r: &Refusal) -> bool {
+    matches!(r, Refusal::Internal { code: Some(c), .. } if c == SERIALIZATION_FAILURE || c == "40P01")
+}
+
+/// `transaction(sql, fn, { isolation })` from `@intafaced/db`: one transaction at `isolation`, run again (up to five
+/// attempts, full-jitter backoff) when it fails with a serialization failure or a deadlock; any other refusal stands.
+pub fn transaction_retrying<T>(
+    pool: &Pool,
+    isolation: IsolationLevel,
+    mut f: impl FnMut(&mut Transaction<'_>) -> Result<T, Refusal>,
+) -> Result<T, Refusal> {
+    const MAX_ATTEMPTS: u32 = 5;
+    let mut attempt = 1;
+    loop {
+        match transaction(pool, isolation, &mut f) {
+            Err(e) if is_serialization_failure(&e) && attempt < MAX_ATTEMPTS => {
+                // `Math.random() * 2 ** attempt * 5` milliseconds.
+                let ceiling = (1u64 << attempt) * 5;
+                let mut b = [0u8; 8];
+                let jitter =
+                    getrandom::fill(&mut b).map_or(0, |()| u64::from_le_bytes(b) % ceiling);
+                std::thread::sleep(std::time::Duration::from_millis(jitter));
+                attempt += 1;
+            }
+            out => return out,
+        }
+    }
+}
