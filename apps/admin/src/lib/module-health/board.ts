@@ -1,7 +1,5 @@
 import type { ModuleId } from '@intafaced/config';
-import { formatDuration } from '@/lib/ops-desk/model';
-import { readSpecFor } from '@/lib/ops-desk/catalog';
-import type { OpsDeskId, ReadData, ReadOutcome, ReadSpec } from '@/lib/ops-desk/types';
+import { formatDuration, readSpecFor, type OpsDeskId, type ReadData, type ReadOutcome, type ReadSpec } from '@/lib/ops-desk';
 
 /**
  * The module health board (`/health`, OPS-ORD-01, ORD-002): one row per platform module with its volume, its failures and
