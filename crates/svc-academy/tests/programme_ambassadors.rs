@@ -4,6 +4,7 @@
 //! `mount-vs-tracker.test.ts`, `ambassador-rate-law-compose-pin.test.ts`, `list-ambassadors-limit-unset.test.ts`).
 #![allow(clippy::unwrap_used, reason = "a test")]
 
+#[path = "prog_support/mod.rs"]
 mod support;
 
 use service_kit::json::Json;

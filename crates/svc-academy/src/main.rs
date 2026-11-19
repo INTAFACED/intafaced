@@ -15,6 +15,7 @@ use service_kit::pg::Pool;
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_academy::curriculum::{internal::ServiceAuth, spine};
 use svc_academy::db::Store;
 use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
 use svc_academy::env::{self, AcademyEnv};
@@ -65,6 +66,14 @@ fn door(
     if let Some(bus) = bus {
         ports.bus = Box::new(bus);
     }
+    ports.services = ServiceAuth::from_env(
+        &str_of("INTERNAL_SERVICE_SECRET"),
+        &str_of("INTERNAL_SERVICE_BODY_BIND"),
+        &str_of("S2S_AUTH_MODE"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+    )?;
     // As `index.ts`: identity consumes operator approvals whenever IDENTITY_URL is set (it has a default).
     if let Some(identity) = env.str("IDENTITY_URL") {
         ports.approvals = Box::new(IdentityApprovals::new(
@@ -106,6 +115,8 @@ fn door(
 
 fn run() -> Result<(), String> {
     let env = env::load(&process_env()).map_err(|e| e.message)?;
+    // The embedded spine loads, or the service does not start (the TypeScript catalog throws at module load).
+    spine::check()?;
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let log = Logger::stdout(&str_of("LOG_LEVEL"));
     let fetch: Arc<dyn Fetch> = Arc::new(UreqFetch::new());

@@ -35,8 +35,8 @@ const transport = {
     throw new Error(`unexpected ${procedure}`);
   },
 };
-vi.mock('../../session/session', async (original) => {
-  const real = await original<typeof import('../../session/session')>();
+vi.mock('../../session', async (original) => {
+  const real = await original<typeof import('../../session')>();
   return { ...real, useApi: () => transport as never };
 });
 import { resetWalletSessions } from './address-book-api';

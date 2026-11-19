@@ -1,4 +1,4 @@
-import { waitMined, type MinedOutcome } from '../../protocol/wallet/WalletProvider';
+import { waitMined, type MinedOutcome } from '../../protocol';
 
 /** How long the room waits for one deal transaction to be mined before it says it is still pending. */
 export const DEAL_MINED_TIMEOUT_MS = 60_000;

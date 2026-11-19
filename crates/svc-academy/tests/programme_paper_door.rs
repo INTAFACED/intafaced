@@ -8,6 +8,7 @@
     reason = "a test: a failure is the point"
 )]
 
+#[path = "prog_support/mod.rs"]
 mod support;
 
 use service_kit::json::Json;
