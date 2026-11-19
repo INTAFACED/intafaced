@@ -44,6 +44,7 @@
     "garden/no-hand-clock": "error",
     "garden/no-raw-stored-search": "error",
     "garden/no-call-by-name": "error",
+    "garden/no-runtime-swap": "error",
     "typescript/no-explicit-any": "error",
     "react-hooks/exhaustive-deps": "error",
     "react/refs": "off",
