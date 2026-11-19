@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import type { ApiResult } from '../../shared/api';
 import { Button, Dialog, Failure, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { PresentedCopy, actionFailurePresentation, type useAction } from './common';
 import { t as moreText, Text } from './copy';
 import { createAcademyGrantApi, type AcademyKnown, type GrantOperation, type GrantRecord } from './academy-grant-api';
