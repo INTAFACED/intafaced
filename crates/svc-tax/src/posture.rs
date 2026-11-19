@@ -301,7 +301,8 @@ fn chain_url_key(key: &str) -> bool {
     if segments.contains(&"RPC") || segments.contains(&"BUNDLER") {
         return true;
     }
-    for p in ["INDEXER_WS_URL", "PROTOCOL_WS_URL", "CHAIN_WS_URL"] {
+    let chain_ws = ["INDEXER_WS_URL", "PROTOCOL_WS_URL", "CHAIN_WS_URL"]; // shape-not-a-call: keys to refuse
+    for p in chain_ws {
         if k == p || k.ends_with(&format!("_{p}")) {
             return true;
         }

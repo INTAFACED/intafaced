@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/lot-book.spaces.test.ts` (J-portfolio-04 #2, LB-6), at the port: the TypeScript drives the real
+//! `lot-book.spaces.test.ts` (J-portfolio-04 #2, LB-6), at the port: the TypeScript drives the real
 //! HTTP ledger reader over a fake svc-ledger; here the fake ledger answers with what that reader makes of the same
 //! lines (the reader itself is the I/O side's, tested there). TEST data, hand-computed: buy 1 BTC for 100 USDT on
 //! 1 Oct, then move it from the main account to the customer's space "TEST cold" on 5 Oct.

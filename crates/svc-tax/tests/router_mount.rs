@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/router.mount.test.ts`, case for case, through the door. The TypeScript's scan of `router.ts`
+//! `router.mount.test.ts`, case for case, through the door. The TypeScript's scan of `router.ts`
 //! for a literal `custodial: false` is a scan of the Rust door (`src/wire.rs`) here.
 #![allow(
     clippy::unwrap_used,

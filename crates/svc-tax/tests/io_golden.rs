@@ -1,6 +1,6 @@
 //! The I/O golden, replayed in Rust. `crates/svc-tax/tests/fixtures/io-golden.json` holds what the TypeScript clients
 //! sent (method, URL, the headers they set, body) for scripted upstream answers, and what each made of the answers; its
-//! own test (`services/svc-tax/src/io-golden.test.ts`) holds the TypeScript clients to it. Here the Rust clients get the
+//! own test (`io-golden.test.ts`) holds the TypeScript clients to it. Here the Rust clients get the
 //! same answers, and must send the same requests, signatures included, and come to the same result.
 //!
 //! Requests are compared as a multiset: the TypeScript walks pages with `Promise.all` and Rust with scoped threads, so

@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/export-blank-map.public.test.ts`, case for case, through the door. A blank tax map is not
+//! `export-blank-map.public.test.ts`, case for case, through the door. A blank tax map is not
 //! an export: the slot stays empty, no figure, no balance on this service. The TypeScript counts posts on a memory
 //! ledger; the Rust ledger port has no write at all, so the service cannot post, and the fake counts reads instead.
 //! The screening refusal's `decision` detail is in-process only (tRPC sends `cause.code`), so the wire's code is checked.

@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/venue-book.test.ts`, case for case (J-cex-spot-01 #11, J-portfolio-04 #2, J-portfolio-02 #6).
+//! `venue-book.test.ts`, case for case (J-cex-spot-01 #11, J-portfolio-04 #2, J-portfolio-02 #6).
 //! Every figure is TEST. The TypeScript's `lotBookSchema.parse(book)` checks have no Rust counterpart: the Rust crate
 //! does not hold the contracts' output schema (named in the port's report).
 #![allow(

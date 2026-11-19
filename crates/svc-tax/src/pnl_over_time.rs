@@ -1,4 +1,4 @@
-//! Profit and loss over time (`services/svc-tax/src/pnl-over-time.ts`, J-portfolio-05 #4-#5), worked out from the
+//! Profit and loss over time (`pnl-over-time.ts`, J-portfolio-05 #4-#5), worked out from the
 //! finished lot book and never stored: the cumulative result at each moment of a range, and the change over it split by
 //! coin, market and day, each split adding up to the change exactly (refused if it does not).
 

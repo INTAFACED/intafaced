@@ -1,4 +1,4 @@
-//! Export parity: the year export over a ledger that holds something. `services/svc-tax/src/export-parity.golden.json`
+//! Export parity: the year export over a ledger that holds something. `crates/svc-tax/tests/fixtures/export-parity.golden.json`
 //! holds the ledger (as data) and the pack the TypeScript service made from it (`export-parity.test.ts`); the Rust
 //! service reads the same ledger and must make the same pack, byte for byte, its file included.
 #![allow(

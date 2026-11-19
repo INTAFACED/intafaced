@@ -1,4 +1,4 @@
-//! A customer's own basis (`services/svc-tax/src/basis-store.ts`, `createPgBasisStore`): append-only versions in
+//! A customer's own basis (`basis-store.ts`, `createPgBasisStore`): append-only versions in
 //! `tax.basis_overrides`, one chain per lot under an advisory lock, the same payload twice storing one version, a removal
 //! a tombstone. Business key `basisoverride:<userId>:<lotId>:<version>`.
 

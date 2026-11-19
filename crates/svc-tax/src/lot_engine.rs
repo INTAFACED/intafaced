@@ -1,4 +1,4 @@
-//! The lot engine for the lot book (`services/svc-tax/src/lot-engine.ts`), rule for rule. The year pack keeps its own
+//! The lot engine for the lot book (`lot-engine.ts`), rule for rule. The year pack keeps its own
 //! matcher (`lots.rs`).
 //!
 //! Every lot has a deterministic id (`lot:<acquireTxId>:<assetId>`), a source and a basis that is a dollar amount or

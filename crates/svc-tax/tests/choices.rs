@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/choices.test.ts`, case for case (the memory store; the Postgres store is the I/O side's).
+//! `choices.test.ts`, case for case (the memory store; the Postgres store is the I/O side's).
 //! Every figure here is hand-computed TEST data.
 #![allow(
     clippy::unwrap_used,

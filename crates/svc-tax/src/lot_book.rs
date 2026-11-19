@@ -1,4 +1,4 @@
-//! The lot book (`services/svc-tax/src/lot-book.ts`): profit and loss as an indicator, built only from the customer's own
+//! The lot book (`lot-book.ts`): profit and loss as an indicator, built only from the customer's own
 //! fills, arrivals, moves and withdrawals. Not a tax form and not tied to a jurisdiction. A figure that cannot be known is
 //! null with its reason named, never zero. Its answer is written in `lotBookSchema`'s key order, which is the order the
 //! TypeScript router sends it in (tRPC parses the output through that schema).

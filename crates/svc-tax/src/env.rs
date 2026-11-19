@@ -1,4 +1,4 @@
-//! svc-tax's environment (`services/svc-tax/src/env.ts`): `baseEnvSchema`, `otelEnvSchema`, `httpEnvSchema`,
+//! svc-tax's environment (`env.ts`): `baseEnvSchema`, `otelEnvSchema`, `httpEnvSchema`,
 //! `edgeEnvSchema`, `internalServiceEnvSchema` and `s2sEnvSchema` from `@intafaced/config`, merged with svc-tax's own
 //! fields, loaded by `loadEnv` (which first refuses development material in production posture). Same defaults, same
 //! blank-as-absent fields, same refusals; every problem is listed at once.

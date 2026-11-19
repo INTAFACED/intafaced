@@ -1,6 +1,6 @@
 //! Service parity: `tests/fixtures/service-parity/*.jsonl` (a header line, then one scenario a line) holds a seeded corpus of scenarios (a ledger, spaces, a
 //! venue, prices, candles, stores, and a list of calls) and what the TypeScript TaxService answered to each call, as its
-//! router sends it, or the refusal it gave (`services/svc-tax/src/service-parity.record.test.ts`). This builds the same
+//! router sends it, or the refusal it gave (`service-parity.record.test.ts`). This builds the same
 //! fakes over each scenario, makes the same calls in the same order on the Rust TaxService, and every answer must match
 //! byte for byte (a long answer by its SHA-256).
 #![allow(

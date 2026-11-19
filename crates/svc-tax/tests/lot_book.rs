@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/lot-book.test.ts`, case for case. Every figure here is hand-computed TEST data.
+//! `lot-book.test.ts`, case for case. Every figure here is hand-computed TEST data.
 #![allow(
     clippy::unwrap_used,
     clippy::indexing_slicing,

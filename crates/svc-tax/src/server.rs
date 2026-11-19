@@ -1,4 +1,4 @@
-//! The HTTP server (`services/svc-tax/src/index.ts`'s Fastify app): `GET /health`, `GET /ready`, and `/trpc/*` through the
+//! The HTTP server (`index.ts`'s Fastify app): `GET /health`, `GET /ready`, and `/trpc/*` through the
 //! door (`Wire`). Fastify answers HEAD for every GET route and gives every request the next request id, whatever its
 //! route; both are kept. A fixed set of worker threads takes requests; on SIGTERM or SIGINT the server stops taking
 //! new ones, lets those in flight finish, then the caller closes the pool and flushes tracing.

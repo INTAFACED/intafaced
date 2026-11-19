@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/basis-override.test.ts`, case for case (PF-cost-basis-04), over the memory basis store (the
+//! `basis-override.test.ts`, case for case (PF-cost-basis-04), over the memory basis store (the
 //! Postgres store is the I/O side's).
 #![allow(
     clippy::unwrap_used,

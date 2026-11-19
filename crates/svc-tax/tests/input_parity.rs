@@ -1,4 +1,4 @@
-//! Input parity: each svc-tax input check gives zod's own verdict. `services/svc-tax/src/input-parity.golden.json` holds
+//! Input parity: each svc-tax input check gives zod's own verdict. `crates/svc-tax/tests/fixtures/input-parity.golden.json` holds
 //! zod's answer to each case (`input-parity.test.ts` holds zod to it); the Rust check must accept what zod accepts and
 //! refuse the rest with the same message, byte for byte.
 #![allow(

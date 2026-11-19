@@ -1,4 +1,4 @@
-//! svc-tax's own logic (`services/svc-tax/src/tax-service.ts`, `lots.ts`, `jurisdiction-map.ts`): the year export over
+//! svc-tax's own logic (`tax-service.ts`, `lots.ts`, `jurisdiction-map.ts`): the year export over
 //! the caller's ledger reads, and each call's named refusals.
 //!
 //! What this service holds today: the export (preview and pack) in full. Not yet: the ledger fill reader the lot book

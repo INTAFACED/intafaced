@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/pnl-over-time.test.ts`, case for case (J-portfolio-05 #4 and #5, PF-performance-03). Every
+//! `pnl-over-time.test.ts`, case for case (J-portfolio-05 #4 and #5, PF-performance-03). Every
 //! figure is hand-computed TEST data. The TypeScript's `pnlOverTimeSchema.parse(out)` check has no Rust counterpart:
 //! the crate does not hold the contracts' output schema (named in the port's report).
 #![allow(

@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/lot-book.transfers.test.ts`, case for case (J-portfolio-05 #2 and #3). Every figure is
+//! `lot-book.transfers.test.ts`, case for case (J-portfolio-05 #2 and #3). Every figure is
 //! hand-computed TEST data.
 #![allow(
     clippy::unwrap_used,

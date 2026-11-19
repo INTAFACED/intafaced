@@ -1,4 +1,4 @@
-//! How svc-tax is put together, once, at start-up (`services/svc-tax/src/index.ts`): every client and store is made here
+//! How svc-tax is put together, once, at start-up (`index.ts`): every client and store is made here
 //! from the environment and handed to the service. Boot refuses what `index.ts` refuses: an environment `env.ts` refuses,
 //! a half-set S2S configuration, a database with no pool size, a bad edge key or missing limits, a bad counsel map.
 
@@ -114,7 +114,7 @@ pub fn ports(env: &TaxEnv, fetch: &Arc<dyn Fetch>) -> Result<Ports, String> {
         pool,
         deposit_basis: env.tax_deposit_basis.clone(),
         lake: LakeStatus::lake(env.data_lake_url.as_deref()),
-        indexer: LakeStatus::indexer(env.indexer_url.as_deref()),
+        indexer: LakeStatus::indexer(env.indexer_url.as_deref()), // shape-not-a-call: reports only whether it is set
     })
 }
 

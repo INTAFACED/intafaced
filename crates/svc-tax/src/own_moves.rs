@@ -1,4 +1,4 @@
-//! Own-account moves (`services/svc-tax/src/own-moves.ts`) and withdrawals to outside (`withdrawals.ts`).
+//! Own-account moves (`own-moves.ts`) and withdrawals to outside (`withdrawals.ts`).
 //!
 //! A transaction whose customer lines are one credit on one of their own accounts and one debit on another, of the same
 //! coin and amount, is a move between their own accounts: the lot book carries the lots. Lines pair only inside one

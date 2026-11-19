@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/jurisdiction-map.test.ts`, case for case. In Rust the map is parsed when the service is
+//! `jurisdiction-map.test.ts`, case for case. In Rust the map is parsed when the service is
 //! built and its two checks run inside the export, so each is asked through the service: a map that maps nothing
 //! refuses every region, a mapped one admits exactly its regions.
 #![allow(

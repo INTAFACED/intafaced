@@ -1,4 +1,4 @@
-//! The year pack's matcher (`services/svc-tax/src/lots.ts`): a missing cost basis is never 0 and never paired; the lots
+//! The year pack's matcher (`lots.ts`): a missing cost basis is never 0 and never paired; the lots
 //! stay open and the reason is named. Realised is null unless every matched part has a basis; unrealised is always null.
 
 use crate::json::Json;

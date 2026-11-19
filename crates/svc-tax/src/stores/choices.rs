@@ -1,4 +1,4 @@
-//! The customer's cost-basis choices (`services/svc-tax/src/choices.ts`, `createPgChoiceStore`): settings rows in schema
+//! The customer's cost-basis choices (`choices.ts`, `createPgChoiceStore`): settings rows in schema
 //! `tax`, keyed by the caller. They move no value and post nothing.
 
 use std::sync::Arc;

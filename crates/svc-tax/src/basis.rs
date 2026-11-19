@@ -1,4 +1,4 @@
-//! A customer's own basis (`services/svc-tax/src/basis-override.ts`, and `basis-store.ts`'s in-memory store): a price for
+//! A customer's own basis (`basis-override.ts`, and `basis-store.ts`'s in-memory store): a price for
 //! a lot with no cost, or a manual position held apart from balances. A blank price is not zero, and a removal is a
 //! tombstone: the ledger figure is unchanged and the unknown it replaced shows again.
 

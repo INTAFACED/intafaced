@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/lot-book.venue.test.ts`, case for case (J-cex-spot-01 #11, J-portfolio-02 #6): tax.lotBook
+//! `lot-book.venue.test.ts`, case for case (J-cex-spot-01 #11, J-portfolio-02 #6): tax.lotBook
 //! adds the caller's own venue account beside their ledger book. TEST figures; the ledger here holds nothing.
 #![allow(
     clippy::unwrap_used,

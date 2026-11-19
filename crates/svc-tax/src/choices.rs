@@ -1,4 +1,4 @@
-//! Cost-basis choices (`services/svc-tax/src/choices.ts`): which method a sale uses, most specific first (that coin on
+//! Cost-basis choices (`choices.ts`): which method a sale uses, most specific first (that coin on
 //! that day, every coin on that day, the coin, the account, the product default), and the lot a sale draws on first.
 //! The in-memory store is the TypeScript's `createMemoryChoiceStore`, for tests and the parity replay.
 

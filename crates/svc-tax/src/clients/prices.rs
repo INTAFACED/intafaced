@@ -1,4 +1,4 @@
-//! svc-trade's public market data (`services/svc-tax/src/prices.ts`, `createTradePrices`): a coin's price when it
+//! svc-trade's public market data (`prices.ts`, `createTradePrices`): a coin's price when it
 //! arrived, and its candles over a window, on its USDT market, else its USDC market. Never a later price, never zero.
 
 use std::sync::Arc;

@@ -1,4 +1,4 @@
-//! `GET /ready` (`services/svc-tax/src/ready-honesty.ts`): the process is up, and whether the counsel map names any
+//! `GET /ready` (`ready-honesty.ts`): the process is up, and whether the counsel map names any
 //! region. JSON that is set is not a map: blank, `{}` and `[]` are unmapped. No `jurisdictionMapped` boolean, and no
 //! custodial stamp: liveness is not a certified non-custodial plane.
 

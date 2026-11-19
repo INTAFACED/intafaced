@@ -1,4 +1,4 @@
-//! `svc-tax migrate [--down]` (was `services/svc-tax/scripts/migrate.ts`): applies every `*.sql` in
+//! `svc-tax migrate [--down]` (was the TypeScript service's `scripts/migrate.ts`): applies every `*.sql` in
 //! `crates/svc-tax/migrations` in name order, tracked in `tax.__migrations`, each file once; `--down` reverses them.
 //! The `tax` schema comes from the database bootstrap. The files are built into the binary, so the runner needs nothing
 //! beside it. Its lines are the TypeScript runner's (`↑`, `·`, `↓`, `✓`).
@@ -147,21 +147,5 @@ mod tests {
             built, on_disk,
             "a migration on disk is not in FILES (or the reverse)"
         );
-    }
-
-    #[test]
-    fn the_files_are_the_typescript_services_while_it_exists() {
-        let ts =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../services/svc-tax/drizzle");
-        if !ts.exists() {
-            return;
-        }
-        for (name, sql) in FILES {
-            assert_eq!(
-                std::fs::read_to_string(ts.join(name)).unwrap(),
-                sql,
-                "{name} differs"
-            );
-        }
     }
 }

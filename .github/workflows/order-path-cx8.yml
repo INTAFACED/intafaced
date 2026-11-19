@@ -107,7 +107,11 @@ jobs:
           bash tooling/infra/postgres-init/02-intafaced-test-db.sh
 
       - name: Build packages used by money path
-        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-tax --filter=@intafaced/ui --filter=@intafaced/i18n --filter=@intafaced/money-math
+        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/ui --filter=@intafaced/i18n --filter=@intafaced/money-math
+
+      # svc-tax is Rust (crates/svc-tax): the runner's rustup installs the toolchain rust-toolchain.toml pins.
+      - name: Build svc-tax (Rust)
+        run: rustup toolchain install && cargo build --release --locked -p svc-tax
 
       # The CX-8 smoke, then the customer trade journeys on the same stack (svc-pay boots for the withdrawal journeys, svc-bank for the wallet view).
       - name: CX-8 boot + STRICT smoke + trade journeys

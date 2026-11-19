@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/lots.test.ts`, case for case.
+//! `lots.test.ts`, case for case.
 #![allow(
     clippy::unwrap_used,
     clippy::indexing_slicing,

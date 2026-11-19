@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/procedure-samples.test.ts`: the mounted side of each svc-tax record's samples. Sent through
+//! `procedure-samples.test.ts`: the mounted side of each svc-tax record's samples. Sent through
 //! the door by a caller the record admits, a refused sample is answered 400 and an accepted one never is. The samples
 //! are read from the contracts' published schema (`packages/contracts/procedures.schema.json`), so a sample added to a
 //! record reaches this test without an edit here.

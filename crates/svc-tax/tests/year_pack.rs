@@ -1,4 +1,4 @@
-//! `services/svc-tax/src/year-pack.acceptance.test.ts`, case for case (TRD-0534). Worked figures are independent of
+//! `year-pack.acceptance.test.ts`, case for case (TRD-0534). Worked figures are independent of
 //! the implementation: second fill 50000 − 40000 = 10000; second convert 10 − 8 = 2; account 10002. Fee and maker
 //! rebate stay in their own columns, so they are not in that subtraction.
 #![allow(

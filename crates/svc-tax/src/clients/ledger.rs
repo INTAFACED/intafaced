@@ -1,4 +1,4 @@
-//! svc-tax's reads of svc-ledger (`services/svc-tax/src/ledger-reads.ts`, `createTaxLedgerReads`): balances, history, the
+//! svc-tax's reads of svc-ledger (`ledger-reads.ts`, `createTaxLedgerReads`): balances, history, the
 //! paged history walk behind the customer's trade fills, and each named space's history. Every call is signed for
 //! svc-ledger (`CallSigner`); the history page goes through its record (`LEDGER_HISTORY_PAGE`): its route, its input
 //! checked before sending, its reply parsed by its schema.

@@ -1,4 +1,4 @@
-//! The wire replay, answered from Rust. `services/svc-tax/src/wire-replay.golden.json` holds what the TypeScript svc-tax
+//! The wire replay, answered from Rust. `crates/svc-tax/tests/fixtures/wire-replay.golden.json` holds what the TypeScript svc-tax
 //! answered to a matrix of requests (every call, seven inputs, four callers, a blank and a set jurisdiction map); its
 //! own test (`wire-replay.test.ts`) holds the TypeScript service to it. This sends the same requests, built the same way,
 //! to the Rust service, and every one must get the recorded status and body, byte for byte.
@@ -49,7 +49,7 @@ fn serve(map_raw: &str) -> Wire {
         ..TaxDeps::new(map_raw, Arc::new(EmptyLedger), Some(10), Box::new(|| NOW))
     })
     .unwrap();
-    // svc-tax's vitest environment (`services/svc-tax/vitest.config.ts`); vitest sets NODE_ENV to `test`.
+    // svc-tax's vitest environment (the TypeScript service's `vitest.config.ts`); vitest sets NODE_ENV to `test`.
     let env: BTreeMap<String, String> = [
         ("APP_ENV", "test"),
         ("INTAFACED_SCREENING_FAIL_CLOSED", "off"),

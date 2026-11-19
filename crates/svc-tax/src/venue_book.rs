@@ -1,4 +1,4 @@
-//! The person's own venue accounts in their lot book (`services/svc-tax/src/venue-book.ts`, J-cex-spot-01 #11): each
+//! The person's own venue accounts in their lot book (`venue-book.ts`, J-cex-spot-01 #11): each
 //! account is a book of its own, built by the same lot engine from the venue's own fills and checked against the venue's
 //! own balances, then listed beside the ledger book. A move into one of the account's own sub-accounts carries the lots
 //! (J-portfolio-04 #2). Nothing is stored and nothing is posted.
