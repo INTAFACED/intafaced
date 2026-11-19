@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { Chip } from '@/components/chip';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { fetchNotify } from '@/lib/notify/browser';
 import { channelStats, failureRows, spanOf, type DeliveriesRead, type NotifyView } from '@/lib/notify/model';
 import { shortId } from '@/lib/desk/desk-model';

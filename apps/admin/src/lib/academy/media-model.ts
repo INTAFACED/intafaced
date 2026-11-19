@@ -1,5 +1,5 @@
 import type { AcademyItemMedia, AcademyMedia, AcademyMediaIntent, AcademyUploadLimits } from '@intafaced/contracts/academy-courses';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * Course files (AC-videos-02): an item's video, caption files and handouts, and the owner's upload limits. Pure, so

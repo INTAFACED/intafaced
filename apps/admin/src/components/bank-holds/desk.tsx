@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { HOLD_STATE_LABEL } from '@/lib/bank-holds/model';
 import type { HoldControls, HoldDesk } from '@/lib/bank-holds/read';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { HoldRowActions, PlaceHold } from './actions';
 import '../desk.css';
 
