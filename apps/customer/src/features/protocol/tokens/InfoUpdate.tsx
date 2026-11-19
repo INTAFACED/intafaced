@@ -3,7 +3,7 @@ import type { ProtocolListingChallenge, ProtocolListingProof } from '@intafaced/
 import { PROTOCOL_LISTING_OWNERSHIP_CHALLENGE, PROTOCOL_LISTING_VERIFY_OWNERSHIP } from '@intafaced/contracts/protocol-procedures';
 import type { ApiResult } from '../../../shared/api';
 import { Button, Dialog, Failure, Loading } from '../../../shared/ui';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { RepresentationPanel, type RepresentationEnd } from '../wallet/RepresentationPanel';
 import { useWallet } from '../wallet/WalletProvider';
