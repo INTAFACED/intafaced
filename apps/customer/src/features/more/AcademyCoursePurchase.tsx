@@ -4,9 +4,8 @@ import { ServiceOffNotice as KitServiceOffNotice } from '@intafaced/ui/lit/templ
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Loading, Panel } from '../../shared/ui';
-import { useApi } from '../session/session';
-import { WALLET_SECTIONS } from '../protocol/routes';
-import { useWallet, WalletProvider } from '../protocol/wallet/WalletProvider';
+import { useApi } from '../session';
+import { WALLET_SECTIONS, useWallet, WalletProvider } from '../protocol';
 import { academyPurchaseCopy as copy } from './academy-purchase-copy';
 import { AcademyRefusal, GuardedButton } from './AcademyLmsParts';
 

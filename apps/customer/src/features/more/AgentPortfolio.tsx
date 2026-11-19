@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
-import { useVenueMode } from '../trade/use-venue-mode';
-import { VenueFrame } from '../trade/venue/VenueKit';
+import { useVenueMode, VenueFrame } from '../trade';
 import { agentPortfolioCopy } from './agent-portfolio-copy';
 import type { OwnAgent } from '@intafaced/contracts/agents-own';
 
