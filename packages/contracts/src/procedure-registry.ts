@@ -1,4 +1,5 @@
 // Written by `procedures:write` (scripts/procedure-registry.mjs) from every `defineProcedure` in src/. Do not edit by hand.
+import { ACADEMY_INTERNAL_CURRICULUM } from './academy-procedures.js';
 import { BANK_SPACES_LIST } from './bank-spaces-list.js';
 import {
   BLUEPRINT_HEALTH,
@@ -35,6 +36,7 @@ import type { ProcedureRecord } from './procedure.js';
 
 /** Every call recorded in this package. `procedures.schema.json` is written from this list. */
 export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
+  ACADEMY_INTERNAL_CURRICULUM,
   BANK_SPACES_LIST,
   BLUEPRINT_HEALTH,
   BLUEPRINT_ONBOARD,

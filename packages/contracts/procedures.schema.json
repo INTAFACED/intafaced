@@ -1,6 +1,59 @@
 {
   "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
   "procedures": {
+    "academy.internal.curriculum": {
+      "service": "svc-academy",
+      "transport": "http",
+      "method": "GET",
+      "path": "/internal/curriculum",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-agents"]
+      },
+      "refusals": {
+        "academy.unauthenticated": "UNAUTHORIZED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": ["slug", "title"],
+              "additionalProperties": false
+            }
+          },
+          "licensedLibraryImported": {
+            "type": "boolean",
+            "const": false
+          },
+          "source": {
+            "type": "string",
+            "const": "platform-spine"
+          }
+        },
+        "required": ["items", "licensedLibraryImported", "source"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "bank.spaces.list": {
       "service": "svc-bank",
       "module": "bank",
