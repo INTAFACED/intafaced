@@ -3933,6 +3933,97 @@
         }
       ]
     },
+    "notify.inboxPolicy": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "notify.inboxPolicy",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "pageSize": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pageSizeUnsetCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "notify.list_limit_unset"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unreadCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unreadCapUnsetCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "notify.unread_cap_unset"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retentionDays": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": ["keeps_every_row", "days"]
+          },
+          "inventsLimits": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": ["pageSize", "pageSizeUnsetCode", "unreadCap", "unreadCapUnsetCode", "retentionDays", "retention", "inventsLimits"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "ops.home.config": {
       "service": "svc-ops",
       "module": "ops",
