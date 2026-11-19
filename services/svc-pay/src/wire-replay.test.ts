@@ -81,6 +81,8 @@ import { createConversionInventory } from './conversion/inventory.js';
  */
 
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
+/** One recorded JSON file in the recording folder. */
+const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
 /** One review part holds 400 KB and a new file is one hunk, so each recorded file stays under this. */
 const SHARD_BYTES = 350_000;
 const SECRET = 'a-pay-wire-replay-edge-secret-long-enough';
@@ -475,7 +477,7 @@ function shardText(calls: string[], g: Golden): string {
 async function writeGolden(g: Golden) {
   const prettier = await import('prettier');
   const format = async (name: string, text: string) => {
-    const file = new URL(name, GOLDEN).pathname;
+    const file = goldenJson(name).pathname;
     return prettier.format(text, { ...(await prettier.resolveConfig(file)), filepath: file });
   };
   const files = new Map<string, string>();
@@ -483,7 +485,7 @@ async function writeGolden(g: Golden) {
     const groups = new Map<string, string[]>();
     for (const c of calls) groups.set(shardOf(c, depth), [...(groups.get(shardOf(c, depth)) ?? []), c]);
     for (const [name, group] of groups) {
-      const text = await format(`${name}.json`, shardText(group, g));
+      const text = await format(name, shardText(group, g));
       if (Buffer.byteLength(text) <= SHARD_BYTES) files.set(name, text);
       else if (depth < 4 && new Set(group.map((c) => shardOf(c, depth + 1))).size > 1) await place(group, depth + 1);
       else throw new Error(`shard ${name} is ${Buffer.byteLength(text)} bytes, over ${SHARD_BYTES}`);
@@ -492,14 +494,18 @@ async function writeGolden(g: Golden) {
   await place(Object.keys(g.answers), 1);
   rmSync(GOLDEN, { recursive: true, force: true });
   mkdirSync(GOLDEN);
-  writeFileSync(new URL('callers.json', GOLDEN), await format('callers.json', JSON.stringify(g.callers)));
-  for (const [name, text] of files) writeFileSync(new URL(`${name}.json`, GOLDEN), text);
+  writeFileSync(goldenJson('callers'), await format('callers', JSON.stringify(g.callers)));
+  for (const [name, text] of files) writeFileSync(goldenJson(name), text);
 }
 
 function readGolden(): Golden {
-  const g: Golden = { callers: JSON.parse(readFileSync(new URL('callers.json', GOLDEN), 'utf8')), inputs: {}, answers: {} };
+  const g: Golden = {
+    callers: JSON.parse(readFileSync(new URL('./wire-replay.golden/callers.json', import.meta.url), 'utf8')),
+    inputs: {},
+    answers: {},
+  };
   for (const file of readdirSync(GOLDEN).filter((f) => f !== 'callers.json')) {
-    const shard = JSON.parse(readFileSync(new URL(file, GOLDEN), 'utf8')) as {
+    const shard = JSON.parse(readFileSync(goldenJson(file.replace(/\.json$/, '')), 'utf8')) as {
       inputs: Record<string, Samples>;
       bodies: string[];
       answers: Record<string, Record<string, [number, number]>>;
