@@ -1,5 +1,4 @@
-import { BRIDGE_ROUTES_UNSET } from '@intafaced/contracts/protocol-bridge';
-import { PROTOCOL_BRIDGE_ROUTES_LIST } from '@intafaced/contracts/protocol-chain-procedures';
+import { BRIDGE_ROUTES_UNSET, bridgeRoutesListOutputSchema } from '@intafaced/contracts/protocol-bridge';
 import type { ApiClient } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../../shared/ui';
@@ -13,7 +12,10 @@ type Translate = ReturnType<typeof copy.forLocale>['t'];
  * transfer stays disabled. The bridge is non-custodial: the wallet signs every step and nothing posts to the ledger.
  */
 export function BridgeRoutes({ api, t }: { api: ApiClient; t: Translate }) {
-  const routes = useResource((signal) => api.call(PROTOCOL_BRIDGE_ROUTES_LIST, undefined, { signal }), 'bridge.routes.list');
+  const routes = useResource(
+    (signal) => api.query('protocol', 'bridge.routes.list', undefined, bridgeRoutesListOutputSchema, { signal }),
+    'bridge.routes.list',
+  );
   const { resource } = routes;
   const unset =
     resource.status === 'failed' &&

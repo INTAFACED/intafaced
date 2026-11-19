@@ -25,7 +25,6 @@ import {
   PROTOCOL_REPRESENTATION_STATUS,
   PROTOCOL_SESSIONS_LIST,
 } from '@intafaced/contracts/protocol-procedures';
-import { PROTOCOL_CHAIN_PROCEDURES } from '@intafaced/contracts/protocol-chain-procedures';
 import { PROTOCOL_WALLET_PROCEDURES } from '@intafaced/contracts/protocol-wallet-procedures';
 import { createAddressBookRouter, createWalletSessionRouter, unwiredAddressBookStore } from './address-book/router.js';
 import {
@@ -37,14 +36,6 @@ import {
 import { createEmbeddedWalletRouter, unwiredEmbeddedWalletStore } from './embedded-wallet/router.js';
 import { createVenueWalletRouter, unwiredVenueConnectionStore } from './venue-wallet/router.js';
 import { createProtocolRouter, type ProtocolRouterDeps } from './router.js';
-import { createBridgeRouter } from './bridge/router.js';
-import { createContractSourceRouter } from './contract-source/router.js';
-import { createEscrowRouter } from './escrow/router.js';
-import { createLendingRouter } from './lending/position.js';
-import { createPortfolioRouter } from './amm/portfolio-router.js';
-import { createTokensRouter } from './amm/tokens-router.js';
-import { createVenueFundsRouter } from './venue/router.js';
-import { createWalletTxRouters } from './wallet-tx/router.js';
 
 /**
  * The mounted side of each svc-protocol record's samples: sent through the production adapter by a caller the record
@@ -164,33 +155,6 @@ function serve(root: ReturnType<typeof router>, records: readonly ProcedureRecor
     swapSlippageBps: () => null,
   } as unknown as ProtocolRouterDeps;
   serve(createProtocolRouter(deps), PROTOCOL_AMM_PROCEDURES, "svc-protocol's amm routes reach each record sample's verdict");
-}
-
-// ── The chain reads (`protocol-chain-procedures.ts`): no chain and every owner setting blank, so an accepted input reaches
-// its handler and is refused by name, never as malformed ────────────────────────────────────────────────────────────
-{
-  const noChain = (): never => {
-    throw new Error('samples: no chain');
-  };
-  const toTrpcError = (err: unknown) =>
-    err instanceof TRPCError ? err : new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: String(err) });
-  const ZERO = '0x0000000000000000000000000000000000000000' as const;
-  const chainReads = router({
-    escrow: createEscrowRouter({ chain: noChain, setting: () => ({ chainId: 31337, escrow: null, mainnet: false }), toTrpcError }),
-    venue: createVenueFundsRouter({ chain: noChain, venue: () => null, toTrpcError }),
-    lending: createLendingRouter({ chain: noChain, market: () => null, toTrpcError }),
-    contract: createContractSourceRouter({ chain: noChain, sources: [], toTrpcError }),
-    bridge: createBridgeRouter({ loadRoutes: () => [] }),
-    tokens: createTokensRouter({ chain: {} as never, factory: () => ZERO, quoteToken: () => null, toTrpcError }),
-    portfolio: createPortfolioRouter({ chain: {} as never, factory: () => ZERO, priceSetting: () => null, toTrpcError }),
-    ...createWalletTxRouters({
-      chain: noChain,
-      claimEscrow: () => null,
-      replacement: () => ({ bumpBps: null, ceilingWei: null }),
-      toTrpcError,
-    }),
-  });
-  serve(chainReads, PROTOCOL_CHAIN_PROCEDURES, "svc-protocol's chain-read routes reach each record sample's verdict");
 }
 
 // ── The root calls (`protocol-procedures.ts`): a refused sample is refused for its input (400 with no named code) ─────

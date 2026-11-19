@@ -1,20 +1,19 @@
 import { decodeErrorResult, getAddress, type Abi, type Address, type Hex } from 'viem';
-import { router, TRPCError } from '@intafaced/contracts';
-import { mountRecord } from '@intafaced/contracts/procedure-mount';
-import {
-  PROTOCOL_CONTRACT_BUILD_WRITE,
-  PROTOCOL_CONTRACT_INSPECT,
-  PROTOCOL_CONTRACT_READ,
-} from '@intafaced/contracts/protocol-chain-procedures';
+import { publicJurisdictionProcedure, router, TRPCError } from '@intafaced/contracts';
 import {
   CONTRACT_ANSWER_UNREADABLE,
   CONTRACT_CALL_REVERTED,
   CONTRACT_INTERFACE_UNKNOWN,
   CONTRACT_READ_GAS_EXCEEDED,
   CONTRACT_ARGUMENT_INVALID,
+  protocolContractBuildWriteInputSchema,
+  protocolContractBuildWriteOutputSchema,
+  protocolContractInspectInputSchema,
+  protocolContractInspectOutputSchema,
+  protocolContractReadInputSchema,
+  protocolContractReadOutputSchema,
   type ProtocolContractInspect,
 } from '@intafaced/contracts/protocol-contract-source';
-import { protocolRefusal } from '../refusal.js';
 import { classifyChainError } from '../chain/availability.js';
 import type { ProtocolChain } from '../chain/client.js';
 import { isExecutionRevert } from '../chain/revert.js';
@@ -204,15 +203,15 @@ export function createContractSourceRouter(deps: ContractSourceDeps) {
   };
 
   return router({
-    inspect: mountRecord(
-      PROTOCOL_CONTRACT_INSPECT,
-      ({ input }) => guard(async () => (await inspect(input.address as Address)).output),
-      protocolRefusal,
-    ),
+    inspect: publicJurisdictionProcedure('protocol', 'protocol')
+      .input(protocolContractInspectInputSchema)
+      .output(protocolContractInspectOutputSchema)
+      .query(({ input }) => guard(async () => (await inspect(input.address as Address)).output)),
 
-    read: mountRecord(
-      PROTOCOL_CONTRACT_READ,
-      ({ input }) =>
+    read: publicJurisdictionProcedure('protocol', 'protocol')
+      .input(protocolContractReadInputSchema)
+      .output(protocolContractReadOutputSchema)
+      .query(({ input }) =>
         guard(async () => {
           const found = await inspect(input.address as Address);
           const abi = requireInterface(found);
@@ -237,12 +236,12 @@ export function createContractSourceRouter(deps: ContractSourceDeps) {
           }
           return { blockNumber: found.block.toString(), outputs };
         }),
-      protocolRefusal,
-    ),
+      ),
 
-    buildWrite: mountRecord(
-      PROTOCOL_CONTRACT_BUILD_WRITE,
-      ({ input }) =>
+    buildWrite: publicJurisdictionProcedure('protocol', 'protocol')
+      .input(protocolContractBuildWriteInputSchema)
+      .output(protocolContractBuildWriteOutputSchema)
+      .query(({ input }) =>
         guard(async () => {
           const found = await inspect(input.address as Address);
           const fn = findFunction(requireInterface(found), input.signature, 'write');
@@ -258,7 +257,6 @@ export function createContractSourceRouter(deps: ContractSourceDeps) {
             value: `0x${value.toString(16)}`,
           };
         }),
-      protocolRefusal,
-    ),
+      ),
   });
 }

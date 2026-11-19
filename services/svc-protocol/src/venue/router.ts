@@ -1,13 +1,19 @@
-import { ASSET_LINK_NOT_TOKEN, router, TRPCError, VENUE_BAD_AMOUNT, VENUE_INSUFFICIENT_FREE, VENUE_UNSET } from '@intafaced/contracts';
-import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  PROTOCOL_VENUE_ASSET_LINK_REVIEW,
-  PROTOCOL_VENUE_BALANCES,
-  PROTOCOL_VENUE_BUILD_DEPOSIT,
-  PROTOCOL_VENUE_BUILD_WITHDRAW,
-  PROTOCOL_VENUE_READS,
-} from '@intafaced/contracts/protocol-chain-procedures';
-import { protocolRefusal } from '../refusal.js';
+  ASSET_LINK_NOT_TOKEN,
+  protocolAssetLinkReviewInputSchema,
+  protocolAssetLinkReviewOutputSchema,
+  protocolVenueReadsOutputSchema,
+  VENUE_BAD_AMOUNT,
+  VENUE_INSUFFICIENT_FREE,
+  VENUE_UNSET,
+  protocolVenueBalancesInputSchema,
+  protocolVenueBalancesOutputSchema,
+  protocolVenueBuildInputSchema,
+  protocolVenueBuildOutputSchema,
+  publicJurisdictionProcedure,
+  router,
+  TRPCError,
+} from '@intafaced/contracts';
 import { reviewAssetLink, venueReads } from './asset-link.js';
 import { buildVenueDeposit, buildVenueWithdraw, venueBalances, VenueFundsRefusal, type VenueFundsDeps } from './funds.js';
 
@@ -32,17 +38,26 @@ export function createVenueFundsRouter(deps: VenueFundsDeps & { toTrpcError: (er
       throw deps.toTrpcError(err);
     }
   };
+  const procedure = publicJurisdictionProcedure('protocol', 'protocol');
   return router({
-    balances: mountRecord(PROTOCOL_VENUE_BALANCES, ({ input }) => guard(() => venueBalances(deps, input.account)), protocolRefusal),
-    buildDeposit: mountRecord(PROTOCOL_VENUE_BUILD_DEPOSIT, ({ input }) => guard(() => buildVenueDeposit(deps, input)), protocolRefusal),
-    buildWithdraw: mountRecord(PROTOCOL_VENUE_BUILD_WITHDRAW, ({ input }) => guard(() => buildVenueWithdraw(deps, input)), protocolRefusal),
+    balances: procedure
+      .input(protocolVenueBalancesInputSchema)
+      .output(protocolVenueBalancesOutputSchema)
+      .query(({ input }) => guard(() => venueBalances(deps, input.account))),
+    buildDeposit: procedure
+      .input(protocolVenueBuildInputSchema)
+      .output(protocolVenueBuildOutputSchema)
+      .query(({ input }) => guard(() => buildVenueDeposit(deps, input))),
+    buildWithdraw: procedure
+      .input(protocolVenueBuildInputSchema)
+      .output(protocolVenueBuildOutputSchema)
+      .query(({ input }) => guard(() => buildVenueWithdraw(deps, input))),
     /** Whether an ERC-20 is one of the venue's own two assets, with its decimals (J-dex-protocol-05 #10). A read. */
-    assetLinkReview: mountRecord(
-      PROTOCOL_VENUE_ASSET_LINK_REVIEW,
-      ({ input }) => guard(() => reviewAssetLink(deps, input.token)),
-      protocolRefusal,
-    ),
+    assetLinkReview: procedure
+      .input(protocolAssetLinkReviewInputSchema)
+      .output(protocolAssetLinkReviewOutputSchema)
+      .query(({ input }) => guard(() => reviewAssetLink(deps, input.token))),
     /** The contract-read docs: the venue's public getters with examples (J-dex-protocol-05 #10). */
-    reads: mountRecord(PROTOCOL_VENUE_READS, () => guard(() => venueReads(deps)), protocolRefusal),
+    reads: procedure.output(protocolVenueReadsOutputSchema).query(() => guard(() => venueReads(deps))),
   });
 }
