@@ -7,6 +7,7 @@ pub mod planner;
 pub mod preview;
 pub mod purchases;
 pub mod reads;
+pub mod service;
 pub mod sql;
 pub mod store;
 pub mod video;

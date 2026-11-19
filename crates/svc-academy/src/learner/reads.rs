@@ -332,11 +332,12 @@ pub fn course_grades(pool: &Pool, user_id: &str) -> Result<Json, Refusal> {
                 )?;
                 course.4.push((hundredths(&late)?, hundredths(&possible)?));
                 let [a, b, c] = head;
+                // The output schema's order: `state` first.
                 Json::obj([
+                    ("state", Json::str("graded")),
                     a,
                     b,
                     c,
-                    ("state", Json::str("graded")),
                     ("score", Json::str(late)),
                     ("possible", Json::str(possible)),
                 ])
@@ -353,7 +354,7 @@ pub fn course_grades(pool: &Pool, user_id: &str) -> Result<Json, Refusal> {
                     "not_attempted"
                 };
                 let [a, b, c] = head;
-                Json::obj([a, b, c, ("state", Json::str(state)), ("possible", Json::str(canonical_price(&points)))])
+                Json::obj([("state", Json::str(state)), a, b, c, ("possible", Json::str(canonical_price(&points)))])
             }
         };
         course.3.push(row);
@@ -369,8 +370,8 @@ pub fn course_grades(pool: &Pool, user_id: &str) -> Result<Json, Refusal> {
                     let possible: i128 = graded.iter().map(|g| g.1).sum();
                     vec![Json::obj([
                         ("type", Json::str("assignment")),
-                        ("count", Json::int(i64::try_from(graded.len()).unwrap_or(i64::MAX))),
                         ("percent", Json::str(tenths_of(score, possible))),
+                        ("count", Json::int(i64::try_from(graded.len()).unwrap_or(i64::MAX))),
                     ])]
                 };
                 Json::obj([
