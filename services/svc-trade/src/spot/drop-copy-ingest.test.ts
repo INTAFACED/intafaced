@@ -71,21 +71,34 @@ describe('createDropCopyIngestClient', () => {
     const bodies = posted();
     await createDropCopyIngestClient('http://svc-fix.example:8080', SECRET).postFill(restFill());
     const body = bodies[0]!;
+    expect(body).toBeDefined();
     const parsed = JSON.parse(body) as Record<string, unknown>;
     expect(parsed).toEqual({ ...restFill() });
     expect(Object.keys(parsed)).toEqual(Object.keys(FIX_DROP_COPY_FILL.input.shape).filter((k) => k in parsed));
-    for (const field of ['price', 'qty', 'quoteAmount', 'feeAmount']) {
-      expect(typeof parsed[field]).toBe('string');
-      expect(body).not.toMatch(new RegExp(`"${field}"\\s*:\\s*\\d`));
-    }
+    expect(parsed.source).toBe('rest');
+    expect(parsed.price).toBe('100.25');
+    expect(parsed.qty).toBe('1.50');
+    expect(parsed.quoteAmount).toBe('150.375');
+    expect(parsed.feeAmount).toBe('0.15');
+    expect(typeof parsed.price).toBe('string');
+    expect(typeof parsed.qty).toBe('string');
+    expect(typeof parsed.quoteAmount).toBe('string');
+    expect(typeof parsed.feeAmount).toBe('string');
+    expect(body).not.toMatch(/"price"\s*:\s*\d/);
+    expect(body).not.toMatch(/"qty"\s*:\s*\d/);
+    expect(body).not.toMatch(/"quoteAmount"\s*:\s*\d/);
+    expect(body).not.toMatch(/"feeAmount"\s*:\s*\d/);
   });
 
   it('never posts IEEE money or a forbidden source', async () => {
     const bodies = posted();
     const client = createDropCopyIngestClient('http://svc-fix.example:8080', SECRET);
-    await client.postFill({ ...restFill(), price: 100.25 as unknown as string });
-    for (const source of ['ui', 'ws', 'fix', 'algo', 'broker'])
-      await client.postFill({ ...restFill(), source: source as DropCopyFillWire['source'] });
+    await expect(client.postFill({ ...restFill(), price: 100.25 as unknown as string })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'ui' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'ws' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'fix' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'algo' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'broker' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
     expect(bodies).toEqual([]);
   });
 
@@ -94,7 +107,9 @@ describe('createDropCopyIngestClient', () => {
     const client = createDropCopyIngestClient('http://svc-fix.example:8080', SECRET);
     await client.postFill({ ...restFill(), source: DROP_COPY_SOURCE_RFQ });
     await client.postFill({ ...restFill(), source: DROP_COPY_SOURCE_LIQUIDATION });
-    expect(bodies.map((b) => JSON.parse(b).source)).toEqual(['rfq', 'liquidation']);
+    expect(bodies).toHaveLength(2);
+    expect(JSON.parse(bodies[0]!).source).toBe('rfq');
+    expect(JSON.parse(bodies[1]!).source).toBe('liquidation');
   });
 
   it("a refusal or a reply off svc-fix's record throws, for fireDropCopyFill to log", async () => {
