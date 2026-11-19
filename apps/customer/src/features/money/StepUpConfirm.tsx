@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Field, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
-import { useSession } from '../session/session';
-import { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from '../account/security-step-up';
-import { factorStatus } from '../account/security-checklist';
+import { useSession } from '../session';
+import { confirmWithStepUp, factorStatus, type StepUpBegin, type StepUpMethod } from '../account';
 import { stepUpRefusalKeys } from './WithdrawStepUp';
 import { withdrawStepUpCopy } from './withdraw-step-up-copy';
 
