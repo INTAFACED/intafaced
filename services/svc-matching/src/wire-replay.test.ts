@@ -196,6 +196,13 @@ const SETUPS: ReadonlyArray<[string, () => Setup]> = [
 async function serve(setup: Setup): Promise<FastifyInstance> {
   const { engine, journal } = setup;
   const app = Fastify({ logger: false, genReqId: () => 'replay-request' });
+  // Every door the process mounts, and every door a request of the matrix reached, so a new door can't go unrecorded.
+  app.addHook('onRoute', (route) => {
+    for (const method of [route.method].flat()) if (method !== 'HEAD') mounted.add(`${method} ${route.url}`);
+  });
+  app.addHook('onRequest', async (req) => {
+    if (req.routeOptions.url) reached.add(`${req.method} ${req.routeOptions.url}`);
+  });
   const latency = new OperationLatency(new Date());
   registerOperationLatency(app, latency, (marketId) => engine.markets.includes(marketId));
   registerHealth(app, 'svc-matching', engine, journal, latency);
@@ -677,6 +684,9 @@ async function hit(app: FastifyInstance, method: Method, url: string, body: unkn
   };
 }
 
+const mounted = new Set<string>();
+const reached = new Set<string>();
+
 async function replay(): Promise<Record<string, Record<string, Answer>>> {
   const byFile: Record<string, Record<string, Answer>> = {};
   for (const [setupName, make] of SETUPS) {
@@ -700,6 +710,7 @@ async function replay(): Promise<Record<string, Record<string, Answer>>> {
 describe('the wire replay: svc-matching answers as main did on 2026-11-19', () => {
   it('every request in the matrix gets the recorded status, content type and body, byte for byte', async () => {
     const now = await replay();
+    expect([...mounted].filter((door) => !reached.has(door)).sort()).toEqual([]);
     const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
     if (process.env.WIRE_REPLAY_WRITE === '1') {
       mkdirSync(GOLDEN, { recursive: true });
