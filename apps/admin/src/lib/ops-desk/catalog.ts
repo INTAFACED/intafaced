@@ -1,4 +1,8 @@
-import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
+import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+
+/** A read whose call has a record: its module and path are the record's, never typed again here. */
+const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -1308,8 +1312,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.health',
         title: 'Service health',
         note: '"Moderation configured" means someone is on the moderator list. svc-p2p cannot tell whether that person is actually watching the queue.',
-        module: 'p2p',
-        procedure: 'health',
+        ...readOf(P2P_HEALTH),
         shape: 'record',
         columns: [
           bool('ok', 'Answering'),
@@ -1325,8 +1328,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.fiat',
         title: 'Fiat currencies enabled',
         note: 'Currencies P2P can trade against, from configuration. Not a volume.',
-        module: 'p2p',
-        procedure: 'fiat.list',
+        ...readOf(P2P_FIAT_LIST),
         shape: 'list',
         idKey: 'code',
         columns: [text('code', 'Code'), text('name', 'Name'), text('symbol', 'Symbol'), int('minorUnits', 'Minor units')],
