@@ -1728,6 +1728,46 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log("local-test-stack: a start waits for the stack's own late service and refuses only a stranger's port");
 }
 
+// The health table does not call a running service DOWN on one late read: svc-matching's process kept running while one
+// 2.5 s /health read went unanswered, and `restart academy` exited 1 on it (journeys run 44566531740, J-academy-11 #3,
+// #9088). A running process with no answer is read again within a window; an answer, or a gone process, counts at once.
+{
+  const { settledHealth } = await import('./local-test-stack.mjs');
+  const clock = () => {
+    let t = 0;
+    return { now: () => t, pause: async (ms) => void (t += ms) };
+  };
+  const reads = (...statuses) => {
+    const seen = [];
+    return { seen, read: async () => ({ status: statuses[Math.min(seen.push(1) - 1, statuses.length - 1)] }) };
+  };
+  let c = clock();
+  let r = reads(0, 0, 200);
+  assert.equal((await settledHealth(r.read, { alive: () => true, ...c })).status, 200, 'a late answer from a running service is ok');
+  assert.equal(r.seen.length, 3);
+  c = clock();
+  r = reads(0);
+  assert.equal((await settledHealth(r.read, { alive: () => false, ...c })).status, 0, 'a gone process is DOWN at once');
+  assert.equal(r.seen.length, 1);
+  c = clock();
+  r = reads(503, 200);
+  assert.equal((await settledHealth(r.read, { alive: () => true, ...c })).status, 503, 'a refusing answer is not read again');
+  c = clock();
+  r = reads(0);
+  assert.equal(
+    (await settledHealth(r.read, { alive: () => true, windowMs: 2000, pauseMs: 500, ...c })).status,
+    0,
+    'still silent after the window: DOWN',
+  );
+  assert.equal(r.seen.length, 5, 'read again only within the window');
+  assert.match(
+    source,
+    /settledHealth\(\(\) => httpGet\(`\$\{urlOf\(n\)\}\/health`, 2500\), \{ alive: \(\) => ownedAlive\(procs\[n\]\) \}\)/,
+    'the table reads each service through it',
+  );
+  console.log('local-test-stack: the health table waits for a running service that answers late, never for a gone one');
+}
+
 // A slot whose owner is gone is taken back; a live owner's never (takeSlot, ownerGone). Failure it prevents: on 16 Nov
 // slots 0 and 1 were held by the stacks of two settled builders whose PRs had merged, so a counted build found every
 // slot held (project-state#2553 comment 6903867491).
