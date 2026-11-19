@@ -430,3 +430,47 @@ pub fn programmes(pool: &Store, user_id: &str, limit: i64, mine: bool, now: i64)
         Ok(Json::Array(out))
     })
 }
+
+/// `PROGRAMME_SLUGS` (`curriculum/programmes.ts`): the four Blueprint paths a programme definition names.
+pub const PROGRAMME_SLUGS: [&str; 4] = ["foundations", "markets", "builder", "sovereign"];
+
+/// `ProgrammeDefinition`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Definition {
+    pub slug: &'static str,
+    pub prerequisites: Vec<String>,
+}
+
+/// `PROGRAMME_CATALOG`: none of the owner's prerequisites is authored, so every path ships an empty list.
+pub fn catalog() -> Vec<Definition> {
+    PROGRAMME_SLUGS.iter().map(|slug| Definition { slug, prerequisites: Vec::new() }).collect()
+}
+
+/// `assertProgrammeCatalog`: the `ProgrammeCatalogError` message, when the list is not a catalog.
+pub fn assert_catalog(defs: &[Definition]) -> Result<(), String> {
+    let mut slugs: Vec<&str> = defs.iter().map(|d| d.slug).collect();
+    slugs.sort_unstable();
+    slugs.dedup();
+    if slugs.len() != defs.len() {
+        return Err("duplicate programme slug".to_owned());
+    }
+    if let Some(missing) = PROGRAMME_SLUGS.iter().find(|s| !slugs.contains(s)) {
+        return Err(format!("programme catalog missing {missing}"));
+    }
+    for def in defs {
+        if let Some(pre) = def.prerequisites.iter().find(|p| !slugs.contains(&p.as_str())) {
+            return Err(format!("unknown prerequisite slug: {pre}"));
+        }
+    }
+    Ok(())
+}
+
+/// `programmeBySlug`.
+pub fn by_slug<'a>(defs: &'a [Definition], slug: &str) -> Option<&'a Definition> {
+    defs.iter().find(|d| d.slug == slug)
+}
+
+/// `unmetPrerequisites`: the prerequisite slugs the caller holds no active enrolment for.
+pub fn unmet(def: &Definition, active: &[String]) -> Vec<String> {
+    def.prerequisites.iter().filter(|p| !active.contains(p)).cloned().collect()
+}
