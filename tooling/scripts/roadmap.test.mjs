@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -8,12 +8,14 @@ import {
   buildIndex,
   buildJourneys,
   dependsOn,
+  driftLine,
   finishLine,
   finishLineProblems,
   journeyOrder,
   keepParkedNeeds,
   laneFor,
   liveJourneys,
+  listDrift,
   isLaterStep,
   isLaterJourney,
   pullLaterDepsForward,
@@ -682,4 +684,50 @@ test('a test that passed only on its retry is not a pass on the scoreboard (CI r
     ],
   };
   assert.deepEqual([...passedSteps(report)], ['J-cex-spot-01#1']);
+});
+
+test('--check fails when the words of a journey change and the list does not follow, and passes once the list is rebuilt', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-drift-'));
+  mkdirSync(join(dir, 'modules', 'cex-spot', 'specs'), { recursive: true });
+  mkdirSync(join(dir, 'modules', 'cex-spot', 'acceptance'), { recursive: true });
+  const spec = (id) => [`### ${id}. Something`, '', '| | |', '|---|---|', '| Module | svc-spot |', '| Size | S |', ''];
+  const ids = ['I-kyc-compliance-06', 'SP-order-entry-01', 'SP-lifecycle-history-01', 'SP-order-03'];
+  writeFileSync(join(dir, 'modules', 'cex-spot', 'specs', 's.md'), ids.flatMap(spec).join('\n'));
+  const words = join(dir, 'modules', 'cex-spot', 'acceptance', 'journeys.md');
+  writeFileSync(words, JOURNEY);
+  const files = { journeysFile: join(dir, 'journeys.json'), slicesFile: join(dir, 'slices.json') };
+  const rebuild = () => {
+    const journeys = buildJourneys(dir);
+    writeFileSync(files.journeysFile, JSON.stringify(journeys, null, 2));
+    writeFileSync(files.slicesFile, JSON.stringify(buildIndex(dir, undefined, journeys), null, 2));
+  };
+  rebuild();
+  assert.deepEqual(listDrift(dir, files), { journeys: [], slices: [], behind: false });
+
+  // Layout alone is not drift: the committed files are prettier's, the check reads JSON.
+  writeFileSync(files.journeysFile, JSON.stringify(JSON.parse(readFileSync(files.journeysFile, 'utf8'))));
+  assert.equal(listDrift(dir, files).behind, false);
+
+  // The planted change: one step of J-cex-spot-02 names another slice in the words; the list is not rebuilt.
+  writeFileSync(
+    words,
+    JOURNEY.replace('| 1 | Presses twice | One order | SP-order-entry-01 |', '| 1 | Presses twice | One order | SP-order-03 |'),
+  );
+  const drift = listDrift(dir, files);
+  assert.equal(drift.behind, true);
+  assert.deepEqual(drift.journeys, ['J-cex-spot-02']);
+  assert.ok(drift.slices.includes('SP-order-03'), 'the slice the step now needs takes its journey');
+  assert.match(driftLine(drift), /^roadmap: the journey list is behind the words; run node tooling\/scripts\/roadmap\.mjs --index /);
+  assert.match(driftLine(drift), /journeys\.json: 1 differ \(J-cex-spot-02\)/);
+
+  // A journey gone from the words, or new in them, is drift too.
+  writeFileSync(words, JOURNEY.split('## J-cex-spot-02')[0]);
+  assert.deepEqual(listDrift(dir, files).journeys, ['J-cex-spot-02']);
+
+  rebuild();
+  assert.equal(listDrift(dir, files).behind, false, 'passes after the command is run');
+
+  // A missing list is behind, not empty-and-fine.
+  const none = { journeysFile: join(dir, 'none.json'), slicesFile: files.slicesFile };
+  assert.equal(listDrift(dir, none).behind, true);
 });

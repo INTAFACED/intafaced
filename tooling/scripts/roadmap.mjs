@@ -2,7 +2,8 @@
 /**
  * ROADMAP. The slice and journey records, built from the Operation Zero specs, and what is left to build.
  *
- *   node tooling/scripts/roadmap.mjs --index <operation-zero dir>   rebuild docs/roadmap/slices.json from the specs
+ *   node tooling/scripts/roadmap.mjs --index <operation-zero dir>   rebuild docs/roadmap/slices.json and journeys.json from the specs
+ *   node tooling/scripts/roadmap.mjs --check <operation-zero dir>   fail when either file differs from what --index would write
  *   node tooling/scripts/roadmap.mjs --lane "<lane>"                 print one lane's queue, deepest dependency last
  *   node tooling/scripts/roadmap.mjs --journey trader                print one journey's queue
  *   node tooling/scripts/roadmap.mjs --progress [git ref] [--results <playwright json>]
@@ -32,8 +33,10 @@
  *      steps need is queued with the later journeys. A cell that starts with "Later" in any other form is refused.
  *   1. `modules/<module>/specs/*.md` and `specs/merchant-*.md` in the Operation Zero folder: each `### <ID>. <title>`
  *      heading and its `| IDs |`, `| Module |`, `| Split |`, `| Depends |`, `| NotConnected |`, `| Size |` rows.
- *      The folder lives in the project's shared files, not in this repo, so `--index` is run by whoever has it and
- *      the result is committed as docs/roadmap/slices.json.
+ *      The folder lives in the private project repository, not in this public one, so `--index` is run by whoever
+ *      has it and the result is committed as docs/roadmap/slices.json and journeys.json. Nobody has to remember: the
+ *      Journey words workflow (.github/workflows/journey-words.yml) runs `--check` against the words on main every
+ *      hour and after each change here, and opens one `bug` issue naming the command while the lists are behind.
  *   2. docs/roadmap/slices.json: the committed index everything else reads. docs/roadmap/lane-overrides.json places
  *      slices whose spec names no service, or the wrong one; it is applied by `--index`.
  *
@@ -791,6 +794,40 @@ export function progress(slices, commits, now, allJourneys = [], passed = null) 
   return `${lines.join('\n')}\n`;
 }
 
+/**
+ * Where the committed lists differ from what `--index` builds from the words in `ozDir`: the ids of the journeys and of
+ * the slices whose record differs, is new or is gone, and whether anything differs at all (a record moved counts too).
+ * Read as JSON, so layout alone never counts and no formatter is needed: CI runs it with plain node (journey-words.yml).
+ */
+export function listDrift(ozDir, { journeysFile = JOURNEY_INDEX, slicesFile = INDEX } = {}) {
+  const journeys = buildJourneys(ozDir);
+  const slices = buildIndex(ozDir, undefined, journeys);
+  const compare = (fresh, file) => {
+    const had = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : [];
+    const byId = (list) => new Map(list.map((x) => [x.id, JSON.stringify(x)]));
+    const [was, now] = [byId(had), byId(fresh)];
+    const ids = [...new Set([...was.keys(), ...now.keys()])].filter((id) => was.get(id) !== now.get(id)).sort();
+    return { ids, differs: JSON.stringify(had) !== JSON.stringify(fresh) };
+  };
+  const j = compare(journeys, journeysFile);
+  const s = compare(slices, slicesFile);
+  return { journeys: j.ids, slices: s.ids, behind: j.differs || s.differs };
+}
+
+/** The one line `--check` prints when the lists are behind the words, naming what differs and the command that fixes it. */
+export function driftLine(drift) {
+  const name = (ids, what) => {
+    if (!ids.length) return [];
+    const shown = ids.slice(0, 12).join(', ');
+    return [`${relative(ROOT, what)}: ${ids.length} differ (${shown}${ids.length > 12 ? ', ...' : ''})`];
+  };
+  const parts = [...name(drift.journeys, JOURNEY_INDEX), ...name(drift.slices, INDEX)];
+  return (
+    'roadmap: the journey list is behind the words; run node tooling/scripts/roadmap.mjs --index <operation-zero dir> ' +
+    `and commit docs/roadmap (${parts.length ? parts.join('; ') : 'the records are the same but their order differs'})`
+  );
+}
+
 async function main(argv) {
   const flag = (name) => {
     const i = argv.indexOf(name);
@@ -809,6 +846,20 @@ async function main(argv) {
     writeFileSync(INDEX, await prettier.format(JSON.stringify(slices), { ...config, parser: 'json' }));
     writeFileSync(JOURNEY_INDEX, await prettier.format(JSON.stringify(journeys), { ...config, parser: 'json' }));
     console.log(`roadmap: ${slices.length} slices and ${journeys.length} journeys written to ${relative(ROOT, dirname(INDEX))}`);
+    return 0;
+  }
+  const checkDir = flag('--check');
+  if (checkDir !== undefined) {
+    if (!checkDir || !existsSync(join(checkDir, 'modules'))) {
+      console.error('roadmap: --check needs the Operation Zero folder (it has modules/<module>/specs)');
+      return 1;
+    }
+    const drift = listDrift(checkDir);
+    if (drift.behind) {
+      console.error(driftLine(drift));
+      return 1;
+    }
+    console.log('roadmap: docs/roadmap/journeys.json and slices.json follow the words');
     return 0;
   }
   const slices = JSON.parse(readFileSync(INDEX, 'utf8'));
@@ -854,7 +905,7 @@ async function main(argv) {
     console.log(queueLines(pick, analyse(slices)).join('\n'));
     return 0;
   }
-  console.error('roadmap: give --index, --progress, --finish-line, --lane or --journey (the usage is at the top of this file)');
+  console.error('roadmap: give --index, --check, --progress, --finish-line, --lane or --journey (the usage is at the top of this file)');
   return 1;
 }
 
