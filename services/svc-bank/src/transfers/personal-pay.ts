@@ -2,7 +2,7 @@
  * Personal send, receipt, and payment request.
  *
  * One movement per send (`transfers.transferToUser`): the ledger's `bankTransfer` on the custodial layer, or, when the
- * partner bank holds both people's money (OWNER 226), the partner's one move under the same key, with nothing posted to
+ * partner bank holds both people's money, the partner's one move under the same key, with nothing posted to
  * the ledger. Rows here are the note, the parties, and the request. They are not a balance.
  *
  * A published fee greater than zero is refused (`bank.personal_transfer_fee_unwired`):
@@ -55,7 +55,7 @@ const NOTICE_RETRY_AFTER_MS = 30_000;
 /** How long a send waits for the recipient's income sorter before it answers; the sorter's sweep finishes anything slower. */
 const SORT_HANDOFF_TIMEOUT_MS = 5_000;
 
-/** Paying a request, or a withdrawal, through the partner bank that holds the payer's money is not built yet (OWNER 226). */
+/** Paying a request, or a withdrawal, through the partner bank that holds the payer's money is not built yet. */
 function partnerRequestNotBuilt(): BankError {
   return new BankError(
     'This payment is not yet made through the partner bank that holds this money, so it was not sent. Nothing was sent or changed.',
@@ -76,7 +76,7 @@ export interface PersonalTransferView {
   readonly transferId: string;
   /** The ledger transaction of a send on the custodial layer; null when the partner bank moved it. */
   readonly ledgerTxId: string | null;
-  /** The partner bank's move of a send it holds the money for (OWNER 226), with the partner's name; null on the ledger. */
+  /** The partner bank's move of a send it holds the money for, with the partner's name; null on the ledger. */
   readonly partnerMove: { readonly id: string; readonly label: string } | null;
   readonly amount: string;
   readonly assetId: string;
@@ -192,7 +192,7 @@ export interface TransferFact {
 interface TransferRow {
   transfer_id: string;
   ledger_tx_id: string | null;
-  /** The partner's move, for a send the partner bank made (OWNER 226). A posted row names exactly one of the two. */
+  /** The partner's move, for a send the partner bank made. A posted row names exactly one of the two. */
   partner_move_id: string | null;
   from_user_id: string;
   from_space_id: string;
@@ -333,7 +333,7 @@ export class PersonalPayService {
       /** The owner's manual reminder rule (PP-send-request-13). Unset refuses every reminder (`bank.reminder_policy_unset`). */
       remindPolicy?: RemindPolicy | null;
       /**
-       * Whose book holds each person's money (OWNER 226): the partner bank for a person it holds money for, else none (the
+       * Whose book holds each person's money: the partner bank for a person it holds money for, else none (the
        * custodial layer). The same custody the transfer service moves by. Unset = every send is on the ledger, as before.
        */
       custody?: { bankFor(userId: string): PartnerBank | null };
@@ -367,7 +367,7 @@ export class PersonalPayService {
     if (from.userId !== input.actorUserId) {
       throw new BankError('Not your space', 'bank.not_owner');
     }
-    // The partner bank holds this person's money (OWNER 226): the send is the partner's one move, and nothing of it is
+    // The partner bank holds this person's money: the send is the partner's one move, and nothing of it is
     // posted to the ledger. Paying a request through the partner is not built yet, so it is refused by name, before
     // anything is written.
     const partner = this.options.custody?.bankFor(input.actorUserId) ?? null;
@@ -503,7 +503,7 @@ export class PersonalPayService {
   }
 
   /**
-   * The send as the partner bank's one move (OWNER 226; J-bank-04 #4): from the sender's account at the partner to the
+   * The send as the partner bank's one move (J-bank-04 #4): from the sender's account at the partner to the
    * recipient's, under the send's business key `bank.transfer.p2p:<transferId>:0`, and nothing posted to the ledger.
    *
    * If this crashes exactly here, after the partner moved and before the row says so, nobody's funds are stranded: the
@@ -1056,7 +1056,7 @@ export class PersonalPayService {
          AND (from_user_id = ${userId} OR to_user_id = ${userId})
     `;
     for (const row of rows) {
-      // A partner's line in History carries the partner's move id, a ledger line its transaction id (OWNER 226).
+      // A partner's line in History carries the partner's move id, a ledger line its transaction id.
       const id = row.ledger_tx_id ?? row.partner_move_id;
       if (!id) continue;
       const counterpartyHandle = row.from_user_id === userId ? row.to_handle : row.from_handle;
