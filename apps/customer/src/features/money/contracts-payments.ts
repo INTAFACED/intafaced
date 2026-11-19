@@ -1,7 +1,6 @@
 /** Money paid out: scheduled and personal transfers, direct debits, the calendar and reminders, cash out and bank-rail sends. */
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
-import { transferQuoteSchema } from '../pay/schemas';
 import { linkedAccountSchema } from './contracts-accounts';
 
 /** The partner bank's move of money it holds for the person (OWNER 226): its id, and the partner's name for itself. */
@@ -21,6 +20,24 @@ export const scheduleSchema = z.object({
   fromSpaceId: z.string().optional(),
   /** The person's own space it pays into, or null when it pays another person. */
   toSpaceId: z.string().nullable().optional(),
+});
+
+/** `bank.transfers.quote`: the published limits and fee for one personal send, and how much of today is used. */
+const quoteAmount = money.refine((v) => /^\d+(\.\d{1,18})?$/.test(v));
+export const transferQuoteSchema = z.object({
+  assetId: z.string().min(1).max(16),
+  amount: quoteAmount,
+  perTransferLimit: quoteAmount,
+  dailyLimit: quoteAmount,
+  spentToday: quoteAmount,
+  /** The daily limit less what was sent today, from the bank (BK-acct-04). Older bank builds leave it out. */
+  remainingToday: quoteAmount.optional(),
+  fee: quoteAmount,
+  feeBlocker: z.string().nullable(),
+  /** The partner's fee on the move: absent when none is reported, null when the partner has not said ("not known"). */
+  networkFee: quoteAmount.nullable().optional(),
+  withinPerTransfer: z.boolean(),
+  withinDaily: z.boolean(),
 });
 
 /** svc-bank `bank.directDebits.*` (J-bank-06 #4, BK-xfer-11): mandates, their collections and refund requests. */

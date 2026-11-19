@@ -22,7 +22,8 @@ vi.mock('./components', async (original) => {
     useBankRead: (procedure: string) => ({ resource: reads[procedure] ?? { status: 'loading' }, reload: () => undefined }),
   };
 });
-vi.mock('../session/session', () => ({
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
   useSession: () => ({ api: { query: async () => ({ ok: false, reason: 'error', message: 'unused' }) } }),
 }));
 import { InstantSavings } from './InstantSavings';

@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { parseAmount } from '../../shared/money';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { amount, bps, date, funds, positiveMoney, useBankRead, type ActionSpec } from './components';
 import { bankReads, bankWrites, type earnPoolPageSchema, type positionSchema } from './contracts';
 import { CALCULATOR_MAX_DAYS, earnCalculation } from './earn-calculator';

@@ -7,7 +7,10 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: {} }),
+}));
 import { DepositAddressesView } from './DepositAddresses';
 import type { DepositAddressItem, DepositAddressList, DepositNetworkView } from './deposit-reads';
 
