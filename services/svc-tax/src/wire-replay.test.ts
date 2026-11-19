@@ -48,6 +48,8 @@ function tax(mapRaw: string) {
     lake: { status: 'absent', code: TAX_DATA_LAKE_UNAVAILABLE },
     indexer: { status: 'absent', code: TAX_INDEXER_UNAVAILABLE },
     historyYears: 10,
+    // A fixed clock: exportPack writes the date into its filename, and the golden file must not change with the calendar.
+    now: () => new Date('2026-11-19T00:00:00Z'),
   });
 }
 
