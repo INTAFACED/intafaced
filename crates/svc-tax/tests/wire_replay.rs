@@ -23,7 +23,7 @@ use svc_tax::wire::{self, Request, Wire, WireConfig};
 
 const GOLDEN: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../services/svc-tax/src/wire-replay.golden.json"
+    "/tests/fixtures/wire-replay.golden.json"
 );
 const SECRET: &str = "a-tax-wire-replay-edge-secret-long-enough";
 const USER: &str = "11111111-1111-4111-8111-111111111111";

@@ -19,7 +19,7 @@ use svc_tax::time::{self, Instant};
 
 const GOLDEN: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../services/svc-tax/src/export-parity.golden.json"
+    "/tests/fixtures/export-parity.golden.json"
 );
 
 fn s(v: &Json, key: &str) -> String {

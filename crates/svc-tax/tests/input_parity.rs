@@ -13,7 +13,7 @@ use svc_tax::zod::{self, Issue};
 
 const GOLDEN: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../services/svc-tax/src/input-parity.golden.json"
+    "/tests/fixtures/input-parity.golden.json"
 );
 
 fn verdict<T>(r: Result<T, Vec<Issue>>) -> String {
