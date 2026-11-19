@@ -1229,7 +1229,9 @@ export class MatchedFuturesOrders {
         ${market.quote_asset}, 'pending', ${rates.makerBps}, ${rates.takerBps},
         ${input.origin?.kind ?? 'user'}, ${input.origin?.ref ?? null}, ${input.orderLabel ?? null}
       )
-      ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
+      -- No target: the id is a hash of (user, market, clientOrderId), so the key and the primary key name one row, and
+      -- a caller that loses the insert race reaches the replay below instead of a 23505 on futures_orders_pkey (#8877).
+      ON CONFLICT DO NOTHING
       RETURNING id
     `,
     );
@@ -2905,7 +2907,10 @@ export class MatchedFuturesOrders {
         ${limit === null ? FUTURES_REDUCE_BANKRUPTCY_OUTSIDE_BAND : null}, ${limit === null ? '0' : null},
         true, ${position.id}, ${formatAmount(bankruptcy)}, ${input.rungId}, 'liquidation', ${input.rungId}
       )
-      ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
+      -- No target: the id, the client id and liquidation_rung_id all come from the rung, so every unique key names one
+      -- row, and a second process storing the same rung reads the row that won instead of a 23505 (#8877). A row that
+      -- is not this rung's IOC is refused by the identity check after the load.
+      ON CONFLICT DO NOTHING
     `;
     return this.loadOrder(orderId);
   }
