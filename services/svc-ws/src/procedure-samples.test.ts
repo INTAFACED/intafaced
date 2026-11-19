@@ -10,6 +10,7 @@ import { SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
 
 const KEY = 'a-ws-sample-read-key-that-is-long-enough';
 const STATUS: Record<string, number> = { SERVICE_UNAVAILABLE: 503, UNAUTHORIZED: 401, FORBIDDEN: 403 };
+const REFUSALS: Readonly<Record<string, string>> = WS_SBE_CONSUMERS.refusals;
 
 function door(secret: string | undefined) {
   const app = Fastify({ logger: false });
@@ -45,7 +46,7 @@ describe('WS_SBE_CONSUMERS samples and refusals', () => {
     ];
     const seen = answers.map((res) => {
       const code = (res.json() as { error: { code: string } }).error.code;
-      expect(res.statusCode).toBe(STATUS[WS_SBE_CONSUMERS.refusals[code] ?? 'missing']);
+      expect(res.statusCode).toBe(STATUS[REFUSALS[code] ?? 'missing']);
       return code;
     });
     expect(seen.sort()).toEqual(Object.keys(WS_SBE_CONSUMERS.refusals).sort());
