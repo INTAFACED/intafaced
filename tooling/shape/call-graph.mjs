@@ -60,7 +60,7 @@ export function targetOf(variable, self, services) {
 }
 
 /** The text with comments blanked out (strings and template text kept), lines kept in place. */
-export function stripComments(src) {
+function stripComments(src) {
   let out = '';
   let i = 0;
   let quote = null;
@@ -208,7 +208,7 @@ export function sourcesOf(root = ROOT) {
   );
 }
 
-export const buildGraph = (root = ROOT) => graphFrom(sourcesOf(root));
+const buildGraph = (root = ROOT) => graphFrom(sourcesOf(root));
 
 /** The file's text, in the repo's own format so the format check and this check agree. */
 export const render = async (graph) =>
