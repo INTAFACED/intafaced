@@ -7,61 +7,86 @@
  */
 import { z } from 'zod';
 import { positionSchema } from '@intafaced/exchange-contract/schemas';
+import {
+  conditionalOrderListSchema,
+  entryProtectionListSchema,
+  adlDisclosureSchema,
+  adlEventSchema,
+  calculatorSchema,
+  collateralSchema,
+  conditionalOrderSchema,
+  entryProtectionSchema,
+  fundingRateSchema,
+  futuresExecutionPageSchema,
+  futuresExecutionSchema,
+  futuresOrderSchema,
+  futuresSplitSchema,
+  gatedListSchema,
+  marginCallSchema,
+  marginSummarySchema,
+  orderTypeCatalogueSchema,
+  orderTypeEntrySchema,
+  protectionSchema,
+  reverseSchema,
+  riskStopSchema,
+  riskTiersSchema,
+  tickerStripSchema,
+  type ConditionalOrder,
+  type EntryProtection,
+} from '@intafaced/contracts/trade-futures-room';
 import type { ApiClient, ApiResult } from '../../../shared/api';
-import { decimalSchema, signedDecimalSchema } from '../../../shared/money';
 import { listingSchema } from '../../../features/trade/trade-api';
 import { positionPreviewSchema } from '../../../features/trade/tool-api';
 
-export const tickerStripSchema = z.object({
-  markPrice: decimalSchema.nullable(),
-  markSource: z.unknown().nullable().optional(),
-  fundingRate: decimalSchema.nullable(),
-  fundingPeriodId: z.string().nullable().optional(),
-  nextFundingTime: z.string().nullable(),
-});
-export type TickerStrip = z.infer<typeof tickerStripSchema>;
-
-export const fundingRateSchema = z.object({
-  symbol: z.string(),
-  markPrice: decimalSchema.nullable(),
-  indexPrice: decimalSchema.nullable(),
-  fundingRate: decimalSchema,
-  fundingTimestamp: z.number(),
-  fundingDatetime: z.string(),
-  nextFundingTimestamp: z.number().nullable(),
-});
-export type FundingRate = z.infer<typeof fundingRateSchema>;
-
-export const marginCallSchema = z.object({
-  positionId: z.string(),
-  sequence: z.number().int(),
-  healthBps: z.number(),
-  calledAt: z.string(),
-  deliveredAt: z.string(),
-  delivered: z.literal(true),
-});
-export type MarginCall = z.infer<typeof marginCallSchema>;
-
-/**
- * A position's pre-liquidation stop (`GET/PUT /positions/:id/risk-stop`, D-margin-04): the margin-ratio level the trader
- * set, the mark at which the service closes the position for it, and the ratio now, each worked out by the service.
- * `none` is a fact (no stop); `fired` names the close order it placed.
- */
-export const riskStopSchema = z.object({
-  positionId: z.string(),
-  status: z.enum(['none', 'armed', 'fired', 'ended']),
-  level: decimalSchema.nullable(),
-  marginRatio: decimalSchema.nullable(),
-  marginRatioReason: z.string().nullable(),
-  triggerPrice: decimalSchema.nullable(),
-  triggerPriceReason: z.string().nullable(),
-  liquidationPrice: decimalSchema.nullable(),
-  closeOrder: z.object({ clientOrderId: z.string(), status: z.string(), orderId: z.string().nullable() }).nullable(),
-  firedRatio: decimalSchema.nullable(),
-  firedAt: z.string().nullable(),
-  updatedAt: z.string().nullable(),
-});
-export type RiskStop = z.infer<typeof riskStopSchema>;
+export {
+  tickerStripSchema,
+  fundingRateSchema,
+  marginCallSchema,
+  riskStopSchema,
+  adlDisclosureSchema,
+  adlEventSchema,
+  collateralSchema,
+  marginSummarySchema,
+  riskTiersSchema,
+  calculatorSchema,
+  entryProtectionSchema,
+  ORDER_LABEL,
+  FUTURES_ORDER_ORIGINS,
+  FUTURES_EXECUTION_KINDS,
+  futuresOrderSchema,
+  futuresExecutionSchema,
+  futuresExecutionPageSchema,
+  conditionalOrderSchema,
+  protectionSchema,
+  orderTypeEntrySchema,
+  orderTypeCatalogueSchema,
+  gatedListSchema,
+  reverseSchema,
+  futuresSplitSchema,
+} from '@intafaced/contracts/trade-futures-room';
+export type {
+  TickerStrip,
+  FundingRate,
+  MarginCall,
+  RiskStop,
+  AdlDisclosure,
+  AdlEvent,
+  Collateral,
+  MarginSummary,
+  RiskTiers,
+  CalculatorResult,
+  EntryProtection,
+  FuturesOrder,
+  FuturesOrderOrigin,
+  FuturesExecution,
+  ConditionalOrder,
+  Protection,
+  OrderTypeEntry,
+  OrderTypeCatalogue,
+  GatedList,
+  Reverse,
+  FuturesSplit,
+} from '@intafaced/contracts/trade-futures-room';
 
 export interface RiskStopInput {
   symbol: string;
@@ -70,110 +95,6 @@ export interface RiskStopInput {
   level: string | null;
   clientRequestId: string;
 }
-
-export const adlDisclosureSchema = z.object({ version: z.string(), copy: z.string(), acknowledged: z.boolean() });
-export type AdlDisclosure = z.infer<typeof adlDisclosureSchema>;
-
-export const adlEventSchema = z.object({
-  eventId: z.string(),
-  at: z.string(),
-  version: z.string(),
-  bankruptPositionId: z.string(),
-  candidatePositionId: z.string(),
-  sizeToReduce: decimalSchema,
-  beforeAction: z.literal(true),
-});
-export type AdlEvent = z.infer<typeof adlEventSchema>;
-
-/** What counts as futures margin for the account (`GET /futures/collateral`): cash with the haircut, and refused classes. */
-export const collateralSchema = z.object({
-  /** The venue whose margin rule this is. */
-  venue: z.object({ id: z.string(), name: z.string() }),
-  assets: z.array(
-    z.object({
-      asset: z.string(),
-      collateralClass: z.literal('cash'),
-      counts: z.literal(true),
-      haircutBps: z.number().int().nullable(),
-      haircutReason: z.string().nullable(),
-      free: decimalSchema,
-      posted: decimalSchema,
-      committed: decimalSchema,
-      credit: decimalSchema.nullable(),
-      buyingPower: decimalSchema.nullable(),
-      buyingPowerReason: z.string().nullable(),
-    }),
-  ),
-  refusedClasses: z.array(
-    z.object({ collateralClass: z.string(), counts: z.literal(false), code: z.string().nullable(), message: z.string().nullable() }),
-  ),
-});
-export type Collateral = z.infer<typeof collateralSchema>;
-
-/**
- * The account metrics (`GET /futures/margin-summary`), worked out by the service from the same marked rows the positions
- * list shows. Every figure is an exact decimal or null; `missing` names the input a null figure is waiting for.
- */
-export const marginSummarySchema = z.object({
-  positions: z.number().int(),
-  asset: z.string().nullable(),
-  available: decimalSchema.nullable(),
-  usedMargin: decimalSchema.nullable(),
-  totalInitialMargin: decimalSchema.nullable(),
-  totalMaintenanceMargin: decimalSchema.nullable(),
-  equity: decimalSchema.nullable(),
-  excess: decimalSchema.nullable(),
-  deficit: decimalSchema.nullable(),
-  marginRatio: decimalSchema.nullable(),
-  buyingPower: decimalSchema.nullable(),
-  missing: z.array(z.object({ field: z.string(), code: z.string() })),
-});
-export type MarginSummary = z.infer<typeof marginSummarySchema>;
-
-/** The owner's maintenance tiers (`GET /futures/tiers`): the bound as a share of depth, and the notional it takes today. */
-export const riskTiersSchema = z.object({
-  symbol: z.string(),
-  tiers: z.array(
-    z.object({
-      tier: z.number().int(),
-      uptoDepthBps: z.number().int().nullable(),
-      maintenanceBps: z.number().int(),
-      maintenanceRate: decimalSchema,
-      notionalUpto: z.object({ long: decimalSchema.nullable(), short: decimalSchema.nullable() }),
-    }),
-  ),
-  depth: z.object({ long: decimalSchema.nullable(), short: decimalSchema.nullable() }),
-  maxLeverage: decimalSchema.nullable(),
-  leverageBasis: z.string(),
-  formula: z.string(),
-});
-export type RiskTiers = z.infer<typeof riskTiersSchema>;
-
-/** The margin and P&L calculator (`POST /futures/calculator`): arithmetic on typed inputs, nothing stored. */
-export const calculatorSchema = z.object({
-  symbol: z.string(),
-  side: z.enum(['long', 'short']),
-  size: decimalSchema,
-  entryPrice: decimalSchema,
-  exitPrice: decimalSchema.nullable(),
-  leverage: decimalSchema,
-  leverageCap: decimalSchema.nullable(),
-  notional: decimalSchema,
-  initialMargin: decimalSchema,
-  tier: z.number().int().nullable(),
-  maintenanceBps: z.number().int().nullable(),
-  maintenanceMargin: decimalSchema.nullable(),
-  liquidationPrice: decimalSchema.nullable(),
-  pnl: decimalSchema.nullable(),
-  roePercent: decimalSchema.nullable(),
-  takerFeeBps: z.number().int().nullable(),
-  entryFee: decimalSchema.nullable(),
-  exitFee: decimalSchema.nullable(),
-  netPnl: decimalSchema.nullable(),
-  formulas: z.record(z.string(), z.string()),
-  refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
-});
-export type CalculatorResult = z.infer<typeof calculatorSchema>;
 
 export interface CalculatorInput {
   symbol: string;
@@ -184,92 +105,6 @@ export interface CalculatorInput {
   exitPrice?: string;
 }
 
-/** One futures order through the book (`POST /futures/orders`): an open, or a reduce-only close. */
-/**
- * A take profit and stop loss attached to an opening order. The service arms them on the position once the order
- * fills, sized to what has filled, and grows them as more fills: waiting, armed (the order may fill more), done,
- * not_filled (it ended with no fill), no_position (nothing open on its side to protect) or not_placed (no order came).
- */
-export const entryProtectionSchema = z.object({
-  id: z.string(),
-  symbol: z.string(),
-  clientOrderId: z.string(),
-  side: z.enum(['buy', 'sell']),
-  takeProfit: decimalSchema.nullable(),
-  stopLoss: decimalSchema.nullable(),
-  status: z.enum(['waiting', 'armed', 'done', 'not_filled', 'no_position', 'not_placed']),
-  armedQuantity: decimalSchema,
-  takeProfitClientOrderId: z.string().nullable(),
-  stopLossClientOrderId: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-export type EntryProtection = z.infer<typeof entryProtectionSchema>;
-
-/** The service's rule for a trader's order label: 1 to 36 of letters, digits and . _ : - */
-export const ORDER_LABEL = /^[A-Za-z0-9._:-]{1,36}$/;
-
-/** Who can place a futures order (the service's own list, `FUTURES_ORDER_ORIGINS`). */
-export const FUTURES_ORDER_ORIGINS = ['user', 'stop', 'take_profit', 'stop_loss', 'trailing_stop', 'liquidation', 'reverse'] as const;
-export const FUTURES_EXECUTION_KINDS = ['open', 'close', 'liquidation', 'adl'] as const;
-
-export const futuresOrderSchema = z.object({
-  orderId: z.string(),
-  clientOrderId: z.string().optional(),
-  marketId: z.string(),
-  side: z.enum(['buy', 'sell']),
-  type: z.enum(['limit', 'market']),
-  qty: decimalSchema,
-  limitPrice: decimalSchema,
-  markPrice: decimalSchema,
-  bandLow: decimalSchema,
-  bandHigh: decimalSchema,
-  holdAmount: decimalSchema,
-  filledQty: decimalSchema,
-  appliedAmount: decimalSchema,
-  releasedAmount: decimalSchema,
-  /** What the order's fills paid in trading fees from its hold. */
-  feesPaid: decimalSchema.optional(),
-  status: z.string(),
-  refusalCode: z.string().nullable(),
-  reduceOnly: z.boolean(),
-  positionId: z.string().nullable(),
-  bankruptcyPrice: decimalSchema.nullable(),
-  symbol: z.string().optional(),
-  createdAt: z.string().optional(),
-  /** Present when the order asked for a take profit or stop loss. */
-  protection: entryProtectionSchema.optional(),
-  /** Who placed it: the trader, a fired stop, take profit, stop loss or trailing stop, a liquidation, or a reverse. */
-  origin: z.enum(FUTURES_ORDER_ORIGINS).optional(),
-  /** The conditional order, liquidation or reverse it came from. */
-  originRef: z.string().nullable().optional(),
-  /** The trader's own label. */
-  orderLabel: z.string().nullable().optional(),
-});
-export type FuturesOrder = z.infer<typeof futuresOrderSchema>;
-export type FuturesOrderOrigin = (typeof FUTURES_ORDER_ORIGINS)[number];
-
-/** One change to a futures position a trade or the venue made: a fill through the book, or an ADL pair. */
-export const futuresExecutionSchema = z.object({
-  id: z.string(),
-  kind: z.enum(FUTURES_EXECUTION_KINDS),
-  symbol: z.string(),
-  side: z.enum(['buy', 'sell']),
-  qty: decimalSchema,
-  price: decimalSchema,
-  fee: decimalSchema.nullable(),
-  feeRole: z.enum(['maker', 'taker']).nullable(),
-  // A close realises a loss as often as a profit.
-  realizedPnl: signedDecimalSchema.nullable(),
-  orderId: z.string().nullable(),
-  origin: z.enum(FUTURES_ORDER_ORIGINS).nullable(),
-  orderLabel: z.string().nullable(),
-  positionId: z.string(),
-  at: z.string(),
-});
-export type FuturesExecution = z.infer<typeof futuresExecutionSchema>;
-export const futuresExecutionPageSchema = z.object({ executions: z.array(futuresExecutionSchema), next: z.string().nullable() });
-
 /** A page of the trader's futures orders, as the orders room asks for it. */
 export interface FuturesOrderQuery {
   scope: 'open' | 'history' | 'all';
@@ -279,39 +114,6 @@ export interface FuturesOrderQuery {
   origin?: string;
   before?: string;
 }
-
-/**
- * A futures conditional order: a stop, take-profit or trailing stop, or one leg of a position's take-profit and
- * stop-loss (`attachment`). Armed until the mark crosses its trigger; a fired one places a reduce-only order in the book
- * (`closeOrderId`) and keeps working until its size is closed.
- */
-export const conditionalOrderSchema = z.object({
-  id: z.string(),
-  market: z.string(),
-  kind: z.enum(['stop_market', 'stop_limit', 'take_profit', 'trailing_stop']),
-  side: z.enum(['buy', 'sell']),
-  quantity: decimalSchema,
-  triggerPrice: decimalSchema.nullable(),
-  limitPrice: decimalSchema.nullable(),
-  /** A trailing stop's distance behind the best price its source reached (`trailExtreme`). */
-  trailingDistance: decimalSchema.nullable().optional(),
-  trailExtreme: decimalSchema.nullable().optional(),
-  clientOrderId: z.string().optional(),
-  positionId: z.string().nullable(),
-  attachment: z.enum(['take_profit', 'stop_loss']).nullable(),
-  /** A take profit or stop loss that closes the position as it is when it fires. Older answers carry none: whole. */
-  wholePosition: z.boolean().optional(),
-  status: z.enum(['armed', 'triggered', 'filled', 'cancelled', 'failed']),
-  cancelReason: z.string().nullable(),
-  failureReason: z.string().nullable(),
-  /** The price a trigger is judged against. Older answers carry none: the published mark was the only source. */
-  triggerSource: z.enum(['mark', 'last', 'index']).optional(),
-  closeOrderId: z.string().nullable().optional(),
-  firedQuantity: decimalSchema.nullable().optional(),
-  closedQuantity: decimalSchema.nullable().optional(),
-  createdAt: z.string(),
-});
-export type ConditionalOrder = z.infer<typeof conditionalOrderSchema>;
 
 /** A stop that closes some or all of a position: its kind, the price it is judged on, and only the fields that kind takes. */
 export interface StopInput {
@@ -327,13 +129,6 @@ export interface StopInput {
   clientOrderId: string;
 }
 
-export const protectionSchema = z.object({
-  positionId: z.string(),
-  takeProfit: conditionalOrderSchema.nullable(),
-  stopLoss: conditionalOrderSchema.nullable(),
-});
-export type Protection = z.infer<typeof protectionSchema>;
-
 export interface ProtectionInput {
   positionId: string;
   takeProfit: string | null;
@@ -345,39 +140,6 @@ export interface ProtectionInput {
 }
 
 const legBody = (price: string, quantity: string | null | undefined) => (quantity ? { price, quantity } : price);
-
-export const orderTypeEntrySchema = z.object({
-  id: z.string(),
-  state: z.enum(['available', 'refused']),
-  code: z.string().optional(),
-  reason: z.string().optional(),
-});
-export const orderTypeCatalogueSchema = z.object({
-  markets: z.array(
-    z.object({
-      market: z.string(),
-      orderTypes: z.array(orderTypeEntrySchema),
-      timeInForce: z.array(orderTypeEntrySchema).optional(),
-    }),
-  ),
-});
-export type OrderTypeEntry = z.infer<typeof orderTypeEntrySchema>;
-export type OrderTypeCatalogue = z.infer<typeof orderTypeCatalogueSchema>;
-
-const blockerSchema = z.object({ code: z.string(), message: z.string() });
-export const gatedListSchema = z.object({
-  contracts: z.array(
-    z.object({
-      symbol: z.string(),
-      marketId: z.string(),
-      open: z.boolean(),
-      code: z.string().nullable(),
-      message: z.string().nullable(),
-      blockers: z.array(blockerSchema),
-    }),
-  ),
-});
-export type GatedList = z.infer<typeof gatedListSchema>;
 
 export type PositionPreview = z.infer<typeof positionPreviewSchema>;
 export type FuturesListing = z.infer<typeof listingSchema>;
@@ -410,33 +172,6 @@ export interface OpenInput {
   confirmTier?: number;
   clientOpenId: string;
 }
-
-/**
- * One-tap reverse (J-derivatives-03 #9): one request closes the position through the book and opens the other side at
- * the same size and leverage. `closing` and `opening` are still working (the same request id sent again carries it on);
- * `closed_only` means the close stands and the open was refused or not sent, with `refusalCode`; never a silent half.
- */
-export const reverseSchema = z.object({
-  clientRequestId: z.string(),
-  positionId: z.string(),
-  symbol: z.string(),
-  from: z.enum(['long', 'short']),
-  to: z.enum(['long', 'short']),
-  size: decimalSchema,
-  leverage: decimalSchema,
-  status: z.enum(['closing', 'opening', 'done', 'opened_part', 'closed_only', 'close_incomplete', 'refused']),
-  closeClientOrderId: z.string(),
-  openClientOrderId: z.string(),
-  closeOrderId: z.string().nullable(),
-  openOrderId: z.string().nullable(),
-  closedQuantity: decimalSchema.nullable(),
-  openedQuantity: decimalSchema.nullable(),
-  newPositionId: z.string().nullable(),
-  refusalCode: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-export type Reverse = z.infer<typeof reverseSchema>;
 
 export interface ReverseRequest {
   positionId: string;
@@ -488,14 +223,6 @@ export interface PreviewInput {
   priceCorrection?: 'adjust';
 }
 
-export const futuresSplitSchema = z.object({
-  parts: z.number().int(),
-  orders: z.array(futuresOrderSchema),
-  /** The child a typed refusal stopped at; the children before it are live. */
-  stopped: z.object({ child: z.number().int(), code: z.string(), message: z.string() }).nullable(),
-});
-export type FuturesSplit = z.infer<typeof futuresSplitSchema>;
-
 export function createFuturesApi(api: ApiClient) {
   return {
     markets: (signal?: AbortSignal) => api.rest('/markets', z.array(listingSchema), { query: { limit: 500 }, signal }),
@@ -545,12 +272,12 @@ export function createFuturesApi(api: ApiClient) {
     reduceMargin: (input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string }) =>
       api.rest('/positions/margin/reduce', positionSchema, { method: 'POST', body: input }),
     conditionalOrders: async (signal?: AbortSignal): Promise<ApiResult<ConditionalOrder[]>> => {
-      const read = await api.rest('/futures/conditional-orders', z.object({ orders: z.array(conditionalOrderSchema) }), { signal });
+      const read = await api.rest('/futures/conditional-orders', conditionalOrderListSchema, { signal });
       return read.ok ? { ...read, data: read.data.orders } : read;
     },
     /** Every take profit and stop loss attached to an opening order: waiting, armed, and the newest finished. */
     entryProtections: async (signal?: AbortSignal): Promise<ApiResult<EntryProtection[]>> => {
-      const read = await api.rest('/futures/entry-protection', z.object({ protections: z.array(entryProtectionSchema) }), { signal });
+      const read = await api.rest('/futures/entry-protection', entryProtectionListSchema, { signal });
       return read.ok ? { ...read, data: read.data.protections } : read;
     },
     conditionalOrder: (id: string, signal?: AbortSignal) =>
