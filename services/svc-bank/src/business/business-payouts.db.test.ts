@@ -243,6 +243,19 @@ describe('business bulk payments, contractors and crypto payroll (J-bank-21)', (
     expect((await owner.businessPayouts.importRun({ accountId, runId, csv: CSV })).id).toBe(runId);
   });
 
+  it('the same import sent several times at once is one run, and every call gets it back (#8889)', async () => {
+    const { accountId, owner } = await business();
+    const runId = randomUUID();
+    for (let round = 0; round < 5; round++) {
+      const id = round === 0 ? runId : randomUUID();
+      const runs = await Promise.all(Array.from({ length: 8 }, () => owner.businessPayouts.importRun({ accountId, runId: id, csv: CSV })));
+      expect(runs.map((r) => [r.id, r.total, r.issues.length])).toEqual(Array.from({ length: 8 }, () => [id, '300', 2]));
+      const [{ n }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM bank.business_bulk_lines WHERE run_id = ${id}::uuid`;
+      expect(n).toBe(3);
+    }
+    expect(await sql`SELECT 1 FROM bank.business_bulk_runs WHERE account_id = ${accountId}::uuid`).toHaveLength(5);
+  });
+
   it('#2 at or above the threshold it waits for a different approver, then sends once', async () => {
     const { accountId, owner } = await business();
     const csv = `name,iban,amount,currency\nTEST Ana,${IBANS[0]},300,USDT\nTEST Ben,${IBANS[1]},200,USDT`;

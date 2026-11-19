@@ -119,15 +119,6 @@
     },
     {
       "file": "services/svc-bank/src/business/business-payouts.ts",
-      "table": "business_bulk_runs",
-      "target": "(id)",
-      "constraint": "business_bulk_runs_partner_key_key",
-      "verdict": "race",
-      "issue": 8889,
-      "why": "partner_key = bulkPayKey(runId) (business-payouts.ts:67). importRun reads the prior row outside the transaction (business-payouts.ts:406), then inserts with no lock. Two imports with the same runId (double submit or retry) both miss the prior row, and the loser raises 23505 on partner_key instead of returning the run."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-payouts.ts",
       "table": "business_crypto_payroll_runs",
       "target": "(run_key)",
       "constraint": "business_crypto_payroll_runs_payroll_id_period_key",
