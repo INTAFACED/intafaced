@@ -251,17 +251,8 @@
       "table": "loan_collateral_events",
       "target": "(id)",
       "constraint": "loan_collateral_events_seq_idx",
-      "verdict": "race",
-      "issue": 8899,
-      "why": "topUpCollateral computes sequence = MAX+1 outside any lock (loan-service.ts:1333), then lockCollateral inserts ON CONFLICT (id) in a read-committed transaction with no loan lock (loan-service.ts:1487). Two concurrent requests with the same eventId get the same id and the same (loan_id, sequence), and the loser raises 23505 loan_collateral_events_seq_idx. The comment at loan-service.ts:1478 expects ON CONFLICT (id) to absorb this. The unlocked MAX+1 also lets two different top-ups collide on sequence."
-    },
-    {
-      "file": "services/svc-bank/src/loans/loan-service.ts",
-      "table": "loan_collateral_events",
-      "target": "(id)",
-      "constraint": "loan_collateral_events_seq_idx",
       "verdict": "safe",
-      "why": "releaseNamedCollateral takes loans FOR UPDATE, re-reads by id, and computes MAX(sequence)+1 inside that lock (loan-service.ts:1577-1652), so duplicates of one eventId replay. Separately, not a duplicate: lockCollateral (1487) and releaseCollateral's unnamed path (1534) write sequences without this lock, so an unrelated event can still collide on (loan_id, sequence)."
+      "why": "releaseNamedCollateral takes loans FOR UPDATE, re-reads by id, and computes MAX(sequence)+1 inside that lock (loan-service.ts:1577-1652), so duplicates of one eventId replay. lockCollateral takes the same lock and computes its sequence inside it (#8899). Only releaseCollateral's unnamed closing path writes a sequence without this lock; lockCollateral's insert names no target and takes the next sequence on that clash."
     },
     {
       "file": "services/svc-bank/src/loans/loan-service.ts",
