@@ -3,7 +3,7 @@ import type { ProtocolAllowanceRow, ProtocolAllowances, ProtocolSwapToken } from
 import { Button, DataTable, EmptyState, Failure, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { isRegionBlocked } from '../region';
 import { formatUnits } from '../swap/swap-math';

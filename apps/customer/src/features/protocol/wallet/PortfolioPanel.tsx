@@ -3,7 +3,7 @@ import type { ProtocolPortfolio } from '@intafaced/contracts/protocol-portfolio'
 import { PRICE_SETTINGS_UNSET } from '@intafaced/contracts/protocol-swap';
 import { usePreferences } from '../../../shared/preferences';
 import { Button, DataTable, EmptyState, Failure, Loading, Page, Panel } from '../../../shared/ui';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { portfolioCopy, type PortfolioTranslate } from './portfolio-copy';
 import { tokenAmount, usdDisplay } from './portfolio-format';
