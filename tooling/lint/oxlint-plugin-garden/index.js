@@ -24,6 +24,7 @@ import { handClockRules } from './hand-clock-rule.js';
 import { restartServiceRules } from './restart-service-rule.js';
 import { storedSearchRules } from './stored-search-rule.js';
 import { callByNameRules } from './call-by-name-rule.js';
+import { runtimeSwapRules } from './runtime-swap-rule.js';
 import { crossFeatureImportRules } from './cross-feature-import-rule.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
@@ -225,6 +226,7 @@ export default {
     ...restartServiceRules,
     ...storedSearchRules,
     ...callByNameRules,
+    ...runtimeSwapRules,
     ...crossFeatureImportRules,
   },
 };

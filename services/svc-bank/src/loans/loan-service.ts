@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { transaction, type Queryable } from '@intafaced/db';
 import {
   InsufficientFundsError,
@@ -393,6 +394,19 @@ class NoLongerPending extends Error {
     this.name = 'NoLongerPending';
   }
 }
+
+/** One collateral event row as lockCollateral reads it. */
+const CollateralEventRow = z.object({
+  id: z.string(),
+  sequence: z.coerce.number().int(),
+  ledger_tx_id: z.string().nullable(),
+  amount: z.string(),
+  direction: z.string(),
+  loan_id: z.string(),
+});
+
+/** The next free collateral sequence on a loan. */
+const NextSequenceRow = z.object({ next: z.coerce.number().int() });
 
 export class LoanService {
   private readonly venue: LiquidationVenue;
@@ -1079,7 +1093,7 @@ export class LoanService {
         let collateralTxId: string;
         try {
           await this.touchAttempt(current.id);
-          collateralTxId = (await this.lockCollateral(current, collateralAmount, 0, current.id)).ledgerTxId;
+          collateralTxId = (await this.lockCollateral(current, collateralAmount, current.id, 0)).ledgerTxId;
         } catch (err) {
           if (isInsufficientFunds(err)) {
             // Borrower cannot fund the lock. Loan stays `pending` with no lock
@@ -1292,9 +1306,10 @@ export class LoanService {
    *
    * `eventId` is the client retry key (§5). Required: omit used to allocate MAX+1
    * and post a second loanCollateralLock. A minted UUID would be a fake key a
-   * retry cannot reuse. Sequence is MAX+1 only for a *new* event. An overlapping
-   * retry that loses `ON CONFLICT (id)` posts the claimed row's sequence — the
-   * ledger key is loanId:sequence, so posting the caller's MAX+1 would lock twice.
+   * retry cannot reuse. Sequence is MAX+1 only for a *new* event, taken under the
+   * loan row lock. An overlapping retry waits on that lock and posts the claimed
+   * row's sequence — the ledger key is loanId:sequence, so a second MAX+1 would
+   * lock twice.
    */
   async addCollateral(input: {
     loanId: string;
@@ -1325,13 +1340,8 @@ export class LoanService {
 
     const eventId = input.eventId;
     const existing = await this.collateralEventById(eventId);
-    if (existing) {
-      this.assertCollateralRetryMatches(loan, eventId, input.amount, existing);
-      return this.lockCollateral(loan, input.amount, existing.sequence, eventId);
-    }
-
-    const sequence = await this.nextCollateralSequence(loan.id);
-    return this.lockCollateral(loan, input.amount, sequence, eventId);
+    if (existing) this.assertCollateralRetryMatches(loan, eventId, input.amount, existing);
+    return this.lockCollateral(loan, input.amount, eventId);
   }
 
   /**
@@ -1472,37 +1482,55 @@ export class LoanService {
   private async lockCollateral(
     loan: LoanRecord,
     amount: Amount,
-    sequence: number,
     eventId: string,
+    /** The opening lock is always sequence 0; a top-up takes MAX+1 under the lock. */
+    fixedSequence?: number,
   ): Promise<{ ledgerTxId: string; sequence: number }> {
-    // Overlap key = eventId. The ledger recipe keys on loanId:sequence, so a
-    // loser of ON CONFLICT (id) must post the claimed row's sequence, not the
-    // MAX+1 it allocated before the winner's insert was visible.
-    let postSequence = sequence;
+    // Overlap key = eventId; the ledger recipe keys on loanId:sequence, so every
+    // caller posts the claimed row's sequence. The loan row lock is held from the
+    // re-read by id through the insert, and the sequence is MAX+1 inside it, as in
+    // releaseNamedCollateral: a duplicate of this eventId waits and replays the
+    // winner's row, and two different top-ups take different sequences.
+    // The insert names no conflict target: the closing releases write a sequence
+    // without this lock, and a clash with one of them on (loan_id, sequence) is
+    // absorbed and the next sequence taken, rather than raising 23505.
+    let postSequence = 0;
     const ledgerTxId = await this.drivenPost({
       claim: async (tx) => {
-        const rows = await tx<
-          Array<{ id: string; sequence: number; ledger_tx_id: string | null; amount: string; direction: string; loan_id: string }>
-        >`
-          INSERT INTO bank.loan_collateral_events (id, loan_id, sequence, direction, amount)
-          VALUES (${eventId}, ${loan.id}, ${sequence}, 'lock', ${formatAmount(amount)}::numeric)
-          ON CONFLICT (id) DO NOTHING
-          RETURNING id, sequence, ledger_tx_id, amount, direction, loan_id
-        `;
-        if (rows.length > 0) {
-          postSequence = Number(rows[0]!.sequence);
-          return { claimed: true as const, id: rows[0]!.id };
+        await tx`SELECT id FROM bank.loans WHERE id = ${loan.id} FOR UPDATE`;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const prior = CollateralEventRow.array().parse(
+            await tx`
+              SELECT id, sequence, ledger_tx_id, amount::text AS amount, direction, loan_id
+                FROM bank.loan_collateral_events WHERE id = ${eventId}
+            `,
+          );
+          if (prior[0]) {
+            const row = prior[0];
+            this.assertCollateralRetryMatches(loan, eventId, amount, row);
+            postSequence = Number(row.sequence);
+            return { claimed: false as const, id: row.id, ledgerTxId: row.ledger_tx_id };
+          }
+          const next = NextSequenceRow.array().parse(
+            await tx`
+              SELECT COALESCE(MAX(sequence) + 1, 0) AS next FROM bank.loan_collateral_events WHERE loan_id = ${loan.id}
+            `,
+          );
+          const sequence = fixedSequence ?? next[0]?.next ?? 0;
+          const rows = CollateralEventRow.array().parse(
+            await tx`
+              INSERT INTO bank.loan_collateral_events (id, loan_id, sequence, direction, amount)
+              VALUES (${eventId}, ${loan.id}, ${sequence}, 'lock', ${formatAmount(amount)}::numeric)
+              ON CONFLICT DO NOTHING
+              RETURNING id, sequence, ledger_tx_id, amount::text AS amount, direction, loan_id
+            `,
+          );
+          if (rows[0]) {
+            postSequence = Number(rows[0].sequence);
+            return { claimed: true as const, id: rows[0].id };
+          }
         }
-        const existing = await tx<
-          Array<{ id: string; sequence: number; ledger_tx_id: string | null; amount: string; direction: string; loan_id: string }>
-        >`
-          SELECT id, sequence, ledger_tx_id, amount, direction, loan_id
-            FROM bank.loan_collateral_events WHERE id = ${eventId}
-        `;
-        const row = existing[0]!;
-        this.assertCollateralRetryMatches(loan, eventId, amount, row);
-        postSequence = Number(row.sequence);
-        return { claimed: false as const, id: row.id, ledgerTxId: row.ledger_tx_id };
+        throw new Error(`Collateral lock ${eventId} on loan ${loan.id} found no free sequence after 5 tries`);
       },
       post: () =>
         this.ledger.post(
