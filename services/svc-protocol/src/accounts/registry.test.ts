@@ -48,7 +48,7 @@ describe('a deployment is labelled with the chain it was seen on (chain identity
 
     genesisHash = RESTARTED;
     const asking = asked;
-    expect(await registry.ownerOfRecord(ADDRESS)).not.toBeNull();
+    expect(await registry.ownerOfRecord(ADDRESS)).toMatchObject({ deployed: true, deployedGenesisHash: GENESIS });
     expect(asked).toBe(asking);
 
     await registry.recordDeployment(ADDRESS);
