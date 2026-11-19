@@ -40,10 +40,12 @@ export interface HttpTransport {
 /**
  * Who may call. The serving side mounts the matching guard (`procedure-mount.ts`): `public` checks nothing, `scope` is
  * `scopedProcedure(scope, guards)`, `service` is `serviceProcedureFor(callers)` or, on a plain HTTP door, the service's
- * own signed-caller check against the same list. The record names the rule; the receiver reads the live facts.
+ * own signed-caller check against the same list. `jurisdiction` needs no principal but refuses a region the module is not
+ * served in (`publicJurisdictionProcedure(module, plane)`). The record names the rule; the receiver reads the live facts.
  */
 export type Access =
   | { readonly caller: 'public' }
+  | { readonly caller: 'jurisdiction'; readonly module: ModuleId; readonly plane?: Plane }
   | {
       readonly caller: 'scope';
       readonly scope: Scope;

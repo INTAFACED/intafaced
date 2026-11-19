@@ -1,4 +1,5 @@
-import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
+import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -2344,6 +2345,9 @@ const moreSections: readonly DeskSection[] = [
 
 // ─── Protocol ────────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** A read named by its call record: the desk calls the record's module and path and parses the answer with it. */
+const recordRead = <R extends DeskReadRecord>(record: R) => ({ record, module: record.module, procedure: record.path }) as const;
+
 const FORBID_PROTOCOL = 'svc-protocol did not accept your founder session for this read. Nothing is shown rather than a guess.';
 const FORBID_INDEXER = 'svc-indexer did not accept your founder session for this read. Nothing is shown rather than a guess.';
 const FORBID_DEX = 'svc-dex did not accept your founder session for this read. Nothing is shown rather than a guess.';
@@ -2359,9 +2363,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.chain',
         title: 'Chain status',
         note: 'A probe, not a heartbeat: it says whether a chain answered and whether the contracts hold code. The chain id below decides the network label in the blockers; it is never assumed to be INTACHAIN.',
-        module: 'protocol',
+        ...recordRead(PROTOCOL_CHAIN_STATUS),
         plainName: 'chain status',
-        procedure: 'chainStatus',
         shape: 'record',
         columns: [
           bool('reachable', 'A chain answered'),
@@ -2401,9 +2404,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.audit',
         title: 'Audit status',
         note: 'The committed internal review package. "Audited by an outside firm" must be no: a service answer that says otherwise is refused as unreadable instead of shown.',
-        module: 'protocol',
+        ...recordRead(PROTOCOL_AUDIT_STATUS),
         plainName: 'audit status',
-        procedure: 'auditStatus',
         shape: 'record',
         columns: [
           text('id', 'Package'),
@@ -2485,9 +2487,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.health',
         title: 'Protocol service health',
         note: 'Process-level facts from svc-protocol: whether relaying is switched on and whether the account factory is set. Says nothing about the chain.',
-        module: 'protocol',
+        ...recordRead(PROTOCOL_HEALTH),
         plainName: 'protocol service health',
-        procedure: 'health',
         shape: 'record',
         columns: [bool('relayEnabled', 'Relaying switched on'), bool('factoryConfigured', 'Account factory configured')],
         emptyText: '',

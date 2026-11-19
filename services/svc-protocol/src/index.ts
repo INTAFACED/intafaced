@@ -19,8 +19,6 @@ import { protocolHealthHonesty } from './health-honesty.js';
 import { createPeers } from './blockers/peers.js';
 import { createProtocolRouter } from './router.js';
 import { parseGasPercentileSetting } from './chain/gas-price.js';
-import { badgeChainIsMainnet, badgeChainIsRestartable, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
-import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
 import { PostgresAddressRiskStore } from './address-risk/risk.pg.js';
@@ -34,8 +32,7 @@ import { embeddedWalletFromSetting } from './embedded-wallet/provider.js';
 import { PostgresEmbeddedWalletStore } from './embedded-wallet/embedded.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
 import { PostgresListingStore } from './listing/ownership.pg.js';
-import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
-import { loadNetworkRegistry, networksRegistryPathFromSetting } from './networks/registry.js';
+import { chainIsMainnet, loadNetworkRegistry, networksRegistryPathFromSetting } from './networks/registry.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -121,21 +118,17 @@ const gasPosture = protocolGasPosture({ bundlerUrl: env.PROTOCOL_BUNDLER_URL });
 /** S-L6 — wrap missing until HSM/Nitro; withdrawal keys never enter the vault. */
 const venueVault = venueVaultFromKek(env.PROTOCOL_VENUE_VAULT_WRAP);
 
-/** One chain identity reader for the process, so the registry, the badge and listing see a restart together. */
+/** One chain identity reader for the process, so the registry and listing see a restart together. */
 const chainIdentity = chainIdentityReader(chain);
 
 const registry = new AccountRegistry(
   new PostgresAccountStore(db.drizzle),
-  {
-    chainId: env.PROTOCOL_CHAIN_ID,
-    factory: env.PROTOCOL_FACTORY_ADDRESS as Address,
-    implementation: env.PROTOCOL_IMPLEMENTATION_ADDRESS as Address,
-  },
+  { chainId: env.PROTOCOL_CHAIN_ID },
   // A deployment seen on a TEST chain since started again is not one on this chain (chain/identity.ts).
   chainIdentity,
 );
 
-const relay = new SessionRelay(chain);
+const relay = new SessionRelay();
 
 let relayEnabled = env.PROTOCOL_RELAY_ENABLED;
 
@@ -168,15 +161,11 @@ const networksRegistryPath = networksRegistryPathFromSetting(env.PROTOCOL_TEST_N
 const loadNetworks = () => loadNetworkRegistry(networksRegistryPath);
 const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
-let badgeRestartable: boolean | undefined;
-
 export const appRouter = createProtocolRouter({
   chainIdentity,
   loadNetworks,
-  opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
   gasPercentiles: () => parseGasPercentileSetting(env.PROTOCOL_GAS_PERCENTILES, env.PROTOCOL_GAS_HISTORY_BLOCKS),
   chain,
-  registry,
   relay,
   relayEnabled: () => relayEnabled,
   ammFactoryAddress: () => env.PROTOCOL_AMM_FACTORY_ADDRESS as `0x${string}`,
@@ -197,7 +186,7 @@ export const appRouter = createProtocolRouter({
   claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
   p2pEscrow: () => ({
     escrow: env.PROTOCOL_P2P_ESCROW_ADDRESS as `0x${string}`,
-    mainnet: badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworks()),
+    mainnet: chainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworks()),
   }),
   venue: () => env.PROTOCOL_VENUE_ADDRESS as `0x${string}`,
   lendingMarket: () => env.PROTOCOL_LENDING_MARKET_ADDRESS as `0x${string}`,
@@ -245,18 +234,6 @@ export const appRouter = createProtocolRouter({
   embeddedWallet: {
     store: new PostgresEmbeddedWalletStore(db.sql),
     setting: () => embeddedWalletSetting,
-  },
-  badge: {
-    store: new PostgresBadgeStore(db.sql),
-    minter: noBadgeSigner,
-    window: () => badgeWindowFromSetting(env.PROTOCOL_BADGE_WINDOW_OPENS_AT, env.PROTOCOL_BADGE_WINDOW_CLOSES_AT),
-    mainnet: () => badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworks()),
-    // Raw APP_ENV: only a `local` chain, or the local test stack's loopback chain, resets a claim when it starts again.
-    // Fixed for the process, so the registry is read once, on the first badge request.
-    restartable: () =>
-      (badgeRestartable ??= badgeChainIsRestartable(env.PROTOCOL_CHAIN_ID, loadNetworks(), process.env.APP_ENV, env.PROTOCOL_RPC_URL)),
-    approvals: badgeApprovalConsumer(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
-    stuckMintAgeSeconds: () => env.PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS,
   },
   peers: createPeers({
     indexer: { url: env.INDEXER_URL, timeoutMs: env.PROTOCOL_PEER_TIMEOUT_MS },

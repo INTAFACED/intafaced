@@ -1,5 +1,6 @@
 import { encodeAbiParameters, getContractAddress, isAddress, keccak256, getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
+import { PROTOCOL_DEFAULT_USER_SALT } from '@intafaced/contracts/protocol-procedures';
 
 /**
  * DETERMINISTIC ADDRESS DERIVATION (§17.4).
@@ -24,7 +25,7 @@ export const MINIMAL_PROXY_SUFFIX = '5af43d82803e903d91602b57fd5bf3' as const;
 export const MINIMAL_PROXY_LENGTH_BYTES = 55;
 
 /** Default user salt — one account per owner unless the user asks for more. */
-export const DEFAULT_USER_SALT: Hex = `0x${'00'.repeat(32)}`;
+export const DEFAULT_USER_SALT: Hex = PROTOCOL_DEFAULT_USER_SALT;
 
 export class AddressDerivationError extends Error {
   constructor(

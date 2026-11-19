@@ -12,7 +12,9 @@ const query = vi.fn((module: string, procedure: string, input: unknown) => {
   if (typeof answer === 'function') return Promise.resolve((answer as (input: unknown) => unknown)(input));
   return answer === undefined ? new Promise(() => undefined) : Promise.resolve(answer);
 });
-vi.mock('../../session/session', () => ({ useApi: () => ({ query }) }));
+/** A call by its record reaches the same answers as the module and path it names (`api.call`). */
+const call = vi.fn((record: { module: string; path: string }, input: unknown) => query(record.module, record.path, input));
+vi.mock('../../session/session', () => ({ useApi: () => ({ query, call }) }));
 import { AddressHoldings, AddressInternal, AddressSummary, PastBalance, parsePastPoint } from './AddressDetails';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

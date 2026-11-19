@@ -57,6 +57,22 @@ export const protocolServiceHealthSchema = z.object({
   factoryConfigured: z.boolean(),
   venueVaultConfigured: z.boolean().optional(),
 });
+/** svc-protocol's chain answer in `health`: never probed there (`chainStatus` probes), so never a chain id. */
+export const PROTOCOL_CHAIN_UNPROBED = 'protocol.chain_unprobed' as const;
+/** svc-protocol `health`: process liveness and configuration facts, and an honest "chain not probed here". */
+export const protocolHealthHonestySchema = z.object({
+  ok: z.literal(true),
+  service: z.literal('svc-protocol'),
+  relayEnabled: z.boolean(),
+  factoryConfigured: z.boolean(),
+  venueVaultConfigured: z.boolean().optional(),
+  chain: z.object({
+    status: z.literal('unprobed'),
+    code: z.literal(PROTOCOL_CHAIN_UNPROBED),
+    observedChainId: z.null(),
+  }),
+});
+export type ProtocolHealthHonesty = z.infer<typeof protocolHealthHonestySchema>;
 export const indexerStatusSchema = z.object({
   chainId: z.number(),
   chainSource: z.string(),
@@ -295,14 +311,18 @@ export const protocolBlockersInputSchema = z
       .optional(),
   })
   .strict();
-export const blockerSchema = z
-  .object({
-    code: z.enum(BLOCKER_CODES),
-    key: z.string(),
-    params: z.record(z.string(), z.string()),
-  })
-  .strict()
-  .refine((found) => found.key === `blk_${found.code}`, { message: 'key must be blk_<code>', path: ['key'] });
+/** One blocker per code, its key tied to it (`blk_<code>`): written as a union so the rule travels in the record's export. */
+const blockerOf = (code: BlockerCode) =>
+  z
+    .object({
+      code: z.literal(code),
+      key: z.literal(`blk_${code}` as const),
+      params: z.record(z.string(), z.string()),
+    })
+    .strict();
+export const blockerSchema = z.union(
+  BLOCKER_CODES.map(blockerOf) as unknown as [ReturnType<typeof blockerOf>, ...ReturnType<typeof blockerOf>[]],
+);
 const sourceAnswerSchema = z.enum(['ok', 'checking', 'no_reply', 'not_connected', 'down']);
 export const protocolBlockersOutputSchema = z
   .object({

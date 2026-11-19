@@ -58,9 +58,16 @@ function outcomeOf(spec: ReadSpec, result: FounderCallResult<ReadData>, asOf: st
   };
 }
 
+/** The module and procedure a read calls: its record's module and path when it has one, else its own names. */
+const callOf = (spec: ReadSpec) =>
+  spec.record === undefined
+    ? { module: spec.module, procedure: spec.procedure }
+    : { module: spec.record.module, procedure: spec.record.path };
+
 async function loadGroup(ctx: FounderCallContext, specs: readonly ReadSpec[], now: Date): Promise<ReadOutcome[]> {
   const first = specs[0]!;
-  const answer = await founderCall(ctx, first.module, first.procedure, 'GET', inputFor(first, now), (raw) => ({ raw }), {
+  const { module, procedure } = callOf(first);
+  const answer = await founderCall(ctx, module, procedure, 'GET', inputFor(first, now), (raw) => ({ raw }), {
     sendEmptyInput: first.sendEmptyInput === true,
   });
   const asOf = new Date().toISOString();
@@ -129,7 +136,8 @@ export async function loadReads(
 ): Promise<Record<string, ReadOutcome>> {
   const groups = new Map<string, ReadSpec[]>();
   for (const spec of specs) {
-    const key = JSON.stringify([spec.module, spec.procedure, inputFor(spec, now) ?? null, spec.sendEmptyInput === true]);
+    const { module, procedure } = callOf(spec);
+    const key = JSON.stringify([module, procedure, inputFor(spec, now) ?? null, spec.sendEmptyInput === true]);
     groups.set(key, [...(groups.get(key) ?? []), spec]);
   }
   const outcomes = (await Promise.all([...groups.values()].map((group) => loadGroup(ctx, group, now)))).flat();

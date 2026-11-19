@@ -1,10 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import {
-  protocolListingChallengeOutputSchema,
-  protocolListingVerifyOutputSchema,
-  type ProtocolListingChallenge,
-  type ProtocolListingProof,
-} from '@intafaced/contracts/protocol-listing';
+import type { ProtocolListingChallenge, ProtocolListingProof } from '@intafaced/contracts/protocol-listing';
+import { PROTOCOL_LISTING_OWNERSHIP_CHALLENGE, PROTOCOL_LISTING_VERIFY_OWNERSHIP } from '@intafaced/contracts/protocol-procedures';
 import type { ApiResult } from '../../../shared/api';
 import { Button, Dialog, Failure, Loading } from '../../../shared/ui';
 import { useApi } from '../../session/session';
@@ -35,9 +31,8 @@ export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) 
   const [state, setState] = useState<State | null>(null);
   const listing = useMemo(
     () => ({
-      challenge: () => api.mutate('protocol', 'listing.ownershipChallenge', { token }, protocolListingChallengeOutputSchema),
-      verify: (nonce: string, signature: string) =>
-        api.mutate('protocol', 'listing.verifyOwnership', { nonce, signature }, protocolListingVerifyOutputSchema),
+      challenge: () => api.call(PROTOCOL_LISTING_OWNERSHIP_CHALLENGE, { token }),
+      verify: (nonce: string, signature: string) => api.call(PROTOCOL_LISTING_VERIFY_OWNERSHIP, { nonce, signature }),
     }),
     [api, token],
   );

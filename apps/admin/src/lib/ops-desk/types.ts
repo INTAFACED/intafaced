@@ -1,4 +1,5 @@
 import type { DeskModule } from '@/lib/desk/founder-call';
+import type { ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
 import type { CommonDeskId } from './common-sections';
 import type { Part } from '@/lib/desk/part';
 import type { ModuleId as AdminModuleId } from '@/lib/modules';
@@ -61,6 +62,9 @@ export interface Column {
   readonly words?: Readonly<Record<string, string>>;
 }
 
+/** A read's call record: a tRPC query the console reaches under one of the desk's modules. */
+export type DeskReadRecord = ProcedureRecord & TrpcTransport & { readonly kind: 'query'; readonly module: DeskModule };
+
 export interface ReadSpec {
   readonly id: string;
   readonly title: string;
@@ -70,6 +74,12 @@ export interface ReadSpec {
   /** The service, as an operator reads it ("chain status"). When set, a failed read says "Could not load <plainName>" with its time. */
   readonly plainName?: string;
   readonly procedure: string;
+  /**
+   * The call's record, for a read moved onto one: `module` and `procedure` are the record's module and path (`recordRead`),
+   * and the answer is parsed by the record's output and its `accept` checks before the columns read it, so an answer the
+   * record refuses is an unreadable read. Reads without one name their call by module and procedure.
+   */
+  readonly record?: DeskReadRecord;
   readonly input?: Readonly<Record<string, unknown>>;
   /**
    * The service needs a time window (`from` and `to`) and has no default. The desk asks for the last N×24 hours ending at the

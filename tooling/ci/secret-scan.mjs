@@ -503,6 +503,40 @@ const TRACKED_FILES = new Set(tracked());
 const isPlaceholder = (value) => PLACEHOLDER_VALUES.some((p) => p.test(value.trim()));
 
 /**
+ * A value that is public by its shape, whatever its key is called. The call records' published schema
+ * (`packages/contracts/procedures.schema.json`, written by code) holds sample inputs whose field is named `token` and whose
+ * value is a token CONTRACT'S ADDRESS, and refusal codes such as `amm.identical_tokens` mapped to the tRPC status they
+ * are sent with. Neither can be a credential:
+ *   · an EVM address is exactly 20 bytes of hex (`0x` + 40). Key material is 32 bytes or more (a private key is `0x` + 64),
+ *     so a key pasted under a `token` name is still a finding;
+ *   · a tRPC status word is one of the fixed codes tRPC sends, matched whole, never a prefix or a pattern.
+ * Matched on the VALUE, like the attribute-name and cache-key cases below, so the key names stay credential words.
+ */
+const EVM_ADDRESS_VALUE = /^0x[0-9a-fA-F]{40}$/;
+const TRPC_STATUS_WORDS = new Set([
+  'BAD_REQUEST',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'METHOD_NOT_SUPPORTED',
+  'TIMEOUT',
+  'CONFLICT',
+  'PRECONDITION_FAILED',
+  'PAYLOAD_TOO_LARGE',
+  'UNPROCESSABLE_CONTENT',
+  'TOO_MANY_REQUESTS',
+  'CLIENT_CLOSED_REQUEST',
+  'INTERNAL_SERVER_ERROR',
+  'NOT_IMPLEMENTED',
+  'BAD_GATEWAY',
+  'SERVICE_UNAVAILABLE',
+  'GATEWAY_TIMEOUT',
+]);
+/** The value as JSON writes it inside an object, its closing quote and the comma before the next key taken off. */
+const jsonValue = (value) => value.trim().replace(/^"|",?$/g, '');
+const isPublicValue = (value) => EVM_ADDRESS_VALUE.test(jsonValue(value)) || TRPC_STATUS_WORDS.has(jsonValue(value));
+
+/**
  * `key:` as an ATTRIBUTE-NAME field, not as a credential.
  *
  * OpenTelemetry and Kubernetes-style YAML express attributes as `- key: <name>`
@@ -723,7 +757,7 @@ for (const rel of TRACKED_FILES) {
         assignmentsChecked++;
         if (declaredUsernames.has(value.toLowerCase()) && value.trim() !== '') {
           // password === a username declared in this same file: the dev convention.
-        } else if (!isPlaceholder(value) && !isFilePathList(key, rawValue)) {
+        } else if (!isPlaceholder(value) && !isPublicValue(value) && !isFilePathList(key, rawValue)) {
           violations.push({
             check: 'committed-credential',
             file: rel,

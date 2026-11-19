@@ -85,6 +85,35 @@ const MUTANTS = [
     why: '${VAR} with no default is the outcome the gate wants',
   },
   {
+    id: 'json-token-field-holding-an-evm-address',
+    file: 'packages/x/records.schema.json',
+    content:
+      '{\n  "input": {\n    "owner": "0x1111111111111111111111111111111111111111",\n    "token": "0x2222222222222222222222222222222222222222",\n    "spender": "0x3333333333333333333333333333333333333333"\n  }\n}\n',
+    catch: false,
+    why: 'a sample input whose field is a token contract address: 20 bytes of hex is an address, never key material',
+  },
+  {
+    id: 'json-refusal-code-mapped-to-trpc-status',
+    file: 'packages/x/records.schema.json',
+    content: '{\n  "refusals": {\n    "amm.identical_tokens": "BAD_REQUEST",\n    "amm.seed_too_small": "BAD_REQUEST"\n  }\n}\n',
+    catch: false,
+    why: 'a refusal code named for tokens, mapped to the tRPC status it is sent with: a fixed status word is public',
+  },
+  {
+    id: 'json-token-field-holding-32-bytes-of-hex',
+    file: 'packages/x/records.schema.json',
+    content: '{\n  "token": "0x4d5554414e542d6e6f742d612d7265616c2d63726564656e7469616c2d3030"\n}\n',
+    catch: true,
+    why: '32 bytes of hex under a credential key is the shape of a private key; only exactly 20 bytes reads as an address',
+  },
+  {
+    id: 'json-token-field-holding-a-status-word-with-more',
+    file: 'packages/x/records.schema.json',
+    content: `{\n  "token": "BAD_REQUEST-${V}"\n}\n`,
+    catch: true,
+    why: 'a status word is exempt only whole: anything appended is a literal again',
+  },
+  {
     id: 'compose-required-var',
     file: 'docker-compose.yml',
     content: 'services:\n  a:\n    environment:\n      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?missing}\n',

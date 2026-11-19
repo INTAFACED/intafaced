@@ -1,27 +1,22 @@
-import { publicJurisdictionProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts';
 import {
-  protocolComplianceLabelApproveInputSchema,
-  protocolComplianceLabelAskInputSchema,
-  protocolComplianceReportsOutputSchema,
-  protocolComplianceReviewSchema,
-  protocolNameTagApproveInputSchema,
-  protocolNameTagRequestInputSchema,
-  protocolNameTagRequestSchema,
-  protocolNameTagsOutputSchema,
-  protocolOnboardingApproveInputSchema,
-  protocolOnboardingChecklistSchema,
-  protocolOnboardingOpenInputSchema,
-  protocolOnboardingOutputSchema,
-  protocolTierApproveInputSchema,
-  protocolTierAskInputSchema,
-  protocolTierRemoveInputSchema,
-  protocolTokenTierSchema,
-  protocolTokenTiersOutputSchema,
-  protocolAddressReportInputSchema,
-  protocolAddressReportReceiptSchema,
-  protocolAddressRiskInputSchema,
-  protocolAddressRiskSchema,
-} from '@intafaced/contracts/protocol-address-risk';
+  PROTOCOL_ADDRESS_REPORTS_SUBMIT,
+  PROTOCOL_ADDRESS_RISK_READ,
+  PROTOCOL_COMPLIANCE_LABELS_APPROVE,
+  PROTOCOL_COMPLIANCE_LABELS_ASK,
+  PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE,
+  PROTOCOL_COMPLIANCE_NAME_TAGS_LIST,
+  PROTOCOL_COMPLIANCE_NAME_TAGS_REQUEST,
+  PROTOCOL_COMPLIANCE_ONBOARDING_APPROVE,
+  PROTOCOL_COMPLIANCE_ONBOARDING_LIST,
+  PROTOCOL_COMPLIANCE_ONBOARDING_OPEN,
+  PROTOCOL_COMPLIANCE_REPORTS_LIST,
+  PROTOCOL_COMPLIANCE_TIERS_APPROVE,
+  PROTOCOL_COMPLIANCE_TIERS_ASK,
+  PROTOCOL_COMPLIANCE_TIERS_LIST,
+  PROTOCOL_COMPLIANCE_TIERS_REMOVE,
+} from '@intafaced/contracts/protocol-wallet-procedures';
+import { mountProtocolRecord } from '../record-mount.js';
 import { approveLabel, askLabel, ComplianceRefusedError, readQueue, type ComplianceStore } from './compliance.js';
 import {
   approveChecklist,
@@ -64,35 +59,29 @@ function toTrpc(err: unknown): TRPCError {
 
 export function createAddressRiskRouter(deps: AddressRiskDeps) {
   return router({
-    read: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolAddressRiskInputSchema)
-      .output(protocolAddressRiskSchema)
-      .query(async ({ input }) => {
-        try {
-          return await readAddressRisk(deps.store, {
-            chainId: deps.chainId(),
-            address: input.address,
-            screeningLoaded: deps.screeningLoaded(),
-          });
-        } catch (err) {
-          throw toTrpc(err);
-        }
-      }),
+    read: mountProtocolRecord(PROTOCOL_ADDRESS_RISK_READ, async ({ input }) => {
+      try {
+        return await readAddressRisk(deps.store, {
+          chainId: deps.chainId(),
+          address: input.address,
+          screeningLoaded: deps.screeningLoaded(),
+        });
+      } catch (err) {
+        throw toTrpc(err);
+      }
+    }),
   });
 }
 
 export function createAddressReportsRouter(deps: AddressRiskDeps) {
   return router({
-    submit: scopedProcedure('protocol:read', { module: 'protocol', plane: 'protocol' })
-      .input(protocolAddressReportInputSchema)
-      .output(protocolAddressReportReceiptSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          return await submitReport(deps.store, { ...input, chainId: deps.chainId(), reporterId: ctx.principal.userId });
-        } catch (err) {
-          throw toTrpc(err);
-        }
-      }),
+    submit: mountProtocolRecord(PROTOCOL_ADDRESS_REPORTS_SUBMIT, async ({ ctx, input }) => {
+      try {
+        return await submitReport(deps.store, { ...input, chainId: deps.chainId(), reporterId: ctx.principal.userId });
+      } catch (err) {
+        throw toTrpc(err);
+      }
+    }),
   });
 }
 
@@ -119,145 +108,108 @@ function complianceTrpc(err: unknown): TRPCError {
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Protocol request failed', cause: err });
 }
 
-const operatorGuards = { module: 'protocol', plane: 'protocol' } as const;
-
 export function createComplianceRouter(deps: ComplianceDeps) {
   return router({
     reports: router({
-      list: scopedProcedure('admin:read', operatorGuards)
-        .output(protocolComplianceReportsOutputSchema)
-        .query(async () => {
-          try {
-            return await readQueue(deps.store, deps.chainId(), deps.now());
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
+      list: mountProtocolRecord(PROTOCOL_COMPLIANCE_REPORTS_LIST, async () => {
+        try {
+          return await readQueue(deps.store, deps.chainId(), deps.now());
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
     }),
     labels: router({
-      ask: scopedProcedure('admin:write', operatorGuards)
-        .input(protocolComplianceLabelAskInputSchema)
-        .output(protocolComplianceReviewSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await askLabel(deps.store, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
-      approve: scopedProcedure('admin:write', operatorGuards)
-        .input(protocolComplianceLabelApproveInputSchema)
-        .output(protocolComplianceReviewSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await approveLabel(deps.store, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
+      ask: mountProtocolRecord(PROTOCOL_COMPLIANCE_LABELS_ASK, async ({ ctx, input }) => {
+        try {
+          return await askLabel(deps.store, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+      approve: mountProtocolRecord(PROTOCOL_COMPLIANCE_LABELS_APPROVE, async ({ ctx, input }) => {
+        try {
+          return await approveLabel(deps.store, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
     }),
     tiers: router({
-      list: scopedProcedure('admin:read', operatorGuards)
-        .output(protocolTokenTiersOutputSchema)
-        .query(async () => {
-          try {
-            return await readTiers(deps.trustDesk, deps.chainId(), deps.now());
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
-      ask: scopedProcedure('admin:write', operatorGuards)
-        .input(protocolTierAskInputSchema)
-        .output(protocolTokenTierSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await askTier(deps.trustDesk, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
-      approve: scopedProcedure('admin:write', operatorGuards)
-        .input(protocolTierApproveInputSchema)
-        .output(protocolTokenTierSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await approveTier(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
-      remove: scopedProcedure('admin:write', operatorGuards)
-        .input(protocolTierRemoveInputSchema)
-        .output(protocolTokenTierSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await removeTier(deps.trustDesk, { ...input, chainId: deps.chainId(), actorId: ctx.principal.userId });
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
+      list: mountProtocolRecord(PROTOCOL_COMPLIANCE_TIERS_LIST, async () => {
+        try {
+          return await readTiers(deps.trustDesk, deps.chainId(), deps.now());
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+      ask: mountProtocolRecord(PROTOCOL_COMPLIANCE_TIERS_ASK, async ({ ctx, input }) => {
+        try {
+          return await askTier(deps.trustDesk, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+      approve: mountProtocolRecord(PROTOCOL_COMPLIANCE_TIERS_APPROVE, async ({ ctx, input }) => {
+        try {
+          return await approveTier(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+      remove: mountProtocolRecord(PROTOCOL_COMPLIANCE_TIERS_REMOVE, async ({ ctx, input }) => {
+        try {
+          return await removeTier(deps.trustDesk, { ...input, chainId: deps.chainId(), actorId: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
     }),
     onboarding: router({
-      list: scopedProcedure('admin:read', operatorGuards)
-        .output(protocolOnboardingOutputSchema)
-        .query(async () => {
-          try {
-            return await readChecklists(deps.trustDesk, deps.chainId(), deps.now());
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
-      open: scopedProcedure('admin:write', operatorGuards)
-        .input(protocolOnboardingOpenInputSchema)
-        .output(protocolOnboardingChecklistSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await openChecklist(deps.trustDesk, { ...input, chainId: deps.chainId(), openedBy: ctx.principal.userId });
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
-      approve: scopedProcedure('admin:write', operatorGuards)
-        .input(protocolOnboardingApproveInputSchema)
-        .output(protocolOnboardingChecklistSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await approveChecklist(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
+      list: mountProtocolRecord(PROTOCOL_COMPLIANCE_ONBOARDING_LIST, async () => {
+        try {
+          return await readChecklists(deps.trustDesk, deps.chainId(), deps.now());
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+      open: mountProtocolRecord(PROTOCOL_COMPLIANCE_ONBOARDING_OPEN, async ({ ctx, input }) => {
+        try {
+          return await openChecklist(deps.trustDesk, { ...input, chainId: deps.chainId(), openedBy: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+      approve: mountProtocolRecord(PROTOCOL_COMPLIANCE_ONBOARDING_APPROVE, async ({ ctx, input }) => {
+        try {
+          return await approveChecklist(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
     }),
     nameTags: router({
-      list: scopedProcedure('admin:read', operatorGuards)
-        .output(protocolNameTagsOutputSchema)
-        .query(async () => {
-          try {
-            return await readNameTags(deps.trustDesk, deps.chainId(), deps.now());
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
-      request: scopedProcedure('admin:write', operatorGuards)
-        .input(protocolNameTagRequestInputSchema)
-        .output(protocolNameTagRequestSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await requestNameTag(deps.trustDesk, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
-      approve: scopedProcedure('admin:write', operatorGuards)
-        .input(protocolNameTagApproveInputSchema)
-        .output(protocolNameTagRequestSchema)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await approveNameTag(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
-          } catch (err) {
-            throw complianceTrpc(err);
-          }
-        }),
+      list: mountProtocolRecord(PROTOCOL_COMPLIANCE_NAME_TAGS_LIST, async () => {
+        try {
+          return await readNameTags(deps.trustDesk, deps.chainId(), deps.now());
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+      request: mountProtocolRecord(PROTOCOL_COMPLIANCE_NAME_TAGS_REQUEST, async ({ ctx, input }) => {
+        try {
+          return await requestNameTag(deps.trustDesk, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+      approve: mountProtocolRecord(PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE, async ({ ctx, input }) => {
+        try {
+          return await approveNameTag(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
     }),
   });
 }

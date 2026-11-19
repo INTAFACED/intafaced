@@ -9,8 +9,9 @@ import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { threadId } from 'node:worker_threads';
 import type { z } from 'zod';
+import type { Principal } from '@intafaced/auth';
 import { NO_INPUT, type Access, type ProcedureRecord, type RefusalStatus, type TrpcTransport } from './procedure.js';
-import { publicProcedure, router, scopedProcedure, serviceProcedureFor, type Context } from './trpc.js';
+import { publicJurisdictionProcedure, publicProcedure, router, scopedProcedure, serviceProcedureFor, type Context } from './trpc.js';
 
 /**
  * Mounts a service's tRPC surface from its records. The record decides the path, query or mutation,
@@ -20,7 +21,8 @@ import { publicProcedure, router, scopedProcedure, serviceProcedureFor, type Con
 
 /** What a handler receives: the guarded context and the parsed input. */
 export type RecordHandler<R extends ProcedureRecord> = (args: {
-  ctx: Context;
+  /** A `scope` record's guard has verified the principal, so its handler reads it without a check of its own. */
+  ctx: R['access'] extends { readonly caller: 'scope' } ? Context & { principal: Principal } : Context;
   input: z.output<R['input']>;
 }) => Promise<z.input<R['output']>> | z.input<R['output']>;
 
@@ -59,6 +61,8 @@ function guardFor(access: Access) {
   switch (access.caller) {
     case 'public':
       return publicProcedure;
+    case 'jurisdiction':
+      return publicJurisdictionProcedure(access.module, access.plane);
     case 'scope':
       return scopedProcedure(access.scope, {
         ...(access.module === undefined ? {} : { module: access.module }),
@@ -71,7 +75,16 @@ function guardFor(access: Access) {
   }
 }
 
-/** One tRPC procedure from one record. Handlers are typed per record by `mountRecords`. */
+/**
+ * One tRPC procedure from one record, typed from the record (its handler's input and reply, and the procedure a caller
+ * sees), for a router not made from records yet. `mountRecords` mounts a whole router.
+ */
+export function mountRecord<const R extends TrpcRecord>(record: R, handler: RecordHandler<R>, refusalOf: RefusalOf): MountedProcedure<R>;
+export function mountRecord(
+  record: ProcedureRecord,
+  handler: RecordHandler<ProcedureRecord>,
+  refusalOf: RefusalOf,
+): TRPCQueryProcedure<Def<ProcedureRecord>> | TRPCMutationProcedure<Def<ProcedureRecord>>;
 export function mountRecord(record: ProcedureRecord, handler: RecordHandler<ProcedureRecord>, refusalOf: RefusalOf) {
   if (record.transport !== 'trpc') throw new Error(`${record.name} is a plain HTTP door; mount it with its HTTP adapter`);
   const guarded = guardFor(record.access);
