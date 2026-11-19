@@ -4,14 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { verifyServiceHeaders } from '@intafaced/contracts';
 import { HOUSE_MM_API_KEY_ID } from './auth-attribution.js';
+import { FIX_DROP_COPY_FILL } from '@intafaced/contracts/fix-procedures';
 import {
-  DROP_COPY_INGEST_PATH,
   DROP_COPY_SOURCE_LIQUIDATION,
   DROP_COPY_SOURCE_REST,
   DROP_COPY_SOURCE_RFQ,
   createDropCopyIngestClient,
   dropCopySourceForBookOrder,
-  encodeDropCopyFillJson,
   fireDropCopyFill,
   NoopDropCopyIngest,
   type DropCopyFillWire,
@@ -51,11 +50,31 @@ describe('dropCopySourceForBookOrder', () => {
   });
 });
 
-describe('encodeDropCopyFillJson', () => {
-  it('serialises money as decimal strings and never JSON numbers', () => {
-    const body = encodeDropCopyFillJson(restFill());
-    expect(body).not.toBeNull();
-    const parsed = JSON.parse(body!) as Record<string, unknown>;
+/** svc-fix's answer to an accepted fill (its wire replay). */
+const ACCEPTED = '{"ok":true,"delivered":1,"included":["rest"]}';
+
+describe('createDropCopyIngestClient', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function posted(): string[] {
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      bodies.push(String(init.body));
+      return new Response(ACCEPTED, { status: 200 });
+    });
+    return bodies;
+  }
+
+  it('serialises money as decimal strings and never JSON numbers', async () => {
+    const bodies = posted();
+    await createDropCopyIngestClient('http://svc-fix.example:8080', SECRET).postFill(restFill());
+    const body = bodies[0]!;
+    expect(body).toBeDefined();
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    expect(parsed).toEqual({ ...restFill() });
+    expect(Object.keys(parsed)).toEqual(Object.keys(FIX_DROP_COPY_FILL.input.shape).filter((k) => k in parsed));
     expect(parsed.source).toBe('rest');
     expect(parsed.price).toBe('100.25');
     expect(parsed.qty).toBe('1.50');
@@ -71,18 +90,35 @@ describe('encodeDropCopyFillJson', () => {
     expect(body).not.toMatch(/"feeAmount"\s*:\s*\d/);
   });
 
-  it('refuses IEEE money and forbidden sources rather than posting them', () => {
-    expect(encodeDropCopyFillJson({ ...restFill(), price: 100.25 as unknown as string })).toBeNull();
-    expect(encodeDropCopyFillJson({ ...restFill(), source: 'ui' as DropCopyFillWire['source'] })).toBeNull();
-    expect(encodeDropCopyFillJson({ ...restFill(), source: 'ws' as DropCopyFillWire['source'] })).toBeNull();
-    expect(encodeDropCopyFillJson({ ...restFill(), source: 'fix' as DropCopyFillWire['source'] })).toBeNull();
-    expect(encodeDropCopyFillJson({ ...restFill(), source: 'algo' as DropCopyFillWire['source'] })).toBeNull();
-    expect(encodeDropCopyFillJson({ ...restFill(), source: 'broker' as DropCopyFillWire['source'] })).toBeNull();
+  it('never posts IEEE money or a forbidden source', async () => {
+    const bodies = posted();
+    const client = createDropCopyIngestClient('http://svc-fix.example:8080', SECRET);
+    await expect(client.postFill({ ...restFill(), price: 100.25 as unknown as string })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'ui' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'ws' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'fix' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'algo' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
+    await expect(client.postFill({ ...restFill(), source: 'broker' as DropCopyFillWire['source'] })).resolves.toBeUndefined();
+    expect(bodies).toEqual([]);
   });
 
-  it('rfq and liquidation encode when money is strings', () => {
-    expect(JSON.parse(encodeDropCopyFillJson({ ...restFill(), source: DROP_COPY_SOURCE_RFQ })!).source).toBe('rfq');
-    expect(JSON.parse(encodeDropCopyFillJson({ ...restFill(), source: DROP_COPY_SOURCE_LIQUIDATION })!).source).toBe('liquidation');
+  it('rfq and liquidation post when money is strings', async () => {
+    const bodies = posted();
+    const client = createDropCopyIngestClient('http://svc-fix.example:8080', SECRET);
+    await client.postFill({ ...restFill(), source: DROP_COPY_SOURCE_RFQ });
+    await client.postFill({ ...restFill(), source: DROP_COPY_SOURCE_LIQUIDATION });
+    expect(bodies).toHaveLength(2);
+    expect(JSON.parse(bodies[0]!).source).toBe('rfq');
+    expect(JSON.parse(bodies[1]!).source).toBe('liquidation');
+  });
+
+  it("a refusal or a reply off svc-fix's record throws, for fireDropCopyFill to log", async () => {
+    vi.stubGlobal('fetch', async () => new Response('{"ok":false,"error":{"code":"forbidden","message":"x"}}', { status: 403 }));
+    await expect(createDropCopyIngestClient('http://svc-fix.example:8080', SECRET).postFill(restFill())).rejects.toThrow(
+      'drop-copy ingest refused (403)',
+    );
+    vi.stubGlobal('fetch', async () => new Response('{"ok":true}', { status: 200 }));
+    await expect(createDropCopyIngestClient('http://svc-fix.example:8080', SECRET).postFill(restFill())).rejects.toThrow();
   });
 });
 
@@ -118,13 +154,16 @@ describe('createDropCopyIngestClient', () => {
       expect(verified.service).toBe('svc-trade');
       expect(verified.scheme).toBe('v2');
       expect(verified.rejected).toBeNull();
-      return new Response('{"ok":true}', { status: 200 });
+      return new Response(ACCEPTED, { status: 200 });
     });
     const client = createDropCopyIngestClient('http://svc-fix.example:8080', SECRET);
     await client.postFill(restFill());
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(`http://svc-fix.example:8080${DROP_COPY_INGEST_PATH}`);
-    expect(calls[0]!.body).toBe(encodeDropCopyFillJson(restFill()));
+    expect(calls[0]!.url).toBe('http://svc-fix.example:8080/internal/drop-copy/fills');
+    // The bytes main sent before the record: the same fields in the same order, sequence last.
+    expect(calls[0]!.body).toBe(
+      '{"fillId":"fill-7","orderId":"ord-1","userId":"user-1","marketId":"BTC/USDT","side":"buy","price":"100.25","qty":"1.50","quoteAmount":"150.375","feeAsset":"USDT","feeAmount":"0.15","ts":"2026-09-18T00:00:00.000Z","source":"rest","sequence":11}',
+    );
     expect(JSON.parse(calls[0]!.body).source).toBe('rest');
     expect(calls[0]!.body).not.toContain('"ui"');
   });
