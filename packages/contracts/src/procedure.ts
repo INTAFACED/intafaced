@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Scope } from '@intafaced/auth';
 import type { KycTier, ModuleId, Plane } from '@intafaced/config';
-import type { ServiceName } from './service-keys.js';
+import type { ServiceName, ServingServiceName } from './service-keys.js';
 import { portabilityFindings, REFINEMENT, SchemaNotPortableError, strictJsonSchema } from './procedure-strict-schema.js';
 
 /**
@@ -105,7 +105,7 @@ export type ProcedureRecord<I extends z.ZodType = z.ZodType, O extends z.ZodType
   /** Stable name of the record; the key in `procedures.schema.json`. */
   readonly name: string;
   /** The service that serves the call. */
-  readonly service: ServiceName;
+  readonly service: ServingServiceName;
   /** The edge's module prefix an app reaches the service under (`/api/<module>/...`), when apps call it at all. */
   readonly module?: string;
   readonly input: I;

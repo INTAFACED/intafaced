@@ -1,5 +1,20 @@
 // Written by `procedures:write` (scripts/procedure-registry.mjs) from every `defineProcedure` in src/. Do not edit by hand.
 import { BANK_SPACES_LIST } from './bank-spaces-list.js';
+import {
+  BLUEPRINT_HEALTH,
+  BLUEPRINT_ONBOARD,
+  BLUEPRINT_ME,
+  BLUEPRINT_CARD,
+  BLUEPRINT_CARD_OF,
+  BLUEPRINT_SHARES_CREATE,
+  BLUEPRINT_SHARES_LIST,
+  BLUEPRINT_SHARES_REVOKE,
+  BLUEPRINT_SHARES_OPENERS,
+  BLUEPRINT_SET_VISIBILITY,
+  BLUEPRINT_MENTORS,
+  BLUEPRINT_EXPORT,
+  BLUEPRINT_ERASE,
+} from './blueprint-procedures.js';
 import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
 import {
   TAX_HEALTH,
@@ -20,6 +35,19 @@ import type { ProcedureRecord } from './procedure.js';
 /** Every call recorded in this package. `procedures.schema.json` is written from this list. */
 export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BANK_SPACES_LIST,
+  BLUEPRINT_HEALTH,
+  BLUEPRINT_ONBOARD,
+  BLUEPRINT_ME,
+  BLUEPRINT_CARD,
+  BLUEPRINT_CARD_OF,
+  BLUEPRINT_SHARES_CREATE,
+  BLUEPRINT_SHARES_LIST,
+  BLUEPRINT_SHARES_REVOKE,
+  BLUEPRINT_SHARES_OPENERS,
+  BLUEPRINT_SET_VISIBILITY,
+  BLUEPRINT_MENTORS,
+  BLUEPRINT_EXPORT,
+  BLUEPRINT_ERASE,
   FIX_ADAPTER_STATUS,
   FIX_DROP_COPY_FILL,
   TAX_HEALTH,

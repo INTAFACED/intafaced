@@ -4,7 +4,8 @@ import { useSession } from '../session/session';
 import { Button, Panel } from '../../shared/ui';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { currentSharedCardRoute, subscribeSharedCardRoute } from './blueprint-shared-card-contract';
-import { crewExportForOwner, crewProjection, type CrewEnvelope, type CrewRead } from './blueprint-crew-codec';
+import { BLUEPRINT_EXPORT } from '@intafaced/contracts/blueprint-procedures';
+import { crewExportOwnedBy, crewProjection, type CrewEnvelope, type CrewRead } from './blueprint-crew-codec';
 import { blueprintCrewCopy } from './blueprint-crew-copy';
 import './blueprint-crew.css';
 
@@ -82,8 +83,9 @@ export function BlueprintCrew() {
     show({ status: 'loading', request });
     let result: ApiResult<CrewEnvelope>;
     try {
-      result = await lease.api.query('blueprint', 'export', undefined, crewExportForOwner(lease.owner), {
+      result = await lease.api.call(BLUEPRINT_EXPORT, undefined, {
         signal: request.controller.signal,
+        accept: crewExportOwnedBy(lease.owner),
       });
     } catch {
       result = { ok: false, reason: 'unreachable', message: '' };
