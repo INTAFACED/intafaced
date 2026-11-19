@@ -1,0 +1,566 @@
+{
+  "set ops.library.dispute.open valid anon": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.open valid signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open valid signed-US": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open valid signed-KP": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open valid tier-none": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open valid member": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open valid key": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"ops.library.dispute.open is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
+  },
+  "set ops.library.dispute.open valid ops": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"listingId\":\"<uuid-13>\",\"title\":\"Replay seed\",\"description\":\"The seeded listing\",\"tags\":[\"trend\"],\"visibility\":\"open\",\"licence\":\"MIT\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"listedAt\":\"<time>\",\"facts\":{\"runId\":\"run_<uuid-6>\",\"checklistVersion\":\"TEST v1\",\"stale\":true},\"state\":\"removed\",\"audit\":[{\"seq\":0,\"action\":\"hide\",\"actor\":\"33333333-3333-4333-8333-333333333333\",\"reason\":\"replay\",\"at\":\"<time>\"},{\"seq\":1,\"action\":\"unhide\",\"actor\":\"33333333-3333-4333-8333-333333333333\",\"reason\":\"replay\",\"at\":\"<time>\"},{\"seq\":2,\"action\":\"remove\",\"actor\":\"33333333-3333-4333-8333-333333333333\",\"reason\":\"replay\",\"at\":\"<time>\"}],\"disputes\":[{\"disputeId\":\"<uuid-50>\",\"listingId\":\"<uuid-13>\",\"openedBy\":\"33333333-3333-4333-8333-333333333333\",\"reason\":\"replay\",\"ticketRef\":\"T-1\",\"openedAt\":\"<time>\",\"state\":\"open\",\"resolution\":null}]}}}"
+  },
+  "set ops.library.dispute.open valid forged": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.open unknown anon": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.open unknown signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open unknown signed-US": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open unknown signed-KP": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open unknown tier-none": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open unknown member": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open unknown key": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"ops.library.dispute.open is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
+  },
+  "set ops.library.dispute.open unknown ops": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.listing_not_found — listing not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.listing_not_found\"}}}}"
+  },
+  "set ops.library.dispute.open unknown forged": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.open absent signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open absent ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.open null signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.open wrong-type signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open wrong-type ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.open empty signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open empty ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"listingId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"reason\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"ticketRef\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"seq\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.open extra-key signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open extra-key ops": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"listingId\":\"<uuid-13>\",\"title\":\"Replay seed\",\"description\":\"The seeded listing\",\"tags\":[\"trend\"],\"visibility\":\"open\",\"licence\":\"MIT\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"listedAt\":\"<time>\",\"facts\":{\"runId\":\"run_<uuid-6>\",\"checklistVersion\":\"TEST v1\",\"stale\":true},\"state\":\"removed\",\"audit\":[{\"seq\":0,\"action\":\"hide\",\"actor\":\"33333333-3333-4333-8333-333333333333\",\"reason\":\"replay\",\"at\":\"<time>\"},{\"seq\":1,\"action\":\"unhide\",\"actor\":\"33333333-3333-4333-8333-333333333333\",\"reason\":\"replay\",\"at\":\"<time>\"},{\"seq\":2,\"action\":\"remove\",\"actor\":\"33333333-3333-4333-8333-333333333333\",\"reason\":\"replay\",\"at\":\"<time>\"}],\"disputes\":[{\"disputeId\":\"<uuid-50>\",\"listingId\":\"<uuid-13>\",\"openedBy\":\"33333333-3333-4333-8333-333333333333\",\"reason\":\"replay\",\"ticketRef\":\"T-1\",\"openedAt\":\"<time>\",\"state\":\"open\",\"resolution\":null}]}}}"
+  },
+  "set ops.library.dispute.open all-null signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.open all-null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"listingId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"reason\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"ticketRef\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"seq\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.open\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.resolve valid anon": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.resolve valid signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve valid signed-US": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve valid signed-KP": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve valid tier-none": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve valid member": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve valid key": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"ops.library.dispute.resolve is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
+  },
+  "set ops.library.dispute.resolve valid ops": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.dispute_not_found — dispute not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.dispute_not_found\"}}}}"
+  },
+  "set ops.library.dispute.resolve valid forged": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.resolve absent signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve absent ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.resolve null signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.resolve wrong-type signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve wrong-type ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.resolve empty signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve empty ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"disputeId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"reason\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set ops.library.dispute.resolve extra-key signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve extra-key ops": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.dispute_not_found — dispute not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.dispute_not_found\"}}}}"
+  },
+  "set ops.library.dispute.resolve all-null signed": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+  },
+  "set ops.library.dispute.resolve all-null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"disputeId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"reason\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"ops.library.dispute.resolve\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete valid anon": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete valid signed": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"ok\":true}}}"
+  },
+  "set studio.delete valid signed-US": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.delete valid signed-KP": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.delete valid tier-none": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"ok\":true}}}"
+  },
+  "set studio.delete valid member": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.delete valid key": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"studio.delete is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
+  },
+  "set studio.delete valid ops": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.delete valid forged": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete unknown anon": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete unknown signed": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.delete unknown signed-US": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.delete unknown signed-KP": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.delete unknown tier-none": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.delete unknown member": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.delete unknown key": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"studio.delete is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
+  },
+  "set studio.delete unknown ops": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.delete unknown forged": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete absent signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete absent ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete null signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete wrong-type signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete wrong-type ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete empty signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete empty ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete extra-key signed": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"ok\":true}}}"
+  },
+  "set studio.delete extra-key ops": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.delete all-null signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.delete all-null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.delete\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted valid anon": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted valid signed": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"strategies\":[{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Renamed\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true,\"id\":\"studio_<uuid-4>\",\"accountId\":\"11111111-1111-4111-8111-111111111111\",\"clientStrategyId\":\"replay-seed\",\"deletedAt\":\"<time>\",\"folder\":\"Replay\",\"description\":\"\",\"organised\":1,\"restores\":0}],\"nextCursor\":null}}}"
+  },
+  "set studio.listDeleted valid signed-US": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.listDeleted valid signed-KP": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.listDeleted valid tier-none": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"strategies\":[{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Renamed\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true,\"id\":\"studio_<uuid-4>\",\"accountId\":\"11111111-1111-4111-8111-111111111111\",\"clientStrategyId\":\"replay-seed\",\"deletedAt\":\"<time>\",\"folder\":\"Replay\",\"description\":\"\",\"organised\":1,\"restores\":0}],\"nextCursor\":null}}}"
+  },
+  "set studio.listDeleted valid member": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"strategies\":[],\"nextCursor\":null}}}"
+  },
+  "set studio.listDeleted valid key": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"studio.listDeleted is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
+  },
+  "set studio.listDeleted valid ops": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"strategies\":[],\"nextCursor\":null}}}"
+  },
+  "set studio.listDeleted valid forged": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted no-limit anon": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted no-limit signed": {
+    "status": 412,
+    "body": "{\"error\":{\"message\":\"quant.studio_list_limit_unset — pass limit (never invent 50)\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_list_limit_unset\"}}}}"
+  },
+  "set studio.listDeleted no-limit signed-US": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.listDeleted no-limit signed-KP": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.listDeleted no-limit tier-none": {
+    "status": 412,
+    "body": "{\"error\":{\"message\":\"quant.studio_list_limit_unset — pass limit (never invent 50)\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_list_limit_unset\"}}}}"
+  },
+  "set studio.listDeleted no-limit member": {
+    "status": 412,
+    "body": "{\"error\":{\"message\":\"quant.studio_list_limit_unset — pass limit (never invent 50)\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_list_limit_unset\"}}}}"
+  },
+  "set studio.listDeleted no-limit key": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"studio.listDeleted is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
+  },
+  "set studio.listDeleted no-limit ops": {
+    "status": 412,
+    "body": "{\"error\":{\"message\":\"quant.studio_list_limit_unset — pass limit (never invent 50)\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_list_limit_unset\"}}}}"
+  },
+  "set studio.listDeleted no-limit forged": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted absent signed": {
+    "status": 412,
+    "body": "{\"error\":{\"message\":\"quant.studio_list_limit_unset — pass limit (never invent 50)\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_list_limit_unset\"}}}}"
+  },
+  "set studio.listDeleted absent ops": {
+    "status": 412,
+    "body": "{\"error\":{\"message\":\"quant.studio_list_limit_unset — pass limit (never invent 50)\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_list_limit_unset\"}}}}"
+  },
+  "set studio.listDeleted null signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted wrong-type signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted wrong-type ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted empty signed": {
+    "status": 412,
+    "body": "{\"error\":{\"message\":\"quant.studio_list_limit_unset — pass limit (never invent 50)\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_list_limit_unset\"}}}}"
+  },
+  "set studio.listDeleted empty ops": {
+    "status": 412,
+    "body": "{\"error\":{\"message\":\"quant.studio_list_limit_unset — pass limit (never invent 50)\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_list_limit_unset\"}}}}"
+  },
+  "set studio.listDeleted extra-key signed": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"strategies\":[{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Renamed\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true,\"id\":\"studio_<uuid-4>\",\"accountId\":\"11111111-1111-4111-8111-111111111111\",\"clientStrategyId\":\"replay-seed\",\"deletedAt\":\"<time>\",\"folder\":\"Replay\",\"description\":\"\",\"organised\":1,\"restores\":0}],\"nextCursor\":null}}}"
+  },
+  "set studio.listDeleted extra-key ops": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"strategies\":[],\"nextCursor\":null}}}"
+  },
+  "set studio.listDeleted all-null signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.listDeleted all-null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.listDeleted\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore valid anon": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore valid signed": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Renamed\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true,\"id\":\"studio_<uuid-4>\",\"accountId\":\"11111111-1111-4111-8111-111111111111\",\"clientStrategyId\":\"replay-seed\",\"deletedAt\":null,\"folder\":\"Replay\",\"description\":\"\",\"organised\":1,\"restores\":1,\"versions\":[{\"version\":1,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true},{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true}]}}}"
+  },
+  "set studio.restore valid signed-US": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.restore valid signed-KP": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.restore valid tier-none": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Renamed\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true,\"id\":\"studio_<uuid-4>\",\"accountId\":\"11111111-1111-4111-8111-111111111111\",\"clientStrategyId\":\"replay-seed\",\"deletedAt\":null,\"folder\":\"Replay\",\"description\":\"\",\"organised\":1,\"restores\":1,\"versions\":[{\"version\":1,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true},{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true}]}}}"
+  },
+  "set studio.restore valid member": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.restore valid key": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"studio.restore is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
+  },
+  "set studio.restore valid ops": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.restore valid forged": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore unknown anon": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore unknown signed": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.restore unknown signed-US": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.restore unknown signed-KP": {
+    "status": 403,
+    "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  },
+  "set studio.restore unknown tier-none": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.restore unknown member": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.restore unknown key": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"studio.restore is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
+  },
+  "set studio.restore unknown ops": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.restore unknown forged": {
+    "status": 401,
+    "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore absent signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore absent ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore null signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore wrong-type signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore wrong-type ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore empty signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore empty ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore extra-key signed": {
+    "status": 200,
+    "body": "{\"result\":{\"data\":{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Renamed\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true,\"id\":\"studio_<uuid-4>\",\"accountId\":\"11111111-1111-4111-8111-111111111111\",\"clientStrategyId\":\"replay-seed\",\"deletedAt\":null,\"folder\":\"Replay\",\"description\":\"\",\"organised\":1,\"restores\":1,\"versions\":[{\"version\":1,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true},{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true}]}}}"
+  },
+  "set studio.restore extra-key ops": {
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+  },
+  "set studio.restore all-null signed": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  },
+  "set studio.restore all-null ops": {
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"studio.restore\",\"requestId\":\"replay-request\"}}}"
+  }
+}
