@@ -9,8 +9,8 @@ vi.mock('../../shared/preferences', async (original) => {
 
 // Server rendering runs no effects, so the support service never answers. This stands in for "it answered, and holds no
 // address": the build address (VITE_SUPPORT_EMAIL, read at call time) is then the only source, as these tests expect.
-vi.mock('../more', async (original) => {
-  const real = await original<typeof import('../more')>();
+vi.mock('../more/support-contact', async (original) => {
+  const real = await original<typeof import('../more/support-contact')>();
   return {
     ...real,
     useSupportContact: () => real.mergeSupportContact({ ok: true, email: null, phone: null, chatHours: null }, real.supportContactEmail()),
