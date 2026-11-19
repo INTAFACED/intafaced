@@ -801,10 +801,8 @@ export function createNotifyRouter(
        * Notification centre owner values — page size, unread cap, retention.
        * Blank values report unset with their typed code; nothing is defaulted.
        */
-      inboxPolicy: publicProcedure
-        .input(NOTIFY_INBOX_POLICY.input)
-        .output(NOTIFY_INBOX_POLICY.output)
-        .query(() => describeInboxPolicy(inbox)),
+      // Its answer is the record's; any input is still taken as before (the wire replay holds that), since the call reads none.
+      inboxPolicy: publicProcedure.output(NOTIFY_INBOX_POLICY.output).query(() => describeInboxPolicy(inbox)),
 
       /**
        * Public announcement. Real content is not published here.

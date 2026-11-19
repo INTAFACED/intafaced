@@ -24,11 +24,12 @@ describe('svc-notify serves its recorded calls from their records', () => {
   });
   const procedures = mountedProcedures(router);
 
-  it.each([NOTIFY_INBOX_POLICY])('$name is mounted at its path with its own input and output', (record) => {
+  // Its output parser is the record's. It reads no input, and takes any input as it did before it had a record (the wire
+  // replay, wire-replay.golden/notify.inboxPolicy.json, holds every answer), so no input parser is mounted.
+  it.each([NOTIFY_INBOX_POLICY])('$name is mounted at its path with its own output', (record) => {
     expect(record.service).toBe('svc-notify');
     const mounted = procedures[record.path];
     expect(mounted, `${record.path} is not on svc-notify's router`).toBeDefined();
-    expect(mounted!._def.inputs).toContain(record.input);
     expect(mounted!._def.output).toBe(record.output);
   });
 
