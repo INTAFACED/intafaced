@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { ApiClient } from '../../shared/api';
 import type { JournalRead } from '../../shared/minimal-original-journal';
 import { Button, Dialog, Loading } from '../../shared/ui';
-import { currentSharedCardRoute, subscribeSharedCardRoute } from '../more/blueprint-shared-card-contract';
+import { currentRoute, subscribeRoute } from '../../shared/route-watch';
 import { readApiKeyRecords, type ApiKeyRecord, type ApiKeyReadWindow } from './api-key-records-api';
 import {
   apiKeyRevokeStorageKey,
@@ -32,7 +32,7 @@ type Context = Readonly<{
   owner: string;
   session: object;
   parent: object;
-  route: ReturnType<typeof currentSharedCardRoute>;
+  route: ReturnType<typeof currentRoute>;
   limit: ApiKeyReadWindow;
   journal: ReturnType<typeof createApiKeyRevokeJournal>;
 }>;
@@ -95,7 +95,7 @@ export function useApiKeyRevocation(options: Options) {
     spentInventory.current = null;
     arrivalRef.current = null;
   }
-  const route = currentSharedCardRoute();
+  const route = currentRoute();
   const previous = contextRef.current;
   if (!options.owner || !options.session) {
     if (previous) retireContext();
@@ -134,7 +134,7 @@ export function useApiKeyRevocation(options: Options) {
     latest.current.api === captured.api &&
     latest.current.limit === captured.limit &&
     captured.api.canWrite() &&
-    currentSharedCardRoute() === captured.route &&
+    currentRoute() === captured.route &&
     latest.current.current();
   const actionCurrent = () => contextCurrent(context) && options.actionCurrent();
   function showSaved(captured: Context, read: JournalRead<ApiKeyRevokeOriginal>): Saved {
@@ -158,7 +158,7 @@ export function useApiKeyRevocation(options: Options) {
   }
   useLayoutEffect(() => {
     mounted.current = true;
-    const release = subscribeSharedCardRoute(() => {
+    const release = subscribeRoute(() => {
       retireContext();
       contextRef.current = null;
       repaint();
