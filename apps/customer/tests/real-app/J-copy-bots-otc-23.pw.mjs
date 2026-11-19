@@ -268,7 +268,8 @@ test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger pri
   expect(restarted.children).toHaveLength(0);
   // The room shows it too: its next 10 s read after the restart replaces the read the restart broke.
   await expect(schedules(page).getByText('Could not read', { exact: true })).toHaveCount(0, { timeout: 30_000 });
-  await expect(detail(page).getByText('Waiting for the trigger price', { exact: true })).toBeVisible({ timeout: 30_000 });
+  // The value cell also holds the trigger price as its hint, so the words are matched as a part.
+  await expect(detail(page).getByText(/Waiting for the trigger price/)).toBeVisible({ timeout: 30_000 });
   run.write({ triggered: id });
 });
 
