@@ -171,23 +171,6 @@
       "why": "Two concurrent addDepartment calls with the same departmentId and name, in a transaction with no lock (business-team.ts:950-958), clash on (account_id, lower(name)) before the id. The catch maps that 23505 to bank.business_role_name_taken (business-team.ts:961), so a retry is wrongly told the name is taken instead of getting its own department."
     },
     {
-      "file": "services/svc-bank/src/business/business-team.ts",
-      "table": "business_payments",
-      "target": "(id)",
-      "constraint": "business_payments_partner_key_key",
-      "verdict": "race",
-      "issue": 8893,
-      "why": "partner_key = businessPaymentKey(paymentId) (business-team.ts:58). propose checks paymentRowOrNull outside the transaction, and the transaction takes no lock: activeAccount and member are plain SELECTs (business-team.ts:1183-1222). Two concurrent proposals with the same paymentId make the loser raise 23505 on partner_key instead of reaching the `if (!created) return this.propose(input)` replay."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-team.ts",
-      "table": "business_payments",
-      "target": "(id)",
-      "constraint": "business_payments_partner_move_id_key",
-      "verdict": "safe",
-      "why": "partner_move_id is not written by this insert (business-team.ts:847), so it is NULL. NULLs never clash in a unique index."
-    },
-    {
       "file": "services/svc-bank/src/cards/card-service.ts",
       "table": "cards",
       "target": "(issuer, issuer_ref)",

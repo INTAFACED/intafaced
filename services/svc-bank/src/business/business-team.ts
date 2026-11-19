@@ -849,7 +849,9 @@ export class BusinessTeamService {
         VALUES (${input.paymentId}::uuid, ${input.accountId}::uuid, ${input.makerUserId}, ${payee}, ${input.paymentType},
                 ${account.asset_id}, ${formatAmount(input.amount)}::numeric, ${rule?.id ?? null}::uuid, ${needed},
                 ${needed === 0 ? 'sending' : 'pending'}, ${businessPaymentKey(input.paymentId)})
-        ON CONFLICT (id) DO NOTHING
+        -- No target: partner_key is fixed by id (business_payments_key_ck), so a clash on either key is this same payment,
+        -- and the call that loses a race reads the winner below instead of raising 23505 on partner_key (#8893).
+        ON CONFLICT DO NOTHING
         RETURNING *
       `;
       return rows[0] ?? null;
