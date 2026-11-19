@@ -5,7 +5,7 @@ import type { ApiResult } from '../../shared/api';
 import { signedDecimalSchema } from '../../shared/money';
 import { Button, Field, Loading } from '../../shared/ui';
 import { QuotaAwareFailure } from './quota-refusal';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { studioCopy } from './studio-copy';
 import { useRuleWords } from './SignalBuilder';
 import { ruleRefusal, signalRulesFilled, trimSignalRules } from './signal-rules';

@@ -4,7 +4,7 @@
  * `MoreRoutes` itself, so importing a piece from this entry does not pull every More room into the importer's chunk.
  */
 export { Read, Select, TextArea } from './common';
-export { downloadCsv } from './depth-csv';
+export { downloadCsv, toCsv } from './depth-csv';
 export { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from './guest-rooms';
 export { utcInput } from './quant-analysis';
 export { sendArticleFeedback } from './support-calls';
