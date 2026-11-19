@@ -27,6 +27,8 @@ const loadPublic = () => import('../features/public/PublicRoutes').then((m) => (
 const loadProtocol = () => import('../features/protocol/ProtocolRoutes').then((m) => ({ default: m.ProtocolRoutes }));
 const loadWeb3Shell = () => import('./Web3Shell').then((m) => ({ default: m.Web3Shell }));
 const PublicRoutes = lazy(loadPublic);
+// A backtest result shared by link (AL-report-03) loads only when one is opened.
+const SharedResultRoute = lazy(() => import('../features/quant/SharedResultRoute'));
 const ProtocolRoutes = lazy(loadProtocol);
 const Web3Shell = lazy(loadWeb3Shell);
 const DevFeatures = lazy(() => import('./DevFeatures').then((m) => ({ default: m.DevFeatures })));
@@ -218,7 +220,7 @@ export function App() {
       {ribbon}
       <SessionNotice />
       <Suspense fallback={fallback}>
-        <PublicRoutes path={path} />
+        <PublicRoutes path={path} SharedResult={SharedResultRoute} />
       </Suspense>
     </div>
   ) : room?.area === 'team' ? (

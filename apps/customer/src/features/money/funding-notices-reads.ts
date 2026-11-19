@@ -1,7 +1,7 @@
 // hand-declared-ok: svc-notify's `notify.fundingNotices` output is declared inline in its router, not in a browser-safe @intafaced/contracts export; this extends the entry shape that mirrors its notice output.
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { entrySchema } from '../developers/developers-api';
+import { entrySchema } from '../../shared/notify-reads';
 
 /** The stages a funding incident goes through, as svc-notify names them. Only the closing entry reads `resolved`. */
 export const FUNDING_PHASES = ['investigating', 'identified', 'update', 'monitoring', 'resolved'] as const;

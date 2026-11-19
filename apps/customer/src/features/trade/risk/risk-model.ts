@@ -1,5 +1,5 @@
 import type { ApiResult } from '../../../shared/api';
-import type { StatusFeed } from '../../developers';
+import type { StatusFeed } from '../../../shared/notify-reads';
 import { isTerminalOrder, type Order } from '../trade-api';
 
 /** Most open orders one read lists. A full page may be only the first page of the account's orders, so the room says "at least". */

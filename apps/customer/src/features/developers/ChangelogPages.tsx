@@ -9,7 +9,7 @@ import {
   type ChangelogAreaId,
   type ChangelogEntry,
   type UpcomingChanges,
-} from './developers-api';
+} from '../../shared/notify-reads';
 import { useRead } from './use-read';
 import '../public/public-pages.css';
 
