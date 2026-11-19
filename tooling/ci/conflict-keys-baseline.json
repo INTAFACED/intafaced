@@ -127,15 +127,6 @@
       "why": "partner_key = bulkPayKey(runId) (business-payouts.ts:67). importRun reads the prior row outside the transaction (business-payouts.ts:406), then inserts with no lock. Two imports with the same runId (double submit or retry) both miss the prior row, and the loser raises 23505 on partner_key instead of returning the run."
     },
     {
-      "file": "services/svc-bank/src/business/business-service.ts",
-      "table": "business_accounts",
-      "target": "(id)",
-      "constraint": "business_accounts_id_asset_key",
-      "verdict": "race",
-      "issue": 8891,
-      "why": "(id, asset_id) is a superset of id. createAccount (business-service.ts:384) takes a caller-stable accountId and holds no lock, so two concurrent creates (a retry) with the same id and asset can both pass the arbiter pre-check. The loser then raises 23505 business_accounts_id_asset_key instead of DO NOTHING. The window is narrow but real, and the key adds nothing over id."
-    },
-    {
       "file": "services/svc-bank/src/cards/card-service.ts",
       "table": "cards",
       "target": "(issuer, issuer_ref)",

@@ -1,0 +1,37 @@
+{
+  "inputs": {
+    "bridge.routes.list": { "sample": "null", "sample-nulls": "null" }
+  },
+  "bodies": [
+    "{\"error\":{\"message\":\"bridge.routes_unset: the owner has published no bridge route\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"bridge.routes.list\",\"requestId\":\"req-replay\",\"cause\":{\"code\":\"bridge.routes_unset\"}}}}",
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"bridge.routes.list\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  ],
+  "answers": {
+    "bridge.routes.list": {
+      "absent anon": [412, 0],
+      "absent no-scope": [412, 0],
+      "absent all": [412, 0],
+      "absent all-US": [403, 1],
+      "null anon": [412, 0],
+      "null no-scope": [412, 0],
+      "null all": [412, 0],
+      "null all-US": [403, 1],
+      "wrong-type anon": [412, 0],
+      "wrong-type no-scope": [412, 0],
+      "wrong-type all": [412, 0],
+      "wrong-type all-US": [403, 1],
+      "empty anon": [412, 0],
+      "empty no-scope": [412, 0],
+      "empty all": [412, 0],
+      "empty all-US": [403, 1],
+      "sample anon": [412, 0],
+      "sample no-scope": [412, 0],
+      "sample all": [412, 0],
+      "sample all-US": [403, 1],
+      "sample-nulls anon": [412, 0],
+      "sample-nulls no-scope": [412, 0],
+      "sample-nulls all": [412, 0],
+      "sample-nulls all-US": [403, 1]
+    }
+  }
+}
