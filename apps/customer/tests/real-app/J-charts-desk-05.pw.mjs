@@ -5,6 +5,7 @@ import {
   atTick,
   barTimeText,
   centred,
+  clickAndRead,
   clickPlot,
   openWorkbench,
   pick,
@@ -14,6 +15,7 @@ import {
   pricesOf,
   rowNamed,
   rows,
+  storedAsRead,
   timesOf,
 } from './charts-desk.mjs';
 
@@ -128,21 +130,33 @@ test(`${J} #1 opens the drawing toolbar and picks the trend line, then two click
   await expect(trendTool).toHaveAttribute('aria-pressed', 'true');
   // What the chart reads under each click: the bar's time and the price at that height.
   const trendPoints = [await centred(page, await plot(page, 0.3, 0.4)), await centred(page, await plot(page, 0.6, 0.5))];
-  // Each click, then what the chart reads at that same pixel (read after it, so both see the page as it was clicked).
+  // Each click, and what the chart read at that same pixel as it was clicked (the price scale follows the live feed, so
+  // a read taken later may be on a scale that has moved since).
   const at = [];
-  for (const point of trendPoints) {
-    await page.mouse.click(point.x, point.y);
-    at.push(await pointerAt(page, point));
-  }
+  for (const point of trendPoints) at.push(await clickAndRead(page, point));
   await expect(rows(page)).toHaveCount(1);
   const text = await pointText(rows(page).first()).textContent();
   // Two points, each stored as that bar's time and that price at the tick's places (two for BTC-USDT's 0.01 tick).
-  expect(timesOf(text)).toEqual(at.map((p) => barTimeText(p.time)));
+  const times = timesOf(text);
+  expect(times).toHaveLength(2);
   expect(pricesOf(text)).toHaveLength(2);
   pricesOf(text).forEach((price, i) => {
     expect(price).toMatch(/^\d+\.\d{2}$/);
-    expect(atTick(price, at[i].price), `point ${i + 1}: stored ${price}, pointer ${at[i].price}`).toBe(true);
+    expect(storedAsRead(times[i], price, at[i]), `point ${i + 1}: stored ${times[i]} ${price}, read ${JSON.stringify(at[i])}`).toBe(true);
   });
+  // Stored as bar times and prices, not pixels: when the price scale moves (here a drag on the price axis, as the live feed
+  // moves it), the stored points stay, while the same pixel now reads another price; a double-click puts the scale back.
+  await pick(page, 'Select');
+  const box = await chartHost(page).boundingBox();
+  const axisX = box.x + box.width - 15;
+  await page.mouse.move(axisX, box.y + box.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(axisX, box.y + box.height * 0.1, { steps: 10 });
+  await page.mouse.up();
+  const moved = await pointerAt(page, trendPoints[0]);
+  expect(atTick(pricesOf(text)[0], moved.price), `the scale moved: point 1 now reads ${moved.price}`).toBe(false);
+  await expect(pointText(rows(page).first())).toHaveText(text);
+  await page.mouse.dblclick(axisX, box.y + box.height * 0.3);
 });
 
 test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price pane, and on an indicator pane where allowed`, async () => {
@@ -283,15 +297,17 @@ test(`${J} #3 adds text at the chosen point, with the font size and colour chose
   await toolbar.getByLabel('Text size').selectOption({ label: '24 px' });
   await toolbar.getByLabel('Text colour').selectOption({ label: 'Up' });
   const point = await centred(page, await inPane(page, 0, 0.25, 0.55));
-  await page.mouse.click(point.x, point.y);
-  const at = await pointerAt(page, point);
+  const at = await clickAndRead(page, point);
   const row = page.locator('[data-drawing-id][data-kind="text"]');
   await expect(row).toHaveCount(1);
   await expect(row.getByRole('textbox', { name: 'Text to place or edit' })).toHaveValue('Support');
   // At the chosen point: stored as the bar under the click and the price at its height.
   const stored = await pointText(row).textContent();
-  expect(timesOf(stored)).toEqual([barTimeText(at.time)]);
-  expect(atTick(pricesOf(stored)[0], at.price), `stored ${pricesOf(stored)[0]}, pointer ${at.price}`).toBe(true);
+  expect(timesOf(stored)).toHaveLength(1);
+  expect(
+    storedAsRead(timesOf(stored)[0], pricesOf(stored)[0], at),
+    `stored ${timesOf(stored)[0]} ${pricesOf(stored)[0]}, read ${JSON.stringify(at)}`,
+  ).toBe(true);
   // With the font size and colour chosen: stored with the text, and painted in that size and the Up colour.
   await expect(row).toHaveAttribute('data-size', '24');
   await expect(row).toHaveAttribute('data-tone', 'up');
