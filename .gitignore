@@ -115,3 +115,6 @@ apps/customer/public/developers/
 /.verify/
 /.claude/skills/verify-intafaced/features/*
 !/.claude/skills/verify-intafaced/features/README.md
+
+# Rust build output (cargo), one per worktree.
+/target/

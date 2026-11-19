@@ -245,4 +245,23 @@ describe('getting a card (J-bank-13, PG-hard)', () => {
     expect(await available()).toBe(amt('100'));
     expect((await orders.delivery(user, replacementId)).state).toBe('ordered');
   });
+
+  // The replacement card's issuer ref is deterministic in its id, so cards_pkey and cards_issuer_ref_idx both name it: the
+  // call that loses the insert race must read the winner's card, not raise 23505 on whichever key Postgres checks first.
+  it('gives every same-id replace call at once the one replacement card, never a duplicate-key error', async () => {
+    for (let round = 0; round < 40; round++) {
+      user = randomUUID();
+      await accept();
+      const card = await virtual();
+      const replacementId = randomUUID();
+      const results = await Promise.allSettled(
+        Array.from({ length: 2 }, () => cards.replace({ cardId: card.id, userId: user, replacementId, reason: 'lost' })),
+      );
+      const failures = results.flatMap((r) => (r.status === 'rejected' ? [String((r.reason as Error)?.message ?? r.reason)] : []));
+      expect(failures).toEqual([]);
+      for (const r of results) expect(r.status === 'fulfilled' && r.value.id).toBe(replacementId);
+      expect(await sql`SELECT id FROM bank.cards WHERE replaces_card_id = ${card.id}`).toHaveLength(1);
+      expect(await cards.card(card.id)).toMatchObject({ status: 'closed', replacedByCardId: replacementId });
+    }
+  });
 });

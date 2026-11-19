@@ -1,3 +1,4 @@
+import type { z } from 'zod';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,7 +58,9 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
   }
 }
 
-const scope = (over: Partial<HistoryPageInput> = {}): HistoryPageInput =>
+/** What a caller sends (before the parse brands the asset id). */
+type HistoryPageWire = z.input<typeof historyPageInputSchema>;
+const scope = (over: Partial<HistoryPageWire> = {}): HistoryPageInput =>
   historyPageInputSchema.parse({ ownerType: 'user', ownerId: PAGER, kind: 'available', ...over });
 
 describe('PostgresLedger.historyPage', () => {
@@ -128,7 +131,7 @@ describe('PostgresLedger.historyPage', () => {
     await adminStop();
   }, 30_000);
 
-  async function walk(input: Partial<HistoryPageInput>, limit: number) {
+  async function walk(input: Partial<HistoryPageWire>, limit: number) {
     const seen: Array<{ txId: string; assetId: string; postedAt: Date }> = [];
     let cursor: string | undefined;
     let pages = 0;

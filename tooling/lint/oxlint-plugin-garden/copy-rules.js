@@ -226,42 +226,52 @@ const payPortalCopy = {
 
 // ---------------------------------------------------------------------------------------------------------------------
 // garden/no-hand-schema: customer files take service response types from @intafaced/contracts
-// (was apps/customer/src/shared/no-new-hand-schemas.test.ts, which judged only the files a branch added).
+// (was apps/customer/src/shared/no-new-hand-schemas.test.ts, which judged only the files a branch added). Each hand
+// declaration is judged on its own, never the file: a contracts import elsewhere in the file excuses none, and no comment
+// does either. The copies main holds are each file's ceiling (tooling/ci/lint-ratchet.mjs); count them with
+// `node tooling/lint/count-rule.mjs garden/no-hand-schema`.
 const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/(^|[^:'"`])\/\/.*$/gmu, '$1');
-const DECLARES = /\bz\s*\.\s*(object|discriminatedUnion)\s*\(/u;
 const CALLS_API = /\.(query|mutate|rest|scopedRest|plain)\s*(<[^>]*>)?\(|\bApiClient\b|\bApiResult\b|shared\/api['"]/u;
 const NAMED_AS_API_FILE = /(^|[-./])(schemas?|api)\.tsx?$/u;
-const FROM_CONTRACTS = /from\s+['"]@intafaced\/contracts(\/[a-z0-9-]+)?['"]/u;
-const SCHEMA_EXEMPT = /hand-declared-ok:[ \t]*\S[^\n]{8,}/u;
+const DECLARING = new Set(['object', 'discriminatedUnion']);
 
-/** The reason a customer file hand-declares a service response schema, or null when it is fine. */
-export function handSchemaProblem(path, text) {
+/** True when a customer file is one whose `z.object` / `z.discriminatedUnion` declarations read a service's answer:
+ * it calls the API, or is named as an api or schema file. Tests, fixtures and type files are not. */
+export function handSchemaScope(path, text) {
   if (!path || !path.startsWith(CUSTOMER) || !/\.tsx?$/u.test(path) || /\.d\.ts$|\.test\.tsx?$|\.spec\.tsx?$|__fixtures__\//u.test(path))
-    return null;
-  if (SCHEMA_EXEMPT.test(text)) return null;
-  const code = stripComments(text);
-  if (!DECLARES.test(code)) return null;
-  if (!(CALLS_API.test(code) || NAMED_AS_API_FILE.test(path))) return null;
-  if (FROM_CONTRACTS.test(code)) return null;
-  return 'declares z.object schemas for a service answer without importing from @intafaced/contracts';
+    return false;
+  return NAMED_AS_API_FILE.test(path) || CALLS_API.test(stripComments(text));
 }
+
+/** `z.object(` or `z.discriminatedUnion(`: a schema declared by hand. */
+const declares = (node) =>
+  node.callee?.type === 'MemberExpression' &&
+  !node.callee.computed &&
+  node.callee.object?.type === 'Identifier' &&
+  node.callee.object.name === 'z' &&
+  DECLARING.has(node.callee.property?.name);
 
 const noHandSchema = {
   meta: { type: 'problem', docs: { description: 'Service response schemas come from @intafaced/contracts.' } },
   create(context) {
     const path = repoPath(context);
-    if (!path || !path.startsWith(CUSTOMER)) return {};
+    if (!handSchemaScope(path, context.sourceCode.text)) return {};
+    // One finding per outermost declaration: a z.object nested inside another is part of the same copy.
+    let depth = 0;
     return {
-      Program() {
-        const text = context.sourceCode.text;
-        if (!handSchemaProblem(path, text)) return;
-        const line = text.slice(0, Math.max(0, text.search(DECLARES))).split('\n').length;
-        context.report({
-          loc: { start: { line, column: 0 }, end: { line, column: 1 } },
-          message:
-            'this file declares a service response schema by hand: import the schema from @intafaced/contracts and narrow it, ' +
-            'or, if the service has none that is browser-safe, add `// hand-declared-ok: <what is missing>`',
-        });
+      CallExpression(node) {
+        if (!declares(node)) return;
+        if (depth === 0)
+          context.report({
+            node: node.callee,
+            message:
+              'a service response schema declared by hand: import it from @intafaced/contracts and narrow it ' +
+              '(`.pick`, `.extend`); if the service has none that is browser-safe, add it to packages/contracts first',
+          });
+        depth += 1;
+      },
+      'CallExpression:exit'(node) {
+        if (declares(node)) depth -= 1;
       },
     };
   },

@@ -1,3 +1,5 @@
+import { httpRecordHandler } from '@intafaced/contracts/procedure-http';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import { RESTORE_ASOF_INVALID, RESTORE_ASOF_UNANSWERABLE } from './ledger/postgres-ledger.js';
 import { SKEW_BOUND_UNSET } from './ledger/clock-skew.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -34,7 +36,7 @@ import { handleFinanceClose } from './ledger/finance-close.js';
 import { parseFeeRevenueInput, serializeFeeRevenue } from './ledger/fee-revenue.js';
 import { serializeOwnFunds } from './ledger/own-funds.js';
 import { parseHoldingsHistoryInput, serializeHoldingsHistory } from './ledger/holdings-history.js';
-import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
+import { parseHistoryDoorInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { handleReportExport } from './ledger/report-export.js';
 import { handleResilience } from './ledger/resilience-gate.js';
 import { handleStatementPnlHappyOrRefuse } from './ledger/statement-pnl-reproduce.js';
@@ -273,9 +275,9 @@ export async function handleS2sHistory(ledger: LedgerService, body: unknown) {
  * asset) comes from the body, which only an authenticated service can send; the
  * cursor is a position inside that scope and is never read for an account.
  */
-export async function handleS2sHistoryPage(ledger: LedgerService, body: unknown) {
-  return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(body)));
-}
+export const handleS2sHistoryPage = httpRecordHandler(LEDGER_HISTORY_PAGE, async (ledger: LedgerService, input) =>
+  serializeHistoryPage(await ledger.historyPage(input)),
+);
 
 /**
  * What one customer or Space holds now and how it moved since `from`, per asset, reason and bucket (J-portfolio-05).
@@ -598,7 +600,7 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   // is one door, and every route goes through it.
   app.post('/trpc/history', guarded('history', handleS2sHistory));
   // Paged sibling, same `guarded` door (U5a).
-  app.post('/trpc/historyPage', guarded('historyPage', handleS2sHistoryPage));
+  app.post(LEDGER_HISTORY_PAGE.path, guarded('historyPage', handleS2sHistoryPage));
   // What one owner holds now and how it moved since a point in time (J-portfolio-05). Same `guarded` door.
   app.post('/trpc/holdingsHistory', guarded('holdingsHistory', handleS2sHoldingsHistory));
   // The asset and network registry (W-balances-05). Reads, same `guarded` door.

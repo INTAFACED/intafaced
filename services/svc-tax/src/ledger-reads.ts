@@ -1,5 +1,8 @@
 import { parseAmount, rehydrateLedgerHttpError, type AccountRef, type Amount } from '@intafaced/ledger-client';
 import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import { callHttpRecord } from '@intafaced/contracts/procedure-http';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
+import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import { TAX_LEDGER_HISTORY_UNAVAILABLE, TAX_LEDGER_UNWIRED, TaxError } from './codes.js';
 import type { Fill } from './lot-book.js';
 import { WITHDRAWAL_HOLD_PREFIX } from './withdrawals.js';
@@ -118,11 +121,12 @@ export function createTaxLedgerReads(
   const url = baseUrl.replace(/\/$/, '');
   const authHeaders = serviceCallSigner({ service: 'svc-tax', audience: 'svc-ledger', legacySecret: internalSecret, s2s });
 
-  const page = async (body: Record<string, unknown>) =>
-    call<{ entries: PageEntry[]; nextCursor: string | null }>(url, '/trpc/historyPage', body, authHeaders);
+  // Through the door's record: its route, its input checked before sending, its reply parsed.
+  const page = async (input: PageInput) =>
+    callHttpRecord(LEDGER_HISTORY_PAGE, { baseUrl: url, input, sign: authHeaders, errorOf: rehydrateLedgerHttpError });
 
   // Walk every page of one account scope, newest first, up to a fixed ceiling. A ceiling hit is reported, never silent.
-  const walkScope = async (scope: Record<string, unknown>): Promise<{ entries: PageEntry[]; truncated: boolean }> => {
+  const walkScope = async (scope: PageScope): Promise<{ entries: PageEntry[]; truncated: boolean }> => {
     const entries: PageEntry[] = [];
     let cursor: string | undefined;
     for (let pages = 0; ; pages++) {
@@ -160,7 +164,7 @@ export function createTaxLedgerReads(
 
     async tradeFills(userId) {
       let truncated = false;
-      const walk = async (scope: Record<string, unknown>) => {
+      const walk = async (scope: PageScope) => {
         const got = await walkScope(scope);
         if (got.truncated) truncated = true;
         return got.entries;
@@ -272,17 +276,11 @@ export function createTaxLedgerReads(
   };
 }
 
-interface PageEntry {
-  txId: string;
-  reason: string;
-  direction: 'debit' | 'credit';
-  amount: string;
-  postedAt: string;
-  assetId: string;
-  orderId?: string | null;
-  /** On the customer's receiving line of a fill: the fee taken from it. */
-  fee?: string | null;
-}
+type PageInput = ProcedureInput<typeof LEDGER_HISTORY_PAGE>;
+/** Which account (or owner) one walk of the history page reads. */
+type PageScope = Omit<PageInput, 'limit' | 'cursor'>;
+/** One line of the ledger's history page, as its record says. */
+type PageEntry = ProcedureOutput<typeof LEDGER_HISTORY_PAGE>['entries'][number];
 
 function lineOf(e: PageEntry): AccountLine {
   return {

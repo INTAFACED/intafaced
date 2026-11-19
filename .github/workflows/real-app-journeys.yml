@@ -346,7 +346,7 @@ jobs:
       # The plan (tooling/scripts/journey-shards.mjs): the journey files split across the shards by their times in the
       # last finished runs on main, so the shards end together (Playwright's own --shard split by count left one shard 33
       # minutes behind the shortest in run 338). A full run, on main or a pull request's, aims at 10 minutes of journeys
-      # a shard, up to 64 shards, so a break is named as its shorter shard ends and a pull request's journey meets the
+      # a shard, up to 90 shards, so a break is named as its shorter shard ends and a pull request's journey meets the
       # same neighbours as on main (MAX_SHARDS says why); a targeted run aims near the longest journey file's time
       # less the spread of a shard's setup, 10 to 25 minutes, in at most 10 shards. The plan is checked to run every
       # journey file exactly once before it is used. If planning fails for any reason the run falls back to 8 shards and
@@ -767,8 +767,8 @@ jobs:
         uses: ./.github/actions/browser
 
       # The run's one build (the build job), with its stamp in this shard's stack state, taken as late as possible so the
-      # setup above runs beside the build. It waits for that job at most 10 minutes, asking every 60 s; an answer that
-      # fails is asked again, and a run with no such job (in any attempt) stops at once. Best effort: without the build
+      # setup above runs beside the build. It waits for that job at most 10 minutes, asking as the step below says; an
+      # answer that fails is asked again, and a run with no such job (in any attempt) stops at once. Best effort: without the build
       # (the job failed or is late), or when the stamp does not vouch for this checkout, `start` builds as before.
       # Why 60 s and actions/download-artifact (row d25 of project-state #2065): every shard asks the workflow token's API,
       # which the seals, the CI review, the gate guards and Main trust share at 15,000 calls an hour. Asking every 20 s,
@@ -779,17 +779,38 @@ jobs:
         id: build
         continue-on-error: true
         timeout-minutes: 12
+        # Asked when the shard gets here, then once the build has had BUILD_SECONDS since it started (it took 134 s on
+        # main's run 44464621638), then every 15 s: three or four asks a shard, as the 60-second asks made, without the
+        # 36 s shard 23 of that run sat between the build ending and its next ask (INTAFACED/project-state#3240).
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_SECONDS: 120
         run: |
           state=""
-          for _ in $(seq 1 11); do
+          until_s=$(( $(date +%s) + 600 ))
+          while [ "$(date +%s)" -lt "$until_s" ]; do
+            started=""
             if jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100"); then
               # The newest attempt's build job (a re-run of failed jobs carries the passed one over).
-              state=$(jq -r '[.jobs[] | select(.name == "Build the stack once")] | sort_by(.run_attempt) | last | if . == null then "none" else "\(.status) \(.conclusion)" end' <<<"$jobs")
+              build=$(jq -c '[.jobs[] | select(.name == "Build the stack once")] | sort_by(.run_attempt) | last' <<<"$jobs")
+              state=$(jq -r 'if . == null then "none" else "\(.status) \(.conclusion)" end' <<<"$build")
               case "$state" in completed\ * | none) break ;; esac
+              started=$(jq -r '.started_at // empty | fromdateiso8601' <<<"$build" 2>/dev/null || true)
             fi
-            sleep 60
+            # Not started yet, or unread: 30 s. Started: until BUILD_SECONDS after its start, then every 15 s for a minute,
+            # then every 60 s, so a slow build costs no more asks than before.
+            wait_s=30
+            if [ -n "$started" ]; then
+              since=$(( $(date +%s) - started ))
+              if [ "$since" -lt "$BUILD_SECONDS" ]; then
+                wait_s=$(( BUILD_SECONDS - since ))
+              elif [ "$since" -lt $(( BUILD_SECONDS + 60 )) ]; then
+                wait_s=15
+              else
+                wait_s=60
+              fi
+            fi
+            sleep "$wait_s"
           done
           echo "build job: ${state:-not read}"
           if [ "$state" != "completed success" ]; then

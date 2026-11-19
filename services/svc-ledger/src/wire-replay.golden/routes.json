@@ -1,0 +1,110 @@
+{
+  "routes": [
+    "GET /health",
+    "GET /operator/accounts",
+    "GET /operator/accounts/:accountId/metadata",
+    "GET /operator/assets",
+    "GET /operator/freeze",
+    "GET /operator/integrity/clock",
+    "GET /operator/reconciliation/controls",
+    "GET /operator/stats",
+    "GET /operator/trace",
+    "GET /operator/transactions",
+    "GET /operator/transactions/:txId",
+    "GET /ready",
+    "POST /operator/accounts/:accountId/metadata/delete",
+    "POST /operator/accounts/:accountId/metadata/set",
+    "POST /operator/assets/apply-edit",
+    "POST /operator/freeze",
+    "POST /operator/reconcile",
+    "POST /operator/reconciliation/controls",
+    "POST /operator/reconciliation/controls/run",
+    "POST /operator/reconciliation/controls/runs",
+    "POST /operator/reconciliation/controls/update",
+    "POST /operator/unfreeze",
+    "POST /trpc/assetsGet",
+    "POST /trpc/assetsList",
+    "POST /trpc/balance",
+    "POST /trpc/balances",
+    "POST /trpc/custody",
+    "POST /trpc/feeRevenue",
+    "POST /trpc/financeClose",
+    "POST /trpc/history",
+    "POST /trpc/historyPage",
+    "POST /trpc/holdingsHistory",
+    "POST /trpc/ownFunds",
+    "POST /trpc/portfolio",
+    "POST /trpc/post",
+    "POST /trpc/reconciliationEvaluations",
+    "POST /trpc/reportExport",
+    "POST /trpc/resilience",
+    "POST /trpc/restoreWatermark",
+    "POST /trpc/statementPnl",
+    "POST /trpc/transactionsExist",
+    "POST /trpc/txById",
+    "POST /trpc/txByKey"
+  ],
+  "inputs": {
+    "POST /operator/accounts/:accountId/metadata/delete": {
+      "sample": "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"placeholder\",\"reason\":\"placeholderx\",\"revision\":0,\"approvalId\":\"placeholder\",\"operationId\":\"placeholder\"}",
+      "sample-nulls": "{\"accountId\":null,\"key\":null,\"reason\":null,\"revision\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    "POST /operator/accounts/:accountId/metadata/set": {
+      "sample": "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"placeholder\",\"value\":\"placeholder\",\"reason\":\"placeholderx\",\"revision\":0}",
+      "sample-nulls": "{\"accountId\":null,\"key\":null,\"value\":null,\"reason\":null,\"revision\":null}"
+    },
+    "POST /operator/assets/apply-edit": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /operator/freeze": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /operator/reconcile": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /operator/reconciliation/controls": {
+      "sample": "{\"template\":\"ledger_invariant\",\"accountSet\":{\"mode\":\"explicit\",\"accountIds\":[\"22222222-2222-4222-8222-222222222222\"]},\"reason\":\"placeholder\"}",
+      "sample-nulls": "{\"template\":null,\"accountSet\":null,\"reason\":null}"
+    },
+    "POST /operator/reconciliation/controls/run": {
+      "sample": "{\"controlId\":\"22222222-2222-4222-8222-222222222222\",\"reason\":\"placeholder\",\"approvalId\":\"placeholder\",\"operationId\":\"placeholder\"}",
+      "sample-nulls": "{\"controlId\":null,\"reason\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    "POST /operator/reconciliation/controls/runs": {
+      "sample": "{\"controlId\":\"22222222-2222-4222-8222-222222222222\"}",
+      "sample-nulls": "{\"controlId\":null}"
+    },
+    "POST /operator/reconciliation/controls/update": {
+      "sample": "{\"controlId\":\"22222222-2222-4222-8222-222222222222\",\"reason\":\"placeholder\"}",
+      "sample-nulls": "{\"controlId\":null,\"reason\":null}"
+    },
+    "POST /operator/unfreeze": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/assetsGet": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/assetsList": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/balance": {
+      "sample": "{\"ownerType\":\"user\",\"ownerId\":\"placeholder\",\"assetId\":\"placeholder\",\"kind\":\"available\"}",
+      "sample-nulls": "{\"ownerType\":null,\"ownerId\":null,\"assetId\":null,\"kind\":null}"
+    },
+    "POST /trpc/balances": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/custody": { "sample": "{\"kind\":\"chain\"}", "sample-nulls": "{\"kind\":null}" },
+    "POST /trpc/feeRevenue": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/financeClose": { "sample": "{\"kind\":\"segregation\"}", "sample-nulls": "{\"kind\":null}" },
+    "POST /trpc/history": {
+      "sample": "{\"account\":{\"ownerType\":\"user\",\"ownerId\":\"placeholder\",\"assetId\":\"placeholder\",\"kind\":\"available\"},\"from\":\"2026-01-01T00:00:00Z\",\"to\":\"2026-01-01T00:00:00Z\"}",
+      "sample-nulls": "{\"account\":null,\"from\":null,\"to\":null}"
+    },
+    "POST /trpc/historyPage": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/holdingsHistory": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/ownFunds": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/portfolio": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/post": {
+      "sample": "{\"idempotencyKey\":\"placeholder\",\"module\":\"placeholder\",\"reason\":\"placeholder\",\"entries\":[{\"account\":{\"ownerType\":\"user\",\"ownerId\":\"placeholder\",\"assetId\":\"placeholder\",\"kind\":\"available\"},\"direction\":\"debit\",\"amount\":\"1.50\"},{\"account\":{\"ownerType\":\"user\",\"ownerId\":\"placeholder\",\"assetId\":\"placeholder\",\"kind\":\"available\"},\"direction\":\"debit\",\"amount\":\"1.50\"}]}",
+      "sample-nulls": "{\"idempotencyKey\":null,\"module\":null,\"reason\":null,\"entries\":null}"
+    },
+    "POST /trpc/reconciliationEvaluations": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/reportExport": { "sample": "{\"kind\":\"nav\"}", "sample-nulls": "{\"kind\":null}" },
+    "POST /trpc/resilience": { "sample": "{\"kind\":\"risk\"}", "sample-nulls": "{\"kind\":null}" },
+    "POST /trpc/restoreWatermark": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/statementPnl": {
+      "sample": "{\"ownerType\":\"user\",\"ownerId\":\"placeholder\",\"reportingAssetId\":\"placeholder\"}",
+      "sample-nulls": "{\"ownerType\":null,\"ownerId\":null,\"reportingAssetId\":null}"
+    },
+    "POST /trpc/transactionsExist": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/txById": { "sample": "{}", "sample-nulls": "{}" },
+    "POST /trpc/txByKey": { "sample": "{}", "sample-nulls": "{}" }
+  }
+}
