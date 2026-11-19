@@ -12,11 +12,12 @@
 
 use std::collections::BTreeMap;
 
+use std::sync::Arc;
 use svc_tax::edge;
 use svc_tax::json::{self, Json};
-use svc_tax::tax::{
-    Account, Balance, Failure, HistoryEntry, LakeStatus, LedgerReads, Range, TaxDeps, TaxService,
-};
+
+use svc_tax::ports::{Ledger, TaxBalance};
+use svc_tax::tax::{Account, Failure, HistoryEntry, LakeStatus, Range, TaxDeps, TaxService};
 use svc_tax::time::Instant;
 use svc_tax::wire::{self, Request, Wire, WireConfig};
 
@@ -32,8 +33,8 @@ const NOW: Instant = Instant(1_795_046_400_000);
 /// The replay's ledger: it holds nothing.
 struct EmptyLedger;
 
-impl LedgerReads for EmptyLedger {
-    fn balances(&self, _user_id: &str) -> Result<Vec<Balance>, Failure> {
+impl Ledger for EmptyLedger {
+    fn balances(&self, _owner_type: &str, _owner_id: &str) -> Result<Vec<TaxBalance>, Failure> {
         Ok(Vec::new())
     }
     fn history(&self, _account: &Account, _range: Range) -> Result<Vec<HistoryEntry>, Failure> {
@@ -43,12 +44,9 @@ impl LedgerReads for EmptyLedger {
 
 fn serve(map_raw: &str) -> Wire {
     let tax = TaxService::new(TaxDeps {
-        map_raw: map_raw.to_owned(),
-        reads: Box::new(EmptyLedger),
         lake: LakeStatus::lake(None),
         indexer: LakeStatus::indexer(None),
-        history_years: Some(10),
-        now: Box::new(|| NOW),
+        ..TaxDeps::new(map_raw, Arc::new(EmptyLedger), Some(10), Box::new(|| NOW))
     })
     .unwrap();
     // svc-tax's vitest environment (`services/svc-tax/vitest.config.ts`); vitest sets NODE_ENV to `test`.

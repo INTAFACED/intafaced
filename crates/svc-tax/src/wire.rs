@@ -371,9 +371,13 @@ impl Wire {
         let bad = |issues: Vec<zod::Issue>| Error::plain("BAD_REQUEST", zod::message(&issues));
         let user = who.user_id.as_str();
         let out = match path {
-            "lotBook" | "missingBasis" => {
+            "lotBook" => {
                 let method = inputs::lot_book(input).map_err(bad)?;
-                self.tax.lot_book(user, method.as_deref())
+                self.tax.lot_book(user, method.as_deref()).map(|b| b.json())
+            }
+            "missingBasis" => {
+                let method = inputs::lot_book(input).map_err(bad)?;
+                self.tax.missing_basis(user, method.as_deref())
             }
             "pnlOverTime" => self
                 .tax

@@ -13,9 +13,9 @@ use std::sync::{Arc, Mutex};
 
 use svc_tax::inputs::PnlInput;
 use svc_tax::json::Json;
+use svc_tax::ports::{self, TaxBalance};
 use svc_tax::tax::{
-    Account, Balance, Failure, HistoryEntry, LakeStatus, LedgerReads, Range, SubAccountLine,
-    SubAccountReads, TaxDeps, TaxService,
+    Account, Failure, HistoryEntry, LakeStatus, Range, SubAccountLine, TaxDeps, TaxService,
 };
 use svc_tax::time::{self, Instant};
 
@@ -33,25 +33,23 @@ struct Ledger {
     asked: Arc<Mutex<Option<Range>>>,
 }
 
-impl LedgerReads for Ledger {
-    fn balances(&self, _user_id: &str) -> Result<Vec<Balance>, Failure> {
+impl ports::Ledger for Ledger {
+    fn balances(&self, _owner_type: &str, _owner_id: &str) -> Result<Vec<TaxBalance>, Failure> {
         Ok(Vec::new())
     }
     fn history(&self, _account: &Account, _range: Range) -> Result<Vec<HistoryEntry>, Failure> {
         Ok(Vec::new())
     }
-    fn sub_accounts(&self) -> Option<&dyn SubAccountReads> {
-        Some(self)
+    fn sub_account_ids(&self, _user_id: &str) -> Option<Result<Vec<String>, Failure>> {
+        Some(Ok(vec!["sub-1".to_owned()]))
     }
-}
-
-impl SubAccountReads for Ledger {
-    fn ids(&self, _user_id: &str) -> Result<Vec<String>, Failure> {
-        Ok(vec!["sub-1".to_owned()])
-    }
-    fn activity(&self, _id: &str, range: Range) -> Result<Vec<SubAccountLine>, Failure> {
+    fn sub_account_activity(
+        &self,
+        _id: &str,
+        range: Range,
+    ) -> Option<Result<Vec<SubAccountLine>, Failure>> {
         *self.asked.lock().unwrap() = Some(range);
-        Ok(self.lines.clone())
+        Some(Ok(self.lines.clone()))
     }
 }
 
@@ -75,15 +73,17 @@ fn service(
 ) -> (TaxService, Arc<Mutex<Option<Range>>>) {
     let asked = Arc::new(Mutex::new(None));
     let tax = TaxService::new(TaxDeps {
-        map_raw: r#"["DE"]"#.to_owned(),
-        reads: Box::new(Ledger {
-            lines,
-            asked: Arc::clone(&asked),
-        }),
         lake: LakeStatus::lake(None),
         indexer: LakeStatus::indexer(None),
-        history_years,
-        now: Box::new(|| at(NOW)),
+        ..TaxDeps::new(
+            r#"["DE"]"#,
+            Arc::new(Ledger {
+                lines,
+                asked: Arc::clone(&asked),
+            }),
+            history_years,
+            Box::new(|| at(NOW)),
+        )
     })
     .unwrap();
     (tax, asked)
