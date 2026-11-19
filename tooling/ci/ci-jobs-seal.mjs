@@ -162,6 +162,72 @@ export function modelVerdict({ runs, jobs, sha }) {
   return { ok: false, wait: false, lines: [`${id}: ${job.conclusion}; a model's rule broke or its check failed: the trace is in its log`] };
 }
 
+/**
+ * What the Doctrine gates judge a change by, as main holds it (project-state#3326). LINT_PATHS, the lint rules and their
+ * ceilings (tooling/lint/ratchet.json), are read from main afresh when the Doctrine gates job runs (lint-ratchet.mjs
+ * mainRef), so a re-run of that job judges by them. GATE_PATHS, the gate list, is read from the run's merge commit, which
+ * a re-run keeps, so only a new head judges by it. The per-file baselines that may only shrink (dead-code,
+ * conflict-keys) are left out: a shrink on main can't let through a change CI passed, and they shrink many times a day
+ * (#9081 would have stopped three clean merges in the replay). A folder ends in `/`.
+ */
+export const LINT_PATHS = ['.oxlintrc.json', 'tooling/lint/'];
+export const GATE_PATHS = ['tooling/ci/gates.mjs'];
+export const RULE_PATHS = [...LINT_PATHS, ...GATE_PATHS];
+/** GitHub makes a pull request's merge commit just before CI's run is created; a gate change merged this close before
+ *  the run may not be in it, so it counts as after. */
+export const RULE_MARGIN_MS = 60_000;
+
+/** The moment CI's run on the head took main's gate list: its creation, minus RULE_MARGIN_MS. A re-run keeps the first
+ *  attempt's merge commit, so its created_at still decides. null when no run. */
+export const rulesTakenAt = (run) => (run?.created_at ? new Date(Date.parse(run.created_at) - RULE_MARGIN_MS).toISOString() : null);
+
+/** The moment the newest Doctrine gates job read main's lint rules: its start (the fetch is a later step of it). Without
+ *  one, the run's creation. */
+export const lintTakenAt = (run, jobs) => {
+  const gates = [...(jobs ?? [])].filter((j) => j?.name === CI_JOBS.gates && j?.started_at).sort((a, b) => b.id - a.id)[0];
+  return gates ? new Date(Date.parse(gates.started_at)).toISOString() : rulesTakenAt(run);
+};
+
+/**
+ * A pull request whose CI judged it before main changed a rule fails (project-state#3326: #8915, #8857 and #8789 passed
+ * CI on a head from before a new rule and merged after it, 3 in 170 merges, one turning main red). `changes` are main's
+ * commits on RULE_PATHS after rulesTakenAt(run): { path, sha, date, title }. A lint change counts only after the newest
+ * Doctrine gates job started (lintTakenAt), and is cleared by re-running that job; a gate-list change counts after the
+ * run was created, and is cleared by merging origin/main and pushing. With no CI run judgeCiJobs already holds the
+ * merge. Returns { ok, lines }. Pure.
+ */
+export function rulesVerdict({ run, jobs, changes }) {
+  if (!run) return { ok: true, lines: [] };
+  const gateAt = rulesTakenAt(run);
+  const lintAt = lintTakenAt(run, jobs);
+  const late = (changes ?? []).filter((c) => Date.parse(c.date) > Date.parse(LINT_PATHS.includes(c.path) ? lintAt : gateAt));
+  if (!late.length) return { ok: true, lines: [`main's rules: unchanged since CI run ${run.id} judged this head by them`] };
+  const seen = new Map();
+  for (const c of late) seen.set(c.sha, { ...c, paths: [...(seen.get(c.sha)?.paths ?? []), c.path] });
+  const gatesJob = [...(jobs ?? [])].filter((j) => j?.name === CI_JOBS.gates).sort((a, b) => b.id - a.id)[0];
+  return {
+    ok: false,
+    lines: [...seen.values()].map((c) =>
+      c.paths.some((p) => GATE_PATHS.includes(p))
+        ? `main changed ${c.paths.join(', ')} in ${c.sha.slice(0, 10)} at ${c.date} ("${c.title}"), after CI run ${run.id} took main's gate list (${gateAt}): merge origin/main and push, so CI runs the gates main has now (a re-run keeps the old list)`
+        : `main changed ${c.paths.join(', ')} in ${c.sha.slice(0, 10)} at ${c.date} ("${c.title}"), after the Doctrine gates job read main's lint rules (${lintAt}): re-run it (gh run rerun ${run.id} --job ${gatesJob?.id ?? '<its id>'}); it reads main's rules afresh and starts the seal again`,
+    ),
+  };
+}
+
+/** main's commits on RULE_PATHS after `since` (and up to `until`, for a replay), one listing per path. */
+export async function ruleChanges(get, repo, since, until) {
+  const out = [];
+  for (const p of RULE_PATHS) {
+    const q = `sha=main&path=${encodeURIComponent(p.replace(/\/$/, ''))}&since=${since}${until ? `&until=${until}` : ''}&per_page=20`;
+    const list = await get(`/repos/${repo}/commits?${q}`);
+    if (!Array.isArray(list)) throw new Error(`main's commits on ${p}: not a list`);
+    for (const c of list)
+      out.push({ path: p, sha: c.sha, date: c.commit?.committer?.date, title: (c.commit?.message ?? '').split('\n')[0] });
+  }
+  return out;
+}
+
 async function api(path, token) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
@@ -227,9 +293,12 @@ async function main() {
     if (!Array.isArray(xjobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
     model = modelVerdict({ runs: xruns, jobs: xjobs, sha });
   }
-  for (const v of [ci, money, model]) for (const l of v.lines) console.log(`${v.ok ? '✓' : '✖'} ${l}`);
-  if (ci.ok && money.ok && model.ok) return;
-  for (const v of [ci, money, model])
+  // main's rules as they are now (project-state#3326), on a pull request only: a merge queue's commit is built on main.
+  const rules =
+    !queue && run ? rulesVerdict({ run, jobs, changes: await ruleChanges(get, REPO, rulesTakenAt(run)) }) : { ok: true, lines: [] };
+  for (const v of [ci, money, model, rules]) for (const l of v.lines) console.log(`${v.ok ? '✓' : '✖'} ${l}`);
+  if (ci.ok && money.ok && model.ok && rules.ok) return;
+  for (const v of [ci, money, model, rules])
     if (!v.ok) for (const l of v.lines) console.error(`::error title=${v.down ? 'judge down: Model check' : 'CI merge seal'}::${l}`);
   process.exit(1);
 }

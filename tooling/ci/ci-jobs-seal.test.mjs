@@ -1,17 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import {
   CI_WORKFLOW_PATH,
   MONEY_JOB,
   MONEY_PATHS,
   MONEY_WORKFLOW_PATH,
   MODEL_WORKFLOW_PATH,
+  RULE_MARGIN_MS,
+  RULE_PATHS,
+  LINT_PATHS,
+  GATE_PATHS,
   ciRunFor,
   jobResults,
   judgeCiJobs,
   modelVerdict,
   moneyVerdict,
+  ruleChanges,
+  rulesTakenAt,
+  rulesVerdict,
   touchesMoney,
 } from './ci-jobs-seal.mjs';
 
@@ -231,4 +238,75 @@ test('project-state#2962: a run that could not check is judge down, no verdict: 
   // Planted: a job that ran its Verdict too is a verdict, whatever the Judge down step did.
   const both = [xstep('Judge down', 'success'), xstep('Verdict', 'failure')];
   assert.equal(modelVerdict({ runs: [xrun(5)], jobs: xjob('failure', both), sha: SHA }).down, undefined);
+});
+
+test('project-state#3326: main changing a rule after CI took its rules fails and says to merge main and push', () => {
+  const ci = run(44331599180, { created_at: '2026-11-18T15:05:39Z' });
+  // #8915: CI took main's rules at 15:05:39Z; #8916 landed garden/restart-through-helper at 15:31:21Z.
+  const change = { sha: '927d7178e8'.padEnd(40, '0'), date: '2026-11-18T15:31:21Z', title: 'fix(journeys): restartService (#8916)' };
+  const v = rulesVerdict({
+    run: ci,
+    changes: [
+      { ...change, path: 'tooling/lint/' },
+      { ...change, path: '.oxlintrc.json' },
+    ],
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.lines.length, 1, 'one line per commit, naming every rule path it changed');
+  assert.match(v.lines[0], /tooling\/lint\/, \.oxlintrc\.json in 927d7178e8/);
+  assert.match(v.lines[0], /re-run it \(gh run rerun 44331599180 --job <its id>\)/);
+});
+
+test('project-state#3326: a lint change is cleared by a Doctrine gates job that started after it; a gate-list change only by a new head', () => {
+  const ci = run(44178387624, { created_at: '2026-11-17T21:17:17Z' });
+  const lint = { sha: 'c'.repeat(40), date: '2026-11-17T21:28:03Z', title: 'a lint rule', path: 'tooling/lint/' };
+  const gate = { sha: 'd'.repeat(40), date: '2026-11-17T21:28:03Z', title: 'knip (#8797)', path: 'tooling/ci/gates.mjs' };
+  const early = [{ id: 2, name: 'Doctrine gates', status: 'completed', conclusion: 'success', started_at: '2026-11-17T21:18:00Z' }];
+  const rerun = [{ id: 9, name: 'Doctrine gates', status: 'completed', conclusion: 'success', started_at: '2026-11-17T21:40:00Z' }];
+  const before = rulesVerdict({ run: ci, jobs: early, changes: [lint] });
+  assert.equal(before.ok, false);
+  assert.match(before.lines[0], /gh run rerun 44178387624 --job 2/);
+  assert.equal(rulesVerdict({ run: ci, jobs: [...early, ...rerun], changes: [lint] }).ok, true, 'the newest job decides');
+  // #8789: gates.mjs gained the dead-code gate after the run's merge commit; a re-run keeps that commit.
+  const g = rulesVerdict({ run: ci, jobs: [...early, ...rerun], changes: [gate] });
+  assert.equal(g.ok, false);
+  assert.match(g.lines[0], /merge origin\/main and push/);
+  // A lint change already in main when the job started is no change.
+  assert.equal(rulesVerdict({ run: ci, jobs: rerun, changes: [{ ...lint, date: '2026-11-17T21:39:00Z' }] }).ok, true);
+});
+
+test('project-state#3326: no rule change since CI took the rules passes; no CI run is for judgeCiJobs to hold', () => {
+  const ci = run(7, { created_at: '2026-11-18T15:05:39Z' });
+  assert.equal(rulesVerdict({ run: ci, changes: [] }).ok, true);
+  assert.equal(rulesVerdict({ run: null, changes: [] }).ok, true);
+});
+
+test('project-state#3326: the rules are taken a margin before the run is created, and a re-run keeps its first created_at', () => {
+  assert.equal(rulesTakenAt(run(7, { created_at: '2026-11-18T15:05:39Z', run_attempt: 3 })), '2026-11-18T15:04:39.000Z');
+  assert.equal(RULE_MARGIN_MS, 60_000);
+  assert.equal(rulesTakenAt(null), null);
+});
+
+test('project-state#3326: every RULE_PATHS entry exists, so a moved rule file is not silently unwatched', () => {
+  for (const p of RULE_PATHS) assert.ok(existsSync(new URL(`../../${p}`, import.meta.url)), `${p} is missing`);
+  for (const p of ['.oxlintrc.json', 'tooling/lint/', 'tooling/ci/gates.mjs']) assert.ok(RULE_PATHS.includes(p), p);
+  assert.deepEqual(RULE_PATHS, [...LINT_PATHS, ...GATE_PATHS]);
+});
+
+test('project-state#3326: ruleChanges lists main after the moment, per rule path, and reads each commit', async () => {
+  const asked = [];
+  const get = async (p) => {
+    asked.push(p);
+    return p.includes('path=tooling%2Flint&')
+      ? [{ sha: 'b'.repeat(40), commit: { committer: { date: '2026-11-18T15:31:21Z' }, message: 'a rule (#8916)\n\nbody' } }]
+      : [];
+  };
+  const out = await ruleChanges(get, 'o/r', '2026-11-18T15:04:39.000Z', '2026-11-18T15:43:23Z');
+  assert.equal(asked.length, RULE_PATHS.length);
+  assert.ok(
+    asked.every(
+      (p) => p.startsWith('/repos/o/r/commits?sha=main&') && p.includes('since=2026-11-18T15:04:39.000Z') && p.includes('until='),
+    ),
+  );
+  assert.deepEqual(out, [{ path: 'tooling/lint/', sha: 'b'.repeat(40), date: '2026-11-18T15:31:21Z', title: 'a rule (#8916)' }]);
 });
