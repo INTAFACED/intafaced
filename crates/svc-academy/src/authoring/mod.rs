@@ -7,16 +7,16 @@
 
 pub mod courses;
 // pub mod item_rules;
-// pub mod learn_hub;
+pub mod learn_hub;
 // pub mod lessons;
 // pub mod media;
 // pub mod outline;
-// pub mod programmes;
+pub mod programmes;
 pub mod release;
 pub mod sql;
 pub mod storage;
 pub mod team;
-// pub mod terms;
+pub mod terms;
 pub mod tracks;
 pub mod video;
 
