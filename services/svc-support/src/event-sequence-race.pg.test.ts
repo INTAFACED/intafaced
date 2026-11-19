@@ -57,16 +57,16 @@ afterAll(async () => {
   await admin.end({ timeout: 5 });
 });
 
-/** True once `n` sessions in this database are waiting on a lock. */
-async function waiting(n: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+/**
+ * True once `n` sessions in this database are waiting on a lock. A lock wait emits no event, so this asks the server
+ * itself, one round trip at a time, up to `tries` asks: no clock is involved.
+ */
+async function waiting(n: number, tries: number): Promise<boolean> {
+  for (let i = 0; i < tries; i++) {
     const rows = await sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
     `;
     if (Number(rows[0]?.n ?? 0) >= n) return true;
-    // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- polls pg_stat_activity for a lock wait, which emits no event
-    await new Promise((resolve) => setTimeout(resolve, 25));
   }
   return false;
 }
@@ -102,7 +102,7 @@ describe('concurrent trail rows on one ticket', () => {
         note: `writer:${i}`,
       }),
     );
-    expect(await waiting(WRITERS, 10_000)).toBe(true);
+    expect(await waiting(WRITERS, 20_000)).toBe(true);
     release();
     await holder;
 
