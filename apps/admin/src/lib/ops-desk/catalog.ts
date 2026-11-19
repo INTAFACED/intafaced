@@ -1,4 +1,8 @@
-import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
+import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+
+/** A read whose call has a record: its module and path are the record's, never typed again here. */
+const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -1971,9 +1975,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.terms',
         title: 'Pool terms',
         note: 'The fee and window size from the pool’s configuration. There is no default: an unset value is blank with its reason, not zero.',
-        module: 'mining',
+        ...readOf(MINING_TERMS),
         plainName: 'mining pool terms',
-        procedure: 'terms',
         shape: 'record',
         columns: [
           bps('feeBps', 'Pool fee', { nullable: true }),
@@ -1988,9 +1991,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.windows',
         title: 'Payout windows',
         note: 'Every window, newest first: its reward and fee as stored on the window, how many shares and how much weight it holds, and when it was paid. A blank reward or fee is blank, never zero.',
-        module: 'mining',
+        ...readOf(MINING_OPS_WINDOWS),
         plainName: 'mining windows',
-        procedure: 'ops.windows',
         shape: 'list',
         rowsKey: 'windows',
         idKey: 'windowId',
@@ -2011,9 +2013,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.shares',
         title: 'Shares by window',
         note: 'Shares accepted and refused in each window, and the accepted weight. Refusals are counted only where the miner could be identified.',
-        module: 'mining',
+        ...readOf(MINING_OPS_SHARES),
         plainName: 'mining shares',
-        procedure: 'ops.shares',
         sendEmptyInput: true,
         shape: 'list',
         rowsKey: 'windows',
@@ -2031,9 +2032,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.workers',
         title: 'Workers',
         note: 'Registered workers across accounts, newest first. Registration is refused because no write permission is chosen for it, so this list is expected to be empty.',
-        module: 'mining',
+        ...readOf(MINING_OPS_WORKERS),
         plainName: 'mining workers',
-        procedure: 'ops.workers',
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'workers',

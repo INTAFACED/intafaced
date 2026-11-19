@@ -1,14 +1,12 @@
 import { useMemo, useState } from 'react';
 import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
-import { useVenueMode } from '../trade/use-venue-mode';
-import { preparedAnswerSchema, venueOrderSchema, walletTypedData } from '../trade/venue-api';
-import { VenueFrame, WalletBar, useOwner } from '../trade/venue/VenueKit';
-import { useWallet } from '../protocol/wallet/WalletProvider';
+import { useVenueMode, preparedAnswerSchema, venueOrderSchema, walletTypedData, VenueFrame, WalletBar, useOwner } from '../trade';
+import { useWallet } from '../protocol';
 import { Select } from './common';
 import { agentAllowanceCopy } from './agent-allowance-copy';
 import { ownAgentAccessSchema, ownAgentOrderDraftSchema, type OwnAgent, type OwnAgentOrderDraft } from '@intafaced/contracts/agents-own';
