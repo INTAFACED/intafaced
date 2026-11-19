@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusTag } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiClient } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';

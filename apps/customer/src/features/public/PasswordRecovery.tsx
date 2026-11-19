@@ -22,7 +22,7 @@ import {
   type ResetLimits,
 } from './password-recovery';
 import { recoveryCopy } from './password-recovery-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 const TITLE = { request: 'step1', reset: 'step2', done: 'step3' } as const;
 const BODY = { request: 'step1Body', reset: 'step2Body', done: 'step3Body' } as const;

@@ -20,7 +20,7 @@ import {
 import { signUpCopy } from './sign-up-copy';
 import { subdivisionOptions } from './subdivisions';
 import { SocialSignIn } from './SocialSignIn';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 import './sign-up.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;

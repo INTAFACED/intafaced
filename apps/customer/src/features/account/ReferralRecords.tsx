@@ -5,7 +5,7 @@ import { decimalSchema, displayAmount, formatAmount, parseAmount } from '../../s
 import { usePreferences } from '../../shared/preferences';
 import { shortReference } from '../../shared/reference';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { referralCopy as copy } from './referral-copy';
 import './referrals.css';
 

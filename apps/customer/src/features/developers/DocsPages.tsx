@@ -38,7 +38,7 @@ import {
   streamHostsView,
   type PerIpPolicy,
 } from './developers-streams';
-import '../public/public-pages.css';
+import '../../shared/public-pages.css';
 import './developers-docs.css';
 
 type Copy = ReturnType<typeof docsCopy.useCopy>['t'];

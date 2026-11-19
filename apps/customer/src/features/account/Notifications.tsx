@@ -4,7 +4,7 @@ import { customerRoomHref } from '../../app/navigation';
 import { useResource, type Resource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { notificationsCopy as copy } from './notifications-copy';
 import { NotificationTargets } from './NotificationTargets';
 import './notifications.css';

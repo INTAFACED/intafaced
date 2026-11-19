@@ -11,7 +11,7 @@ import {
   type UpcomingChanges,
 } from './developers-api';
 import { useRead } from './use-read';
-import '../public/public-pages.css';
+import '../../shared/public-pages.css';
 
 /** /developers/changelog: published entries newest first, filtered by area and by the breaking flag. */
 export function ChangelogPage() {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { fetchMe } from '../../data/identity';
 import { emailProofNoticeCopy } from './email-proof-notice-copy';
 

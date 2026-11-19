@@ -9,7 +9,7 @@ import { feeTierFetcher, snapshotTime, type FeeTier, type FeeTierBenefits } from
 import { feeTierCopy } from './fee-tier-copy';
 import { VipApply } from './VipApply';
 import { VenueTier } from './VenueFees';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * /fees/my-tier: the person's own fee tier (SP-fees-vip-03, J-cex-spot-10 #5-#6). The tier their next order keeps,

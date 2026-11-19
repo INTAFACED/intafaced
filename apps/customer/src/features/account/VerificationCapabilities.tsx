@@ -1,6 +1,6 @@
 import { StatusTag } from '@intafaced/ui';
 import { kycCapabilitiesOutputSchema, type KycCapabilityState } from '@intafaced/contracts/identity-kyc-capabilities';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { verificationCapabilitiesCopy as copy } from './verification-capabilities-copy';

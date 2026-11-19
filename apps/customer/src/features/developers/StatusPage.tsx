@@ -3,7 +3,7 @@ import { useSession } from '../session/session';
 import { liveCopy } from './developers-live-copy';
 import { readStatusFeed, STATUS_COMPONENT_IDS, type StatusFeed } from './developers-api';
 import { useRead } from './use-read';
-import '../public/public-pages.css';
+import '../../shared/public-pages.css';
 
 const when = (instant: string) => `${instant.slice(0, 16).replace('T', ' ')} UTC`;
 
