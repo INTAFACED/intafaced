@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../session/session';
-import { useRead } from '../developers/use-read';
+import { useSession } from '../session';
+import { useRead } from '../developers';
 import { noticeFeedCopy } from './notice-feed-copy';
 import { feedNotices, isNoticeId, maintenancePhase, readNotice, readNotices, type Notice } from './notices-api';
 import './public-pages.css';

@@ -1,7 +1,6 @@
 import { findRoom, roomDescription, roomTitle } from '../../app/navigation';
-import { useSession } from '../session/session';
-import { useSupportContact } from '../more/support-contact';
-import { supportMailto } from '../more/support-desk';
+import { useSession } from '../session';
+import { supportMailto, useSupportContact } from '../more';
 import { ContactSupport } from './ContactSupport';
 import { NoticeDetail, NoticeFeed } from './NoticeFeed';
 import { doorSummaries } from './public-catalogue';
