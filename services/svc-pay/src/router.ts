@@ -35,10 +35,15 @@ import {
   payPaymentListInputSchema,
   payPaymentListSummarySchema,
   payPricingSnapshotViewSchema,
+  paySettlementClearingSchema,
+  paySettlementDetailViewSchema,
   paySettlementLineSchema,
+  paySettlementViewSchema,
   paySettlementLinesInputSchema,
   payPayoutDestinationItemSchema,
+  payDestinationAddOutputSchema,
   payDestinationCancelHoldInputSchema,
+  payDestinationRemoveOutputSchema,
   payDestinationCancelHoldOutputSchema,
   payPayoutDestinationListInputSchema,
   payPayoutLifecycleInputSchema,
@@ -187,39 +192,6 @@ const paymentView = z.object({
 });
 
 /** RC-merchant-10: one captured payment whose funds the rail still holds. `availableOn` is the rail's day, or null. */
-const heldClearingView = z.object({
-  paymentId: z.string().guid(),
-  amount: amountSchema,
-  assetId: assetIdSchema,
-  availableOn: z.string().datetime({ offset: true }).nullable(),
-  /** The settlement waiting on the rail that froze it; absent while no window holds it. */
-  settlementId: z.string().guid().optional(),
-});
-
-const settlementView = z.object({
-  id: z.string().guid(),
-  merchantId: z.string().guid(),
-  window: z.string(),
-  assetId: assetIdSchema,
-  gross: amountSchema,
-  fees: amountSchema,
-  net: amountSchema,
-  payoutMethod: z.string().nullable(),
-  payoutRef: z.string().nullable(),
-  status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
-  /** On a settlement run: what the rail still holds, left in clearing. Absent when nothing is held. */
-  clearingPending: z.array(heldClearingView).optional(),
-});
-
-const settlementDetailView = settlementView.extend({
-  createdAt: z.string().datetime({ offset: true }).nullable(),
-  sentAt: z.string().datetime({ offset: true }).nullable(),
-  settledAt: z.string().datetime({ offset: true }).nullable(),
-  failedAt: z.string().datetime({ offset: true }).nullable(),
-  failure: payMerchantFailureSchema.nullable(),
-  pricingSnapshot: payPricingSnapshotViewSchema.nullable(),
-});
-
 /**
  * A checkout session on the wire.
  *
@@ -279,8 +251,8 @@ const withdrawalView = z.object({
 });
 
 type PaymentViewOut = z.infer<typeof paymentView>;
-type SettlementViewOut = z.infer<typeof settlementView>;
-type SettlementDetailOut = z.infer<typeof settlementDetailView>;
+type SettlementViewOut = z.infer<typeof paySettlementViewSchema>;
+type SettlementDetailOut = z.infer<typeof paySettlementDetailViewSchema>;
 type WithdrawalViewOut = z.infer<typeof withdrawalView>;
 
 function reviewReasons(c: FraudReviewCase | DurableReviewCase): Array<{ ruleId: string; detail: string }> {
@@ -1072,15 +1044,7 @@ export function createPayRouter(
               ref: z.string().min(1),
             }),
           )
-          .output(
-            z.object({
-              kind: z.string(),
-              ref: z.string(),
-              railId: z.string(),
-              status: z.literal('unverified'),
-              activatesAt: z.null(),
-            }),
-          )
+          .output(payDestinationAddOutputSchema)
           .mutation(({ ctx, input }) => wrap(async () => addDestination(ctx.principal, input))),
         /**
          * The owner sends a held destination back to unverified (J-merchant-02 #5, the lead's ruling of 2026-10-30).
@@ -1119,7 +1083,7 @@ export function createPayRouter(
           ),
         remove: scopedProcedure('pay:write', { module: 'pay' })
           .input(z.object({ merchantId: z.string().guid(), destinationId: z.string().guid() }))
-          .output(z.object({ removed: z.literal(true) }))
+          .output(payDestinationRemoveOutputSchema)
           .mutation(({ ctx, input }) =>
             wrap(async () => {
               await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.remove');
@@ -1397,7 +1361,7 @@ export function createPayRouter(
     settlement: router({
       run: scopedProcedure('pay:write', { module: 'pay' })
         .input(z.object({ merchantId: z.string().guid(), window: z.string().min(1), assetId: assetIdSchema }))
-        .output(settlementView)
+        .output(paySettlementViewSchema)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.settlement.run');
@@ -1414,7 +1378,7 @@ export function createPayRouter(
             destination: z.object({ kind: z.string().min(1), ref: z.string().min(1) }).optional(),
           }),
         )
-        .output(settlementView)
+        .output(paySettlementViewSchema)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
@@ -1435,7 +1399,7 @@ export function createPayRouter(
 
       get: ownMerchantRead()
         .input(z.object({ settlementId: z.string().guid() }))
-        .output(settlementDetailView)
+        .output(paySettlementDetailViewSchema)
         .query(({ ctx, input }) =>
           wrap(async () => {
             // A settlement names gross, fees and net for a window — another
@@ -1453,7 +1417,7 @@ export function createPayRouter(
        */
       list: ownMerchantRead()
         .input(paySettlementListInputSchema)
-        .output(payPageSchema(settlementDetailView))
+        .output(payPageSchema(paySettlementDetailViewSchema))
         .query(({ ctx, input }) =>
           wrap(async () => {
             const audience = await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
@@ -1468,7 +1432,7 @@ export function createPayRouter(
        */
       clearing: ownMerchantRead()
         .input(z.object({ merchantId: z.string().guid(), assetId: assetIdSchema.optional() }))
-        .output(z.object({ held: z.array(heldClearingView) }))
+        .output(paySettlementClearingSchema)
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
@@ -1504,7 +1468,7 @@ export function createPayRouter(
        */
       release: scopedProcedure('pay:write', { module: 'pay' })
         .input(z.object({ settlementId: z.string().guid(), reason: z.string().min(1) }))
-        .output(settlementView)
+        .output(paySettlementViewSchema)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);

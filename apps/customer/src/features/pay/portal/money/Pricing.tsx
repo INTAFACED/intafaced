@@ -21,7 +21,12 @@ import { bpsPercent, isCalcAmount, pricingAssets } from './model';
 import { EffectiveFeeView, useEffectiveFeeRates } from './fee-rate';
 import type { PortalApi } from '../api';
 import type { ControlProfile, PricingRule, Quote } from '../schemas';
-import type { PricingHistory as History, TierFee, TierList, TierSummary } from './schemas';
+import type {
+  MerchantPricingHistory as History,
+  MerchantTierFee as TierFee,
+  MerchantTierList as TierList,
+  MerchantTierSummary as TierSummary,
+} from '@intafaced/contracts/merchant-control';
 
 /** `/pay/pricing`: what INTAFACED charges this account, read-only, with a calculator that uses the same engine as live payments. */
 export function Pricing({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
