@@ -162,15 +162,6 @@
       "why": "ledger_tx_id = posted.id, and the ledger post is idempotent on payrollId, so two concurrent runs of the same payroll get the same tx id. The insert (business-service.ts:1070) runs after the post with no lock, so the loser raises 23505 business_payroll_runs_ledger_tx_id_key instead of absorbing on id."
     },
     {
-      "file": "services/svc-bank/src/business/business-team.ts",
-      "table": "business_departments",
-      "target": "(id)",
-      "constraint": "business_departments_name_uq",
-      "verdict": "race",
-      "issue": 8894,
-      "why": "Two concurrent addDepartment calls with the same departmentId and name, in a transaction with no lock (business-team.ts:950-958), clash on (account_id, lower(name)) before the id. The catch maps that 23505 to bank.business_role_name_taken (business-team.ts:961), so a retry is wrongly told the name is taken instead of getting its own department."
-    },
-    {
       "file": "services/svc-bank/src/cards/card-service.ts",
       "table": "cards",
       "target": "(issuer, issuer_ref)",
