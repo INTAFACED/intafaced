@@ -2,8 +2,8 @@
 //! a video is attached to (`video/tracks.ts` `VideoTracks`' reads), the owner's watch threshold (`video/player.ts`) and
 //! the playback gate (`video/library.ts` `assertAcademyVideoEntitled`, `video/entitlement.ts`).
 
-use service_kit::money::parse_amount;
 use super::sql::Pool;
+use service_kit::money::parse_amount;
 
 use super::sql::{self, cell, column, first, q};
 use crate::errors::{AcademyError, Refusal};

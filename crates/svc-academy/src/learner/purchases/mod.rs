@@ -20,14 +20,16 @@
 pub mod chain;
 pub mod clients;
 
+use crate::learner::sql::Pool;
 use postgres::{GenericClient, Row};
 use service_kit::json::Json;
-use crate::learner::sql::Pool;
 
 use self::chain::{is_address, is_tx_hash, is_unread, to_base_units, transfer_calldata};
 use super::sql::{self, cell, exec, first, iso, ms, q};
 use crate::errors::{AcademyError, Refusal};
-use crate::ports::{Chain, Ledger, LinkedWallets, PaymentSettings, RefundSend, Refunds, TransferFact, TxFact};
+use crate::ports::{
+    Chain, Ledger, LinkedWallets, PaymentSettings, RefundSend, Refunds, TransferFact, TxFact,
+};
 
 /// `POST_BUDGET.deadlineMs` (25 s) rounded up, plus 5: no post is still waiting on the ledger after this long.
 pub const POST_DEADLINE_SECONDS: i64 = 30;
@@ -76,7 +78,9 @@ pub fn answer(result: Result<Json, Refusal>) -> PostAnswer {
             Some(Json::String(id)) => PostAnswer::Posted(id.clone()),
             _ => PostAnswer::Unknown("ledger.answer_lost".to_owned()),
         },
-        Err(Refusal::Internal { code: Some(code), .. }) => {
+        Err(Refusal::Internal {
+            code: Some(code), ..
+        }) => {
             if DEFINITE_POST_REFUSALS.contains(&code.as_str()) {
                 PostAnswer::Refused(code)
             } else {
@@ -114,9 +118,15 @@ fn post(ledger: &dyn Ledger, input: &PurchasePost<'_>, refund: bool) -> PostAnsw
         (if refund { "from" } else { "to" }, place),
     ]);
     let (recipe, key) = if refund {
-        ("academyPurchaseRefund", refund_key_of(input.course, input.user_id, input.n))
+        (
+            "academyPurchaseRefund",
+            refund_key_of(input.course, input.user_id, input.n),
+        )
     } else {
-        ("academyPurchase", purchase_key_of(input.course, input.user_id, input.n))
+        (
+            "academyPurchase",
+            purchase_key_of(input.course, input.user_id, input.n),
+        )
     };
     answer(ledger.post_recipe(recipe, &key, &body))
 }
@@ -216,7 +226,11 @@ pub fn row_of(r: &Row) -> Result<PurchaseRow, Refusal> {
     })
 }
 
-fn one(c: &mut impl GenericClient, sql: &str, params: &[sql::P<'_>]) -> Result<Option<PurchaseRow>, Refusal> {
+fn one(
+    c: &mut impl GenericClient,
+    sql: &str,
+    params: &[sql::P<'_>],
+) -> Result<Option<PurchaseRow>, Refusal> {
     first(c, sql, params)?.as_ref().map(row_of).transpose()
 }
 
@@ -237,11 +251,18 @@ fn err(message: impl Into<String>, code: &str) -> Refusal {
 }
 
 fn plain(message: String) -> Refusal {
-    Refusal::Internal { message, code: None }
+    Refusal::Internal {
+        message,
+        code: None,
+    }
 }
 
 /// `holdsPurchase(db, courseId, userId)`: a recorded, unrefunded purchase, what the certificate track needs.
-pub fn holds_purchase(c: &mut impl GenericClient, course_id: &str, user_id: &str) -> Result<bool, Refusal> {
+pub fn holds_purchase(
+    c: &mut impl GenericClient,
+    course_id: &str,
+    user_id: &str,
+) -> Result<bool, Refusal> {
     Ok(first(
         c,
         "SELECT 1 AS n FROM academy.course_purchases \
@@ -322,10 +343,16 @@ impl CoursePurchases<'_> {
         }
         let course = sql::on_pool(self.pool, |c| published_course(c, slug))?;
         if course.pricing != "paid" {
-            return Err(err(format!("academy.payments_off \"{}\" is free", course.slug), "academy.payments_off"));
+            return Err(err(
+                format!("academy.payments_off \"{}\" is free", course.slug),
+                "academy.payments_off",
+            ));
         }
         let Some(price) = course.price.clone() else {
-            return Err(err(format!("academy.price_unset \"{}\" has no price", course.slug), "academy.price_unset"));
+            return Err(err(
+                format!("academy.price_unset \"{}\" has no price", course.slug),
+                "academy.price_unset",
+            ));
         };
         if !self.sells_course(&course) {
             return Err(err(
@@ -351,7 +378,9 @@ impl CoursePurchases<'_> {
         let from_block = match chain.block_number() {
             Ok(b) => b,
             Err(e) if is_unread(&e) => {
-                let Refusal::Internal { message, .. } = e else { unreachable!() };
+                let Refusal::Internal { message, .. } = e else {
+                    unreachable!()
+                };
                 return Err(err(
                     format!("academy.payments_off the payment network cannot be read: {message}"),
                     "academy.payments_off",
@@ -366,31 +395,33 @@ impl CoursePurchases<'_> {
         let decimals = i32::try_from(settings.decimals).unwrap_or(i32::MAX);
 
         let opened = match &latest_row {
-            Some(l) if l.state == "abandoned" || l.state == "failed" => sql::on_pool(self.pool, |c| {
-                one(
-                    c,
-                    &format!(
-                        "UPDATE academy.course_purchases \
+            Some(l) if l.state == "abandoned" || l.state == "failed" => {
+                sql::on_pool(self.pool, |c| {
+                    one(
+                        c,
+                        &format!(
+                            "UPDATE academy.course_purchases \
                          SET state = 'awaiting_signature', payer = $1, tx_hash = NULL, \
                              price = $2::text::numeric, asset = $3, chain_id = $4, token = $5, \
                              token_decimals = $6, receiver = $7, updated_at = $8::text::timestamptz \
                          WHERE id = $9::text::uuid AND state = $10 RETURNING {}",
-                        columns()
-                    ),
-                    &[
-                        &wallet,
-                        &price,
-                        &asset,
-                        &chain_id,
-                        &settings.token,
-                        &decimals,
-                        &settings.receiver,
-                        &at,
-                        &l.id,
-                        &l.state,
-                    ],
-                )
-            })?,
+                            columns()
+                        ),
+                        &[
+                            &wallet,
+                            &price,
+                            &asset,
+                            &chain_id,
+                            &settings.token,
+                            &decimals,
+                            &settings.receiver,
+                            &at,
+                            &l.id,
+                            &l.state,
+                        ],
+                    )
+                })?
+            }
             _ => {
                 let n = latest_row.as_ref().map_or(1, |l| l.n + 1);
                 let key = purchase_key_of(&course.slug, user_id, n);
@@ -466,10 +497,19 @@ impl CoursePurchases<'_> {
     }
 
     /// The wallet sent the payment: its hash is stored on the intent, then read against the chain.
-    pub fn submit_payment(&self, user_id: &str, key: &str, tx_hash: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn submit_payment(
+        &self,
+        user_id: &str,
+        key: &str,
+        tx_hash: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let hash = tx_hash.to_lowercase();
         if !is_tx_hash(&hash) {
-            return Err(err("academy.wallet_invalid not a transaction hash", "academy.wallet_invalid"));
+            return Err(err(
+                "academy.wallet_invalid not a transaction hash",
+                "academy.wallet_invalid",
+            ));
         }
         let row = self.own(user_id, key)?;
         if row.state == "awaiting_signature" || row.state == "abandoned" {
@@ -523,10 +563,19 @@ impl CoursePurchases<'_> {
     }
 
     /// Staff refund: stored first with its key, reason and who; then advanced by the reconciler, run once here.
-    pub fn refund(&self, key: &str, reason: &str, actor_id: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn refund(
+        &self,
+        key: &str,
+        reason: &str,
+        actor_id: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let reason = service_kit::schema::js_trim(reason).to_owned();
         if reason.is_empty() {
-            return Err(err("academy.reason_required a refund needs a reason", "academy.reason_required"));
+            return Err(err(
+                "academy.reason_required a refund needs a reason",
+                "academy.reason_required",
+            ));
         }
         if self.deps.refunds.is_none() {
             return Err(err(
@@ -535,7 +584,10 @@ impl CoursePurchases<'_> {
             ));
         }
         if !self.payments_on() {
-            return Err(err("academy.payments_off course payments are not set up", "academy.payments_off"));
+            return Err(err(
+                "academy.payments_off course payments are not set up",
+                "academy.payments_off",
+            ));
         }
         let row = sql::on_pool(self.pool, |c| by_key(c, key))?.ok_or_else(purchase_not_found)?;
         let current = self.reconcile_row(row)?;
@@ -565,7 +617,11 @@ impl CoursePurchases<'_> {
     }
 
     /// Every open purchase, read against the chain and the ledger once; one row's error goes to `on_error`.
-    pub fn reconcile(&self, limit: i64, on_error: &mut dyn FnMut(&str, &Refusal)) -> Result<usize, Refusal> {
+    pub fn reconcile(
+        &self,
+        limit: i64,
+        on_error: &mut dyn FnMut(&str, &Refusal),
+    ) -> Result<usize, Refusal> {
         let open = sql::on_pool(self.pool, |c| {
             q(
                 c,
@@ -639,11 +695,15 @@ impl CoursePurchases<'_> {
     }
 
     fn chain(&self) -> Result<&dyn Chain, Refusal> {
-        self.deps.chain.ok_or_else(|| plain("no payment chain".to_owned()))
+        self.deps
+            .chain
+            .ok_or_else(|| plain("no payment chain".to_owned()))
     }
 
     fn ledger(&self) -> Result<&dyn Ledger, Refusal> {
-        self.deps.ledger.ok_or_else(|| plain("no ledger".to_owned()))
+        self.deps
+            .ledger
+            .ok_or_else(|| plain("no ledger".to_owned()))
     }
 
     fn confirmations(&self) -> u64 {
@@ -734,7 +794,10 @@ impl CoursePurchases<'_> {
             TxFact::Reverted { .. } => Some("payment_reverted"),
             TxFact::Mined { transfers, .. } => {
                 let amount = Self::amount_of(row)?;
-                if transfers.iter().any(|t| Self::matches(t, &row.payer, &row.receiver, amount)) {
+                if transfers
+                    .iter()
+                    .any(|t| Self::matches(t, &row.payer, &row.receiver, amount))
+                {
                     None
                 } else {
                     Some("payment_mismatch")
@@ -807,7 +870,12 @@ impl CoursePurchases<'_> {
         Ok(claimed.is_some())
     }
 
-    fn record_failed_post(&self, row: &PurchaseRow, state: &str, reason: &str) -> Result<PurchaseRow, Refusal> {
+    fn record_failed_post(
+        &self,
+        row: &PurchaseRow,
+        state: &str,
+        reason: &str,
+    ) -> Result<PurchaseRow, Refusal> {
         let after = sql::on_pool(self.pool, |c| {
             one(
                 c,
@@ -822,7 +890,11 @@ impl CoursePurchases<'_> {
         Ok(after.unwrap_or_else(|| row.clone()))
     }
 
-    fn failed_answer(&self, row: &PurchaseRow, a: &PostAnswer) -> Option<Result<PurchaseRow, Refusal>> {
+    fn failed_answer(
+        &self,
+        row: &PurchaseRow,
+        a: &PostAnswer,
+    ) -> Option<Result<PurchaseRow, Refusal>> {
         match a {
             PostAnswer::Posted(_) => None,
             PostAnswer::Refused(r) => Some(self.record_failed_post(row, "refused", r)),
@@ -839,7 +911,9 @@ impl CoursePurchases<'_> {
         if let Some(failed) = self.failed_answer(row, &a) {
             return failed;
         }
-        let PostAnswer::Posted(tx_id) = a else { unreachable!() };
+        let PostAnswer::Posted(tx_id) = a else {
+            unreachable!()
+        };
         sql::begin(self.pool, |tx| {
             let posted = one(
                 tx,
@@ -927,7 +1001,12 @@ impl CoursePurchases<'_> {
             return stored.map_or_else(|| self.reread(row), Ok);
         };
         let fact = self.chain()?.transaction(&refund_hash, &row.token)?;
-        let TxFact::Mined { confirmations, transfers, .. } = fact else {
+        let TxFact::Mined {
+            confirmations,
+            transfers,
+            ..
+        } = fact
+        else {
             return Ok(row.clone());
         };
         if confirmations < self.confirmations() {
@@ -935,8 +1014,13 @@ impl CoursePurchases<'_> {
         }
         let amount = Self::amount_of(row)?;
         // The signer answered a transaction that does not send this refund: stop and show it, never send again.
-        if !transfers.iter().any(|t| Self::matches(t, &row.receiver, &row.payer, amount)) {
-            if row.post_state.as_deref() == Some("refused") && row.post_reason.as_deref() == Some("refund_mismatch") {
+        if !transfers
+            .iter()
+            .any(|t| Self::matches(t, &row.receiver, &row.payer, amount))
+        {
+            if row.post_state.as_deref() == Some("refused")
+                && row.post_reason.as_deref() == Some("refund_mismatch")
+            {
                 return Ok(row.clone());
             }
             return self.record_failed_post(row, "refused", "refund_mismatch");
@@ -948,7 +1032,9 @@ impl CoursePurchases<'_> {
         if let Some(failed) = self.failed_answer(row, &a) {
             return failed;
         }
-        let PostAnswer::Posted(tx_id) = a else { unreachable!() };
+        let PostAnswer::Posted(tx_id) = a else {
+            unreachable!()
+        };
         sql::begin(self.pool, |tx| {
             let refunded = one(
                 tx,
@@ -972,7 +1058,8 @@ impl CoursePurchases<'_> {
     // ── Reads ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
     fn reread(&self, row: &PurchaseRow) -> Result<PurchaseRow, Refusal> {
-        Ok(sql::on_pool(self.pool, |c| by_key(c, &row.purchase_key))?.unwrap_or_else(|| row.clone()))
+        Ok(sql::on_pool(self.pool, |c| by_key(c, &row.purchase_key))?
+            .unwrap_or_else(|| row.clone()))
     }
 
     /// The caller's own purchase; someone else's is the same not-found as a missing one.
@@ -1012,11 +1099,18 @@ impl CoursePurchases<'_> {
         let refund = match &row.refund_key {
             Some(_) => Json::obj([
                 ("txHash", opt(&row.refund_tx_hash)),
-                ("reason", Json::str(row.refund_reason.clone().unwrap_or_default())),
+                (
+                    "reason",
+                    Json::str(row.refund_reason.clone().unwrap_or_default()),
+                ),
             ]),
             None => Json::Null,
         };
-        let state = if row.state == "abandoned" { "awaiting_signature" } else { row.state.as_str() };
+        let state = if row.state == "abandoned" {
+            "awaiting_signature"
+        } else {
+            row.state.as_str()
+        };
         let Json::Object(fields) = Json::obj([
             ("key", Json::str(row.purchase_key.clone())),
             ("state", Json::str(state)),
@@ -1039,9 +1133,17 @@ impl CoursePurchases<'_> {
         Ok(fields)
     }
 
-    fn view_of(&self, course: &CourseRow, row: Option<&PurchaseRow>, request: Option<Json>) -> Result<Json, Refusal> {
+    fn view_of(
+        &self,
+        course: &CourseRow,
+        row: Option<&PurchaseRow>,
+        request: Option<Json>,
+    ) -> Result<Json, Refusal> {
         let wallet = if course.pricing == "paid" && course.price.is_none() {
-            Json::obj([("state", Json::str("off")), ("code", Json::str("academy.price_unset"))])
+            Json::obj([
+                ("state", Json::str("off")),
+                ("code", Json::str("academy.price_unset")),
+            ])
         } else if let (true, Some(s)) = (self.sells_course(course), self.deps.settings) {
             Json::obj([
                 ("state", Json::str("on")),
@@ -1050,7 +1152,10 @@ impl CoursePurchases<'_> {
                 ("receiver", Json::str(s.receiver.to_lowercase())),
             ])
         } else {
-            Json::obj([("state", Json::str("off")), ("code", Json::str("academy.payments_off"))])
+            Json::obj([
+                ("state", Json::str("off")),
+                ("code", Json::str("academy.payments_off")),
+            ])
         };
         let purchase = match row {
             Some(r) if r.state != "abandoned" => Json::Object(self.purchase_fields(r)?),
@@ -1059,7 +1164,13 @@ impl CoursePurchases<'_> {
         Ok(Json::obj([
             ("slug", Json::str(course.slug.clone())),
             ("pricing", Json::str(course.pricing.clone())),
-            ("price", course.price.as_deref().map_or(Json::Null, |p| Json::str(canonical_price(p)))),
+            (
+                "price",
+                course
+                    .price
+                    .as_deref()
+                    .map_or(Json::Null, |p| Json::str(canonical_price(p))),
+            ),
             (
                 "asset",
                 match &course.price {
@@ -1068,7 +1179,13 @@ impl CoursePurchases<'_> {
                 },
             ),
             ("wallet", wallet),
-            ("card", Json::obj([("state", Json::str("off")), ("code", Json::str("rail.card"))])),
+            (
+                "card",
+                Json::obj([
+                    ("state", Json::str("off")),
+                    ("code", Json::str("rail.card")),
+                ]),
+            ),
             ("purchase", purchase),
             ("request", request.unwrap_or(Json::Null)),
         ]))
@@ -1136,7 +1253,13 @@ fn revoke(tx: &mut impl GenericClient, row: &PurchaseRow) -> Result<(), Refusal>
             tx,
             "INSERT INTO academy.access_grant_events (grant_id, n, kind, key, reason, actor_id, expires_at, at) \
              VALUES ($1::text::uuid, $2, 'revoked', $3, $4, $5::text::uuid, null, now()) ON CONFLICT (key) DO NOTHING",
-            &[&grant_id, &next, &key, &row.refund_reason, &row.refund_actor],
+            &[
+                &grant_id,
+                &next,
+                &key,
+                &row.refund_reason,
+                &row.refund_actor,
+            ],
         )?;
     }
     exec(
@@ -1171,7 +1294,11 @@ fn published_course(c: &mut impl GenericClient, slug: &str) -> Result<CourseRow,
     Ok(course)
 }
 
-fn latest(c: &mut impl GenericClient, course_id: &str, user_id: &str) -> Result<Option<PurchaseRow>, Refusal> {
+fn latest(
+    c: &mut impl GenericClient,
+    course_id: &str,
+    user_id: &str,
+) -> Result<Option<PurchaseRow>, Refusal> {
     one(
         c,
         &format!(
@@ -1186,7 +1313,10 @@ fn latest(c: &mut impl GenericClient, course_id: &str, user_id: &str) -> Result<
 pub fn by_key(c: &mut impl GenericClient, key: &str) -> Result<Option<PurchaseRow>, Refusal> {
     one(
         c,
-        &format!("SELECT {} FROM academy.course_purchases WHERE purchase_key = $1", columns()),
+        &format!(
+            "SELECT {} FROM academy.course_purchases WHERE purchase_key = $1",
+            columns()
+        ),
         &[&key],
     )
 }
@@ -1204,13 +1334,30 @@ mod tests {
 
     #[test]
     fn only_a_named_engine_refusal_is_refused() {
-        let e = |c: &str| Err(Refusal::Internal { message: String::new(), code: Some(c.to_owned()) });
-        assert_eq!(answer(e("ledger.frozen")), PostAnswer::Refused("ledger.frozen".to_owned()));
-        assert_eq!(answer(e("ledger.custody_layer_off")), PostAnswer::Unknown("ledger.custody_layer_off".to_owned()));
+        let e = |c: &str| {
+            Err(Refusal::Internal {
+                message: String::new(),
+                code: Some(c.to_owned()),
+            })
+        };
         assert_eq!(
-            answer(Err(Refusal::Internal { message: String::new(), code: None })),
+            answer(e("ledger.frozen")),
+            PostAnswer::Refused("ledger.frozen".to_owned())
+        );
+        assert_eq!(
+            answer(e("ledger.custody_layer_off")),
+            PostAnswer::Unknown("ledger.custody_layer_off".to_owned())
+        );
+        assert_eq!(
+            answer(Err(Refusal::Internal {
+                message: String::new(),
+                code: None
+            })),
             PostAnswer::Unknown("ledger.answer_lost".to_owned())
         );
-        assert_eq!(answer(Ok(Json::obj([("txId", Json::str("t"))]))), PostAnswer::Posted("t".to_owned()));
+        assert_eq!(
+            answer(Ok(Json::obj([("txId", Json::str("t"))]))),
+            PostAnswer::Posted("t".to_owned())
+        );
     }
 }

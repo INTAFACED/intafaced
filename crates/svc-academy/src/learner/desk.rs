@@ -1,8 +1,8 @@
 //! J-academy-14: the learner desk's calls in this slice (`learners/learner-desk.ts`): a learner's progress as staff see
 //! it, a staff access record and its reinstatement. Every change names who and why; a blank reason is refused.
 
-use service_kit::json::Json;
 use super::sql::Pool;
+use service_kit::json::Json;
 
 use super::service::require_reason;
 use super::sql::{self, cell, exec, first, iso, ms, q};
@@ -12,7 +12,11 @@ use crate::errors::{AcademyError, Refusal};
 const PATHS: [&str; 4] = ["foundations", "markets", "builder", "sovereign"];
 
 fn window_invalid() -> Refusal {
-    AcademyError::new("academy.window_invalid the end must be after now", "academy.window_invalid").into()
+    AcademyError::new(
+        "academy.window_invalid the end must be after now",
+        "academy.window_invalid",
+    )
+    .into()
 }
 
 fn next_grant_event(tx: &mut postgres::Transaction<'_>, grant_id: &str) -> Result<i32, Refusal> {
@@ -40,13 +44,25 @@ impl Desk<'_> {
                 &[&user_id],
             )
         })?)?;
-        let paths: Vec<&str> = PATHS.iter().copied().filter(|p| path_rows.iter().any(|r| r == p)).collect();
+        let paths: Vec<&str> = PATHS
+            .iter()
+            .copied()
+            .filter(|p| path_rows.iter().any(|r| r == p))
+            .collect();
         let slugs: Vec<String> = paths
             .iter()
-            .flat_map(|p| spine::list(Some(p), None).into_iter().map(|i| i.slug.clone()))
+            .flat_map(|p| {
+                spine::list(Some(p), None)
+                    .into_iter()
+                    .map(|i| i.slug.clone())
+            })
             .collect();
         let head = |courses: Json| {
-            Json::obj([("userId", Json::str(user_id)), ("canChange", Json::Bool(can_change)), ("courses", courses)])
+            Json::obj([
+                ("userId", Json::str(user_id)),
+                ("canChange", Json::Bool(can_change)),
+                ("courses", courses),
+            ])
         };
         if slugs.is_empty() {
             return Ok(head(Json::Array(Vec::new())));
@@ -76,7 +92,10 @@ impl Desk<'_> {
         let windows = sql::on_pool(self.pool, |c| {
             q(
                 c,
-                &format!("SELECT item_slug, {} FROM academy.item_windows WHERE item_slug = ANY($1)", ms("due_at")),
+                &format!(
+                    "SELECT item_slug, {} FROM academy.item_windows WHERE item_slug = ANY($1)",
+                    ms("due_at")
+                ),
                 &[&slugs],
             )
         })?;
@@ -94,7 +113,11 @@ impl Desk<'_> {
             )
         })?;
         let quizzes = sql::on_pool(self.pool, |c| {
-            q(c, "SELECT slug, attempt_limit FROM academy.quizzes WHERE slug = ANY($1)", &[&slugs])
+            q(
+                c,
+                "SELECT slug, attempt_limit FROM academy.quizzes WHERE slug = ANY($1)",
+                &[&slugs],
+            )
         })?;
         let attempts = sql::on_pool(self.pool, |c| {
             q(
@@ -147,8 +170,14 @@ impl Desk<'_> {
                         None => Json::Null,
                         Some(at) => Json::obj([
                             ("at", Json::str(iso(at))),
-                            ("by", Json::String(cell::<Option<String>>(a, 7)?.unwrap_or_default())),
-                            ("reason", Json::String(cell::<Option<String>>(a, 8)?.unwrap_or_default())),
+                            (
+                                "by",
+                                Json::String(cell::<Option<String>>(a, 7)?.unwrap_or_default()),
+                            ),
+                            (
+                                "reason",
+                                Json::String(cell::<Option<String>>(a, 8)?.unwrap_or_default()),
+                            ),
                         ]),
                     };
                     tries.push(Json::obj([
@@ -174,7 +203,8 @@ impl Desk<'_> {
                 };
                 let quiz_json = if quiz.is_some() || !tries.is_empty() {
                     let limit = match quiz {
-                        Some(qr) => cell::<Option<i32>>(qr, 1)?.map_or(Json::Null, |l| Json::int(i64::from(l))),
+                        Some(qr) => cell::<Option<i32>>(qr, 1)?
+                            .map_or(Json::Null, |l| Json::int(i64::from(l))),
                         None => Json::Null,
                     };
                     Json::obj([
@@ -200,14 +230,22 @@ impl Desk<'_> {
                     ("title", Json::str(item.title.clone())),
                     ("kind", Json::str(item.kind.clone())),
                     ("status", Json::str(status)),
-                    ("completedAt", done.map_or(Ok(Json::Null), |d| cell::<i64>(d, 1).map(|t| Json::str(iso(t))))?),
+                    (
+                        "completedAt",
+                        done.map_or(Ok(Json::Null), |d| {
+                            cell::<i64>(d, 1).map(|t| Json::str(iso(t)))
+                        })?,
+                    ),
                     ("history", Json::Array(past)),
                     ("dueAt", due),
                     ("extension", extension),
                     ("quiz", quiz_json),
                 ]));
             }
-            courses.push(Json::obj([("pathSlug", Json::str(*path)), ("items", Json::Array(items))]));
+            courses.push(Json::obj([
+                ("pathSlug", Json::str(*path)),
+                ("items", Json::Array(items)),
+            ]));
         }
         Ok(head(Json::Array(courses)))
     }
@@ -268,7 +306,10 @@ impl Desk<'_> {
     }
 
     /// `reinstate`: the same record granted again, keyed `reinstate:<grant>:<n>`.
-    #[expect(clippy::too_many_arguments, reason = "the call's own fields, as the TypeScript takes them")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the call's own fields, as the TypeScript takes them"
+    )]
     pub fn reinstate(
         &self,
         user_id: &str,
@@ -304,12 +345,22 @@ impl Desk<'_> {
                     "academy.grant_not_found",
                 ))
             })?;
-            if first(tx, "SELECT 1 FROM academy.access_grant_events WHERE key = $1", &[&key])?.is_some() {
+            if first(
+                tx,
+                "SELECT 1 FROM academy.access_grant_events WHERE key = $1",
+                &[&key],
+            )?
+            .is_some()
+            {
                 return Ok(());
             }
             let id: String = cell(&grant, 0)?;
             if cell::<String>(&grant, 7)? == "granted" {
-                return Err(AcademyError::new("academy.grant_active this access has not ended", "academy.grant_active").into());
+                return Err(AcademyError::new(
+                    "academy.grant_active this access has not ended",
+                    "academy.grant_active",
+                )
+                .into());
             }
             let next = next_grant_event(tx, &id)?;
             if i64::from(next) != n {

@@ -2,9 +2,9 @@
 //! reading position and active days, the video watch position, the grant audit and the enrolment counts. Every write is
 //! keyed by the caller's request id or the row's own business key, so a lost reply sent again answers as the first did.
 
+use super::sql::Pool;
 use postgres::Row;
 use service_kit::json::Json;
-use super::sql::Pool;
 use service_kit::schema::js_trim;
 
 use super::sql::{self, cell, column, exec, first, iso, ms, q};
@@ -38,7 +38,10 @@ impl Enrollment {
             ("userId", Json::str(self.user_id.clone())),
             ("pathSlug", Json::str(self.path_slug.clone())),
             ("enrolledAt", Json::str(iso(self.enrolled_at))),
-            ("leftAt", self.left_at.map_or(Json::Null, |l| Json::str(iso(l)))),
+            (
+                "leftAt",
+                self.left_at.map_or(Json::Null, |l| Json::str(iso(l))),
+            ),
         ])
     }
 }
@@ -79,7 +82,8 @@ impl LearningState {
             ),
             (
                 "lastOpenedAt",
-                self.last_opened_at.map_or(Json::Null, |t| Json::str(iso(t))),
+                self.last_opened_at
+                    .map_or(Json::Null, |t| Json::str(iso(t))),
             ),
             ("secondsRead", Json::int(self.seconds_read)),
             ("activeDays", Json::int(self.active_days)),
@@ -102,7 +106,10 @@ pub fn list_limit(limit: Option<f64>, code: &str, label: &str) -> Result<i64, Re
     if n < 1.0 {
         return Err(unset());
     }
-    #[expect(clippy::cast_possible_truncation, reason = "capped at the list maximum")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "capped at the list maximum"
+    )]
     Ok(n.min(CUSTOMER_LIST_MAX as f64) as i64)
 }
 
@@ -530,7 +537,10 @@ impl Store<'_> {
         certificate: Option<&str>,
     ) -> Result<Json, Refusal> {
         let limit = list_limit(limit, "academy.grant_audit_list_limit_unset", "Grant audit")?;
-        let cursor = cursor.filter(|c| !c.is_empty()).map(decode_grant_cursor).transpose()?;
+        let cursor = cursor
+            .filter(|c| !c.is_empty())
+            .map(decode_grant_cursor)
+            .transpose()?;
         let course = course
             .map(js_trim)
             .filter(|s| !s.is_empty())
@@ -863,6 +873,9 @@ mod tests {
             code(touch_seconds(Some(86_401.0))),
             "academy.seconds_out_of_range"
         );
-        assert_eq!(code(touch_seconds(Some(1.5))), "academy.seconds_out_of_range");
+        assert_eq!(
+            code(touch_seconds(Some(1.5))),
+            "academy.seconds_out_of_range"
+        );
     }
 }

@@ -64,9 +64,8 @@ fn is_amount(s: &str) -> bool {
         || (!whole.is_empty()
             && !whole.starts_with('0')
             && whole.bytes().all(|c| c.is_ascii_digit()));
-    let fraction_ok = fraction.is_none_or(|f| {
-        (1..=18).contains(&f.len()) && f.bytes().all(|c| c.is_ascii_digit())
-    });
+    let fraction_ok = fraction
+        .is_none_or(|f| (1..=18).contains(&f.len()) && f.bytes().all(|c| c.is_ascii_digit()));
     whole_ok && fraction_ok
 }
 
@@ -77,18 +76,21 @@ fn is_counter(s: &str) -> bool {
 fn is_uuid(s: &str) -> bool {
     let groups: Vec<&str> = s.split('-').collect();
     groups.len() == 5
-        && groups
-            .iter()
-            .zip([8, 4, 4, 4, 12])
-            .all(|(g, n)| g.len() == n && g.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)))
+        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, n)| {
+            g.len() == n
+                && g.bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        })
 }
 
 fn is_course(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
         && b.len() <= 64
-        && b.first().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+        && b.first()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && b.iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
 fn is_asset(s: &str) -> bool {
@@ -100,8 +102,11 @@ fn is_place_id(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
         && b.len() <= 128
-        && b.first().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b':' | b'_' | b'-'))
+        && b.first()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && b.iter().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b':' | b'_' | b'-')
+        })
 }
 
 /// The receipt's reason each recipe builds, or none for a recipe the door does not post.
@@ -116,9 +121,16 @@ fn reason_of(recipe: &str) -> Option<&'static str> {
 /// `postRecipeRequest`'s checks of the wire inputs (`academyPurchaseWire`, `academyRefundWire`), first failing field
 /// named as zod names it.
 fn check_inputs(recipe: &str, input: &Json) -> Result<(), Refusal> {
-    let place_key = if recipe == "academyPurchase" { "to" } else { "from" };
+    let place_key = if recipe == "academyPurchase" {
+        "to"
+    } else {
+        "from"
+    };
     let Json::Object(fields) = input else {
-        return Err(internal(format!("{recipe}: input: Invalid input"), Some(RECIPE_INPUT_INVALID)));
+        return Err(internal(
+            format!("{recipe}: input: Invalid input"),
+            Some(RECIPE_INPUT_INVALID),
+        ));
     };
     let str_field = |k: &str| match input.get(k) {
         Some(Json::String(s)) => Some(s.as_str()),
@@ -135,7 +147,10 @@ fn check_inputs(recipe: &str, input: &Json) -> Result<(), Refusal> {
     ];
     for (key, ok) in checks {
         if !str_field(key).is_some_and(ok) {
-            return Err(internal(format!("{recipe}: input.{key}: Invalid"), Some(RECIPE_INPUT_INVALID)));
+            return Err(internal(
+                format!("{recipe}: input.{key}: Invalid"),
+                Some(RECIPE_INPUT_INVALID),
+            ));
         }
     }
     let place_ok = match input.get(place_key) {
@@ -147,9 +162,20 @@ fn check_inputs(recipe: &str, input: &Json) -> Result<(), Refusal> {
         _ => false,
     };
     if !place_ok {
-        return Err(internal(format!("{recipe}: input.{place_key}: Invalid"), Some(RECIPE_INPUT_INVALID)));
+        return Err(internal(
+            format!("{recipe}: input.{place_key}: Invalid"),
+            Some(RECIPE_INPUT_INVALID),
+        ));
     }
-    let known = ["course", "userId", "n", "assetId", "amount", "paymentId", place_key];
+    let known = [
+        "course",
+        "userId",
+        "n",
+        "assetId",
+        "amount",
+        "paymentId",
+        place_key,
+    ];
     if let Some((extra, _)) = fields.iter().find(|(k, _)| !known.contains(&k.as_str())) {
         return Err(internal(
             format!("{recipe}: input: Unrecognized key: \"{extra}\""),
@@ -179,7 +205,10 @@ fn ledger_error(path: &str, status: u16, detail: &str) -> Refusal {
         None if funds_unnamed && message.contains(": requested ") => {
             internal(message, Some("ledger.insufficient_funds"))
         }
-        None => internal(format!("svc-ledger {path} failed ({status}): {detail}"), None),
+        None => internal(
+            format!("svc-ledger {path} failed ({status}): {detail}"),
+            None,
+        ),
     }
 }
 
@@ -221,7 +250,9 @@ impl LedgerHttp {
         let mut attempt: u32 = 0;
         loop {
             let backoff = |attempt: u32, error: Refusal| -> Result<(), Refusal> {
-                let delay = self.retry_base_delay_ms.saturating_mul(1u64 << attempt.min(20));
+                let delay = self
+                    .retry_base_delay_ms
+                    .saturating_mul(1u64 << attempt.min(20));
                 if attempt >= self.retries || remaining() <= i128::from(delay) {
                     return Err(error);
                 }
@@ -234,7 +265,10 @@ impl LedgerHttp {
             let attempt_timeout = i128::from(self.timeout_ms).min(remaining());
             if attempt_timeout <= 0 {
                 return Err(internal(
-                    format!("svc-ledger call to {path} exceeded its {}ms deadline", self.deadline_ms),
+                    format!(
+                        "svc-ledger call to {path} exceeded its {}ms deadline",
+                        self.deadline_ms
+                    ),
                     None,
                 ));
             }
@@ -311,15 +345,23 @@ fn receipt_ok(raw: &Json, key: &str, reason: &str) -> bool {
 
 impl Ledger for LedgerHttp {
     /// `postRecipe({ recipe, input })`. The key is the one the recipe builds from the inputs; the receipt must name it.
-    fn post_recipe(&self, recipe: &str, idempotency_key: &str, input: &Json) -> Result<Json, Refusal> {
+    fn post_recipe(
+        &self,
+        recipe: &str,
+        idempotency_key: &str,
+        input: &Json,
+    ) -> Result<Json, Refusal> {
         let Some(reason) = reason_of(recipe) else {
             return Err(internal(
-                format!("postRecipe posts only academyPurchase, academyPurchaseRefund; got \"{recipe}\""),
+                format!(
+                    "postRecipe posts only academyPurchase, academyPurchaseRefund; got \"{recipe}\""
+                ),
                 Some(RECIPE_UNKNOWN),
             ));
         };
         check_inputs(recipe, input)?;
-        let payload = Json::obj([("recipe", Json::str(recipe)), ("input", input.clone())]).compact();
+        let payload =
+            Json::obj([("recipe", Json::str(recipe)), ("input", input.clone())]).compact();
         let raw = self.call(POST_RECIPE_PATH, &payload)?;
         if !receipt_ok(&raw, idempotency_key, reason) {
             return Err(internal(LEDGER_ACK_INVALID, None));
@@ -369,7 +411,11 @@ impl Refunds for RefundHttp {
         if !res.ok() {
             return Ok(None);
         }
-        let hash = match json::parse(&res.body).ok().as_ref().and_then(|b| b.get("hash")) {
+        let hash = match json::parse(&res.body)
+            .ok()
+            .as_ref()
+            .and_then(|b| b.get("hash"))
+        {
             Some(Json::String(h)) => h.to_lowercase(),
             _ => return Ok(None),
         };
@@ -494,7 +540,10 @@ mod tests {
                 "to",
                 Json::obj([
                     ("kind", Json::str("treasury-wallet")),
-                    ("walletId", Json::str("0x00000000000000000000000000000000000000aa")),
+                    (
+                        "walletId",
+                        Json::str("0x00000000000000000000000000000000000000aa"),
+                    ),
                 ]),
             ),
         ])
@@ -509,7 +558,12 @@ mod tests {
     fn ledger(fetch: Arc<Script>) -> LedgerHttp {
         let mut l = LedgerHttp::new(
             "http://ledger:4010/",
-            CallSigner::new("svc-academy", "svc-ledger", "an-internal-secret-of-32-characters!", None),
+            CallSigner::new(
+                "svc-academy",
+                "svc-ledger",
+                "an-internal-secret-of-32-characters!",
+                None,
+            ),
             fetch,
         );
         l.sleep = |_| {};
@@ -519,11 +573,19 @@ mod tests {
     #[test]
     fn a_post_names_the_recipe_and_its_inputs_and_reads_a_receipt_for_this_key() {
         let f = script(vec![ok(200, &receipt(KEY, "academy.purchase.posted"))]);
-        let got = ledger(f.clone()).post_recipe("academyPurchase", KEY, &input()).unwrap();
+        let got = ledger(f.clone())
+            .post_recipe("academyPurchase", KEY, &input())
+            .unwrap();
         assert_eq!(got.get("txId"), Some(&Json::str("tx-1")));
         let seen = f.seen.lock().unwrap();
         assert_eq!(seen[0].url, "http://ledger:4010/trpc/postRecipe");
-        assert!(seen[0].body.as_deref().unwrap().starts_with(r#"{"recipe":"academyPurchase","input":{"course":"perps-101""#));
+        assert!(
+            seen[0]
+                .body
+                .as_deref()
+                .unwrap()
+                .starts_with(r#"{"recipe":"academyPurchase","input":{"course":"perps-101""#)
+        );
         assert_eq!(seen[0].timeout_ms, Some(10_000));
     }
 
@@ -535,31 +597,51 @@ mod tests {
             r#"{"txId":"tx-1"}"#.to_owned(),
         ] {
             let f = script(vec![ok(200, &body)]);
-            let err = ledger(f).post_recipe("academyPurchase", KEY, &input()).unwrap_err();
+            let err = ledger(f)
+                .post_recipe("academyPurchase", KEY, &input())
+                .unwrap_err();
             assert_eq!(err, internal(LEDGER_ACK_INVALID, None));
         }
     }
 
     #[test]
     fn a_502_is_tried_again_on_the_same_body_and_a_400_is_not() {
-        let f = script(vec![ok(502, ""), ok(200, &receipt(KEY, "academy.purchase.posted"))]);
-        assert!(ledger(f.clone()).post_recipe("academyPurchase", KEY, &input()).is_ok());
+        let f = script(vec![
+            ok(502, ""),
+            ok(200, &receipt(KEY, "academy.purchase.posted")),
+        ]);
+        assert!(
+            ledger(f.clone())
+                .post_recipe("academyPurchase", KEY, &input())
+                .is_ok()
+        );
         let seen = f.seen.lock().unwrap();
         assert_eq!(seen.len(), 2);
         assert_eq!(seen[0].body, seen[1].body);
         drop(seen);
 
-        let f = script(vec![ok(412, r#"{"message":"frozen","code":"ledger.frozen"}"#)]);
-        let err = ledger(f.clone()).post_recipe("academyPurchase", KEY, &input()).unwrap_err();
+        let f = script(vec![ok(
+            412,
+            r#"{"message":"frozen","code":"ledger.frozen"}"#,
+        )]);
+        let err = ledger(f.clone())
+            .post_recipe("academyPurchase", KEY, &input())
+            .unwrap_err();
         assert_eq!(err, internal("frozen", Some("ledger.frozen")));
         assert_eq!(f.seen.lock().unwrap().len(), 1);
     }
 
     #[test]
     fn three_lost_answers_give_up_with_no_code() {
-        let lost = || Err(FetchError { message: "fetch failed".to_owned() });
+        let lost = || {
+            Err(FetchError {
+                message: "fetch failed".to_owned(),
+            })
+        };
         let f = script(vec![lost(), lost(), lost()]);
-        let err = ledger(f.clone()).post_recipe("academyPurchase", KEY, &input()).unwrap_err();
+        let err = ledger(f.clone())
+            .post_recipe("academyPurchase", KEY, &input())
+            .unwrap_err();
         assert_eq!(err, internal("fetch failed", None));
         assert_eq!(f.seen.lock().unwrap().len(), 3);
     }
@@ -571,9 +653,15 @@ mod tests {
         if let Json::Object(fields) = &mut bad {
             fields[4].1 = Json::str("-1");
         }
-        let err = ledger(f.clone()).post_recipe("academyPurchase", KEY, &bad).unwrap_err();
-        assert!(matches!(err, Refusal::Internal { code: Some(c), .. } if c == RECIPE_INPUT_INVALID));
-        let err = ledger(f.clone()).post_recipe("deposit", KEY, &input()).unwrap_err();
+        let err = ledger(f.clone())
+            .post_recipe("academyPurchase", KEY, &bad)
+            .unwrap_err();
+        assert!(
+            matches!(err, Refusal::Internal { code: Some(c), .. } if c == RECIPE_INPUT_INVALID)
+        );
+        let err = ledger(f.clone())
+            .post_recipe("deposit", KEY, &input())
+            .unwrap_err();
         assert!(matches!(err, Refusal::Internal { code: Some(c), .. } if c == RECIPE_UNKNOWN));
         assert!(f.seen.lock().unwrap().is_empty());
     }
@@ -588,27 +676,44 @@ mod tests {
             amount: 2_500_000,
         };
         let hash = format!("0x{}", "AB".repeat(32));
-        let f = script(vec![ok(200, &format!(r#"{{"hash":"{hash}"}}"#)), ok(500, ""), ok(200, r#"{"hash":"0x12"}"#)]);
+        let f = script(vec![
+            ok(200, &format!(r#"{{"hash":"{hash}"}}"#)),
+            ok(500, ""),
+            ok(200, r#"{"hash":"0x12"}"#),
+        ]);
         let r = RefundHttp::new("http://signer/send", f.clone());
         assert_eq!(r.send(&send).unwrap(), Some(hash.to_lowercase()));
         assert_eq!(r.send(&send).unwrap(), None);
         assert_eq!(r.send(&send).unwrap(), None);
         assert_eq!(
             f.seen.lock().unwrap()[0].body.as_deref(),
-            Some(r#"{"key":"academy:refund:c:u:1","chainId":8453,"token":"0xt","to":"0xp","amount":"2500000"}"#)
+            Some(
+                r#"{"key":"academy:refund:c:u:1","chainId":8453,"token":"0xt","to":"0xp","amount":"2500000"}"#
+            )
         );
     }
 
     #[test]
     fn linked_wallets_are_read_strictly_and_a_redirect_is_refused() {
         let f = script(vec![
-            ok(200, r#"{"state":"usable","wallets":[{"address":"0x00000000000000000000000000000000000000aa","linkedAt":"2026-11-01T00:00:00.000Z"}]}"#),
-            ok(200, r#"{"state":"usable","wallets":[{"address":"0xAA","linkedAt":"2026-11-01T00:00:00.000Z"}]}"#),
+            ok(
+                200,
+                r#"{"state":"usable","wallets":[{"address":"0x00000000000000000000000000000000000000aa","linkedAt":"2026-11-01T00:00:00.000Z"}]}"#,
+            ),
+            ok(
+                200,
+                r#"{"state":"usable","wallets":[{"address":"0xAA","linkedAt":"2026-11-01T00:00:00.000Z"}]}"#,
+            ),
             ok(503, ""),
         ]);
         let w = IdentityWallets::new(
             "http://identity:4002/",
-            CallSigner::new("svc-academy", "svc-identity", "an-internal-secret-of-32-characters!", None),
+            CallSigner::new(
+                "svc-academy",
+                "svc-identity",
+                "an-internal-secret-of-32-characters!",
+                None,
+            ),
             f.clone(),
         );
         assert!(w.read("11111111-1111-4111-8111-111111111111").is_some());

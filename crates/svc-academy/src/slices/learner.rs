@@ -49,7 +49,10 @@ fn flag(input: &Value, key: &str) -> bool {
 }
 
 /// A whole-number owner value from the loaded settings, or none while blank.
-#[expect(clippy::cast_possible_truncation, reason = "the environment schema admits only whole numbers in range")]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the environment schema admits only whole numbers in range"
+)]
 pub fn setting_int(ctx: &Ctx<'_>, key: &str) -> Option<i64> {
     match ctx.settings.0.get(key) {
         Some(Json::Number(n)) if n.is_finite() && n.fract() == 0.0 => Some(*n as i64),
@@ -71,7 +74,8 @@ fn instant(text: &str) -> Option<i64> {
 
 /// `mayChange(ctx)`: the session holds `admin:write`.
 fn may_change(ctx: &Ctx<'_>) -> bool {
-    ctx.principal.is_some_and(|p| p.scopes.iter().any(|s| s == "admin:write"))
+    ctx.principal
+        .is_some_and(|p| p.scopes.iter().any(|s| s == "admin:write"))
 }
 
 /// `changer(ctx)`: who changes a learner, or `academy.permission_denied` for a session that may only read.
@@ -110,10 +114,16 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
             settle: &settle,
         },
     };
-    let purchases = || CoursePurchases { pool: store, deps: Deps::of(ctx.ports) };
+    let purchases = || CoursePurchases {
+        pool: store,
+        deps: Deps::of(ctx.ports),
+    };
     let customer = || Customer { pool: store };
     let preview = || CoursePreview { pool: store };
-    let planner = || Planner { pool: store, todo_limit: setting_int(ctx, "ACADEMY_PLANNER_TODO_LIMIT") };
+    let planner = || Planner {
+        pool: store,
+        todo_limit: setting_int(ctx, "ACADEMY_PLANNER_TODO_LIMIT"),
+    };
     let desk = || Desk { pool: store };
 
     // `requireSpineItem` runs before the service is called.
@@ -124,12 +134,16 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
         }
         enter(ctx)?;
         let position = customer().video_position(user, slug)?;
-        let threshold = video::require_threshold(setting_int(ctx, "ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS"))?;
+        let threshold =
+            video::require_threshold(setting_int(ctx, "ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS"))?;
         return Ok(Some(Json::obj([
             ("videoSlug", Json::str(slug)),
             ("positionSeconds", position.map_or(Json::Null, Json::int)),
             ("thresholdSeconds", Json::int(threshold)),
-            ("watched", Json::Bool(position.is_some_and(|p| p >= threshold))),
+            (
+                "watched",
+                Json::Bool(position.is_some_and(|p| p >= threshold)),
+            ),
         ])));
     }
     // A learner-desk change names its changer before the service is called.
@@ -146,7 +160,9 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
     let out = match ctx.call.path {
         // ── The learner path ──
         "courseEnrolment" => learning().course_enrolment(user, text(input, "slug"), now)?,
-        "enrolCourse" => learning().enrol_course(user, text(input, "slug"), text(input, "track"), now)?,
+        "enrolCourse" => {
+            learning().enrol_course(user, text(input, "slug"), text(input, "track"), now)?
+        }
         "publicCourses" => learning().public_courses()?,
         "publicCourse" => learning().public_course(text(input, "slug"), now)?,
         "myLearning" => learning().my_learning(user, now)?,
@@ -154,9 +170,17 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
         "myProgress" => learning().progress_page(user, now)?,
         "learningState" => customer().learning_state(user)?.json(),
         "touchLesson" => customer()
-            .touch_lesson(user, text(input, "slug"), number(input, "secondsRead"), text(input, "clientRequestId"), now)?
+            .touch_lesson(
+                user,
+                text(input, "slug"),
+                number(input, "secondsRead"),
+                text(input, "clientRequestId"),
+                now,
+            )?
             .json(),
-        "markCurriculumComplete" => learning().mark_complete(user, tier(ctx), text(input, "itemSlug"), now)?,
+        "markCurriculumComplete" => {
+            learning().mark_complete(user, tier(ctx), text(input, "itemSlug"), now)?
+        }
         "undoCurriculumComplete" => learning().undo_complete(
             user,
             text(input, "itemSlug"),
@@ -176,8 +200,12 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
 
         // ── The planner ──
         "planner.get" => planner().read(user, now)?,
-        "planner.addTodo" => planner().add_todo(user, text(input, "clientKey"), text(input, "text"), now)?,
-        "planner.setTodoDone" => planner().set_todo_done(user, text(input, "todoId"), flag(input, "done"), now)?,
+        "planner.addTodo" => {
+            planner().add_todo(user, text(input, "clientKey"), text(input, "text"), now)?
+        }
+        "planner.setTodoDone" => {
+            planner().set_todo_done(user, text(input, "todoId"), flag(input, "done"), now)?
+        }
         "planner.removeTodo" => planner().remove_todo(user, text(input, "todoId"), now)?,
         "planner.setGoal" => planner().set_goal(
             user,
@@ -189,17 +217,32 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
 
         // ── Courses staff made, on the learner side ──
         "publicCourseByLink" => preview().by_link(text(input, "slug"), text(input, "key"), now)?,
-        "publicAuthoredCourses" | "publicAuthoredCourse" | "authoredCourse" | "authoredCourseEnrolment"
-        | "enrolAuthoredCourse" | "leaveAuthoredCourse" => {
+        "publicAuthoredCourses"
+        | "publicAuthoredCourse"
+        | "authoredCourse"
+        | "authoredCourseEnrolment"
+        | "enrolAuthoredCourse"
+        | "leaveAuthoredCourse" => {
             let purchases = purchases();
-            let learners = CourseLearners { pool: store, preview: preview(), purchases: &purchases };
+            let learners = CourseLearners {
+                pool: store,
+                preview: preview(),
+                purchases: &purchases,
+            };
             match ctx.call.path {
-                #[expect(clippy::cast_possible_truncation, reason = "the input schema admits a whole page size")]
-                "publicAuthoredCourses" => learners.published(number(input, "limit").map_or(0, |l| l as i64))?,
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "the input schema admits a whole page size"
+                )]
+                "publicAuthoredCourses" => {
+                    learners.published(number(input, "limit").map_or(0, |l| l as i64))?
+                }
                 "publicAuthoredCourse" => learners.page(text(input, "slug"), None, now)?,
                 "authoredCourse" => learners.page(text(input, "slug"), Some(user), now)?,
                 "authoredCourseEnrolment" => learners.terms(user, text(input, "slug"))?,
-                "enrolAuthoredCourse" => learners.enrol(user, text(input, "slug"), text(input, "track"), now)?,
+                "enrolAuthoredCourse" => {
+                    learners.enrol(user, text(input, "slug"), text(input, "track"), now)?
+                }
                 _ => learners.leave(user, text(input, "slug"), text(input, "enrolledAt"), now)?,
             }
         }
@@ -207,10 +250,14 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
         // ── Course purchases ──
         "coursePurchase" => purchases().view(user, text(input, "slug"))?,
         "buyCourse" => purchases().buy(user, text(input, "slug"), text(input, "wallet"), now)?,
-        "submitCoursePayment" => purchases().submit_payment(user, text(input, "key"), text(input, "txHash"), now)?,
+        "submitCoursePayment" => {
+            purchases().submit_payment(user, text(input, "key"), text(input, "txHash"), now)?
+        }
         "abandonCoursePurchase" => purchases().abandon(user, text(input, "key"), now)?,
         "admin.coursePurchase" => purchases().staff_read(text(input, "key"))?,
-        "admin.refundCoursePurchase" => purchases().refund(text(input, "key"), text(input, "reason"), user, now)?,
+        "admin.refundCoursePurchase" => {
+            purchases().refund(text(input, "key"), text(input, "reason"), user, now)?
+        }
 
         // ── Staff: preview and private links ──
         "admin.previewCourse" => preview().preview(text(input, "courseId"), now)?,
@@ -246,7 +293,10 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
         }
         "admin.reinstateAccess" => {
             let target = text(input, "userId");
-            #[expect(clippy::cast_possible_truncation, reason = "the input schema admits a whole event number")]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "the input schema admits a whole event number"
+            )]
             let n = number(input, "n").map_or(0, |n| n as i64);
             desk().reinstate(
                 target,

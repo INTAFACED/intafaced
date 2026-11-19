@@ -20,7 +20,8 @@ use crate::ports::{Chain, TransferFact, TxFact};
 const LEDGER_DECIMALS: u32 = 18;
 
 /// keccak256("Transfer(address,address,uint256)").
-pub const TRANSFER_TOPIC: &str = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+pub const TRANSFER_TOPIC: &str =
+    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 /// `transfer(address,uint256)`.
 pub const TRANSFER_SELECTOR: &str = "0xa9059cbb";
 
@@ -43,7 +44,9 @@ pub fn is_unread(r: &Refusal) -> bool {
 }
 
 fn hex_digits(s: &str, n: usize) -> bool {
-    s.len() == n && s.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    s.len() == n
+        && s.bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 
 /// `isAddress`: `0x` and 40 hex digits, any case.
@@ -276,7 +279,11 @@ impl Chain for RpcChain {
         let r = self.call("eth_blockNumber", Json::Array(Vec::new()))?;
         match r {
             Json::String(s) => block(&s),
-            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "BigInt(number) of a block")]
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "BigInt(number) of a block"
+            )]
             Json::Number(n) if n.fract() == 0.0 && n >= 0.0 => Ok(n as u64),
             other => Err(Refusal::Internal {
                 message: format!("Cannot convert {} to a BigInt", other.compact()),
@@ -379,7 +386,11 @@ mod tests {
 
     #[test]
     fn refuses_a_price_with_more_decimals_than_the_token_or_one_that_is_not_a_decimal() {
-        assert!(to_base_units("0.0000001", 6).unwrap_err().contains("more decimals"));
+        assert!(
+            to_base_units("0.0000001", 6)
+                .unwrap_err()
+                .contains("more decimals")
+        );
         assert!(to_base_units("abc", 6).is_err());
         assert!(to_base_units("1", 19).unwrap_err().contains("decimals"));
     }
@@ -389,7 +400,12 @@ mod tests {
         let to = "0x7e57ac4d00000000000000000000000000000007";
         assert_eq!(
             transfer_calldata(to, 2_500_000).unwrap(),
-            format!("0xa9059cbb{}{}{:0>64}", "0".repeat(24), &to[2..], format!("{:x}", 2_500_000))
+            format!(
+                "0xa9059cbb{}{}{:0>64}",
+                "0".repeat(24),
+                &to[2..],
+                format!("{:x}", 2_500_000)
+            )
         );
         assert!(transfer_calldata(to, 0).is_err());
         assert!(transfer_calldata("0x12", 1).is_err());

@@ -6,9 +6,9 @@
 //! certificate track is open only on a priced course while course payments are set up, and needs the learner's recorded
 //! purchase (`academy.payment_required`). No money moves here.
 
+use super::sql::Pool;
 use postgres::{GenericClient, Row};
 use service_kit::json::Json;
-use super::sql::Pool;
 
 use super::preview::CoursePreview;
 use super::purchases::{CoursePurchases, canonical_price, holds_purchase};
@@ -90,7 +90,10 @@ impl CourseLearners<'_> {
                     ("summary", opt(2)?),
                     ("thumbnailUrl", opt(3)?),
                     ("pricing", Json::String(cell(r, 4)?)),
-                    ("price", price.map_or(Json::Null, |p| Json::str(canonical_price(&p)))),
+                    (
+                        "price",
+                        price.map_or(Json::Null, |p| Json::str(canonical_price(&p))),
+                    ),
                     ("priceAsset", opt(6)?),
                     ("items", Json::int(i64::from(cell::<i32>(r, 7)?))),
                 ]))
@@ -167,7 +170,13 @@ impl CourseLearners<'_> {
     }
 
     /// Leave the enrolment that began at `enrolled_at` (its business key); a repeat answers with the terms as they stand.
-    pub fn leave(&self, user_id: &str, slug: &str, enrolled_at: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn leave(
+        &self,
+        user_id: &str,
+        slug: &str,
+        enrolled_at: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         sql::begin(self.pool, |tx| {
             let course = first(
                 tx,
@@ -193,27 +202,42 @@ impl CourseLearners<'_> {
 
     fn published_row(&self, slug: &str) -> Result<CourseRow, Refusal> {
         let course = sql::on_pool(self.pool, |c| {
-            first(c, &format!("SELECT {COURSE_COLUMNS} FROM academy.courses WHERE slug = $1"), &[&slug])
+            first(
+                c,
+                &format!("SELECT {COURSE_COLUMNS} FROM academy.courses WHERE slug = $1"),
+                &[&slug],
+            )
         })?
         .as_ref()
         .map(course_of)
         .transpose()?;
-        course.filter(|c| c.state == "published").ok_or_else(|| not_found(slug))
+        course
+            .filter(|c| c.state == "published")
+            .ok_or_else(|| not_found(slug))
     }
 
     fn tracks(&self, course: &CourseRow) -> Vec<Track> {
-        let audit = Track { track: "audit", free: true, closed: None };
-        let certificate = |closed| Track { track: "certificate", free: false, closed };
+        let audit = Track {
+            track: "audit",
+            free: true,
+            closed: None,
+        };
+        let certificate = |closed| Track {
+            track: "certificate",
+            free: false,
+            closed,
+        };
         if course.pricing == "free" {
             return vec![audit];
         }
         if course.price.is_none() {
             return vec![audit, certificate(Some("no_price"))];
         }
-        if !self
-            .purchases
-            .sells(&course.pricing, course.price.as_deref(), course.price_asset.as_deref())
-        {
+        if !self.purchases.sells(
+            &course.pricing,
+            course.price.as_deref(),
+            course.price_asset.as_deref(),
+        ) {
             return vec![audit, certificate(Some("payments_off"))];
         }
         vec![audit, certificate(None)]
@@ -236,12 +260,22 @@ impl CourseLearners<'_> {
             ("startsAt", Json::Null),
             ("seatCap", Json::Null),
             ("seatsRemaining", Json::Null),
-            ("closed", if course.state == "published" { Json::Null } else { Json::str("unpublished") }),
+            (
+                "closed",
+                if course.state == "published" {
+                    Json::Null
+                } else {
+                    Json::str("unpublished")
+                },
+            ),
             ("tracks", Json::Array(tracks)),
             (
                 "enrolment",
                 enrolment.map_or(Json::Null, |(track, at)| {
-                    Json::obj([("track", Json::String(track)), ("enrolledAt", Json::str(iso(at)))])
+                    Json::obj([
+                        ("track", Json::String(track)),
+                        ("enrolledAt", Json::str(iso(at))),
+                    ])
                 }),
             ),
             ("activationMail", Json::str("vendor.email")),
@@ -250,7 +284,11 @@ impl CourseLearners<'_> {
 }
 
 /// The caller's open enrolment: its track and start.
-fn open(c: &mut impl GenericClient, course_id: &str, user_id: &str) -> Result<Option<(String, i64)>, Refusal> {
+fn open(
+    c: &mut impl GenericClient,
+    course_id: &str,
+    user_id: &str,
+) -> Result<Option<(String, i64)>, Refusal> {
     first(
         c,
         &format!(

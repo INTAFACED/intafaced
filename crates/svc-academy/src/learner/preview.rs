@@ -7,10 +7,10 @@
 //! once; only its SHA-256 is stored. An unknown, revoked or mismatched link, and a course that is archived or deleted,
 //! give the same `academy.course_not_found`.
 
+use super::sql::Pool;
 use base64::Engine as _;
 use postgres::{GenericClient, Row};
 use service_kit::json::Json;
-use super::sql::Pool;
 use sha2::{Digest, Sha256};
 
 use super::purchases::canonical_price;
@@ -27,7 +27,10 @@ fn course_not_found(message: &str) -> Refusal {
 
 /// `academyPrivateLinkKeySchema`: `^[A-Za-z0-9_-]{43}$`.
 pub fn is_link_key(key: &str) -> bool {
-    key.len() == 43 && key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+    key.len() == 43
+        && key
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
 }
 
 /// `keyHash(key)`: SHA-256 of the key's UTF-8, as hex.
@@ -61,14 +64,19 @@ fn link_columns() -> String {
 
 /// `linkOf`.
 fn link_of(r: &Row) -> Result<Json, Refusal> {
-    let opt = |i: usize| -> Result<Json, Refusal> { Ok(cell::<Option<String>>(r, i)?.map_or(Json::Null, Json::String)) };
+    let opt = |i: usize| -> Result<Json, Refusal> {
+        Ok(cell::<Option<String>>(r, i)?.map_or(Json::Null, Json::String))
+    };
     Ok(Json::obj([
         ("id", Json::String(cell(r, 0)?)),
         ("reason", Json::String(cell(r, 1)?)),
         ("createdBy", Json::String(cell(r, 2)?)),
         ("createdAt", Json::str(iso(cell(r, 3)?))),
         ("revokedBy", opt(4)?),
-        ("revokedAt", cell::<Option<i64>>(r, 5)?.map_or(Json::Null, |t| Json::str(iso(t)))),
+        (
+            "revokedAt",
+            cell::<Option<i64>>(r, 5)?.map_or(Json::Null, |t| Json::str(iso(t))),
+        ),
         ("revokeReason", opt(6)?),
     ]))
 }
@@ -110,7 +118,11 @@ impl CoursePreview<'_> {
     /// The course's private links, newest first, without their keys.
     pub fn links(&self, course_id: &str) -> Result<Json, Refusal> {
         let exists = sql::on_pool(self.pool, |c| {
-            first(c, "SELECT 1 FROM academy.courses WHERE id = $1::text::uuid", &[&course_id])
+            first(
+                c,
+                "SELECT 1 FROM academy.courses WHERE id = $1::text::uuid",
+                &[&course_id],
+            )
         })?;
         if exists.is_none() {
             return Err(course_not_found("no course has this id"));
@@ -126,13 +138,25 @@ impl CoursePreview<'_> {
                 &[&course_id],
             )
         })?;
-        Ok(Json::Array(rows.iter().map(link_of).collect::<Result<_, _>>()?))
+        Ok(Json::Array(
+            rows.iter().map(link_of).collect::<Result<_, _>>()?,
+        ))
     }
 
     /// A new link to the unlisted page. The key comes back once, here.
-    pub fn create_link(&self, course_id: &str, reason: &str, operator_id: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn create_link(
+        &self,
+        course_id: &str,
+        reason: &str,
+        operator_id: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let course = sql::on_pool(self.pool, |c| {
-            first(c, "SELECT slug, state FROM academy.courses WHERE id = $1::text::uuid", &[&course_id])
+            first(
+                c,
+                "SELECT slug, state FROM academy.courses WHERE id = $1::text::uuid",
+                &[&course_id],
+            )
         })?
         .ok_or_else(|| course_not_found("no course has this id"))?;
         let slug: String = cell(&course, 0)?;
@@ -161,7 +185,10 @@ impl CoursePreview<'_> {
             )
         })?
         .ok_or_else(|| Refusal::db("INSERT returned no row", None))?;
-        let path = format!("/academy/learning/course/{}#key={key}", encode_uri_component(&slug));
+        let path = format!(
+            "/academy/learning/course/{}#key={key}",
+            encode_uri_component(&slug)
+        );
         Ok(Json::obj([
             ("link", link_of(&row)?),
             ("key", Json::str(key)),
@@ -170,7 +197,13 @@ impl CoursePreview<'_> {
     }
 
     /// The link stops opening the page. A repeat answers with the link as it was first revoked.
-    pub fn revoke_link(&self, link_id: &str, reason: &str, operator_id: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn revoke_link(
+        &self,
+        link_id: &str,
+        reason: &str,
+        operator_id: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let at = iso(now);
         let row = sql::on_pool(self.pool, |c| {
             first(
@@ -190,24 +223,39 @@ impl CoursePreview<'_> {
         let stored = sql::on_pool(self.pool, |c| {
             first(
                 c,
-                &format!("SELECT {} FROM academy.course_private_links WHERE id = $1::text::uuid", link_columns()),
+                &format!(
+                    "SELECT {} FROM academy.course_private_links WHERE id = $1::text::uuid",
+                    link_columns()
+                ),
                 &[&link_id],
             )
         })?;
         match stored {
             Some(r) => link_of(&r),
-            None => Err(AcademyError::new("no private link has this id", "academy.private_link_not_found").into()),
+            None => Err(AcademyError::new(
+                "no private link has this id",
+                "academy.private_link_not_found",
+            )
+            .into()),
         }
     }
 
     /// The course row and its outline from one snapshot (repeatable read, read only).
-    pub fn view(&self, course_id: &str, reader_id: Option<&str>, now: i64) -> Result<Option<Json>, Refusal> {
+    pub fn view(
+        &self,
+        course_id: &str,
+        reader_id: Option<&str>,
+        now: i64,
+    ) -> Result<Option<Json>, Refusal> {
         sql::begin_repeatable_read_only(self.pool, |tx| view_in(tx, course_id, reader_id, now))
     }
 }
 
 fn getrandom_fill(bytes: &mut [u8]) -> Result<(), Refusal> {
-    getrandom::fill(bytes).map_err(|e| Refusal::Internal { message: e.to_string(), code: None })
+    getrandom::fill(bytes).map_err(|e| Refusal::Internal {
+        message: e.to_string(),
+        code: None,
+    })
 }
 
 /// `viewIn(tx, courseId, readerId, now)`.
@@ -307,7 +355,12 @@ pub fn view_in(
         let indent: Option<i32> = cell(r, 7)?;
         let live: Option<i32> = cell(r, 8)?;
         let assignment_open: bool = cell(r, 9)?;
-        let released = kind == "link" || if kind == "assignment" { assignment_open } else { live.is_some() };
+        let released = kind == "link"
+            || if kind == "assignment" {
+                assignment_open
+            } else {
+                live.is_some()
+            };
         let Some(current) = sections.last_mut() else {
             continue;
         };
@@ -316,7 +369,11 @@ pub fn view_in(
         } else if !released {
             Json::str("not_released")
         } else if enrolled {
-            if current.1 { Json::Null } else { Json::str("scheduled") }
+            if current.1 {
+                Json::Null
+            } else {
+                Json::str("scheduled")
+            }
         } else if state == "published" {
             Json::str("enrol")
         } else {
@@ -330,7 +387,9 @@ pub fn view_in(
             ("lock", lock),
         ]));
     }
-    let opt = |i: usize| -> Result<Json, Refusal> { Ok(cell::<Option<String>>(&course, i)?.map_or(Json::Null, Json::String)) };
+    let opt = |i: usize| -> Result<Json, Refusal> {
+        Ok(cell::<Option<String>>(&course, i)?.map_or(Json::Null, Json::String))
+    };
     let price: Option<String> = cell(&course, 5)?;
     Ok(Some(Json::obj([
         ("slug", Json::String(cell(&course, 0)?)),
@@ -338,7 +397,10 @@ pub fn view_in(
         ("summary", opt(2)?),
         ("thumbnailUrl", opt(3)?),
         ("pricing", Json::String(cell(&course, 4)?)),
-        ("price", price.map_or(Json::Null, |p| Json::str(canonical_price(&p)))),
+        (
+            "price",
+            price.map_or(Json::Null, |p| Json::str(canonical_price(&p))),
+        ),
         ("priceAsset", opt(6)?),
         ("state", Json::String(state)),
         ("pacing", opt(8)?),
@@ -366,7 +428,10 @@ mod tests {
         assert!(is_link_key(&"a".repeat(43)));
         assert!(!is_link_key(&"a".repeat(42)));
         assert!(!is_link_key(&format!("{}=", "a".repeat(42))));
-        assert_eq!(key_hash("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(
+            key_hash("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
         assert_eq!(encode_uri_component("a b/ç"), "a%20b%2F%C3%A7");
     }
 }

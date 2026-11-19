@@ -8,9 +8,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::sql::Pool;
 use postgres::GenericClient;
 use service_kit::json::Json;
-use super::sql::Pool;
 use service_kit::schema::js_trim;
 
 use super::reads::{self, Grade};
@@ -37,7 +37,10 @@ fn settle_nothing(_: &Pool, _: &str, _: &str, _: i64) {}
 
 impl Settle {
     /// Nothing settles yet: the certificate and programme slices own both.
-    pub const NONE: Settle = Settle { certificates_needing: settle_nothing, programmes_holding: settle_nothing };
+    pub const NONE: Settle = Settle {
+        certificates_needing: settle_nothing,
+        programmes_holding: settle_nothing,
+    };
 }
 
 /// What the service is built with that the learner calls read (`AcademyServiceOptions`).
@@ -68,7 +71,11 @@ impl Completion {
 }
 
 /// `currentCompletion(sql, userId, slug)`.
-pub fn current_completion(c: &mut impl GenericClient, user_id: &str, slug: &str) -> Result<Option<Completion>, Refusal> {
+pub fn current_completion(
+    c: &mut impl GenericClient,
+    user_id: &str,
+    slug: &str,
+) -> Result<Option<Completion>, Refusal> {
     first(
         c,
         &format!(
@@ -78,15 +85,29 @@ pub fn current_completion(c: &mut impl GenericClient, user_id: &str, slug: &str)
         ),
         &[&user_id, &slug],
     )?
-    .map(|r| Ok(Completion { user_id: cell(&r, 0)?, item_slug: cell(&r, 1)?, completed_at: cell(&r, 2)? }))
+    .map(|r| {
+        Ok(Completion {
+            user_id: cell(&r, 0)?,
+            item_slug: cell(&r, 1)?,
+            completed_at: cell(&r, 2)?,
+        })
+    })
     .transpose()
 }
 
 /// The free and paid tracks of a curriculum course (`TRACKS`): the certificate has no published price.
 fn tracks() -> Json {
     Json::Array(vec![
-        Json::obj([("track", Json::str("audit")), ("free", Json::Bool(true)), ("closed", Json::Null)]),
-        Json::obj([("track", Json::str("certificate")), ("free", Json::Bool(false)), ("closed", Json::str("no_price"))]),
+        Json::obj([
+            ("track", Json::str("audit")),
+            ("free", Json::Bool(true)),
+            ("closed", Json::Null),
+        ]),
+        Json::obj([
+            ("track", Json::str("certificate")),
+            ("free", Json::Bool(false)),
+            ("closed", Json::str("no_price")),
+        ]),
     ])
 }
 
@@ -118,18 +139,34 @@ pub fn course_enrolment_view(
 ) -> Json {
     Json::obj([
         ("slug", Json::str(path)),
-        ("startsAt", starts_at.map_or(Json::Null, |s| Json::str(iso(s)))),
-        ("seatCap", terms.seat_cap.map_or(Json::Null, |c| Json::int(i64::from(c)))),
+        (
+            "startsAt",
+            starts_at.map_or(Json::Null, |s| Json::str(iso(s))),
+        ),
+        (
+            "seatCap",
+            terms
+                .seat_cap
+                .map_or(Json::Null, |c| Json::int(i64::from(c))),
+        ),
         (
             "seatsRemaining",
-            terms.seat_cap.map_or(Json::Null, |c| Json::int((i64::from(c) - seats_taken).max(0))),
+            terms.seat_cap.map_or(Json::Null, |c| {
+                Json::int((i64::from(c) - seats_taken).max(0))
+            }),
         ),
-        ("closed", reads::closed_reason(terms, seats_taken, now).map_or(Json::Null, Json::str)),
+        (
+            "closed",
+            reads::closed_reason(terms, seats_taken, now).map_or(Json::Null, Json::str),
+        ),
         ("tracks", tracks()),
         (
             "enrolment",
             active.map_or(Json::Null, |a| {
-                Json::obj([("track", Json::str("audit")), ("enrolledAt", Json::str(iso(a.enrolled_at)))])
+                Json::obj([
+                    ("track", Json::str("audit")),
+                    ("enrolledAt", Json::str(iso(a.enrolled_at))),
+                ])
             }),
         ),
         ("activationMail", Json::str("vendor.email")),
@@ -171,11 +208,21 @@ pub fn my_course_view(
         ("slug", Json::str(path)),
         ("status", Json::str(status)),
         ("enrolledAt", Json::str(iso(enrolment.enrolled_at))),
-        ("startsAt", starts_at.map_or(Json::Null, |s| Json::str(iso(s)))),
+        (
+            "startsAt",
+            starts_at.map_or(Json::Null, |s| Json::str(iso(s))),
+        ),
         ("items", count(items.len())),
         ("completed", count(done)),
         ("firstItemSlug", Json::str(first)),
-        ("resumeItemSlug", if done > 0 { Json::str(resume) } else { Json::Null }),
+        (
+            "resumeItemSlug",
+            if done > 0 {
+                Json::str(resume)
+            } else {
+                Json::Null
+            },
+        ),
     ])
 }
 
@@ -211,11 +258,19 @@ impl Learning<'_> {
         let terms = sql::on_pool(self.pool, |c| reads::course_terms(c, path))?;
         let taken = self.store().seats_taken(path)?;
         let active = enrolments.iter().find(|e| e.path_slug == path);
-        Ok(course_enrolment_view(path, active, starts_at, &terms, taken, now))
+        Ok(course_enrolment_view(
+            path, active, starts_at, &terms, taken, now,
+        ))
     }
 
     /// `enrolCourse({ userId, slug, track, now })`.
-    pub fn enrol_course(&self, user_id: &str, slug: &str, track: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn enrol_course(
+        &self,
+        user_id: &str,
+        slug: &str,
+        track: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let path = links::published_course(slug)?;
         assert_track_open(track)?;
         self.enrol_within_terms(user_id, path, now)?;
@@ -223,7 +278,12 @@ impl Learning<'_> {
     }
 
     /// `enrolWithinTerms(userId, path, now)`: the cap's fullness is decided under its lock in the store.
-    fn enrol_within_terms(&self, user_id: &str, path: &str, now: i64) -> Result<Enrollment, Refusal> {
+    fn enrol_within_terms(
+        &self,
+        user_id: &str,
+        path: &str,
+        now: i64,
+    ) -> Result<Enrollment, Refusal> {
         let terms = sql::on_pool(self.pool, |c| reads::course_terms(c, path))?;
         let mine = self.store().my_enrollments(user_id)?;
         if let Some(active) = mine.into_iter().find(|e| e.path_slug == path) {
@@ -236,7 +296,8 @@ impl Learning<'_> {
             )
             .into());
         }
-        self.store().enroll_cert_path(user_id, path, terms.seat_cap.map(i64::from))
+        self.store()
+            .enroll_cert_path(user_id, path, terms.seat_cap.map(i64::from))
     }
 
     /// `publicCourses()`: the catalogue's cards, without a course staff hid or unpublished.
@@ -280,13 +341,22 @@ impl Learning<'_> {
 
     /// `myAccessGrants(userId)`.
     pub fn my_access_grants(&self, user_id: &str) -> Result<Json, Refusal> {
-        Ok(Json::Array(self.published_enrolments(user_id)?.iter().map(access_grant_view).collect()))
+        Ok(Json::Array(
+            self.published_enrolments(user_id)?
+                .iter()
+                .map(access_grant_view)
+                .collect(),
+        ))
     }
 
     /// `completedSlugs(userId)`.
     fn completed_slugs(&self, user_id: &str) -> Result<BTreeSet<String>, Refusal> {
         let rows = sql::on_pool(self.pool, |c| {
-            q(c, "SELECT item_slug FROM academy.cert_item_completions WHERE user_id = $1::text::uuid", &[&user_id])
+            q(
+                c,
+                "SELECT item_slug FROM academy.cert_item_completions WHERE user_id = $1::text::uuid",
+                &[&user_id],
+            )
         })?;
         Ok(sql::column::<String>(&rows)?.into_iter().collect())
     }
@@ -305,17 +375,32 @@ impl Learning<'_> {
             let starts_at = sql::on_pool(self.pool, |c| reads::course_starts_at(c, path))?;
             let mut open = Vec::new();
             for item in spine::list(Some(path), None) {
-                if gates::item_release(self.pool.pool()?, user_id, &item.slug, now, starts_at)?.lock.is_none() {
+                if gates::item_release(self.pool.pool()?, user_id, &item.slug, now, starts_at)?
+                    .lock
+                    .is_none()
+                {
                     open.push(item.slug.clone());
                 }
             }
-            out.push(my_course_view(path, row, &completed, state.last_item_slug.as_deref(), &open, starts_at, now));
+            out.push(my_course_view(
+                path,
+                row,
+                &completed,
+                state.last_item_slug.as_deref(),
+                &open,
+                starts_at,
+                now,
+            ));
         }
         Ok(Json::Array(out))
     }
 
     /// `completionTimes(userId, slugs)`.
-    fn completion_times(&self, user_id: &str, slugs: &[String]) -> Result<BTreeMap<String, i64>, Refusal> {
+    fn completion_times(
+        &self,
+        user_id: &str,
+        slugs: &[String],
+    ) -> Result<BTreeMap<String, i64>, Refusal> {
         if slugs.is_empty() {
             return Ok(BTreeMap::new());
         }
@@ -330,7 +415,9 @@ impl Learning<'_> {
                 &[&user_id, &slugs],
             )
         })?;
-        rows.iter().map(|r| Ok((cell(r, 0)?, cell(r, 1)?))).collect()
+        rows.iter()
+            .map(|r| Ok((cell(r, 0)?, cell(r, 1)?)))
+            .collect()
     }
 
     /// `progressPage(userId, now)`.
@@ -338,11 +425,18 @@ impl Learning<'_> {
         let enrolments = self.published_enrolments(user_id)?;
         let all_grades = reads::grades(self.pool, user_id, now)?;
         let course_grades = reads::course_grades(self.pool, user_id)?;
-        let grades: Vec<Grade> = all_grades.into_iter().filter(|g| spine::get(g.slug()).is_some()).collect();
+        let grades: Vec<Grade> = all_grades
+            .into_iter()
+            .filter(|g| spine::get(g.slug()).is_some())
+            .collect();
         let paths: Vec<&str> = enrolments.iter().map(|e| e.path_slug.as_str()).collect();
         let slugs: Vec<String> = paths
             .iter()
-            .flat_map(|p| spine::list(Some(p), None).into_iter().map(|i| i.slug.clone()))
+            .flat_map(|p| {
+                spine::list(Some(p), None)
+                    .into_iter()
+                    .map(|i| i.slug.clone())
+            })
             .collect();
         let times = self.completion_times(user_id, &slugs)?;
         let count = |n: usize| i64::try_from(n).unwrap_or(i64::MAX);
@@ -355,7 +449,10 @@ impl Learning<'_> {
                     ("slug", Json::str(*path)),
                     ("visible", Json::int(count(items.len()))),
                     ("completed", Json::int(count(completed))),
-                    ("percent", Json::str(reads::tenths(count(completed), count(items.len())))),
+                    (
+                        "percent",
+                        Json::str(reads::tenths(count(completed), count(items.len()))),
+                    ),
                     (
                         "items",
                         Json::Array(
@@ -366,7 +463,12 @@ impl Learning<'_> {
                                         ("slug", Json::str(i.slug.clone())),
                                         ("title", Json::str(i.title.clone())),
                                         ("kind", Json::str(i.kind.clone())),
-                                        ("completedAt", times.get(&i.slug).map_or(Json::Null, |t| Json::str(iso(*t)))),
+                                        (
+                                            "completedAt",
+                                            times
+                                                .get(&i.slug)
+                                                .map_or(Json::Null, |t| Json::str(iso(*t))),
+                                        ),
                                     ])
                                 })
                                 .collect(),
@@ -379,7 +481,11 @@ impl Learning<'_> {
         let rows = grades
             .iter()
             .map(|g| match g {
-                Grade::Pending { slug, attempts, hidden_until } => Json::obj([
+                Grade::Pending {
+                    slug,
+                    attempts,
+                    hidden_until,
+                } => Json::obj([
                     ("pending", Json::Bool(true)),
                     ("slug", Json::str(slug.clone())),
                     ("title", Json::str(title(slug))),
@@ -387,7 +493,13 @@ impl Learning<'_> {
                     ("attempts", Json::int(i64::from(*attempts))),
                     ("hiddenUntil", Json::str(iso(*hidden_until))),
                 ]),
-                Grade::Released { slug, attempts, score, possible, passed } => Json::obj([
+                Grade::Released {
+                    slug,
+                    attempts,
+                    score,
+                    possible,
+                    passed,
+                } => Json::obj([
                     ("pending", Json::Bool(false)),
                     ("slug", Json::str(slug.clone())),
                     ("title", Json::str(title(slug))),
@@ -395,7 +507,10 @@ impl Learning<'_> {
                     ("attempts", Json::int(i64::from(*attempts))),
                     ("score", Json::str(score.to_string())),
                     ("possible", Json::str(possible.to_string())),
-                    ("percent", Json::str(reads::tenths(i64::from(*score), i64::from(*possible)))),
+                    (
+                        "percent",
+                        Json::str(reads::tenths(i64::from(*score), i64::from(*possible))),
+                    ),
                     ("passed", Json::Bool(*passed)),
                 ]),
             })
@@ -403,7 +518,9 @@ impl Learning<'_> {
         let released: Vec<(i64, i64)> = grades
             .iter()
             .filter_map(|g| match g {
-                Grade::Released { score, possible, .. } => Some((i64::from(*score), i64::from(*possible))),
+                Grade::Released {
+                    score, possible, ..
+                } => Some((i64::from(*score), i64::from(*possible))),
                 Grade::Pending { .. } => None,
             })
             .collect();
@@ -424,14 +541,26 @@ impl Learning<'_> {
         };
         Ok(Json::obj([
             ("courses", Json::Array(courses)),
-            ("grades", Json::obj([("rows", Json::Array(rows)), ("averages", Json::Array(averages))])),
+            (
+                "grades",
+                Json::obj([
+                    ("rows", Json::Array(rows)),
+                    ("averages", Json::Array(averages)),
+                ]),
+            ),
             ("courseGrades", course_grades),
         ]))
     }
 
     /// The playback gate (`assertAcademyVideoEntitled`) for the caller.
     fn assert_may_watch(&self, user_id: &str, tier: &str) -> Result<(), Refusal> {
-        video::assert_entitled(self.ports, self.options.video_min_tier, self.options.video_min_stake, user_id, tier)
+        video::assert_entitled(
+            self.ports,
+            self.options.video_min_tier,
+            self.options.video_min_stake,
+            user_id,
+            tier,
+        )
     }
 
     /// `mayWatch(check)`: a typed refusal means no; anything else is a failure.
@@ -444,7 +573,11 @@ impl Learning<'_> {
     }
 
     /// `watchedItems(userId, videos)`: the items whose video's stored position reached the owner's threshold.
-    fn watched_items(&self, user_id: &str, videos: &[(String, String)]) -> Result<BTreeSet<String>, Refusal> {
+    fn watched_items(
+        &self,
+        user_id: &str,
+        videos: &[(String, String)],
+    ) -> Result<BTreeSet<String>, Refusal> {
         let Some(threshold) = self.options.watch_threshold_seconds else {
             return Ok(BTreeSet::new());
         };
@@ -466,7 +599,11 @@ impl Learning<'_> {
             )
         })?;
         let seen: Vec<String> = sql::column(&rows)?;
-        Ok(videos.iter().filter(|(_, v)| seen.contains(v)).map(|(i, _)| i.clone()).collect())
+        Ok(videos
+            .iter()
+            .filter(|(_, v)| seen.contains(v))
+            .map(|(i, _)| i.clone())
+            .collect())
     }
 
     /// `setVideoProgress`: the position stored first; a save that crosses the threshold completes the attached watch
@@ -480,12 +617,24 @@ impl Learning<'_> {
         client_request_id: &str,
         now: i64,
     ) -> Result<Json, Refusal> {
-        let saved = self.store().set_video_progress(user_id, video_slug, position_seconds, client_request_id, now)?;
+        let saved = self.store().set_video_progress(
+            user_id,
+            video_slug,
+            position_seconds,
+            client_request_id,
+            now,
+        )?;
         let stored = |completed: Vec<String>| {
             Json::obj([
                 ("videoSlug", Json::str(saved.video_slug.clone())),
-                ("positionSeconds", saved.position_seconds.map_or(Json::Null, Json::int)),
-                ("completedItems", Json::Array(completed.into_iter().map(Json::String).collect())),
+                (
+                    "positionSeconds",
+                    saved.position_seconds.map_or(Json::Null, Json::int),
+                ),
+                (
+                    "completedItems",
+                    Json::Array(completed.into_iter().map(Json::String).collect()),
+                ),
             ])
         };
         let Some(threshold) = self.options.watch_threshold_seconds else {
@@ -495,9 +644,15 @@ impl Learning<'_> {
             return Ok(stored(Vec::new()));
         }
         let attached = video::items_with_video(self.pool, &saved.video_slug)?;
-        let quizzes = if attached.is_empty() { BTreeSet::new() } else { reads::published_slugs(self.pool)? };
-        let items: Vec<String> =
-            attached.into_iter().filter(|s| !quizzes.contains(s) && spine::has(s)).collect();
+        let quizzes = if attached.is_empty() {
+            BTreeSet::new()
+        } else {
+            reads::published_slugs(self.pool)?
+        };
+        let items: Vec<String> = attached
+            .into_iter()
+            .filter(|s| !quizzes.contains(s) && spine::has(s))
+            .collect();
         let crossed = !saved.replayed && saved.previous_seconds.is_none_or(|p| p < threshold);
         if crossed && !items.is_empty() && self.may_watch(user_id, tier)? {
             for slug in &items {
@@ -524,7 +679,13 @@ impl Learning<'_> {
     }
 
     /// `markCurriculumComplete`: an existing completion answers; else the lock, the item's rule, then one record.
-    pub fn mark_complete(&self, user_id: &str, tier: &str, item_slug: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn mark_complete(
+        &self,
+        user_id: &str,
+        tier: &str,
+        item_slug: &str,
+        now: i64,
+    ) -> Result<Json, Refusal> {
         let slug = js_trim(item_slug);
         if !spine::has(slug) {
             return Err(curriculum_not_found());
@@ -535,9 +696,17 @@ impl Learning<'_> {
         gates::assert_may_read(self.pool.pool()?, user_id, slug, now)?;
         let quiz = reads::quiz_pass_mark(self.pool, slug)?;
         if quiz == Some(None) {
-            return Err(AcademyError::new(format!("academy.pass_mark_unset slug={slug}"), "academy.pass_mark_unset").into());
+            return Err(AcademyError::new(
+                format!("academy.pass_mark_unset slug={slug}"),
+                "academy.pass_mark_unset",
+            )
+            .into());
         }
-        let video = if quiz.is_some() { None } else { video::item_video(self.pool, slug)? };
+        let video = if quiz.is_some() {
+            None
+        } else {
+            video::item_video(self.pool, slug)?
+        };
         let rule = if quiz.is_some() {
             "score"
         } else if video.is_some() {
@@ -546,7 +715,11 @@ impl Learning<'_> {
             "view"
         };
         if rule == "watch" && self.options.watch_threshold_seconds.is_none() {
-            return Err(AcademyError::new("academy.watch_threshold_unset", "academy.watch_threshold_unset").into());
+            return Err(AcademyError::new(
+                "academy.watch_threshold_unset",
+                "academy.watch_threshold_unset",
+            )
+            .into());
         }
         if rule == "watch" {
             self.assert_may_watch(user_id, tier)?;
@@ -554,7 +727,9 @@ impl Learning<'_> {
         let met = match (rule, &video) {
             ("view", _) => true,
             ("score", _) => reads::passed_slugs(self.pool, user_id, now)?.contains(slug),
-            (_, Some(v)) => self.watched_items(user_id, &[(slug.to_owned(), v.clone())])?.contains(slug),
+            (_, Some(v)) => self
+                .watched_items(user_id, &[(slug.to_owned(), v.clone())])?
+                .contains(slug),
             _ => false,
         };
         if !met {
@@ -582,7 +757,11 @@ impl Learning<'_> {
         let at = iso(now);
         let lock = format!("{user_id}:{slug}:completion");
         sql::serializable(self.pool, |tx| {
-            exec(tx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", &[&lock])?;
+            exec(
+                tx,
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                &[&lock],
+            )?;
             let row = first(
                 tx,
                 &format!(
@@ -607,7 +786,14 @@ impl Learning<'_> {
             if let Some(f) = alongside {
                 f(tx)?;
             }
-            Ok((Completion { user_id: cell(&row, 0)?, item_slug: cell(&row, 1)?, completed_at: cell(&row, 2)? }, true))
+            Ok((
+                Completion {
+                    user_id: cell(&row, 0)?,
+                    item_slug: cell(&row, 1)?,
+                    completed_at: cell(&row, 2)?,
+                },
+                true,
+            ))
         })
     }
 
@@ -626,16 +812,29 @@ impl Learning<'_> {
         }
         let request = js_trim(client_request_id).to_owned();
         // `new Date(input.completedAt)` as a parameter.
-        let completed = service_kit::time::js_date(completed_at).map_or_else(|| completed_at.to_owned(), |t| t.iso());
+        let completed = service_kit::time::js_date(completed_at)
+            .map_or_else(|| completed_at.to_owned(), |t| t.iso());
         let at = iso(now);
         let answer = |undone: Json| {
-            Json::obj([("userId", Json::str(user_id)), ("itemSlug", Json::str(slug.clone())), ("undoneAt", undone)])
+            Json::obj([
+                ("userId", Json::str(user_id)),
+                ("itemSlug", Json::str(slug.clone())),
+                ("undoneAt", undone),
+            ])
         };
         let request_lock = format!("{user_id}:{request}:undo-request");
         let item_lock = format!("{user_id}:{slug}:completion");
         let undone = sql::serializable(self.pool, |tx| {
-            exec(tx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", &[&request_lock])?;
-            exec(tx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", &[&item_lock])?;
+            exec(
+                tx,
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                &[&request_lock],
+            )?;
+            exec(
+                tx,
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                &[&item_lock],
+            )?;
             let replay = first(
                 tx,
                 &format!(
@@ -686,7 +885,11 @@ impl Learning<'_> {
 pub fn require_reason(reason: &str) -> Result<String, Refusal> {
     let trimmed = js_trim(reason);
     if trimmed.is_empty() {
-        return Err(AcademyError::new("academy.reason_required a reason is required", "academy.reason_required").into());
+        return Err(AcademyError::new(
+            "academy.reason_required a reason is required",
+            "academy.reason_required",
+        )
+        .into());
     }
     Ok(trimmed.to_owned())
 }
@@ -712,7 +915,8 @@ impl Learning<'_> {
         if !spine::has(&slug) {
             return Err(curriculum_not_found());
         }
-        let done = |what: &str| Json::obj([("userId", Json::str(user_id)), ("done", Json::str(what))]);
+        let done =
+            |what: &str| Json::obj([("userId", Json::str(user_id)), ("done", Json::str(what))]);
         let stored_key = mark_key(user_id, &slug, key);
         let recorded = sql::on_pool(self.pool, |c| {
             first(
@@ -734,7 +938,15 @@ impl Learning<'_> {
                 "INSERT INTO academy.learner_events (user_id, kind, key, item_slug, detail, reason, actor_id, at) \
                  VALUES ($1::text::uuid, 'marked_complete', $2, $3, $4, $5, $6::text::uuid, $7::text::timestamptz) \
                  ON CONFLICT (key) DO NOTHING",
-                &[&user_id, &stored_key, &slug, &detail, &reason, &operator_id, &at],
+                &[
+                    &user_id,
+                    &stored_key,
+                    &slug,
+                    &detail,
+                    &reason,
+                    &operator_id,
+                    &at,
+                ],
             )?;
             Ok(())
         };

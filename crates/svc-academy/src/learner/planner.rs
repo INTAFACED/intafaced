@@ -4,9 +4,9 @@
 //! The per-learner cap is the owner's (`ACADEMY_PLANNER_TODO_LIMIT`): unset, adding refuses `academy.planner_limit_unset`.
 //! Academy has no mail sender, so a goal reminder names `vendor.email`.
 
+use super::sql::Pool;
 use postgres::Row;
 use service_kit::json::Json;
-use super::sql::Pool;
 use service_kit::schema::js_trim;
 
 use super::sql::{self, cell, exec, first, iso, ms, q};
@@ -18,11 +18,7 @@ pub const GOAL_MAX: i64 = 100;
 const WEEK_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 fn todo_columns() -> String {
-    format!(
-        "id::text, text, {}, {}",
-        ms("created_at"),
-        ms("done_at")
-    )
+    format!("id::text, text, {}, {}", ms("created_at"), ms("done_at"))
 }
 
 /// `todoView`.
@@ -229,7 +225,10 @@ impl Planner<'_> {
         now: i64,
     ) -> Result<Json, Refusal> {
         let whole = items_per_week.is_finite() && items_per_week.fract() == 0.0;
-        #[expect(clippy::cast_possible_truncation, reason = "a whole number in the bounds checked here")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a whole number in the bounds checked here"
+        )]
         let n = items_per_week as i64;
         if !whole || !(GOAL_MIN..=GOAL_MAX).contains(&n) {
             return Err(AcademyError::new(

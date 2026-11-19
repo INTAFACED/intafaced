@@ -240,7 +240,10 @@ impl AcademyDoor {
     }
 
     /// One pass of the purchase reconciler (`reconcileCoursePurchases`): up to 100 open purchases and 100 set aside.
-    pub fn reconcile_course_purchases(&self, on_error: &mut dyn FnMut(&str, &Refusal)) -> Result<usize, Refusal> {
+    pub fn reconcile_course_purchases(
+        &self,
+        on_error: &mut dyn FnMut(&str, &Refusal),
+    ) -> Result<usize, Refusal> {
         crate::learner::purchases::CoursePurchases {
             pool: &self.store,
             deps: crate::learner::purchases::Deps::of(&self.ports),

@@ -10,10 +10,10 @@
 //! The assessment, certificate and authoring slices own the writes; these reads are the learner slice's copies of their
 //! SELECTs until those slices expose them.
 
+use super::sql::Pool;
 use postgres::GenericClient;
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
-use super::sql::Pool;
 
 use super::purchases::canonical_price;
 use super::sql::{self, cell, column, first, iso, ms, q};
@@ -30,7 +30,11 @@ pub fn published_slugs(pool: &Pool) -> Result<std::collections::BTreeSet<String>
 }
 
 /// `passedSlugs(userId, now)`.
-pub fn passed_slugs(pool: &Pool, user_id: &str, now: i64) -> Result<std::collections::BTreeSet<String>, Refusal> {
+pub fn passed_slugs(
+    pool: &Pool,
+    user_id: &str,
+    now: i64,
+) -> Result<std::collections::BTreeSet<String>, Refusal> {
     let at = iso(now);
     let rows = sql::on_pool(pool, |c| {
         q(
@@ -60,8 +64,18 @@ pub fn quiz_pass_mark(pool: &Pool, slug: &str) -> Result<Option<Option<i32>>, Re
 
 /// One `GradeRow`.
 pub enum Grade {
-    Pending { slug: String, attempts: i32, hidden_until: i64 },
-    Released { slug: String, attempts: i32, score: i32, possible: i32, passed: bool },
+    Pending {
+        slug: String,
+        attempts: i32,
+        hidden_until: i64,
+    },
+    Released {
+        slug: String,
+        attempts: i32,
+        score: i32,
+        possible: i32,
+        passed: bool,
+    },
 }
 
 impl Grade {
@@ -102,7 +116,11 @@ pub fn grades(pool: &Pool, user_id: &str, now: i64) -> Result<Vec<Grade>, Refusa
             let slug: String = cell(r, 0)?;
             let attempts: i32 = cell(r, 4)?;
             Ok(match cell::<Option<i64>>(r, 5)? {
-                Some(hidden_until) => Grade::Pending { slug, attempts, hidden_until },
+                Some(hidden_until) => Grade::Pending {
+                    slug,
+                    attempts,
+                    hidden_until,
+                },
                 None => Grade::Released {
                     slug,
                     attempts,
@@ -119,7 +137,10 @@ pub fn grades(pool: &Pool, user_id: &str, now: i64) -> Result<Vec<Grade>, Refusa
 pub fn course_starts_at(c: &mut impl GenericClient, path: &str) -> Result<Option<i64>, Refusal> {
     Ok(first(
         c,
-        &format!("SELECT {} FROM academy.course_starts WHERE path = $1", ms("starts_at")),
+        &format!(
+            "SELECT {} FROM academy.course_starts WHERE path = $1",
+            ms("starts_at")
+        ),
         &[&path],
     )?
     .map(|r| cell::<Option<i64>>(&r, 0))
@@ -139,7 +160,12 @@ pub struct Terms {
 impl Terms {
     /// `NO_TERMS`.
     pub fn none() -> Terms {
-        Terms { seat_cap: None, opens_at: None, closes_at: None, visibility: "published".to_owned() }
+        Terms {
+            seat_cap: None,
+            opens_at: None,
+            closes_at: None,
+            visibility: "published".to_owned(),
+        }
     }
 }
 
@@ -167,7 +193,11 @@ pub fn course_terms(c: &mut impl GenericClient, path: &str) -> Result<Terms, Ref
 /// `CourseTermsStore.unlisted()`.
 pub fn unlisted(pool: &Pool) -> Result<Vec<String>, Refusal> {
     let rows = sql::on_pool(pool, |c| {
-        q(c, "SELECT path FROM academy.course_enrolment_terms WHERE visibility <> 'published'", &[])
+        q(
+            c,
+            "SELECT path FROM academy.course_enrolment_terms WHERE visibility <> 'published'",
+            &[],
+        )
     })?;
     column(&rows)
 }
@@ -185,7 +215,10 @@ pub fn closed_reason(terms: &Terms, seats_taken: i64, now: i64) -> Option<&'stat
     if terms.closes_at.is_some_and(|c| now >= c) {
         return Some("window_ended");
     }
-    if terms.seat_cap.is_some_and(|cap| seats_taken >= i64::from(cap)) {
+    if terms
+        .seat_cap
+        .is_some_and(|cap| seats_taken >= i64::from(cap))
+    {
         return Some("full");
     }
     None
@@ -215,7 +248,10 @@ fn tenths_of(part: i128, whole: i128) -> String {
 fn hundredths(level: &str) -> Result<i128, Refusal> {
     parse_amount(level)
         .map(|a| a / 10i128.pow(16))
-        .map_err(|e| Refusal::Internal { message: e, code: None })
+        .map_err(|e| Refusal::Internal {
+            message: e,
+            code: None,
+        })
 }
 
 const SCALE: Amount = 1_000_000_000_000_000_000;
@@ -224,7 +260,10 @@ const DAY_MS: Amount = 86_400_000;
 const CENT: Amount = SCALE / 100;
 
 fn amount(s: &str) -> Result<Amount, Refusal> {
-    parse_amount(s).map_err(|e| Refusal::Internal { message: e, code: None })
+    parse_amount(s).map_err(|e| Refusal::Internal {
+        message: e,
+        code: None,
+    })
 }
 
 /// `lateScore(entered, points, submittedAt, dueAt, policy)`'s score.
@@ -249,7 +288,11 @@ pub fn late_score(
     let off = ((amount(points)? * share / SCALE + CENT - 1) / CENT) * CENT;
     let kept = amount(entered)? - off;
     let score = format_amount(kept.max(0));
-    Ok(if score == format_amount(amount(entered)?) { entered.to_owned() } else { score })
+    Ok(if score == format_amount(amount(entered)?) {
+        entered.to_owned()
+    } else {
+        score
+    })
 }
 
 /// `courseGrades(userId)`: per course the learner is enrolled in, each assignment's state and score, and the average.
@@ -293,7 +336,13 @@ pub fn course_grades(pool: &Pool, user_id: &str) -> Result<Json, Refusal> {
     for r in &rows {
         let course_id: String = cell(r, 0)?;
         if !courses.iter().any(|c| c.0 == course_id) {
-            courses.push((course_id.clone(), cell(r, 1)?, cell(r, 2)?, Vec::new(), Vec::new()));
+            courses.push((
+                course_id.clone(),
+                cell(r, 1)?,
+                cell(r, 2)?,
+                Vec::new(),
+                Vec::new(),
+            ));
         }
         let Some(course) = courses.iter_mut().find(|c| c.0 == course_id) else {
             continue;
@@ -319,7 +368,9 @@ pub fn course_grades(pool: &Pool, user_id: &str) -> Result<Json, Refusal> {
                 let deduction: Option<String> = cell(r, 14)?;
                 // `policyOf(row)`: both stored values, as `formatAmount(parseAmount(..))`.
                 let policy = match (&grace, &deduction) {
-                    (Some(g), Some(d)) => Some((format_amount(amount(g)?), format_amount(amount(d)?))),
+                    (Some(g), Some(d)) => {
+                        Some((format_amount(amount(g)?), format_amount(amount(d)?)))
+                    }
                     _ => None,
                 };
                 let possible = canonical_price(&graded_points);
@@ -354,7 +405,13 @@ pub fn course_grades(pool: &Pool, user_id: &str) -> Result<Json, Refusal> {
                     "not_attempted"
                 };
                 let [a, b, c] = head;
-                Json::obj([("state", Json::str(state)), a, b, c, ("possible", Json::str(canonical_price(&points)))])
+                Json::obj([
+                    ("state", Json::str(state)),
+                    a,
+                    b,
+                    c,
+                    ("possible", Json::str(canonical_price(&points))),
+                ])
             }
         };
         course.3.push(row);
@@ -371,7 +428,10 @@ pub fn course_grades(pool: &Pool, user_id: &str) -> Result<Json, Refusal> {
                     vec![Json::obj([
                         ("type", Json::str("assignment")),
                         ("percent", Json::str(tenths_of(score, possible))),
-                        ("count", Json::int(i64::try_from(graded.len()).unwrap_or(i64::MAX))),
+                        (
+                            "count",
+                            Json::int(i64::try_from(graded.len()).unwrap_or(i64::MAX)),
+                        ),
                     ])]
                 };
                 Json::obj([
@@ -402,13 +462,31 @@ mod tests {
         let due = 0;
         let day = 86_400_000;
         // On time, or within the grace: nothing taken off.
-        assert_eq!(late_score("8", "10", due, Some(due), Some(("24", "0.1"))).unwrap(), "8");
-        assert_eq!(late_score("8", "10", due + day, Some(due), Some(("24", "0.1"))).unwrap(), "8");
+        assert_eq!(
+            late_score("8", "10", due, Some(due), Some(("24", "0.1"))).unwrap(),
+            "8"
+        );
+        assert_eq!(
+            late_score("8", "10", due + day, Some(due), Some(("24", "0.1"))).unwrap(),
+            "8"
+        );
         // One started day past the grace: a tenth of the points.
-        assert_eq!(late_score("8", "10", due + day + 1, Some(due), Some(("24", "0.1"))).unwrap(), "7");
+        assert_eq!(
+            late_score("8", "10", due + day + 1, Some(due), Some(("24", "0.1"))).unwrap(),
+            "7"
+        );
         // Never below zero; no policy or no due date, nothing.
-        assert_eq!(late_score("8", "10", due + 30 * day, Some(due), Some(("0", "0.5"))).unwrap(), "0");
-        assert_eq!(late_score("8", "10", due + 30 * day, None, Some(("0", "0.5"))).unwrap(), "8");
-        assert_eq!(late_score("8", "10", due + 30 * day, Some(due), None).unwrap(), "8");
+        assert_eq!(
+            late_score("8", "10", due + 30 * day, Some(due), Some(("0", "0.5"))).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            late_score("8", "10", due + 30 * day, None, Some(("0", "0.5"))).unwrap(),
+            "8"
+        );
+        assert_eq!(
+            late_score("8", "10", due + 30 * day, Some(due), None).unwrap(),
+            "8"
+        );
     }
 }
