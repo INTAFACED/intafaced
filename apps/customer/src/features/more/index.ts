@@ -5,5 +5,10 @@
  */
 export { Read, Select, TextArea } from './common';
 export { downloadCsv } from './depth-csv';
+export { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from './guest-rooms';
 export { utcInput } from './quant-analysis';
+export { sendArticleFeedback } from './support-calls';
+export { chatCopy } from './support-chat-copy';
+export { useSupportContact, type SupportContact } from './support-contact';
+export { supportMailto, supportNewHref, supportRequestHref } from './support-desk';
 export { preservePaperHref } from './trade-context';

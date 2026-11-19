@@ -1,6 +1,6 @@
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SupportContact } from '../more/support-contact';
+import type { SupportContact } from '../more';
 
 // Server rendering has no browser store to subscribe to, so the preferences hook answers with the stored defaults.
 vi.mock('../../shared/preferences', async (original) => {
@@ -9,12 +9,12 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 const hook = vi.hoisted(() => ({ value: null as unknown as SupportContact }));
-vi.mock('../more/support-contact', async (original) => {
-  const real = await original<typeof import('../more/support-contact')>();
+vi.mock('../more', async (original) => {
+  const real = await original<typeof import('../more')>();
   return { ...real, useSupportContact: () => hook.value };
 });
 
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { ContactSupport } from './ContactSupport';
 
 const html = () =>

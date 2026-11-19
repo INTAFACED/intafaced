@@ -1,8 +1,6 @@
-import { useSession } from '../session/session';
-import { useSupportContact } from '../more/support-contact';
-import { supportMailto } from '../more/support-desk';
+import { useSession } from '../session';
+import { chatCopy, supportMailto, useSupportContact } from '../more';
 import { contactCopy } from './contact-copy';
-import { chatCopy } from '../more/support-chat-copy';
 import './public-pages.css';
 
 /**
