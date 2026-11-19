@@ -1,7 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { founderCall, type FounderCallContext, type FounderCallResult, partFrom, type PartLabels, explainRefusal } from '@/lib/desk';
 import { readDefinition } from './status-model';
 import {
   readChannels,

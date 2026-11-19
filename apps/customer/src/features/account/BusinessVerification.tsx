@@ -1,6 +1,6 @@
 import { Page } from '../../shared/ui';
 import { businessCopy } from './business-verification-copy';
-import '../public/public-pages.css';
+import '../../shared/public-pages.css';
 
 const STEPS = [
   { path: '/pay/onboarding/business', title: 'step1', body: 'step1Body' },

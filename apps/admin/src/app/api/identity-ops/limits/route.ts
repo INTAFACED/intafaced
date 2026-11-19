@@ -2,7 +2,7 @@ import { limitReviewInputSchema } from '@intafaced/contracts/api-rate-limits';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { explainLimitFailure } from '@/lib/identity-ops/limits-refusal';
 import { loadLimitDesk, reviewLimit } from '@/lib/identity-ops/limits-server';

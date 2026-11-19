@@ -4,7 +4,7 @@ import { Button, Field, Failure, Loading } from '../../shared/ui';
 import { useLocation } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import { useResource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
 import { ContactSupport } from './ContactSupport';
@@ -17,7 +17,7 @@ import { kbArticleText } from './kb-text';
 import { canonicalUiLocale, uiLocaleDescriptor } from '../../shared/locale';
 import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
 import './help.css';
-import '../more/support-desk.css';
+import '../../shared/support-desk.css';
 
 type Actor = { client: ApiClient; owner: string | null; token: string | null };
 type Context = { actor: Actor; url: string };

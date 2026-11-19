@@ -1,7 +1,6 @@
 import 'server-only';
 import { supportVerificationCheckSchema, supportVerificationChecksSchema } from '@intafaced/contracts/support-verification-checks';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, type FounderCallResult, partFrom, type PartLabels } from '@/lib/desk';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import type { SupportVerificationView, VerificationRequest } from './verification';
 

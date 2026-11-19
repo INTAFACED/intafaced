@@ -1,6 +1,5 @@
-import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS } from '@/lib/ops-desk/catalog';
+import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS, type Column, type ReadSpec, type Unavailable } from '@/lib/ops-desk';
 import type { KycSelfieForCompliance } from '@intafaced/contracts/identity-kyc-selfie';
-import type { Column, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
 import type { CustomerTab } from './tabs';
 
 export {

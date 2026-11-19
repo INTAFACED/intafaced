@@ -4,8 +4,7 @@ import {
   protocolOpsPoolsListOutputSchema,
   protocolOpsReasonCodesOutputSchema,
 } from '@intafaced/contracts/protocol-ops';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
 
 type Hidden = { reasonCode: string; reason: string; approvalId: string; policyVersion: string; at: string };
 type State = 'visible' | 'hidden' | 'applying';

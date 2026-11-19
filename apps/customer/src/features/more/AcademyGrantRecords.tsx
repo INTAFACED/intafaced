@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Details } from './common';
 import type { AcademyAction } from './academy-action';
 import type { GrantRecord } from './academy-grant-api';

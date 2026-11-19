@@ -11,8 +11,8 @@ vi.mock('../../shared/preferences', async (original) => {
     currentPreferences: () => ({ ...real.currentPreferences(), hideBalances: true }),
   };
 });
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   return { ...real, useSession: () => ({ api: { canWrite: () => true, query: async () => ({ ok: false }) }, userId: 'user-1' }) as never };
 });
 import { businessCopy } from './business-copy';

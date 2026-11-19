@@ -5,7 +5,7 @@ import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
 import { bpsAsPercent, publicFeesFetcher, rowFor, type PublicFeeRow, type PublicFeeSchedule } from './fees';
 import { feesCopy } from './fees-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * /fees: the published spot fee schedule for anyone, signed in or not (SP-fees-vip-02, J-cex-spot-10 #2). One table per

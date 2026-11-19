@@ -16,7 +16,7 @@ import {
 import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { StepUpConfirm } from '../StepUpConfirm';
 import { useHeldId } from '../business-team/held-id';
 

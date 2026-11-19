@@ -1,4 +1,4 @@
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { selfFreezeCopy as copy } from './self-freeze-copy';
 import { freezeStatus } from './self-freeze';

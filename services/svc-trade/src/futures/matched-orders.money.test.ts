@@ -509,6 +509,30 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect(await bal(futuresOrderMarginAccount(ALICE, USDT, first.orderId))).toBe(A('10'));
     });
 
+    it('the same clientOrderId sent twice at once places one order: no call fails on a duplicate key (#8877)', async () => {
+      const svc = build();
+      // Every call passes the pre-check before any has inserted. A narrow window, so 20 rounds of 8 at once; on the
+      // targeted insert the losers raised 23505 futures_orders_pkey every run.
+      for (let round = 0; round < 20; round += 1) {
+        const clientOrderId = `at-once-${round}`;
+        const input = order({ userId: ALICE, side: 'buy', qty: A('0.01'), clientOrderId });
+        const outs = await Promise.allSettled(Array.from({ length: 8 }, () => svc.place(principal(ALICE), input)));
+        const orderId = matchedOrderIdFor(ALICE, MARKET, clientOrderId);
+        // A loser that replays while the winner's submit is in flight gets the typed in-flight refusal, as any retry
+        // does then; every other call answers with the one order. Nothing else, and never a duplicate key.
+        for (const out of outs) {
+          if (out.status === 'fulfilled') expect(out.value.orderId).toBe(orderId);
+          else expect(out.reason).toMatchObject({ code: 'trade.futures_submit_unknown', status: 503 });
+        }
+        expect(outs.some((o) => o.status === 'fulfilled')).toBe(true);
+        const rows = await sql`SELECT id FROM trade.futures_orders WHERE user_id = ${ALICE} AND client_order_id = ${clientOrderId}`;
+        expect(rows.map((r) => r.id)).toEqual([orderId]);
+        expect(engine.submits.filter((s) => s.orderId === orderId)).toHaveLength(1);
+        expect(await bal(futuresOrderMarginAccount(ALICE, USDT, orderId))).toBe(A('0.1'));
+      }
+      await assertBooksAgree();
+    }, 60_000);
+
     it('a retry that names a different order refuses', async () => {
       const svc = build();
       await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'same' }));

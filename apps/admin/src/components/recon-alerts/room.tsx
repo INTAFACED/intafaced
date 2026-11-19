@@ -8,7 +8,7 @@ import type {
 } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import type { Part } from '@/lib/desk/part';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import { NOTICE_WORDS, TEAM_WORDS, closeBlocked, refusalWords } from '@/lib/recon-alerts/model';
 import type { AlertsRoom as Room } from '@/lib/recon-alerts/read';
 import { AlertAccept } from './accept';

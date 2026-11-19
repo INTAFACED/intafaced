@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { ApiClient } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { businessListSchema } from '../money/business-schema';
+import { businessListSchema } from './business-schema';
 import { businessProfiles, resolveProfile, type BusinessProfile, type ProfileNotice } from './profiles';
 
 /** Rows asked of the bank for the person's business accounts. */

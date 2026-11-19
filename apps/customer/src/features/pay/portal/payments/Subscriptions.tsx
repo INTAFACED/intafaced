@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useSession } from '../../../session/session';
+import { useSession } from '../../../session';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
 import { EmptyState } from '../../ui-kit';

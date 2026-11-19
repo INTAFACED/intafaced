@@ -809,15 +809,26 @@ export class CopyService {
     }
     const asset = copyQuoteAsset(input.permittedMarkets);
     const venueFollows = this.venueFollows;
-    return this.follow(principal, input, {
-      followId,
-      leaderId,
-      region,
-      reserveAsset: null,
-      beforeSave: async () => {
-        await venueFollows.bind(principal.userId, followId, input.agentAccountId, asset, this.now());
-      },
-    });
+    try {
+      return await this.follow(principal, input, {
+        followId,
+        leaderId,
+        region,
+        reserveAsset: null,
+        beforeSave: async () => {
+          await venueFollows.bind(principal.userId, followId, input.agentAccountId, asset, this.now());
+        },
+      });
+    } catch (err) {
+      // The same press sent twice at once: nothing serialises a leader with no listing row, so the loser meets the
+      // winner's row on the one-live-follow index, or in the already-following check once it has committed.
+      // The row under this request's follow id is the follow this request made: answer it, as a later retry would.
+      if (err instanceof CopyError && err.code === 'trade.copy_already_following') {
+        const won = await this.store.getFollow(followId);
+        if (won && won.followerId === principal.userId) return this.presentFollow(won);
+      }
+      throw err;
+    }
   }
 
   /**

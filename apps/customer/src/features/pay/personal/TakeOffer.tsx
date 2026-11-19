@@ -14,11 +14,11 @@ import { p2pDepth } from './p2p-depth-copy';
 import { TraderName, useTraders } from './Trader';
 import { P2PEligibilityPanel, StaySafe } from './Eligibility';
 import { TakeSettlementNotice } from './Settlement';
-import { StepUpConfirm } from '../../money/StepUpConfirm';
+import { StepUpConfirm } from '../../money';
 import { ContractEscrowChoice, useContractEscrowChoice } from './ContractEscrow';
-import { WalletProvider } from '../../protocol/wallet/WalletProvider';
+import { WalletProvider } from '../../protocol';
 import { contractEscrowCopy as escrowCopy } from './contract-escrow-copy';
-import type { StepUpBegin } from '../../account/security-step-up';
+import type { StepUpBegin } from '../../account';
 import {
   checkTake,
   exceedsAvailable,

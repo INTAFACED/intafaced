@@ -1,5 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
+import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk';
 import { customerReference, OUTCOMES, type AgentsLogAction, type CustomerReference } from './model';
 
 /**

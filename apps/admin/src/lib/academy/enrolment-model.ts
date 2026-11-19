@@ -5,8 +5,7 @@ import type {
   AcademyReportTask,
   AcademyStaffEnrolmentEvent,
 } from '@intafaced/contracts/academy-staff-enrolment';
-import type { Part } from '@/lib/desk/part';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { Part, RefusalView } from '@/lib/desk';
 
 /**
  * Staff enrolment, invitations, course email and learner exports (J-academy-15). Pure, so the server loader, the route

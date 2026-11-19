@@ -3,6 +3,7 @@
  * are the real router's (`services/svc-notify/src/router.ts`): list({limit, cursor?, unreadOnly?}), unreadCount, markRead({ids}),
  * markAllRead, channels, mutePrefs, setMute. `limit` is always sent: the service refuses a list without one.
  */
+import { NOTIFY_INBOX_POLICY } from '@intafaced/contracts/notify-inbox-policy';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 
@@ -49,6 +50,13 @@ export function listNotifications(api: ApiClient, args: ListArgs, signal?: Abort
 export async function unreadCount(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<number>> {
   const result = await api.query('notify', 'notify.unreadCount', undefined, countSchema, { signal });
   return result.ok ? { ok: true, data: result.data.count } : result;
+}
+
+/** The owner's inbox settings: the page size `notify.list` is asked for and the bell's "<cap>+" ceiling; null while unset. */
+export type InboxPolicy = { pageSize: number | null; unreadCap: number | null };
+export async function inboxPolicy(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<InboxPolicy>> {
+  const result = await api.call(NOTIFY_INBOX_POLICY, undefined, { signal });
+  return result.ok ? { ok: true, data: { pageSize: result.data.pageSize, unreadCap: result.data.unreadCap } } : result;
 }
 
 export function markRead(api: ApiClient, ids: readonly string[]): Promise<ApiResult<{ marked: number }>> {

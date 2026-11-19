@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import type { RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { marketAnalyticsCopy } from './market-analytics-copy';
 
 /**

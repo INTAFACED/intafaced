@@ -1,9 +1,16 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
 import { actionApprovalSchema } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type Part,
+  type PartLabels,
+  explainRefusal,
+} from '@/lib/desk';
 import { readDefinition } from './status-model';
 import {
   readOperatorNotices,

@@ -1,7 +1,6 @@
 import { findRoom, roomDescription, roomTitle } from '../../app/navigation';
-import { useSession } from '../session/session';
-import { useSupportContact } from '../more/support-contact';
-import { supportMailto } from '../more/support-desk';
+import { useSession } from '../session';
+import { supportMailto, useSupportContact } from '../more';
 import { ContactSupport } from './ContactSupport';
 import { NoticeDetail, NoticeFeed } from './NoticeFeed';
 import { doorSummaries } from './public-catalogue';
@@ -10,7 +9,7 @@ import { usePartnerSettings } from './partner-settings';
 import { useAppStoreLink } from './app-store-link';
 import { pagesCopy } from './public-pages-copy';
 import { publicCopy } from './public-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * /partner: where a partnership enquiry goes. The form is on the invitation site at the founders' join address; this page

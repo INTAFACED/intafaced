@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { distributionsMineSchema, type DistributionKind, type DistributionRecord } from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, DataTable, Failure, Loading, Page } from '../../shared/ui';
 import { dividendsCopy as copy } from './dividends-copy';

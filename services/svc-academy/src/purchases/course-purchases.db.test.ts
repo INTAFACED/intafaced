@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { LedgerError, type LedgerClient } from '@intafaced/ledger-client';
+import { recipePosterOver } from '@intafaced/ledger-client/post-recipe';
 import { CourseRecords } from '../curriculum/courses.js';
 import { CoursePreview } from '../curriculum/course-preview.js';
 import { CourseLearners } from '../curriculum/course-learners.js';
@@ -146,7 +147,7 @@ async function paidCourse(price: string | null = '2.5', asset = 'USDC', slug = '
 }
 
 const make = (settings: PaymentSettings | null = SETTINGS) => {
-  purchases = new CoursePurchases(db.sql, { settings, chain, ledger: purchaseLedger(ledger.client), refunds, wallets });
+  purchases = new CoursePurchases(db.sql, { settings, chain, ledger: purchaseLedger(recipePosterOver(ledger.client)), refunds, wallets });
   learners = new CourseLearners(db.sql, new CoursePreview(db.sql), purchases);
 };
 const pay = (hash = PAY, amount = 2_500_000n, from = WALLET, to = RECEIVER) => chain.mine(hash, [{ from, to, amount }]);
@@ -590,7 +591,13 @@ describe('course purchases', () => {
 
   it('with no refund signer, a refund refuses by name and nothing changes', async () => {
     await paidCourse();
-    purchases = new CoursePurchases(db.sql, { settings: SETTINGS, chain, ledger: purchaseLedger(ledger.client), refunds: null, wallets });
+    purchases = new CoursePurchases(db.sql, {
+      settings: SETTINGS,
+      chain,
+      ledger: purchaseLedger(recipePosterOver(ledger.client)),
+      refunds: null,
+      wallets,
+    });
     await expect(purchases.refund({ key: KEY, reason: 'r', actorId: STAFF })).rejects.toMatchObject({
       code: 'academy.refund_sender_unset',
     });

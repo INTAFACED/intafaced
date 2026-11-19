@@ -58,12 +58,15 @@ const WAITING = new Set(['queued', 'waiting', 'pending', 'requested']);
 /** real-app-journeys.yml's planner: the touch job plans the shards too, so until it finishes a main run has not queued its
  *  shards (workflow-concurrency.test.mjs holds the name). */
 export const PLAN_JOB = TOUCH_JOB;
+/** real-app-journeys.yml's build job: the shards wait on it too (`needs: [touch, build]`), so a main run whose build has
+ *  not ended has not queued its shards either (workflow-concurrency.test.mjs holds the name). */
+export const BUILD_JOB = 'Build the stack once';
 
 /**
  * Why a main run is still waiting for runners, or null when none is. `runs` are WORKFLOW's runs on main not completed;
  * `jobsOf(id)` gives one run's latest jobs. A run waiting in its concurrency group (`pending`, behind the running main
  * run) needs no runner yet, so it holds nothing back. A run `queued`, or in progress with a job waiting for a runner
- * or its planner not finished (its shards are queued when the planner ends), is still taking runners. A run whose jobs
+ * or its planner or build not finished (its shards are queued when both end), is still taking runners. A run whose jobs
  * can't be read is passed over. Pure apart from `jobsOf`, so its tests run offline.
  */
 export async function mainWaiting(runs, jobsOf) {
@@ -80,6 +83,8 @@ export async function mainWaiting(runs, jobsOf) {
     const waiting = jobs.filter((j) => WAITING.has(j?.status));
     if (waiting.length) return `main's run ${run.id} has ${waiting.length} job(s) waiting for a runner`;
     if (!jobs.some((j) => j?.name === PLAN_JOB && j?.status === 'completed')) return `main's run ${run.id} has not queued its shards yet`;
+    if (jobs.some((j) => j?.name === BUILD_JOB && j?.status !== 'completed'))
+      return `main's run ${run.id} has not queued its shards yet (its build is running)`;
   }
   return null;
 }

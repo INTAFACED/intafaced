@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 import { Button, Dialog, Failure } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 
 const copy = defineCopy('api-keys-revoke-all', {
   open: 'Revoke all keys',

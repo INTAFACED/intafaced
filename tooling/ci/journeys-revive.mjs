@@ -37,7 +37,9 @@
  * It runs after each Real-app journeys run on main ends (main-trust.yml post-merge, `prs`), so it follows main's
  * report coming back within minutes, and on the hourly `revive` tick after the main pass, for any other input outage.
  *
- * A refused request (403, 429) stops the tick, never retried, and opens one issue (REFUSED_TITLE) when GitHub still takes it.
+ * A refused request (403, 429) stops the tick, never retried, and opens one issue (REFUSED_TITLE) when GitHub still takes it;
+ * a spent hourly budget (remaining 0, with its reset: refusal.mjs budgetSpentUntil) stops it too, with no issue, since the
+ * next tick after the reset starts again from scratch.
  *
  *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
  *   node tooling/ci/journeys-revive.mjs prs    pull requests only
@@ -48,7 +50,7 @@
  */
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
 import { JOURNEY_TEST, journeyOf } from './journey-seal.mjs';
-import { refusalDetail } from './refusal.mjs';
+import { budgetSpentUntil, refusalDetail } from './refusal.mjs';
 
 export const MAX_ATTEMPT = 5;
 /** Minutes to wait after attempt n ended before asking for attempt n + 1. */
@@ -445,8 +447,11 @@ async function gh(method, path, body, raw = false) {
   const text = await res.text();
   // AGENTS.md's one exception: "already running" on a re-run only means a re-run is in progress.
   if (res.status === 403 && /already running/i.test(text)) return { status: 403, json: null, alreadyRunning: true };
-  if (res.status === 403 || res.status === 429)
-    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying${refusalDetail(res.headers, text)}`);
+  if (res.status === 403 || res.status === 429) {
+    const e = new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying${refusalDetail(res.headers, text)}`);
+    e.budgetSpentUntil = budgetSpentUntil(res.status, res.headers);
+    throw e;
+  }
   if (method === 'GET' && !res.ok) throw new Error(`GitHub ${res.status} on GET ${path}`);
   if (raw) return { status: res.status, text };
   return { status: res.status, json: text ? JSON.parse(text) : null };
@@ -530,8 +535,12 @@ export function githubIo(repo) {
   };
 }
 
-/** After a refusal: one issue, if GitHub still takes it; its own failure is only logged. */
-async function nameRefusal(io, e) {
+/** After a refusal: one issue, if GitHub still takes it; its own failure is only logged. A spent budget opens none. */
+export async function nameRefusal(io, e) {
+  if (e.budgetSpentUntil) {
+    console.error(`journeys-revive: the API budget is spent until ${e.budgetSpentUntil}; the next tick after it starts again, no issue`);
+    return;
+  }
   try {
     if (await io.openIssue(REFUSED_TITLE)) return;
     await io.createIssue(

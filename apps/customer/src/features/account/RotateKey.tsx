@@ -3,7 +3,7 @@ import { API_KEY_ROTATE_REFUSALS, type ApiKeyRotateOutput } from '@intafaced/con
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 import { Button, Dialog, Failure, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { ShownOnce } from './ApiKeyCreate';
 import { rotateDeveloperKey } from './developer-keys-api';
 

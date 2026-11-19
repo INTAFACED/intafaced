@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
-import { sessionSchema } from '../session/session';
+import { sessionSchema } from '../session';
 
 // hand-declared-ok: svc-identity's sign-up answers (auth.signUpStart, auth.signUpConfirm) have no browser-safe schema in packages/contracts yet
 

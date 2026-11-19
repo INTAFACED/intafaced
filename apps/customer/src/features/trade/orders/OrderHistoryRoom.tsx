@@ -6,7 +6,7 @@ import type { ApiResult } from '../../../shared/api';
 import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
 import { useDeskMarkets } from '../../../screens/trade/desk/data';
 import { OrdersTable, precisionOf } from '../../../screens/trade/desk/OrderTables';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { createTradeApi, type Order } from '../trade-api';
 import { appendPage, NO_PARAMS, PAGE_SIZES, readParams, toQuery, writeParams, type HistoryParams } from './history-query';
 import { ordersCopy, type OrdersT } from './orders-copy';

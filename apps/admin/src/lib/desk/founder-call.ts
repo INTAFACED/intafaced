@@ -1,4 +1,11 @@
 import 'server-only';
+import {
+  replyAccepted,
+  type ProcedureInput,
+  type ProcedureOutput,
+  type ProcedureRecord,
+  type TrpcTransport,
+} from '@intafaced/contracts/procedure';
 import type { AdminSessionConfig, FounderSession } from '@/lib/founder-session';
 
 /**
@@ -202,4 +209,31 @@ export function parseWith<T>(schema: {
     const result = schema.safeParse(raw);
     return result.success ? result.data : null;
   };
+}
+
+type TrpcCallRecord = ProcedureRecord & TrpcTransport & { readonly module: CallModule };
+
+/**
+ * `founderCall` through the call's record: the module, path and method come from the record, the input is checked by it
+ * before it leaves, and the answer is parsed by `record.output` and the record's `accept` checks.
+ */
+export async function founderRecordCall<R extends TrpcCallRecord>(
+  ctx: FounderCallContext,
+  record: R,
+  input: ProcedureInput<R>,
+  options: FounderCallOptions = {},
+): Promise<FounderCallResult<ProcedureOutput<R>>> {
+  const checked: unknown = input === undefined ? undefined : record.input.parse(input);
+  return founderCall(
+    ctx,
+    record.module,
+    record.path,
+    record.kind === 'query' ? 'GET' : 'POST',
+    checked,
+    (raw) => {
+      const parsed = record.output.safeParse(raw);
+      return parsed.success && replyAccepted(record, parsed.data) ? (parsed.data as ProcedureOutput<R>) : null;
+    },
+    options,
+  );
 }

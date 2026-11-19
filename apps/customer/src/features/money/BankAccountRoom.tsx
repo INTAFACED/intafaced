@@ -1,6 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { defineCopy } from '../../shared/i18n';
 import { useResource } from '../../shared/resource';
 import { DepthPanel } from './DepthParts';

@@ -1,16 +1,15 @@
 import 'server-only';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal, handleStep, refusalResponse, stepResponse } from '@/lib/desk';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { handleStep, refusalResponse, stepResponse } from '@/lib/desk/step-route';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { DESKS, readSpecFor } from './catalog';
 import { readDirectRequest } from './direct-model';
 import { runDirect } from './direct';
 import { opsExecute } from './execute';
 import { loadCustomerBalances, loadCustomerEntries, loadDesk, loadPage, loadTransferDetail } from './server';
-import { transferIdOf } from './transfer-id';
+import { transferIdOf } from '@/lib/transfer-id';
 import type { OpsDeskId } from './types';
 
 /**

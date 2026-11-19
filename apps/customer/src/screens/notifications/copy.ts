@@ -16,6 +16,8 @@ export const notifyCopy = defineCopy('notifications', {
   'Caught up body': 'New updates about your orders and account show up here.',
   'Nothing unread body': 'Everything you have been sent has been read.',
   'Load more': 'Load more',
+  'Inbox not set up title': 'Your notifications can’t be listed.',
+  'Inbox not set up body': 'No page size is set for the list. The bell counts what is unread.',
   'Notification settings': 'Notification settings',
   Back: 'Back to notifications',
   'Couldn’t load your notifications.': 'Couldn’t load your notifications.',

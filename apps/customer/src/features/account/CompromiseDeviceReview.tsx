@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { compromiseReviewOutputSchema } from '@intafaced/contracts/identity-compromise';
 import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { Button, Failure } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';

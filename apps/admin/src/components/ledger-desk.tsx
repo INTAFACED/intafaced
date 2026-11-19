@@ -14,7 +14,7 @@ import {
   type LedgerDeskAnswer,
   type LedgerDeskRead,
 } from '@/lib/ledger/desk';
-import { lookupRefusal } from '@/lib/ledger/lookup';
+import { lookupRefusal } from '@/lib/ledger-lookup';
 import { AccountMetadataPanel } from '@/components/ledger-account-metadata';
 
 type Reading<T> =

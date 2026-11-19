@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { SwapForm } from './swap/SwapForm';
 import { navigate } from '../../app/location';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';

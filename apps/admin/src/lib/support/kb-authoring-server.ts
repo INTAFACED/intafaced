@@ -6,7 +6,7 @@ import {
   supportKbLibrarySchema,
   supportKbTemplateSchema,
 } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
+import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk';
 import { explainSupportFailure } from './refusal';
 import type { KbAuthoringRequest, KbAuthoringView, KbPart } from './kb-authoring';
 

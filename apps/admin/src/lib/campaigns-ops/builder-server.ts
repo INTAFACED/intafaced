@@ -19,9 +19,16 @@ import {
   type CampaignAction,
   type CampaignDefinitionInput,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type Part,
+  type PartLabels,
+  explainRefusal,
+} from '@/lib/desk';
 import type { CampaignDeskReply, CampaignDetailView, CampaignsDeskView } from './builder-model';
 
 /**

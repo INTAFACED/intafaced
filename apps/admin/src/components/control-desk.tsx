@@ -4,7 +4,7 @@ import { useId, useRef, useState, type ReactNode } from 'react';
 import { ApprovalWorkbench, StepReplyView } from '@/components/approval-workbench';
 import { postStep, type ApprovalEndpoint } from '@/lib/desk/approval-browser';
 import { confirmPhrase, type DeskRequest } from '@/lib/desk/approval-packet';
-import type { StepReply } from '@/lib/desk/approval-types';
+import type { StepReply } from '@/lib/approval-types';
 import { requestGate, type Gate } from '@/lib/desk/desk-model';
 import './desk.css';
 

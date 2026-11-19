@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { fetchMe } from '../../data/identity';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Field } from '../../shared/ui';

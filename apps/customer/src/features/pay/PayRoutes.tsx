@@ -11,7 +11,7 @@ import { payCopy } from './copy';
 import { PortalNotFound, Redirect } from './portal/chrome/PortalNotFound';
 import { MerchantAccessProvider, useMerchantAccess } from './portal/access/MerchantAccess';
 import { authorityFromAccess } from './portal/access/authority';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import './pay.css';
 

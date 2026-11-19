@@ -4,8 +4,8 @@ import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field } from '../../shared/ui';
-import { Read } from '../more/common';
-import { useApi } from '../session/session';
+import { Read } from '../more';
+import { useApi } from '../session';
 import { researchCopy } from './research-copy';
 import { refusalCode, useLastReady } from './StrategyTeam';
 

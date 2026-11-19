@@ -1,7 +1,7 @@
 import { copy as moreCopy, t as copyText, Text } from './copy';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Panel, Tabs } from '../../shared/ui';
 import { Details, Read, Select, presentActionFailure } from './common';

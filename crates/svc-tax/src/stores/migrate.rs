@@ -1,11 +1,12 @@
 //! `svc-tax migrate [--down]` (was the TypeScript service's `scripts/migrate.ts`): applies every `*.sql` in
 //! `crates/svc-tax/migrations` in name order, tracked in `tax.__migrations`, each file once; `--down` reverses them.
 //! The `tax` schema comes from the database bootstrap. The files are built into the binary, so the runner needs nothing
-//! beside it. Its lines are the TypeScript runner's (`↑`, `·`, `↓`, `✓`).
+//! beside it. Its lines are the TypeScript runner's (`↑`, `·`, `↓`, `✓`); the runner is the kit's
+//! (`service_kit::migrate`).
 
 use std::io::Write;
 
-use postgres::{Client, NoTls};
+use service_kit::migrate::Migrations;
 
 /// Every migration file, by name, as built into the binary.
 pub const FILES: [(&str, &str); 8] = [
@@ -46,77 +47,16 @@ pub const FILES: [(&str, &str); 8] = [
 /// The runner's default target when `DATABASE_URL` is unset, as the TypeScript runner's.
 pub const DEFAULT_URL: &str = "postgres://svc_tax:svc_tax@localhost:5433/intafaced";
 
-fn ups() -> Vec<(&'static str, &'static str)> {
-    let mut ups: Vec<_> = FILES
-        .iter()
-        .copied()
-        .filter(|(name, _)| !name.ends_with(".down.sql"))
-        .collect();
-    ups.sort_by(|a, b| a.0.cmp(b.0));
-    ups
-}
-
-fn file(name: &str) -> Result<&'static str, String> {
-    FILES
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, sql)| *sql)
-        .ok_or_else(|| format!("ENOENT: no such file or directory, open '{name}'"))
-}
-
-fn db(e: &postgres::Error) -> String {
-    e.as_db_error()
-        .map_or_else(|| e.to_string(), |d| d.message().to_owned())
-}
+/// svc-tax's migrations, for the kit's runner.
+pub const MIGRATIONS: Migrations = Migrations {
+    schema: "tax",
+    files: &FILES,
+    default_url: DEFAULT_URL,
+};
 
 /// Runs the migrations against `url`, writing the runner's lines to `out`.
 pub fn run(url: &str, down: bool, out: &mut impl Write) -> Result<(), String> {
-    let mut sql = Client::connect(url, NoTls).map_err(|e| db(&e))?;
-    let result = apply(&mut sql, down, out);
-    let _ = sql.close();
-    result
-}
-
-fn apply(sql: &mut Client, down: bool, out: &mut impl Write) -> Result<(), String> {
-    let mut say = |line: String| writeln!(out, "{line}").map_err(|e| e.to_string());
-    sql.batch_execute(
-        "CREATE TABLE IF NOT EXISTS tax.__migrations (
-           name text PRIMARY KEY,
-           applied_at timestamptz NOT NULL DEFAULT now()
-         )",
-    )
-    .map_err(|e| db(&e))?;
-    let ups = ups();
-    if down {
-        for (up, _) in ups.iter().rev() {
-            let down_file = format!("{}.down.sql", up.strip_suffix(".sql").unwrap_or(up));
-            say(format!("↓ {down_file}"))?;
-            sql.batch_execute(file(&down_file)?).map_err(|e| db(&e))?;
-            sql.execute("DELETE FROM tax.__migrations WHERE name = $1", &[up])
-                .map_err(|e| db(&e))?;
-        }
-        say("✓ reversed".to_owned())?;
-        return Ok(());
-    }
-    let applied: Vec<String> = sql
-        .query("SELECT name FROM tax.__migrations", &[])
-        .map_err(|e| db(&e))?
-        .iter()
-        .map(|r| r.try_get::<_, String>(0))
-        .collect::<Result<_, _>>()
-        .map_err(|e| db(&e))?;
-    for (name, body) in ups {
-        if applied.iter().any(|a| a == name) {
-            say(format!("· {name} (already applied)"))?;
-            continue;
-        }
-        say(format!("↑ {name}"))?;
-        sql.batch_execute(body).map_err(|e| db(&e))?;
-        sql.execute("INSERT INTO tax.__migrations (name) VALUES ($1)", &[&name])
-            .map_err(|e| db(&e))?;
-    }
-    say("✓ migrations up to date".to_owned())?;
-    Ok(())
+    MIGRATIONS.run(url, down, out)
 }
 
 #[cfg(test)]
@@ -125,11 +65,11 @@ mod tests {
 
     #[test]
     fn every_up_has_its_reversal_built_in() {
-        for (up, _) in ups() {
+        for (up, _) in MIGRATIONS.ups() {
             let down = format!("{}.down.sql", up.strip_suffix(".sql").unwrap_or(up));
-            assert!(file(&down).is_ok(), "{up} has no {down}");
+            assert!(MIGRATIONS.file(&down).is_ok(), "{up} has no {down}");
         }
-        assert_eq!(ups().len() * 2, FILES.len());
+        assert_eq!(MIGRATIONS.ups().len() * 2, FILES.len());
     }
 
     #[test]

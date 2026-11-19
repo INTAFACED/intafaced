@@ -1,6 +1,6 @@
 import { ServiceOffNotice } from '../../shared/service-off';
 import { labCopy } from './lab-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * /lab and /lab/detail/:id: the Lab's own screen (SP-pages-01). What the Lab holds is an owner decision that has not been

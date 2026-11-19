@@ -580,15 +580,6 @@
       "why": "reserve_key is copy.reserve:<followId> (copy/follows.ts:59), a one-to-one function of follow_id. An equal follow_id always means an equal reserve_key, which the arbiter absorbs. A different follow_id never clashes on follow_id."
     },
     {
-      "file": "services/svc-trade/src/copy/follow-store.ts",
-      "table": "copy_follows",
-      "target": "(follow_id)",
-      "constraint": "copy_follows_follower_leader_live_idx",
-      "verdict": "race",
-      "issue": 8875,
-      "why": "Narrow path: startVenueFollow (copy/copy-service.ts:791; bind at 818) builds followId from (user, leader, clientRequestId), so a double-submit carries equal follow_id and equal (follower_id, leader_id). Its beforeSave takes no lock. The only serialiser is admitNewFollow's SELECT … FOR UPDATE on the leader's listing row (copy/leader-directory.ts:289, 669), which locks nothing when the leader id has no listing row. The loser then gets 23505 on the live index, which rethrowCopyFollowUnique (copy/follow-store.ts:27) maps to 'Already following' instead of returning the follow that the doc promises. The startFollow path is serialised by lockReserves' pg_advisory_xact_lock (follow-store.ts:1183) in the same transaction."
-    },
-    {
       "file": "services/svc-trade/src/futures/conditional-orders/service.ts",
       "table": "futures_conditional_orders",
       "target": "ON CONSTRAINT futures_conditional_orders_user_client_uq",
@@ -613,23 +604,6 @@
       "why": "trigger_key is not in the column list (service.ts:1572-1574), so it is NULL, and NULLs do not clash in a plain unique index. syncRiskStop writes armed rows only."
     },
     {
-      "file": "services/svc-trade/src/futures/margin-call-transport.ts",
-      "table": "position_margin_calls",
-      "target": "(position_id) WHERE cleared_atisnull",
-      "constraint": "position_margin_calls_seq_uidx",
-      "verdict": "race",
-      "issue": 8876,
-      "why": "Only with two svc-trade processes running the futures.liquidation job: job-host.ts:44 guards overlap only inside one process, and nothing locks per position (no advisory lock or FOR UPDATE in liquidation-tick.ts). Two ticks on the same position with no open call both compute next_seq = MAX+1 in their own snapshot (margin-call-transport.ts:154-158), so they write equal (position_id, sequence). The loser gets 23505 on position_margin_calls_seq_uidx. durableMarginCallNotifier (margin-call-transport.ts:86) turns that into delivered:false."
-    },
-    {
-      "file": "services/svc-trade/src/futures/matched-orders.ts",
-      "table": "futures_orders",
-      "target": "(user_id, market_id, client_order_id)",
-      "constraint": "futures_orders_liquidation_rung_uniq",
-      "verdict": "safe",
-      "why": "liquidation_rung_id is not in the column list of this insert (matched-orders.ts:1137-1140), so it is NULL and outside the partial index."
-    },
-    {
       "file": "services/svc-trade/src/futures/matched-orders.ts",
       "table": "futures_orders",
       "target": "(user_id, market_id, client_order_id)",
@@ -641,45 +615,9 @@
       "file": "services/svc-trade/src/futures/matched-orders.ts",
       "table": "futures_orders",
       "target": "(user_id, market_id, client_order_id)",
-      "constraint": "futures_orders_liquidation_rung_uniq",
-      "verdict": "race",
-      "issue": 8877,
-      "why": "Same path as the pkey entry: liquidation_rung_id = input.rungId is written with the derived client id (matched-orders.ts:2750). Two processes on one rung carry the same rung id, and the loser gets 23505 futures_orders_liquidation_rung_uniq."
-    },
-    {
-      "file": "services/svc-trade/src/futures/matched-orders.ts",
-      "table": "futures_orders",
-      "target": "(user_id, market_id, client_order_id)",
-      "constraint": "futures_orders_pkey",
-      "verdict": "race",
-      "issue": 8877,
-      "why": "orderId = matchedOrderIdFor(user, market, clientOrderId) (futures/ids.ts:33; matched-orders.ts:1110), so a double-submit of one clientOrderId carries equal target and equal id. The insert uses this.deps.sql with no lock. Both calls pass the findOrderByClientId pre-check (matched-orders.ts:1036), and the loser gets 23505 futures_orders_pkey instead of reaching the 'raced' branch (matched-orders.ts:1162-1166) that the code expects."
-    },
-    {
-      "file": "services/svc-trade/src/futures/matched-orders.ts",
-      "table": "futures_orders",
-      "target": "(user_id, market_id, client_order_id)",
       "constraint": "futures_orders_pkey",
       "verdict": "safe",
-      "why": "Runs in the transaction that first takes SELECT … FOR UPDATE on the open position row (matched-orders.ts:1411-1415), so two retries of one reduce serialise, and the second sees the committed row in the arbiter pre-check. Residual: an opening place() (line 1149) reusing the same clientOrderId takes no such lock and could raise a raw 23505 on pkey; that is a different command, not a duplicate of this row."
-    },
-    {
-      "file": "services/svc-trade/src/futures/matched-orders.ts",
-      "table": "futures_orders",
-      "target": "(user_id, market_id, client_order_id)",
-      "constraint": "futures_orders_pkey",
-      "verdict": "race",
-      "issue": 8877,
-      "why": "Only with two processes driving the same liquidation rung: id and client id both derive from (liquidationId, rungId) (matched-orders.ts:2457-2458), and driveLiquidationBook takes no lock before its SELECT-then-insert (2460, 2488). Its only caller is the in-process futures.liquidation job (job-host.ts:44 guards overlap only inside one process). Two replicas give equal target and equal id, and the loser gets 23505 futures_orders_pkey."
-    },
-    {
-      "file": "services/svc-trade/src/grid/store.ts",
-      "table": "grid_bot_orders",
-      "target": "(client_order_id)",
-      "constraint": "grid_bot_orders_pair_uq",
-      "verdict": "race",
-      "issue": 8878,
-      "why": "client_order_id = gridClientOrderId(botId, level, side, cycle) (grid/grid-service.ts:558, 958), built from the same columns as grid_bot_orders_pair_uq, and saveOrder takes no lock (grid/store.ts:497). Two concurrent stop() calls (a double Stop press; stop() at grid-service.ts:886 is explicitly re-runnable) both run windDown → unsavedSlots → saveOrder for the same recovered slot (grid-service.ts:909-913). The same goes for a fill tick (placeMissingBuys, 1044) racing a stop. The loser gets 23505 on pair_uq."
+      "why": "Runs in the transaction that first takes SELECT … FOR UPDATE on the open position row (matched-orders.ts:1411-1415), so two retries of one reduce serialise, and the second sees the committed row in the arbiter pre-check."
     },
     {
       "file": "services/svc-trade/src/index.ts",
@@ -688,15 +626,6 @@
       "constraint": "orders_client_id_idx",
       "verdict": "safe",
       "why": "The MM seed row writes no client_order_id (index.ts:1230 column list), so it is NULL. orders_client_id_idx is a plain unique index (drizzle/0000_trade_init.sql:145) where NULLs never clash."
-    },
-    {
-      "file": "services/svc-trade/src/market-lifecycle.ts",
-      "table": "market_lifecycle_evidence",
-      "target": "(evidence_id)",
-      "constraint": "market_lifecycle_evidence_genesis_unique",
-      "verdict": "race",
-      "issue": 8879,
-      "why": "An identical concurrent republish (same idempotencyKey, causal_predecessor_id NULL) carries an equal market_id, so the loser can hit genesis_unique and get the chain error (market-lifecycle.ts:773-775) instead of its own stored row. A clash from a different publication is the intended fork refusal and is mapped there; only the identical-retry case is wrong."
     },
     {
       "file": "services/svc-trade/src/market-lifecycle.ts",
@@ -719,15 +648,6 @@
       "table": "market_lifecycle_evidence",
       "target": "(evidence_id)",
       "constraint": "market_lifecycle_evidence_predecessor_unique",
-      "verdict": "race",
-      "issue": 8879,
-      "why": "Same as genesis: an identical concurrent republish carries an equal (market_id, causal_predecessor_id). The loser gets 'predecessor was concurrently claimed' (market-lifecycle.ts:773-775) instead of the winner's identical row. A different child of the same predecessor is correctly refused there."
-    },
-    {
-      "file": "services/svc-trade/src/market-lifecycle.ts",
-      "table": "market_lifecycle_evidence",
-      "target": "(evidence_id)",
-      "constraint": "market_lifecycle_evidence_predecessor_unique",
       "verdict": "safe",
       "why": "evidence_kind is 'TRANSITION' (market-lifecycle.ts:797), and the partial index covers only 'AUTHORITY_DOSSIER' (drizzle/0035:29-31)."
     },
@@ -738,15 +658,6 @@
       "constraint": "market_lifecycle_evidence_predecessor_unique",
       "verdict": "safe",
       "why": "evidence_kind is 'CORRECTION' (market-lifecycle.ts:810), outside the AUTHORITY_DOSSIER partial index."
-    },
-    {
-      "file": "services/svc-trade/src/market-lifecycle.ts",
-      "table": "market_lifecycle_evidence",
-      "target": "(evidence_id)",
-      "constraint": "market_lifecycle_evidence_reconciliation_idx",
-      "verdict": "race",
-      "issue": 8879,
-      "why": "publish() derives evidence_id = lifecyclePublicationId(marketId, idempotencyKey) and writes reconciliation_key = evidenceId (market-lifecycle.ts:727, 768). An operator retry of the same publication via POST (market-lifecycle-routes.ts:49), sent concurrently, passes the SELECT pre-check (732) twice. The loser hits 23505 on reconciliation_idx, and the catch (773-775) turns it into 'predecessor was concurrently claimed' instead of returning the identical prior publication, as the sequential path does (734-737)."
     },
     {
       "file": "services/svc-trade/src/market-lifecycle.ts",
@@ -773,42 +684,6 @@
       "why": "Rows inserted as open/expired never enter the partial index (lifecycle IN ('bound','settled')). saveBound/saveSettled reach it only via DO UPDATE on the existing quote row, so a retry of the same quote updates its own row. A 23505 there comes only from a different sibling quote of the same RFQ, which is a real second accept that must refuse, and saveBound maps it with refuseSecondAccept (otc/quote-store.ts:271-277)."
     },
     {
-      "file": "services/svc-trade/src/quant/live-run/sql-store.ts",
-      "table": "quant_live_runs",
-      "target": "(user_id, run_id)",
-      "constraint": "quant_live_runs_agent_uq",
-      "verdict": "race",
-      "issue": 8880,
-      "why": "runId is the caller's req.runId (quant/live-run/live-runs.ts:431), and agent_address = agentAddressFor(seed, userId, 'quant-live:'+runId) (live-runs.ts:528), so a double-submitted start carries equal (user_id, run_id) and equal agent_address. insertOnce (sql-store.ts:147) takes no lock, and the loser gets 23505 quant_live_runs_agent_uq instead of the stored run."
-    },
-    {
-      "file": "services/svc-trade/src/signals/signal-desk.ts",
-      "table": "signal_intents",
-      "target": "(intent_key)",
-      "constraint": "signal_intents_pkey",
-      "verdict": "race",
-      "issue": 8882,
-      "why": "id = idFor(intent_key) (signal-desk.ts:364-368), a hash of the target. A redelivered alert (same webhook and alertId) arriving concurrently passes the signal_alert_results check (343-345) twice, and the loser gets 23505 signal_intents_pkey instead of DO NOTHING."
-    },
-    {
-      "file": "services/svc-trade/src/signals/signal-desk.ts",
-      "table": "signal_webhooks",
-      "target": "(user_id, client_request_id)",
-      "constraint": "signal_webhooks_pkey",
-      "verdict": "race",
-      "issue": 8881,
-      "why": "webhookId = idFor('signal-webhook:'+userId+':'+requestId) (signals/signal-desk.ts:141, 271), the same inputs as the target. A concurrent retried create passes the SELECT at 256 twice, and the loser gets 23505 signal_webhooks_pkey instead of the 'raced' read-back the code expects (signal-desk.ts:283-287)."
-    },
-    {
-      "file": "services/svc-trade/src/spot/trade-service/buyback.ts",
-      "table": "orders",
-      "target": "(id)",
-      "constraint": "orders_client_id_idx",
-      "verdict": "race",
-      "issue": 8883,
-      "why": "orderId = orderIdFor(house, market, clientOrderId) (spot/trade-service/buyback.ts:88), so two concurrent runs of one buyback id carry equal id and equal (user_id, market_id, client_order_id). The loser gets 23505 orders_client_id_idx instead of the BUYBACK_IN_FLIGHT refusal the code expects for 'being placed by another call' (buyback.ts:150-152)."
-    },
-    {
       "file": "services/svc-trade/src/spot/trade-service/fills.ts",
       "table": "fills",
       "target": "(id)",
@@ -823,33 +698,6 @@
       "constraint": "orders_client_id_idx",
       "verdict": "safe",
       "why": "The house MM stub row writes no client_order_id (fills.ts:524-532), so it is NULL, and NULLs never clash in the plain index (0000_trade_init.sql:145)."
-    },
-    {
-      "file": "services/svc-trade/src/spot/trade-service/limit-convert.ts",
-      "table": "convert_limits",
-      "target": "(user_id, client_limit_id)",
-      "constraint": "convert_limits_pkey",
-      "verdict": "race",
-      "issue": 8884,
-      "why": "id = limitConvertIdFor(userId, clientLimitId) (spot/trade-service/limit-convert.ts:205), the same inputs as the target, with no lock. A concurrent retry passes the SELECT at 178 twice, and the loser gets 23505 convert_limits_pkey instead of re-entering placeLimitConvert (line 221)."
-    },
-    {
-      "file": "services/svc-trade/src/spot/trade-service/order-place.ts",
-      "table": "orders",
-      "target": "(id)",
-      "constraint": "orders_client_id_idx",
-      "verdict": "race",
-      "issue": 8885,
-      "why": "orderId comes from the admitted evidence, which is orderIdFor(userId, market, clientOrderId) (order-place.ts:127, 458), so a concurrent identical submit carries equal id and equal (user_id, market_id, client_order_id). The loser gets 23505 orders_client_id_idx instead of the 'Lost a race with a concurrent identical submission' branch (order-place.ts:511-517)."
-    },
-    {
-      "file": "services/svc-trade/src/spot/trade-service/order-place.ts",
-      "table": "orders",
-      "target": "(id)",
-      "constraint": "orders_client_id_idx",
-      "verdict": "race",
-      "issue": 8885,
-      "why": "orderId = orderIdFor(userId, market, clientOrderId) (order-place.ts:614). A concurrent identical submit passes findOrder (615) twice and gets 23505 orders_client_id_idx instead of the inserted.length===0 branch at 637."
     },
     {
       "file": "services/svc-trade/src/venue/agent-desk-store.ts",

@@ -53,7 +53,9 @@ Every one is in `docker-compose.apps.yml` (`svc-fix` only under its `fix` profil
 | `svc-protocol`    | Non-custodial smart accounts and Solidity under `contracts/`; the venue contract stays `audited: false` (`contracts/venue/SovereignVenue.sol`).                                                            |
 | `svc-indexer`     | Chain read models; posts no ledger transaction (`README.md`).                                                                                                                                              |
 
-`svc-tax` (per-jurisdiction lot export from ledger reads) is the one service written in Rust: `crates/svc-tax`, its own image, its migrations applied by `svc-tax migrate` (compose's `svc-tax-migrate`).
+`svc-tax` (per-jurisdiction lot export from ledger reads) is the one service written in Rust: `crates/svc-tax`, its own image, its migrations applied by `svc-tax migrate` (compose's `svc-tax-migrate`). `svc-academy` is being ported to Rust in `crates/svc-academy`, one slice at a time behind a door held to the TypeScript router's recorded answers; until its switch it is in neither compose nor the stack, and `services/svc-academy` serves the Academy.
+
+The generic server parts every Rust service shares (JSON and time as JavaScript has them, the edge and service-to-service checks both ways, the scope and jurisdiction guards, tRPC's route and error envelope, zod's input checks, a publish-only JetStream client, telemetry, the server, the environment slices, the production posture, the Postgres pool, the migration runner) are one library crate, `crates/service-kit`: never a service, depending on none, held byte for byte to `@intafaced/contracts`, `@intafaced/config`, `@intafaced/telemetry` and the ledger client's money.
 
 Compose also runs `migrate` (one-shot, runs every TypeScript service's migrations: `tooling/infra/migrate-all.mjs`), `litellm`, `academy-minio`, `livekit`, and the two apps.
 

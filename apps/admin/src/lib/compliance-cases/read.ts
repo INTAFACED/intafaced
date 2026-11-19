@@ -7,8 +7,7 @@ import {
   type ComplianceCasesListOutput,
   type ComplianceInboxEntry,
 } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
 import { refusalWords, type RoomQuery } from './model';
 
 const labels = {

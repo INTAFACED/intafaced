@@ -7,7 +7,7 @@ import {
   riskRevokeInputSchema,
   riskWithholdInputSchema,
 } from '@intafaced/contracts/campaigns-risk';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
+import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk';
 import { check, ruleReply } from './builder-server';
 
 /**
