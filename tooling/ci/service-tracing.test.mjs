@@ -51,7 +51,26 @@ test('fails svc-mining-pool as it was: the entry compose runs (server.ts, not in
   assert.equal(failures.length, 1);
   assert.equal(failures[0].file, 'services/svc-mining-pool/src/server.ts');
   assert.match(failures[0].fix, /startTelemetry\(, registerProcessHooks\(/);
-  assert.match(failures[0].fix, /services\/svc-tax\/src\/index\.ts/);
+  assert.match(failures[0].fix, /services\/svc-quant\/src\/index\.ts/);
+});
+
+const rustBlock = (command) =>
+  `  svc-tax:\n    build:\n      context: .\n      dockerfile: crates/svc-tax/Dockerfile\n    command: [${command}]\n`;
+
+test('passes a Rust service whose main starts the tracer, and fails one whose call is gone or only commented out', () => {
+  const traced = 'fn run() {\n    let telemetry = Telemetry::start(true, "svc-tax");\n}\n';
+  assert.deepEqual(run(rustBlock("'/app/svc-tax'"), { 'crates/svc-tax/src/main.rs': traced }), []);
+  for (const main of ['fn run() {}\n', 'fn run() {\n    // Telemetry::start(true, "svc-tax");\n}\n']) {
+    const failures = run(rustBlock("'/app/svc-tax'"), { 'crates/svc-tax/src/main.rs': main });
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].file, 'crates/svc-tax/src/main.rs');
+    assert.match(failures[0].fix, /Telemetry::start\(/);
+  }
+  assert.equal(run(rustBlock("'/app/svc-tax'"), {}).length, 1, 'a binary with no main.rs is not passed over');
+});
+
+test("a Rust binary's one-shot subcommand (migrate) is not a service to trace", () => {
+  assert.deepEqual(run(rustBlock("'/app/svc-tax', 'migrate'"), {}), []);
 });
 
 test('a commented-out call is not a call', () => {
