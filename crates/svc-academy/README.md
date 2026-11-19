@@ -21,10 +21,11 @@ TZ=UTC node --import tsx crates/svc-academy/scripts/record-door.mjs --check  # f
 | `src/errors.rs`         | `AcademyError`, every other refusal type, `user_copy`                                                          |
 | `src/access.rs`         | the approval precheck, `read_approval_ids`, `payload_hash`                                                     |
 | `src/ports.rs`          | one trait per outside dependency, each with its stand-in; `Ports::ready()` is `/ready`                         |
-| `src/db.rs`             | `Store`, `transaction(pool, isolation, f)`, `sqlstate`, `refusal`                                              |
+| `src/db.rs`             | `Store`, `transaction(pool, isolation, f)`, `transaction_retrying`, `sqlstate`, `refusal`                      |
 | `src/settings.rs`       | the owner settings register (`admin.settingsStatus`)                                                           |
 | `src/env.rs`            | every environment key, its default and refusal                                                                 |
 | `src/slices/<slice>.rs` | each slice's handlers; a call not ported yet refuses as not ported                                             |
+| `src/lobbies/`          | the lobbies' store, seat rules, scenes, calendar, stream provider and outside clients (`slices/lobbies.rs`)    |
 | `migrations/`           | the same files as `services/svc-academy/drizzle`, built in; `svc-academy migrate [--down]`                     |
 
 ## Porting a slice
@@ -41,6 +42,13 @@ The replay fails on any difference the door decides (401, scope 403, input 400, 
 
 Calls that consume an approval but are not flagged approval-gated in the table (`createSeason`, `revokeCert`, `grantCertException`) call `access::approval_precheck` themselves where the TypeScript handler does.
 
+`src/lobbies/spine.json` and `tests/fixtures/lobbies-parity.golden.json` are recorded from the TypeScript (after `pnpm --filter "@intafaced/svc-academy^..." build`):
+
+```sh
+TZ=UTC node --import tsx crates/svc-academy/scripts/record-lobbies.mjs          # write
+TZ=UTC node --import tsx crates/svc-academy/scripts/record-lobbies.mjs --check  # fail when stale
+```
+
 ## Tests
 
-`cargo test -p svc-academy`. `tests/db_pg.rs` needs a Postgres (`TEST_DATABASE_URL_ACADEMY` or `TEST_DATABASE_URL`, an admin database whose name ends in `_test`); without one it skips, and with `REQUIRE_POSTGRES=1` it fails.
+`cargo test -p svc-academy`. `tests/db_pg.rs` and `tests/lobbies_pg.rs` need a Postgres (`TEST_DATABASE_URL_ACADEMY` or `TEST_DATABASE_URL`, an admin database whose name ends in `_test`); without one it skips, and with `REQUIRE_POSTGRES=1` it fails.
