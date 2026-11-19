@@ -247,6 +247,10 @@ impl AcademyDoor {
 
     /// Answers one request under the id the server already gave it.
     pub fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
+        // The coach's S2S door, beside `/trpc` (`registerInternalCurriculumRoute`).
+        if let Some(res) = crate::curriculum::internal::route(&self.ports.services, req) {
+            return res;
+        }
         let Some((path, query)) = trpc::route(req.url) else {
             return trpc::route_not_found(req);
         };
