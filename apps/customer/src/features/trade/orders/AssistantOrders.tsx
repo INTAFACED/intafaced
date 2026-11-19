@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { EmptyState, Failure, Loading } from '../../../shared/ui';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { venueApi, type VenueKeptOrder } from '../venue-api';
 import type { OrdersT } from './orders-copy';
 

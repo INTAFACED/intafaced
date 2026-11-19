@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, DataTable, EmptyState, Loading, Page } from '../../../shared/ui';
-import { useSession } from '../../session/session';
-import { usePolled } from '../../protocol/wallet/use-polled';
+import { useSession } from '../../session';
+import { usePolled } from '../../protocol';
 import { closeWorstPrice } from '../../../screens/trade/futures/VenueFuturesDesk';
 import { compareDecimal } from '../../../data/decimal';
 import { useVenueMode } from '../use-venue-mode';

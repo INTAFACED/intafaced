@@ -2,10 +2,18 @@ export { createProtocolApi, type ProtocolApi, type RepresentationStatus } from '
 export { isRegionBlocked } from './region';
 export { WALLET_SECTIONS } from './routes';
 export { formatUnits } from './swap/swap-math';
-export { withDomainTypes } from './venue-wallet/venue-account-api';
+export {
+  canonicalAmount,
+  createVenueAccountApi,
+  toTokenUnits,
+  withDomainTypes,
+  type VenueDepositRoute,
+} from './venue-wallet/venue-account-api';
 export { isFactoryUnset } from './wallet/AccountsPanel';
-export { shortAddress, type Eip1193Provider, type TypedDataDocument } from './wallet/eip1193';
+export { APP_CHAIN_ID, refuseReason, shortAddress, type Eip1193Provider, type TypedDataDocument } from './wallet/eip1193';
 export { TabList } from './tokens/TabList';
 export { RepresentationPanel } from './wallet/RepresentationPanel';
 export { toWei, utcTime } from './wallet/SessionKeysPanel';
+export { transferCalldata } from './wallet/transfer';
+export { usePolled } from './wallet/use-polled';
 export { useWallet, waitMined, WalletProvider } from './wallet/WalletProvider';

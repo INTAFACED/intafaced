@@ -18,7 +18,7 @@ import { useFuturesApi } from '../../../screens/trade/futures/data';
 import { cancellable, FuturesOrderOrigin, FuturesOrderStatus } from '../../../screens/trade/futures/OrderStatus';
 import { futuresRefusal } from '../../../screens/trade/futures/refusals';
 import { tabsCopy } from '../../../screens/trade/futures/tabs-copy';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
 import { appendPage } from './history-query';
 import { ordersCopy } from './orders-copy';

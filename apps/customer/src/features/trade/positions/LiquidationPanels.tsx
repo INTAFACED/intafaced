@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, DataTable, Loading } from '../../../shared/ui';
-import { usePolled } from '../../protocol/wallet/use-polled';
+import { usePolled } from '../../protocol';
 import type {
   AsOf,
   VenueAdlDisclosure,
