@@ -1,3 +1,4 @@
+import { MINING_WORKER_NAME } from '@intafaced/contracts/mining-procedures';
 import { transaction } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
@@ -12,7 +13,8 @@ export const SHARE_DUPLICATE = 'mining.share_duplicate';
 export const WORKER_NAME_INVALID = 'mining.worker_name_invalid';
 /** The worker a share with no name goes to. */
 export const DEFAULT_WORKER = 'default';
-export const WORKER_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+/** A rig name: the `workers.setMode` record's own pattern. */
+export const WORKER_NAME = MINING_WORKER_NAME;
 
 /** A rig name as sent: absent is the default worker; anything outside letters, digits, dash and underscore is refused. */
 export function workerNameOf(value: unknown): string {

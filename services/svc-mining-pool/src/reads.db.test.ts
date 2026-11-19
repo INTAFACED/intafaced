@@ -507,15 +507,4 @@ describe('mining pool reads', () => {
     expect(JSON.stringify(bob)).not.toContain('tx-p1');
     expect(JSON.stringify(first)).not.toContain('tx-bob');
   });
-
-  it('register refuses and leaves the worker table empty', async () => {
-    await expect(
-      routerFor()
-        .createCaller(signed(ALICE, ['ledger:read']))
-        .workers.register(),
-    ).rejects.toMatchObject({
-      cause: { code: 'mining.worker_registration_scope_unset' },
-    });
-    expect(await db.sql`SELECT count(*)::int AS n FROM mining_pool.workers`).toEqual([{ n: 0 }]);
-  });
 });

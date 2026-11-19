@@ -1,4 +1,5 @@
 import 'server-only';
+import { replyAccepted } from '@intafaced/contracts/procedure';
 import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom } from '@/lib/desk/part';
 import {
@@ -12,7 +13,7 @@ import {
   readSpecFor,
 } from './catalog';
 import { inputFor, readData } from './model';
-import type { DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec } from './types';
+import type { DeskReadRecord, DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec } from './types';
 
 /**
  * Read a whole module desk as the signed-in founder.
@@ -58,6 +59,12 @@ function outcomeOf(spec: ReadSpec, result: FounderCallResult<ReadData>, asOf: st
   };
 }
 
+/** The answer parses by the call's record and passes every caller's checks on it (`accept`). */
+function onRecord(record: DeskReadRecord, raw: unknown): boolean {
+  const parsed = record.output.safeParse(raw);
+  return parsed.success && replyAccepted(record, parsed.data);
+}
+
 async function loadGroup(ctx: FounderCallContext, specs: readonly ReadSpec[], now: Date): Promise<ReadOutcome[]> {
   const first = specs[0]!;
   const answer = await founderCall(ctx, first.module, first.procedure, 'GET', inputFor(first, now), (raw) => ({ raw }), {
@@ -66,7 +73,7 @@ async function loadGroup(ctx: FounderCallContext, specs: readonly ReadSpec[], no
   const asOf = new Date().toISOString();
   return specs.map((spec) => {
     if (answer.kind !== 'ok') return outcomeOf(spec, answer, asOf);
-    const data = readData(spec, answer.data.raw);
+    const data = spec.record === undefined || onRecord(spec.record, answer.data.raw) ? readData(spec, answer.data.raw) : null;
     return outcomeOf(
       spec,
       data === null ? { kind: 'invalid', requestId: answer.requestId } : { kind: 'ok', data, requestId: answer.requestId },
