@@ -1,5 +1,5 @@
 import 'server-only';
-import { isTestData } from '@/components/merchants/test-data-badge';
+import { isTestData } from '@/components/test-data-badge';
 import {
   loadApprovalQueue,
   loadDashboard,

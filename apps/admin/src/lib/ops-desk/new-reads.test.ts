@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DESKS, allReads } from './catalog';
-import { cellOfRow, formatCell, readData } from './model';
+import { cellOfRow } from '@/lib/cell-of-row';
+import { formatCell, readData } from './model';
 
 /** The token and protocol reads, each fed what the owning service's output schema says it returns, and then what it must never be trusted to say. */
 

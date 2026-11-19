@@ -8,7 +8,7 @@ import { BarChart, type BarPoint } from './bar-chart';
 import { ApprovalsTable } from './approvals-queue';
 import { ControlsTab } from './controls-tab';
 import { CopyButton } from './copy-button';
-import { NotesPanel } from '@/components/founder-ops/notes-panel';
+import { NotesPanel } from '@/components/founder-ops';
 import type { KybDocumentReviewView } from '@intafaced/contracts/kyb-documents';
 import type { KybRequestsView } from '@intafaced/contracts/kyb-information-requests';
 import { VerificationTab } from './verification-tab';
