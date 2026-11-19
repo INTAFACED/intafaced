@@ -1,7 +1,7 @@
 import { useResource, type Resource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
-import { maintenancePhase } from '../public/notices-api';
+import { useSession } from '../session';
+import { maintenancePhase } from '../public';
 import { fundingNoticesCopy } from './funding-notices-copy';
 import { isNoticePair, readFundingNotices, type FundingNotice, type FundingNotices, type FundingPhase } from './funding-notices-reads';
 
