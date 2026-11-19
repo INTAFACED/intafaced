@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Panel } from '../../shared/ui';
