@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   JOURNEY_DIR,
+  JOBS_PAGE,
   MAX_SHARDS,
   MIN_SHARDS,
   MIN_TARGET_MINUTES,
@@ -16,6 +17,7 @@ import {
   freshFiles,
   fileDurations,
   fullPlan,
+  jobsFit,
   journeyFiles,
   longFiles,
   longestDurations,
@@ -235,10 +237,10 @@ test('the planner as the workflow calls it with no report plans the full suite a
 // Every full run aims each shard at the floor, up to main's ceiling, so a pull request's journey meets the same
 // neighbours as on main (MAX_SHARDS: #8509's runs 43731598319 and 43745698376 went red in shards of 10 files on
 // steps main passed in shards of 3 to 6). A targeted run keeps its own plan.
-test('every full run, on main or off it, plans 10-minute shards up to 64, the same plan from the same reports', () => {
+test('every full run, on main or off it, plans 10-minute shards up to 90, the same plan from the same reports', () => {
   const min = 60_000;
   assert.deepEqual(fullPlan(), { target: MIN_TARGET_MINUTES * min, max: MAX_SHARDS });
-  assert.equal(MAX_SHARDS, 64);
+  assert.equal(MAX_SHARDS, 90);
   const plan = (args) =>
     JSON.parse(
       execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', ...args], {
@@ -260,7 +262,7 @@ test('the shard count keeps each shard near the target, within its floor and cei
   const min = 60_000;
   assert.equal(shardCount(236 * min, 25 * min), 10);
   assert.equal(shardCount(10 * min, 25 * min), 8);
-  assert.equal(shardCount(5000 * min, 25 * min), 64);
+  assert.equal(shardCount(5000 * min, 25 * min), 90);
   assert.equal(shardCount(200 * min, 25 * min), 8);
   assert.equal(shardCount(201 * min, 25 * min), 9);
 });
@@ -385,13 +387,13 @@ test('a targeted run takes at most 10 shards, packing the same files, while ever
 // Run 44250481099 (18 Nov 2026): the touched-journeys map narrowed four svc-bank paths to 355 journey files, about 877
 // minutes. The targeted plan stopped at 32 shards of about 27 minutes and the run took 45 minutes, while full runs of 64
 // shards took 28 to 34. A targeted run too big for its cap plans exactly as the full suite would.
-test('a targeted run too big for its 10-shard cap plans as a full run does, up to 64 shards, never fewer', () => {
+test('a targeted run too big for its 10-shard cap plans as a full run does, up to 90 shards, never fewer', () => {
   const min = 60_000;
   const files = Array.from({ length: 355 }, (_, i) => `J-x-${String(i).padStart(3, '0')}.pw.mjs`);
   const durations = new Map(files.map((f) => [f, (877 / 355) * min]));
   const full = fullPlan();
   const asFull = Math.min(files.length, shardCount(877 * min, full.target, MIN_SHARDS, full.max));
-  assert.equal(asFull, 64);
+  assert.equal(asFull, 88);
   assert.equal(targetedShards(files, durations, 10 * min), asFull);
   assert.equal(targetedShards(files, durations, 25 * min), asFull, 'a long target does not shrink it below the full plan');
   const plan = planShards(files, durations, asFull);
@@ -598,4 +600,17 @@ test("the repo's journey titles read from their files match the titles main's re
       "J-wallet-05 #8 watches the status: requested, held, broadcast, confirming and settled in plain words, settled only at the owner's depth, and a failure reads as a sentence",
     ),
   );
+});
+
+// The run's readers ask one page of 100 jobs (MAX_SHARDS says which), so every shard and every other job of a run fit on
+// it. Planted: one shard more than the page leaves room for is refused by name.
+test("every shard of the largest full run fits on one page of the jobs API beside the run's other jobs", () => {
+  const yml = fs.readFileSync('.github/workflows/real-app-journeys.yml', 'utf8');
+  assert.deepEqual(jobsFit(yml), []);
+  const others = JOBS_PAGE - MAX_SHARDS;
+  assert.ok(others >= 1);
+  const room = yml.split(/^jobs:$/m)[1].match(/^ {2}[a-z][a-z0-9_-]*:$/gm).length - 1;
+  assert.deepEqual(jobsFit(yml, JOBS_PAGE - room), []);
+  assert.match(jobsFit(yml, JOBS_PAGE - room + 1)[0], /past one page of 100 jobs: lower MAX_SHARDS/);
+  assert.deepEqual(jobsFit('name: x\n'), ['no jobs read from the workflow']);
 });
