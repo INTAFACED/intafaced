@@ -1,0 +1,117 @@
+{
+  "callers": [
+    {
+      "path": "own.publish",
+      "type": "mutation",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "own.publish": {
+      "id": "x",
+      "surfaces": ["x"]
+    }
+  },
+  "answers": {
+    "own.publish valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1yv\"}}}"
+    },
+    "own.publish valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1yw\"}}}"
+    },
+    "own.publish valid execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.own.surface_unknown\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1yx\",\"cause\":{\"code\":\"agents.own.surface_unknown\"}}}}"
+    },
+    "own.publish valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1yy\"}}}"
+    },
+    "own.publish valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1yz\"}}}"
+    },
+    "own.publish absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z0\"}}}"
+    },
+    "own.publish absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z1\"}}}"
+    },
+    "own.publish absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z2\"}}}"
+    },
+    "own.publish absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z3\"}}}"
+    },
+    "own.publish absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z4\"}}}"
+    },
+    "own.publish wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z5\"}}}"
+    },
+    "own.publish wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z6\"}}}"
+    },
+    "own.publish wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z7\"}}}"
+    },
+    "own.publish wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z8\"}}}"
+    },
+    "own.publish wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1z9\"}}}"
+    },
+    "own.publish empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1za\"}}}"
+    },
+    "own.publish empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"surfaces\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1zb\"}}}"
+    },
+    "own.publish empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"surfaces\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1zc\"}}}"
+    },
+    "own.publish empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"surfaces\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1zd\"}}}"
+    },
+    "own.publish empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"surfaces\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1ze\"}}}"
+    },
+    "own.publish extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1zf\"}}}"
+    },
+    "own.publish extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1zg\"}}}"
+    },
+    "own.publish extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.own.surface_unknown\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1zh\",\"cause\":{\"code\":\"agents.own.surface_unknown\"}}}}"
+    },
+    "own.publish extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1zi\"}}}"
+    },
+    "own.publish extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.publish\",\"requestId\":\"req-1zj\"}}}"
+    }
+  }
+}

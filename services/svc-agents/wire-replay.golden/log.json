@@ -1,0 +1,326 @@
+{
+  "callers": [
+    {
+      "path": "log.count",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "log.export",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "log.mine",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "log.count": {},
+    "log.export": {},
+    "log.mine": {}
+  },
+  "answers": {
+    "log.count valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-em\"}}}"
+    },
+    "log.count valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-en\"}}}"
+    },
+    "log.count valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-eo\"}}}"
+    },
+    "log.count valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-ep\"}}}"
+    },
+    "log.count valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-eq\"}}}"
+    },
+    "log.count absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-er\"}}}"
+    },
+    "log.count absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-es\"}}}"
+    },
+    "log.count absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-et\"}}}"
+    },
+    "log.count absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-eu\"}}}"
+    },
+    "log.count absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-ev\"}}}"
+    },
+    "log.count wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-ew\"}}}"
+    },
+    "log.count wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-ex\"}}}"
+    },
+    "log.count wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-ey\"}}}"
+    },
+    "log.count wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-ez\"}}}"
+    },
+    "log.count wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f0\"}}}"
+    },
+    "log.count empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f1\"}}}"
+    },
+    "log.count empty read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f2\"}}}"
+    },
+    "log.count empty execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f3\"}}}"
+    },
+    "log.count empty admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f4\"}}}"
+    },
+    "log.count empty key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f5\"}}}"
+    },
+    "log.count extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f6\"}}}"
+    },
+    "log.count extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f7\"}}}"
+    },
+    "log.count extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f8\"}}}"
+    },
+    "log.count extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-f9\"}}}"
+    },
+    "log.count extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.count\",\"requestId\":\"req-fa\"}}}"
+    },
+    "log.export valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fb\"}}}"
+    },
+    "log.export valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fc\"}}}"
+    },
+    "log.export valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fd\"}}}"
+    },
+    "log.export valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fe\"}}}"
+    },
+    "log.export valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-ff\"}}}"
+    },
+    "log.export absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fg\"}}}"
+    },
+    "log.export absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fh\"}}}"
+    },
+    "log.export absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fi\"}}}"
+    },
+    "log.export absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fj\"}}}"
+    },
+    "log.export absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fk\"}}}"
+    },
+    "log.export wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fl\"}}}"
+    },
+    "log.export wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fm\"}}}"
+    },
+    "log.export wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fn\"}}}"
+    },
+    "log.export wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fo\"}}}"
+    },
+    "log.export wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fp\"}}}"
+    },
+    "log.export empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fq\"}}}"
+    },
+    "log.export empty read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fr\"}}}"
+    },
+    "log.export empty execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fs\"}}}"
+    },
+    "log.export empty admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-ft\"}}}"
+    },
+    "log.export empty key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fu\"}}}"
+    },
+    "log.export extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fv\"}}}"
+    },
+    "log.export extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fw\"}}}"
+    },
+    "log.export extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fx\"}}}"
+    },
+    "log.export extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fy\"}}}"
+    },
+    "log.export extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.export\",\"requestId\":\"req-fz\"}}}"
+    },
+    "log.mine valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g0\"}}}"
+    },
+    "log.mine valid read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g1\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine valid execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g2\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine valid admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g3\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine valid key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g4\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g5\"}}}"
+    },
+    "log.mine absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g6\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g7\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g8\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-g9\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-ga\"}}}"
+    },
+    "log.mine wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gb\"}}}"
+    },
+    "log.mine wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gc\"}}}"
+    },
+    "log.mine wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gd\"}}}"
+    },
+    "log.mine wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-ge\"}}}"
+    },
+    "log.mine empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gf\"}}}"
+    },
+    "log.mine empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gg\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gh\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gi\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gj\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gk\"}}}"
+    },
+    "log.mine extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gl\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gm\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-gn\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    },
+    "log.mine extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.refused.log_mine_limit_unset\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"log.mine\",\"requestId\":\"req-go\",\"cause\":{\"code\":\"agents.log_mine_limit_unset\"}}}}"
+    }
+  }
+}

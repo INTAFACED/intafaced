@@ -1,0 +1,116 @@
+{
+  "callers": [
+    {
+      "path": "own.inbox",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "own.inbox": {
+      "limit": 1
+    }
+  },
+  "answers": {
+    "own.inbox valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1md\"}}}"
+    },
+    "own.inbox valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1me\"}}}"
+    },
+    "own.inbox valid execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mf\"}}}"
+    },
+    "own.inbox valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mg\"}}}"
+    },
+    "own.inbox valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mh\"}}}"
+    },
+    "own.inbox absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mi\"}}}"
+    },
+    "own.inbox absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mj\"}}}"
+    },
+    "own.inbox absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mk\"}}}"
+    },
+    "own.inbox absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1ml\"}}}"
+    },
+    "own.inbox absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mm\"}}}"
+    },
+    "own.inbox wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mn\"}}}"
+    },
+    "own.inbox wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mo\"}}}"
+    },
+    "own.inbox wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mp\"}}}"
+    },
+    "own.inbox wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mq\"}}}"
+    },
+    "own.inbox wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mr\"}}}"
+    },
+    "own.inbox empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1ms\"}}}"
+    },
+    "own.inbox empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mt\"}}}"
+    },
+    "own.inbox empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mu\"}}}"
+    },
+    "own.inbox empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mv\"}}}"
+    },
+    "own.inbox empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mw\"}}}"
+    },
+    "own.inbox extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mx\"}}}"
+    },
+    "own.inbox extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1my\"}}}"
+    },
+    "own.inbox extra-key execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1mz\"}}}"
+    },
+    "own.inbox extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1n0\"}}}"
+    },
+    "own.inbox extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.inbox\",\"requestId\":\"req-1n1\"}}}"
+    }
+  }
+}

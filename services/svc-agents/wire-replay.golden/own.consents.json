@@ -1,0 +1,334 @@
+{
+  "callers": [
+    {
+      "path": "own.consents.grant",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "own.consents.list",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "own.consents.revoke",
+      "type": "mutation",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "own.consents.grant": {
+      "id": "x",
+      "dataClass": "own_data"
+    },
+    "own.consents.list": {
+      "id": "x"
+    },
+    "own.consents.revoke": {
+      "id": "x",
+      "dataClass": "own_data"
+    }
+  },
+  "answers": {
+    "own.consents.grant valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1ak\"}}}"
+    },
+    "own.consents.grant valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1al\"}}}"
+    },
+    "own.consents.grant valid execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1am\"}}}"
+    },
+    "own.consents.grant valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1an\"}}}"
+    },
+    "own.consents.grant valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1ao\"}}}"
+    },
+    "own.consents.grant absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1ap\"}}}"
+    },
+    "own.consents.grant absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1aq\"}}}"
+    },
+    "own.consents.grant absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1ar\"}}}"
+    },
+    "own.consents.grant absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1as\"}}}"
+    },
+    "own.consents.grant absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1at\"}}}"
+    },
+    "own.consents.grant wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1au\"}}}"
+    },
+    "own.consents.grant wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1av\"}}}"
+    },
+    "own.consents.grant wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1aw\"}}}"
+    },
+    "own.consents.grant wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1ax\"}}}"
+    },
+    "own.consents.grant wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1ay\"}}}"
+    },
+    "own.consents.grant empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1az\"}}}"
+    },
+    "own.consents.grant empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"own_data\\\",\\n      \\\"market_data\\\",\\n      \\\"draft_write\\\",\\n      \\\"live_write\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"dataClass\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"own_data\\\\\\\"|\\\\\\\"market_data\\\\\\\"|\\\\\\\"draft_write\\\\\\\"|\\\\\\\"live_write\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1b0\"}}}"
+    },
+    "own.consents.grant empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"own_data\\\",\\n      \\\"market_data\\\",\\n      \\\"draft_write\\\",\\n      \\\"live_write\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"dataClass\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"own_data\\\\\\\"|\\\\\\\"market_data\\\\\\\"|\\\\\\\"draft_write\\\\\\\"|\\\\\\\"live_write\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1b1\"}}}"
+    },
+    "own.consents.grant empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"own_data\\\",\\n      \\\"market_data\\\",\\n      \\\"draft_write\\\",\\n      \\\"live_write\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"dataClass\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"own_data\\\\\\\"|\\\\\\\"market_data\\\\\\\"|\\\\\\\"draft_write\\\\\\\"|\\\\\\\"live_write\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1b2\"}}}"
+    },
+    "own.consents.grant empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"own_data\\\",\\n      \\\"market_data\\\",\\n      \\\"draft_write\\\",\\n      \\\"live_write\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"dataClass\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"own_data\\\\\\\"|\\\\\\\"market_data\\\\\\\"|\\\\\\\"draft_write\\\\\\\"|\\\\\\\"live_write\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1b3\"}}}"
+    },
+    "own.consents.grant extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1b4\"}}}"
+    },
+    "own.consents.grant extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1b5\"}}}"
+    },
+    "own.consents.grant extra-key execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1b6\"}}}"
+    },
+    "own.consents.grant extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1b7\"}}}"
+    },
+    "own.consents.grant extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.grant\",\"requestId\":\"req-1b8\"}}}"
+    },
+    "own.consents.list valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1b9\"}}}"
+    },
+    "own.consents.list valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1ba\"}}}"
+    },
+    "own.consents.list valid execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bb\"}}}"
+    },
+    "own.consents.list valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bc\"}}}"
+    },
+    "own.consents.list valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bd\"}}}"
+    },
+    "own.consents.list absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1be\"}}}"
+    },
+    "own.consents.list absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bf\"}}}"
+    },
+    "own.consents.list absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bg\"}}}"
+    },
+    "own.consents.list absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bh\"}}}"
+    },
+    "own.consents.list absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bi\"}}}"
+    },
+    "own.consents.list wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bj\"}}}"
+    },
+    "own.consents.list wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bk\"}}}"
+    },
+    "own.consents.list wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bl\"}}}"
+    },
+    "own.consents.list wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bm\"}}}"
+    },
+    "own.consents.list wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bn\"}}}"
+    },
+    "own.consents.list empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bo\"}}}"
+    },
+    "own.consents.list empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bp\"}}}"
+    },
+    "own.consents.list empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bq\"}}}"
+    },
+    "own.consents.list empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1br\"}}}"
+    },
+    "own.consents.list empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bs\"}}}"
+    },
+    "own.consents.list extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bt\"}}}"
+    },
+    "own.consents.list extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bu\"}}}"
+    },
+    "own.consents.list extra-key execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bv\"}}}"
+    },
+    "own.consents.list extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bw\"}}}"
+    },
+    "own.consents.list extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.list\",\"requestId\":\"req-1bx\"}}}"
+    },
+    "own.consents.revoke valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1by\"}}}"
+    },
+    "own.consents.revoke valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1bz\"}}}"
+    },
+    "own.consents.revoke valid execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c0\"}}}"
+    },
+    "own.consents.revoke valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c1\"}}}"
+    },
+    "own.consents.revoke valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c2\"}}}"
+    },
+    "own.consents.revoke absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c3\"}}}"
+    },
+    "own.consents.revoke absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c4\"}}}"
+    },
+    "own.consents.revoke absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c5\"}}}"
+    },
+    "own.consents.revoke absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c6\"}}}"
+    },
+    "own.consents.revoke absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c7\"}}}"
+    },
+    "own.consents.revoke wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c8\"}}}"
+    },
+    "own.consents.revoke wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1c9\"}}}"
+    },
+    "own.consents.revoke wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1ca\"}}}"
+    },
+    "own.consents.revoke wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1cb\"}}}"
+    },
+    "own.consents.revoke wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1cc\"}}}"
+    },
+    "own.consents.revoke empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1cd\"}}}"
+    },
+    "own.consents.revoke empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"own_data\\\",\\n      \\\"market_data\\\",\\n      \\\"draft_write\\\",\\n      \\\"live_write\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"dataClass\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"own_data\\\\\\\"|\\\\\\\"market_data\\\\\\\"|\\\\\\\"draft_write\\\\\\\"|\\\\\\\"live_write\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1ce\"}}}"
+    },
+    "own.consents.revoke empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"own_data\\\",\\n      \\\"market_data\\\",\\n      \\\"draft_write\\\",\\n      \\\"live_write\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"dataClass\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"own_data\\\\\\\"|\\\\\\\"market_data\\\\\\\"|\\\\\\\"draft_write\\\\\\\"|\\\\\\\"live_write\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1cf\"}}}"
+    },
+    "own.consents.revoke empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"own_data\\\",\\n      \\\"market_data\\\",\\n      \\\"draft_write\\\",\\n      \\\"live_write\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"dataClass\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"own_data\\\\\\\"|\\\\\\\"market_data\\\\\\\"|\\\\\\\"draft_write\\\\\\\"|\\\\\\\"live_write\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1cg\"}}}"
+    },
+    "own.consents.revoke empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"own_data\\\",\\n      \\\"market_data\\\",\\n      \\\"draft_write\\\",\\n      \\\"live_write\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"dataClass\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"own_data\\\\\\\"|\\\\\\\"market_data\\\\\\\"|\\\\\\\"draft_write\\\\\\\"|\\\\\\\"live_write\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1ch\"}}}"
+    },
+    "own.consents.revoke extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1ci\"}}}"
+    },
+    "own.consents.revoke extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1cj\"}}}"
+    },
+    "own.consents.revoke extra-key execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1ck\"}}}"
+    },
+    "own.consents.revoke extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1cl\"}}}"
+    },
+    "own.consents.revoke extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.consents.revoke\",\"requestId\":\"req-1cm\"}}}"
+    }
+  }
+}

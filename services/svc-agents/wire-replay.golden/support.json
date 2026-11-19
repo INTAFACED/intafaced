@@ -1,0 +1,867 @@
+{
+  "callers": [
+    {
+      "path": "support.answerOrEscalate",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "support.draftComment",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "support.grounded",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "support.invokeDataTool",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "support.policy",
+      "type": "query",
+      "caller": "public"
+    },
+    {
+      "path": "support.runSession",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "support.stage1Guardrail",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "support.tierGate",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "support.answerOrEscalate": {
+      "tool": "x",
+      "plane": "live"
+    },
+    "support.draftComment": {},
+    "support.grounded": {
+      "plane": "live"
+    },
+    "support.invokeDataTool": {
+      "tool": "x",
+      "plane": "live"
+    },
+    "support.policy": null,
+    "support.runSession": {
+      "plane": "live",
+      "asks": []
+    },
+    "support.stage1Guardrail": null,
+    "support.tierGate": {}
+  },
+  "answers": {
+    "support.answerOrEscalate valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3a3\"}}}"
+    },
+    "support.answerOrEscalate valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"escalate\",\"reason\":\"kb_no_hit\",\"userMessageKey\":\"agents.support.escalated\"}}}"
+    },
+    "support.answerOrEscalate valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"escalate\",\"reason\":\"kb_no_hit\",\"userMessageKey\":\"agents.support.escalated\"}}}"
+    },
+    "support.answerOrEscalate valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"escalate\",\"reason\":\"kb_no_hit\",\"userMessageKey\":\"agents.support.escalated\"}}}"
+    },
+    "support.answerOrEscalate valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"escalate\",\"reason\":\"kb_no_hit\",\"userMessageKey\":\"agents.support.escalated\"}}}"
+    },
+    "support.answerOrEscalate absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3a8\"}}}"
+    },
+    "support.answerOrEscalate absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3a9\"}}}"
+    },
+    "support.answerOrEscalate absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3aa\"}}}"
+    },
+    "support.answerOrEscalate absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ab\"}}}"
+    },
+    "support.answerOrEscalate absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ac\"}}}"
+    },
+    "support.answerOrEscalate wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ad\"}}}"
+    },
+    "support.answerOrEscalate wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ae\"}}}"
+    },
+    "support.answerOrEscalate wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3af\"}}}"
+    },
+    "support.answerOrEscalate wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ag\"}}}"
+    },
+    "support.answerOrEscalate wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ah\"}}}"
+    },
+    "support.answerOrEscalate empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ai\"}}}"
+    },
+    "support.answerOrEscalate empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3aj\"}}}"
+    },
+    "support.answerOrEscalate empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ak\"}}}"
+    },
+    "support.answerOrEscalate empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3al\"}}}"
+    },
+    "support.answerOrEscalate empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3am\"}}}"
+    },
+    "support.answerOrEscalate extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3an\"}}}"
+    },
+    "support.answerOrEscalate extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ao\"}}}"
+    },
+    "support.answerOrEscalate extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ap\"}}}"
+    },
+    "support.answerOrEscalate extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3aq\"}}}"
+    },
+    "support.answerOrEscalate extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.answerOrEscalate\",\"requestId\":\"req-3ar\"}}}"
+    },
+    "support.draftComment valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3as\"}}}"
+    },
+    "support.draftComment valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3ax\"}}}"
+    },
+    "support.draftComment absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3ay\"}}}"
+    },
+    "support.draftComment absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3az\"}}}"
+    },
+    "support.draftComment absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3b0\"}}}"
+    },
+    "support.draftComment absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3b1\"}}}"
+    },
+    "support.draftComment wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3b2\"}}}"
+    },
+    "support.draftComment wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3b3\"}}}"
+    },
+    "support.draftComment wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3b4\"}}}"
+    },
+    "support.draftComment wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3b5\"}}}"
+    },
+    "support.draftComment wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3b6\"}}}"
+    },
+    "support.draftComment empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3b7\"}}}"
+    },
+    "support.draftComment empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.draftComment\",\"requestId\":\"req-3bc\"}}}"
+    },
+    "support.draftComment extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.draftComment extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"missing_ticket\",\"userMessageKey\":\"agents.support.comment_refused\"}}}"
+    },
+    "support.grounded valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bh\"}}}"
+    },
+    "support.grounded valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"ok\",\"plane\":\"live\",\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}"
+    },
+    "support.grounded valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"ok\",\"plane\":\"live\",\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}"
+    },
+    "support.grounded valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"ok\",\"plane\":\"live\",\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}"
+    },
+    "support.grounded valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"ok\",\"plane\":\"live\",\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}"
+    },
+    "support.grounded absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bm\"}}}"
+    },
+    "support.grounded absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bn\"}}}"
+    },
+    "support.grounded absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bo\"}}}"
+    },
+    "support.grounded absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bp\"}}}"
+    },
+    "support.grounded absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bq\"}}}"
+    },
+    "support.grounded wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3br\"}}}"
+    },
+    "support.grounded wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bs\"}}}"
+    },
+    "support.grounded wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bt\"}}}"
+    },
+    "support.grounded wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bu\"}}}"
+    },
+    "support.grounded wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bv\"}}}"
+    },
+    "support.grounded empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bw\"}}}"
+    },
+    "support.grounded empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bx\"}}}"
+    },
+    "support.grounded empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3by\"}}}"
+    },
+    "support.grounded empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3bz\"}}}"
+    },
+    "support.grounded empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3c0\"}}}"
+    },
+    "support.grounded extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.grounded\",\"requestId\":\"req-3c1\"}}}"
+    },
+    "support.grounded extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"ok\",\"plane\":\"live\",\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}"
+    },
+    "support.grounded extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"ok\",\"plane\":\"live\",\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}"
+    },
+    "support.grounded extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"ok\",\"plane\":\"live\",\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}"
+    },
+    "support.grounded extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"ok\",\"plane\":\"live\",\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}"
+    },
+    "support.invokeDataTool valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3c6\"}}}"
+    },
+    "support.invokeDataTool valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"audit\":{\"sequence\":0,\"kind\":\"tool_call\",\"status\":\"refused\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\",\"occurredAt\":\"2026-11-19T00:00:00.000Z\"}}}}"
+    },
+    "support.invokeDataTool valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"audit\":{\"sequence\":0,\"kind\":\"tool_call\",\"status\":\"refused\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\",\"occurredAt\":\"2026-11-19T00:00:00.000Z\"}}}}"
+    },
+    "support.invokeDataTool valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"audit\":{\"sequence\":0,\"kind\":\"tool_call\",\"status\":\"refused\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\",\"occurredAt\":\"2026-11-19T00:00:00.000Z\"}}}}"
+    },
+    "support.invokeDataTool valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"audit\":{\"sequence\":0,\"kind\":\"tool_call\",\"status\":\"refused\",\"tool\":\"x\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\",\"occurredAt\":\"2026-11-19T00:00:00.000Z\"}}}}"
+    },
+    "support.invokeDataTool absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cb\"}}}"
+    },
+    "support.invokeDataTool absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cc\"}}}"
+    },
+    "support.invokeDataTool absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cd\"}}}"
+    },
+    "support.invokeDataTool absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3ce\"}}}"
+    },
+    "support.invokeDataTool absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cf\"}}}"
+    },
+    "support.invokeDataTool wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cg\"}}}"
+    },
+    "support.invokeDataTool wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3ch\"}}}"
+    },
+    "support.invokeDataTool wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3ci\"}}}"
+    },
+    "support.invokeDataTool wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cj\"}}}"
+    },
+    "support.invokeDataTool wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3ck\"}}}"
+    },
+    "support.invokeDataTool empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cl\"}}}"
+    },
+    "support.invokeDataTool empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cm\"}}}"
+    },
+    "support.invokeDataTool empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cn\"}}}"
+    },
+    "support.invokeDataTool empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3co\"}}}"
+    },
+    "support.invokeDataTool empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cp\"}}}"
+    },
+    "support.invokeDataTool extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cq\"}}}"
+    },
+    "support.invokeDataTool extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cr\"}}}"
+    },
+    "support.invokeDataTool extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cs\"}}}"
+    },
+    "support.invokeDataTool extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3ct\"}}}"
+    },
+    "support.invokeDataTool extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.invokeDataTool\",\"requestId\":\"req-3cu\"}}}"
+    },
+    "support.policy valid anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy absent anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy absent read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy absent execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy absent admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy absent key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy wrong-type anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy wrong-type read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy wrong-type execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy wrong-type admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy wrong-type key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy empty anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy extra-key anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.policy extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentAssist\":\"agents.support\",\"deskMountain\":\"ops.support\",\"deskStandalone\":true,\"deskProductComplete\":false,\"moneyTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasPayRefund\":1,\"hasTradeOrder\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 pay_refund=1 trade_order=1\",\"moneyDenyExport\":\"tools,ledger_post,pay_refund,trade_order\\n12,1,1,1\",\"guardrail\":{\"agentId\":\"support\",\"version\":3,\"declared\":4,\"moneyDenied\":12,\"approvalRequired\":1},\"guardrailStatusLine\":\"agent=support v=3 declared=4 moneyDenied=12 approval=1\",\"guardrailExport\":\"agentId,version,declared,moneyDenied,approvalRequired\\nsupport,3,4,12,1\",\"declaredTools\":[\"support.ticket.read\",\"support.kb.search\",\"identity.account.read\",\"support.ticket.comment\"],\"dataTools\":[\"support.kb.search\",\"support.ticket.read\",\"identity.account.read\"],\"darkPlaneRefuse\":{\"reason\":\"desk_plane_dark\",\"userMessageKey\":\"agents.support.unavailable\"},\"liveAllowedTasks\":[\"support.classify\",\"support.reply\"],\"tierLawRefuse\":{\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"},\"escalationUserMessageKey\":\"agents.support.escalated\",\"inventsBalances\":false,\"inventsRefunds\":false,\"escalationFirstClass\":true}}}"
+    },
+    "support.runSession valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dk\"}}}"
+    },
+    "support.runSession valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dl\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\",\"unanswered\":[],\"metering\":{\"sessionId\":null,\"billedAmount\":\"0\",\"assetId\":\"fixture-asset\",\"sessionClosed\":false,\"settlements\":[]}}}}"
+    },
+    "support.runSession valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dn\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3do\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "support.runSession absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dp\"}}}"
+    },
+    "support.runSession absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dq\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dr\"}}}"
+    },
+    "support.runSession absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3ds\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dt\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "support.runSession wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3du\"}}}"
+    },
+    "support.runSession wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dv\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dw\"}}}"
+    },
+    "support.runSession wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dx\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dy\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "support.runSession empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3dz\"}}}"
+    },
+    "support.runSession empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3e0\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"asks\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3e1\"}}}"
+    },
+    "support.runSession empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3e2\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3e3\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "support.runSession extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3e4\"}}}"
+    },
+    "support.runSession extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3e5\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3e6\"}}}"
+    },
+    "support.runSession extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3e7\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "support.runSession extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"support.runSession\",\"requestId\":\"req-3e8\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "support.stage1Guardrail valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.stage1Guardrail\",\"requestId\":\"req-3e9\"}}}"
+    },
+    "support.stage1Guardrail valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.stage1Guardrail\",\"requestId\":\"req-3ee\"}}}"
+    },
+    "support.stage1Guardrail absent read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail absent execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail absent admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail absent key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.stage1Guardrail\",\"requestId\":\"req-3ej\"}}}"
+    },
+    "support.stage1Guardrail wrong-type read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail wrong-type execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail wrong-type admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail wrong-type key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.stage1Guardrail\",\"requestId\":\"req-3eo\"}}}"
+    },
+    "support.stage1Guardrail empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.stage1Guardrail\",\"requestId\":\"req-3et\"}}}"
+    },
+    "support.stage1Guardrail extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.stage1Guardrail extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"support\",\"version\":3,\"tools\":[{\"name\":\"support.ticket.read\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.kb.search\",\"module\":\"support\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.account.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"support.ticket.comment\",\"module\":\"support\",\"mode\":\"write\",\"requiresApproval\":true,\"maxCallsPerSession\":20}],\"limits\":{\"maxActionsPerSession\":40,\"maxOutputTokensPerCall\":2048,\"maxSpendPerSession\":\"0.5\",\"allowedModules\":[\"support\",\"identity\"],\"allowedTasks\":[\"support.classify\",\"support.reply\"]}}}}"
+    },
+    "support.tierGate valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3ey\"}}}"
+    },
+    "support.tierGate valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"}}}"
+    },
+    "support.tierGate valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"}}}"
+    },
+    "support.tierGate valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"}}}"
+    },
+    "support.tierGate valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"}}}"
+    },
+    "support.tierGate absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3f3\"}}}"
+    },
+    "support.tierGate absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3f4\"}}}"
+    },
+    "support.tierGate absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3f5\"}}}"
+    },
+    "support.tierGate absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3f6\"}}}"
+    },
+    "support.tierGate absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3f7\"}}}"
+    },
+    "support.tierGate wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3f8\"}}}"
+    },
+    "support.tierGate wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3f9\"}}}"
+    },
+    "support.tierGate wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3fa\"}}}"
+    },
+    "support.tierGate wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3fb\"}}}"
+    },
+    "support.tierGate wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3fc\"}}}"
+    },
+    "support.tierGate empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3fd\"}}}"
+    },
+    "support.tierGate empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"}}}"
+    },
+    "support.tierGate empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"}}}"
+    },
+    "support.tierGate empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"}}}"
+    },
+    "support.tierGate empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.support.tier_closed\"}}}"
+    },
+    "support.tierGate extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3fi\"}}}"
+    },
+    "support.tierGate extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3fj\"}}}"
+    },
+    "support.tierGate extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3fk\"}}}"
+    },
+    "support.tierGate extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3fl\"}}}"
+    },
+    "support.tierGate extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"support.tierGate\",\"requestId\":\"req-3fm\"}}}"
+    }
+  }
+}

@@ -1,0 +1,869 @@
+{
+  "callers": [
+    {
+      "path": "session.close",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "session.detail",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "session.events",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "session.log",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "session.mine",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "session.open",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "session.select",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "session.selected",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "session.close": {
+      "sessionId": "33333333-3333-4333-8333-333333333333"
+    },
+    "session.detail": {
+      "sessionId": "33333333-3333-4333-8333-333333333333"
+    },
+    "session.events": {
+      "sessionId": "33333333-3333-4333-8333-333333333333",
+      "limit": 1
+    },
+    "session.log": {
+      "sessionId": "33333333-3333-4333-8333-333333333333"
+    },
+    "session.mine": {},
+    "session.open": {
+      "agentId": "x"
+    },
+    "session.select": {
+      "sessionId": "33333333-3333-4333-8333-333333333333"
+    },
+    "session.selected": null
+  },
+  "answers": {
+    "session.close valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.close valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.close valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.close absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33a\"}}}"
+    },
+    "session.close absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33b\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33c\"}}}"
+    },
+    "session.close absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33d\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33e\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.close wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33f\"}}}"
+    },
+    "session.close wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33g\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33h\"}}}"
+    },
+    "session.close wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33i\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33j\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.close empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33k\"}}}"
+    },
+    "session.close empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33l\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33m\"}}}"
+    },
+    "session.close empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33n\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33o\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.close extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33p\"}}}"
+    },
+    "session.close extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33q\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33r\"}}}"
+    },
+    "session.close extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33s\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.close extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.close\",\"requestId\":\"req-33t\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.detail valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-33u\"}}}"
+    },
+    "session.detail valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-33v\"}}}"
+    },
+    "session.detail valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-33w\"}}}"
+    },
+    "session.detail valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-33x\"}}}"
+    },
+    "session.detail valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-33y\"}}}"
+    },
+    "session.detail absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-33z\"}}}"
+    },
+    "session.detail absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.detail empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-34a\"}}}"
+    },
+    "session.detail empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-34b\"}}}"
+    },
+    "session.detail empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-34c\"}}}"
+    },
+    "session.detail empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-34d\"}}}"
+    },
+    "session.detail extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-34e\"}}}"
+    },
+    "session.detail extra-key read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-34f\"}}}"
+    },
+    "session.detail extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-34g\"}}}"
+    },
+    "session.detail extra-key admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-34h\"}}}"
+    },
+    "session.detail extra-key key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.detail\",\"requestId\":\"req-34i\"}}}"
+    },
+    "session.events valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34j\"}}}"
+    },
+    "session.events valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34k\"}}}"
+    },
+    "session.events valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34l\"}}}"
+    },
+    "session.events valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34m\"}}}"
+    },
+    "session.events valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34n\"}}}"
+    },
+    "session.events absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34o\"}}}"
+    },
+    "session.events absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34p\"}}}"
+    },
+    "session.events absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34q\"}}}"
+    },
+    "session.events absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34r\"}}}"
+    },
+    "session.events absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34s\"}}}"
+    },
+    "session.events wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34t\"}}}"
+    },
+    "session.events wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34u\"}}}"
+    },
+    "session.events wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34v\"}}}"
+    },
+    "session.events wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34w\"}}}"
+    },
+    "session.events wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34x\"}}}"
+    },
+    "session.events empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34y\"}}}"
+    },
+    "session.events empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"req-34z\"}}}"
+    },
+    "session.events empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.events empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.events empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.events extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.events extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.events extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.events extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.events extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.log valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.log valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.log valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35a\"}}}"
+    },
+    "session.log valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35b\"}}}"
+    },
+    "session.log valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35c\"}}}"
+    },
+    "session.log absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35d\"}}}"
+    },
+    "session.log absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35e\"}}}"
+    },
+    "session.log absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35f\"}}}"
+    },
+    "session.log absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35g\"}}}"
+    },
+    "session.log absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35h\"}}}"
+    },
+    "session.log wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35i\"}}}"
+    },
+    "session.log wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35j\"}}}"
+    },
+    "session.log wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35k\"}}}"
+    },
+    "session.log wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35l\"}}}"
+    },
+    "session.log wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35m\"}}}"
+    },
+    "session.log empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35n\"}}}"
+    },
+    "session.log empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35o\"}}}"
+    },
+    "session.log empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35p\"}}}"
+    },
+    "session.log empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35q\"}}}"
+    },
+    "session.log empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35r\"}}}"
+    },
+    "session.log extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35s\"}}}"
+    },
+    "session.log extra-key read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35t\"}}}"
+    },
+    "session.log extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35u\"}}}"
+    },
+    "session.log extra-key admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35v\"}}}"
+    },
+    "session.log extra-key key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.log\",\"requestId\":\"req-35w\"}}}"
+    },
+    "session.mine valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-35x\"}}}"
+    },
+    "session.mine valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-35y\"}}}"
+    },
+    "session.mine valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-35z\"}}}"
+    },
+    "session.mine valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.mine wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36a\"}}}"
+    },
+    "session.mine wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36b\"}}}"
+    },
+    "session.mine empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36c\"}}}"
+    },
+    "session.mine empty read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36d\"}}}"
+    },
+    "session.mine empty execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36e\"}}}"
+    },
+    "session.mine empty admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36f\"}}}"
+    },
+    "session.mine empty key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36g\"}}}"
+    },
+    "session.mine extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36h\"}}}"
+    },
+    "session.mine extra-key read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36i\"}}}"
+    },
+    "session.mine extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36j\"}}}"
+    },
+    "session.mine extra-key admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36k\"}}}"
+    },
+    "session.mine extra-key key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.mine\",\"requestId\":\"req-36l\"}}}"
+    },
+    "session.open valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36m\"}}}"
+    },
+    "session.open valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36n\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36o\"}}}"
+    },
+    "session.open valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36p\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36q\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.open absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36r\"}}}"
+    },
+    "session.open absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36s\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36t\"}}}"
+    },
+    "session.open absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36u\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36v\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.open wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36w\"}}}"
+    },
+    "session.open wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36x\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36y\"}}}"
+    },
+    "session.open wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-36z\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.open empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.open empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"agentId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.open empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.open extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.open extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.open extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "session.open extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.open\",\"requestId\":\"req-37a\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "session.select valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37b\"}}}"
+    },
+    "session.select valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37c\"}}}"
+    },
+    "session.select valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37d\"}}}"
+    },
+    "session.select valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37e\"}}}"
+    },
+    "session.select valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.select_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37f\"}}}"
+    },
+    "session.select absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37g\"}}}"
+    },
+    "session.select absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37h\"}}}"
+    },
+    "session.select absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37i\"}}}"
+    },
+    "session.select absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37j\"}}}"
+    },
+    "session.select absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.select_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37k\"}}}"
+    },
+    "session.select wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37l\"}}}"
+    },
+    "session.select wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37m\"}}}"
+    },
+    "session.select wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37n\"}}}"
+    },
+    "session.select wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37o\"}}}"
+    },
+    "session.select wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.select_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37p\"}}}"
+    },
+    "session.select empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37q\"}}}"
+    },
+    "session.select empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37r\"}}}"
+    },
+    "session.select empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37s\"}}}"
+    },
+    "session.select empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37t\"}}}"
+    },
+    "session.select empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.select_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37u\"}}}"
+    },
+    "session.select extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37v\"}}}"
+    },
+    "session.select extra-key read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37w\"}}}"
+    },
+    "session.select extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37x\"}}}"
+    },
+    "session.select extra-key admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37y\"}}}"
+    },
+    "session.select extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.select_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"session.select\",\"requestId\":\"req-37z\"}}}"
+    },
+    "session.selected valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected absent read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected absent execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected absent admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected absent key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"<request>\"}}}"
+    },
+    "session.selected wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38a\"}}}"
+    },
+    "session.selected wrong-type read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38b\"}}}"
+    },
+    "session.selected wrong-type execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38c\"}}}"
+    },
+    "session.selected wrong-type admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38d\"}}}"
+    },
+    "session.selected wrong-type key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38e\"}}}"
+    },
+    "session.selected empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38f\"}}}"
+    },
+    "session.selected empty read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38g\"}}}"
+    },
+    "session.selected empty execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38h\"}}}"
+    },
+    "session.selected empty admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38i\"}}}"
+    },
+    "session.selected empty key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38j\"}}}"
+    },
+    "session.selected extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38k\"}}}"
+    },
+    "session.selected extra-key read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38l\"}}}"
+    },
+    "session.selected extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38m\"}}}"
+    },
+    "session.selected extra-key admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38n\"}}}"
+    },
+    "session.selected extra-key key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"session.selected\",\"requestId\":\"req-38o\"}}}"
+    }
+  }
+}

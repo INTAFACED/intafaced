@@ -1,0 +1,874 @@
+{
+  "callers": [
+    {
+      "path": "fleet.audit",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "fleet.export",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "fleet.killKind",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "fleet.quarantine",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "fleet.reassign",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "fleet.registry",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "fleet.restore",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "fleet.restoreKind",
+      "type": "mutation",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "fleet.audit": null,
+    "fleet.export": {
+      "requestId": "xxxxxxxx"
+    },
+    "fleet.killKind": {
+      "kind": "customer_built",
+      "requestId": "xxxxxxxx"
+    },
+    "fleet.quarantine": {
+      "ref": "x",
+      "requestId": "xxxxxxxx"
+    },
+    "fleet.reassign": {
+      "ref": "x",
+      "ownerId": "33333333-3333-4333-8333-333333333333",
+      "requestId": "xxxxxxxx"
+    },
+    "fleet.registry": {},
+    "fleet.restore": {
+      "ref": "x",
+      "requestId": "xxxxxxxx"
+    },
+    "fleet.restoreKind": {
+      "kind": "customer_built",
+      "requestId": "xxxxxxxx"
+    }
+  },
+  "answers": {
+    "fleet.audit valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-6z\"}}}"
+    },
+    "fleet.audit valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit valid execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit valid admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.registry_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.registry_list_limit_unset\"}}}}"
+    },
+    "fleet.audit valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\"}}}"
+    },
+    "fleet.audit absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit absent execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit absent admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.registry_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.registry_list_limit_unset\"}}}}"
+    },
+    "fleet.audit absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"<request>\"}}}"
+    },
+    "fleet.audit wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7a\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit wrong-type execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7b\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit wrong-type admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.registry_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7c\",\"cause\":{\"code\":\"agents.registry_list_limit_unset\"}}}}"
+    },
+    "fleet.audit wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7d\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7e\"}}}"
+    },
+    "fleet.audit empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7f\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit empty execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7g\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit empty admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.registry_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7h\",\"cause\":{\"code\":\"agents.registry_list_limit_unset\"}}}}"
+    },
+    "fleet.audit empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7i\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7j\"}}}"
+    },
+    "fleet.audit extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7k\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit extra-key execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7l\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.audit extra-key admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.registry_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7m\",\"cause\":{\"code\":\"agents.registry_list_limit_unset\"}}}}"
+    },
+    "fleet.audit extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.audit\",\"requestId\":\"req-7n\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7o\"}}}"
+    },
+    "fleet.export valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7p\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export valid execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7q\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export valid admin": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7r\"}}}"
+    },
+    "fleet.export valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7s\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7t\"}}}"
+    },
+    "fleet.export absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7u\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export absent execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7v\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7w\"}}}"
+    },
+    "fleet.export absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7x\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7y\"}}}"
+    },
+    "fleet.export wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-7z\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export wrong-type execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\"}}}"
+    },
+    "fleet.export wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\"}}}"
+    },
+    "fleet.export empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export empty execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"requestId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\"}}}"
+    },
+    "fleet.export empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\"}}}"
+    },
+    "fleet.export extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export extra-key execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-8a\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.export extra-key admin": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-8b\"}}}"
+    },
+    "fleet.export extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.export\",\"requestId\":\"req-8c\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8d\"}}}"
+    },
+    "fleet.killKind valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8e\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind valid execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8f\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8g\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8h\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8i\"}}}"
+    },
+    "fleet.killKind absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8j\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind absent execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8k\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8l\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8m\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8n\"}}}"
+    },
+    "fleet.killKind wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8o\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind wrong-type execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8p\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8q\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8r\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8s\"}}}"
+    },
+    "fleet.killKind empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8t\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind empty execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8u\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8v\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8w\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8x\"}}}"
+    },
+    "fleet.killKind extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8y\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind extra-key execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"req-8z\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.killKind extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.killKind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\"}}}"
+    },
+    "fleet.quarantine valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine valid execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\"}}}"
+    },
+    "fleet.quarantine absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine absent execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9a\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9b\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9c\"}}}"
+    },
+    "fleet.quarantine wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9d\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine wrong-type execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9e\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9f\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9g\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9h\"}}}"
+    },
+    "fleet.quarantine empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9i\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine empty execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9j\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9k\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9l\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9m\"}}}"
+    },
+    "fleet.quarantine extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9n\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine extra-key execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9o\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9p\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.quarantine extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.quarantine\",\"requestId\":\"req-9q\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-9r\"}}}"
+    },
+    "fleet.reassign valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-9s\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign valid execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-9t\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-9u\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-9v\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-9w\"}}}"
+    },
+    "fleet.reassign absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-9x\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign absent execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-9y\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-9z\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a0\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a1\"}}}"
+    },
+    "fleet.reassign wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a2\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign wrong-type execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a3\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a4\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a5\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a6\"}}}"
+    },
+    "fleet.reassign empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a7\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign empty execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a8\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-a9\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-aa\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-ab\"}}}"
+    },
+    "fleet.reassign extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-ac\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign extra-key execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-ad\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-ae\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.reassign extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.reassign\",\"requestId\":\"req-af\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-ag\"}}}"
+    },
+    "fleet.registry valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-ah\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry valid execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-ai\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry valid admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.registry_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-aj\",\"cause\":{\"code\":\"agents.registry_list_limit_unset\"}}}}"
+    },
+    "fleet.registry valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-ak\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-al\"}}}"
+    },
+    "fleet.registry absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-am\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry absent execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-an\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry absent admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.registry_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-ao\",\"cause\":{\"code\":\"agents.registry_list_limit_unset\"}}}}"
+    },
+    "fleet.registry absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-ap\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-aq\"}}}"
+    },
+    "fleet.registry wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-ar\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry wrong-type execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-as\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-at\"}}}"
+    },
+    "fleet.registry wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-au\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-av\"}}}"
+    },
+    "fleet.registry empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-aw\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry empty execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-ax\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry empty admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.registry_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-ay\",\"cause\":{\"code\":\"agents.registry_list_limit_unset\"}}}}"
+    },
+    "fleet.registry empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-az\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-b0\"}}}"
+    },
+    "fleet.registry extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-b1\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry extra-key execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-b2\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.registry extra-key admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.registry_list_limit_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-b3\",\"cause\":{\"code\":\"agents.registry_list_limit_unset\"}}}}"
+    },
+    "fleet.registry extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.registry\",\"requestId\":\"req-b4\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-b5\"}}}"
+    },
+    "fleet.restore valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-b6\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore valid execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-b7\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-b8\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-b9\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-ba\"}}}"
+    },
+    "fleet.restore absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bb\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore absent execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bc\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bd\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-be\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bf\"}}}"
+    },
+    "fleet.restore wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bg\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore wrong-type execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bh\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bi\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bj\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bk\"}}}"
+    },
+    "fleet.restore empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bl\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore empty execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bm\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bn\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bo\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bp\"}}}"
+    },
+    "fleet.restore extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bq\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore extra-key execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-br\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bs\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restore extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restore\",\"requestId\":\"req-bt\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-bu\"}}}"
+    },
+    "fleet.restoreKind valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-bv\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind valid execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-bw\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-bx\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-by\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-bz\"}}}"
+    },
+    "fleet.restoreKind absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c0\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind absent execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c1\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c2\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c3\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c4\"}}}"
+    },
+    "fleet.restoreKind wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c5\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind wrong-type execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c6\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c7\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c8\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-c9\"}}}"
+    },
+    "fleet.restoreKind empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-ca\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind empty execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-cb\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-cc\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-cd\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-ce\"}}}"
+    },
+    "fleet.restoreKind extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-cf\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind extra-key execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-cg\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-ch\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "fleet.restoreKind extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"fleet.restoreKind\",\"requestId\":\"req-ci\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    }
+  }
+}

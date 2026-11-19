@@ -1,0 +1,220 @@
+{
+  "callers": [
+    {
+      "path": "riskCompliance.draftScreening",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "riskCompliance.refuseKycReview",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "riskCompliance.draftScreening": {},
+    "riskCompliance.refuseKycReview": {}
+  },
+  "answers": {
+    "riskCompliance.draftScreening valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2ls\"}}}"
+    },
+    "riskCompliance.draftScreening valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2lx\"}}}"
+    },
+    "riskCompliance.draftScreening absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2ly\"}}}"
+    },
+    "riskCompliance.draftScreening absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2lz\"}}}"
+    },
+    "riskCompliance.draftScreening absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2m0\"}}}"
+    },
+    "riskCompliance.draftScreening absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2m1\"}}}"
+    },
+    "riskCompliance.draftScreening wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2m2\"}}}"
+    },
+    "riskCompliance.draftScreening wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2m3\"}}}"
+    },
+    "riskCompliance.draftScreening wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2m4\"}}}"
+    },
+    "riskCompliance.draftScreening wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2m5\"}}}"
+    },
+    "riskCompliance.draftScreening wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2m6\"}}}"
+    },
+    "riskCompliance.draftScreening empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2m7\"}}}"
+    },
+    "riskCompliance.draftScreening empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.draftScreening\",\"requestId\":\"req-2mc\"}}}"
+    },
+    "riskCompliance.draftScreening extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.draftScreening extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"inputs_missing\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"userMessageKey\":\"agents.error.capability_unavailable\",\"screeningDeclaration\":\"unset\",\"screeningConfigured\":false,\"screeningSource\":\"unconfigured\",\"inventedBlockedList\":false}}}"
+    },
+    "riskCompliance.refuseKycReview valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mh\"}}}"
+    },
+    "riskCompliance.refuseKycReview valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mm\"}}}"
+    },
+    "riskCompliance.refuseKycReview absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mn\"}}}"
+    },
+    "riskCompliance.refuseKycReview absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mo\"}}}"
+    },
+    "riskCompliance.refuseKycReview absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mp\"}}}"
+    },
+    "riskCompliance.refuseKycReview absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mq\"}}}"
+    },
+    "riskCompliance.refuseKycReview wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mr\"}}}"
+    },
+    "riskCompliance.refuseKycReview wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2ms\"}}}"
+    },
+    "riskCompliance.refuseKycReview wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mt\"}}}"
+    },
+    "riskCompliance.refuseKycReview wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mu\"}}}"
+    },
+    "riskCompliance.refuseKycReview wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mv\"}}}"
+    },
+    "riskCompliance.refuseKycReview empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2mw\"}}}"
+    },
+    "riskCompliance.refuseKycReview empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"riskCompliance.refuseKycReview\",\"requestId\":\"req-2n1\"}}}"
+    },
+    "riskCompliance.refuseKycReview extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "riskCompliance.refuseKycReview extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"kyc_review_is_operator_only\",\"kind\":\"not_a_decision\",\"isDecision\":false,\"column\":\"reviewed_by\",\"writable\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    }
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "callers": [
+    {
+      "path": "launch.assess",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "launch.assess": {}
+  },
+  "answers": {
+    "launch.assess valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-dx\"}}}"
+    },
+    "launch.assess valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-e2\"}}}"
+    },
+    "launch.assess absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-e3\"}}}"
+    },
+    "launch.assess absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-e4\"}}}"
+    },
+    "launch.assess absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-e5\"}}}"
+    },
+    "launch.assess absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-e6\"}}}"
+    },
+    "launch.assess wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-e7\"}}}"
+    },
+    "launch.assess wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-e8\"}}}"
+    },
+    "launch.assess wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-e9\"}}}"
+    },
+    "launch.assess wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-ea\"}}}"
+    },
+    "launch.assess wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-eb\"}}}"
+    },
+    "launch.assess empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-ec\"}}}"
+    },
+    "launch.assess empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"launch.assess\",\"requestId\":\"req-eh\"}}}"
+    },
+    "launch.assess extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    },
+    "launch.assess extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"deployer_missing\",\"kind\":\"not_a_badge\",\"isBadge\":false,\"isBlockDecision\":false,\"inventedCleanBadge\":false,\"userMessageKey\":\"agents.error.capability_unavailable\"}}}"
+    }
+  }
+}

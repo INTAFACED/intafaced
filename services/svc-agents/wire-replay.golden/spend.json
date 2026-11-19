@@ -1,0 +1,220 @@
+{
+  "callers": [
+    {
+      "path": "spend.limits.get",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "spend.limits.set",
+      "type": "mutation",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "spend.limits.get": null,
+    "spend.limits.set": {}
+  },
+  "answers": {
+    "spend.limits.get valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38p\"}}}"
+    },
+    "spend.limits.get valid read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38q\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get valid execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38r\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get valid admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38s\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get valid key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38t\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38u\"}}}"
+    },
+    "spend.limits.get absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38v\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38w\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38x\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38y\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-38z\"}}}"
+    },
+    "spend.limits.get wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "spend.limits.get empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "spend.limits.get extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-39a\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-39b\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-39c\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.get extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.get\",\"requestId\":\"req-39d\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.set valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39e\"}}}"
+    },
+    "spend.limits.set valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39f\"}}}"
+    },
+    "spend.limits.set valid execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39g\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.set valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39h\"}}}"
+    },
+    "spend.limits.set valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39i\"}}}"
+    },
+    "spend.limits.set absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39j\"}}}"
+    },
+    "spend.limits.set absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39k\"}}}"
+    },
+    "spend.limits.set absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39l\"}}}"
+    },
+    "spend.limits.set absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39m\"}}}"
+    },
+    "spend.limits.set absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39n\"}}}"
+    },
+    "spend.limits.set wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39o\"}}}"
+    },
+    "spend.limits.set wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39p\"}}}"
+    },
+    "spend.limits.set wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39q\"}}}"
+    },
+    "spend.limits.set wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39r\"}}}"
+    },
+    "spend.limits.set wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39s\"}}}"
+    },
+    "spend.limits.set empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39t\"}}}"
+    },
+    "spend.limits.set empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39u\"}}}"
+    },
+    "spend.limits.set empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39v\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.set empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39w\"}}}"
+    },
+    "spend.limits.set empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39x\"}}}"
+    },
+    "spend.limits.set extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39y\"}}}"
+    },
+    "spend.limits.set extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-39z\"}}}"
+    },
+    "spend.limits.set extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.error.capability_unavailable\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-3a0\",\"cause\":{\"code\":\"agents.capability_unavailable\"}}}}"
+    },
+    "spend.limits.set extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-3a1\"}}}"
+    },
+    "spend.limits.set extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"spend.limits.set\",\"requestId\":\"req-3a2\"}}}"
+    }
+  }
+}

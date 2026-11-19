@@ -1,0 +1,114 @@
+{
+  "callers": [
+    {
+      "path": "portfolio.plan",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "portfolio.plan": {}
+  },
+  "answers": {
+    "portfolio.plan valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2l3\"}}}"
+    },
+    "portfolio.plan valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2l8\"}}}"
+    },
+    "portfolio.plan absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2l9\"}}}"
+    },
+    "portfolio.plan absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2la\"}}}"
+    },
+    "portfolio.plan absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2lb\"}}}"
+    },
+    "portfolio.plan absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2lc\"}}}"
+    },
+    "portfolio.plan wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2ld\"}}}"
+    },
+    "portfolio.plan wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2le\"}}}"
+    },
+    "portfolio.plan wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2lf\"}}}"
+    },
+    "portfolio.plan wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2lg\"}}}"
+    },
+    "portfolio.plan wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2lh\"}}}"
+    },
+    "portfolio.plan empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2li\"}}}"
+    },
+    "portfolio.plan empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"portfolio.plan\",\"requestId\":\"req-2ln\"}}}"
+    },
+    "portfolio.plan extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    },
+    "portfolio.plan extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refused\",\"code\":\"portfolio.killed\",\"userMessageKey\":\"agents.refused.module_not_allowed\",\"asset\":null}}}}"
+    }
+  }
+}
