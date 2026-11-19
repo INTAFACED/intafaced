@@ -22,4 +22,16 @@ describe('push public key policy (HM-notifications-02)', () => {
     expect(pushKeyPolicy({ ...gateway, NOTIFY_PUSH_PUBLIC_KEY: 'not a key!' })).toMatchObject({ publicKey: null });
     expect(pushKeyPolicy({ ...gateway, NOTIFY_PUSH_PUBLIC_KEY: 'short' })).toMatchObject({ publicKey: null });
   });
+
+  it('gives the key with the TEST push stand-in in place of a gateway, on a dev or test stack only', () => {
+    const standIn = { NOTIFY_PUSH_TEST_OUTBOX: '/tmp/push-outbox.log', NOTIFY_PUSH_PUBLIC_KEY: KEY };
+    expect(pushKeyPolicy({ ...standIn, APP_ENV: 'test' })).toEqual({ publicKey: KEY, unsetCode: null });
+    expect(pushKeyPolicy({ ...standIn, APP_ENV: 'dev' })).toEqual({ publicKey: KEY, unsetCode: null });
+    expect(pushKeyPolicy({ ...standIn, APP_ENV: 'prod' })).toEqual({ publicKey: null, unsetCode: PUSH_KEY_UNSET });
+    expect(pushKeyPolicy({ ...standIn })).toEqual({ publicKey: null, unsetCode: PUSH_KEY_UNSET });
+    expect(pushKeyPolicy({ NOTIFY_PUSH_TEST_OUTBOX: '/tmp/push-outbox.log', APP_ENV: 'test' })).toEqual({
+      publicKey: null,
+      unsetCode: PUSH_KEY_UNSET,
+    });
+  });
 });

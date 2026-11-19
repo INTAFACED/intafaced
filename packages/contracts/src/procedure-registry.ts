@@ -37,6 +37,7 @@ import {
   MINING_POW,
   MINING_PROBE,
 } from './mining-procedures.js';
+import { NOTIFY_INBOX_POLICY } from './notify-inbox-policy.js';
 import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } from './ops-public-procedures.js';
 import {
   TAX_HEALTH,
@@ -94,6 +95,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   MINING_CONNECTION,
   MINING_POW,
   MINING_PROBE,
+  NOTIFY_INBOX_POLICY,
   OPS_HOME_CONFIG,
   OPS_VALUATION_PRICES,
   OPS_OUTREACH_PUBLIC_SETTINGS,
