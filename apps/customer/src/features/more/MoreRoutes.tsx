@@ -26,6 +26,7 @@ import { Market } from './Market';
 import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant';
+import { quantModeRoute } from './quant-mode-route';
 import { Support, supportPageTitleKey } from './Support';
 import { SupportChatRoom } from './SupportChat';
 import { chatCopy } from './support-chat-copy';
@@ -55,7 +56,8 @@ function MoreRooms({ path }: { path: string }) {
   const url = new URL(path, location.origin),
     p = url.pathname;
   const paper = url.searchParams.get('simulated') === 'true';
-  const quant = p === '/quant' || p.startsWith('/quant/') ? quantRoute(p, paper, userId ?? null) : null;
+  const quant =
+    p === '/quant' || p.startsWith('/quant/') ? (quantRoute(p, paper, userId ?? null) ?? quantModeRoute(p, paper, userId ?? null)) : null;
   let title: ReactNode = copyText('moreroutes.more'),
     description: ReactNode = undefined,
     content: ReactNode = (

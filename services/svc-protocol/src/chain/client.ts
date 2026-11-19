@@ -51,27 +51,6 @@ export interface ChainConfig {
   readonly bundlerUrl?: string;
 }
 
-/** What a launched token says about itself — read from the token, never from our config. */
-export interface TokenMetadata {
-  readonly name: string;
-  readonly symbol: string;
-  readonly decimals: number;
-  /** Scaled by `decimals`. A bigint until the edge of the process, never a number. */
-  readonly totalSupply: bigint;
-  readonly initialHolder: Address;
-}
-
-export interface OnChainSession {
-  readonly specHash: Hex;
-  readonly validAfter: number;
-  readonly validUntil: number;
-  readonly spentWei: bigint;
-  readonly epoch: bigint;
-  readonly revoked: boolean;
-}
-
-const NO_SESSION_HASH = `0x${'00'.repeat(32)}` as Hex;
-
 /** Reserves as the pool itself reports them. `blockTimestampLast` is the pool's own clock. */
 export interface PoolReserves {
   readonly reserve0: bigint;
@@ -211,21 +190,6 @@ export class ProtocolChain {
     });
   }
 
-  /**
-   * The runtime bytecode at an address, or null when there is none.
-   *
-   * `isDeployed` answers the same `eth_getCode` and throws the bytes away. This
-   * returns them, because "there is code here" and "the code here is the code we
-   * compiled" are different claims, and only the second one rules out a factory
-   * that deploys something other than the template it is documented to deploy.
-   */
-  async runtimeCode(address: Address): Promise<Hex | null> {
-    return this.#read('runtimeCode', 'chain.getCode', async () => {
-      const code = await this.client.getCode({ address });
-      return code === undefined || code === '0x' ? null : code;
-    });
-  }
-
   /** The factory's own answer, so a derivation bug in this repo cannot go unnoticed. */
   async predictAddressOnChain(owner: Address, userSalt: Hex): Promise<Address> {
     return this.#read('predictAddressOnChain', 'chain.getAddress', async () =>
@@ -238,54 +202,9 @@ export class ProtocolChain {
     );
   }
 
-  async ownerOf(account: Address): Promise<Address> {
-    return this.#read('ownerOf', 'chain.owner', async () =>
-      this.client.readContract({ address: account, abi: smartAccountAbi, functionName: 'owner' }),
-    );
-  }
-
   async sessionEpoch(account: Address): Promise<bigint> {
     return this.#read('sessionEpoch', 'chain.sessionEpoch', async () =>
       this.client.readContract({ address: account, abi: smartAccountAbi, functionName: 'sessionEpoch' }),
-    );
-  }
-
-  /**
-   * Null when the key was never granted — not an error, just absence.
-   *
-   * The distinction only holds because `#read` converts a call against an
-   * address with no code into `protocol.contract_not_deployed` instead of
-   * letting it surface as a decode failure. Null here means the account exists
-   * and the owner granted this key nothing. It never means "we could not ask".
-   */
-  async sessionOf(account: Address, sessionKey: Address): Promise<OnChainSession | null> {
-    return this.#read('sessionOf', 'chain.getSession', async () => {
-      const record = await this.client.readContract({
-        address: account,
-        abi: smartAccountAbi,
-        functionName: 'getSession',
-        args: [sessionKey],
-      });
-      if (record.specHash === NO_SESSION_HASH) return null;
-      return {
-        specHash: record.specHash,
-        validAfter: Number(record.validAfter),
-        validUntil: Number(record.validUntil),
-        spentWei: record.spentWei,
-        epoch: record.epoch,
-        revoked: record.revoked,
-      };
-    });
-  }
-
-  async isSessionLive(account: Address, sessionKey: Address): Promise<boolean> {
-    return this.#read('isSessionLive', 'chain.isSessionLive', async () =>
-      this.client.readContract({
-        address: account,
-        abi: smartAccountAbi,
-        functionName: 'isSessionLive',
-        args: [sessionKey],
-      }),
     );
   }
 
@@ -435,43 +354,6 @@ export class ProtocolChain {
     return this.#read('tokenInitCodeOnChain', 'chain.tokenInitCode', async () =>
       this.client.readContract({ address: this.tokenFactory, abi: tokenFactoryAbi, functionName: 'initCode', args: [params] }),
     );
-  }
-
-  /**
-   * Who launched a token through this factory, or `null` if it did not come
-   * from here.
-   *
-   * The null is the point. §35 wants deployer reputation, and a token whose
-   * creator we cannot name must read as unknown provenance rather than as
-   * `0x0` — an address that looks like an answer and is not one.
-   */
-  async tokenCreator(token: Address): Promise<Address | null> {
-    const creator = await this.#read('tokenCreator', 'chain.tokenCreatorOf', async () =>
-      this.client.readContract({ address: this.tokenFactory, abi: tokenFactoryAbi, functionName: 'creatorOf', args: [token] }),
-    );
-    return isZeroAddress(creator) ? null : creator;
-  }
-
-  /**
-   * What a token says about itself.
-   *
-   * Five reads, batched. Every value comes from the token contract; none is
-   * echoed back from what a caller asked for. That distinction is the whole
-   * value of this call — a surface that displayed the requested supply rather
-   * than the deployed supply could not tell a creator that their launch did
-   * something other than what they typed.
-   */
-  async tokenMetadata(token: Address): Promise<TokenMetadata> {
-    return this.#read('tokenMetadata', 'chain.tokenMetadata', async () => {
-      const [name, symbol, decimals, totalSupply, initialHolder] = await Promise.all([
-        this.#tokenView<string>(token, erc20ReadAbi, 'name'),
-        this.#tokenView<string>(token, erc20ReadAbi, 'symbol'),
-        this.#tokenView<number>(token, erc20ReadAbi, 'decimals'),
-        this.#tokenView<bigint>(token, erc20ReadAbi, 'totalSupply'),
-        this.#tokenView<Address>(token, erc20ReadAbi, 'initialHolder'),
-      ]);
-      return { name, symbol, decimals: Number(decimals), totalSupply, initialHolder };
-    });
   }
 
   /**

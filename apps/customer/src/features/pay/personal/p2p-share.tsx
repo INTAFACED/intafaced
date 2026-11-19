@@ -5,7 +5,7 @@ import { useResource } from '../../../shared/resource';
 import type { PersonalPayApi } from '../pay-api';
 import type { Offer } from '../schemas';
 import { PayFailure, PayState, PayTime } from '../components';
-import { encodeQr, qrPath } from './qr';
+import { encodeQr, qrPath } from '../../../shared/qr';
 import { shareCopy } from './p2p-share-copy';
 
 /** The longest life a person can type, in hours: a year, the most svc-p2p takes. The owner's own longest may be less. */

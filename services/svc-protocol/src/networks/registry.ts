@@ -163,3 +163,12 @@ export function routerVersionIsSunset(
   const row = routers.find((r) => r.chainId === chainId && r.name === name);
   return row !== undefined && routerIsSunset(row, now);
 }
+
+/**
+ * Mainnet unless the owner's network registry names this chain `testnet` or `local`. An unknown or `unconfirmed` chain is
+ * treated as mainnet, so what refuses on mainnet (`audit.external`) refuses there too.
+ */
+export function chainIsMainnet(chainId: number, networks: ReadonlyArray<{ chainId: number; kind: string }>): boolean {
+  const entry = networks.find((n) => n.chainId === chainId);
+  return !(entry && (entry.kind === 'testnet' || entry.kind === 'local'));
+}

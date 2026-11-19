@@ -4,6 +4,7 @@ import { ProtocolChain } from '../chain/client.js';
 import { createEdgeContext } from '@intafaced/contracts';
 import { createProtocolRouter, type ProtocolRouterDeps } from '../router.js';
 import {
+  chainIsMainnet,
   deploymentsFor,
   loadNetworkRegistry,
   loadRouterVersions,
@@ -72,6 +73,13 @@ describe('network registry', () => {
     expect(() => parseNetworkRegistry({})).toThrow(/must be a list/);
     expect(() => parseNetworkRegistry([{ ...bare, faucets: [{ name: 'f', url: 'http://faucet.test' }] }])).toThrow();
     expect(() => parseNetworkRegistry([{ ...bare, explorerUrls: ['javascript:alert(1)'] }])).toThrow();
+  });
+
+  it('reads a chain as mainnet unless the registry names it testnet or local', () => {
+    expect(chainIsMainnet(84532, [{ chainId: 84532, kind: 'testnet' }])).toBe(false);
+    expect(chainIsMainnet(31337, [{ chainId: 31337, kind: 'local' }])).toBe(false);
+    expect(chainIsMainnet(1, [])).toBe(true);
+    expect(chainIsMainnet(5, [{ chainId: 5, kind: 'unconfirmed' }])).toBe(true);
   });
 });
 

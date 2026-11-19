@@ -8,7 +8,7 @@ import {
   agentRuleCheckSchema,
 } from '@intafaced/contracts/agents-alerts';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk';
-import { refusalOf } from '@/lib/agents-log/server';
+import { refusalOf } from '@/lib/agents-log';
 import type { AlertsAction } from './model';
 
 /**

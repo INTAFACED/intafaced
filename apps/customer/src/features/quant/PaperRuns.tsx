@@ -9,8 +9,8 @@ import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Field, Loading } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { paperCopy } from './paper-copy';
 import { QuotaAwareFailure } from './quota-refusal';
 

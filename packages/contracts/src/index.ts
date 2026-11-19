@@ -103,7 +103,6 @@ export * from './protocol-networks.js';
 export * from './protocol-bridge.js';
 export * from './protocol-gas.js';
 export * from './protocol-ops.js';
-export * from './protocol-badge.js';
 export * from './protocol-representation.js';
 export * from './protocol-fees.js';
 export * from './protocol-swap.js';

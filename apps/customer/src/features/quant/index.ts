@@ -14,3 +14,4 @@ export { emptySignalRules } from './signal-rules';
 export { QuantRooms } from './QuantRooms';
 export { PaperOrders } from './PaperOrders';
 export { quantRoute } from './QuantRoutes';
+export { BacktestRoom } from './BacktestRoom';

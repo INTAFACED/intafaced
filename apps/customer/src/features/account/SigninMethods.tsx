@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { signWithBrowserWallet, useSession, walletChallengeSchema } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
-import { shortAddress } from '../protocol/wallet/eip1193';
-import { signWithBrowserWallet, walletChallengeSchema } from '../session/browser-wallet';
+import { shortAddress } from '../protocol';
 import { signinMethodsCopy as copy } from './signin-methods-copy';
 import { cleanPhone, methodStepUp, signinMethods, walletMethod, waysIn, type MethodName } from './signin-methods';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
