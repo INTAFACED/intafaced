@@ -1,4 +1,3 @@
-// hand-declared-ok: svc-trade has no browser-safe schema in packages/contracts for the market lifecycle, the book halt, the clock or the public tape answer.
 /**
  * The reads the chart's data status needs beyond the candles: the market's lifecycle state (svc-trade's
  * `/market-lifecycle/:symbol`), the matching book's halt (svc-trade's `/market-halt/:symbol`, which reads matching's board),
@@ -6,7 +5,8 @@
  * tape's `/trades/:symbol`). A failed read is never shown as a good one.
  */
 import { useMemo } from 'react';
-import { z } from 'zod';
+import { marketHaltSchema, marketLifecycleSchema, tradeTapeTimesSchema } from '@intafaced/contracts/trade-desk-reads';
+import type { z } from 'zod';
 import { useDataEnv, useSource } from '../../data/hooks';
 import type { Loadable } from '../../data/types';
 import { readServerClock } from '../../shared/server-clock';
@@ -17,25 +17,11 @@ export { STATE_POLL_MS };
 /** The server clock is read less often: its offset moves slowly. */
 const CLOCK_POLL_MS = 60_000;
 
-const lifecycleSchema = z
-  .object({ state: z.string(), effectiveAt: z.string().nullish(), evidenceRefs: z.array(z.string()).nullish() })
-  .passthrough();
-const haltSchema = z
-  .object({
-    halted: z.boolean(),
-    venueHalted: z.boolean(),
-    // Informational: a time that is missing or not an ISO string reads as unknown, never as an unreadable halt.
-    haltedSince: z.unknown().optional(),
-    venueHaltedSince: z.unknown().optional(),
-  })
-  .passthrough();
-
 /** An ISO time from the route as epoch ms; null when it names none or names one that does not parse. */
 const msOf = (iso: unknown): number | null => {
   const ms = typeof iso === 'string' && iso !== '' ? Date.parse(iso) : NaN;
   return Number.isFinite(ms) ? ms : null;
 };
-const tapeSchema = z.array(z.object({ timestamp: z.number() }).passthrough());
 
 type Raw<T> = { ok: true; data: T } | { ok: false; reason: string; code?: string; status?: number };
 
@@ -48,8 +34,8 @@ export function useMarketLifecycle(symbol: string): Loadable<LifecycleView> {
         env.poller.source<LifecycleView>(
           `chart-lifecycle:${symbol}`,
           async (signal) => {
-            const res = (await env.api.rest(`/market-lifecycle/${encodeURIComponent(symbol)}`, lifecycleSchema, { signal })) as Raw<
-              z.infer<typeof lifecycleSchema>
+            const res = (await env.api.rest(`/market-lifecycle/${encodeURIComponent(symbol)}`, marketLifecycleSchema, { signal })) as Raw<
+              z.infer<typeof marketLifecycleSchema>
             >;
             if (!res.ok) return res;
             return {
@@ -77,8 +63,8 @@ export function useBookHalt(symbol: string): Loadable<BookHaltView> {
         env.poller.source<BookHaltView>(
           `chart-book-halt:${symbol}`,
           async (signal) => {
-            const res = (await env.api.rest(`/market-halt/${encodeURIComponent(symbol)}`, haltSchema, { signal })) as Raw<
-              z.infer<typeof haltSchema>
+            const res = (await env.api.rest(`/market-halt/${encodeURIComponent(symbol)}`, marketHaltSchema, { signal })) as Raw<
+              z.infer<typeof marketHaltSchema>
             >;
             if (!res.ok) return res;
             return {
@@ -129,10 +115,10 @@ export function useLastTrade(symbol: string): Loadable<number | null> {
         env.poller.source<number | null>(
           `chart-last-trade:${symbol}`,
           async (signal) => {
-            const res = (await env.api.rest(`/trades/${encodeURIComponent(symbol)}`, tapeSchema, {
+            const res = (await env.api.rest(`/trades/${encodeURIComponent(symbol)}`, tradeTapeTimesSchema, {
               query: { limit: 1 },
               signal,
-            })) as Raw<z.infer<typeof tapeSchema>>;
+            })) as Raw<z.infer<typeof tradeTapeTimesSchema>>;
             if (!res.ok) return res;
             const newest = res.data.reduce<number | null>(
               (best, print) => (best === null || print.timestamp > best ? print.timestamp : best),
