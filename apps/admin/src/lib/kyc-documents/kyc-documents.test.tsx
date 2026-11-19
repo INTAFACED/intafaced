@@ -4,10 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
 import { DOCUMENT_CLOSED_REPLY, StepReplyView } from '@/components/approval-workbench';
-import { confirmPhrase, readDeskRequest } from '@/lib/desk/approval-packet';
-import { payloadHashFor, proposeInputFor } from '@/lib/desk/approval-hash';
-import { readStepReply } from '@/lib/desk/approval-types';
-import { stepGate } from '@/lib/desk/desk-model';
+import { confirmPhrase, payloadHashFor, proposeInputFor, readDeskRequest, readStepReply, stepGate } from '@/lib/desk';
 import { readOpenedDocument, savedName, viewableImage, type OpenedDocument } from './document';
 import { kycDocumentOpenExecute } from './open';
 

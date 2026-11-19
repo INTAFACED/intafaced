@@ -4,10 +4,10 @@ import {
   reconciliationDecimalSchema,
   type ReconciliationLifecycle,
 } from '@intafaced/contracts/ledger-reconciliation';
-import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
+import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics';
 import { OPS_CAPITAL_ASSET, OPS_CAPITAL_CONTACT_MAX, OPS_CAPITAL_MINIMUM } from '@intafaced/contracts/ops-capital';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
-import { GOVERNANCE_ROLES, MS, ROLE_USER, durationWords, type GovernanceRole } from '@/lib/token-governance/model';
+import { GOVERNANCE_ROLES, MS, ROLE_USER, durationWords, type GovernanceRole } from '@/lib/token-governance';
 import {
   LAUNCH_ID,
   LAUNCH_ISSUER_STATES,
@@ -15,8 +15,8 @@ import {
   readLaunchEventPayload,
   type LaunchIssuerState,
   type LaunchMoveTarget,
-} from '@/lib/launch-issuers/model';
-import { RESTORE_NO, RESTORE_SERVICES, type RestoreServiceName } from '@/lib/restore/model';
+} from '@/lib/launch-issuers';
+import { RESTORE_NO, RESTORE_SERVICES, type RestoreServiceName } from '@/lib/restore';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
 import { kycSelfieDecisionSchema, type KycSelfieDecision } from '@intafaced/contracts/identity-kyc-selfie';
 import { approvalPolicySetFieldsSchema, type ConsoleSettablePolicyActionType } from '@intafaced/contracts/action-approval-policy';

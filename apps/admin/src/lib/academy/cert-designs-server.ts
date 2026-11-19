@@ -18,11 +18,17 @@ import {
   academySetCertIssueRuleInputSchema,
   type AcademyCertIssueRule,
 } from '@intafaced/contracts/academy-certificates';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  explainRefusal,
+  founderCall,
+  parseWith,
+  partFrom,
+  type FounderCallContext,
+  type FounderCallResult,
+  type Part,
+  type PartLabels,
+} from '@/lib/desk';
 import type { CertDesignsView, CertDeskReply, CertIssueRules, IssuedCertsView } from './cert-designs-model';
-import type { Part } from '@/lib/desk/part';
 
 /**
  * Certificate designs and the issued list as the signed-in founder (AC-certificates-03). svc-academy records the founder

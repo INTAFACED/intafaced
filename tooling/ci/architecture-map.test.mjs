@@ -84,5 +84,5 @@ test('shape.md: a renamed example file, a missing folder and an unrun rule each 
     'docs/agents/shape.md names `apps/customer/src/screenz`, which does not exist: name the file to copy as it is on main.',
     'docs/agents/shape.md names `garden/no-such-rule`, which .oxlintrc.json does not run: name a rule that runs.',
   ]);
-  assert.ok(page.includes('`services/svc-tax/src/router.ts`'), 'the page names its call example');
+  assert.ok(page.includes('`packages/contracts/src/procedure-mount.test.ts`'), 'the page names its call example');
 });

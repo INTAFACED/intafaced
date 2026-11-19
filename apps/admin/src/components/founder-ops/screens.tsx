@@ -2,13 +2,22 @@ import type { FounderMerchantSection } from '@intafaced/contracts';
 import type { FounderScreen } from '@/lib/founder-ops/screens';
 import { DRILLDOWN } from '@/lib/founder-ops/screens';
 import type { OpsData, FraudRow } from '@/lib/founder-ops/loaders';
-import { AsOf, Card, FailureState, KpiTile, MoneyText, PageHead, StateBlock } from '@/components/merchants/ui';
-import { CopyButton } from '@/components/merchants/copy-button';
-import { CsvButton } from '@/components/merchants/csv-button';
+import {
+  AsOf,
+  Card,
+  CopyButton,
+  CsvButton,
+  FailureState,
+  HaltHistoryTable,
+  HaltStatesTable,
+  KpiTile,
+  MoneyText,
+  PageHead,
+  StateBlock,
+  TreasuryView,
+} from '@/components/merchants';
 import { buildCsv } from '@/lib/merchants/csv';
 import { Chip } from '@/components/chip';
-import { HaltHistoryTable, HaltStatesTable } from '@/components/merchants/halts-panels';
-import { TreasuryView } from '@/components/merchants/treasury-view';
 import { LiveRefresh } from './navigation';
 import { MetricsCharts } from './metrics';
 import { NotesPanel } from './notes-panel';
