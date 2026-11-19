@@ -101,9 +101,9 @@ export async function pointerAt(page, point) {
 
 /**
  * A click on a point, and what the chart read under it as it was clicked. The price scale follows the live feed, so a
- * read made after the click by a fresh move can see a scale that moved since the click (#8999: stored 64892.75, read
- * 65136.00 at the same pixel). Here the pointer is moved a pixel away and the marks cleared, and the click's own move onto
- * the point makes the chart write the bar time and price it reads there; those are read without moving again (`atClick`).
+ * read made after the click by a fresh move can see a scale that moved since the click, and so another price at the same
+ * pixel. Here the pointer is moved a pixel away and the marks cleared, and the click's own move onto the point makes the
+ * chart write the bar time and price it reads there; those are read without moving again (`atClick`).
  * A fresh read just after is kept too (`after`): a scale that moved between the click's move and its press shows as the
  * two differing, and the point stored at the press is then the one `after` reads.
  */
