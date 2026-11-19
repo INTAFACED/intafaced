@@ -265,7 +265,7 @@ export type P2pErrorCode =
   // P-ads-merchant-08: a presence schedule that is not a valid week, and a bulk action naming no ads or too many.
   | 'p2p.schedule_invalid'
   | 'p2p.maker_offline'
-  // #4689: the ad's maker is frozen, closed or unknown to identity (one code for all three), or identity could not say.
+  // The ad's maker is frozen, closed or unknown to identity (one code for all three), or identity could not say.
   | 'p2p.counterparty_unavailable'
   | 'p2p.counterparty_unverifiable'
   | 'p2p.bulk_scope_invalid'
@@ -914,7 +914,7 @@ export interface P2pServiceOptions {
    */
   postingThresholds?: PostingThresholds;
   /**
-   * #4689. Whether the ad's maker may be the other side of a new order (svc-identity's account status). `index.ts`
+   * Whether the ad's maker may be the other side of a new order (svc-identity's account status). `index.ts`
    * always passes it, where no IDENTITY_URL refuses every take `p2p.counterparty_unverifiable`; omitted is a service
    * built without it (tests).
    */
@@ -1308,8 +1308,8 @@ type DisputeRow = z.infer<typeof DisputeRow>;
  * WHY ONE TRADE THE SWEEP TOUCHED DID NOT MOVE.
  *
  * The sweeps deliberately keep going when one trade fails — one bad trade must
- * not stop the next from settling — and the price of that used to be a bare
- * `catch { failed++ }`: a counter, and the reason discarded. Which is how the
+ * not stop the next from settling — and the price of that must not be a bare
+ * `catch { failed++ }`: a counter, and the reason discarded. That is how the
  * escrow guard's refusal ("a disputed escrow terminates only on a human
  * ruling") reached a `catch`, was thrown away, and surfaced as an assertion
  * failure in another branch's test run that named nothing at all.
@@ -2309,7 +2309,7 @@ export class P2pService {
     // AN OFFER MUST DECLARE HOW IT CAN BE PAID.
     //
     // `methodAllowed` treats an offer with no declared methods as accepting
-    // ANYTHING, which used to be a reasonable "the terms text is the contract"
+    // ANYTHING, which looks like a reasonable "the terms text is the contract"
     // default. It is not reasonable next to the take refusal: on an offer that
     // declares nothing, the ONLY thing that can refuse a take is the seller's
     // instrument set, so every method id a caller cares to try is answered
@@ -2851,7 +2851,7 @@ export class P2pService {
   }
 
   /**
-   * #4689. The ad's maker is the other side of the order and is not the caller, so the edge's frozen/closed check on
+   * The ad's maker is the other side of the order and is not the caller, so the edge's frozen/closed check on
    * the caller never covers them. A frozen, closed or unknown maker refuses `p2p.counterparty_unavailable`, one code
    * for all three; an unanswered check refuses `p2p.counterparty_unverifiable`. Either way nothing is reserved.
    */
@@ -3525,7 +3525,7 @@ export class P2pService {
     // missing offer mid-take. Take still refuses with the uniform message when
     // the destination is gone; get/list stay honest for strangers.
     const preview = await this.loadOfferRaw(input.offerId);
-    // #4689: before anything is reserved, and outside the transaction (a network call must not hold the offer lock).
+    // Before anything is reserved, and outside the transaction (a network call must not hold the offer lock).
     await this.assertCounterpartyMayTrade(preview.makerId, input.takerId);
     const referencePrice =
       preview.priceType === 'float' ? ((await this.referencePrices?.price(preview.asset, preview.fiatCurrency)) ?? null) : null;
@@ -5626,9 +5626,8 @@ export class P2pService {
         // Left with its deadline in the past, so the next sweep retries it. A
         // trade that cannot be resolved must keep asking, not go quiet.
         //
-        // AND IT SAYS WHY. This `catch` used to be bare — `catch { failed++ }`
-        // — so the sweep counted a number and threw the reason away. The cost
-        // of that is not theoretical: the escrow guard's refusal ("a disputed
+        // AND IT SAYS WHY. A bare `catch { failed++ }` here would count a number
+        // and throw the reason away. The cost of that is not theoretical: the escrow guard's refusal ("a disputed
         // escrow terminates only on a human ruling") reached this line, was
         // discarded, and surfaced three files away as an assertion failure that
         // named nothing. A refusal a human never sees is most of the way back
