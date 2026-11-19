@@ -852,15 +852,6 @@
       "why": "orderId = orderIdFor(userId, market, clientOrderId) (order-place.ts:614). A concurrent identical submit passes findOrder (615) twice and gets 23505 orders_client_id_idx instead of the inserted.length===0 branch at 637."
     },
     {
-      "file": "services/svc-trade/src/venue/agent-account-store.ts",
-      "table": "user_venue_agent_accounts",
-      "target": "(user_id, account_id)",
-      "constraint": "user_venue_agent_accounts_agent_uq",
-      "verdict": "race",
-      "issue": 8886,
-      "why": "accountId is the caller's req.accountId (venue/agent-account.ts:349), and agent_address = agentAddressFor(seed, userId, accountId) (agent-account.ts:391), so a double-submitted open carries equal (user_id, account_id) and equal agent_address. The loser gets 23505 user_venue_agent_accounts_agent_uq instead of insertOnce returning the stored account (agent-account-store.ts:277-291)."
-    },
-    {
       "file": "services/svc-trade/src/venue/agent-desk-store.ts",
       "table": "user_venue_agent_desk_audit",
       "target": "(key_id) WHERE action='quarantine'",
