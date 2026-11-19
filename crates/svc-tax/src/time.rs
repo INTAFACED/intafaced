@@ -186,6 +186,94 @@ pub fn es_date_at_midnight(day: &str) -> Option<Instant> {
     (ms.abs() <= 8_640_000_000_000_000).then_some(Instant(ms))
 }
 
+/// `new Date(text)` for the ISO-shaped forms V8 reads (date only as UTC; a date and time as UTC when it has no offset,
+/// which is the service's own zone, UTC; `T` or a space, either case of `T` and `Z`, `±HH:mm` or `±HHmm`, minutes with
+/// or without seconds, any fraction cut to milliseconds, `24:00` as the next midnight, a day past the month's end rolled
+/// over as `MakeDay` does). `None` where V8 gives an invalid date, and for V8's legacy non-ISO forms (`2024/01/05`,
+/// `Jan 5 2024`), which this does not read.
+pub fn js_date(text: &str) -> Option<Instant> {
+    let b = text.as_bytes();
+    let (year, mut i) = match b.first()? {
+        b'+' | b'-' => {
+            let y = digits(b.get(1..7)?)?;
+            if b.first() == Some(&b'-') && y == 0 {
+                return None;
+            }
+            (if b.first() == Some(&b'-') { -y } else { y }, 7)
+        }
+        _ => (digits(b.get(0..4)?)?, 4),
+    };
+    let mut month = 1;
+    let mut day = 1;
+    if b.get(i) == Some(&b'-') {
+        month = two(b, i + 1)?;
+        i += 3;
+        if b.get(i) == Some(&b'-') {
+            day = two(b, i + 1)?;
+            i += 3;
+        }
+    }
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let mut ms_of_day = 0i64;
+    if i < b.len() {
+        if !matches!(b.get(i), Some(b'T' | b't' | b' ')) {
+            return None;
+        }
+        let h = two(b, i + 1)?;
+        if b.get(i + 3) != Some(&b':') {
+            return None;
+        }
+        let mi = two(b, i + 4)?;
+        i += 6;
+        let mut s = 0;
+        let mut ms = 0;
+        if b.get(i) == Some(&b':') {
+            s = two(b, i + 1)?;
+            i += 3;
+            if b.get(i) == Some(&b'.') {
+                let start = i + 1;
+                i = start;
+                while b.get(i).is_some_and(u8::is_ascii_digit) {
+                    i += 1;
+                }
+                if i == start {
+                    return None;
+                }
+                let frac = b.get(start..i)?;
+                for k in 0..3 {
+                    ms = ms * 10 + frac.get(k).map_or(0, |d| i64::from(d - b'0'));
+                }
+            }
+        }
+        let midnight = h == 24 && mi == 0 && s == 0 && ms == 0;
+        if (h > 23 && !midnight) || mi > 59 || s > 59 {
+            return None;
+        }
+        let shift = match b.get(i..)? {
+            [] | [b'Z' | b'z'] => 0,
+            [sign @ (b'+' | b'-'), rest @ ..] => {
+                let (oh, om) = match rest {
+                    [_, _, b':', _, _] => (two(rest, 0)?, two(rest, 3)?),
+                    [_, _, _, _] => (two(rest, 0)?, two(rest, 2)?),
+                    _ => return None,
+                };
+                if oh > 23 || om > 59 {
+                    return None;
+                }
+                let minutes = oh * 60 + om;
+                if *sign == b'+' { minutes } else { -minutes }
+            }
+            _ => return None,
+        };
+        ms_of_day = ((h * 60 + mi - shift) * 60 + s) * 1000 + ms;
+    }
+    let first = days_from_civil(year, month, 1);
+    let at = (first + day - 1) * DAY_MS + ms_of_day;
+    (at.abs() <= 8_640_000_000_000_000).then_some(Instant(at))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,6 +290,57 @@ mod tests {
             Instant::start_of_year(2016).iso(),
             "2016-01-01T00:00:00.000Z"
         );
+    }
+
+    #[test]
+    fn reads_dates_as_v8_does() {
+        let iso = |t: &str| js_date(t).map(Instant::iso);
+        assert_eq!(
+            iso("2024-02-30").as_deref(),
+            Some("2024-03-01T00:00:00.000Z")
+        );
+        assert_eq!(
+            iso("2024-01-01T24:00:00Z").as_deref(),
+            Some("2024-01-02T00:00:00.000Z")
+        );
+        assert_eq!(iso("2024-01-01T24:00:01Z"), None);
+        assert_eq!(
+            iso("2024-01-01T00:00Z").as_deref(),
+            Some("2024-01-01T00:00:00.000Z")
+        );
+        assert_eq!(
+            iso("2024-01-01T00:00:00.123456Z").as_deref(),
+            Some("2024-01-01T00:00:00.123Z")
+        );
+        assert_eq!(
+            iso("2024-01-01t00:00:00z").as_deref(),
+            Some("2024-01-01T00:00:00.000Z")
+        );
+        assert_eq!(
+            iso("2024-01-01 00:00:00Z").as_deref(),
+            Some("2024-01-01T00:00:00.000Z")
+        );
+        assert_eq!(iso("2024").as_deref(), Some("2024-01-01T00:00:00.000Z"));
+        assert_eq!(
+            iso("+002024-01-01").as_deref(),
+            Some("2024-01-01T00:00:00.000Z")
+        );
+        assert_eq!(
+            iso("2024-01-01T00:00:00+0800").as_deref(),
+            Some("2023-12-31T16:00:00.000Z")
+        );
+        for bad in [
+            "2024-01-01T00:00:00+08",
+            "2024-01-32",
+            "2024-00-10",
+            "",
+            "not-a-date",
+            "2024-01-01T25:00:00Z",
+            "2024-01-01T00:00:60Z",
+            "2024-01-01T00:00:00.Z",
+        ] {
+            assert_eq!(js_date(bad), None, "{bad}");
+        }
     }
 
     #[test]
