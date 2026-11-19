@@ -1,0 +1,92 @@
+{
+  "blank GET /health valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":0,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":0,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":0,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":0,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":0,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":0,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":0,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":0,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{}}}"
+  },
+  "blank GET /health valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":0,\"restingOrders\":0,\"journalRecords\":0,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{}}}"
+  },
+  "set GET /health valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":1,\"restingOrders\":1,\"journalRecords\":2,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{\"BTC-USDT\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}}}}"
+  },
+  "set GET /health valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":1,\"restingOrders\":1,\"journalRecords\":2,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{\"BTC-USDT\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}}}}"
+  },
+  "set GET /health valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":1,\"restingOrders\":1,\"journalRecords\":2,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{\"BTC-USDT\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}}}}"
+  },
+  "set GET /health valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":1,\"restingOrders\":1,\"journalRecords\":2,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{\"BTC-USDT\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}}}}"
+  },
+  "set GET /health valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":1,\"restingOrders\":1,\"journalRecords\":2,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{\"BTC-USDT\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}}}}"
+  },
+  "set GET /health valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":1,\"restingOrders\":1,\"journalRecords\":2,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{\"BTC-USDT\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}}}}"
+  },
+  "set GET /health valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":1,\"restingOrders\":1,\"journalRecords\":2,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{\"BTC-USDT\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}}}}"
+  },
+  "set GET /health valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":1,\"restingOrders\":1,\"journalRecords\":2,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{\"BTC-USDT\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}}}}"
+  },
+  "set GET /health valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"ok\":true,\"service\":\"svc-matching\",\"enabled\":true,\"venueHalted\":false,\"markets\":1,\"restingOrders\":1,\"journalRecords\":2,\"admissionOpen\":true,\"admissionReason\":null,\"holdHalted\":[],\"metrics\":{\"startedAt\":\"2026-11-19T00:00:00.000Z\",\"operations\":{\"submit\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"cancel\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"},\"depth\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}},\"submitByMarket\":{\"BTC-USDT\":{\"count\":0,\"errors\":0,\"p50Ms\":null,\"p99Ms\":null,\"perMinute\":\"0\"}}}}"
+  }
+}
