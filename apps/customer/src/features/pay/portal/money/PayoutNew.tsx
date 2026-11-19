@@ -31,7 +31,8 @@ import {
 } from './model';
 import { settlementName } from './Settlements';
 import { PartnerInstantPayoutLine } from './PartnerTerms';
-import { isDefaultDestination, type DestinationItem } from './schemas';
+import { isDefaultDestination } from './destination';
+import type { PayPayoutDestinationItem as DestinationItem } from '@intafaced/contracts/pay-portal-reads';
 import type { Settlement } from '../schemas';
 import type { ApiResult } from '../../../../shared/api';
 

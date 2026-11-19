@@ -44,7 +44,8 @@ import {
   toTier,
 } from './store.js';
 import type { MerchantRole } from '../merchant-ops/roles.js';
-import { readMerchantReserve, type MerchantReserveView } from '../merchant-pay-dev-out/reserve-read.js';
+import type { MerchantReserveView } from '@intafaced/contracts';
+import { readMerchantReserve } from '../merchant-pay-dev-out/reserve-read.js';
 
 const fmt = formatAmount;
 
