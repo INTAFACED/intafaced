@@ -676,15 +676,6 @@
       "table": "market_lifecycle_evidence",
       "target": "(evidence_id)",
       "constraint": "market_lifecycle_evidence_genesis_unique",
-      "verdict": "race",
-      "issue": 8879,
-      "why": "An identical concurrent republish (same idempotencyKey, causal_predecessor_id NULL) carries an equal market_id, so the loser can hit genesis_unique and get the chain error (market-lifecycle.ts:773-775) instead of its own stored row. A clash from a different publication is the intended fork refusal and is mapped there; only the identical-retry case is wrong."
-    },
-    {
-      "file": "services/svc-trade/src/market-lifecycle.ts",
-      "table": "market_lifecycle_evidence",
-      "target": "(evidence_id)",
-      "constraint": "market_lifecycle_evidence_genesis_unique",
       "verdict": "safe",
       "why": "evidence_kind is 'TRANSITION' (market-lifecycle.ts:797), and the partial index covers only evidence_kind = 'AUTHORITY_DOSSIER' (drizzle/0035_market_lifecycle_publications.sql:26-28)."
     },
@@ -701,15 +692,6 @@
       "table": "market_lifecycle_evidence",
       "target": "(evidence_id)",
       "constraint": "market_lifecycle_evidence_predecessor_unique",
-      "verdict": "race",
-      "issue": 8879,
-      "why": "Same as genesis: an identical concurrent republish carries an equal (market_id, causal_predecessor_id). The loser gets 'predecessor was concurrently claimed' (market-lifecycle.ts:773-775) instead of the winner's identical row. A different child of the same predecessor is correctly refused there."
-    },
-    {
-      "file": "services/svc-trade/src/market-lifecycle.ts",
-      "table": "market_lifecycle_evidence",
-      "target": "(evidence_id)",
-      "constraint": "market_lifecycle_evidence_predecessor_unique",
       "verdict": "safe",
       "why": "evidence_kind is 'TRANSITION' (market-lifecycle.ts:797), and the partial index covers only 'AUTHORITY_DOSSIER' (drizzle/0035:29-31)."
     },
@@ -720,15 +702,6 @@
       "constraint": "market_lifecycle_evidence_predecessor_unique",
       "verdict": "safe",
       "why": "evidence_kind is 'CORRECTION' (market-lifecycle.ts:810), outside the AUTHORITY_DOSSIER partial index."
-    },
-    {
-      "file": "services/svc-trade/src/market-lifecycle.ts",
-      "table": "market_lifecycle_evidence",
-      "target": "(evidence_id)",
-      "constraint": "market_lifecycle_evidence_reconciliation_idx",
-      "verdict": "race",
-      "issue": 8879,
-      "why": "publish() derives evidence_id = lifecyclePublicationId(marketId, idempotencyKey) and writes reconciliation_key = evidenceId (market-lifecycle.ts:727, 768). An operator retry of the same publication via POST (market-lifecycle-routes.ts:49), sent concurrently, passes the SELECT pre-check (732) twice. The loser hits 23505 on reconciliation_idx, and the catch (773-775) turns it into 'predecessor was concurrently claimed' instead of returning the identical prior publication, as the sequential path does (734-737)."
     },
     {
       "file": "services/svc-trade/src/market-lifecycle.ts",

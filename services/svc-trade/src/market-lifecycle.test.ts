@@ -93,13 +93,17 @@ function fakeSql(row: unknown) {
 function fakePublicationStoreSql() {
   let claimed = false;
   let publicationRow: unknown = null;
+  let publicationId: unknown = null;
   return ((strings: TemplateStringsArray, ...values: unknown[]) => {
     const query = strings.join('');
-    if (query.includes('SELECT publication')) return Promise.resolve(publicationRow == null ? [] : [{ publication: publicationRow }]);
+    // Like Postgres: the read by evidence_id finds only the row stored under that id.
+    if (query.includes('SELECT publication'))
+      return Promise.resolve(publicationRow == null || values[0] !== publicationId ? [] : [{ publication: publicationRow }]);
     if (query.includes('SELECT evidence_id')) return Promise.resolve([]);
     if (query.includes('INSERT INTO')) {
       if (claimed) return Promise.reject({ code: '23505' });
       claimed = true;
+      publicationId = values[0];
       publicationRow = JSON.parse(String(values[2]));
       return Promise.resolve([]);
     }
