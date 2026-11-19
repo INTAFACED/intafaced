@@ -1,0 +1,24 @@
+{
+  "inputs": {},
+  "bodies": ["{\"code\":\"trade.developer_stream_hosts_unset\",\"message\":\"The stream endpoint hosts are not published yet.\"}"],
+  "answers": {
+    "GET /developer-portal/stream-hosts": {
+      "absent anon": [503, 0],
+      "absent no-scope": [503, 0],
+      "absent trader": [503, 0],
+      "absent all": [503, 0],
+      "absent all-US": [503, 0],
+      "absent svc-trade": [503, 0],
+      "absent svc-ops": [503, 0],
+      "absent svc-identity": [503, 0],
+      "absent svc-campaigns": [503, 0],
+      "absent svc-bank": [503, 0],
+      "absent svc-token": [503, 0],
+      "absent svc-support": [503, 0],
+      "absent svc-market": [503, 0],
+      "absent svc-fix": [503, 0],
+      "absent svc-agents": [503, 0],
+      "absent svc-tax": [503, 0]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "inputs": {},
+  "bodies": [
+    "{\"ok\":true,\"service\":\"svc-trade\",\"venueLatency\":{\"configured\":false,\"venueId\":null,\"reason\":\"venue_off\",\"measurement\":null,\"samples\":null,\"provisional\":null,\"grade\":null,\"hasScore\":false,\"routingWeight\":0,\"p95Ms\":null,\"streamEnabled\":false,\"streamDefault\":false},\"mmSeed\":{\"enabled\":false,\"armed\":false,\"targetCount\":0,\"reason\":\"jobs_off\",\"operatorConfig\":\"off\"},\"futuresJobs\":{\"enabled\":false,\"jobsDefault\":false,\"liquidationArmed\":false,\"fundingMarketCount\":0,\"fundingScheduled\":false,\"fundingMaxAbsRateConfigured\":false,\"fundingMaxAbsRateDefault\":false,\"fundingIntervalConfigured\":false,\"fundingIntervalDefault\":false,\"venueMarkConfigured\":false,\"venueMarkDefault\":false,\"reason\":\"jobs_off\",\"alerts\":[{\"name\":\"futures.liquidation\",\"message\":\"futures.liquidation is not scheduled\"}]},\"insuranceListing\":{\"emptyPotBlocksLiveList\":true,\"targetSize\":\"owner_unset\"}}"
+  ],
+  "answers": {
+    "GET /health": {
+      "absent anon": [200, 0],
+      "absent no-scope": [200, 0],
+      "absent trader": [200, 0],
+      "absent all": [200, 0],
+      "absent all-US": [200, 0],
+      "absent svc-trade": [200, 0],
+      "absent svc-ops": [200, 0],
+      "absent svc-identity": [200, 0],
+      "absent svc-campaigns": [200, 0],
+      "absent svc-bank": [200, 0],
+      "absent svc-token": [200, 0],
+      "absent svc-support": [200, 0],
+      "absent svc-market": [200, 0],
+      "absent svc-fix": [200, 0],
+      "absent svc-agents": [200, 0],
+      "absent svc-tax": [200, 0]
+    }
+  }
+}

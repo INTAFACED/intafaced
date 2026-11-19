@@ -144,24 +144,6 @@
       "why": "id is randomUUID() made fresh on every call (business-payouts.ts:997), so two inserts never share it."
     },
     {
-      "file": "services/svc-bank/src/business/business-service.ts",
-      "table": "business_accounts",
-      "target": "(id)",
-      "constraint": "business_accounts_id_asset_key",
-      "verdict": "race",
-      "issue": 8891,
-      "why": "(id, asset_id) is a superset of id. createAccount (business-service.ts:384) takes a caller-stable accountId and holds no lock, so two concurrent creates (a retry) with the same id and asset can both pass the arbiter pre-check. The loser then raises 23505 business_accounts_id_asset_key instead of DO NOTHING. The window is narrow but real, and the key adds nothing over id."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-service.ts",
-      "table": "business_payroll_runs",
-      "target": "(id)",
-      "constraint": "business_payroll_runs_ledger_tx_id_key",
-      "verdict": "race",
-      "issue": 8892,
-      "why": "ledger_tx_id = posted.id, and the ledger post is idempotent on payrollId, so two concurrent runs of the same payroll get the same tx id. The insert (business-service.ts:1070) runs after the post with no lock, so the loser raises 23505 business_payroll_runs_ledger_tx_id_key instead of absorbing on id."
-    },
-    {
       "file": "services/svc-bank/src/cards/card-service.ts",
       "table": "cards",
       "target": "(issuer, issuer_ref)",

@@ -1,0 +1,59 @@
+{
+  "inputs": {},
+  "bodies": [
+    "{\"code\":\"notify.notices_limit_invalid\"}",
+    "{\"notices\":[],\"next\":null}",
+    "{\"code\":\"notify.notices_cursor_unknown\"}",
+    "{\"code\":\"notify.notice_kind_unknown\"}",
+    "{\"code\":\"notify.notice_not_found\"}",
+    "{\"asOf\":\"<time>\",\"revision\":0,\"settings\":{\"componentCap\":null,\"stalenessSeconds\":null,\"uptimeDays\":null,\"challengeBits\":null,\"subscribeRatePerHour\":null},\"overall\":\"none_defined\",\"components\":[],\"incidents\":[]}"
+  ],
+  "answers": {
+    "GET /v1/notices": {
+      "boot /v1/notices anon": [400, 0],
+      "boot /v1/notices customer": [400, 0],
+      "boot /v1/notices?limit=10 anon": [200, 1],
+      "boot /v1/notices?limit=10 customer": [200, 1],
+      "boot /v1/notices?limit=0 anon": [400, 0],
+      "boot /v1/notices?limit=0 customer": [400, 0],
+      "boot /v1/notices?limit=10&after=nope anon": [400, 2],
+      "boot /v1/notices?limit=10&after=nope customer": [400, 2],
+      "boot /v1/notices?limit=10&after=22222222-2222-4222-8222-222222222222 anon": [400, 2],
+      "boot /v1/notices?limit=10&after=22222222-2222-4222-8222-222222222222 customer": [400, 2],
+      "boot /v1/notices?limit=10&kind=incident anon": [200, 1],
+      "boot /v1/notices?limit=10&kind=incident customer": [200, 1],
+      "boot /v1/notices?limit=10&kind=a&kind=b anon": [400, 3],
+      "boot /v1/notices?limit=10&kind=a&kind=b customer": [400, 3],
+      "set /v1/notices anon": [400, 0],
+      "set /v1/notices customer": [400, 0],
+      "set /v1/notices?limit=10 anon": [200, 1],
+      "set /v1/notices?limit=10 customer": [200, 1],
+      "set /v1/notices?limit=0 anon": [400, 0],
+      "set /v1/notices?limit=0 customer": [400, 0],
+      "set /v1/notices?limit=10&after=nope anon": [400, 2],
+      "set /v1/notices?limit=10&after=nope customer": [400, 2],
+      "set /v1/notices?limit=10&after=22222222-2222-4222-8222-222222222222 anon": [400, 2],
+      "set /v1/notices?limit=10&after=22222222-2222-4222-8222-222222222222 customer": [400, 2],
+      "set /v1/notices?limit=10&kind=incident anon": [200, 1],
+      "set /v1/notices?limit=10&kind=incident customer": [200, 1],
+      "set /v1/notices?limit=10&kind=a&kind=b anon": [400, 3],
+      "set /v1/notices?limit=10&kind=a&kind=b customer": [400, 3]
+    },
+    "GET /v1/notices/:id": {
+      "boot /v1/notices/22222222-2222-4222-8222-222222222222 anon": [404, 4],
+      "boot /v1/notices/22222222-2222-4222-8222-222222222222 customer": [404, 4],
+      "boot /v1/notices/nope anon": [404, 4],
+      "boot /v1/notices/nope customer": [404, 4],
+      "set /v1/notices/22222222-2222-4222-8222-222222222222 anon": [404, 4],
+      "set /v1/notices/22222222-2222-4222-8222-222222222222 customer": [404, 4],
+      "set /v1/notices/nope anon": [404, 4],
+      "set /v1/notices/nope customer": [404, 4]
+    },
+    "GET /v1/status": {
+      "boot /v1/status anon": [200, 5],
+      "boot /v1/status customer": [200, 5],
+      "set /v1/status anon": [200, 5],
+      "set /v1/status customer": [200, 5]
+    }
+  }
+}

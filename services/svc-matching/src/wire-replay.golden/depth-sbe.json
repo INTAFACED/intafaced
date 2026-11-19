@@ -1,0 +1,542 @@
+{
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 anon": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-execution": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-ledger": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-trade-unbound": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-trade-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 founder": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 reader": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 founder-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe no-limit anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe no-limit svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe no-limit svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe no-limit svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe no-limit svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe no-limit svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe no-limit founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe no-limit reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe no-limit founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "blank GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market anon": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-execution": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-ledger": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-trade-unbound": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-trade-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market founder": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market reader": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market founder-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 anon": {
+    "status": 409,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.sbe_unavailable\",\"reason\":\"sbe_unavailable\",\"message\":\"matching.sbe_unavailable\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-trade": {
+    "status": 409,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.sbe_unavailable\",\"reason\":\"sbe_unavailable\",\"message\":\"matching.sbe_unavailable\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-execution": {
+    "status": 409,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.sbe_unavailable\",\"reason\":\"sbe_unavailable\",\"message\":\"matching.sbe_unavailable\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-ledger": {
+    "status": 409,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.sbe_unavailable\",\"reason\":\"sbe_unavailable\",\"message\":\"matching.sbe_unavailable\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-trade-unbound": {
+    "status": 409,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.sbe_unavailable\",\"reason\":\"sbe_unavailable\",\"message\":\"matching.sbe_unavailable\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 svc-trade-wrong-secret": {
+    "status": 409,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.sbe_unavailable\",\"reason\":\"sbe_unavailable\",\"message\":\"matching.sbe_unavailable\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 founder": {
+    "status": 409,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.sbe_unavailable\",\"reason\":\"sbe_unavailable\",\"message\":\"matching.sbe_unavailable\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 reader": {
+    "status": 409,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.sbe_unavailable\",\"reason\":\"sbe_unavailable\",\"message\":\"matching.sbe_unavailable\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=10 limit-10 founder-wrong-secret": {
+    "status": 409,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.sbe_unavailable\",\"reason\":\"sbe_unavailable\",\"message\":\"matching.sbe_unavailable\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe no-limit anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe no-limit svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe no-limit svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe no-limit svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe no-limit svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe no-limit svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe no-limit founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe no-limit reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe no-limit founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=0 limit-0 founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=501 limit-501 founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word anon": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-execution": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-ledger": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-trade-unbound": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word svc-trade-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word founder": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word reader": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/depth/sbe?limit=ten limit-word founder-wrong-secret": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.l2_limit_unset\",\"message\":\"matching.l2_limit_unset\"}"
+  },
+  "set GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market anon": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-execution": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-ledger": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-trade-unbound": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market svc-trade-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market founder": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market reader": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/NOPE-USD/depth/sbe?limit=10 unknown-market founder-wrong-secret": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  }
+}
