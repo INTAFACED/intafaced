@@ -1,12 +1,17 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { accountLimitResultSchema, type AccountLimitResult } from '@intafaced/contracts';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { failureRefusal } from '@/lib/ops-desk/execute';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  type DeskRequest,
+  type ExecuteFn,
+  type ExecuteReply,
+  explainRefusal,
+  failureRefusal,
+  founderCall,
+  type FounderCallContext,
+  type FounderCallResult,
+  parseWith,
+} from '@/lib/desk';
 import { limitsReply } from './limits';
 
 /**

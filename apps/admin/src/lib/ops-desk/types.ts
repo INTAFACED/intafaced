@@ -1,5 +1,5 @@
-import type { DeskModule } from '@/lib/desk/founder-call';
 import type { ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
+import type { DeskModule } from '@/lib/desk/founder-call';
 import type { CommonDeskId } from './common-sections';
 import type { Part } from '@/lib/desk/part';
 import type { ModuleId as AdminModuleId } from '@/lib/modules';
@@ -62,7 +62,7 @@ export interface Column {
   readonly words?: Readonly<Record<string, string>>;
 }
 
-/** A read's call record: a tRPC query the console reaches under one of the desk's modules. */
+/** A desk read's call by its written record: a query an app reaches under a desk module. */
 export type DeskReadRecord = ProcedureRecord & TrpcTransport & { readonly kind: 'query'; readonly module: DeskModule };
 
 export interface ReadSpec {
@@ -75,11 +75,11 @@ export interface ReadSpec {
   readonly plainName?: string;
   readonly procedure: string;
   /**
-   * The call's record, for a read moved onto one: `module` and `procedure` are the record's module and path (`recordRead`),
-   * and the answer is parsed by the record's output and its `accept` checks before the columns read it, so an answer the
-   * record refuses is an unreadable read. Reads without one name their call by module and procedure.
+   * The name of the call's record, when it has one (`readOf` in the catalog sets it with `module` and `procedure`, all from the
+   * record). The spec reaches the browser, so it holds the name, not the schema; the server looks the record up and parses the
+   * answer by it, with every caller's checks, before the columns read it. An answer off the record is unreadable.
    */
-  readonly record?: DeskReadRecord;
+  readonly recordName?: string;
   readonly input?: Readonly<Record<string, unknown>>;
   /**
    * The service needs a time window (`from` and `to`) and has no default. The desk asks for the last N×24 hours ending at the

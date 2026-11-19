@@ -11,7 +11,15 @@ import { threadId } from 'node:worker_threads';
 import type { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
 import { NO_INPUT, type Access, type ProcedureRecord, type RefusalStatus, type TrpcTransport } from './procedure.js';
-import { publicJurisdictionProcedure, publicProcedure, router, scopedProcedure, serviceProcedureFor, type Context } from './trpc.js';
+import {
+  publicJurisdictionProcedure,
+  publicProcedure,
+  router,
+  scopedProcedure,
+  serviceProcedureFor,
+  signedInProcedure,
+  type Context,
+} from './trpc.js';
 
 /**
  * Mounts a service's tRPC surface from its records. The record decides the path, query or mutation,
@@ -72,6 +80,11 @@ function guardFor(access: Access) {
       });
     case 'service':
       return serviceProcedureFor(access.callers);
+    case 'signedIn':
+      return signedInProcedure({
+        ...(access.module === undefined ? {} : { module: access.module }),
+        ...(access.plane === undefined ? {} : { plane: access.plane }),
+      });
   }
 }
 

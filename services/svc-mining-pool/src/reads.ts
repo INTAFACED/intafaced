@@ -21,13 +21,11 @@ export type HashrateWorker = {
   readonly id: string;
   readonly name: string;
   readonly createdAt: string;
-  readonly hashrate: string | null;
-  readonly hashrateReason: typeof NO_SHARES | null;
   /** The account's own floor for this rig. Null is automatic: the pool picks. */
   readonly minDifficulty: string | null;
   /** Pooled shares join the PPLNS split; solo shares are kept out of it. */
   readonly mode: WorkerMode;
-};
+} & ({ readonly hashrate: string; readonly hashrateReason: null } | { readonly hashrate: null; readonly hashrateReason: typeof NO_SHARES }); // a hashrate, or none with its reason; never both, never neither
 
 export type WorkerMode = 'pooled' | 'solo';
 export const MODE_CHANGE_IN_WINDOW = 'mining.mode_change_in_window';
@@ -197,8 +195,7 @@ export class MiningReadStore {
           id: worker.id,
           name: worker.name,
           createdAt: worker.created_at.toISOString(),
-          hashrate,
-          hashrateReason: hashrate === null ? NO_SHARES : null,
+          ...(hashrate === null ? { hashrate: null, hashrateReason: NO_SHARES } : { hashrate, hashrateReason: null }),
           minDifficulty: worker.min_difficulty === null ? null : canonicalWeight(worker.min_difficulty),
           mode: modeOf(worker.mode),
         };

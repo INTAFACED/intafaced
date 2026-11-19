@@ -1,5 +1,5 @@
+import { CONTRACT_PROCEDURES } from '@intafaced/contracts/procedure-registry';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import * as protocolRecords from '@intafaced/contracts/protocol-procedures';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -18,9 +18,6 @@ import {
   allReads,
 } from './catalog';
 import type { DeskSpec, ReadSpec } from './types';
-
-/** Each service's records file, by service: a read named by a record must be mounted from that very record. */
-const RECORD_FILES: Readonly<Record<string, Readonly<Record<string, unknown>>>> = { 'svc-protocol': protocolRecords };
 
 const ROUTER: Record<ReadSpec['module'], string | null> = {
   bank: 'svc-bank',
@@ -403,10 +400,6 @@ describe('the desks cover what the product order asks for', () => {
       'protocol.health',
     ]);
     for (const read of allReads(DESKS.protocol)) expect(read.plainName, read.id).toBeTruthy();
-    // svc-protocol's three reads are named by their call records, which give the module and path the desk calls.
-    const byRecord = allReads(DESKS.protocol).filter((r) => r.record !== undefined);
-    expect(byRecord.map((r) => r.record!.name)).toEqual(['protocol.chainStatus', 'protocol.auditStatus', 'protocol.health']);
-    for (const read of byRecord) expect([read.module, read.procedure]).toEqual([read.record!.module, read.record!.path]);
     expect(DESKS.protocol.sections.find((s) => s.id === 'blockers')!.panel).toBe('protocol.blockers');
     const audit = allReads(DESKS.protocol).find((r) => r.id === 'protocol.audit')!;
     expect(audit.columns.find((c) => c.key === 'audited')).toMatchObject({ kind: 'bool', mustBe: false });
@@ -440,21 +433,20 @@ function serviceSources(service: string): string[] {
   return out;
 }
 
+describe('a read whose call has a record takes its module and path from the record', () => {
+  it.each(all.filter((a) => a.read.recordName !== undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+    const record = CONTRACT_PROCEDURES.find((r) => r.name === read.recordName);
+    expect(record, `${read.recordName} is a record`).toBeDefined();
+    expect(record!.transport === 'trpc' && record!.kind).toBe('query');
+    expect([read.module, read.procedure]).toEqual([record!.module, record!.transport === 'trpc' ? record!.path : null]);
+  });
+});
+
+// A read with a record is mounted from that record (`mountRecords`), so its query is checked there, not in router text.
 describe('every read names a QUERY that exists in the owning router (drift guard)', () => {
-  it.each(all.map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
-    // A read named by its call record reaches the service the record names, and the router mounts that record there.
-    if (read.record !== undefined) {
-      expect(read.record.service, `${read.id} record's service`).toBe(service);
-      expect(read.record.kind, `${read.id} record is a query`).toBe('query');
-      const mounted = new RegExp(`\\b${read.procedure}: mount\\w*Record\\(\\s*([A-Z_]+)\\b`).exec(source(service!));
-      expect(mounted, `${service} mounts ${read.procedure} from a record`).not.toBeNull();
-      const recordsOf = RECORD_FILES[service!];
-      expect(recordsOf, `${service} has a records file here`).toBeDefined();
-      expect(recordsOf![mounted![1]!], `${service} mounts ${read.procedure} from ${read.record.name}`).toBe(read.record);
-      return;
-    }
     // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`).
     const nested = read.procedure.split('.').length === 3;
     const text = nested ? personalPayRouter() : source(service!);
@@ -478,14 +470,13 @@ describe('every read names a QUERY that exists in the owning router (drift guard
     // A top-level procedure built by its area's factory (svc-quant `health: healthRoutes(core)`) is read from that factory.
     const area = parts.length === 1 ? new RegExp(`\\b${name}: (\\w+Routes)\\(`).exec(text)?.[1] : undefined;
     if (area) from = text.indexOf(`export function ${area}(`);
-    // `operator` is svc-mining-pool's local alias for its admin:read procedure builder.
     const proc = area
       ? new RegExp(`export function ${area}\\(`).exec(text.slice(from))
-      : new RegExp(`\\b${name}: (\\w*Procedure|operator)\\b`).exec(text.slice(from));
+      : new RegExp(`\\b${name}: (\\w*Procedure)\\b`).exec(text.slice(from));
     expect(proc, `${service} has ${read.procedure}`).not.toBeNull();
     // From the procedure up to the next procedure definition, the call kind must be a query.
     const rest = text.slice(from + proc!.index + 1);
-    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure|operator|customer)\b/);
+    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure)\b/);
     let body = next === -1 ? rest : rest.slice(0, next);
     if (area) body = rest.slice(0, rest.search(/\nexport function /) >>> 0);
     // A procedure built in its own file (`poolTotals: poolTotalsProcedure(...)`) is judged by that factory's body.

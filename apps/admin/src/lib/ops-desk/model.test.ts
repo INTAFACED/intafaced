@@ -124,46 +124,6 @@ describe('record reader', () => {
   });
 });
 
-describe('a read named by its call record', () => {
-  const read = (id: string) => allReads(DESKS.protocol).find((r) => r.id === id)!;
-  const health = {
-    ok: true,
-    service: 'svc-protocol',
-    relayEnabled: false,
-    factoryConfigured: true,
-    chain: { status: 'unprobed', code: 'protocol.chain_unprobed', observedChainId: null },
-  };
-  it('reads the answer the record accepts, through the columns', () => {
-    const data = readData(read('protocol.health'), health);
-    if (data?.shape !== 'record') throw new Error('record expected');
-    expect(data.cells.map(formatCell)).toEqual(['no', 'yes']);
-  });
-  it('refuses an answer the columns could read but the record refuses', () => {
-    const spec = read('protocol.health');
-    // Without the record, the two columns alone would read this answer.
-    expect(readData({ ...spec, record: undefined }, { relayEnabled: false, factoryConfigured: true })).not.toBeNull();
-    for (const bad of [
-      { relayEnabled: false, factoryConfigured: true },
-      { ...health, service: 'svc-other' },
-      { ...health, chain: { ...health.chain, observedChainId: 31337 } },
-    ]) {
-      expect(readData(spec, bad)).toBeNull();
-    }
-    const audit = {
-      id: 'internal-1',
-      kind: 'internal',
-      packagePath: 'audit/x',
-      artifactHash: `0x${'a'.repeat(64)}`,
-      signedBy: null,
-      signedAt: null,
-      audited: false,
-    };
-    expect(readData(read('protocol.audit'), audit)).not.toBeNull();
-    // The record holds the artifact hash to 32 bytes of lower-case hex; the column alone takes any text.
-    expect(readData(read('protocol.audit'), { ...audit, artifactHash: 'not-a-hash' })).toBeNull();
-  });
-});
-
 describe('formatting', () => {
   it('shows basis points exactly, with integers only', () => {
     expect(formatBps(1250)).toBe('12.50%');

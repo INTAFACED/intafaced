@@ -2,7 +2,6 @@ import type { Cell, CellValue, Column, ReadData, ReadOutcome, ReadSpec, Row } fr
 import { formatWhen } from '@/lib/as-of';
 import { codeWords } from '@/lib/desk/words';
 import { isRecord } from '@intafaced/contracts/guards';
-import { replyAccepted } from '@intafaced/contracts/procedure';
 
 /**
  * Strict reader for one service answer, driven by the read's declared columns, and the pure formatting the desk uses.
@@ -94,9 +93,7 @@ export function inputFor(spec: ReadSpec, now: Date): Readonly<Record<string, unk
   return { ...spec.input, from: new Date(now.getTime() - spec.windowDays * DAY_MS).toISOString(), to: now.toISOString() };
 }
 
-export function readData(spec: ReadSpec, answer: unknown): ReadData | null {
-  const raw = spec.record === undefined ? answer : recordAnswer(spec.record, answer);
-  if (raw === undefined) return null;
+export function readData(spec: ReadSpec, raw: unknown): ReadData | null {
   if (spec.shape === 'record') {
     const cells = cellsOf(spec.columns, raw);
     return cells === null ? null : { shape: 'record', cells };
@@ -130,12 +127,6 @@ export function readData(spec: ReadSpec, answer: unknown): ReadData | null {
     return { shape: 'list', rows, pageFull: marker !== null, nextCursor: marker };
   }
   return { shape: 'list', rows, pageFull: spec.page !== undefined && list.length >= spec.page };
-}
-
-/** The answer as the read's record parses it (its output, then its `accept` checks); `undefined` when the record refuses it. */
-function recordAnswer(record: NonNullable<ReadSpec['record']>, answer: unknown): unknown {
-  const parsed = record.output.safeParse(answer);
-  return parsed.success && replyAccepted(record, parsed.data) ? parsed.data : undefined;
 }
 
 /**

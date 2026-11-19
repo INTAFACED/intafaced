@@ -10,15 +10,22 @@ import type { ProtocolSessionKey, ProtocolSessionsList } from '@intafaced/contra
 import { Button, Failure, Field } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
-import { useApi } from '../session/session';
-import { createProtocolApi, type ProtocolApi, type RepresentationStatus } from '../protocol/api';
-import { isRegionBlocked } from '../protocol/region';
-import { WALLET_SECTIONS } from '../protocol/routes';
-import { formatUnits } from '../protocol/swap/swap-math';
-import { isFactoryUnset } from '../protocol/wallet/AccountsPanel';
-import { RepresentationPanel } from '../protocol/wallet/RepresentationPanel';
-import { toWei, utcTime } from '../protocol/wallet/SessionKeysPanel';
-import { useWallet, waitMined, WalletProvider } from '../protocol/wallet/WalletProvider';
+import { useApi } from '../session';
+import {
+  createProtocolApi,
+  type ProtocolApi,
+  type RepresentationStatus,
+  isRegionBlocked,
+  WALLET_SECTIONS,
+  formatUnits,
+  isFactoryUnset,
+  RepresentationPanel,
+  toWei,
+  utcTime,
+  useWallet,
+  waitMined,
+  WalletProvider,
+} from '../protocol';
 import { Select } from './common';
 import { navigatorOnchainCopy } from './navigator-onchain-copy';
 

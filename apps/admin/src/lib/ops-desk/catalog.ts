@@ -1,5 +1,9 @@
+import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+
+/** A read whose call has a record: its module and path are the record's, never typed again here. */
+const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -1972,9 +1976,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.terms',
         title: 'Pool terms',
         note: 'The fee and window size from the pool’s configuration. There is no default: an unset value is blank with its reason, not zero.',
-        module: 'mining',
+        ...readOf(MINING_TERMS),
         plainName: 'mining pool terms',
-        procedure: 'terms',
         shape: 'record',
         columns: [
           bps('feeBps', 'Pool fee', { nullable: true }),
@@ -1989,9 +1992,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.windows',
         title: 'Payout windows',
         note: 'Every window, newest first: its reward and fee as stored on the window, how many shares and how much weight it holds, and when it was paid. A blank reward or fee is blank, never zero.',
-        module: 'mining',
+        ...readOf(MINING_OPS_WINDOWS),
         plainName: 'mining windows',
-        procedure: 'ops.windows',
         shape: 'list',
         rowsKey: 'windows',
         idKey: 'windowId',
@@ -2012,9 +2014,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.shares',
         title: 'Shares by window',
         note: 'Shares accepted and refused in each window, and the accepted weight. Refusals are counted only where the miner could be identified.',
-        module: 'mining',
+        ...readOf(MINING_OPS_SHARES),
         plainName: 'mining shares',
-        procedure: 'ops.shares',
         sendEmptyInput: true,
         shape: 'list',
         rowsKey: 'windows',
@@ -2032,9 +2033,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.workers',
         title: 'Workers',
         note: 'Registered workers across accounts, newest first. Registration is refused because no write permission is chosen for it, so this list is expected to be empty.',
-        module: 'mining',
+        ...readOf(MINING_OPS_WORKERS),
         plainName: 'mining workers',
-        procedure: 'ops.workers',
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'workers',
@@ -2345,9 +2345,6 @@ const moreSections: readonly DeskSection[] = [
 
 // ─── Protocol ────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** A read named by its call record: the desk calls the record's module and path and parses the answer with it. */
-const recordRead = <R extends DeskReadRecord>(record: R) => ({ record, module: record.module, procedure: record.path }) as const;
-
 const FORBID_PROTOCOL = 'svc-protocol did not accept your founder session for this read. Nothing is shown rather than a guess.';
 const FORBID_INDEXER = 'svc-indexer did not accept your founder session for this read. Nothing is shown rather than a guess.';
 const FORBID_DEX = 'svc-dex did not accept your founder session for this read. Nothing is shown rather than a guess.';
@@ -2363,7 +2360,7 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.chain',
         title: 'Chain status',
         note: 'A probe, not a heartbeat: it says whether a chain answered and whether the contracts hold code. The chain id below decides the network label in the blockers; it is never assumed to be INTACHAIN.',
-        ...recordRead(PROTOCOL_CHAIN_STATUS),
+        ...readOf(PROTOCOL_CHAIN_STATUS),
         plainName: 'chain status',
         shape: 'record',
         columns: [
@@ -2404,7 +2401,7 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.audit',
         title: 'Audit status',
         note: 'The committed internal review package. "Audited by an outside firm" must be no: a service answer that says otherwise is refused as unreadable instead of shown.',
-        ...recordRead(PROTOCOL_AUDIT_STATUS),
+        ...readOf(PROTOCOL_AUDIT_STATUS),
         plainName: 'audit status',
         shape: 'record',
         columns: [
@@ -2487,7 +2484,7 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.health',
         title: 'Protocol service health',
         note: 'Process-level facts from svc-protocol: whether relaying is switched on and whether the account factory is set. Says nothing about the chain.',
-        ...recordRead(PROTOCOL_HEALTH),
+        ...readOf(PROTOCOL_HEALTH),
         plainName: 'protocol service health',
         shape: 'record',
         columns: [bool('relayEnabled', 'Relaying switched on'), bool('factoryConfigured', 'Account factory configured')],

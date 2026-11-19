@@ -2072,6 +2072,293 @@
         }
       ]
     },
+    "fix.adapterStatus": {
+      "service": "svc-fix",
+      "transport": "http",
+      "method": "GET",
+      "path": "/internal/status",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-edge"]
+      },
+      "refusals": {
+        "unauthenticated": "UNAUTHORIZED",
+        "forbidden": "FORBIDDEN",
+        "fix_status_unconfigured": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["order-entry", "drop-copy"]
+                },
+                "beginString": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "senderCompId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetCompId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "state": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "accountId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "nextSenderSeq": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "nextTargetSeq": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["role", "beginString", "senderCompId", "targetCompId", "state", "accountId", "nextSenderSeq", "nextTargetSeq"],
+              "additionalProperties": false
+            }
+          },
+          "compIdMapSet": {
+            "type": "boolean"
+          },
+          "compIdMap": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "compId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": ["compId", "accountId"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["sessions", "compIdMapSet", "compIdMap", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "x": 1
+          }
+        }
+      ]
+    },
+    "fix.dropCopyFill": {
+      "service": "svc-fix",
+      "transport": "http",
+      "method": "POST",
+      "path": "/internal/drop-copy/fills",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-trade"]
+      },
+      "refusals": {
+        "unauthenticated": "UNAUTHORIZED",
+        "forbidden": "FORBIDDEN",
+        "dropcopy_execution_missing": "BAD_REQUEST",
+        "dropcopy_source_missing": "BAD_REQUEST",
+        "dropcopy_price_missing": "BAD_REQUEST",
+        "invalid_decimal": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "fillId": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "marketId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "qty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "quoteAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "feeAsset": {
+            "type": "string",
+            "minLength": 1
+          },
+          "feeAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "ts": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["rest", "rfq", "liquidation"]
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "fillId",
+          "orderId",
+          "userId",
+          "marketId",
+          "side",
+          "price",
+          "qty",
+          "quoteAmount",
+          "feeAsset",
+          "feeAmount",
+          "ts",
+          "source"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "delivered": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "included": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["ok", "delivered", "included"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "fillId": "fill-7",
+            "orderId": "ord-1",
+            "userId": "user-1",
+            "marketId": "BTC/USDT",
+            "side": "buy",
+            "price": "100.25",
+            "qty": "1.50",
+            "quoteAmount": "150.375",
+            "feeAsset": "USDT",
+            "feeAmount": "0.15",
+            "ts": "2026-09-18T00:00:00Z",
+            "source": "rest",
+            "sequence": 11
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "fillId": "fill-7",
+            "orderId": "ord-1",
+            "userId": "user-1",
+            "marketId": "BTC/USDT",
+            "side": "buy",
+            "price": 100.25,
+            "qty": "1.50",
+            "quoteAmount": "150.375",
+            "feeAsset": "USDT",
+            "feeAmount": "0.15",
+            "ts": "2026-09-18T00:00:00Z",
+            "source": "rest"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "fillId": "fill-7",
+            "orderId": "ord-1",
+            "userId": "user-1",
+            "marketId": "BTC/USDT",
+            "side": "buy",
+            "price": "100.25",
+            "qty": "1.50",
+            "quoteAmount": "150.375",
+            "feeAsset": "USDT",
+            "feeAmount": "0.15",
+            "ts": "2026-09-18T00:00:00Z",
+            "source": "ui"
+          }
+        }
+      ]
+    },
     "identity.recipients.add": {
       "service": "svc-identity",
       "module": "identity",
@@ -2288,6 +2575,1308 @@
           "input": {
             "handle": "alice"
           }
+        }
+      ]
+    },
+    "mining.connection": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "connection",
+      "access": {
+        "caller": "signedIn",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.connection_unset": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "port": {
+            "type": "string",
+            "pattern": "^[1-9]\\d{0,4}$"
+          },
+          "secureUrl": {
+            "type": ["string", "null"]
+          },
+          "accountId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workerNamePattern": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["host", "port", "secureUrl", "accountId", "workerNamePattern"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "mining.minerSecret.issue": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "minerSecret.issue",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.pg_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "secret": {
+            "type": "string"
+          },
+          "issuedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["secret", "issuedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "mining.minerSecret.status": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "minerSecret.status",
+      "access": {
+        "caller": "scope",
+        "scope": "ledger:read",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.pg_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "issuedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["issuedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "mining.ops.shares": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.shares",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "mining-pool"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "windowId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "from": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "to": {
+            "type": "string",
+            "maxLength": 80
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "windowId": {
+                  "type": "string"
+                },
+                "acceptedCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "rejectedCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "soloCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "acceptedWeight": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["windowId", "acceptedCount", "rejectedCount", "soloCount", "acceptedWeight"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "windows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "windowId": "w-1",
+            "from": "2026-01-01T00:00:00Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "windowId": 7
+          }
+        }
+      ]
+    },
+    "mining.ops.windows": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.windows",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "mining-pool"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "windowId": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["open", "paid", "no_credit"]
+                },
+                "reward": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "feeBps": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "shareCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "totalWeight": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "paidAt": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["windowId", "assetId", "status", "reward", "feeBps", "shareCount", "totalWeight", "paidAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "windows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "mining.ops.workers": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.workers",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.workers_list_limit_unset": "PRECONDITION_FAILED",
+        "mining.cursor_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": ["number", "string", "boolean", "null"]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "workers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "userId", "name", "createdAt"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["asOf", "workers", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "cursor": 7
+          }
+        }
+      ]
+    },
+    "mining.overview": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "overview",
+      "access": {
+        "caller": "signedIn",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.overview_unset": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "what": {
+            "type": ["string", "null"]
+          },
+          "coin": {
+            "type": ["string", "null"]
+          },
+          "hardware": {
+            "type": ["string", "null"]
+          },
+          "revenueSplit": {
+            "type": ["string", "null"]
+          },
+          "notSupported": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["version", "what", "coin", "hardware", "revenueSplit", "notSupported"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "mining.payouts.mine": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "payouts.mine",
+      "access": {
+        "caller": "scope",
+        "scope": "ledger:read",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.payouts_list_limit_unset": "PRECONDITION_FAILED",
+        "mining.cursor_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": ["number", "string", "boolean", "null"]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "windowId": {
+                  "type": "string"
+                },
+                "minerId": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "amountReason": {
+                  "type": ["string", "null"]
+                },
+                "paidAt": {
+                  "type": ["string", "null"]
+                },
+                "ledgerTransactionId": {
+                  "type": ["string", "null"]
+                },
+                "ledgerReason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["mining.ledger_unavailable", "mining.ledger_tx_unrecorded"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["windowId", "minerId", "assetId", "amount", "amountReason", "paidAt", "ledgerTransactionId", "ledgerReason"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "nextCursor", "payouts"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "cursor": 7
+          }
+        }
+      ]
+    },
+    "mining.pow": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "pow",
+      "access": {
+        "caller": "signedIn",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "audit.external": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "published"
+              },
+              "dimension": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "targetBits": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "testnet": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": ["status", "dimension", "targetBits", "testnet"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "const": "unset"
+              },
+              "code": {
+                "type": "string",
+                "const": "mining.pow_spec_unset"
+              }
+            },
+            "required": ["status", "code"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "mining.probe": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "probe",
+      "access": {
+        "caller": "signedIn",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.probe_limit_unset": "PRECONDITION_FAILED",
+        "mining.probe_timeout_unset": "PRECONDITION_FAILED",
+        "mining.probe_limit_reached": "PRECONDITION_FAILED",
+        "mining.connection_unset": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": ["reachable", "refused", "timed_out"]
+          },
+          "roundTripMs": {
+            "type": "string",
+            "pattern": "^(0|[1-9]\\d*)$"
+          },
+          "viewpoint": {
+            "type": "string",
+            "const": "pool_network"
+          }
+        },
+        "required": ["result", "roundTripMs", "viewpoint"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "mining.shares.mine": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "shares.mine",
+      "access": {
+        "caller": "scope",
+        "scope": "ledger:read",
+        "module": "mining-pool"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "windowId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "from": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "to": {
+            "type": "string",
+            "maxLength": 80
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "windowId": {
+                  "type": "string"
+                },
+                "acceptedCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "rejectedCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "soloCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "acceptedWeight": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["windowId", "acceptedCount", "rejectedCount", "soloCount", "acceptedWeight"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "windows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "windowId": "w-1",
+            "from": "2026-01-01T00:00:00Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "windowId": 7
+          }
+        }
+      ]
+    },
+    "mining.terms": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "terms",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "feeBps": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9999
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["fee_unconfigured"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "windowSize": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "windowSizeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["window_size_unconfigured"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["feeBps", "feeReason", "windowSize", "windowSizeReason"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "mining.windows.pending": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "windows.pending",
+      "access": {
+        "caller": "scope",
+        "scope": "ledger:read",
+        "module": "mining-pool"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "windowId": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "callerWeight": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                },
+                "totalWeight": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reward": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "feeBps": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "estimate": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "estimate": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "estimatedGross": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                        }
+                      },
+                      "required": ["estimate", "estimatedGross"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["windowId", "assetId", "callerWeight", "totalWeight", "reward", "feeBps", "estimate"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "windows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "mining.workers.mine": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "workers.mine",
+      "access": {
+        "caller": "scope",
+        "scope": "ledger:read",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.hashrate_window_unset": "PRECONDITION_FAILED",
+        "mining.workers_list_limit_unset": "PRECONDITION_FAILED",
+        "mining.cursor_invalid": "BAD_REQUEST",
+        "mining.pg_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "windowMinutes": {
+            "type": ["number", "string", "boolean", "null"]
+          },
+          "limit": {
+            "type": ["number", "string", "boolean", "null"]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 64
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "windowMinutes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "defaultDifficulty": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "defaultDifficultyReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["mining.default_difficulty_unset", "mining.default_difficulty_invalid"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "workers": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "hashrate": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                    },
+                    "hashrateReason": {
+                      "type": "null"
+                    },
+                    "minDifficulty": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": ["pooled", "solo"]
+                    }
+                  },
+                  "required": ["id", "name", "createdAt", "hashrate", "hashrateReason", "minDifficulty", "mode"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "hashrate": {
+                      "type": "null"
+                    },
+                    "hashrateReason": {
+                      "type": "string",
+                      "enum": ["no_shares_in_window"]
+                    },
+                    "minDifficulty": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": ["pooled", "solo"]
+                    }
+                  },
+                  "required": ["id", "name", "createdAt", "hashrate", "hashrateReason", "minDifficulty", "mode"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": ["asOf", "windowMinutes", "defaultDifficulty", "defaultDifficultyReason", "nextCursor", "workers"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "windowMinutes": 60,
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "name": 7
+          }
+        }
+      ]
+    },
+    "mining.workers.setDifficulty": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "workers.setDifficulty",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.worker_not_found": "PRECONDITION_FAILED",
+        "mining.pg_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "workerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "minDifficulty": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9]\\d{0,37}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["workerId", "minDifficulty"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "minDifficulty": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["id", "minDifficulty"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "workerId": "w-1",
+            "minDifficulty": "1024"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "workerId": "w-1",
+            "minDifficulty": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "workerId": "w-1",
+            "minDifficulty": "0"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "workerId": "",
+            "minDifficulty": null
+          }
+        }
+      ]
+    },
+    "mining.workers.setMode": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "workers.setMode",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.worker_not_found": "PRECONDITION_FAILED",
+        "mining.mode_change_in_window": "PRECONDITION_FAILED",
+        "mining.mode_invalid": "PRECONDITION_FAILED",
+        "mining.pg_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["pooled", "solo"]
+          }
+        },
+        "required": ["name", "mode"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["pooled", "solo"]
+          }
+        },
+        "required": ["id", "name", "mode"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "name": "rig-1",
+            "mode": "solo"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "name": "rig 1",
+            "mode": "solo"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "name": "rig-1",
+            "mode": "both"
+          }
+        }
+      ]
+    },
+    "mining.workers.soloCredit": {
+      "service": "svc-mining-pool",
+      "module": "mining",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "workers.soloCredit",
+      "access": {
+        "caller": "scope",
+        "scope": "ledger:read",
+        "module": "mining-pool"
+      },
+      "refusals": {
+        "mining.emission_unpublished": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "not": {}
+      },
+      "samples": [
+        {
+          "verdict": "accept"
         }
       ]
     },
@@ -14547,6 +16136,84 @@
           "input": {
             "method": "FIFO"
           }
+        }
+      ]
+    },
+    "ws.sbe.consumers": {
+      "service": "svc-ws",
+      "transport": "http",
+      "method": "GET",
+      "path": "/internal/sbe/consumers",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-edge"]
+      },
+      "refusals": {
+        "ws_status_unconfigured": "SERVICE_UNAVAILABLE",
+        "unauthenticated": "UNAUTHORIZED",
+        "forbidden": "FORBIDDEN"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "const": "svc-ws"
+          },
+          "codecLinked": {
+            "type": "boolean"
+          },
+          "consumers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "marketId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "connectedAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "framesSent": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lastSequence": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["id", "marketId", "connectedAt", "framesSent", "lastSequence"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["service", "codecLinked", "consumers", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
         }
       ]
     }
