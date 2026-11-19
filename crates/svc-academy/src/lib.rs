@@ -14,6 +14,7 @@ pub mod env;
 pub mod errors;
 pub mod migrate;
 pub mod ports;
+pub mod programme;
 pub mod refines;
 pub mod settings;
 pub mod slices;
