@@ -13,7 +13,7 @@ export type { ExecuteFn } from './approval-steps';
 export { readStepReply, type ExecuteReply } from './approval-types';
 export { stepGate } from './desk-model';
 export { failureRefusal } from './failure-refusal';
-export { edgeCall, founderCall, parseWith, type FounderCallContext, type FounderCallResult } from './founder-call';
+export { edgeCall, founderCall, parseWith, type FounderCallContext, type FounderCallFailure, type FounderCallResult } from './founder-call';
 export { opsReadOf } from './ops-read';
 export { partFrom, type Part, type PartLabels } from './part';
 export { codeInText, explainRefusal, isKnownCode, type RefusalView } from './refusal-copy';

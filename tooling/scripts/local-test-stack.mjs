@@ -2236,6 +2236,22 @@ async function indexerHalt() {
   }
 }
 
+/**
+ * One health read for the table: a stack process that is still running and gave no answer at all (status 0, a busy
+ * runner) is read again for up to `windowMs` before it counts as DOWN, as a start waits for its own late service
+ * (#8434). Any HTTP answer counts at once, and a process that is gone is DOWN at once. Before this, one late read of
+ * svc-matching failed `restart academy` while matching kept running (journeys run 44566531740, J-academy-11 #3, #9088).
+ */
+export async function settledHealth(read, { alive, windowMs = 20_000, pauseMs = 500, now = Date.now, pause = sleep }) {
+  const t0 = now();
+  let r = await read();
+  while (r.status === 0 && alive() && now() - t0 < windowMs) {
+    await pause(pauseMs);
+    r = await read();
+  }
+  return r;
+}
+
 async function healthTable({ gateMarket = false } = {}) {
   const procs = readProcs();
   const rows = [];
@@ -2259,7 +2275,7 @@ async function healthTable({ gateMarket = false } = {}) {
   rows.push(['nats', `${PORTS.nats}/${PORTS.natsMonitor}`, procs.nats?.pid ?? '-', nats.status === 200 ? 'ok' : 'DOWN']);
   const chain = testChain();
   for (const n of serviceNames()) {
-    const r = await httpGet(`${urlOf(n)}/health`, 2500);
+    const r = await settledHealth(() => httpGet(`${urlOf(n)}/health`, 2500), { alive: () => ownedAlive(procs[n]) });
     const halted = r.status === 200 && n === 'indexer' ? await indexerHalt() : null;
     // A service the start leaves out on purpose (absentWhy) reads "absent", which doesn't fail the start; DOWN still does.
     const absent = r.status !== 200 ? absentWhy(n, chain) : null;

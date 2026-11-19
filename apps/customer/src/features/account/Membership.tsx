@@ -1,10 +1,10 @@
 import { useRef } from 'react';
 import { z } from 'zod';
 import type { ApiClient } from '../../shared/api';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
-import { DepthPanel, Fact } from '../money/DepthParts';
+import { DepthPanel, Fact } from '../money';
 import { membershipCopy as copy } from './membership-copy';
 
 /**

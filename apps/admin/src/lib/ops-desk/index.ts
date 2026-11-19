@@ -5,5 +5,7 @@ import 'server-only';
  * (`garden/no-cross-feature-import`); a piece it needs that is not listed is exported here first.
  * This entry is for server code: its reads call svc-ops with the console's token.
  */
+export { DESKS, allReads, readSpecFor } from './catalog';
+export { formatDuration, readData } from './model';
 export { loadRead, loadReads } from './server';
-export type { ReadOutcome, ReadSpec, Row } from './types';
+export type { DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec, Row } from './types';

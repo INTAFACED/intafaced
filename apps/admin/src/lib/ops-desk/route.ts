@@ -9,7 +9,7 @@ import { readDirectRequest } from './direct-model';
 import { runDirect } from './direct';
 import { opsExecute } from './execute';
 import { loadCustomerBalances, loadCustomerEntries, loadDesk, loadPage, loadTransferDetail } from './server';
-import { transferIdOf } from './transfer-id';
+import { transferIdOf } from '@/lib/transfer-id';
 import type { OpsDeskId } from './types';
 
 /**

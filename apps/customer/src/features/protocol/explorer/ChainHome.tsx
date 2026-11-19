@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { useDebouncedValue } from '../../../shared/use-debounced';

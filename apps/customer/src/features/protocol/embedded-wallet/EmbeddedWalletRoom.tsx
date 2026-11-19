@@ -10,7 +10,7 @@ import type {
 } from '@intafaced/contracts/protocol-embedded-wallet';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { createVenueWalletApi, type VenueConnection } from '../venue-wallet/venue-wallet-api';
 import { venueWalletCopy } from '../venue-wallet/venue-wallet-copy';
 import { venueRefusal } from '../venue-wallet/VenueWalletRoom';
