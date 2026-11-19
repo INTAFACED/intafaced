@@ -10,7 +10,7 @@
 use base64::Engine as _;
 use postgres::{GenericClient, Row};
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use super::sql::Pool;
 use sha2::{Digest, Sha256};
 
 use super::purchases::canonical_price;

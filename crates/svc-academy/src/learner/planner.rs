@@ -6,7 +6,7 @@
 
 use postgres::Row;
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use super::sql::Pool;
 use service_kit::schema::js_trim;
 
 use super::sql::{self, cell, exec, first, iso, ms, q};

@@ -3,7 +3,7 @@
 //! the playback gate (`video/library.ts` `assertAcademyVideoEntitled`, `video/entitlement.ts`).
 
 use service_kit::money::parse_amount;
-use service_kit::pg::Pool;
+use super::sql::Pool;
 
 use super::sql::{self, cell, column, first, q};
 use crate::errors::{AcademyError, Refusal};

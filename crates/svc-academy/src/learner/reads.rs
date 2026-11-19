@@ -13,7 +13,7 @@
 use postgres::GenericClient;
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
-use service_kit::pg::Pool;
+use super::sql::Pool;
 
 use super::purchases::canonical_price;
 use super::sql::{self, cell, column, first, iso, ms, q};

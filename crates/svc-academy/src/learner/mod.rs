@@ -2,6 +2,7 @@
 //! learning}/`, `curriculum/course-{preview,learners,enrolment}.ts` and their parts of `academy-service.ts` and
 //! `router.ts`). `slices/learner.rs` routes each call here.
 
+pub mod desk;
 pub mod learners;
 pub mod planner;
 pub mod preview;

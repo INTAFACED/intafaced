@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use postgres::GenericClient;
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use super::sql::Pool;
 use service_kit::schema::js_trim;
 
 use super::reads::{self, Grade};
@@ -263,7 +263,7 @@ impl Learning<'_> {
         links::public_course(
             slug,
             reads::certificate_title,
-            |item| gates::opens_signed_out(self.pool, item, now),
+            |item| gates::opens_signed_out(self.pool.pool()?, item, now),
             &quizzes,
         )
     }
@@ -305,7 +305,7 @@ impl Learning<'_> {
             let starts_at = sql::on_pool(self.pool, |c| reads::course_starts_at(c, path))?;
             let mut open = Vec::new();
             for item in spine::list(Some(path), None) {
-                if gates::item_release(self.pool, user_id, &item.slug, now, starts_at)?.lock.is_none() {
+                if gates::item_release(self.pool.pool()?, user_id, &item.slug, now, starts_at)?.lock.is_none() {
                     open.push(item.slug.clone());
                 }
             }
@@ -504,7 +504,7 @@ impl Learning<'_> {
                 if sql::on_pool(self.pool, |c| current_completion(c, user_id, slug))?.is_some() {
                     continue;
                 }
-                match gates::assert_may_read(self.pool, user_id, slug, now) {
+                match gates::assert_may_read(self.pool.pool()?, user_id, slug, now) {
                     Ok(()) => {}
                     // Still locked: the stored position meets the rule, so Complete finishes it once it opens.
                     Err(Refusal::Academy(_)) => continue,
@@ -532,7 +532,7 @@ impl Learning<'_> {
         if let Some(existing) = sql::on_pool(self.pool, |c| current_completion(c, user_id, slug))? {
             return Ok(existing.json());
         }
-        gates::assert_may_read(self.pool, user_id, slug, now)?;
+        gates::assert_may_read(self.pool.pool()?, user_id, slug, now)?;
         let quiz = reads::quiz_pass_mark(self.pool, slug)?;
         if quiz == Some(None) {
             return Err(AcademyError::new(format!("academy.pass_mark_unset slug={slug}"), "academy.pass_mark_unset").into());

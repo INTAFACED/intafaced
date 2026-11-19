@@ -22,7 +22,7 @@ pub mod clients;
 
 use postgres::{GenericClient, Row};
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use crate::learner::sql::Pool;
 
 use self::chain::{is_address, is_tx_hash, is_unread, to_base_units, transfer_calldata};
 use super::sql::{self, cell, exec, first, iso, ms, q};

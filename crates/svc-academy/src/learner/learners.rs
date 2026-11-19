@@ -8,7 +8,7 @@
 
 use postgres::{GenericClient, Row};
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use super::sql::Pool;
 
 use super::preview::CoursePreview;
 use super::purchases::{CoursePurchases, canonical_price, holds_purchase};

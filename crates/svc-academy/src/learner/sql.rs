@@ -8,10 +8,13 @@
 use postgres::types::{FromSql, ToSql};
 use postgres::{GenericClient, IsolationLevel, Row, Transaction};
 
-use service_kit::pg::Pool;
 use service_kit::time::Instant;
 
 use crate::db::{self, SERIALIZATION_FAILURE};
+
+/// The door's store: a pool, or a store that cannot serve, which refuses at the first statement (as postgres.js fails
+/// at its first query, after every check the TypeScript makes before it).
+pub type Pool = crate::db::Store;
 use crate::errors::Refusal;
 
 /// One query parameter.
@@ -64,7 +67,7 @@ pub fn on_pool<T>(
     pool: &Pool,
     f: impl FnOnce(&mut postgres::Client) -> Result<T, Refusal>,
 ) -> Result<T, Refusal> {
-    db::with_client(pool, f)
+    db::with_client(pool.pool()?, f)
 }
 
 /// `sql.begin(fn)`: one transaction at the server's default isolation (read committed), never tried again.
@@ -72,7 +75,7 @@ pub fn begin<T>(
     pool: &Pool,
     f: impl FnOnce(&mut Transaction<'_>) -> Result<T, Refusal>,
 ) -> Result<T, Refusal> {
-    db::transaction(pool, IsolationLevel::ReadCommitted, f)
+    db::transaction(pool.pool()?, IsolationLevel::ReadCommitted, f)
 }
 
 /// `sql.begin('isolation level repeatable read read only', fn)`.
@@ -80,7 +83,7 @@ pub fn begin_repeatable_read_only<T>(
     pool: &Pool,
     f: impl FnOnce(&mut Transaction<'_>) -> Result<T, Refusal>,
 ) -> Result<T, Refusal> {
-    let mut conn = pool.get().map_err(db::pool_refusal)?;
+    let mut conn = pool.pool()?.get().map_err(db::pool_refusal)?;
     let client = conn.client().map_err(db::pool_refusal)?;
     let mut tx = client
         .build_transaction()
@@ -104,6 +107,7 @@ pub fn serializable<T>(
     pool: &Pool,
     mut f: impl FnMut(&mut Transaction<'_>) -> Result<T, Refusal>,
 ) -> Result<T, Refusal> {
+    let pool = pool.pool()?;
     let mut attempt: u32 = 1;
     loop {
         match db::transaction(pool, IsolationLevel::Serializable, &mut f) {
