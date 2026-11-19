@@ -13,9 +13,15 @@ import {
   type AcademySaveOutlineInput,
   type AcademySetCourseTopicsInput,
 } from '@intafaced/contracts/academy-courses';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+} from '@/lib/desk';
 import { COURSE_PAGE, type CourseDeskReply, type CourseDetailView, type CourseDraftInput, type CourseListView } from './courses-model';
 
 /**

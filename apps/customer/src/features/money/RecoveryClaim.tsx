@@ -1,8 +1,8 @@
 import { useId, useState, type FormEvent } from 'react';
 import { recoveryClaimMessage } from '@intafaced/contracts/identity-recovery';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
-import { readRecoveryKey, signWithRecoveryKey } from '../account/recovery-keys';
+import { useSession } from '../session';
+import { readRecoveryKey, signWithRecoveryKey } from '../account';
 import { date, funds, useBankRead } from './components';
 import { recoveryWrites, type RecoveryAccount, type RecoveryEstate, type RecoverySweep } from './contracts';
 import { DepthPanel, DisabledActions, Fact } from './DepthParts';

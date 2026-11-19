@@ -1,3 +1,11 @@
 export { useVenueMode } from './use-venue-mode';
-export { preparedAnswerSchema, venueApi, venueOrderSchema, walletTypedData } from './venue-api';
+export {
+  preparedAnswerSchema,
+  venueApi,
+  venueBalanceSchema,
+  venueFillSchema,
+  venueOrderSchema,
+  venuePositionSchema,
+  walletTypedData,
+} from './venue-api';
 export { useOwner, VenueFrame, WalletBar } from './venue/VenueKit';

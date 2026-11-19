@@ -204,6 +204,12 @@ const schema = serviceEnvSchema
        */
       NOTIFY_EMAIL_TEST_OUTBOX: blankAsAbsent(z.string().optional()),
       /**
+       * The TEST push stand-in (J-home-ia-05 #4): an absolute file the push channel writes each message to, labelled TEST, while
+       * no push gateway is set; with NOTIFY_PUSH_PUBLIC_KEY it lets a TEST device register. Refused at boot unless APP_ENV is
+       * exactly dev or test. Unset: push refuses honestly and no device registers.
+       */
+      NOTIFY_PUSH_TEST_OUTBOX: blankAsAbsent(z.string().optional()),
+      /**
        * Ports an alert webhook may post to, comma separated (`443`). NO DEFAULT. Blank refuses every webhook save
        * (`notify.alert_webhook_ports_unset`).
        */

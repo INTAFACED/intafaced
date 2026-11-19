@@ -1,4 +1,5 @@
 // Written by `procedures:write` (scripts/procedure-registry.mjs) from every `defineProcedure` in src/. Do not edit by hand.
+import { ACADEMY_INTERNAL_CURRICULUM } from './academy-procedures.js';
 import { BANK_SPACES_LIST } from './bank-spaces-list.js';
 import {
   BLUEPRINT_HEALTH,
@@ -36,7 +37,22 @@ import {
   MINING_POW,
   MINING_PROBE,
 } from './mining-procedures.js';
+import { NOTIFY_INBOX_POLICY } from './notify-inbox-policy.js';
 import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } from './ops-public-procedures.js';
+import {
+  P2P_HEALTH,
+  P2P_FIAT_LIST,
+  P2P_FEES_SCHEDULE,
+  P2P_ACCESS_ELIGIBILITY,
+  P2P_ACCESS_LIMITS,
+  P2P_LIMITS_VERIFICATION,
+  P2P_LIMITS_SECURITY_CHANGE,
+  P2P_CONTACTS_LIST,
+  P2P_CONTACTS_FOLLOW,
+  P2P_CONTACTS_UNFOLLOW,
+  P2P_CONTACTS_BLOCK,
+  P2P_CONTACTS_UNBLOCK,
+} from './p2p-procedures.js';
 import {
   PROTOCOL_AMM_PAIRS,
   PROTOCOL_AMM_PRICES,
@@ -144,6 +160,7 @@ import type { ProcedureRecord } from './procedure.js';
 
 /** Every call recorded in this package. `procedures.schema.json` is written from this list. */
 export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
+  ACADEMY_INTERNAL_CURRICULUM,
   BANK_SPACES_LIST,
   BLUEPRINT_HEALTH,
   BLUEPRINT_ONBOARD,
@@ -180,9 +197,22 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   MINING_CONNECTION,
   MINING_POW,
   MINING_PROBE,
+  NOTIFY_INBOX_POLICY,
   OPS_HOME_CONFIG,
   OPS_VALUATION_PRICES,
   OPS_OUTREACH_PUBLIC_SETTINGS,
+  P2P_HEALTH,
+  P2P_FIAT_LIST,
+  P2P_FEES_SCHEDULE,
+  P2P_ACCESS_ELIGIBILITY,
+  P2P_ACCESS_LIMITS,
+  P2P_LIMITS_VERIFICATION,
+  P2P_LIMITS_SECURITY_CHANGE,
+  P2P_CONTACTS_LIST,
+  P2P_CONTACTS_FOLLOW,
+  P2P_CONTACTS_UNFOLLOW,
+  P2P_CONTACTS_BLOCK,
+  P2P_CONTACTS_UNBLOCK,
   PROTOCOL_AMM_PAIRS,
   PROTOCOL_AMM_PRICES,
   PROTOCOL_AMM_SWAP_SETTINGS,

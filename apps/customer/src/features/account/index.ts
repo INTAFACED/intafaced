@@ -1,2 +1,4 @@
 export { endOfDayUtc } from './developer-keys-api';
-export type { StepUpBegin } from './security-step-up';
+export { readRecoveryKey, signWithRecoveryKey } from './recovery-keys';
+export { factorStatus } from './security-checklist';
+export { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from './security-step-up';

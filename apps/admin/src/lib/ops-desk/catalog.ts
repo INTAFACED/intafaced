@@ -1,4 +1,5 @@
 import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
+import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 
@@ -1313,8 +1314,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.health',
         title: 'Service health',
         note: '"Moderation configured" means someone is on the moderator list. svc-p2p cannot tell whether that person is actually watching the queue.',
-        module: 'p2p',
-        procedure: 'health',
+        ...readOf(P2P_HEALTH),
         shape: 'record',
         columns: [
           bool('ok', 'Answering'),
@@ -1330,8 +1330,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.fiat',
         title: 'Fiat currencies enabled',
         note: 'Currencies P2P can trade against, from configuration. Not a volume.',
-        module: 'p2p',
-        procedure: 'fiat.list',
+        ...readOf(P2P_FIAT_LIST),
         shape: 'list',
         idKey: 'code',
         columns: [text('code', 'Code'), text('name', 'Name'), text('symbol', 'Symbol'), int('minorUnits', 'Minor units')],

@@ -1,12 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServiceSigner, createServiceVerifier, type Keyring } from '@intafaced/contracts';
-import {
-  EmptyAcademyCurriculumSource,
-  FixedAcademyCurriculumSource,
-  createAcademyCurriculumSource,
-  parseAcademyCurriculumPayload,
-} from './academy-curriculum-source.js';
+import { EmptyAcademyCurriculumSource, FixedAcademyCurriculumSource, createAcademyCurriculumSource } from './academy-curriculum-source.js';
 
 const SECRET = 'an-agents-curriculum-source-test-secret-32';
 const SPINE = [{ slug: 'foundations-risk-first', title: 'Risk first' }];
@@ -15,37 +10,37 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('parseAcademyCurriculumPayload — never invent titles', () => {
-  it('reads slug+title from an items envelope', () => {
-    expect(parseAcademyCurriculumPayload({ items: SPINE })).toEqual({
-      items: SPINE,
-      licensedLibraryImported: false,
-    });
+/** What svc-academy's door sends, with `items` replaced. */
+const reply = (items: unknown, extra: Record<string, unknown> = {}) =>
+  JSON.stringify({ items, licensedLibraryImported: false, source: 'platform-spine', ...extra });
+const answering =
+  (body: string): typeof fetch =>
+  async () =>
+    new Response(body, { status: 200 });
+const load = (body: string) => createAcademyCurriculumSource('http://svc-academy:4016', SECRET, answering(body)).load();
+
+describe('the reply is read by the record — never invent titles', () => {
+  it('reads slug+title, and nothing else a row carries', async () => {
+    expect(await load(reply([{ ...SPINE[0], kind: 'playbook' }]))).toEqual({ items: SPINE, licensedLibraryImported: false });
   });
 
-  it('reads a raw summary array (academy catalog shape)', () => {
-    expect(parseAcademyCurriculumPayload([{ slug: 'foundations-risk-first', title: 'Risk first', kind: 'playbook' }])).toEqual({
-      items: SPINE,
-      licensedLibraryImported: false,
-    });
+  it('a row missing its slug or title refuses the whole reply rather than filling it in', async () => {
+    expect(await load(reply([{ slug: 'x' }, { title: 'Y' }, SPINE[0]]))).toEqual({ items: [], licensedLibraryImported: false });
+    expect(await load(reply([{ slug: '', title: 'Y' }]))).toEqual({ items: [], licensedLibraryImported: false });
   });
 
-  it('drops rows missing slug or title rather than filling them in', () => {
-    expect(parseAcademyCurriculumPayload({ items: [{ slug: 'x' }, { title: 'Y' }, SPINE[0]] })).toEqual({
-      items: SPINE,
-      licensedLibraryImported: false,
-    });
+  it('empty items stay empty — chatbot refuse, not a guessed library', async () => {
+    expect(await load(reply([]))).toEqual({ items: [], licensedLibraryImported: false });
   });
 
-  it('empty items stay empty — chatbot refuse, not a guessed library', () => {
-    expect(parseAcademyCurriculumPayload({ items: [] })).toEqual({ items: [], licensedLibraryImported: false });
-  });
-
-  it('unreadable payload is empty, and licensed dump is never claimed from the wire', () => {
-    expect(parseAcademyCurriculumPayload({ licensedLibraryImported: true, catalog: SPINE })).toEqual({
+  it("a reply that is not the record's shape is empty, and the licensed dump is never claimed from the wire", async () => {
+    expect(await load(JSON.stringify({ licensedLibraryImported: true, catalog: SPINE }))).toEqual({
       items: [],
       licensedLibraryImported: false,
     });
+    expect(await load(reply(SPINE, { licensedLibraryImported: true }))).toEqual({ items: [], licensedLibraryImported: false });
+    expect(await load(JSON.stringify(SPINE))).toEqual({ items: [], licensedLibraryImported: false });
+    expect(await load('not json')).toEqual({ items: [], licensedLibraryImported: false });
   });
 });
 
@@ -71,7 +66,7 @@ describe('createAcademyCurriculumSource — fail closed', () => {
       vi.fn(async (url: string, init: RequestInit) => {
         seenUrl = url;
         seen = init.headers as Record<string, string>;
-        return new Response(JSON.stringify({ items: SPINE }), { status: 200 });
+        return new Response(reply(SPINE), { status: 200 });
       }),
     );
 
@@ -94,7 +89,7 @@ describe('createAcademyCurriculumSource — fail closed', () => {
   it('empty academy catalog stays empty', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })),
+      vi.fn(async () => new Response(reply([]), { status: 200 })),
     );
     const grounding = await createAcademyCurriculumSource('http://svc-academy:4016', SECRET).load();
     expect(grounding.items).toEqual([]);
@@ -133,7 +128,7 @@ describe('createAcademyCurriculumSource — signs with svc-agents own key when i
     const seen: { url: string; headers: Record<string, string> }[] = [];
     const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
       seen.push({ url: String(url), headers: init?.headers as Record<string, string> });
-      return new Response(JSON.stringify({ items: SPINE }), { status: 200 });
+      return new Response(reply(SPINE), { status: 200 });
     }) as typeof fetch;
     return { seen, fetchImpl };
   }

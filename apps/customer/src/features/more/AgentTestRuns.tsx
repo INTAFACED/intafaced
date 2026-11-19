@@ -1,10 +1,10 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, Failure, Field, Panel, Stat } from '../../shared/ui';
-import { TabList } from '../protocol/tokens/TabList';
+import { TabList } from '../protocol';
 import { Read, Select, TextArea } from './common';
 import { GuardOutcome, replyShown } from './AgentTestGuards';
 import { toolWords } from './AgentGuardrails';

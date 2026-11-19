@@ -43,3 +43,41 @@ export function testEmailOutbox(raw: string | undefined, appEnv: string | undefi
   if (!path.isAbsolute(file)) throw new Error('NOTIFY_EMAIL_TEST_OUTBOX must be an absolute path');
   return file;
 }
+
+/**
+ * The TEST push stand-in (J-home-ia-05 #4). With no push gateway set and `NOTIFY_PUSH_TEST_OUTBOX` naming an absolute file, the
+ * push channel writes each message as one `LOCAL-TEST {json}` line to that file instead of handing it to a gateway: the
+ * device address it was for, its kind and its text, labelled TEST. Refused at boot unless APP_ENV is exactly dev or test, so it
+ * can never stand in for a live gateway. The device address is a TEST browser's stand-in subscription, never a real one.
+ */
+export class TestOutboxPushChannel implements NotificationChannel {
+  readonly channel = 'push' as const;
+  readonly unavailableReason: RefusalCode | null = null;
+
+  constructor(private readonly file: string) {}
+
+  async deliver(message: OutboundMessage): Promise<DeliveryReceipt> {
+    const line = {
+      purpose: 'notification',
+      kind: message.kind,
+      notificationId: message.notificationId,
+      idempotencyKey: message.idempotencyKey,
+      to: message.address,
+      title: `TEST · ${message.title}`,
+      body: `TEST — written by the LOCAL TEST push stand-in, not sent. ${message.body}`,
+      at: new Date().toISOString(),
+    };
+    await mkdir(path.dirname(this.file), { recursive: true });
+    await appendFile(this.file, `LOCAL-TEST ${JSON.stringify(line)}\n`, { encoding: 'utf8', mode: 0o600 });
+    return { reference: `local-test:${message.idempotencyKey}` };
+  }
+}
+
+/** The push stand-in's file, checked as the email one is: dev or test only, an absolute path. Blank is no stand-in. */
+export function testPushOutbox(raw: string | undefined, appEnv: string | undefined): string | null {
+  const file = raw?.trim() ?? '';
+  if (file === '') return null;
+  if (appEnv !== 'dev' && appEnv !== 'test') throw new Error('NOTIFY_PUSH_TEST_OUTBOX is allowed only when APP_ENV is exactly dev or test');
+  if (!path.isAbsolute(file)) throw new Error('NOTIFY_PUSH_TEST_OUTBOX must be an absolute path');
+  return file;
+}

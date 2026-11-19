@@ -5,7 +5,7 @@ import { Button, Popover, PopoverContent, PopoverTitle, PopoverTrigger, StateBlo
 import { notifyCopy } from './copy';
 import { announceChange } from './notify-api';
 import { InboxFailure, NotificationRow } from './NotificationRow';
-import { useInboxView, useUnreadCount } from './use-notifications';
+import { badgeText, useInboxPolicy, useInboxView, useUnreadCount } from './use-notifications';
 
 /** How many notifications the popover lists; the rest are one click away under "See all". */
 export const POPOVER_ITEMS = 8;
@@ -18,20 +18,23 @@ export const POPOVER_ITEMS = 8;
  * button (`tb-icon-button tb-bell`, `tb-badge` from the shell's CSS), so the top bar passes nothing else. Errors show inside the
  * popover; if the count can't be read the bell simply has no badge.
  */
+/** The path the bell last saw, across remounts; undefined until the first bell mounts. */
+let lastPath: string | undefined;
+
 export function BellPopover({ path }: { path?: string }) {
   const copy = notifyCopy.useCopy();
   const unread = useUnreadCount();
+  const policy = useInboxPolicy();
   const [open, setOpen] = useState(false);
-  const first = useRef(true);
   const inner = useRef<HTMLDivElement>(null);
+  // A page change reads the count again at once. The last path is kept outside the component, since a page change that
+  // swaps the app's shell mounts a new bell, which would otherwise take the cached count as current.
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    announceChange();
+    if (lastPath !== undefined && lastPath !== path) announceChange();
+    lastPath = path;
   }, [path]);
-  const shown = unread && unread > 99 ? '99+' : unread;
+  // Capped at the owner's cap (notify.inboxPolicy); with none set, the exact count.
+  const shown = unread ? badgeText(unread, policy.status === 'ready' ? policy.data.unreadCap : null) : unread;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger

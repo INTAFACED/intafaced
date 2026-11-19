@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AcademyError } from './errors.js';
@@ -259,29 +260,112 @@ export interface SessionRecord {
   sceneFingerprint: string;
 }
 
-interface RoomRow {
-  id: string;
-  slug: string;
-  name: string;
-  kind: RoomKind;
-  access: RoomAccessKind;
-  min_stake: string;
-  capacity: number;
-  host_id: string;
-}
+// Rows as postgres.js returns them (types from drizzle/*.sql): numeric is a decimal string, integer a number,
+// timestamptz a Date, jsonb already parsed. A renamed or retyped column fails here, at the read.
+const SessionStatusEnum = z.enum(['scheduled', 'live', 'ended', 'cancelled']);
+const RoomRow = z.object({
+  id: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  kind: z.enum(['general', 'futures', 'options', 'meme_war_room', 'forex', 'defi_lab', 'merchant_clinic']),
+  access: z.enum(['free', 'staked', 'invite']),
+  min_stake: z.string(),
+  capacity: z.number(),
+  host_id: z.string(),
+});
+type RoomRow = z.infer<typeof RoomRow>;
 
-interface SessionRow {
-  id: string;
-  room_id: string;
-  title: string;
-  host_id: string;
-  status: SessionStatus;
-  starts_at: Date;
-  ends_at: Date | null;
-  stream_provider: string | null;
-  stream_room: string | null;
-  scene: Record<string, unknown>;
-}
+const SessionRow = z.object({
+  id: z.string(),
+  room_id: z.string(),
+  title: z.string(),
+  host_id: z.string(),
+  status: SessionStatusEnum,
+  starts_at: z.date(),
+  ends_at: z.date().nullable(),
+  stream_provider: z.string().nullable(),
+  stream_room: z.string().nullable(),
+  scene: z.record(z.string(), z.unknown()),
+});
+type SessionRow = z.infer<typeof SessionRow>;
+
+const SessionStatusRow = z.object({ status: SessionStatusEnum });
+const AttendeeRoleRow = z.object({ role: z.enum(['host', 'speaker', 'attendee']) });
+const CountRow = z.object({ count: z.string() });
+const ItemSlugRow = z.object({ item_slug: z.string() });
+const VideoSlugRow = z.object({ video_slug: z.string() });
+const InviteExpiryRow = z.object({ expires_at: z.date().nullable() });
+
+const SeasonRow = z.object({
+  id: z.string(),
+  slug: z.string(),
+  title: z.string(),
+  status: z.enum(['scheduled', 'live', 'frozen', 'ended']),
+  rules_summary: z.string(),
+  starts_at: z.date(),
+  ends_at: z.date().nullable(),
+});
+const StandingRow = z.object({ season_id: z.string(), user_id: z.string(), score: z.number(), updated_at: z.date() });
+/** `standings` is jsonb; the freeze read keeps its own narrowing of it. */
+const FreezeSnapshotRow = z.object({ season_id: z.string(), frozen_at: z.date(), standings: z.unknown() });
+
+const AmbassadorRow = z.object({
+  user_id: z.string(),
+  status: z.enum(['active', 'frozen']),
+  appointed_by: z.string(),
+  appointed_at: z.date(),
+  frozen_at: z.date().nullable(),
+  frozen_by: z.string().nullable(),
+  freeze_reason: z.string().nullable(),
+});
+
+const ResidencyStatusEnum = z.enum(['applied', 'accepted', 'rejected', 'withdrawn']);
+const ResidencyRow = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  cohort_slug: z.string(),
+  statement: z.string(),
+  status: ResidencyStatusEnum,
+  applied_at: z.date(),
+  decided_at: z.date().nullable(),
+  decided_by: z.string().nullable(),
+  decision_note: z.string().nullable(),
+});
+const ResidencyStatusRow = z.object({ status: ResidencyStatusEnum });
+const ResidencyOwnerRow = z.object({ status: ResidencyStatusEnum, user_id: z.string() });
+
+const CompletionRow = z.object({ user_id: z.string(), item_slug: z.string(), completed_at: z.date() });
+const CompletionTimeRow = z.object({ item_slug: z.string(), completed_at: z.date() });
+const UndoReplayRow = z.object({ item_slug: z.string(), recorded_at: z.date() });
+
+const GrantStatusRow = z.object({ status: z.string() });
+const PublicIdRow = z.object({ public_id: z.string() });
+const GrantOwnerRow = z.object({ user_id: z.string(), cert_id: z.string() });
+const InsertedGrantRow = z.object({
+  user_id: z.string(),
+  cert_id: z.string(),
+  granted_at: z.date(),
+  idempotency_key: z.string(),
+  public_id: z.string(),
+});
+const CertGrantRow = InsertedGrantRow.extend({ status: z.string() });
+const MyCertGrantRow = CertGrantRow.extend({ design_revision: z.number().nullable() });
+const RevokedGrantRow = z.object({
+  user_id: z.string(),
+  cert_id: z.string(),
+  granted_at: z.date(),
+  idempotency_key: z.string(),
+  status: z.string(),
+});
+const ProgrammeGrantRow = z.object({ cert_id: z.string(), granted_at: z.date(), public_id: z.string(), status: z.string() });
+const CertVerifyRow = z.object({
+  cert_id: z.string(),
+  granted_at: z.date(),
+  status: z.string(),
+  holder_name: z.string().nullable(),
+  holder_consent_at: z.date().nullable(),
+});
+const HolderNameReplayRow = z.object({ public_id: z.string(), holder_name: z.string().nullable(), consent_at: z.date().nullable() });
 
 const toRoom = (row: RoomRow): RoomRecord => ({
   id: row.id,
@@ -428,15 +512,16 @@ const courseComplete = (course: CurriculumPath, completed: ReadonlySet<string>) 
 const CERT_ISSUE_SWEEP_BATCH = 100;
 
 const REVOCATION_COLUMNS = ['public_id', 'cert_id', 'proposed_by', 'approved_by', 'revoked_by', 'reason', 'revoked_at'] as const;
-type RevocationRow = {
-  public_id: string;
-  cert_id: string;
-  proposed_by: string;
-  approved_by: string;
-  revoked_by: string;
-  reason: string;
-  revoked_at: Date;
-};
+const RevocationRow = z.object({
+  public_id: z.string(),
+  cert_id: z.string(),
+  proposed_by: z.string(),
+  approved_by: z.string(),
+  revoked_by: z.string(),
+  reason: z.string(),
+  revoked_at: z.date(),
+});
+type RevocationRow = z.infer<typeof RevocationRow>;
 const revocationRecord = (r: RevocationRow): AcademyCertRevocation => ({
   publicId: r.public_id,
   certId: r.cert_id,
@@ -448,16 +533,17 @@ const revocationRecord = (r: RevocationRow): AcademyCertRevocation => ({
 });
 
 const EXCEPTION_COLUMNS = ['public_id', 'user_id', 'cert_id', 'proposed_by', 'approved_by', 'granted_by', 'reason', 'granted_at'] as const;
-type ExceptionRow = {
-  public_id: string;
-  user_id: string;
-  cert_id: string;
-  proposed_by: string;
-  approved_by: string;
-  granted_by: string;
-  reason: string;
-  granted_at: Date;
-};
+const ExceptionRow = z.object({
+  public_id: z.string(),
+  user_id: z.string(),
+  cert_id: z.string(),
+  proposed_by: z.string(),
+  approved_by: z.string(),
+  granted_by: z.string(),
+  reason: z.string(),
+  granted_at: z.date(),
+});
+type ExceptionRow = z.infer<typeof ExceptionRow>;
 const exceptionRecord = (r: ExceptionRow): AcademyCertException => ({
   publicId: r.public_id,
   userId: r.user_id,
@@ -688,19 +774,23 @@ export class AcademyService {
       throw new AcademyError('A staked lobby needs a stake threshold above zero', 'academy.stake_required');
     }
 
-    const rows = await this.sql<RoomRow[]>`
+    const rows = RoomRow.array().parse(
+      await this.sql`
       INSERT INTO academy.rooms (slug, name, kind, access, min_stake, capacity, host_id)
       VALUES (${input.slug}, ${input.name}, ${input.kind}, ${input.access},
               ${formatAmount(minStake)}::numeric, ${input.capacity}, ${input.hostId})
       RETURNING id, slug, name, kind, access, min_stake, capacity, host_id
-    `;
+    `,
+    );
     return toRoom(rows[0]!);
   }
 
   async room(roomId: string): Promise<RoomRecord> {
-    const rows = await this.sql<RoomRow[]>`
+    const rows = RoomRow.array().parse(
+      await this.sql`
       SELECT id, slug, name, kind, access, min_stake, capacity, host_id FROM academy.rooms WHERE id = ${roomId}
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) throw new AcademyError(`Room ${roomId} not found`, 'academy.room_not_found');
     return toRoom(row);
@@ -709,15 +799,19 @@ export class AcademyService {
   async listRooms(filter: { kind?: RoomKind; limit?: number } = {}): Promise<RoomRecord[]> {
     const limit = assertRoomsListLimit(filter.limit);
     const rows = filter.kind
-      ? await this.sql<RoomRow[]>`
+      ? RoomRow.array().parse(
+          await this.sql`
           SELECT id, slug, name, kind, access, min_stake, capacity, host_id
             FROM academy.rooms WHERE kind = ${filter.kind} ORDER BY name ASC
             LIMIT ${limit}
-        `
-      : await this.sql<RoomRow[]>`
+        `,
+        )
+      : RoomRow.array().parse(
+          await this.sql`
           SELECT id, slug, name, kind, access, min_stake, capacity, host_id FROM academy.rooms ORDER BY kind ASC, name ASC
           LIMIT ${limit}
-        `;
+        `,
+        );
     return rows.map(toRoom);
   }
 
@@ -771,11 +865,13 @@ export class AcademyService {
    * page size. A pin whose lesson has left the catalogue is not shown.
    */
   async pinnedLessons(roomId: string): Promise<ReturnType<typeof listCurriculum>> {
-    const rows = await this.sql<{ item_slug: string }[]>`
+    const rows = ItemSlugRow.array().parse(
+      await this.sql`
       SELECT item_slug FROM academy.room_pinned_lessons WHERE room_id = ${roomId}
        ORDER BY position ASC, pinned_at ASC
        LIMIT ${curriculumSpineSize()}
-    `;
+    `,
+    );
     const bySlug = new Map(listCurriculum().map((item) => [item.slug, item]));
     return rows.flatMap((row) => {
       const item = bySlug.get(row.item_slug);
@@ -789,16 +885,18 @@ export class AcademyService {
     const room = await this.room(input.roomId);
     this.assertHost(room.hostId, input.hostId, 'room');
 
-    const rows = await this.sql<SessionRow[]>`
+    const rows = SessionRow.array().parse(
+      await this.sql`
       INSERT INTO academy.sessions (room_id, title, host_id, starts_at)
       VALUES (${input.roomId}, ${input.title}, ${input.hostId}, ${input.startsAt})
       RETURNING *
-    `;
+    `,
+    );
     return toSession(rows[0]!);
   }
 
   async session(sessionId: string): Promise<SessionRecord> {
-    const rows = await this.sql<SessionRow[]>`SELECT * FROM academy.sessions WHERE id = ${sessionId}`;
+    const rows = SessionRow.array().parse(await this.sql`SELECT * FROM academy.sessions WHERE id = ${sessionId}`);
     const row = rows[0];
     if (!row) throw new AcademyError(`Session ${sessionId} not found`, 'academy.session_not_found');
     return toSession(row);
@@ -806,13 +904,15 @@ export class AcademyService {
 
   async listSessions(filter: { roomId?: string; status?: SessionStatus; limit?: number } = {}): Promise<SessionRecord[]> {
     const limit = assertSessionsListLimit(filter.limit);
-    const rows = await this.sql<SessionRow[]>`
+    const rows = SessionRow.array().parse(
+      await this.sql`
       SELECT * FROM academy.sessions
        WHERE (${filter.roomId ?? null}::uuid IS NULL OR room_id = ${filter.roomId ?? null})
          AND (${filter.status ?? null}::text IS NULL OR status::text = ${filter.status ?? null})
        ORDER BY starts_at ASC
        LIMIT ${limit}
-    `;
+    `,
+    );
     return rows.map(toSession);
   }
 
@@ -837,13 +937,15 @@ export class AcademyService {
       async () => {
         const streamRoom = isConstructed(this.stream) ? await this.stream.openRoom(session.id) : null;
 
-        const rows = await this.sql<SessionRow[]>`
+        const rows = SessionRow.array().parse(
+          await this.sql`
           UPDATE academy.sessions
              SET status = 'live', stream_provider = ${streamRoom ? this.stream.id : null},
                  stream_room = ${streamRoom}, updated_at = now()
            WHERE id = ${session.id} AND status = 'scheduled'
           RETURNING *
-        `;
+        `,
+        );
         const started = rows[0];
         if (!started) {
           // This call lost the conditional update, so it did not start the session.
@@ -874,11 +976,13 @@ export class AcademyService {
     await transaction(this.sql, async (tx) => {
       // Publish the terminal state before the external delete. A delayed start
       // that recreates the same-name room must see ended and compensate it.
-      const ended = await tx<SessionRow[]>`
+      const ended = SessionRow.array().parse(
+        await tx`
         UPDATE academy.sessions SET status = 'ended', ends_at = ${now}, updated_at = now()
          WHERE id = ${session.id} AND status IN ('scheduled', 'live')
         RETURNING *
-      `;
+      `,
+      );
       if (ended[0]) {
         await tx`
           UPDATE academy.session_attendees SET left_at = ${now} WHERE session_id = ${session.id} AND left_at IS NULL
@@ -896,9 +1000,11 @@ export class AcademyService {
 
   /** Live attendees. A COUNT, never a maintained counter. */
   async occupancy(sessionId: string, tx: Queryable = this.sql): Promise<number> {
-    const rows = await tx<Array<{ count: string }>>`
+    const rows = CountRow.array().parse(
+      await tx`
       SELECT COUNT(*)::text AS count FROM academy.session_attendees WHERE session_id = ${sessionId} AND left_at IS NULL
-    `;
+    `,
+    );
     return Number(rows[0]?.count ?? '0');
   }
 
@@ -940,9 +1046,11 @@ export class AcademyService {
         const decision = await transaction(
           this.sql,
           async (tx) => {
-            const locked = await tx<Array<{ status: SessionRecord['status'] }>>`
+            const locked = SessionStatusRow.array().parse(
+              await tx`
               SELECT status FROM academy.sessions WHERE id = ${session.id} FOR UPDATE
-            `;
+            `,
+            );
             // The external gate may finish after end/cancel removed this seat.
             // Recheck under the existing lock before occupancy or attendee writes.
             if (locked[0]?.status !== 'live') {
@@ -1010,10 +1118,12 @@ export class AcademyService {
       throw new AcademyError('That session is not carrying a stream', 'academy.stream_unavailable');
     }
 
-    const rows = await this.sql<Array<{ role: AttendeeRole }>>`
+    const rows = AttendeeRoleRow.array().parse(
+      await this.sql`
       SELECT role FROM academy.session_attendees
        WHERE session_id = ${session.id} AND user_id = ${input.userId} AND left_at IS NULL
-    `;
+    `,
+    );
     const role = rows[0]?.role;
     if (!role) throw new AcademyError('Take a seat in the lobby first', 'academy.session_not_live');
 
@@ -1058,9 +1168,11 @@ export class AcademyService {
       throw new AcademyError(decision.message, 'academy.scene_invalid');
     }
 
-    const rows = await this.sql<SessionRow[]>`
+    const rows = SessionRow.array().parse(
+      await this.sql`
       UPDATE academy.sessions SET scene = ${this.sql.json(decision.scene as never)}, updated_at = now() WHERE id = ${session.id} RETURNING *
-    `;
+    `,
+    );
     return { ...toSession(rows[0]!), sceneFingerprint: decision.fingerprint };
   }
 
@@ -1106,10 +1218,12 @@ export class AcademyService {
     let existing: ItemCompletionRecord | null = null;
     if (drillComplete) {
       const slug = input.run.workbookSlug.trim();
-      const existingRows = await this.sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
+      const existingRows = CompletionRow.array().parse(
+        await this.sql`
         SELECT user_id, item_slug, completed_at FROM academy.cert_item_completions
          WHERE user_id = ${input.userId} AND item_slug = ${slug}
-      `;
+      `,
+      );
       existing = existingRows[0]
         ? {
             userId: existingRows[0].user_id,
@@ -1207,37 +1321,22 @@ export class AcademyService {
     } catch (e) {
       this.mapTournamentErr(e);
     }
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        slug: string;
-        title: string;
-        status: SeasonStatus;
-        rules_summary: string;
-        starts_at: Date;
-        ends_at: Date | null;
-      }>
-    >`
+    const rows = SeasonRow.array().parse(
+      await this.sql`
       INSERT INTO academy.tournament_seasons (slug, title, status, rules_summary, starts_at, ends_at)
       VALUES (${slug}, ${title}, 'scheduled', ${rules}, ${input.startsAt}, ${input.endsAt ?? null})
       RETURNING id, slug, title, status, rules_summary, starts_at, ends_at
-    `;
+    `,
+    );
     return this.toSeason(rows[0]!);
   }
 
   async season(seasonId: string): Promise<SeasonRecord> {
     this.assertTournamentEnabled();
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        slug: string;
-        title: string;
-        status: SeasonStatus;
-        rules_summary: string;
-        starts_at: Date;
-        ends_at: Date | null;
-      }>
-    >`SELECT id, slug, title, status, rules_summary, starts_at, ends_at FROM academy.tournament_seasons WHERE id = ${seasonId}`;
+    const rows = SeasonRow.array().parse(
+      await this
+        .sql`SELECT id, slug, title, status, rules_summary, starts_at, ends_at FROM academy.tournament_seasons WHERE id = ${seasonId}`,
+    );
     if (!rows[0]) throw new AcademyError(`Season ${seasonId} not found`, 'academy.season_not_found');
     return this.toSeason(rows[0]);
   }
@@ -1246,37 +1345,21 @@ export class AcademyService {
     this.assertTournamentEnabled();
     const limit = assertSeasonsSqlListLimit(filter.limit);
     const rows = filter.status
-      ? await this.sql<
-          Array<{
-            id: string;
-            slug: string;
-            title: string;
-            status: SeasonStatus;
-            rules_summary: string;
-            starts_at: Date;
-            ends_at: Date | null;
-          }>
-        >`
+      ? SeasonRow.array().parse(
+          await this.sql`
           SELECT id, slug, title, status, rules_summary, starts_at, ends_at
             FROM academy.tournament_seasons WHERE status = ${filter.status}
             ORDER BY starts_at DESC
             LIMIT ${limit}
-        `
-      : await this.sql<
-          Array<{
-            id: string;
-            slug: string;
-            title: string;
-            status: SeasonStatus;
-            rules_summary: string;
-            starts_at: Date;
-            ends_at: Date | null;
-          }>
-        >`
+        `,
+        )
+      : SeasonRow.array().parse(
+          await this.sql`
           SELECT id, slug, title, status, rules_summary, starts_at, ends_at
             FROM academy.tournament_seasons ORDER BY starts_at DESC
             LIMIT ${limit}
-        `;
+        `,
+        );
     return rows.map((r) => this.toSeason(r));
   }
 
@@ -1299,22 +1382,14 @@ export class AcademyService {
       return transaction(
         this.sql,
         async (tx) => {
-          const locked = await tx<
-            Array<{
-              id: string;
-              slug: string;
-              title: string;
-              status: SeasonStatus;
-              rules_summary: string;
-              starts_at: Date;
-              ends_at: Date | null;
-            }>
-          >`
+          const locked = SeasonRow.array().parse(
+            await tx`
             SELECT id, slug, title, status, rules_summary, starts_at, ends_at
               FROM academy.tournament_seasons
              WHERE id = ${input.seasonId}
              FOR UPDATE
-          `;
+          `,
+          );
           if (!locked[0]) throw new AcademyError(`Season ${input.seasonId} not found`, 'academy.season_not_found');
           const lockedSeason = this.toSeason(locked[0]);
           try {
@@ -1330,10 +1405,12 @@ export class AcademyService {
             );
           }
 
-          const standingRows = await tx<Array<{ season_id: string; user_id: string; score: number; updated_at: Date }>>`
+          const standingRows = StandingRow.array().parse(
+            await tx`
             SELECT season_id, user_id, score, updated_at FROM academy.tournament_standings
              WHERE season_id = ${input.seasonId}
-          `;
+          `,
+          );
           let snapshot: FreezeStandingsSnapshot;
           try {
             const frozen = freezeSeasonWithSnapshot(
@@ -1362,23 +1439,15 @@ export class AcademyService {
               SET frozen_at = EXCLUDED.frozen_at,
                   standings = EXCLUDED.standings
           `;
-          const rows = await tx<
-            Array<{
-              id: string;
-              slug: string;
-              title: string;
-              status: SeasonStatus;
-              rules_summary: string;
-              starts_at: Date;
-              ends_at: Date | null;
-            }>
-          >`
+          const rows = SeasonRow.array().parse(
+            await tx`
             UPDATE academy.tournament_seasons
                SET status = 'frozen', updated_at = now()
              WHERE id = ${input.seasonId}
                AND status = 'live'
              RETURNING id, slug, title, status, rules_summary, starts_at, ends_at
-          `;
+          `,
+          );
           if (!rows[0]) {
             throw new AcademyError(`Season ${input.seasonId} left live during freeze (concurrent transition)`, 'academy.season_invalid');
           }
@@ -1388,23 +1457,15 @@ export class AcademyService {
       );
     }
 
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        slug: string;
-        title: string;
-        status: SeasonStatus;
-        rules_summary: string;
-        starts_at: Date;
-        ends_at: Date | null;
-      }>
-    >`
+    const rows = SeasonRow.array().parse(
+      await this.sql`
       UPDATE academy.tournament_seasons
          SET status = ${input.status}, updated_at = now()
        WHERE id = ${input.seasonId}
          AND status = ${current.status}
        RETURNING id, slug, title, status, rules_summary, starts_at, ends_at
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) {
       throw new AcademyError(`Season ${input.seasonId} is no longer ${current.status}`, 'academy.season_invalid');
@@ -1420,10 +1481,12 @@ export class AcademyService {
   } | null> {
     this.assertTournamentEnabled();
     await this.season(seasonId);
-    const rows = await this.sql<Array<{ season_id: string; frozen_at: Date; standings: unknown }>>`
+    const rows = FreezeSnapshotRow.array().parse(
+      await this.sql`
       SELECT season_id, frozen_at, standings FROM academy.tournament_freeze_snapshots
        WHERE season_id = ${seasonId}
-    `;
+    `,
+    );
     const r = rows[0];
     if (!r) return null;
     const standings = r.standings as { rank: number; userId: string; score: number; updatedAt: string }[];
@@ -1452,22 +1515,14 @@ export class AcademyService {
     return transaction(
       this.sql,
       async (tx) => {
-        const locked = await tx<
-          Array<{
-            id: string;
-            slug: string;
-            title: string;
-            status: SeasonStatus;
-            rules_summary: string;
-            starts_at: Date;
-            ends_at: Date | null;
-          }>
-        >`
+        const locked = SeasonRow.array().parse(
+          await tx`
           SELECT id, slug, title, status, rules_summary, starts_at, ends_at
             FROM academy.tournament_seasons
            WHERE id = ${input.seasonId}
            FOR UPDATE
-        `;
+        `,
+        );
         if (!locked[0]) throw new AcademyError(`Season ${input.seasonId} not found`, 'academy.season_not_found');
         const lockedSeason = this.toSeason(locked[0]);
         try {
@@ -1476,12 +1531,14 @@ export class AcademyService {
         } catch (e) {
           this.mapTournamentErr(e);
         }
-        const rows = await tx<Array<{ season_id: string; user_id: string; score: number; updated_at: Date }>>`
+        const rows = StandingRow.array().parse(
+          await tx`
           INSERT INTO academy.tournament_standings (season_id, user_id, score, updated_at)
           VALUES (${input.seasonId}, ${input.userId}, ${input.score}, now())
           ON CONFLICT (season_id, user_id) DO UPDATE SET score = EXCLUDED.score, updated_at = now()
           RETURNING season_id, user_id, score, updated_at
-        `;
+        `,
+        );
         const r = rows[0]!;
         return { seasonId: r.season_id, userId: r.user_id, score: r.score, updatedAt: r.updated_at };
       },
@@ -1527,22 +1584,14 @@ export class AcademyService {
       this.sql,
       async (tx) => {
         // Total order vs freeze: lock season before re-check + multi-row upsert.
-        const locked = await tx<
-          Array<{
-            id: string;
-            slug: string;
-            title: string;
-            status: SeasonStatus;
-            rules_summary: string;
-            starts_at: Date;
-            ends_at: Date | null;
-          }>
-        >`
+        const locked = SeasonRow.array().parse(
+          await tx`
           SELECT id, slug, title, status, rules_summary, starts_at, ends_at
             FROM academy.tournament_seasons
            WHERE id = ${input.seasonId}
            FOR UPDATE
-        `;
+        `,
+        );
         if (!locked[0]) throw new AcademyError(`Season ${input.seasonId} not found`, 'academy.season_not_found');
         const lockedSeason = this.toSeason(locked[0]);
         const reGate = validateBulkScoreWrite({
@@ -1564,12 +1613,14 @@ export class AcademyService {
 
         const standings: StandingRecord[] = [];
         for (const p of reGate.patches) {
-          const rows = await tx<Array<{ season_id: string; user_id: string; score: number; updated_at: Date }>>`
+          const rows = StandingRow.array().parse(
+            await tx`
             INSERT INTO academy.tournament_standings (season_id, user_id, score, updated_at)
             VALUES (${input.seasonId}, ${p.userId}, ${p.score}, now())
             ON CONFLICT (season_id, user_id) DO UPDATE SET score = EXCLUDED.score, updated_at = now()
             RETURNING season_id, user_id, score, updated_at
-          `;
+          `,
+          );
           const r = rows[0]!;
           standings.push({ seasonId: r.season_id, userId: r.user_id, score: r.score, updatedAt: r.updated_at });
         }
@@ -1583,12 +1634,14 @@ export class AcademyService {
     this.assertTournamentEnabled();
     const limit = assertSeasonStandingsSqlLimit(filter.limit);
     await this.season(seasonId);
-    const rows = await this.sql<Array<{ season_id: string; user_id: string; score: number; updated_at: Date }>>`
+    const rows = StandingRow.array().parse(
+      await this.sql`
       SELECT season_id, user_id, score, updated_at FROM academy.tournament_standings
        WHERE season_id = ${seasonId}
        ORDER BY score DESC, updated_at ASC
        LIMIT ${limit}
-    `;
+    `,
+    );
     return rankStandings(
       rows.map((r) => ({
         seasonId: r.season_id,
@@ -1629,20 +1682,12 @@ export class AcademyService {
   }
 
   async ambassadorOf(userId: string): Promise<AmbassadorRecord | null> {
-    const rows = await this.sql<
-      Array<{
-        user_id: string;
-        status: AmbassadorStatus;
-        appointed_by: string;
-        appointed_at: Date;
-        frozen_at: Date | null;
-        frozen_by: string | null;
-        freeze_reason: string | null;
-      }>
-    >`
+    const rows = AmbassadorRow.array().parse(
+      await this.sql`
       SELECT user_id, status, appointed_by, appointed_at, frozen_at, frozen_by, freeze_reason
         FROM academy.ambassadors WHERE user_id = ${userId}
-    `;
+    `,
+    );
     return rows[0] ? this.toAmbassador(rows[0]) : null;
   }
 
@@ -1653,37 +1698,21 @@ export class AcademyService {
   async listAmbassadors(filter: { status?: AmbassadorStatus; limit?: number } = {}): Promise<AmbassadorRecord[]> {
     const limit = assertAmbassadorsListLimit(filter.limit);
     const rows = filter.status
-      ? await this.sql<
-          Array<{
-            user_id: string;
-            status: AmbassadorStatus;
-            appointed_by: string;
-            appointed_at: Date;
-            frozen_at: Date | null;
-            frozen_by: string | null;
-            freeze_reason: string | null;
-          }>
-        >`
+      ? AmbassadorRow.array().parse(
+          await this.sql`
           SELECT user_id, status, appointed_by, appointed_at, frozen_at, frozen_by, freeze_reason
             FROM academy.ambassadors WHERE status = ${filter.status}
             ORDER BY appointed_at DESC
             LIMIT ${limit}
-        `
-      : await this.sql<
-          Array<{
-            user_id: string;
-            status: AmbassadorStatus;
-            appointed_by: string;
-            appointed_at: Date;
-            frozen_at: Date | null;
-            frozen_by: string | null;
-            freeze_reason: string | null;
-          }>
-        >`
+        `,
+        )
+      : AmbassadorRow.array().parse(
+          await this.sql`
           SELECT user_id, status, appointed_by, appointed_at, frozen_at, frozen_by, freeze_reason
             FROM academy.ambassadors ORDER BY status ASC, appointed_at DESC
             LIMIT ${limit}
-        `;
+        `,
+        );
     return rows.map((r) => this.toAmbassador(r));
   }
 
@@ -1704,17 +1733,8 @@ export class AcademyService {
       );
     }
 
-    const rows = await this.sql<
-      Array<{
-        user_id: string;
-        status: AmbassadorStatus;
-        appointed_by: string;
-        appointed_at: Date;
-        frozen_at: Date | null;
-        frozen_by: string | null;
-        freeze_reason: string | null;
-      }>
-    >`
+    const rows = AmbassadorRow.array().parse(
+      await this.sql`
       INSERT INTO academy.ambassadors (user_id, status, appointed_by, appointed_at, frozen_at, frozen_by, freeze_reason, updated_at)
       VALUES (${input.userId}, 'active', ${input.operatorId}, now(), NULL, NULL, NULL, now())
       ON CONFLICT (user_id) DO UPDATE SET
@@ -1728,7 +1748,8 @@ export class AcademyService {
       WHERE academy.ambassadors.status IS DISTINCT FROM 'frozen'
         AND academy.ambassadors.status IS DISTINCT FROM 'active'
       RETURNING user_id, status, appointed_by, appointed_at, frozen_at, frozen_by, freeze_reason
-    `;
+    `,
+    );
     if (!rows[0]) {
       // Concurrent freeze/active won the race — re-read and refuse honestly.
       const again = await this.ambassadorOf(input.userId);
@@ -1762,17 +1783,8 @@ export class AcademyService {
       throw new AcademyError(`Ambassador ${input.userId} is already frozen`, 'academy.ambassador_already_frozen');
     }
 
-    const rows = await this.sql<
-      Array<{
-        user_id: string;
-        status: AmbassadorStatus;
-        appointed_by: string;
-        appointed_at: Date;
-        frozen_at: Date | null;
-        frozen_by: string | null;
-        freeze_reason: string | null;
-      }>
-    >`
+    const rows = AmbassadorRow.array().parse(
+      await this.sql`
       UPDATE academy.ambassadors
          SET status = 'frozen',
              frozen_at = now(),
@@ -1782,7 +1794,8 @@ export class AcademyService {
        WHERE user_id = ${input.userId}
          AND status = 'active'
        RETURNING user_id, status, appointed_by, appointed_at, frozen_at, frozen_by, freeze_reason
-    `;
+    `,
+    );
     if (rows.length === 0) {
       // Concurrent freeze won the race — do not overwrite freeze_reason/by.
       throw new AcademyError(`Ambassador ${input.userId} is already frozen`, 'academy.ambassador_already_frozen');
@@ -1798,17 +1811,8 @@ export class AcademyService {
     if (existing.status !== 'frozen') {
       throw new AcademyError(`Ambassador ${input.userId} is not frozen`, 'academy.ambassador_invalid');
     }
-    const rows = await this.sql<
-      Array<{
-        user_id: string;
-        status: AmbassadorStatus;
-        appointed_by: string;
-        appointed_at: Date;
-        frozen_at: Date | null;
-        frozen_by: string | null;
-        freeze_reason: string | null;
-      }>
-    >`
+    const rows = AmbassadorRow.array().parse(
+      await this.sql`
       UPDATE academy.ambassadors
          SET status = 'active',
              frozen_at = NULL,
@@ -1817,7 +1821,8 @@ export class AcademyService {
              updated_at = now()
        WHERE user_id = ${input.userId} AND status = 'frozen'
        RETURNING user_id, status, appointed_by, appointed_at, frozen_at, frozen_by, freeze_reason
-    `;
+    `,
+    );
     if (!rows[0]) {
       throw new AcademyError(`Ambassador ${input.userId} not found`, 'academy.ambassador_not_found');
     }
@@ -1873,25 +1878,15 @@ export class AcademyService {
     }
 
     try {
-      const rows = await this.sql<
-        Array<{
-          id: string;
-          user_id: string;
-          cohort_slug: string;
-          statement: string;
-          status: ResidencyStatus;
-          applied_at: Date;
-          decided_at: Date | null;
-          decided_by: string | null;
-          decision_note: string | null;
-        }>
-      >`
+      const rows = ResidencyRow.array().parse(
+        await this.sql`
         INSERT INTO academy.residency_applications
           (user_id, cohort_slug, statement, status, applied_at, decided_at, decided_by, decision_note, updated_at)
         VALUES
           (${input.userId}, ${cohortSlug}, ${statement}, 'applied', now(), NULL, NULL, NULL, now())
         RETURNING id, user_id, cohort_slug, statement, status, applied_at, decided_at, decided_by, decision_note
-      `;
+      `,
+      );
       return this.toResidency(rows[0]!);
     } catch (err) {
       const code = (err as { code?: string } | null)?.code;
@@ -1903,19 +1898,8 @@ export class AcademyService {
   }
 
   async withdrawResidency(input: { id: string; userId: string }): Promise<ResidencyApplication> {
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        user_id: string;
-        cohort_slug: string;
-        statement: string;
-        status: ResidencyStatus;
-        applied_at: Date;
-        decided_at: Date | null;
-        decided_by: string | null;
-        decision_note: string | null;
-      }>
-    >`
+    const rows = ResidencyRow.array().parse(
+      await this.sql`
       UPDATE academy.residency_applications
          SET status = 'withdrawn',
              decided_at = now(),
@@ -1926,11 +1910,14 @@ export class AcademyService {
          AND user_id = ${input.userId}
          AND status = 'applied'
        RETURNING id, user_id, cohort_slug, statement, status, applied_at, decided_at, decided_by, decision_note
-    `;
+    `,
+    );
     if (!rows[0]) {
-      const existing = await this.sql<Array<{ status: ResidencyStatus; user_id: string }>>`
+      const existing = ResidencyOwnerRow.array().parse(
+        await this.sql`
         SELECT status, user_id FROM academy.residency_applications WHERE id = ${input.id}
-      `;
+      `,
+      );
       if (!existing[0] || existing[0].user_id !== input.userId) {
         throw new AcademyError('Application not found', 'academy.residency_not_found');
       }
@@ -1946,19 +1933,8 @@ export class AcademyService {
     note?: string;
   }): Promise<ResidencyApplication> {
     const note = (input.note ?? '').trim().slice(0, 500) || null;
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        user_id: string;
-        cohort_slug: string;
-        statement: string;
-        status: ResidencyStatus;
-        applied_at: Date;
-        decided_at: Date | null;
-        decided_by: string | null;
-        decision_note: string | null;
-      }>
-    >`
+    const rows = ResidencyRow.array().parse(
+      await this.sql`
       UPDATE academy.residency_applications
          SET status = ${input.decision},
              decided_at = now(),
@@ -1968,11 +1944,14 @@ export class AcademyService {
        WHERE id = ${input.id}
          AND status = 'applied'
        RETURNING id, user_id, cohort_slug, statement, status, applied_at, decided_at, decided_by, decision_note
-    `;
+    `,
+    );
     if (!rows[0]) {
-      const existing = await this.sql<Array<{ status: ResidencyStatus }>>`
+      const existing = ResidencyStatusRow.array().parse(
+        await this.sql`
         SELECT status FROM academy.residency_applications WHERE id = ${input.id}
-      `;
+      `,
+      );
       if (!existing[0]) {
         throw new AcademyError('Application not found', 'academy.residency_not_found');
       }
@@ -1983,69 +1962,39 @@ export class AcademyService {
 
   async myResidencies(userId: string, requested?: number): Promise<ResidencyApplication[]> {
     const limit = assertMyResidenciesListLimit(requested);
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        user_id: string;
-        cohort_slug: string;
-        statement: string;
-        status: ResidencyStatus;
-        applied_at: Date;
-        decided_at: Date | null;
-        decided_by: string | null;
-        decision_note: string | null;
-      }>
-    >`
+    const rows = ResidencyRow.array().parse(
+      await this.sql`
       SELECT id, user_id, cohort_slug, statement, status, applied_at, decided_at, decided_by, decision_note
         FROM academy.residency_applications
        WHERE user_id = ${userId}
        ORDER BY applied_at DESC
        LIMIT ${limit}
-    `;
+    `,
+    );
     return rows.map((r) => this.toResidency(r));
   }
 
   async listOpenResidencies(filter: { cohortSlug?: string; limit?: number } = {}): Promise<ResidencyApplication[]> {
     const limit = assertOpenResidenciesListLimit(filter.limit);
     const rows = filter.cohortSlug
-      ? await this.sql<
-          Array<{
-            id: string;
-            user_id: string;
-            cohort_slug: string;
-            statement: string;
-            status: ResidencyStatus;
-            applied_at: Date;
-            decided_at: Date | null;
-            decided_by: string | null;
-            decision_note: string | null;
-          }>
-        >`
+      ? ResidencyRow.array().parse(
+          await this.sql`
           SELECT id, user_id, cohort_slug, statement, status, applied_at, decided_at, decided_by, decision_note
             FROM academy.residency_applications
            WHERE status = 'applied' AND cohort_slug = ${filter.cohortSlug.trim().toLowerCase()}
            ORDER BY applied_at ASC
            LIMIT ${limit}
-        `
-      : await this.sql<
-          Array<{
-            id: string;
-            user_id: string;
-            cohort_slug: string;
-            statement: string;
-            status: ResidencyStatus;
-            applied_at: Date;
-            decided_at: Date | null;
-            decided_by: string | null;
-            decision_note: string | null;
-          }>
-        >`
+        `,
+        )
+      : ResidencyRow.array().parse(
+          await this.sql`
           SELECT id, user_id, cohort_slug, statement, status, applied_at, decided_at, decided_by, decision_note
             FROM academy.residency_applications
            WHERE status = 'applied'
            ORDER BY applied_at ASC
            LIMIT ${limit}
-        `;
+        `,
+        );
     return rows.map((r) => this.toResidency(r));
   }
 
@@ -2961,12 +2910,14 @@ export class AcademyService {
     return transaction(this.sql, async (tx) => {
       // Complete and Undo on one item take turns, so the history and the current row never disagree.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${userId}:${slug}:completion`}, 0))`;
-      const rows = await tx<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
+      const rows = CompletionRow.array().parse(
+        await tx`
         INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
         VALUES (${userId}, ${slug}, ${now})
         ON CONFLICT (user_id, item_slug) DO NOTHING
         RETURNING user_id, item_slug, completed_at
-      `;
+      `,
+      );
       if (!rows[0]) {
         // Completed by a concurrent request: that one wrote the history row.
         return (await this.currentCompletion(tx, userId, slug))!;
@@ -3006,22 +2957,26 @@ export class AcademyService {
       // The request id first, so two Undos sharing one id on different items take turns and the second reads the first.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${clientRequestId}:undo-request`}, 0))`;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${slug}:completion`}, 0))`;
-      const replay = await tx<Array<{ item_slug: string; recorded_at: Date }>>`
+      const replay = UndoReplayRow.array().parse(
+        await tx`
         SELECT item_slug, recorded_at FROM academy.item_completion_events
          WHERE user_id = ${input.userId} AND client_request_id = ${clientRequestId}
-      `;
+      `,
+      );
       if (replay[0]) {
         if (replay[0].item_slug !== slug) {
           throw new AcademyError('academy.request_reused this request id undid another item', 'academy.request_reused');
         }
         return { userId: input.userId, itemSlug: slug, undoneAt: replay[0].recorded_at.toISOString() };
       }
-      const removed = await tx<Array<{ item_slug: string }>>`
+      const removed = ItemSlugRow.array().parse(
+        await tx`
         DELETE FROM academy.cert_item_completions
          WHERE user_id = ${input.userId} AND item_slug = ${slug}
            AND date_trunc('milliseconds', completed_at) = ${completedAt}
         RETURNING item_slug
-      `;
+      `,
+      );
       if (!removed[0]) return { userId: input.userId, itemSlug: slug, undoneAt: null };
       await tx`
         INSERT INTO academy.item_completion_events (user_id, item_slug, event, client_request_id, recorded_at)
@@ -3035,10 +2990,12 @@ export class AcademyService {
   }
 
   private async currentCompletion(sql: Queryable, userId: string, slug: string): Promise<ItemCompletionRecord | null> {
-    const rows = await sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
+    const rows = CompletionRow.array().parse(
+      await sql`
       SELECT user_id, item_slug, completed_at FROM academy.cert_item_completions
        WHERE user_id = ${userId} AND item_slug = ${slug}
-    `;
+    `,
+    );
     return rows[0] ? { userId: rows[0].user_id, itemSlug: rows[0].item_slug, completedAt: rows[0].completed_at } : null;
   }
 
@@ -3065,27 +3022,33 @@ export class AcademyService {
   private async watchedItems(userId: string, videos: ReadonlyMap<string, string>): Promise<Set<string>> {
     const threshold = this.options.videoWatchThresholdSeconds;
     if (threshold === undefined || videos.size === 0) return new Set();
-    const rows = await this.sql<Array<{ video_slug: string }>>`
+    const rows = VideoSlugRow.array().parse(
+      await this.sql`
       SELECT video_slug FROM academy.video_progress
        WHERE user_id = ${userId} AND video_slug IN ${this.sql([...new Set(videos.values())])} AND position_seconds >= ${threshold}
-    `;
+    `,
+    );
     const seen = new Set(rows.map((row) => row.video_slug));
     return new Set([...videos].filter(([, video]) => seen.has(video)).map(([item]) => item));
   }
 
   private async completionTimes(userId: string, slugs: readonly string[]): Promise<Map<string, Date>> {
     if (slugs.length === 0) return new Map();
-    const rows = await this.sql<Array<{ item_slug: string; completed_at: Date }>>`
+    const rows = CompletionTimeRow.array().parse(
+      await this.sql`
       SELECT item_slug, completed_at FROM academy.cert_item_completions
        WHERE user_id = ${userId} AND item_slug = ANY(${slugs as string[]})
-    `;
+    `,
+    );
     return new Map(rows.map((r) => [r.item_slug, r.completed_at]));
   }
 
   private async completedSlugs(userId: string): Promise<Set<string>> {
-    const rows = await this.sql<Array<{ item_slug: string }>>`
+    const rows = ItemSlugRow.array().parse(
+      await this.sql`
       SELECT item_slug FROM academy.cert_item_completions WHERE user_id = ${userId}
-    `;
+    `,
+    );
     return new Set(rows.map((r) => r.item_slug));
   }
 
@@ -3094,12 +3057,12 @@ export class AcademyService {
     certId: string,
   ): Promise<(CertGrantRecord & { publicId: string; status: 'valid' | 'revoked' }) | null> {
     const key = certIdempotencyKey(userId, certId);
-    const rows = await this.sql<
-      Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string; status: string }>
-    >`
+    const rows = CertGrantRow.array().parse(
+      await this.sql`
       SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status FROM academy.cert_grants
        WHERE user_id = ${userId} AND cert_id = ${certId}
-    `;
+    `,
+    );
     if (!rows[0]) return null;
     return {
       userId: rows[0].user_id,
@@ -3164,10 +3127,12 @@ export class AcademyService {
 
   /** The caller's programme certificates by programme slug, in one read. */
   private async programmeGrants(userId: string): Promise<Map<string, ProgrammeGrant>> {
-    const rows = await this.sql<Array<{ cert_id: string; granted_at: Date; public_id: string; status: string }>>`
+    const rows = ProgrammeGrantRow.array().parse(
+      await this.sql`
       SELECT cert_id, granted_at, public_id, status FROM academy.cert_grants
        WHERE user_id = ${userId} AND starts_with(cert_id, ${PROGRAMME_CERT_PREFIX})
-    `;
+    `,
+    );
     return new Map(
       rows.map((row) => [
         row.cert_id.slice(PROGRAMME_CERT_PREFIX.length),
@@ -3223,14 +3188,16 @@ export class AcademyService {
    * The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. The
    * grant keeps the design revision active as it is written (AC-certificates-03), so a later edit never changes what it prints.
    */
-  private insertCertGrant(grant: CertGrantRecord) {
-    return this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
+  private async insertCertGrant(grant: CertGrantRecord) {
+    return InsertedGrantRow.array().parse(
+      await this.sql`
       INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id, design_revision)
       VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()},
               (SELECT active_revision FROM academy.cert_designs WHERE cert_id = ${grant.certId}))
       ON CONFLICT (user_id, cert_id) DO NOTHING
       RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
-    `;
+    `,
+    );
   }
 
   /** A certificate's title for anyone who checks it: the published definition's, or the programme's. */
@@ -3281,9 +3248,11 @@ export class AcademyService {
     if (!isPublicId(publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
     const grants = await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${publicId}`;
     if (grants.length === 0) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
-    const rows = await tx<RevocationRow[]>`
+    const rows = RevocationRow.array().parse(
+      await tx`
       SELECT ${tx(REVOCATION_COLUMNS)} FROM academy.cert_revocations WHERE public_id = ${publicId}
-    `;
+    `,
+    );
     return rows[0] ? revocationRecord(rows[0]) : null;
   }
 
@@ -3315,9 +3284,11 @@ export class AcademyService {
    * the recovery path when the bus was down. Reported, never thrown: the revocation is the durable fact. No money moves.
    */
   async settleRevokedXp(publicId: string): Promise<CertXpEmitResult | null> {
-    const [row] = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; status: string }>>`
+    const [row] = RevokedGrantRow.array().parse(
+      await this.sql`
       SELECT user_id, cert_id, granted_at, idempotency_key, status FROM academy.cert_grants WHERE public_id = ${publicId}
-    `;
+    `,
+    );
     if (!row || row.status !== 'revoked') return null;
     const grant: CertGrantRecord = {
       userId: row.user_id,
@@ -3342,15 +3313,19 @@ export class AcademyService {
       await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${input.publicId} FOR UPDATE`;
       const recorded = await this.certRevocation(input.publicId, tx);
       if (recorded) return recorded;
-      const [grant] = await tx<Array<{ user_id: string; cert_id: string }>>`
+      const [grant] = GrantOwnerRow.array().parse(
+        await tx`
         UPDATE academy.cert_grants SET status = 'revoked' WHERE public_id = ${input.publicId} RETURNING user_id, cert_id
-      `;
-      const rows = await tx<RevocationRow[]>`
+      `,
+      );
+      const rows = RevocationRow.array().parse(
+        await tx`
         INSERT INTO academy.cert_revocations (public_id, user_id, cert_id, proposed_by, approved_by, revoked_by, reason, revoked_at)
         VALUES (${input.publicId}, ${grant!.user_id}, ${grant!.cert_id}, ${input.proposedBy}, ${input.approvedBy},
                 ${input.operatorId}, ${reason}, ${input.now ?? new Date()})
         RETURNING ${tx(REVOCATION_COLUMNS)}
-      `;
+      `,
+      );
       return revocationRecord(rows[0]!);
     });
   }
@@ -3366,13 +3341,17 @@ export class AcademyService {
       this.refuseUnpublishedPath(certId);
       throw new AcademyError('Unknown certification', 'academy.cert_not_found');
     }
-    const rows = await tx<ExceptionRow[]>`
+    const rows = ExceptionRow.array().parse(
+      await tx`
       SELECT ${tx(EXCEPTION_COLUMNS)} FROM academy.cert_exceptions WHERE user_id = ${userId} AND cert_id = ${certId}
-    `;
+    `,
+    );
     if (rows[0]) return exceptionRecord(rows[0]);
-    const [grant] = await tx<Array<{ status: string }>>`
+    const [grant] = GrantStatusRow.array().parse(
+      await tx`
       SELECT status FROM academy.cert_grants WHERE user_id = ${userId} AND cert_id = ${certId}
-    `;
+    `,
+    );
     if (grant?.status === 'revoked') throw new AcademyError(`academy.cert_revoked cert=${certId}`, 'academy.cert_revoked');
     if (grant) throw new AcademyError(`academy.cert_already_granted cert=${certId}`, 'academy.cert_already_granted');
     return null;
@@ -3402,18 +3381,22 @@ export class AcademyService {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`cert-exception:${input.userId}:${input.certId}`}, 0))`;
       const recorded = await this.certException(input.userId, input.certId, tx);
       if (recorded) return recorded;
-      const [grant] = await tx<Array<{ public_id: string }>>`
+      const [grant] = PublicIdRow.array().parse(
+        await tx`
         INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id, design_revision)
         VALUES (${input.userId}, ${input.certId}, ${now}, ${certIdempotencyKey(input.userId, input.certId)}, ${randomPublicId()},
                 (SELECT active_revision FROM academy.cert_designs WHERE cert_id = ${input.certId}))
         RETURNING public_id
-      `;
-      const rows = await tx<ExceptionRow[]>`
+      `,
+      );
+      const rows = ExceptionRow.array().parse(
+        await tx`
         INSERT INTO academy.cert_exceptions (public_id, user_id, cert_id, proposed_by, approved_by, granted_by, reason, granted_at)
         VALUES (${grant!.public_id}, ${input.userId}, ${input.certId}, ${input.proposedBy}, ${input.approvedBy},
                 ${input.operatorId}, ${reason}, ${now})
         RETURNING ${tx(EXCEPTION_COLUMNS)}
-      `;
+      `,
+      );
       return exceptionRecord(rows[0]!);
     });
     // The grant is the durable fact; the XP is its consequence, published after, as `grantCert` does.
@@ -3637,22 +3620,14 @@ export class AcademyService {
     requested?: number,
   ): Promise<Array<CertGrantRecord & { publicId: string; status: 'valid' | 'revoked'; design: AcademyIssuedCertDesign | null }>> {
     const limit = assertMyCertsListLimit(requested);
-    const rows = await this.sql<
-      Array<{
-        user_id: string;
-        cert_id: string;
-        granted_at: Date;
-        idempotency_key: string;
-        public_id: string;
-        status: string;
-        design_revision: number | null;
-      }>
-    >`
+    const rows = MyCertGrantRow.array().parse(
+      await this.sql`
       SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status, design_revision FROM academy.cert_grants
        WHERE user_id = ${userId}
        ORDER BY granted_at DESC
        LIMIT ${limit}
-    `;
+    `,
+    );
     // AC-certificates-03: each certificate prints the design revision it was issued under, never a later edit.
     const printed = await this.certDesigns.printed(
       rows.flatMap((r) => (r.design_revision === null ? [] : [{ certId: r.cert_id, revision: r.design_revision }])),
@@ -3791,13 +3766,13 @@ export class AcademyService {
     holderName?: string;
   }> {
     if (!isPublicId(publicId)) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
-    const rows = await this.sql<
-      Array<{ cert_id: string; granted_at: Date; status: string; holder_name: string | null; holder_consent_at: Date | null }>
-    >`
+    const rows = CertVerifyRow.array().parse(
+      await this.sql`
       SELECT cert_id, granted_at, status, holder_name, holder_consent_at
         FROM academy.cert_grants
        WHERE public_id = ${publicId}
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
     const title = await this.certTitle(row.cert_id);
@@ -3833,16 +3808,19 @@ export class AcademyService {
     const now = input.now ?? new Date();
     return transaction(this.sql, async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:holder-name`}, 0))`;
-      const replay = await tx<Array<{ public_id: string; holder_name: string | null; consent_at: Date | null }>>`
+      const replay = HolderNameReplayRow.array().parse(
+        await tx`
         SELECT public_id, holder_name, consent_at
           FROM academy.cert_holder_name_requests
          WHERE user_id = ${input.userId} AND client_request_id = ${clientRequestId}
-      `;
+      `,
+      );
       if (replay[0]) {
         return { publicId: replay[0].public_id, holderName: replay[0].holder_name, consentAt: replay[0].consent_at };
       }
       const name = normaliseHolderName(input.holderName);
-      const grants = await tx<Array<{ public_id: string }>>`
+      const grants = PublicIdRow.array().parse(
+        await tx`
         SELECT public_id FROM academy.cert_grants
          WHERE user_id = ${input.userId}
            AND (
@@ -3850,7 +3828,8 @@ export class AcademyService {
              OR (${grantId}::text IS NOT NULL AND cert_id = ${grantId})
            )
          FOR UPDATE
-      `;
+      `,
+      );
       const owned = grants[0];
       if (!owned) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
       const consentAt = name === null ? null : now;
@@ -3868,9 +3847,11 @@ export class AcademyService {
   }
 
   private async liveInvite(roomId: string, userId: string): Promise<{ expiresAt: Date | null } | null> {
-    const rows = await this.sql<Array<{ expires_at: Date | null }>>`
+    const rows = InviteExpiryRow.array().parse(
+      await this.sql`
       SELECT expires_at FROM academy.room_invites WHERE room_id = ${roomId} AND user_id = ${userId}
-    `;
+    `,
+    );
     return rows[0] ? { expiresAt: rows[0].expires_at } : null;
   }
 

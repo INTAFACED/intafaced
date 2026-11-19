@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
@@ -19,7 +19,7 @@ import {
 } from './pending-outcomes';
 import { settleRefusal } from './money-refusal-copy';
 import { StepUpConfirm } from './StepUpConfirm';
-import type { StepUpBegin } from '../account/security-step-up';
+import type { StepUpBegin } from '../account';
 
 export const PAGE_SIZE = 50;
 export const amount = (value: string | null | undefined, asset: string) =>

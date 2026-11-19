@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Button, Field, Loading } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session/session';
-import { countryOptions } from '../public/sign-up';
+import { useSession } from '../session';
+import { countryOptions } from '../public';
 import { useBankRead } from './components';
 import { bankWrites } from './contracts';
 import { DepthPanel } from './DepthParts';

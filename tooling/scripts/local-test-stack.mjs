@@ -53,6 +53,7 @@
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
  *   node tooling/scripts/local-test-stack.mjs token-params   TEST fixture: svc-token's blank emission settings get the TEST profile values
+ *   node tooling/scripts/local-test-stack.mjs seed-notice <email> <tradeId> [--count <n>]   TEST fixture: an old-style escrow notice (or n of them)
  *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>] [--failure-code <code>]   TEST fixture: a withdrawal in that state, sent and failed included (or n requested ones)
  *
  * Rules this file keeps (AGENTS.md "Money"):
@@ -337,7 +338,7 @@ const SECRET_NAMES = [
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
   'identitySigninChallenge', // identity's key for sign-in challenge tokens and the per-address failure count (I-signin-sessions-30)
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
-  'notifyVerifyCode', // notify's TEST key for address-confirmation codes, set only with the TEST email stand-in (LOCAL_STACK_NOTIFY_EMAIL=on)
+  'notifyVerifyCode', // notify's TEST key for address-confirmation codes, set only with the TEST email or push stand-in (LOCAL_STACK_NOTIFY_EMAIL=on, LOCAL_STACK_NOTIFY_PUSH=on)
   'notifySupportService', // svc-support's own secret for svc-notify's guest verification door (NOTIFY_SUPPORT_SERVICE_SECRET on both)
   'supportGuestAddress', // svc-support's key that seals a guest's email address (SUPPORT_GUEST_ADDRESS_KEY, 32 bytes as hex)
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
@@ -3506,12 +3507,37 @@ function cmdExpireStaffHolds(args) {
  * svc-notify wrote it before PR 5435 moved its targets (`href` `/p2p/trades/<tradeId>`). Rows stored then are never
  * rewritten, so the customer app must still open them (J-home-ia-05 #2). It writes the notice row only: no trade, no
  * escrow, no event, and it moves no value. The same person and trade id is the same row, stored again as new and unread.
+ * `--count <n>` (1-300) stores n such rows instead, for trade ids `<tradeId>-1` to `<tradeId>-n`: a full inbox, so a journey
+ * can see the bell reach its cap and the inbox page past its page size (J-home-ia-05 #1, #3).
  */
 function cmdSeedNotice(args) {
   const [who, tradeId] = args;
-  if (!who || !tradeId) fail('usage: node tooling/scripts/local-test-stack.mjs seed-notice <email-or-userId> <tradeId>', 2);
+  if (!who || !tradeId) fail('usage: node tooling/scripts/local-test-stack.mjs seed-notice <email-or-userId> <tradeId> [--count <n>]', 2);
   if (!/^[A-Za-z0-9-]{4,64}$/.test(tradeId)) fail('tradeId must be 4-64 letters, digits or dashes', 2);
   const { secrets, userId } = localFixturePerson(who);
+  const at = args.indexOf('--count');
+  if (at !== -1) {
+    const count = Number(args[at + 1]);
+    if (!Number.isInteger(count) || count < 1 || count > 300) fail('--count must be a whole number from 1 to 300', 2);
+    const stored = psql(
+      secrets,
+      `INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key)
+       SELECT :'uid', 'p2p.escrow.locked', 'notify.p2p.escrow.locked.title', 'notify.p2p.escrow.locked.body',
+              jsonb_build_object('tradeId', :'tid' || '-' || n), '/p2p/trades/' || :'tid' || '-' || n, 'action',
+              'intafaced.p2p.escrow.locked', 'local-test-old-link:' || :'tid' || '-' || n
+         FROM generate_series(1, :'n'::int) AS n
+       ON CONFLICT (user_id, source_subject, source_idempotency_key)
+         DO UPDATE SET href = EXCLUDED.href, read_at = NULL, created_at = now()
+       RETURNING 1`,
+      { db: DB_NAME, user: 'svc_notify', password: secrets.pgService, vars: { uid: userId, tid: tradeId, n: String(count) }, tuples: true },
+    )
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim() === '1').length;
+    if (stored !== count) fail(`${stored} of ${count} notices were stored for ${who}`);
+    say(`  ${count} notices for ${who} link /p2p/trades/${tradeId}-1 to -${count}, as stored before PR 5435 (LOCAL TEST fixture)`);
+    return;
+  }
   const id = psql(
     secrets,
     `INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key)

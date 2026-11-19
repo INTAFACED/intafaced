@@ -8,8 +8,7 @@ import {
   type PayHaltScope,
   type PayHaltTarget,
 } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, type FounderCallResult, partFrom, type Part, type PartLabels } from '@/lib/desk';
 import { HALT_REASON_MAX, HALT_REASON_MIN, scopeTargetProblem } from './model';
 import type { PayHaltsRead } from './types';
 

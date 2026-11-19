@@ -8,7 +8,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import type { AcademyCourseEnrolment, AcademyCourseOutlineItem } from '@intafaced/contracts/academy-catalogue';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { CourseEnrolView } from './AcademyCourseEnrol';
 import { AccessGrantsView, MyLearningView } from './AcademyMyLearning';
 import { CourseOutlineView, ItemCompletionView, outlineNeighbours } from './AcademyCourseOutline';

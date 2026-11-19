@@ -21,11 +21,10 @@
  */
 import { checkAccess, type KycTier } from '@intafaced/config';
 import { forwardedPrincipalHeaders, unwrapTrpcData, type Context } from '@intafaced/contracts';
+import type { P2P_ELIGIBILITY_CHECK_IDS, P2P_ELIGIBILITY_STATES } from '@intafaced/contracts/p2p-procedures';
 
-export const ELIGIBILITY_CHECK_IDS = ['verification', 'contact', 'jurisdiction', 'deposit'] as const;
-export type EligibilityCheckId = (typeof ELIGIBILITY_CHECK_IDS)[number];
-export const ELIGIBILITY_STATES = ['met', 'not_met', 'unknown'] as const;
-export type EligibilityState = (typeof ELIGIBILITY_STATES)[number];
+export type EligibilityCheckId = (typeof P2P_ELIGIBILITY_CHECK_IDS)[number];
+export type EligibilityState = (typeof P2P_ELIGIBILITY_STATES)[number];
 
 export interface EligibilityCheck {
   readonly id: EligibilityCheckId;
