@@ -231,7 +231,7 @@ impl Planner<'_> {
         let whole = items_per_week.is_finite() && items_per_week.fract() == 0.0;
         #[expect(clippy::cast_possible_truncation, reason = "a whole number in the bounds checked here")]
         let n = items_per_week as i64;
-        if !whole || n < GOAL_MIN || n > GOAL_MAX {
+        if !whole || !(GOAL_MIN..=GOAL_MAX).contains(&n) {
             return Err(AcademyError::new(
                 format!("academy.goal_invalid items per week must be {GOAL_MIN} to {GOAL_MAX}"),
                 "academy.goal_invalid",

@@ -364,48 +364,34 @@ impl Chain for RpcChain {
 
 #[cfg(test)]
 mod tests {
+    //! `purchases/chain.test.ts`: the payment amounts and calldata the buyer's wallet is asked to sign.
     use super::*;
 
-    // ── purchases/chain.test.ts ─────────────────────────────────────────────────────────────────────────────────────
-
     #[test]
-    fn calldata_is_one_erc20_transfer_to_the_receiver() {
-        let data =
-            transfer_calldata("0x00000000000000000000000000000000000000aa", 20_000_000).unwrap();
-        assert_eq!(
-            data,
-            format!(
-                "0xa9059cbb{}{}",
-                "00000000000000000000000000000000000000000000000000000000000000aa",
-                "0000000000000000000000000000000000000000000000000000000001312d00"
-            )
-        );
-        assert!(transfer_calldata("not-an-address", 1).is_err());
-        assert!(transfer_calldata("0x00000000000000000000000000000000000000aa", 0).is_err());
-    }
-
-    #[test]
-    fn a_price_becomes_the_tokens_smallest_unit_and_back() {
+    fn scales_a_decimal_price_to_the_token_unit_exactly_and_back() {
+        assert_eq!(to_base_units("2.5", 6).unwrap(), 2_500_000);
         assert_eq!(to_base_units("20", 6).unwrap(), 20_000_000);
-        assert_eq!(to_base_units("20.5", 6).unwrap(), 20_500_000);
-        assert_eq!(to_base_units("1", 18).unwrap(), 1_000_000_000_000_000_000);
-        assert!(to_base_units("0.0000001", 6).is_err());
-        assert!(to_base_units("1", 19).is_err());
+        assert_eq!(to_base_units("0.000001", 6).unwrap(), 1);
+        assert_eq!(to_base_units("1.5", 18).unwrap(), 1_500_000_000_000_000_000);
+        assert_eq!(from_base_units(2_500_000, 6), "2.5");
         assert_eq!(from_base_units(20_000_000, 6), "20");
-        assert_eq!(from_base_units(20_500_000, 6), "20.5");
     }
 
     #[test]
-    fn addresses_and_hashes_are_read_as_the_typescript_reads_them() {
-        assert!(is_address("0x00000000000000000000000000000000000000AA"));
-        assert!(!is_address("0x00"));
-        assert!(is_tx_hash(&format!("0x{}", "ab".repeat(32))));
-        assert!(!is_tx_hash(&format!("0x{}", "AB".repeat(32))));
+    fn refuses_a_price_with_more_decimals_than_the_token_or_one_that_is_not_a_decimal() {
+        assert!(to_base_units("0.0000001", 6).unwrap_err().contains("more decimals"));
+        assert!(to_base_units("abc", 6).is_err());
+        assert!(to_base_units("1", 19).unwrap_err().contains("decimals"));
+    }
+
+    #[test]
+    fn builds_transfer_to_amount_and_nothing_else() {
+        let to = "0x7e57ac4d00000000000000000000000000000007";
         assert_eq!(
-            address_of_topic(
-                "0x00000000000000000000000000000000000000000000000000000000000000AA"
-            ),
-            "0x00000000000000000000000000000000000000aa"
+            transfer_calldata(to, 2_500_000).unwrap(),
+            format!("0xa9059cbb{}{}{:0>64}", "0".repeat(24), &to[2..], format!("{:x}", 2_500_000))
         );
+        assert!(transfer_calldata(to, 0).is_err());
+        assert!(transfer_calldata("0x12", 1).is_err());
     }
 }
