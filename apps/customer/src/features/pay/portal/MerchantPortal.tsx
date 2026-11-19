@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { createPortalApi } from './api';
 import { portalCopy } from './copy';
 import { parsePortalRoute, type PortalRoute } from './routes';
