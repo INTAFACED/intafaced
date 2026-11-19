@@ -15,6 +15,7 @@ import {
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
+import { IDENTITY_RECIPIENTS_LIST, IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_REMOVE } from './identity-recipients-procedures.js';
 import {
   P2P_HEALTH,
   P2P_FIAT_LIST,
@@ -43,6 +44,7 @@ import {
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
 } from './tax-procedures.js';
+import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 import type { ProcedureRecord } from './procedure.js';
 
 /** Every call recorded in this package. `procedures.schema.json` is written from this list. */
@@ -61,6 +63,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BLUEPRINT_MENTORS,
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
+  IDENTITY_RECIPIENTS_LIST,
+  IDENTITY_RECIPIENTS_ADD,
+  IDENTITY_RECIPIENTS_REMOVE,
   P2P_HEALTH,
   P2P_FIAT_LIST,
   P2P_FEES_SCHEDULE,
@@ -85,4 +90,5 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   TAX_SET_INCLUDE_TRANSFERS,
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
+  WS_SBE_CONSUMERS,
 ];

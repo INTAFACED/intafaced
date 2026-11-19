@@ -12,6 +12,7 @@
  * Any other failure is `failed`, never a guess.
  */
 import { z } from 'zod';
+import { IDENTITY_RECIPIENTS_LIST } from '@intafaced/contracts/identity-recipients-procedures';
 import type { ApiClient, ApiResult } from '../shared/api';
 
 export const HANDLE_LOOKUP_RATE_LIMITED = 'identity.handle_lookup_rate_limited';
@@ -111,13 +112,15 @@ export async function fetchPayeeCard(api: ApiClient, userId: string, signal?: Ab
 // The people the customer saved to pay again, by handle. Send checks a looked-up handle against them, so a look-alike of
 // someone saved is flagged before anything is sent (J-pay-01 #2).
 
-const savedRecipientsSchema = z.array(z.object({ handle: z.string().min(1), label: z.string(), addedAt: z.string() }));
-
 export type SavedRecipientsOutcome = { kind: 'ok'; handles: string[] } | { kind: 'failed' };
 
 /** The most recently saved recipients' handles, one page of 100. Any failure is `failed`: the screen says it could not check, never "none". */
 export async function fetchSavedRecipients(api: ApiClient, signal?: AbortSignal): Promise<SavedRecipientsOutcome> {
-  const result = await api.query('identity', 'recipients.list', { limit: 100 }, savedRecipientsSchema, { signal });
+  const result = await api.call(
+    IDENTITY_RECIPIENTS_LIST,
+    { limit: 100 },
+    { signal, accept: (rows) => rows.every((row) => row.handle !== '') },
+  );
   return result.ok ? { kind: 'ok', handles: result.data.map((row) => row.handle) } : { kind: 'failed' };
 }
 

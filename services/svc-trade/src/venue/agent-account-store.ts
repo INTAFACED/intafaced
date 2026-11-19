@@ -274,6 +274,11 @@ export class SqlAgentAccountStore implements AgentAccountStore {
     return rows.map(accountOf);
   }
 
+  /**
+   * No conflict target: agent_address is made from (user_id, account_id), so both unique keys name the same row, and a
+   * racing twin of this open must land on the row that won whichever key Postgres checks first. An address held
+   * by another account stores nothing, and the read below says so.
+   */
   async insertOnce(a: AgentAccountRecord, m: AgentMoveRecord) {
     await this.sql.begin(async (tx) => {
       const inserted = await tx<{ account_id: string }[]>`
@@ -281,7 +286,7 @@ export class SqlAgentAccountStore implements AgentAccountStore {
           (user_id, account_id, venue_id, owner, sub_account, name, asset, cap, agent_address, fund_amount, status, created_at)
         VALUES (${a.userId}, ${a.accountId}, ${a.venueId}, ${a.owner}, ${a.subAccount}, ${a.name}, ${a.asset},
           ${formatAmount(a.cap)}, ${a.agentAddress}, ${formatAmount(a.fundAmount)}, ${a.status}, ${a.createdAt})
-        ON CONFLICT (user_id, account_id) DO NOTHING
+        ON CONFLICT DO NOTHING
         RETURNING account_id`;
       if (inserted.length === 0) return;
       await tx`
