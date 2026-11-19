@@ -63,8 +63,9 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/\/\/.*$/gm, '');
       const rel = relative(repoRoot, full).replace(/\\/g, '/');
-      for (const match of src.matchAll(/\brecipes\.([A-Za-z][A-Za-z0-9]*)\b/g)) {
-        const name = match[1]!;
+      // A recipe built in the caller (`recipes.<name>`), or named on svc-ledger's postRecipe door, which runs it.
+      for (const match of src.matchAll(/\brecipes\.([A-Za-z][A-Za-z0-9]*)\b|\bpostRecipe\(\{\s*recipe:\s*'([A-Za-z][A-Za-z0-9]*)'/g)) {
+        const name = (match[1] ?? match[2])!;
         if (name === 'length' || name === 'has') continue;
         const list = found.get(name) ?? [];
         if (!list.includes(rel)) list.push(rel);

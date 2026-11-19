@@ -35,6 +35,7 @@
     "POST /trpc/ownFunds",
     "POST /trpc/portfolio",
     "POST /trpc/post",
+    "POST /trpc/postRecipe",
     "POST /trpc/reconciliationEvaluations",
     "POST /trpc/reportExport",
     "POST /trpc/resilience",
@@ -95,6 +96,7 @@
       "sample": "{\"idempotencyKey\":\"placeholder\",\"module\":\"placeholder\",\"reason\":\"placeholder\",\"entries\":[{\"account\":{\"ownerType\":\"user\",\"ownerId\":\"placeholder\",\"assetId\":\"placeholder\",\"kind\":\"available\"},\"direction\":\"debit\",\"amount\":\"1.50\"},{\"account\":{\"ownerType\":\"user\",\"ownerId\":\"placeholder\",\"assetId\":\"placeholder\",\"kind\":\"available\"},\"direction\":\"debit\",\"amount\":\"1.50\"}]}",
       "sample-nulls": "{\"idempotencyKey\":null,\"module\":null,\"reason\":null,\"entries\":null}"
     },
+    "POST /trpc/postRecipe": { "sample": "{}", "sample-nulls": "{}" },
     "POST /trpc/reconciliationEvaluations": { "sample": "{}", "sample-nulls": "{}" },
     "POST /trpc/reportExport": { "sample": "{\"kind\":\"nav\"}", "sample-nulls": "{\"kind\":null}" },
     "POST /trpc/resilience": { "sample": "{\"kind\":\"risk\"}", "sample-nulls": "{\"kind\":null}" },
