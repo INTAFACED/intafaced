@@ -396,6 +396,19 @@ describe('business bulk payments, contractors and crypto payroll (J-bank-21)', (
     expect(await refused(owner.businessPayouts.signRun({ runId: later.id, signature: personalSign(later.message, KEY) }))).toBe(
       'bank.payroll_wallet_missing',
     );
+    // The same month pressed several times at once is one run with its payslips once, and no caller gets 23505.
+    // Ten months, eight calls each: an insert naming only `ON CONFLICT (run_key)` under read committed raises 23505 on
+    // (payroll_id, period) here.
+    for (let month = 3; month <= 12; month++) {
+      const period = `2027-${String(month).padStart(2, '0')}`;
+      const raced = await Promise.allSettled(Array.from({ length: 8 }, () => owner.businessPayouts.prepareRun({ payrollId, period })));
+      expect(raced.filter((r) => r.status === 'rejected').map((r) => codeOf((r as PromiseRejectedResult).reason))).toEqual([]);
+      const racedRuns = await sql<Array<{ id: string }>>`
+        SELECT id FROM bank.business_crypto_payroll_runs WHERE payroll_id = ${payrollId}::uuid AND period = ${period}
+      `;
+      expect(racedRuns).toHaveLength(1);
+      expect((await sql`SELECT 1 FROM bank.business_crypto_payslips WHERE run_id = ${racedRuns[0]!.id}::uuid`).length).toBe(1);
+    }
     // INTAFACED holds none of it: the partner balance and the ledger are untouched.
     expect(await held(accountId)).toBe(parseAmount('1000'));
     expect(ledger.journal()).toEqual([]);
