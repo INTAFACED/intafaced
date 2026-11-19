@@ -317,7 +317,7 @@ export function createApiClient(
     } catch {
       if (method === 'GET' && requestOptions.signal?.aborted) return authoredRefusal('aborted', { key: 'stopped' });
       return authoredRefusal(method === 'GET' ? 'unreachable' : 'uncertain', {
-        key: method === 'GET' ? 'serviceUnreachable' : 'connectionUncertain',
+        key: method === 'GET' ? 'loadFailed' : 'connectionUncertain',
       });
     } finally {
       clearTimeout(timeout);
