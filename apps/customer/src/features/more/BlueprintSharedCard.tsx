@@ -3,6 +3,7 @@ import { useSession } from '../session/session';
 import { Button, Dialog, Field, Panel } from '../../shared/ui';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { navigate } from '../../app/location';
+import { BLUEPRINT_CARD_OF } from '@intafaced/contracts/blueprint-procedures';
 import { safeCardSvg } from './Blueprint';
 import { blueprintSharedCardCopy } from './blueprint-shared-card-copy';
 import {
@@ -10,7 +11,7 @@ import {
   sharedCardDimensions,
   sharedCardFailure,
   sharedCardHref,
-  sharedCardResponse,
+  sharedCardMatches,
   sharedCardRoute,
   sharedCardSelection,
   subscribeSharedCardRoute,
@@ -107,8 +108,9 @@ export function BlueprintSharedCard({ path }: { path: string }) {
     setView({ status: 'loading', intent });
     let result: ApiResult<SharedCard>;
     try {
-      result = await lease.api.query('blueprint', 'cardOf', intent.selection, sharedCardResponse(intent.selection), {
+      result = await lease.api.call(BLUEPRINT_CARD_OF, intent.selection, {
         signal: intent.controller.signal,
+        accept: sharedCardMatches(intent.selection),
       });
     } catch {
       result = { ok: false, reason: 'unreachable', message: '' };
