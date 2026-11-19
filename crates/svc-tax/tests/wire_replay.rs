@@ -1,7 +1,7 @@
-//! The wire replay, answered from Rust. `crates/svc-tax/tests/fixtures/wire-replay.golden.json` holds what the TypeScript svc-tax
-//! answered to a matrix of requests (every call, seven inputs, four callers, a blank and a set jurisdiction map); its
-//! own test (`wire-replay.test.ts`) holds the TypeScript service to it. This sends the same requests, built the same way,
-//! to the Rust service, and every one must get the recorded status and body, byte for byte.
+//! The wire replay. `fixtures/wire-replay.golden.json` holds what the TypeScript svc-tax answered to a matrix of
+//! requests (every call, seven inputs, four callers, a blank and a set jurisdiction map), recorded by its
+//! `wire-replay.test.ts` before the Rust service replaced it. This sends the same requests, built the same way, to the
+//! Rust service, and every one must get the recorded status and body, byte for byte.
 //!
 //! The rows replay. `fixtures/wire-replay.rows.golden.json` holds the same matrix (set map) as the TypeScript svc-tax
 //! answered it wired to its real Postgres stores: each request's status and body, and the rows it added to or removed
