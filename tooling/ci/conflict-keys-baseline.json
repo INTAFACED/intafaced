@@ -239,15 +239,6 @@
       "why": "partner_key = MOVE_KEY(userId, dedupeId) (bank-api.ts:140) is built from the target columns. move() checks the row, then inserts on this.sql with no lock (bank-api.ts:415-432). An API client retrying the same dedupeId concurrently makes the loser raise 23505 api_moves_partner_key_key instead of re-reading the row."
     },
     {
-      "file": "services/svc-bank/src/developer-api/bank-api.ts",
-      "table": "api_payments",
-      "target": "(user_id, idempotency_key)",
-      "constraint": "api_payments_partner_key_key",
-      "verdict": "race",
-      "issue": 8898,
-      "why": "partner_key = PAY_KEY(userId, idempotencyKey) (bank-api.ts:141) is built from the target columns. The insert (bank-api.ts:510) holds no lock, so a concurrent retry with the same idempotency key raises 23505 api_payments_partner_key_key instead of reading the payment by key."
-    },
-    {
       "file": "services/svc-bank/src/loans/loan-adjustments.ts",
       "table": "loan_adjustments",
       "target": "(id)",
