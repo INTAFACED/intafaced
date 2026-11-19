@@ -4,6 +4,7 @@ import {
   affectedFilters,
   buildFilters,
   classify,
+  rustCrates,
   diffBase,
   mergeEdges,
   runsEverything,
@@ -70,8 +71,12 @@ test('classify: a change that reaches Rust runs the Rust job, and Rust files alo
     { files: ['services/svc-x/src/main.rs'], expected: { full: false, affected: true, rust: true } },
     { files: ['.github/workflows/ci.yml'], expected: { full: true, affected: false, rust: true } },
     { files: ['package.json'], expected: { full: true, affected: false, rust: true } },
-    { files: ['services/svc-tax/package.json'], expected: { full: false, affected: true, rust: false } },
-    { files: ['services/svc-tax/src/a.ts'], expected: { full: false, affected: true, rust: false } },
+    // A crate replaces the service of its name, and its tests read that service's recorded answers.
+    { files: ['services/svc-tax/package.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['services/svc-tax/src/a.ts'], expected: { full: false, affected: true, rust: true } },
+    { files: ['services/svc-tax/src/wire-replay.golden.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['services/svc-taxes/src/a.ts'], expected: { full: false, affected: true, rust: false } },
+    { files: ['services/svc-bank/src/a.ts'], expected: { full: false, affected: true, rust: false } },
     { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false, rust: false } },
     { files: ['docs/x.md'], expected: { full: false, affected: false, rust: false } },
     { files: ['vendor/x/y.ts'], expected: { full: true, affected: false, rust: false } },
@@ -81,6 +86,8 @@ test('classify: a change that reaches Rust runs the Rust job, and Rust files alo
     assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
   }
   assert(classify(['docs/x.md'], { forceFull: true }).rust === true, 'a run-everything run runs the Rust job');
+  assert(rustCrates().includes('svc-tax'), 'the crates are read from crates/');
+  assert(classify(['services/svc-bank/src/a.ts'], { crates: ['svc-bank'] }).rust === true, 'a new crate needs no list edit');
 });
 
 test('filters: dependents of what changed, plus the readers of the changed package', () => {
