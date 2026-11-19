@@ -80,7 +80,7 @@ export function createDropCopyIngestClient(
         baseUrl: base,
         input: fill,
         sign,
-        timeoutMs: FETCH_MS,
+        fetcher: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(FETCH_MS) }),
         errorOf: (_path, status) => new Error(`drop-copy ingest refused (${status})`),
       });
     },

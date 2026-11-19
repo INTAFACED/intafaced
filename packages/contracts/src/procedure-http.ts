@@ -17,16 +17,15 @@ export async function callHttpRecord<R extends HttpRecord>(
     sign: (payload: string, request: { method: string; url: URL; contentType: string }) => Record<string, string>;
     errorOf: (path: string, status: number, detail: string) => Error;
     fetcher?: typeof fetch;
-    /** Gives up after this long: the fetch rejects with a `TimeoutError`, which the caller reads as no answer. */
-    timeoutMs?: number;
   },
 ): Promise<z.output<R['output']>> {
   const path = routePath(record, options.params ?? {});
   const target = `${options.baseUrl.replace(/\/$/, '')}${path}`;
-  const input = record.input.parse(options.input);
-  // A GET carries no body, so it is signed over empty bytes with no content type; this caller sends no query.
-  if (record.method === 'GET' && input !== undefined) throw new Error(`${record.name}: a GET record here takes no input`);
-  const payload = record.method === 'GET' ? '' : JSON.stringify(input);
+  const parsed: unknown = record.input.parse(options.input);
+  // A GET carries no body, so its signature binds the empty one and no content type. Its input would go in the query,
+  // which no GET record takes yet: one that does is refused here rather than sent without it.
+  if (record.method === 'GET' && parsed !== undefined) throw new Error(`${record.name}: a GET record's input is not sent yet`);
+  const payload = record.method === 'GET' ? '' : JSON.stringify(parsed);
   const contentType = record.method === 'GET' ? '' : 'application/json';
   const response = await (options.fetcher ?? fetch)(target, {
     method: record.method,
@@ -35,7 +34,6 @@ export async function callHttpRecord<R extends HttpRecord>(
       ...options.sign(payload, { method: record.method, url: new URL(target), contentType }),
     },
     ...(record.method === 'GET' ? {} : { body: payload }),
-    ...(options.timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(options.timeoutMs) }),
   });
   if (!response.ok) throw options.errorOf(path, response.status, await response.text().catch(() => ''));
   const reply = z.parse<R['output']>(record.output, await response.json());

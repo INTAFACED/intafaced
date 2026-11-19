@@ -2,15 +2,15 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { SERVICE_HEADER, verifyServiceHeaders } from '@intafaced/contracts';
+import { FIX_ADAPTER_STATUS } from '@intafaced/contracts/fix-procedures';
+import { WS_SBE_CONSUMERS } from '@intafaced/contracts/ws-procedures';
 import {
   ADAPTER_STATUS_EDGE_PATH,
-  fixAdapterRead,
-  fixStatusRead,
-  httpAdapterStatusRead,
+  adapterRead,
+  recordStatusRead,
   registerAdapterStatusRoute,
   type AdapterStatusDeps,
   type AdapterStatusRead,
-  type SbeStatus,
 } from './adapter-status-door.js';
 
 const tokens: TokenConfig = {
@@ -55,33 +55,21 @@ async function bearer(scopes: Array<'admin:read' | 'trade:read'>): Promise<strin
   return `Bearer ${token}`;
 }
 
-/** A fetch that answers every call with this body and status, keeping each request it was sent. */
-function answering(body: unknown, status = 200, seen: Array<{ url: string; init: RequestInit }> = []): typeof fetch {
-  return (async (url: string, init: RequestInit) => {
-    seen.push({ url: String(url), init });
-    return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
-  }) as typeof fetch;
-}
-const fixRead = (fetchFn: typeof fetch) => fixStatusRead({ baseUrl: 'http://fix.test', secret: KEY, timeoutMs: 1000, fetcher: fetchFn });
-const sbeOk: AdapterStatusRead<SbeStatus> = async () => ({ read: 'ok', codecLinked: false, consumers: [], asOf: SBE.asOf });
+const answering =
+  (body: unknown, status = 200): AdapterStatusRead =>
+  async () => ({ kind: 'answered', status, body });
 
 function mount(over: Partial<AdapterStatusDeps> = {}): FastifyInstance {
   const app = Fastify({ logger: false });
   registerAdapterStatusRoute(app, {
     tokens,
-    fix: fixRead(answering(FIX)),
-    sbe: sbeOk,
+    fix: answering(FIX),
+    sbe: answering(SBE),
     now: () => Date.parse('2026-11-07T00:00:01Z'),
     ...over,
   });
   apps.push(app);
   return app;
-}
-
-async function read(app: FastifyInstance) {
-  return (
-    await app.inject({ method: 'GET', url: ADAPTER_STATUS_EDGE_PATH, headers: { authorization: await bearer(['admin:read']) } })
-  ).json();
 }
 
 describe('adapter status door (J-cex-spot-20 #3)', () => {
@@ -107,89 +95,193 @@ describe('adapter status door (J-cex-spot-20 #3)', () => {
     expect(body.fix.read).toBe('ok');
     expect(body.fix.sessions[0]).toEqual({ ...FIX.sessions[0], balance: undefined });
     expect(body.fix.sessions[0]).not.toHaveProperty('balance');
-    expect(body.fix).not.toHaveProperty('service');
     expect(body.fix.compIdMap).toEqual(FIX.compIdMap);
     expect(body.sbe).toMatchObject({ read: 'ok', codecLinked: false, consumers: [] });
     expect(JSON.stringify(body)).not.toMatch(/balance|margin|greeks/i);
   });
 
   it('a blank key or a refusal is that half alone, by name', async () => {
-    const blocked = fixAdapterRead('http://fix.test', undefined, { timeoutMs: 1000 });
-    const sbeRefused: AdapterStatusRead<SbeStatus> = async () => ({ read: 'refused', code: 'ws_status_unconfigured', error: 'blank' });
-    const body = await read(mount({ fix: blocked, sbe: sbeRefused }));
+    const blocked = adapterRead(
+      'http://fix.test',
+      undefined,
+      {
+        service: 'svc-fix',
+        code: 'fix_status_unconfigured',
+        urlKey: 'FIX_STATUS_URL',
+        secretKey: 'FIX_STATUS_READ_SECRET',
+      },
+      1000,
+    );
+    const app = mount({ fix: blocked, sbe: answering({ ok: false, error: { code: 'ws_status_unconfigured', message: 'blank' } }, 503) });
+    const body = (
+      await app.inject({ method: 'GET', url: ADAPTER_STATUS_EDGE_PATH, headers: { authorization: await bearer(['admin:read']) } })
+    ).json();
     expect(body.fix).toMatchObject({ read: 'refused', code: 'fix_status_unconfigured', key: 'FIX_STATUS_READ_SECRET' });
     expect(body.sbe).toMatchObject({ read: 'refused', code: 'ws_status_unconfigured' });
-    expect(fixAdapterRead(undefined, KEY, { timeoutMs: 1000 })).toEqual({ code: 'fix_status_unconfigured', key: 'FIX_STATUS_URL' });
 
-    const oddBody = await read(
-      mount({
-        fix: fixRead(answering({ sessions: 'x' })),
-        sbe: async () => ({ read: 'unknown', code: 'adapter_status_unknown', error: 'late' }),
-      }),
-    );
+    const odd = mount({ fix: answering({ sessions: 'x' }), sbe: async () => ({ kind: 'unknown', error: 'late' }) });
+    const oddBody = (
+      await odd.inject({ method: 'GET', url: ADAPTER_STATUS_EDGE_PATH, headers: { authorization: await bearer(['admin:read']) } })
+    ).json();
     expect(oddBody.fix).toMatchObject({ read: 'refused', code: 'adapter_status_unreadable' });
     expect(oddBody.sbe).toMatchObject({ read: 'unknown' });
-  });
-
-  it("svc-fix's own refusal, a non-JSON answer, a timeout and a dead socket each read by name", async () => {
-    const refusal = { ok: false, error: { code: 'forbidden', message: 'the adapter status is read by svc-edge only' } };
-    expect((await read(mount({ fix: fixRead(answering(refusal, 403)) }))).fix).toEqual({
-      read: 'refused',
-      code: 'forbidden',
-      error: 'the adapter status is read by svc-edge only',
-    });
-    expect((await read(mount({ fix: fixRead(answering('<html>', 404)) }))).fix).toEqual({
-      read: 'refused',
-      code: 'adapter_status_unavailable',
-      error: 'svc-fix answered 404',
-    });
-    expect((await read(mount({ fix: fixRead(answering('not json', 200)) }))).fix).toMatchObject({
-      read: 'refused',
-      code: 'adapter_status_unreadable',
-    });
-    const late = (async () => {
-      throw new DOMException('late', 'TimeoutError');
-    }) as typeof fetch;
-    expect((await read(mount({ fix: fixRead(late) }))).fix).toEqual({
-      read: 'unknown',
-      code: 'adapter_status_unknown',
-      error: 'svc-fix did not answer before 1000ms',
-    });
-    const dead = (async () => {
-      throw new TypeError('fetch failed');
-    }) as typeof fetch;
-    expect((await read(mount({ fix: fixRead(dead) }))).fix).toEqual({
-      read: 'refused',
-      code: 'adapter_status_unavailable',
-      error: 'svc-fix did not answer: fetch failed',
-    });
-  });
-
-  it("GETs svc-fix's one recorded path, no body and no content type, signed as svc-edge with the read key", async () => {
-    const seen: Array<{ url: string; init: RequestInit }> = [];
-    expect(await fixRead(answering(FIX, 200, seen))()).toMatchObject({ read: 'ok' });
-    expect(seen).toHaveLength(1);
-    expect(seen[0]!.url).toBe('http://fix.test/internal/status');
-    expect(seen[0]!.init.method).toBe('GET');
-    expect(seen[0]!.init.body).toBeUndefined();
-    const headers = seen[0]!.init.headers as Record<string, string>;
-    expect(headers).not.toHaveProperty('content-type');
-    expect(headers[SERVICE_HEADER]).toBe('svc-edge');
-    const verdict = verifyServiceHeaders(headers, KEY, { mode: 'require', rawBody: { retained: true, bytes: Buffer.alloc(0) } });
-    expect(verdict.service).toBe('svc-edge');
   });
 
   it('signs a GET of exactly the one path as svc-edge with the read key', async () => {
     let seen: { url: string; headers: Record<string, string> } | null = null;
     const fetchFn = (async (url: string, init: { headers: Record<string, string> }) => {
       seen = { url, headers: init.headers };
-      return new Response(JSON.stringify(SBE), { status: 200 });
+      return new Response(JSON.stringify(FIX), { status: 200 });
     }) as typeof fetch;
-    const read = httpAdapterStatusRead('http://ws.test/', '/internal/sbe/consumers', KEY, 1000, 'svc-ws', fetchFn);
+    const read = recordStatusRead(FIX_ADAPTER_STATUS, { baseUrl: 'http://fix.test/', secret: KEY, timeoutMs: 1000, fetchFn });
     expect(await read()).toMatchObject({ kind: 'answered', status: 200 });
-    expect(seen!.url).toBe('http://ws.test/internal/sbe/consumers');
+    expect(seen!.url).toBe('http://fix.test/internal/status');
+    expect(seen!.headers['content-type']).toBeUndefined();
     expect(seen!.headers[SERVICE_HEADER]).toBe('svc-edge');
     const verdict = verifyServiceHeaders(seen!.headers, KEY, { mode: 'require', rawBody: { retained: true, bytes: Buffer.alloc(0) } });
     expect(verdict.service).toBe('svc-edge');
+  });
+});
+
+describe("svc-ws's half, through its record (WS_SBE_CONSUMERS)", () => {
+  const sbeFetch = (body: string, status = 200, seen?: { url?: string; init?: RequestInit }) =>
+    (async (url: string, init: RequestInit) => {
+      if (seen) Object.assign(seen, { url, init });
+      return new Response(body, { status });
+    }) as typeof fetch;
+
+  it('signs a bodiless GET of the record path as svc-edge with the read key, and carries the reply', async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const consumer = { id: 'sbe-1', marketId: 'BTC-USD', connectedAt: '2026-11-07T00:00:00.000Z', framesSent: 2, lastSequence: '7' };
+    const read = recordStatusRead(WS_SBE_CONSUMERS, {
+      baseUrl: 'http://ws.test/',
+      secret: KEY,
+      timeoutMs: 1000,
+      fetchFn: sbeFetch(JSON.stringify({ ...SBE, consumers: [consumer] }), 200, seen),
+    });
+    expect(await read()).toEqual({ kind: 'answered', status: 200, body: { ...SBE, consumers: [consumer] } });
+    expect(seen.url).toBe('http://ws.test/internal/sbe/consumers');
+    expect(seen.init?.method).toBe('GET');
+    expect(seen.init?.body).toBeUndefined();
+    const headers = seen.init?.headers as Record<string, string>;
+    expect(headers['content-type']).toBeUndefined();
+    expect(headers[SERVICE_HEADER]).toBe('svc-edge');
+    const verdict = verifyServiceHeaders(headers, KEY, { mode: 'require', rawBody: { retained: true, bytes: Buffer.alloc(0) } });
+    expect(verdict.service).toBe('svc-edge');
+  });
+
+  it("a refusal comes back with svc-ws's own status and body, and reads as that refusal by name", async () => {
+    const refusal = { ok: false, error: { code: 'forbidden', message: 'the SBE consumer list is read by svc-edge only' } };
+    const read = recordStatusRead(WS_SBE_CONSUMERS, {
+      baseUrl: 'http://ws.test',
+      secret: KEY,
+      timeoutMs: 1000,
+      fetchFn: sbeFetch(JSON.stringify(refusal), 403),
+    });
+    expect(await read()).toEqual({ kind: 'answered', status: 403, body: refusal });
+    const body = (
+      await mount({ sbe: read }).inject({
+        method: 'GET',
+        url: ADAPTER_STATUS_EDGE_PATH,
+        headers: { authorization: await bearer(['admin:read']) },
+      })
+    ).json();
+    expect(body.sbe).toEqual({ read: 'refused', code: 'forbidden', error: 'the SBE consumer list is read by svc-edge only' });
+  });
+
+  it('a reply the record does not parse, or that is not JSON, reads as unreadable', async () => {
+    for (const raw of [
+      JSON.stringify({ ...SBE, consumers: [{ id: '' }] }),
+      JSON.stringify({ codecLinked: false, consumers: [], asOf: 'x' }),
+      'not json',
+    ]) {
+      const read = recordStatusRead(WS_SBE_CONSUMERS, { baseUrl: 'http://ws.test', secret: KEY, timeoutMs: 1000, fetchFn: sbeFetch(raw) });
+      expect(await read()).toEqual({ kind: 'answered', status: 200, body: null });
+      const body = (
+        await mount({ sbe: read }).inject({
+          method: 'GET',
+          url: ADAPTER_STATUS_EDGE_PATH,
+          headers: { authorization: await bearer(['admin:read']) },
+        })
+      ).json();
+      expect(body.sbe).toMatchObject({ read: 'refused', code: 'adapter_status_unreadable' });
+    }
+  });
+
+  it('no answer is unavailable, and past the timeout unknown', async () => {
+    const down = recordStatusRead(WS_SBE_CONSUMERS, {
+      baseUrl: 'http://ws.test',
+      secret: KEY,
+      timeoutMs: 1000,
+      fetchFn: (async () => {
+        throw new TypeError('fetch failed');
+      }) as typeof fetch,
+    });
+    expect(await down()).toEqual({ kind: 'unavailable', error: 'svc-ws did not answer: fetch failed' });
+    const slow = recordStatusRead(WS_SBE_CONSUMERS, {
+      baseUrl: 'http://ws.test',
+      secret: KEY,
+      timeoutMs: 1000,
+      fetchFn: (async () => {
+        throw new DOMException('late', 'TimeoutError');
+      }) as typeof fetch,
+    });
+    expect(await slow()).toEqual({ kind: 'unknown', error: 'svc-ws did not answer before 1000ms' });
+  });
+});
+
+describe("svc-fix's half, through its record (FIX_ADAPTER_STATUS)", () => {
+  const fixFetch = (body: string, status = 200) => (async () => new Response(body, { status })) as typeof fetch;
+  const fixRead = (fetchFn: typeof fetch) =>
+    recordStatusRead(FIX_ADAPTER_STATUS, { baseUrl: 'http://fix.test', secret: KEY, timeoutMs: 1000, fetchFn });
+  const shown = async (fix: AdapterStatusRead) =>
+    (
+      await mount({ fix }).inject({
+        method: 'GET',
+        url: ADAPTER_STATUS_EDGE_PATH,
+        headers: { authorization: await bearer(['admin:read']) },
+      })
+    ).json().fix;
+
+  it('carries the named fields only, never service or anything svc-fix adds', async () => {
+    const fix = await shown(fixRead(fixFetch(JSON.stringify(FIX))));
+    expect(fix.read).toBe('ok');
+    expect(fix).not.toHaveProperty('service');
+    expect(fix.sessions[0]).not.toHaveProperty('balance');
+    expect(fix.compIdMapSet).toBe(true);
+  });
+
+  it("a refusal reads as svc-fix's own code and message; one with no JSON body as unavailable", async () => {
+    const refusal = { ok: false, error: { code: 'forbidden', message: 'the adapter status is read by svc-edge only' } };
+    expect(await shown(fixRead(fixFetch(JSON.stringify(refusal), 403)))).toEqual({
+      read: 'refused',
+      code: 'forbidden',
+      error: 'the adapter status is read by svc-edge only',
+    });
+    const blank = { ok: false, error: { code: 'fix_status_unconfigured', message: 'FIX_STATUS_READ_SECRET is blank' } };
+    expect(await shown(fixRead(fixFetch(JSON.stringify(blank), 503)))).toMatchObject({ read: 'refused', code: 'fix_status_unconfigured' });
+    expect(await shown(fixRead(fixFetch('<html>', 404)))).toEqual({
+      read: 'refused',
+      code: 'adapter_status_unavailable',
+      error: 'svc-fix answered 404',
+    });
+  });
+
+  it('a reply off the record, or not JSON, reads as unreadable', async () => {
+    for (const raw of [JSON.stringify({ ...FIX, compIdMapSet: 'yes' }), JSON.stringify({ ...FIX, asOf: '' }), 'not json']) {
+      expect(await fixRead(fixFetch(raw))()).toEqual({ kind: 'answered', status: 200, body: null });
+      expect(await shown(fixRead(fixFetch(raw)))).toMatchObject({ read: 'refused', code: 'adapter_status_unreadable' });
+    }
+  });
+
+  it('no answer is unavailable, and past the timeout unknown', async () => {
+    const down = fixRead((async () => {
+      throw new TypeError('fetch failed');
+    }) as typeof fetch);
+    expect(await down()).toEqual({ kind: 'unavailable', error: 'svc-fix did not answer: fetch failed' });
+    const slow = fixRead((async () => {
+      throw new DOMException('late', 'TimeoutError');
+    }) as typeof fetch);
+    expect(await slow()).toEqual({ kind: 'unknown', error: 'svc-fix did not answer before 1000ms' });
   });
 });

@@ -23,7 +23,7 @@ import {
   type RateLimitConfig,
 } from './hardening.js';
 import { KillSwitchState, resolvedPathname } from './kill-switch.js';
-import { fixAdapterRead, registerAdapterStatusRoute, sbeAdapterRead } from './adapter-status-door.js';
+import { adapterRead, registerAdapterStatusRoute } from './adapter-status-door.js';
 import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
@@ -355,8 +355,30 @@ registerRateLimitsDoor(app, { tokens: tokenConfig, sessionLive, buckets: keyBuck
 registerAdapterStatusRoute(app, {
   tokens: tokenConfig,
   sessionLive,
-  fix: fixAdapterRead(env.FIX_STATUS_URL, env.FIX_STATUS_READ_SECRET, { timeoutMs: env.UPSTREAM_TIMEOUT_MS, s2s: edgeS2s }),
-  sbe: sbeAdapterRead(env.WS_STATUS_URL, env.WS_STATUS_READ_SECRET, { timeoutMs: env.UPSTREAM_TIMEOUT_MS, s2s: edgeS2s }),
+  fix: adapterRead(
+    env.FIX_STATUS_URL,
+    env.FIX_STATUS_READ_SECRET,
+    {
+      service: 'svc-fix',
+      code: 'fix_status_unconfigured',
+      urlKey: 'FIX_STATUS_URL',
+      secretKey: 'FIX_STATUS_READ_SECRET',
+    },
+    env.UPSTREAM_TIMEOUT_MS,
+    edgeS2s,
+  ),
+  sbe: adapterRead(
+    env.WS_STATUS_URL,
+    env.WS_STATUS_READ_SECRET,
+    {
+      service: 'svc-ws',
+      code: 'ws_status_unconfigured',
+      urlKey: 'WS_STATUS_URL',
+      secretKey: 'WS_STATUS_READ_SECRET',
+    },
+    env.UPSTREAM_TIMEOUT_MS,
+    edgeS2s,
+  ),
 });
 
 registerWidgetRampRoute(app);
