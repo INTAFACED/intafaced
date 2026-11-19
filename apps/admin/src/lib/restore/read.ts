@@ -1,6 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { founderCall, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
 import {
   parseBackups,
   parseRunDetail,

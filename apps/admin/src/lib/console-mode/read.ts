@@ -1,5 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
+import { founderCall, type FounderCallContext } from '@/lib/desk';
 import { isStorageUnconfigured, readConsoleMode, type ConsoleModeView } from './model';
 
 export interface ConsoleModeRead {

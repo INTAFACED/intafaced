@@ -1,8 +1,14 @@
 import 'server-only';
 import { statusPageSchema, type StatusPageConfigureInput, type StatusReadingInput } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+} from '@/lib/desk';
 import { readDefinition, type StatusDeskReply, type StatusDeskView } from './status-model';
 
 /**

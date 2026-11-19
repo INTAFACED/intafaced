@@ -19,8 +19,7 @@ import {
   supportViewListSchema,
   supportViewSchema,
 } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, type FounderCallResult, partFrom, type PartLabels } from '@/lib/desk';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import { DESK_COMMENTS_READ, QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
 import { EMPTY_QUERY, isQueryEmpty, type QueueQuery } from './queue-query';

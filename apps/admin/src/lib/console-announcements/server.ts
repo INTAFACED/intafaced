@@ -7,9 +7,7 @@ import {
   type AnnouncementKind,
   type AnnouncementWriteOutput,
 } from '@intafaced/contracts/ops-console-announcements';
-import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { opsReadOf } from '@/lib/desk/ops-read';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { founderCall, type FounderCallContext, type FounderCallResult, opsReadOf, explainRefusal } from '@/lib/desk';
 import {
   readActiveAnnouncement,
   readAnnouncementsList,

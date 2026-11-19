@@ -14,9 +14,16 @@ import {
 } from '@intafaced/contracts/academy-staff-enrolment';
 import { academyLearnerTagsSchema } from '@intafaced/contracts/academy-learner-desk';
 import { identityLearnerCardResultSchema } from '@intafaced/contracts/identity-learner-card';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+  type RefusalView,
+} from '@/lib/desk';
 import { ENROLMENT_COPY, type EnrolmentReply, type EnrolmentView, type MailView, type ReportsView } from './enrolment-model';
 
 /**

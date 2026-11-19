@@ -1,5 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
+import { founderCall, type FounderCallContext } from '@/lib/desk';
 import { refusalOf, resolveCustomer } from '@/lib/agents-log/server';
 import { customerReference } from '@/lib/agents-log/model';
 import type { FleetAction } from './model';

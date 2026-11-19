@@ -6,8 +6,7 @@ import {
   type OpsCapitalScenarioInput,
   type OpsCapitalSnapshot,
 } from '@intafaced/contracts/ops-capital';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
 import { CAPITAL_REFUSAL_WORDS } from './model';
 
 const labels = (what: string) => ({
