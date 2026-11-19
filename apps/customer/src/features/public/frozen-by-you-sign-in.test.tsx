@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { AuthForm } from './AuthForm';
 
 // A sign-in to an account its owner froze (J-identity-11 #3): account status is read once the session is in place, and

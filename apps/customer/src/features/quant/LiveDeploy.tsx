@@ -9,8 +9,8 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { liveDeployCopy } from './live-deploy-copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;

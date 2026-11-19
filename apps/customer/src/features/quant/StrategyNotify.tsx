@@ -12,8 +12,8 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Loading } from '../../shared/ui';
 import { channelStatus } from '../../screens/notifications/notify-api';
-import { Read, Select, TextArea } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select, TextArea } from '../more';
+import { useApi } from '../session';
 import { notifyCopy } from './notify-copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;

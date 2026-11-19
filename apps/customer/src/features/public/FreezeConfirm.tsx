@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { freezeLinkRedeemSchema } from '@intafaced/contracts/identity';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { freezeConfirmCopy } from './freeze-confirm-copy';

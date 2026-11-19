@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supportRecoveryRedeemSchema } from '@intafaced/contracts/identity';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { supportRecoveryCopy } from './support-recovery-copy';

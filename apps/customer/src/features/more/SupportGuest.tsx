@@ -12,7 +12,7 @@ import { CATEGORY_VALUES } from './support-schemas';
 import { deskCopy } from './support-desk-copy';
 import { guestCopy } from './support-guest-copy';
 import { guestCreate, guestReply, guestThread, guestVerify, takeLinkToken } from './support-guest';
-import './support-desk.css';
+import '../../shared/support-desk.css';
 import '../../shared/public-pages.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;

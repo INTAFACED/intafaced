@@ -17,6 +17,7 @@ import {
   isRefusal,
   issueTitle,
   mainInputOnly,
+  nameRefusal,
   prCandidates,
   prTick,
   rowStep,
@@ -747,6 +748,48 @@ test("18 Nov replayed: a run's jobs come in pages of 50, so the attempt GitHub a
       '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=50&page=1',
       '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=50&page=2',
     ]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('19 Nov replayed (#9093): a spent hourly budget stops the tick and opens no issue; any other refusal opens one', async () => {
+  // Main trust run 44583025342: GET …/real-app-journeys.yml/runs got 403 "API rate limit exceeded for installation" with
+  // x-ratelimit-remaining 0, resets 18:06:22Z, and the tick opened #9093, the third such issue (#8197, #8202).
+  const realFetch = globalThis.fetch;
+  const answer = { headers: {}, message: '' };
+  globalThis.fetch = async () => new Response(JSON.stringify({ message: answer.message }), { status: 403, headers: answer.headers });
+  const spent = { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Date.parse('2026-11-19T18:06:22Z') / 1000) };
+  const stopOf = async () => {
+    try {
+      await githubIo(REPO).openIssue('x');
+    } catch (e) {
+      return e;
+    }
+    throw new Error('the 403 did not stop the call');
+  };
+  const named = async (e) => {
+    const created = [];
+    await nameRefusal({ openIssue: async () => null, createIssue: async (t, b) => created.push({ t, b }) }, e);
+    return created;
+  };
+  try {
+    answer.headers = spent;
+    answer.message = 'API rate limit exceeded for installation.';
+    const e = await stopOf();
+    assert.equal(isRefusal(e), true, 'a spent budget still stops the tick, never retried');
+    assert.equal(e.budgetSpentUntil, '2026-11-19T18:06:22.000Z');
+    assert.deepEqual(await named(e), [], 'no issue: the next tick after the reset starts again');
+
+    answer.headers = { 'x-ratelimit-remaining': '4321', 'retry-after': '60' };
+    answer.message = 'You have exceeded a secondary rate limit.';
+    const secondary = await stopOf();
+    assert.equal(secondary.budgetSpentUntil, null);
+    assert.equal((await named(secondary)).length, 1, 'a secondary limit is a refusal to read');
+
+    answer.headers = { 'x-ratelimit-remaining': '4321' };
+    answer.message = 'Resource not accessible by integration';
+    assert.equal((await named(await stopOf())).length, 1, 'a missing permission is a refusal to read');
   } finally {
     globalThis.fetch = realFetch;
   }

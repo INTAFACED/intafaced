@@ -2,7 +2,7 @@ import { quantMonteCarloSchema, type QuantMonteCarlo } from '@intafaced/contract
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, Failure, Field } from '../../shared/ui';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { researchCopy } from './research-copy';
 import { refusalCode } from './StrategyTeam';
 

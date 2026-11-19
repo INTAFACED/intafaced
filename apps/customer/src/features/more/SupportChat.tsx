@@ -21,7 +21,7 @@ import {
   readKeptChat,
   type KeptChat,
 } from './support-chat';
-import './support-desk.css';
+import '../../shared/support-desk.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type ChatT = ReturnType<typeof chatCopy.useCopy>['t'];

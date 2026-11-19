@@ -2,7 +2,7 @@ import { SUPPORT_HELP_CENTRE_OFF, supportHelpCentreSchema, type SupportHelpCentr
 import type { ApiResult } from '../../shared/api';
 import { contractProcedure, readContract } from '../../shared/contract-call';
 import { useResource, type Resource } from '../../shared/resource';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 
 const helpCentreRead = contractProcedure('support', 'helpCentre', { output: supportHelpCentreSchema });
 
