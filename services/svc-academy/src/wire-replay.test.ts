@@ -271,8 +271,9 @@ function unpack(g: Golden): Replay {
   return { callers: g.callers, calls: g.calls, answers };
 }
 
-async function replay(calls: Call[]): Promise<Replay> {
-  const answers: Replay['answers'] = {};
+/** The real service with the database down, then the refusing service, each asked every request of these calls. */
+async function replayCalls(calls: Call[]): Promise<Record<string, string>> {
+  const answers: Record<string, string> = {};
   const store = await serve(realAcademy());
   try {
     for (const call of calls)
@@ -291,15 +292,24 @@ async function replay(calls: Call[]): Promise<Replay> {
   } finally {
     await notFound.close();
   }
+  return answers;
+}
 
-  // Each refusal once through a query and a mutation that reach the service with the operator's valid input, by every caller.
+const REFUSALS: Array<[string, () => Error]> = [
+  ...ACADEMY_ERROR_CODES.map((code): [string, () => Error] => [code, () => new AcademyError(`replay: ${code}`, code)]),
+  ...OTHER_REFUSALS,
+];
+
+/** The first query and the first mutation whose operator request reaches the refusing service. */
+function throughOf(calls: Call[], answers: Record<string, string>): Call[] {
   const reach = (kind: Call['kind']) =>
     calls.find((c) => c.kind === kind && answers[`${c.path} | refuses valid operator`]?.includes('academy.room_not_found'));
-  const through = [reach('query'), reach('mutation')].filter((c): c is Call => c !== undefined);
-  const refusals: Array<[string, () => Error]> = [
-    ...ACADEMY_ERROR_CODES.map((code): [string, () => Error] => [code, () => new AcademyError(`replay: ${code}`, code)]),
-    ...OTHER_REFUSALS,
-  ];
+  return [reach('query'), reach('mutation')].filter((c): c is Call => c !== undefined);
+}
+
+/** Each refusal once through those calls, by every caller. */
+async function replayRefusals(refusals: Array<[string, () => Error]>, through: Call[]): Promise<Record<string, string>> {
+  const answers: Record<string, string> = {};
   for (const [name, err] of refusals) {
     const app = await serve(refusing(err));
     try {
@@ -310,11 +320,29 @@ async function replay(calls: Call[]): Promise<Replay> {
       await app.close();
     }
   }
-  return { callers: procedureCallers(createAcademyRouter(realAcademy()) as never), calls, answers };
+  return answers;
 }
 
-function golden(): Replay {
-  return unpack(JSON.parse(readFileSync(GOLDEN, 'utf8')) as Golden);
+const callersNow = () => procedureCallers(createAcademyRouter(realAcademy()) as never);
+
+let recordedCache: Replay | undefined;
+function recorded(): Replay {
+  return (recordedCache ??= unpack(JSON.parse(readFileSync(GOLDEN, 'utf8')) as Golden));
+}
+
+/** Pieces, each well inside the 30 s test budget on a loaded runner: the whole replay is about 7,600 requests. */
+const PIECES = 12;
+const piece = <T>(list: readonly T[], i: number): T[] => {
+  const size = Math.ceil(list.length / PIECES);
+  return list.slice(i * size, (i + 1) * size);
+};
+const now: Record<string, string> = {};
+
+function differences(answers: Record<string, string>): string[] {
+  const was = recorded().answers;
+  return Object.entries(answers)
+    .filter(([key, answer]) => was[key] !== answer)
+    .map(([key, answer]) => `${key}: ${was[key]?.slice(0, 200)} != ${answer.slice(0, 200)}`);
 }
 
 beforeAll(() => {
@@ -325,20 +353,42 @@ afterAll(() => {
 });
 
 describe('the wire replay: svc-academy answers as main did before its calls were mounted from records', () => {
-  it('every request in the recording gets the recorded status and body, byte for byte', async () => {
-    if (process.env.WIRE_REPLAY_WRITE === '1') {
-      writeFileSync(GOLDEN, `${JSON.stringify(pack(await replay(makeCalls())), null, 2)}\n`);
+  it.runIf(process.env.WIRE_REPLAY_WRITE === '1')(
+    'writes the recording from the router in this checkout',
+    async () => {
+      const calls = makeCalls();
+      const answers = await replayCalls(calls);
+      Object.assign(answers, await replayRefusals(REFUSALS, throughOf(calls, answers)));
+      writeFileSync(GOLDEN, `${JSON.stringify(pack({ callers: callersNow(), calls, answers }), null, 2)}\n`);
       // The repo's format check covers JSON: the written file leaves in the shape it checks.
       execFileSync(fileURLToPath(new URL('../../../node_modules/.bin/prettier', import.meta.url)), ['--write', fileURLToPath(GOLDEN)]);
-    }
-    const recorded = golden();
-    const now = await replay(recorded.calls);
-    expect(Object.keys(recorded.answers)).toHaveLength(7_588);
-    expect(now.callers).toEqual(recorded.callers);
-    const diffs = Object.entries(recorded.answers)
-      .filter(([key, was]) => now.answers[key] !== was)
-      .map(([key, was]) => `${key}: ${was.slice(0, 200)} != ${now.answers[key]?.slice(0, 200)}`);
-    expect(diffs).toEqual([]);
-    expect(Object.keys(now.answers).filter((key) => !(key in recorded.answers))).toEqual([]);
+      recordedCache = undefined;
+    },
+    600_000,
+  );
+
+  it('serves the recorded calls, each from the same kind of caller rule', () => {
+    expect(Object.keys(recorded().answers)).toHaveLength(7_588);
+    expect(callersNow()).toEqual(recorded().callers);
+  });
+
+  for (let i = 0; i < PIECES; i++)
+    it(`answers piece ${i + 1} of ${PIECES} of the calls byte for byte`, async () => {
+      const answers = await replayCalls(piece(recorded().calls, i));
+      Object.assign(now, answers);
+      expect(differences(answers)).toEqual([]);
+    });
+
+  for (let i = 0; i < PIECES; i++)
+    it(`answers piece ${i + 1} of ${PIECES} of the refusals byte for byte`, async () => {
+      const answers = await replayRefusals(piece(REFUSALS, i), throughOf(recorded().calls, recorded().answers));
+      Object.assign(now, answers);
+      expect(differences(answers)).toEqual([]);
+    });
+
+  it('asks every recorded request and nothing else', () => {
+    const was = Object.keys(recorded().answers);
+    expect(was.filter((key) => !(key in now))).toEqual([]);
+    expect(Object.keys(now).filter((key) => !was.includes(key))).toEqual([]);
   });
 });
