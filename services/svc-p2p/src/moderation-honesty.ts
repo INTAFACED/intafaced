@@ -1,4 +1,5 @@
-import { z } from 'zod';
+import type { z } from 'zod';
+import type { P2P_MODERATION } from '@intafaced/contracts/p2p-procedures';
 
 /**
  * Health / open / backlog never probe a human moderator.
@@ -11,18 +12,8 @@ import { z } from 'zod';
 export const P2P_MODERATION_UNREACHABLE = 'p2p.moderation_unreachable' as const;
 export const P2P_MODERATION_UNPROBED = 'p2p.moderation_unprobed' as const;
 
-export const moderationHonestySchema = z.discriminatedUnion('status', [
-  z.object({
-    status: z.literal('absent'),
-    code: z.literal(P2P_MODERATION_UNREACHABLE),
-  }),
-  z.object({
-    status: z.literal('configured'),
-    code: z.literal(P2P_MODERATION_UNPROBED),
-  }),
-]);
-
-export type ModerationHonesty = z.infer<typeof moderationHonestySchema>;
+/** The shape is the record's (`P2P_MODERATION`), which health, a dispute and the backlog answer with. */
+export type ModerationHonesty = z.infer<typeof P2P_MODERATION>;
 
 export function moderationHonesty(configured: boolean): ModerationHonesty {
   if (!configured) {

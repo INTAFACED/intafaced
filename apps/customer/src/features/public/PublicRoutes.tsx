@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { BrandLockup, BrandWordmark } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { SignUp } from './SignUp';
@@ -10,7 +10,7 @@ import { RecoverAccount } from './RecoverAccount';
 import { FreezeConfirm } from './FreezeConfirm';
 import { AppealSignedOut } from './AppealSignedOut';
 import { Invitation } from './Invitation';
-import { DevelopersRoutes } from '../developers/DevelopersRoutes';
+import { DevelopersRoutes } from '../developers';
 import { PublicHelp as Help } from './PublicHelp';
 import { HelpLibrary } from './HelpLibrary';
 import { helpLibraryPath } from './help-library';
@@ -29,13 +29,7 @@ import { RulebookRoom } from './rulebook/RulebookRoom';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
-
-// A guest's support links (SP-tickets-01) load only when one is opened.
-const GuestVerify = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestVerify })));
-const GuestRequest = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestRequest })));
-// Live chat as a guest (SP-chat-01).
-const GuestChat = lazy(() => import('../more/SupportChat').then((m) => ({ default: m.SupportChatRoom })));
-const GuestNewRequest = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestNewRequest })));
+import { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from '../more';
 
 // A backtest result shared by link (AL-report-03) loads only when one is opened.
 const SharedResultRoute = lazy(() => import('../quant/SharedResultRoute'));

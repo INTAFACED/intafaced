@@ -77,6 +77,9 @@ async function mock(page, options = {}) {
         return route.fulfill(trpc(state.channels));
       case 'notify.mutePrefs':
         return route.fulfill(trpc(state.prefs));
+      case 'notify.inboxPolicy':
+        // The stack's LOCAL TEST owner values (tooling/scripts/local-stack-services/notify.mjs).
+        return route.fulfill(trpc({ pageSize: 20, unreadCap: 99, inventsLimits: false }));
       case 'notify.targets':
         return route.fulfill(
           trpc([{ channel: 'email', address: 'test-friend@local.test', locale: 'en', verifiedAt: new Date().toISOString() }]),

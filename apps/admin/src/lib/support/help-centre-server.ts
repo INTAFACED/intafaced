@@ -5,8 +5,7 @@ import {
   type SupportHelpCentre,
   type SupportHelpCentreTranslationList,
 } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part, type PartLabels } from '@/lib/desk';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 
 /** How many article-version × language rows the desk reads in one page. A page size of this screen, not an owner value. */

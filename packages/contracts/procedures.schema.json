@@ -3933,6 +3933,97 @@
         }
       ]
     },
+    "notify.inboxPolicy": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "notify.inboxPolicy",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "pageSize": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pageSizeUnsetCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "notify.list_limit_unset"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unreadCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unreadCapUnsetCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "notify.unread_cap_unset"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retentionDays": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": ["keeps_every_row", "days"]
+          },
+          "inventsLimits": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": ["pageSize", "pageSizeUnsetCode", "unreadCap", "unreadCapUnsetCode", "retentionDays", "retention", "inventsLimits"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "ops.home.config": {
       "service": "svc-ops",
       "module": "ops",
@@ -4185,6 +4276,800 @@
       "accept": {
         "aboveZero": "every published price is greater than zero",
         "onePerAsset": "no asset is priced twice"
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.access.eligibility": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "access.eligibility",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read"
+      },
+      "refusals": {
+        "p2p.contact_required": "FORBIDDEN",
+        "p2p.contact_unverifiable": "PRECONDITION_FAILED",
+        "p2p.take_gate_unwired": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "enum": ["verification", "contact", "jurisdiction", "deposit"]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["met", "not_met", "unknown"]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "fix": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "state", "reason", "fix"],
+              "additionalProperties": false
+            }
+          },
+          "canTake": {
+            "type": "boolean"
+          }
+        },
+        "required": ["checks", "canTake"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.access.limits": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "access.limits",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.config_unset": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cancels": {
+            "type": "object",
+            "properties": {
+              "used": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cap": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "windowHours": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "nextDropAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "restrictedUntil": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["used", "cap", "windowHours", "nextDropAt", "restrictedUntil"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["cancels"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.contacts.block": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "contacts.block",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.contact_self": "FORBIDDEN",
+        "p2p.block_open_order": "CONFLICT",
+        "p2p.idempotency_conflict": "CONFLICT",
+        "p2p.idempotency_in_progress": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "peerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": ["peerId", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "following": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocking": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["following", "blocking"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "peerId": "22222222-2222-4222-8222-222222222222",
+            "idempotencyKey": "contact-change-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "peerId": "not-an-id",
+            "idempotencyKey": "contact-change-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "peerId": "22222222-2222-4222-8222-222222222222",
+            "idempotencyKey": "short"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "p2p.contacts.follow": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "contacts.follow",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.contact_self": "FORBIDDEN",
+        "p2p.block_open_order": "CONFLICT",
+        "p2p.idempotency_conflict": "CONFLICT",
+        "p2p.idempotency_in_progress": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "peerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": ["peerId", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "following": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocking": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["following", "blocking"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "peerId": "22222222-2222-4222-8222-222222222222",
+            "idempotencyKey": "contact-change-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "peerId": "not-an-id",
+            "idempotencyKey": "contact-change-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "peerId": "22222222-2222-4222-8222-222222222222",
+            "idempotencyKey": "short"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "p2p.contacts.list": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "contacts.list",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "following": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocking": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["following", "blocking"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.contacts.unblock": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "contacts.unblock",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.contact_self": "FORBIDDEN",
+        "p2p.block_open_order": "CONFLICT",
+        "p2p.idempotency_conflict": "CONFLICT",
+        "p2p.idempotency_in_progress": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "peerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": ["peerId", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "following": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocking": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["following", "blocking"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "peerId": "22222222-2222-4222-8222-222222222222",
+            "idempotencyKey": "contact-change-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "peerId": "not-an-id",
+            "idempotencyKey": "contact-change-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "peerId": "22222222-2222-4222-8222-222222222222",
+            "idempotencyKey": "short"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "p2p.contacts.unfollow": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "contacts.unfollow",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.contact_self": "FORBIDDEN",
+        "p2p.block_open_order": "CONFLICT",
+        "p2p.idempotency_conflict": "CONFLICT",
+        "p2p.idempotency_in_progress": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "peerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": ["peerId", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "following": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocking": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["following", "blocking"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "peerId": "22222222-2222-4222-8222-222222222222",
+            "idempotencyKey": "contact-change-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "peerId": "not-an-id",
+            "idempotencyKey": "contact-change-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "peerId": "22222222-2222-4222-8222-222222222222",
+            "idempotencyKey": "short"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "p2p.fees.schedule": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "fees.schedule",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {
+        "p2p.fee_bps_unset": "PRECONDITION_FAILED",
+        "p2p.invalid_fee_bps": "BAD_REQUEST"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "feeBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "chargedOn": {
+            "type": "string",
+            "const": "release"
+          },
+          "basis": {
+            "type": "string",
+            "const": "released_amount"
+          }
+        },
+        "required": ["feeBps", "chargedOn", "basis"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.fiat.list": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "fiat.list",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "symbol": {
+              "type": "string"
+            },
+            "minorUnits": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["code", "name", "symbol", "minorUnits"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.health": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "health",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "service": {
+            "type": "string",
+            "const": "svc-p2p"
+          },
+          "moderationConfigured": {
+            "type": "boolean"
+          },
+          "moderation": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "absent"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "p2p.moderation_unreachable"
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "configured"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "p2p.moderation_unprobed"
+                  }
+                },
+                "required": ["status", "code"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "offerLimitsConfigured": {
+            "type": "boolean"
+          },
+          "offerLimitsPosture": {
+            "type": "string",
+            "enum": ["unset", "unlimited", "configured"]
+          },
+          "instrumentKmsConfigured": {
+            "type": "boolean",
+            "const": false
+          },
+          "instrumentKeyProvider": {
+            "type": "string",
+            "enum": ["none", "local-test"]
+          }
+        },
+        "required": [
+          "ok",
+          "service",
+          "moderationConfigured",
+          "moderation",
+          "offerLimitsConfigured",
+          "offerLimitsPosture",
+          "instrumentKmsConfigured",
+          "instrumentKeyProvider"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.limits.securityChange": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "limits.securityChange",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.security_change_lock_unset": "PRECONDITION_FAILED",
+        "p2p.invalid_security_change_lock": "PRECONDITION_FAILED",
+        "p2p.security_change_lock_unwired": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "seconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["seconds"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.limits.verification": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "limits.verification",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.verification_limits_unset": "PRECONDITION_FAILED",
+        "p2p.verification_limits_invalid": "PRECONDITION_FAILED",
+        "p2p.verification_level_unwired": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tier": {
+            "type": "string",
+            "enum": ["none", "basic", "full", "institutional"]
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "orderMin": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "orderMax": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "dailyMax": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "lifetimeMax": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "dailyUsed": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "lifetimeUsed": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "dailyRemaining": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "lifetimeRemaining": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": [
+          "tier",
+          "currency",
+          "orderMin",
+          "orderMax",
+          "dailyMax",
+          "lifetimeMax",
+          "dailyUsed",
+          "lifetimeUsed",
+          "dailyRemaining",
+          "lifetimeRemaining"
+        ],
+        "additionalProperties": false
       },
       "samples": [
         {

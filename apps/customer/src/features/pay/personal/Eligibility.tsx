@@ -2,11 +2,12 @@ import { StatusTag } from '@intafaced/ui';
 import { useResource } from '../../../shared/resource';
 import { PaySection, PayState } from '../components';
 import type { PersonalPayApi } from '../pay-api';
-import type { P2PEligibility } from '../schemas';
+import type { P2P_ACCESS_ELIGIBILITY } from '@intafaced/contracts/p2p-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { eligibilityCopy } from './p2p-eligibility-copy';
 
 type CopyT = ReturnType<typeof eligibilityCopy.useCopy>['t'];
-type Check = P2PEligibility['checks'][number];
+type Check = ProcedureOutput<typeof P2P_ACCESS_ELIGIBILITY>['checks'][number];
 
 /** One check's reason in words. The service sends a code; the words are the app's. */
 export function eligibilityReason(t: CopyT, check: Check): string {

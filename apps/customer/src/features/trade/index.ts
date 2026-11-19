@@ -7,5 +7,10 @@ export {
   venueOrderSchema,
   venuePositionSchema,
   walletTypedData,
+  type VenueFeeRates,
+  type VenueFeeTier,
+  type VenueFeeTiers,
+  type VenuePublicFees,
 } from './venue-api';
-export { useOwner, VenueFrame, WalletBar } from './venue/VenueKit';
+export { bpsToPercent, rateShown } from './venue/fee-rates';
+export { TestMark, useOwner, useVenueApi, VenueFrame, WalletBar } from './venue/VenueKit';

@@ -12,8 +12,7 @@ import {
   notifyReconAlertFeedSchema,
   type NotifyReconAlertFeed,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
 import { refusalWords } from './model';
 
 const labels = {

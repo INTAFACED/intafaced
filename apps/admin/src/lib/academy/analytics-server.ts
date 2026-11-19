@@ -10,9 +10,16 @@ import {
   academyRequestReportInputSchema,
   type AcademyReportCentreFile,
 } from '@intafaced/contracts/academy-analytics';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+  type RefusalView,
+} from '@/lib/desk';
 import { activityWindow, type AnalyticsView, type ReportsDeskReply, type ReportsView } from './analytics-model';
 
 /**

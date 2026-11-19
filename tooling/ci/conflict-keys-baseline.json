@@ -825,15 +825,6 @@
       "why": "The house MM stub row writes no client_order_id (fills.ts:524-532), so it is NULL, and NULLs never clash in the plain index (0000_trade_init.sql:145)."
     },
     {
-      "file": "services/svc-trade/src/spot/trade-service/limit-convert.ts",
-      "table": "convert_limits",
-      "target": "(user_id, client_limit_id)",
-      "constraint": "convert_limits_pkey",
-      "verdict": "race",
-      "issue": 8884,
-      "why": "id = limitConvertIdFor(userId, clientLimitId) (spot/trade-service/limit-convert.ts:205), the same inputs as the target, with no lock. A concurrent retry passes the SELECT at 178 twice, and the loser gets 23505 convert_limits_pkey instead of re-entering placeLimitConvert (line 221)."
-    },
-    {
       "file": "services/svc-trade/src/venue/agent-desk-store.ts",
       "table": "user_venue_agent_desk_audit",
       "target": "(key_id) WHERE action='quarantine'",

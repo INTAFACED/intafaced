@@ -1,6 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
+import { founderCall, type FounderCallContext, partFrom, type Part, type PartLabels } from '@/lib/desk';
 import { readSearchMisses, SEARCH_MISS_DAYS, type SearchMisses } from './search-misses-model';
 
 const LABELS: PartLabels = {
