@@ -1,6 +1,6 @@
 import type { CallModule, FounderCallFailure } from './founder-call';
-import type { ExecuteReply } from './approval-types';
-import { codeInText, explainRefusal, isKnownCode } from './refusal-copy';
+import type { ExecuteReply } from '../approval-types';
+import { codeInText, explainRefusal, isKnownCode } from '../refusal-copy';
 
 /**
  * A failed founder call as a desk refusal, in the words every desk shows: a missing operator permission is named with

@@ -1,5 +1,5 @@
 import { REASON_MAX, REASON_MIN, confirmPhrase, packetExpired, type ApprovalPacket, type DeskRequest } from './approval-packet';
-import type { StepName } from './approval-types';
+import type { StepName } from '../approval-types';
 
 /**
  * Which buttons a founder may press right now, and why not. Pure, so every disabled state is a test.

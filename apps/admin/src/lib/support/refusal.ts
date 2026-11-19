@@ -1,5 +1,5 @@
 import type { FounderCallFailure } from '@/lib/desk/founder-call';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import { explainRefusal, type RefusalView } from '@/lib/refusal-copy';
 
 /**
  * Plain-English answers for what svc-support says back to a founder acting on a ticket or an article.

@@ -1,5 +1,5 @@
 import { readOpenedDocument, type OpenedDocument } from '@/lib/kyc-documents/document';
-import { isApprovalId } from './approval-packet';
+import { isApprovalId } from '@/lib/desk/approval-packet';
 import type { RefusalView } from './refusal-copy';
 import { isRecord } from '@intafaced/contracts/guards';
 

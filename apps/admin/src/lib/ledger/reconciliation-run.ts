@@ -1,6 +1,6 @@
-import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
+import { codeInText, explainRefusal, isKnownCode } from '@/lib/refusal-copy';
 import { upstreamCodeOf } from '@/lib/founder-session';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
+import type { ExecuteReply } from '@/lib/approval-types';
 import { RECONCILIATION_LIFECYCLE_MOVES, type ReconciliationLifecycle } from '@intafaced/contracts/ledger-reconciliation';
 import { STATE_LABELS, describeRun, parseControlRun, parseControlView } from './reconciliation';
 

@@ -1,6 +1,6 @@
 /** Browser hop for the support desk. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import type { SupportMergePreview } from '@intafaced/contracts';
 import { supportMacroAppliedSchema, type SupportMacroApplied } from '@intafaced/contracts/support-macros';
 import { readMergePreview } from './merge';
