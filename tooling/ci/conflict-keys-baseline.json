@@ -861,15 +861,6 @@
       "why": "accountId is the caller's req.accountId (venue/agent-account.ts:349), and agent_address = agentAddressFor(seed, userId, accountId) (agent-account.ts:391), so a double-submitted open carries equal (user_id, account_id) and equal agent_address. The loser gets 23505 user_venue_agent_accounts_agent_uq instead of insertOnce returning the stored account (agent-account-store.ts:277-291)."
     },
     {
-      "file": "services/svc-trade/src/venue/agent-connection-store.ts",
-      "table": "user_venue_agent_connections",
-      "target": "(key_id) WHERE ended_atisnull",
-      "constraint": "user_venue_agent_connections_pkey",
-      "verdict": "race",
-      "issue": 8887,
-      "why": "Narrow: pkey is (key_id, created_at), and created_at is this.deps.now() in milliseconds (venue/agent-orders.ts:274-278). Two concurrent connects of one key that both pass active() (263) in the same millisecond carry equal pkey values, and the loser gets 23505 pkey instead of DO NOTHING. Calls in different milliseconds differ on created_at and resolve on the active partial arbiter."
-    },
-    {
       "file": "services/svc-trade/src/venue/agent-desk-store.ts",
       "table": "user_venue_agent_desk_audit",
       "target": "(key_id) WHERE action='quarantine'",
