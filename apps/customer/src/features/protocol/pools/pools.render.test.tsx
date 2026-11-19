@@ -16,7 +16,11 @@ const mutate = vi.fn((module: string, procedure: string, input: unknown) => {
   const answer = answers.get(procedure);
   return answer === undefined ? new Promise(() => undefined) : Promise.resolve(answer);
 });
-vi.mock('../../session/session', () => ({ useApi: () => ({ query, mutate }) }));
+/** A call by its record reaches the same answers as the module and path it names (`api.call`). */
+const call = vi.fn((record: { module: string; path: string; kind: string }, input: unknown) =>
+  record.kind === 'mutation' ? mutate(record.module, record.path, input) : query(record.module, record.path, input),
+);
+vi.mock('../../session/session', () => ({ useApi: () => ({ query, mutate, call }) }));
 import { PoolsList } from './PoolsList';
 import { PoolPage } from './PoolPage';
 import { candleGeometry, compareDecimal } from './PriceChart';

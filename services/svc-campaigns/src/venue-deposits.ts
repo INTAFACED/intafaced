@@ -1,5 +1,6 @@
-import { serviceCallSigner, unwrapTrpcData, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
-import { protocolVenueWalletStatusOutputSchema } from '@intafaced/contracts/protocol-venue-wallet';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
+import { PROTOCOL_VENUE_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
 import { z } from 'zod';
 
 /**
@@ -83,11 +84,11 @@ export function createVenueDepositSource(options: {
   return {
     async wallets(forwarded) {
       if (Object.keys(forwarded).length === 0) return null;
-      const body = await getJson(`${protocol}/trpc/venueWallet.status`, forwarded);
-      const parsed = protocolVenueWalletStatusOutputSchema.safeParse(unwrapTrpcData(body));
-      if (!parsed.success) return null;
+      const body = await getJson(trpcRecordRequest(PROTOCOL_VENUE_WALLET_STATUS, protocol, undefined).url, forwarded);
+      const status = trpcRecordReply(PROTOCOL_VENUE_WALLET_STATUS, body);
+      if (status === null) return null;
       // An expired connection is still the person's own wallet (it only refuses signed actions); a blocked one is not read.
-      const live = parsed.data.connections.filter((c) => c.status !== 'blocked').map((c) => c.address.toLowerCase());
+      const live = status.connections.filter((c) => c.status !== 'blocked').map((c) => c.address.toLowerCase());
       return [...new Set(live)];
     },
     async deposits(owner) {

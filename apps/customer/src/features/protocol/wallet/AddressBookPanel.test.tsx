@@ -12,7 +12,9 @@ const contacts: Array<{ id: string; address: string; label: string; createdAt: s
 const transport = {
   canWrite: () => true,
   query: () => new Promise(() => undefined),
-  mutate: async (_module: string, procedure: string, input: Record<string, unknown>) => {
+  call: async ({ path: procedure }: { path: string }, input: Record<string, unknown>) => {
+    // The protocol API's pool reads the room also makes: never answered, as `query`.
+    if (procedure.startsWith('amm.')) return new Promise(() => undefined);
     procedures.push(procedure);
     if (procedure === 'walletSession.challenge') return { ok: true, data: { message: 'sign in', challenge: 'c', expiresAt: later } };
     if (procedure === 'walletSession.open') return { ok: true, data: { session: 's', address: ADDR, expiresAt: later } };

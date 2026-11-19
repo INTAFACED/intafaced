@@ -1,6 +1,7 @@
 // hand-declared-ok: svc-indexer's explorer output schemas are declared in its router, not in @intafaced/contracts.
+import { PROTOCOL_AMM_POOL_FEES, PROTOCOL_AMM_REQUEST_PROTOCOL_FEE } from '@intafaced/contracts/protocol-amm-procedures';
 import { z } from 'zod';
-import { protocolPoolFeesOutputSchema, type ProtocolPoolFees } from '@intafaced/contracts/protocol-fees';
+import type { ProtocolPoolFees } from '@intafaced/contracts/protocol-fees';
 import type { ApiClient } from '../../../shared/api';
 
 /**
@@ -96,9 +97,9 @@ export const isNotFactoryPool = (failure: { code?: string; message?: string }) =
 export function createPoolsApi(api: ApiClient) {
   return {
     /** The pool's own fee fields, read from the chain by the protocol service: the swap fee and who gets it. */
-    fees: (pool: string, signal?: AbortSignal) => api.query('protocol', 'amm.poolFees', { pool }, protocolPoolFeesOutputSchema, { signal }),
+    fees: (pool: string, signal?: AbortSignal) => api.call(PROTOCOL_AMM_POOL_FEES, { pool }, { signal }),
     /** Asks for a protocol fee on the pool. It moves nothing; with the owner's fee policy blank, it refuses by name. */
-    requestProtocolFee: (pool: string) => api.mutate('protocol', 'amm.requestProtocolFee', { pool }, z.unknown()),
+    requestProtocolFee: (pool: string) => api.call(PROTOCOL_AMM_REQUEST_PROTOCOL_FEE, { pool }),
     /** The owner factory's pools, newest first, in pages of the owner's list limit. A blank factory refuses by name. */
     list: (chainId: number, signal?: AbortSignal, cursor?: PoolCursor) =>
       api.query('indexer', 'explorer.pools.list', { chainId, ...(cursor ? { cursor } : {}) }, poolsPageSchema, { signal }),

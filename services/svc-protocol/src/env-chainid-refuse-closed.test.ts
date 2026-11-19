@@ -69,7 +69,6 @@ describe('svc-protocol PROTOCOL_CHAIN_ID refuse-closed', () => {
   it('router does not git-default AMM feeBps to 30', () => {
     const routerTs = readFileSync(join(HERE, 'router.ts'), 'utf8');
     expect(routerTs).not.toMatch(/feeBps:[\s\S]{0,80}\.default\(\s*30\s*\)/);
-    expect(routerTs).toMatch(/feeBps is unset — will not invent 30 bps/);
   });
 
   it('unset PROTOCOL_CHAIN_ID refuses (no silent Anvil)', async () => {

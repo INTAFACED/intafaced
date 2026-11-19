@@ -9,7 +9,6 @@ import { SCOPES, type Principal, type Scope } from '@intafaced/auth';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, encodePrincipal, procedureCallers, signPrincipalHeader } from '@intafaced/contracts';
 import type { Env } from './env.js';
-import { AccountRegistry } from './accounts/registry.js';
 import { ProtocolChain } from './chain/client.js';
 import { chainIdentityReader } from './chain/identity.js';
 import { isZeroAddress } from './chain/availability.js';
@@ -17,8 +16,6 @@ import { parseGasPercentileSetting } from './chain/gas-price.js';
 import { SessionRelay } from './session/relay.js';
 import { createPeers } from './blockers/peers.js';
 import { createProtocolRouter } from './router.js';
-import { badgeChainIsMainnet, badgeChainIsRestartable, badgeWindowFromSetting, noBadgeSigner } from './nft/founding-badge.js';
-import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
 import { PostgresAddressRiskStore } from './address-risk/risk.pg.js';
@@ -32,9 +29,7 @@ import { embeddedWalletFromSetting } from './embedded-wallet/provider.js';
 import { PostgresEmbeddedWalletStore } from './embedded-wallet/embedded.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
 import { PostgresListingStore } from './listing/ownership.pg.js';
-import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
-import { loadNetworkRegistry, networksRegistryPathFromSetting } from './networks/registry.js';
-import { PostgresAccountStore } from './db/postgres-store.js';
+import { chainIsMainnet, loadNetworkRegistry, networksRegistryPathFromSetting } from './networks/registry.js';
 
 /**
  * The wire replay for svc-protocol: every protocol call's current answers, recorded before anyone moves them.
@@ -112,7 +107,6 @@ function stub(name: string): never {
 /** The composition `index.ts` makes, with the same factories in the same order, over the stubbed database and RPC client. */
 export function createReplayProtocolRouter() {
   const sql = stub('sql');
-  const drizzle = stub('drizzle');
   const chain = new ProtocolChain({
     chainId: env.PROTOCOL_CHAIN_ID,
     rpcUrl: env.PROTOCOL_RPC_URL,
@@ -125,16 +119,7 @@ export function createReplayProtocolRouter() {
   // No node: every RPC call refuses with the method it reached.
   Object.defineProperty(chain, 'client', { value: stub('chain.client') });
   const chainIdentity = chainIdentityReader(chain);
-  const registry = new AccountRegistry(
-    new PostgresAccountStore(drizzle),
-    {
-      chainId: env.PROTOCOL_CHAIN_ID,
-      factory: env.PROTOCOL_FACTORY_ADDRESS as Address,
-      implementation: env.PROTOCOL_IMPLEMENTATION_ADDRESS as Address,
-    },
-    chainIdentity,
-  );
-  const relay = new SessionRelay(chain);
+  const relay = new SessionRelay();
   const relayEnabled = env.PROTOCOL_RELAY_ENABLED;
   const representationSetting = representationFromSetting(env.PROTOCOL_REPRESENTATION_VERSION, env.PROTOCOL_REPRESENTATION_TEXT, APP_ENV);
   const walletSessionSetting = walletSessionFromSetting(
@@ -153,14 +138,11 @@ export function createReplayProtocolRouter() {
   const networksRegistryPath = networksRegistryPathFromSetting(env.PROTOCOL_TEST_NETWORKS_REGISTRY, APP_ENV);
   const loadNetworks = () => loadNetworkRegistry(networksRegistryPath);
   const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, APP_ENV);
-  let badgeRestartable: boolean | undefined;
   return createProtocolRouter({
     chainIdentity,
     loadNetworks,
-    opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
     gasPercentiles: () => parseGasPercentileSetting(env.PROTOCOL_GAS_PERCENTILES, env.PROTOCOL_GAS_HISTORY_BLOCKS),
     chain,
-    registry,
     relay,
     relayEnabled: () => relayEnabled,
     ammFactoryAddress: () => env.PROTOCOL_AMM_FACTORY_ADDRESS as `0x${string}`,
@@ -181,7 +163,7 @@ export function createReplayProtocolRouter() {
     claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
     p2pEscrow: () => ({
       escrow: env.PROTOCOL_P2P_ESCROW_ADDRESS as `0x${string}`,
-      mainnet: badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworks()),
+      mainnet: chainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworks()),
     }),
     venue: () => env.PROTOCOL_VENUE_ADDRESS as `0x${string}`,
     lendingMarket: () => env.PROTOCOL_LENDING_MARKET_ADDRESS as `0x${string}`,
@@ -220,16 +202,6 @@ export function createReplayProtocolRouter() {
       sanctions: () => walletSanctions,
     },
     embeddedWallet: { store: new PostgresEmbeddedWalletStore(sql), setting: () => embeddedWalletSetting },
-    badge: {
-      store: new PostgresBadgeStore(sql),
-      minter: noBadgeSigner,
-      window: () => badgeWindowFromSetting(env.PROTOCOL_BADGE_WINDOW_OPENS_AT, env.PROTOCOL_BADGE_WINDOW_CLOSES_AT),
-      mainnet: () => badgeChainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworks()),
-      restartable: () =>
-        (badgeRestartable ??= badgeChainIsRestartable(env.PROTOCOL_CHAIN_ID, loadNetworks(), APP_ENV, env.PROTOCOL_RPC_URL)),
-      approvals: badgeApprovalConsumer(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
-      stuckMintAgeSeconds: () => env.PROTOCOL_BADGE_STUCK_MINT_AGE_SECONDS,
-    },
     peers: createPeers({
       indexer: { url: env.INDEXER_URL, timeoutMs: env.PROTOCOL_PEER_TIMEOUT_MS },
       dex: { url: env.DEX_URL, timeoutMs: env.PROTOCOL_PEER_TIMEOUT_MS },

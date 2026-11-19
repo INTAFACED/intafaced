@@ -1,18 +1,18 @@
-import { z } from 'zod';
 import {
-  liquidityBuildAddOutputSchema,
-  liquidityBuildRemoveOutputSchema,
-  liquidityBuildSwapAddOutputSchema,
-  liquidityCreateOutputSchema,
-  liquidityExplainOutputSchema,
-  liquidityFeeTiersOutputSchema,
-  liquidityPoolExistsOutputSchema,
-  liquidityPositionOutputSchema,
-  liquidityPositionsOutputSchema,
-  liquidityQuoteAddOutputSchema,
-  liquidityQuoteSwapAddOutputSchema,
-  liquiditySendSharesOutputSchema,
-} from '@intafaced/contracts/protocol-liquidity';
+  PROTOCOL_AMM_BUILD_ADD_LIQUIDITY,
+  PROTOCOL_AMM_BUILD_CREATE_AND_SEED,
+  PROTOCOL_AMM_BUILD_REMOVE_LIQUIDITY,
+  PROTOCOL_AMM_BUILD_SEND_SHARES,
+  PROTOCOL_AMM_BUILD_SWAP_AND_ADD,
+  PROTOCOL_AMM_CLAIM_FEES,
+  PROTOCOL_AMM_EXPLAIN_LIQUIDITY_CALL,
+  PROTOCOL_AMM_FEE_TIERS,
+  PROTOCOL_AMM_POOL_EXISTS,
+  PROTOCOL_AMM_POSITION,
+  PROTOCOL_AMM_POSITIONS,
+  PROTOCOL_AMM_QUOTE_ADD_LIQUIDITY,
+  PROTOCOL_AMM_QUOTE_SWAP_AND_ADD,
+} from '@intafaced/contracts/protocol-amm-procedures';
 import type { ApiClient } from '../../../shared/api';
 
 /**
@@ -21,30 +21,25 @@ import type { ApiClient } from '../../../shared/api';
  */
 export function createLiquidityApi(api: ApiClient) {
   return {
-    feeTiers: (signal?: AbortSignal) => api.query('protocol', 'amm.feeTiers', undefined, liquidityFeeTiersOutputSchema, { signal }),
+    feeTiers: (signal?: AbortSignal) => api.call(PROTOCOL_AMM_FEE_TIERS, undefined, { signal }),
     poolExists: (input: { tokenA: string; tokenB: string; feeBps: number }, signal?: AbortSignal) =>
-      api.query('protocol', 'amm.poolExists', input, liquidityPoolExistsOutputSchema, { signal }),
+      api.call(PROTOCOL_AMM_POOL_EXISTS, input, { signal }),
     buildCreate: (input: { owner: string; tokenA: string; tokenB: string; feeBps: number; amountA: string; amountB: string }) =>
-      api.query('protocol', 'amm.buildCreateAndSeed', input, liquidityCreateOutputSchema),
+      api.call(PROTOCOL_AMM_BUILD_CREATE_AND_SEED, input),
     quoteAdd: (input: { pool: string; amount0Desired: string; amount1Desired: string }, signal?: AbortSignal) =>
-      api.query('protocol', 'amm.quoteAddLiquidity', input, liquidityQuoteAddOutputSchema, { signal }),
+      api.call(PROTOCOL_AMM_QUOTE_ADD_LIQUIDITY, input, { signal }),
     buildAdd: (input: { owner: string; pool: string; amount0Desired: string; amount1Desired: string; minShares: string }) =>
-      api.query('protocol', 'amm.buildAddLiquidity', input, liquidityBuildAddOutputSchema),
+      api.call(PROTOCOL_AMM_BUILD_ADD_LIQUIDITY, input),
     quoteSwapAdd: (input: { pool: string; tokenIn: string; amountIn: string }, signal?: AbortSignal) =>
-      api.query('protocol', 'amm.quoteSwapAndAdd', input, liquidityQuoteSwapAddOutputSchema, { signal }),
+      api.call(PROTOCOL_AMM_QUOTE_SWAP_AND_ADD, input, { signal }),
     buildSwapAdd: (input: { owner: string; pool: string; tokenIn: string; amountIn: string; minShares: string }) =>
-      api.query('protocol', 'amm.buildSwapAndAdd', input, liquidityBuildSwapAddOutputSchema),
-    buildRemove: (input: { owner: string; pool: string; shares: string }) =>
-      api.query('protocol', 'amm.buildRemoveLiquidity', input, liquidityBuildRemoveOutputSchema),
-    buildSend: (input: { owner: string; pool: string; to: string; shares: string }) =>
-      api.query('protocol', 'amm.buildSendShares', input, liquiditySendSharesOutputSchema),
-    claimFees: (pool: string) => api.mutate('protocol', 'amm.claimFees', { pool }, z.unknown()),
-    positions: (account: string, signal?: AbortSignal) =>
-      api.query('protocol', 'amm.positions', { account }, liquidityPositionsOutputSchema, { signal }),
-    position: (pool: string, account: string, signal?: AbortSignal) =>
-      api.query('protocol', 'amm.position', { pool, account }, liquidityPositionOutputSchema, { signal }),
-    explain: (input: { from: string; to: string; data: string }) =>
-      api.query('protocol', 'amm.explainLiquidityCall', input, liquidityExplainOutputSchema),
+      api.call(PROTOCOL_AMM_BUILD_SWAP_AND_ADD, input),
+    buildRemove: (input: { owner: string; pool: string; shares: string }) => api.call(PROTOCOL_AMM_BUILD_REMOVE_LIQUIDITY, input),
+    buildSend: (input: { owner: string; pool: string; to: string; shares: string }) => api.call(PROTOCOL_AMM_BUILD_SEND_SHARES, input),
+    claimFees: (pool: string) => api.call(PROTOCOL_AMM_CLAIM_FEES, { pool }),
+    positions: (account: string, signal?: AbortSignal) => api.call(PROTOCOL_AMM_POSITIONS, { account }, { signal }),
+    position: (pool: string, account: string, signal?: AbortSignal) => api.call(PROTOCOL_AMM_POSITION, { pool, account }, { signal }),
+    explain: (input: { from: string; to: string; data: string }) => api.call(PROTOCOL_AMM_EXPLAIN_LIQUIDITY_CALL, input),
   };
 }
 export type LiquidityApi = ReturnType<typeof createLiquidityApi>;

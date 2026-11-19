@@ -1,6 +1,6 @@
-import { z } from 'zod';
 import { decodeAbiParameters, encodeAbiParameters, isAddress, keccak256, toFunctionSelector, getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
+import { protocolSessionSpecInputSchema, type ProtocolSessionSpecInput } from '@intafaced/contracts/protocol-procedures';
 import { swapMinOutFloor } from '../amm/slippage.js';
 
 /**
@@ -268,33 +268,30 @@ export interface SessionSpec {
   readonly selectors: readonly Hex[];
 }
 
-const addressSchema = z
-  .string()
-  .refine((v) => isAddress(v, { strict: false }), { message: 'not an EVM address' })
-  .transform((v) => toChecksum(v));
+/** A session scope as the service reads it: the wire shape (`protocolSessionSpecInputSchema`), addresses checksummed, selectors lower case. */
+export interface SessionSpecInput {
+  readonly key: Address;
+  readonly validAfter: number;
+  readonly validUntil: number;
+  readonly spendLimitWei: string;
+  readonly targets: readonly Address[];
+  readonly selectors: readonly Hex[];
+}
 
-const selectorSchema = z
-  .string()
-  .regex(/^0x[0-9a-fA-F]{8}$/, 'a selector is 4 bytes')
-  .transform((v) => v.toLowerCase() as Hex);
+/** Normalises a scope the `buildSessionGrant` record admitted: the one place its addresses and selectors take their canonical form. */
+export function sessionSpecFromWire(wire: ProtocolSessionSpecInput): SessionSpecInput {
+  return {
+    key: toChecksum(wire.key),
+    validAfter: wire.validAfter,
+    validUntil: wire.validUntil,
+    spendLimitWei: wire.spendLimitWei,
+    targets: wire.targets.map((t) => toChecksum(t)),
+    selectors: wire.selectors.map((v) => v.toLowerCase() as Hex),
+  };
+}
 
-const uint48Schema = z
-  .number()
-  .int()
-  .min(0)
-  .max(2 ** 48 - 1);
-
-/** Wire shape. Amounts arrive as decimal strings, per the money law. */
-export const sessionSpecInputSchema = z.object({
-  key: addressSchema,
-  validAfter: uint48Schema.default(0),
-  validUntil: uint48Schema,
-  spendLimitWei: z.string().regex(/^\d+$/, 'wei must be a non-negative integer string'),
-  targets: z.array(addressSchema),
-  selectors: z.array(selectorSchema),
-});
-
-export type SessionSpecInput = z.infer<typeof sessionSpecInputSchema>;
+/** Wire shape (the record's), read into the service's form. Amounts arrive as decimal strings, per the money law. */
+export const sessionSpecInputSchema = protocolSessionSpecInputSchema.transform(sessionSpecFromWire);
 
 /** The tuple SmartAccount hashes. Full `abi.encode`, never packed. */
 export const SESSION_SPEC_ABI = [
