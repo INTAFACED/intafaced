@@ -800,15 +800,6 @@
       "why": "webhookId = idFor('signal-webhook:'+userId+':'+requestId) (signals/signal-desk.ts:141, 271), the same inputs as the target. A concurrent retried create passes the SELECT at 256 twice, and the loser gets 23505 signal_webhooks_pkey instead of the 'raced' read-back the code expects (signal-desk.ts:283-287)."
     },
     {
-      "file": "services/svc-trade/src/spot/trade-service/buyback.ts",
-      "table": "orders",
-      "target": "(id)",
-      "constraint": "orders_client_id_idx",
-      "verdict": "race",
-      "issue": 8883,
-      "why": "orderId = orderIdFor(house, market, clientOrderId) (spot/trade-service/buyback.ts:88), so two concurrent runs of one buyback id carry equal id and equal (user_id, market_id, client_order_id). The loser gets 23505 orders_client_id_idx instead of the BUYBACK_IN_FLIGHT refusal the code expects for 'being placed by another call' (buyback.ts:150-152)."
-    },
-    {
       "file": "services/svc-trade/src/spot/trade-service/fills.ts",
       "table": "fills",
       "target": "(id)",
@@ -823,15 +814,6 @@
       "constraint": "orders_client_id_idx",
       "verdict": "safe",
       "why": "The house MM stub row writes no client_order_id (fills.ts:524-532), so it is NULL, and NULLs never clash in the plain index (0000_trade_init.sql:145)."
-    },
-    {
-      "file": "services/svc-trade/src/spot/trade-service/limit-convert.ts",
-      "table": "convert_limits",
-      "target": "(user_id, client_limit_id)",
-      "constraint": "convert_limits_pkey",
-      "verdict": "race",
-      "issue": 8884,
-      "why": "id = limitConvertIdFor(userId, clientLimitId) (spot/trade-service/limit-convert.ts:205), the same inputs as the target, with no lock. A concurrent retry passes the SELECT at 178 twice, and the loser gets 23505 convert_limits_pkey instead of re-entering placeLimitConvert (line 221)."
     },
     {
       "file": "services/svc-trade/src/venue/agent-desk-store.ts",

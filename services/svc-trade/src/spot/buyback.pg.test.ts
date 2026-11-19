@@ -174,6 +174,33 @@ describe('the buyback IOC buy', () => {
     ).toBe('trade.buyback_conflict');
   });
 
+  it('lets one of many concurrent calls under one run id place the order; the rest wait or get it, never a raw key clash', async () => {
+    // Every call carries the same id and the same (user, market, run id), so the intent insert races on both unique
+    // keys at once. A loser must refuse as in flight or return the winner's order, never raise 23505.
+    for (let round = 0; round < 25; round += 1) {
+      const clientOrderId = `race-${round}`;
+      matching.scriptFills([], { cancelRemainder: '0.1' });
+      const before = matching.submitted.length;
+      const outcomes = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          tradeOver(database(), ledger, matching)
+            .placeBuybackIocBuy({ symbol: 'BTC/USDT', qty: amt('0.1'), price: amt('100'), clientOrderId })
+            .then((r) => `placed:${r.orderId}`)
+            .catch((err: unknown) => (err instanceof TradeError ? err.code : String(err))),
+        ),
+      );
+      const odd = outcomes.filter((o) => !o.startsWith('placed:') && o !== 'trade.buyback_in_flight');
+      expect(odd, `round ${round}`).toEqual([]);
+      expect(new Set(outcomes.filter((o) => o.startsWith('placed:'))).size, `round ${round}`).toBe(1);
+      expect(matching.submitted.length - before, `round ${round}`).toBe(1);
+    }
+    const rows = await database().sql`SELECT id FROM trade.orders WHERE user_id = ${HOUSE_BUYBACK_USER_UUID}`;
+    expect(rows).toHaveLength(25);
+    // Every run was cancelled whole, so the rewards engine holds all it was swept and nothing is left in a hold.
+    expect(await bal(rewardsEngine('USDT'))).toBe(amt('200'));
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('refuses a hold the rewards engine cannot fund, and leaves no row', async () => {
     const trade = tradeOver(database(), ledger, matching);
     const code = await refusal(() =>
