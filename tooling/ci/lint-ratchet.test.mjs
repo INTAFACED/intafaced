@@ -9,7 +9,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compare, ruleOf, suppressionsOf, TEST_FILE } from './lint-ratchet.mjs';
+import { compare, countedIn, ruleOf, suppressionsOf, TEST_FILE } from './lint-ratchet.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(ROOT, 'tooling', 'ci', 'lint-ratchet.mjs');
@@ -132,7 +132,7 @@ test('no rule only prints: a printOnly key left in ratchet.json does not excuse 
   }
 });
 
-test("main's ratchet.json fails a new fixed wait in a journey and in a unit test, and keeps one that says why", skip, () => {
+test("main's ratchet.json fails a new fixed wait in a journey and in a unit test, and one silenced with a reason", skip, () => {
   const starts = JSON.parse(readFileSync(join(ROOT, 'tooling', 'lint', 'ratchet.json'), 'utf8'));
   const waits = { 'garden/no-wait-for-timeout': 'error', 'garden/no-real-clock-wait-in-tests': 'error' };
   const r = repo(starts, { ...CONFIG, rules: { ...CONFIG.rules, ...waits } });
@@ -153,11 +153,13 @@ test("main's ratchet.json fails a new fixed wait in a journey and in a unit test
   }
   const k = repo(starts, { ...CONFIG, rules: { ...CONFIG.rules, ...waits } });
   try {
-    const kept = k.pr({
+    // A garden rule silenced in a test file counts like one silenced anywhere (intafaced #9041).
+    const silenced = k.pr({
       'apps/customer/tests/real-app/y.pw.mjs':
         'export async function t(page) {\n  // oxlint-disable-next-line garden/no-wait-for-timeout -- proves no second toast arrives\n  await page.waitForTimeout(500);\n}\n',
     });
-    assert.equal(kept.code, 0, kept.out);
+    assert.equal(silenced.code, 1, silenced.out);
+    assert.match(silenced.out, /suppression\/garden\/no-wait-for-timeout rose from 0 to 1/u);
   } finally {
     k.done();
   }
@@ -258,7 +260,7 @@ for (const [rule, line, fix] of [
   });
 }
 
-test('a new suppression in a touched product file fails like the finding it silences; old ones and test files do not', skip, () => {
+test('a new suppression in a touched product file fails like the finding it silences; old ones do not', skip, () => {
   const silenced = 'services/svc-x/src/s.ts';
   const r = repo(REAL_STARTS, REAL_CONFIG, { [silenced]: '// oxlint-disable-next-line no-console -- kept\nconsole.log(1);\n' });
   try {
@@ -291,4 +293,40 @@ test('suppressions: names, lines and the test-file door', () => {
   );
   assert.ok(TEST_FILE.test('services/a/src/x.test.ts') && TEST_FILE.test('apps/customer/tests/real-app/j.pw.mjs'));
   assert.ok(!TEST_FILE.test('services/svc-bank/src/partner/test-partner.ts'), 'a TEST stand-in is product code');
+  assert.ok(countedIn('services/a/src/x.ts', 'suppression/no-console'));
+  assert.ok(countedIn('services/a/src/x.test.ts', 'suppression/garden/no-source-text-test'));
+  assert.ok(countedIn('services/a/src/x.test.ts', 'suppression/(every rule)'));
+  assert.ok(!countedIn('services/a/src/x.test.ts', 'suppression/no-console'));
+});
+
+// The past mistake (intafaced #9041, planted 19 Nov on main c198fc1b): in a test file a suppression got a new garden-rule
+// copy past the ratchet, because test-file suppressions were not counted at all. The directive is spelled in two pieces so
+// this file's own text holds none.
+const OFF = ['oxlint', 'disable'].join('-');
+test('a new suppression of a garden rule, or a bare disable, in a test file fails; other test-file suppressions stay free', skip, () => {
+  const oldTest = 'services/svc-x/src/router.test.ts';
+  const r = repo(REAL_STARTS, REAL_CONFIG, { [oldTest]: "import { test } from 'node:test';\ntest('a', () => {});\n" });
+  try {
+    const named = r.pr({
+      [oldTest]:
+        "import { test } from 'node:test';\nimport { readFileSync } from 'node:fs';\ntest('a', () => {\n" +
+        `  // ${OFF}-next-line garden/no-source-text-test -- reads it\n` +
+        "  readFileSync('services/svc-x/src/router.ts', 'utf8');\n});\n",
+    });
+    assert.equal(named.code, 1, named.out);
+    assert.match(named.out, /suppression\/garden\/no-source-text-test rose from 0 to 1/u);
+    assert.match(named.out, /services\/svc-x\/src\/router\.test\.ts:4 {2}a suppression silences this rule here/u);
+    const bare = r.pr({
+      [oldTest]: "import { test } from 'node:test';\ntest('a', () => {});\n",
+      'apps/customer/src/features/pay/inner.test.tsx': `/* ${OFF} */\nimport { x } from '../trade/inside';\nexport const y = x;\n`,
+    });
+    assert.equal(bare.code, 1, bare.out);
+    assert.match(bare.out, /suppression\/\(every rule\) rose from 0 to 1/u);
+    const other = r.pr({
+      'apps/customer/src/features/pay/inner.test.tsx': `// ${OFF}-next-line no-debugger -- stops here on purpose\ndebugger;\n`,
+    });
+    assert.equal(other.code, 0, other.out);
+  } finally {
+    r.done();
+  }
 });

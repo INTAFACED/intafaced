@@ -18,6 +18,10 @@
  *     (`-javaagent:…opentelemetry-javaagent.jar`), the service's Dockerfile
  *     puts that jar in the image, and the block sets `OTEL_JAVAAGENT_ENABLED`
  *     and `OTEL_EXPORTER_OTLP_ENDPOINT`.
+ *   · `/app/svc-<name>` (a Rust service's binary in its own image, built from
+ *     `crates/<svc>/Dockerfile`) → `crates/<svc>/src/main.rs` must call
+ *     `Telemetry::start(` (comments do not count). The same binary with a
+ *     subcommand (`/app/svc-tax migrate`) runs once and exits: not checked.
  *
  * A service no compose file runs is not checked: nothing starts it.
  *
@@ -27,7 +31,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const NODE_EXAMPLE = 'services/svc-tax/src/index.ts';
+const NODE_EXAMPLE = 'services/svc-quant/src/index.ts';
 
 /** Code with comments removed, so a commented-out call is not a call. */
 export function stripComments(source) {
@@ -104,6 +108,18 @@ export function untraced(composeFiles, read) {
               `${NODE_EXAMPLE} does, and add "@intafaced/telemetry": "workspace:*" to the service's package.json`,
           });
         }
+      } else if (RUST_SERVE.test(command[0]) && command.length === 1) {
+        const file = `crates/${RUST_SERVE.exec(command[0])[1]}/src/main.rs`;
+        const source = read(file);
+        if (source === null) {
+          failures.push({ service: name, file, fix: `${composeName} runs ${command[0]}, but ${file} does not exist` });
+        } else if (!stripComments(source).includes('Telemetry::start(')) {
+          failures.push({
+            service: name,
+            file,
+            fix: 'starts no tracing: call svc_tax::telemetry::Telemetry::start( at start-up, as crates/svc-tax/src/main.rs does',
+          });
+        }
       } else if (command[0] === 'java') {
         const agent = command.some((arg) => /^-javaagent:\S*opentelemetry-javaagent\S*\.jar$/.test(arg));
         const dockerfile = /^ {6}dockerfile:\s*(\S+)\s*$/m.exec(block)?.[1];
@@ -129,6 +145,9 @@ export function untraced(composeFiles, read) {
   return failures;
 }
 
+/** A Rust service's binary as its image runs it: `/app/svc-<name>`. */
+const RUST_SERVE = /^\/app\/(svc-[a-z0-9-]+)$/;
+
 function stripDockerComments(text) {
   return text
     .split('\n')
@@ -147,7 +166,12 @@ function main() {
     .flatMap((c) => composeServices(c.text))
     .filter((s) => {
       const cmd = commandOf(s.block);
-      return cmd && (cmd[0] === 'java' || (cmd[0] === 'node' && cmd.some((a) => a.startsWith('services/svc-'))));
+      return (
+        cmd &&
+        (cmd[0] === 'java' ||
+          (RUST_SERVE.test(cmd[0]) && cmd.length === 1) ||
+          (cmd[0] === 'node' && cmd.some((a) => a.startsWith('services/svc-'))))
+      );
     });
   if (checked.length === 0) {
     console.error('service-tracing: found no service commands in the compose files; refusing to pass over nothing');

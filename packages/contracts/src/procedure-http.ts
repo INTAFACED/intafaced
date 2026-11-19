@@ -21,12 +21,17 @@ export async function callHttpRecord<R extends HttpRecord>(
 ): Promise<z.output<R['output']>> {
   const path = routePath(record, options.params ?? {});
   const target = `${options.baseUrl.replace(/\/$/, '')}${path}`;
-  const payload = JSON.stringify(record.input.parse(options.input));
+  const parsed: unknown = record.input.parse(options.input);
+  // A GET carries no body, so its signature binds the empty one and no content type. Its input would go in the query,
+  // which no GET record takes yet: one that does is refused here rather than sent without it.
+  if (record.method === 'GET' && parsed !== undefined) throw new Error(`${record.name}: a GET record's input is not sent yet`);
+  const payload = record.method === 'GET' ? '' : JSON.stringify(parsed);
+  const contentType = record.method === 'GET' ? '' : 'application/json';
   const response = await (options.fetcher ?? fetch)(target, {
     method: record.method,
     headers: {
-      'content-type': 'application/json',
-      ...options.sign(payload, { method: record.method, url: new URL(target), contentType: 'application/json' }),
+      ...(contentType ? { 'content-type': contentType } : {}),
+      ...options.sign(payload, { method: record.method, url: new URL(target), contentType }),
     },
     ...(record.method === 'GET' ? {} : { body: payload }),
   });

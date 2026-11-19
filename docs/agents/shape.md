@@ -8,12 +8,12 @@ Every call from the app to a service, or from one service to another, is written
 
 1. Write the record with `defineProcedure` (`packages/contracts/src/procedure.ts`) in the service's records file in `packages/contracts/src/`. Copy `packages/contracts/src/tax-procedures.ts`: `name`, `service`, `module`, `transport`, `kind`, `path`, `access`, `refusals`, `input`, `output`, `samples` (at least one `accept` and one `refuse`).
 2. Run `pnpm --filter @intafaced/contracts procedures:write`. It writes `packages/contracts/src/procedure-registry.ts` and `packages/contracts/procedures.schema.json`; never edit either by hand.
-3. The service mounts it: a service whose router is made from records adds one handler to its `mountRecords` call (copy `services/svc-tax/src/router.ts`); in a router not made from records yet, the one call is `mountRecord(RECORD, handler, refusalOf)` from `@intafaced/contracts/procedure-mount`, in place of a hand-written `scopedProcedure(...)`. `refusalOf` reads the service's own error type, written once per service (copy `taxRefusal` in `services/svc-tax/src/router.ts`).
+3. The service mounts it: a service whose router is made from records adds one handler to its `mountRecords` call (copy `exampleRouter` in `packages/contracts/src/procedure-mount.test.ts`; a Rust service mounts its records the way `crates/svc-tax/src/wire.rs` does); in a router not made from records yet, the one call is `mountRecord(RECORD, handler, refusalOf)` from `@intafaced/contracts/procedure-mount`, in place of a hand-written `scopedProcedure(...)`. `refusalOf` reads the service's own error type, written once per service (copy `exampleRefusal` in `packages/contracts/src/procedure-mount.test.ts`).
 4. The app calls `api.call(RECORD, input)`, importing the record from its `@intafaced/contracts/<file>` subpath (copy `apps/customer/src/screens/money/pnl-source.ts`). A check every caller needs on the reply goes in the record's `accept`; one only this caller needs goes in `api.call`'s `accept` option.
 
 Never call by name (`api.query('bank', 'spaces.list', ...)`, `api.mutate(...)`), and never write a second schema for a call's input or reply.
 
-What fails the other way: `apps/customer/src/app/recorded-calls.test.ts` (a recorded call named by its module and path in the app), `packages/contracts/src/procedure-registry.test.ts` (a stale registry or schema file), the record's own sample test (`services/svc-tax/src/procedure-samples.test.ts`), and `garden/no-hand-schema` (a schema copied by hand). A call by name to a call with no record yet fails nothing yet.
+What fails the other way: `apps/customer/src/app/recorded-calls.test.ts` (a recorded call named by its module and path in the app), `packages/contracts/src/procedure-registry.test.ts` (a stale registry or schema file), the record's own sample test (`crates/svc-tax/tests/procedure_samples.rs`), and `garden/no-hand-schema` (a schema copied by hand). A call by name to a call with no record yet fails nothing yet.
 
 ## 2. A feature: one folder, one entry
 
@@ -37,7 +37,7 @@ What fails the other way: `garden/no-effect-in-product` (an effect in product co
 
 ## 5. A service is put together in one place
 
-A service builds its parts and passes them in once, at start-up, in `services/<service>/src/index.ts` (copy `services/svc-tax/src/index.ts`: each store and client is made there and handed to the service's constructor). No module replaces another's function after start-up (`proto.placeOrder = ...`) or installs itself by being imported.
+A service builds its parts and passes them in once, at start-up, in `services/<service>/src/index.ts` (copy `services/svc-quant/src/index.ts`: each store and client is made there and handed to the service's constructor; a Rust service does the same in `crates/<service>/src/service.rs`, as `crates/svc-tax/src/service.rs` does). No module replaces another's function after start-up (`proto.placeOrder = ...`) or installs itself by being imported.
 
 What fails the other way: nothing yet.
 

@@ -179,9 +179,6 @@ test(`${J} #4 takes a snapshot, copies a share link and prints, with no account 
 
 test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
   await openChart(page, `${CHART}?interval=1m`);
-  // Zoomed in, so the bars in view are fewer than the bars loaded and "visible" means something.
-  await canvas(page).focus();
-  for (let i = 0; i < 4; i += 1) await page.keyboard.press('+');
   const readView = () =>
     canvas(page).evaluate((el) => ({
       from: Number(el.getAttribute('data-view-from')),
@@ -190,6 +187,45 @@ test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
       first: Number(el.getAttribute('data-first')),
     }));
   const same = (a, b) => a.from === b.from && a.to === b.to && a.bars === b.bars && a.first === b.first;
+  // Zoomed in, so the bars in view are fewer than the bars loaded and "visible" means something. The workbench opens at
+  // its own interval and moves to the address's 1m after its first render, and the chart fits its view to each new set of
+  // bars once it has drawn them: a + pressed before that is dropped or undone (run 44514898755 exported 240 of 240). So
+  // the keys wait until the chart has drawn every loaded bar, one minute apart, and its view holds still.
+  const drawn = () =>
+    canvas(page).evaluate((el) => {
+      const read = (name) => (el.hasAttribute(name) ? Number(el.getAttribute(name)) : NaN);
+      return {
+        from: read('data-view-from'),
+        to: read('data-view-to'),
+        bars: read('data-bars'),
+        drawn: read('data-drawn-bars'),
+        span: read('data-drawn-last') - read('data-drawn-first'),
+      };
+    });
+  let last = null;
+  await expect
+    .poll(
+      async () => {
+        const now = await drawn();
+        const ready = Number.isFinite(now.from) && now.bars > 0 && now.drawn === now.bars && now.span === (now.bars - 1) * 60_000;
+        const held = ready && last !== null && now.from === last.from && now.to === last.to && now.bars === last.bars;
+        last = now;
+        return held;
+      },
+      { message: 'the 1m bars drawn and their view still', intervals: [200] },
+    )
+    .toBe(true);
+  await canvas(page).focus();
+  for (let i = 0; i < 4; i += 1) await page.keyboard.press('+');
+  await expect
+    .poll(
+      async () => {
+        const v = await readView();
+        return Math.round(v.to) - Math.round(v.from) + 1 < v.bars;
+      },
+      { message: 'the view narrower than the bars loaded' },
+    )
+    .toBe(true);
   // Export once the zoom has settled, and keep the export whose view did not move between the click and the read after
   // it (a new bar arriving in between shifts the view; the export is then taken again).
   let view;

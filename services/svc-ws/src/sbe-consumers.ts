@@ -5,6 +5,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import { WS_SBE_CONSUMERS } from '@intafaced/contracts/ws-procedures';
 
 export interface SbeConsumerRow {
   readonly id: string;
@@ -50,10 +51,9 @@ export class SbeConsumers {
   }
 }
 
-export const SBE_STATUS_PATH = '/internal/sbe/consumers';
 export const SBE_STATUS_SECRET_ENV = 'WS_STATUS_READ_SECRET';
-/** The only caller that may read the consumer list: the founder console's door. */
-const CALLER = 'svc-edge';
+/** The only caller that may read the consumer list, the founder console's door: the record's one caller. */
+const [CALLER] = WS_SBE_CONSUMERS.access.callers;
 
 /**
  * `GET /internal/sbe/consumers`, signed as svc-edge with the dedicated read key `WS_STATUS_READ_SECRET` (svc-ws holds
@@ -73,7 +73,7 @@ export function registerSbeStatusDoor(
   },
 ): void {
   const now = options.now ?? (() => new Date());
-  app.get(SBE_STATUS_PATH, async (req, reply) => {
+  app.get(WS_SBE_CONSUMERS.path, async (req, reply) => {
     const secret = options.secret;
     const keyOnly = options.verifier !== undefined && options.mode === 'keypair';
     if (!secret && !keyOnly) {
@@ -98,11 +98,13 @@ export function registerSbeStatusDoor(
     if (auth.service !== CALLER) {
       return reply.code(403).send({ ok: false, error: { code: 'forbidden', message: 'the SBE consumer list is read by svc-edge only' } });
     }
-    return reply.send({
-      service: 'svc-ws',
-      codecLinked: options.codecLinked(),
-      consumers: options.consumers.list(),
-      asOf: now().toISOString(),
-    });
+    return reply.send(
+      WS_SBE_CONSUMERS.output.parse({
+        service: 'svc-ws',
+        codecLinked: options.codecLinked(),
+        consumers: options.consumers.list(),
+        asOf: now().toISOString(),
+      }),
+    );
   });
 }

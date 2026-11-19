@@ -54,13 +54,22 @@ async function chainBalance(token, address) {
   });
   return BigInt((await res.json()).result);
 }
+/**
+ * The TEST chain's receipt of `hash`, once mined. The chain mines a block a second, so a hash the wallet has just sent can
+ * still be pending, with no receipt yet. Still unmined after 30 s fails, naming the hash.
+ */
 async function receipt(hash) {
-  const res = await fetch(testChain().gateUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [hash] }),
-  });
-  return (await res.json()).result;
+  const read = async () => {
+    const res = await fetch(testChain().gateUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [hash] }),
+    });
+    return (await res.json()).result;
+  };
+  let mined = null;
+  await expect.poll(async () => (mined = await read()), { message: `the TEST chain mines ${hash}`, timeout: 30_000 }).not.toBeNull();
+  return mined;
 }
 
 // ---- the room ----
