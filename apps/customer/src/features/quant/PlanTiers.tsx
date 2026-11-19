@@ -8,8 +8,8 @@ import {
 import { useState } from 'react';
 import { Button, DataTable, Panel } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
-import { Read } from '../more/common';
-import { useApi } from '../session/session';
+import { Read } from '../more';
+import { useApi } from '../session';
 import { tierCopy } from './tier-copy';
 import { usageCopy } from './usage-copy';
 

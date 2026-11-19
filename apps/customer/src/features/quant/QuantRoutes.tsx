@@ -1,8 +1,5 @@
 import type { ReactNode } from 'react';
-import { Quant } from '../more/Quant';
-import { t as moreCopy } from '../more/copy';
 import { AlgoHome } from './AlgoHome';
-import { BacktestRoom } from './BacktestRoom';
 import { StrategiesRoom } from './StrategiesRoom';
 import { LimitsRoom } from './LimitsRoom';
 import { limitsCopy } from './limits-copy';
@@ -21,9 +18,10 @@ import { algoCopy } from './algo-copy';
 import { LakeRoom } from './LakeRoom';
 import { researchCopy } from './research-copy';
 
-const MODES = { '/quant/studio': 'studio', '/quant/backtest': 'backtest', '/quant/sandbox': 'sandbox' } as const;
-
-/** The Algo dev rooms under `/quant`; `MoreRoutes` hands the whole prefix here. Null for a path that is not one of them. */
+/**
+ * The Algo dev rooms under `/quant`; `MoreRoutes` hands the whole prefix here. Null for a path that is not one of them,
+ * and for studio, backtest and sandbox, which More's own `quantModeRoute` serves beside their room.
+ */
 export function quantRoute(
   pathname: string,
   paper: boolean,
@@ -143,25 +141,5 @@ export function quantRoute(
       content: <StrategiesRoom key={userId ?? 'anonymous'} paper={paper} />,
     };
   }
-  const mode = MODES[pathname as keyof typeof MODES];
-  if (!mode) return null;
-  return {
-    title:
-      mode === 'sandbox'
-        ? moreCopy('moreroutes.quant.sandbox')
-        : mode === 'studio'
-          ? moreCopy('moreroutes.quant.studio')
-          : moreCopy('moreroutes.backtest'),
-    description: moreCopy('moreroutes.simulated.strategy.research.with.explicit.historical.evidence'),
-    content:
-      mode === 'backtest' ? (
-        // The bar backtest runs saved signal rules; the walk-forward record below keeps its own named refusal.
-        <>
-          <BacktestRoom key={`bars:${userId}`} />
-          <Quant key={`${pathname}:${userId}`} paper={paper} mode={mode} />
-        </>
-      ) : (
-        <Quant key={`${pathname}:${userId}`} paper={paper} mode={mode} />
-      ),
-  };
+  return null;
 }

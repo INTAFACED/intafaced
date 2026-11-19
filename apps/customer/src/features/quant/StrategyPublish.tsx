@@ -17,8 +17,8 @@ import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading } from '../../shared/ui';
-import { Read, Select, TextArea } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select, TextArea } from '../more';
+import { useApi } from '../session';
 import { libraryCopy } from './library-copy';
 import { refusalCode, useLastReady } from './StrategyTeam';
 

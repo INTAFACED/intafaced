@@ -3,8 +3,8 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
-import { SHARE_SURFACES, type ShareSurface as Surface } from '../public/share-visit';
+import { useSession } from '../session';
+import { SHARE_SURFACES, type ShareSurface as Surface } from '../public';
 import { shareSheetCopy as copy } from './share-sheet-copy';
 
 // One-tap share (RC-campaigns-06, J-campaigns-05 #2): a signed share tag for the person's live invitation link, one per

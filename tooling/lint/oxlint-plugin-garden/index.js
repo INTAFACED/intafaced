@@ -60,7 +60,8 @@ const noDoubleCast = {
             node,
             message:
               '`as unknown as` turns type checking off here: narrow with a type guard or a schema parse, or fix the source type. ' +
-              'A partial test fake takes a single `as T`, which still checks the fields it writes; a test that passes a wrong type ' +
+              "A partial test fake is `partial<T>({ ... })` from '@intafaced/service-kit/testing' (a single `as T` where T is a class " +
+              'with private members does not compile), which checks each field it writes against T; a test that passes a wrong type ' +
               'on purpose suppresses the line with `-- why`',
           });
         }

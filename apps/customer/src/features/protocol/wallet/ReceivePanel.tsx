@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Button, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
-import { encodeQr, qrPath } from '../../pay/personal/qr';
+import { encodeQr, qrPath } from '../../../shared/qr';
 import { networkLabel } from '../blockers';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID } from './eip1193';

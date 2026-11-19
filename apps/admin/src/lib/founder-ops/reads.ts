@@ -14,7 +14,7 @@ import {
   type FounderPayoutListInput,
   type FounderRiskSummaryInput,
 } from '@intafaced/contracts';
-import { parseWith, payCall, type PayCallContext, type PayCallResult } from '@/lib/merchants/pay-call';
+import { parseWith, payCall, type PayCallContext, type PayCallResult } from '@/lib/merchants';
 import { asNotePage } from './notes';
 import { one, PAGE_LIMIT, RISK_TOP_N, RISK_WINDOWS, sectionRequest, type Query, type RiskWindowKey } from './read-model';
 

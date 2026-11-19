@@ -1204,8 +1204,8 @@ export class CampaignService {
             participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, competition, draw, distribution, pool, trial_pass, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
-            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
-            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as postgres.JSONValue)},
+            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as postgres.JSONValue) : null},
             ${d.referral ? tx.json(d.referral) : null}, ${d.competition ? tx.json(d.competition) : null},
             ${d.draw ? tx.json(d.draw) : null}, ${d.distribution ? tx.json(d.distribution) : null},
             ${d.pool ? tx.json(d.pool) : null}, ${d.trialPass ? tx.json(d.trialPass) : null}, ${input.actor})
@@ -1253,9 +1253,9 @@ export class CampaignService {
             ends_at = ${d.endsAt}, weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
             participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
-            tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
-            earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
-            limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+            tasks = ${d.tasks ? tx.json(d.tasks as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
+            earning = ${tx.json(d.earning as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
+            limits = ${d.limits ? tx.json(d.limits as postgres.JSONValue) : null},
             referral = ${d.referral ? tx.json(d.referral) : null},
             competition = ${d.competition ? tx.json(d.competition) : null},
             draw = ${d.draw ? tx.json(d.draw) : null},
@@ -1290,7 +1290,7 @@ export class CampaignService {
     if (d.type !== row.type) throw new CampaignsError('campaign.type_locked', 'A live campaign keeps its type');
     await this.checkCampaignRule(tx, d);
     await this.checkChange(tx, row, d);
-    const definition = tx.json(inputOf(d) as unknown as postgres.JSONValue);
+    const definition = tx.json(inputOf(d) as postgres.JSONValue);
     const [out] = ChangeRow.array().parse(
       await tx`
       INSERT INTO campaigns.campaign_changes (campaign_id, revision, definition, state, created_by)
@@ -1373,9 +1373,9 @@ export class CampaignService {
         weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
         participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
         budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
-        tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
-        earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
-            limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
+        tasks = ${d.tasks ? tx.json(d.tasks as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
+        earning = ${tx.json(d.earning as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
+            limits = ${d.limits ? tx.json(d.limits as postgres.JSONValue) : null},
             referral = ${d.referral ? tx.json(d.referral) : null},
             competition = ${d.competition ? tx.json(d.competition) : null},
             draw = ${d.draw ? tx.json(d.draw) : null},
@@ -1387,7 +1387,7 @@ export class CampaignService {
       WHERE id = ${row.id}`;
     await tx`
       INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
-      VALUES (${row.id}, ${open.revision}, ${tx.json(open.definition as unknown as postgres.JSONValue)}, ${open.submitted_by!}, ${actor})
+      VALUES (${row.id}, ${open.revision}, ${tx.json(open.definition as postgres.JSONValue)}, ${open.submitted_by!}, ${actor})
       ON CONFLICT (campaign_id, revision) DO NOTHING`;
     await tx`DELETE FROM campaigns.campaign_changes WHERE campaign_id = ${row.id}`;
     await audit(tx, actor, 'campaign.change.approve', row.id, { revision: open.revision, replaced: row.revision });
@@ -1481,7 +1481,7 @@ export class CampaignService {
       if (input.action === 'approve') {
         await tx`
           INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
-          VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by!},
+          VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as postgres.JSONValue)}, ${row.submitted_by!},
             ${input.actor})
           ON CONFLICT (campaign_id, revision) DO NOTHING`;
       }
@@ -1512,7 +1512,7 @@ export class CampaignService {
       const [made] = RuleRow.array().parse(
         await tx`
         INSERT INTO campaigns.rule_library (name, revision, tree, created_by)
-        VALUES (${latest?.name ?? name}, ${(latest?.revision ?? 0) + 1}, ${tx.json(input.tree as unknown as postgres.JSONValue)}, ${input.actor})
+        VALUES (${latest?.name ?? name}, ${(latest?.revision ?? 0) + 1}, ${tx.json(input.tree as postgres.JSONValue)}, ${input.actor})
         RETURNING *`,
       );
       await audit(tx, input.actor, 'campaign.rule.save', made!.name, { revision: made!.revision });
@@ -1624,7 +1624,7 @@ export class CampaignService {
     if (row.approved_by && row.submitted_by && row.approved_revision === row.revision) {
       await tx`
         INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
-        VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by},
+        VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as postgres.JSONValue)}, ${row.submitted_by},
           ${row.approved_by})
         ON CONFLICT (campaign_id, revision) DO NOTHING`;
     }

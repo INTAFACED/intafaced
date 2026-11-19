@@ -1,6 +1,6 @@
 import 'server-only';
 import { upstreamCodeOf, type AdminSessionConfig, type FounderSession } from '@/lib/founder-session';
-import { parseLookupAnswer, type LedgerLookupAnswer, type LedgerLookupQuery } from './lookup';
+import { parseLookupAnswer, type LedgerLookupAnswer, type LedgerLookupQuery } from '@/lib/ledger-lookup';
 
 /**
  * One ledger lookup, read through svc-edge's named lookup route with the signed-in founder's OWN token (never a deployment
