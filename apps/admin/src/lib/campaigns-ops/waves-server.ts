@@ -1,10 +1,16 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { partFrom, type Part } from '@/lib/desk/part';
-import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import {
+  codeInText,
+  type ExecuteFn,
+  type ExecuteReply,
+  explainRefusal,
+  failureRefusal,
+  founderCall,
+  type FounderCallContext,
+  isKnownCode,
+  type Part,
+  partFrom,
+} from '@/lib/desk';
 import { readWave, readWavesState, type Wave, type WavesState } from './waves-model';
 
 export interface WavesView {

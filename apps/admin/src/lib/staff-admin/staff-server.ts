@@ -1,13 +1,20 @@
 import 'server-only';
 import { approvalPolicyRowsReadSchema, approvalPolicySetResultSchema, type ActionApprovalPolicyEntry } from '@intafaced/contracts';
 import { staffInviteResultSchema, staffListSchema, type StaffEntry } from '@intafaced/contracts/identity-staff';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { payloadHashFor } from '@/lib/desk/approval-hash';
-import { partFrom, type Part } from '@/lib/desk/part';
-import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import {
+  codeInText,
+  type ExecuteFn,
+  type ExecuteReply,
+  explainRefusal,
+  failureRefusal,
+  founderCall,
+  type FounderCallContext,
+  isKnownCode,
+  parseWith,
+  type Part,
+  partFrom,
+  payloadHashFor,
+} from '@/lib/desk';
 
 /**
  * The console's side of the staff directory and the approval policy rows (J-ops-console-09 #1, #2). Reads are the
