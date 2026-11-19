@@ -10,7 +10,6 @@ import { SCALE, type Amount } from '@intafaced/ledger-client';
  * decides what a multi-choice result means.
  */
 
-export const VOTING_TYPES = TOKEN_VOTING_TYPES;
 export type VotingType = TokenVotingType;
 
 /** Whole-ballot basis points for `weighted` and `quadratic` splits. */
@@ -44,7 +43,7 @@ function invalid(message: string): BallotError {
 }
 
 export function assertVotingType(value: unknown): VotingType {
-  if (typeof value === 'string' && (VOTING_TYPES as readonly string[]).includes(value)) return value as VotingType;
+  if (typeof value === 'string' && (TOKEN_VOTING_TYPES as readonly string[]).includes(value)) return value as VotingType;
   throw new BallotError('That voting type is not one this service tallies', 'token.voting_type_unsupported');
 }
 
