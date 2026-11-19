@@ -122,4 +122,19 @@ describe('SqlAgentAccountStore on Postgres (trade.user_venue_agent_accounts, tra
               VALUES (${USER}, ${ACCOUNT}, '5a5a5a5a-0000-4000-8000-0000000003d1', 'into_sub_account', '0', 'pending', now())`,
     ).rejects.toThrow(/amount_ck/);
   });
+
+  it('one open submitted many times at once stores one account and answers every call with it, never 23505 on the agent key (#8886)', async () => {
+    const store = new SqlAgentAccountStore(db!.sql);
+    // The same open carries the same (user_id, account_id) and the same agent_address, the address made from them.
+    for (let round = 0; round < 40; round += 1) {
+      const id = `5a5a5a5a-0000-4000-8000-${(0x100000000 + round).toString(16).padStart(12, '0')}`;
+      const same: AgentAccountRecord = { ...account, accountId: id, agentAddress: `0x${(0xb100 + round).toString(16).padStart(40, '0')}` };
+      const results = await Promise.allSettled(
+        Array.from({ length: 8 }, () => store.insertOnce(same, { ...move(id, '150'), accountId: id })),
+      );
+      expect(results.filter((r) => r.status === 'rejected').map((r) => String((r as PromiseRejectedResult).reason))).toEqual([]);
+      for (const r of results) expect((r as PromiseFulfilledResult<AgentAccountRecord>).value).toEqual(same);
+      expect((await store.moves(USER, id)).length).toBe(1);
+    }
+  });
 });

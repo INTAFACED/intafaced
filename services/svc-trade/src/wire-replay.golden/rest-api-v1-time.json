@@ -1,0 +1,24 @@
+{
+  "inputs": {},
+  "bodies": ["{\"serverTime\":\"<ms>\"}"],
+  "answers": {
+    "GET /api/v1/time": {
+      "absent anon": [200, 0],
+      "absent no-scope": [200, 0],
+      "absent trader": [200, 0],
+      "absent all": [200, 0],
+      "absent all-US": [200, 0],
+      "absent svc-trade": [200, 0],
+      "absent svc-ops": [200, 0],
+      "absent svc-identity": [200, 0],
+      "absent svc-campaigns": [200, 0],
+      "absent svc-bank": [200, 0],
+      "absent svc-token": [200, 0],
+      "absent svc-support": [200, 0],
+      "absent svc-market": [200, 0],
+      "absent svc-fix": [200, 0],
+      "absent svc-agents": [200, 0],
+      "absent svc-tax": [200, 0]
+    }
+  }
+}

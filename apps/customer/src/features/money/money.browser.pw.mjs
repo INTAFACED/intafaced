@@ -41,7 +41,7 @@ async function mount(page, path) {
       const React = (await import('/node_modules/.vite/deps/react.js')).default;
       const { createRoot } = (await import('/node_modules/.vite/deps/react-dom_client.js')).default;
       const { SessionProvider, useSession } = await import('/src/features/session/session.tsx');
-      const { MoneyRoutes } = await import('/src/features/money/index.tsx');
+      const { MoneyRoutes } = await import('/src/features/money/MoneyRoutes.tsx');
       const { Shell } = await import('/src/app/Shell.tsx');
       const { savePreferences } = await import('/src/shared/preferences.ts');
       savePreferences({ hideBalances: false, displayCurrency: 'USD' });

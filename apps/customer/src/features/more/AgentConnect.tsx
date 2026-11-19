@@ -4,14 +4,11 @@ import type { ApiKeyCreateOutput, ApiKeyList } from '@intafaced/contracts/api-ke
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
-import { useSession } from '../session/session';
-import { StepUpConfirm } from '../money/StepUpConfirm';
-import { useWallet } from '../protocol/wallet/WalletProvider';
-import { useVenueMode } from '../trade/use-venue-mode';
-import { VenueFrame, WalletBar } from '../trade/venue/VenueKit';
-import type { TypedDataDocument } from '../protocol/wallet/eip1193';
-import { withDomainTypes } from '../protocol/venue-wallet/venue-account-api';
-import { endOfDayUtc } from '../account/developer-keys-api';
+import { useSession } from '../session';
+import { StepUpConfirm } from '../money';
+import { useWallet, type TypedDataDocument, withDomainTypes } from '../protocol';
+import { useVenueMode, VenueFrame, WalletBar } from '../trade';
+import { endOfDayUtc } from '../account';
 import {
   ASSISTANT_SCOPES,
   WITHDRAW_SCOPE,

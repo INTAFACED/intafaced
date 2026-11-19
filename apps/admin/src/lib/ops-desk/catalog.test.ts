@@ -1,3 +1,4 @@
+import { CONTRACT_PROCEDURES } from '@intafaced/contracts/procedure-registry';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -432,8 +433,18 @@ function serviceSources(service: string): string[] {
   return out;
 }
 
+describe('a read whose call has a record takes its module and path from the record', () => {
+  it.each(all.filter((a) => a.read.recordName !== undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+    const record = CONTRACT_PROCEDURES.find((r) => r.name === read.recordName);
+    expect(record, `${read.recordName} is a record`).toBeDefined();
+    expect(record!.transport === 'trpc' && record!.kind).toBe('query');
+    expect([read.module, read.procedure]).toEqual([record!.module, record!.transport === 'trpc' ? record!.path : null]);
+  });
+});
+
+// A read with a record is mounted from that record (`mountRecords`), so its query is checked there, not in router text.
 describe('every read names a QUERY that exists in the owning router (drift guard)', () => {
-  it.each(all.map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
     // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`).
@@ -459,14 +470,13 @@ describe('every read names a QUERY that exists in the owning router (drift guard
     // A top-level procedure built by its area's factory (svc-quant `health: healthRoutes(core)`) is read from that factory.
     const area = parts.length === 1 ? new RegExp(`\\b${name}: (\\w+Routes)\\(`).exec(text)?.[1] : undefined;
     if (area) from = text.indexOf(`export function ${area}(`);
-    // `operator` is svc-mining-pool's local alias for its admin:read procedure builder.
     const proc = area
       ? new RegExp(`export function ${area}\\(`).exec(text.slice(from))
-      : new RegExp(`\\b${name}: (\\w*Procedure|operator)\\b`).exec(text.slice(from));
+      : new RegExp(`\\b${name}: (\\w*Procedure)\\b`).exec(text.slice(from));
     expect(proc, `${service} has ${read.procedure}`).not.toBeNull();
     // From the procedure up to the next procedure definition, the call kind must be a query.
     const rest = text.slice(from + proc!.index + 1);
-    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure|operator|customer)\b/);
+    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure)\b/);
     let body = next === -1 ? rest : rest.slice(0, next);
     if (area) body = rest.slice(0, rest.search(/\nexport function /) >>> 0);
     // A procedure built in its own file (`poolTotals: poolTotalsProcedure(...)`) is judged by that factory's body.

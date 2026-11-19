@@ -1,19 +1,39 @@
-//! svc-tax in Rust, behind the replay of what the TypeScript service (`services/svc-tax`) answers: every request in
-//! `services/svc-tax/src/wire-replay.golden.json` gets the same status and the same body, byte for byte
-//! (`tests/wire_replay.rs`), and every input check gives zod's own verdict (`tests/input_parity.rs`).
+//! svc-tax: the per-jurisdiction lot export and the profit and loss indicator over the caller's own ledger reads. It
+//! holds no balance and posts nothing. The binary (`main.rs`) serves tRPC over HTTP (`server.rs`, `wire.rs`) and applies
+//! the `tax` schema's migrations (`svc-tax migrate`); `service.rs` builds every port once at start-up.
 //!
-//! The TypeScript service is still the one that runs. What is here: the door (tRPC over HTTP, the edge principal, the
-//! scope and jurisdiction guards, zod's input checks and error texts), the year export, and each call's named refusals.
-//! What is not yet: the ledger fill reader the lot book and the result over time are built from, and the Postgres
-//! stores for a customer's basis and cost-basis choices. Those calls refuse by name here, as the TypeScript service does
-//! when they are not attached (`tax.ledger_unwired`, `tax.basis_store_unwired`).
+//! It replaced the TypeScript service (`services/svc-tax`, deleted in the change that made this one run; read it in git
+//! history before that merge). A TypeScript file named in a comment here (`lot-book.ts`) was that service's. What the
+//! TypeScript answered is kept as the reference this service is held to byte for byte: the wire replay
+//! (`tests/wire_replay.rs`), the service parity corpus (`tests/service_parity.rs`), the I/O golden (`tests/io_golden.rs`),
+//! the export (`tests/export_parity.rs`) and zod's input checks (`tests/input_parity.rs`).
 
 pub mod access;
+pub mod basis;
+pub mod choices;
+pub mod clients;
 pub mod edge;
+pub mod env;
+pub mod http;
 pub mod inputs;
 pub mod json;
+pub mod lot_book;
+pub mod lot_engine;
+pub mod lots;
+pub mod money;
+pub mod own_moves;
+pub mod pnl_over_time;
+pub mod ports;
+pub mod posture;
+pub mod ready;
+pub mod s2s;
+pub mod server;
+pub mod service;
+pub mod stores;
 pub mod tax;
+pub mod telemetry;
 pub mod time;
+pub mod venue_book;
 pub mod wire;
 pub mod zod;
 

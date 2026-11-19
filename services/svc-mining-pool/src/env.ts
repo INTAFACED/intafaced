@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MINING_DIFFICULTY } from '@intafaced/contracts/mining-procedures';
 
 /**
  * Owner-published pool text and the reachability probe.
@@ -23,8 +24,8 @@ export const STRATUM_ASSET_PATTERN = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
 export const POW_DIMENSION_MIN = 2;
 export const POW_DIMENSION_MAX = 64;
 export const POW_TARGET_BITS_MAX = 32;
-/** A whole difficulty of 1 to 38 digits, the numeric(38, 0) column's range. */
-export const DIFFICULTY = /^[1-9]\d{0,37}$/;
+/** A whole difficulty of 1 to 38 digits, the numeric(38, 0) column's range: the rig-setting record's own pattern. */
+const DIFFICULTY = MINING_DIFFICULTY;
 
 function blankAsAbsent<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((value) => {

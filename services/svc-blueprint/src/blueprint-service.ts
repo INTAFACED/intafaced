@@ -1102,7 +1102,14 @@ export class BlueprintService implements BlueprintContract {
         : [];
 
       const runs = z
-        .object({ id: z.string(), candidates: z.unknown(), scores: z.unknown(), placed_crew_id: z.string().nullable(), ts: z.date() })
+        .object({
+          id: z.string(),
+          // jsonb written by recordMatchRun, in the shapes the export record carries.
+          candidates: z.array(z.object({ crewId: z.string(), size: z.number() })),
+          scores: z.record(z.string(), z.number()),
+          placed_crew_id: z.string().nullable(),
+          ts: z.date(),
+        })
         .array()
         .parse(
           await this.sql`

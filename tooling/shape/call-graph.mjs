@@ -6,8 +6,8 @@
  *   node tooling/shape/call-graph.mjs          rewrite tooling/shape/call-graph.json and print the longest chain
  *   node tooling/shape/call-graph.mjs --check  fail if tooling/shape/call-graph.json is stale (CI runs call-graph.test.mjs)
  *
- * A service calls another when its source (services/<svc>/src, tests, fixtures and its env schema left out) names
- * that service's address variable outside a comment: `LEDGER_URL` → svc-ledger, `IDENTITY_CLOSURE_BANK_URL` →
+ * A service calls another when its source (services/<svc>/src or crates/<svc>/src, tests, fixtures and its env schema left out) names
+ * that service's address variable outside a comment, or a Rust service the field it is read into (`env.ledger_url`): `LEDGER_URL` → svc-ledger, `IDENTITY_CLOSURE_BANK_URL` →
  * svc-bank, `FIX_STATUS_URL` → svc-fix. Every client and record call takes its address from one of these. A line that
  * names one without calling it (it only reports whether the address is set) ends with `shape-not-a-call: <reason>`.
  *
@@ -25,16 +25,27 @@ export const OUT = 'tooling/shape/call-graph.json';
 export const NOT_A_CALL = 'shape-not-a-call:';
 
 const SOURCE = /\.(?:[cm]?[jt]s|tsx|java|rs)$/;
-const SKIP_FILE = /(?:\.(?:test|spec|fixture)\.[^.]+$|\.d\.ts$|^env(?:\.[^.]+)?\.[cm]?[jt]s$)/;
+const SKIP_FILE = /(?:\.(?:test|spec|fixture)\.[^.]+$|\.d\.ts$|^env(?:\.[^.]+)?\.(?:[cm]?[jt]s|rs)$)/;
 const SKIP_DIR = new Set(['node_modules', 'dist', '__tests__', 'test', 'tests', 'fixtures', '__fixtures__']);
 
-/** Service folder names under `root/services`, sorted. */
+/** Where services live: TypeScript and Java under `services/`, Rust under `crates/` (svc-tax). */
+const SERVICE_ROOTS = ['services', 'crates'];
+
+/** Service folder names under `root/services` and `root/crates`, sorted. */
 export function servicesOf(root = ROOT) {
-  const dir = join(root, 'services');
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name.startsWith('svc-'))
-    .map((e) => e.name)
-    .sort();
+  const names = SERVICE_ROOTS.flatMap((r) =>
+    existsSync(join(root, r))
+      ? readdirSync(join(root, r), { withFileTypes: true })
+          .filter((e) => e.isDirectory() && e.name.startsWith('svc-'))
+          .map((e) => e.name)
+      : [],
+  );
+  return [...new Set(names)].sort();
+}
+
+/** A service's source folder: `services/<svc>/src`, or `crates/<svc>/src` for a Rust one. */
+function sourceDirOf(root, svc) {
+  return SERVICE_ROOTS.map((r) => join(root, r, svc, 'src')).find((d) => existsSync(d)) ?? join(root, 'services', svc, 'src');
 }
 
 /** `svc-mining-pool` → `MINING_POOL`. */
@@ -113,8 +124,9 @@ export function callsInSource(src, self, services) {
     .split('\n')
     .forEach((line, n) => {
       if (raw[n].includes(NOT_A_CALL)) return;
-      for (const [variable] of line.matchAll(/\b[A-Z][A-Z0-9_]*_URLS?\b/g)) {
-        const to = targetOf(variable, self, services);
+      // A Rust service reads its address once in env.rs and passes the field on (`env.ledger_url`): the same name, lower case.
+      for (const [variable] of line.matchAll(/\b(?:[A-Z][A-Z0-9_]*_URLS?|[a-z][a-z0-9_]*_urls?)\b/g)) {
+        const to = targetOf(variable.toUpperCase(), self, services);
         if (to) calls.add(to);
       }
     });
@@ -203,9 +215,7 @@ export function graphFrom(sources) {
 
 /** Each service's source texts in the tree at `root`. */
 export function sourcesOf(root = ROOT) {
-  return Object.fromEntries(
-    servicesOf(root).map((svc) => [svc, sourceFiles(join(root, 'services', svc, 'src')).map((f) => readFileSync(f, 'utf8'))]),
-  );
+  return Object.fromEntries(servicesOf(root).map((svc) => [svc, sourceFiles(sourceDirOf(root, svc)).map((f) => readFileSync(f, 'utf8'))]));
 }
 
 const buildGraph = (root = ROOT) => graphFrom(sourcesOf(root));

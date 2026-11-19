@@ -1,15 +1,11 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { Details, presentActionFailure, Read, Select, TextArea, useAction } from './common';
-import { limitsCopy } from '../quant/limits-copy';
-import { researchCopy } from '../quant/research-copy';
-import { PYTHON_TEMPLATE } from '../quant/python-template';
-import { sandboxLimitRefusalOf, sandboxLimitSentence } from '../quant/sandbox-limit-refusal';
 import { preservePaperHref } from './trade-context';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { refusalCopy } from '../../data/refusals';
@@ -27,19 +23,30 @@ import {
   type HistoricalSnapshot,
 } from './quant-analysis';
 import { QuantHistoricalRecord } from './QuantHistoricalRecord';
-import { StudioLibrary } from '../quant/StudioLibrary';
-import { StudioSave } from '../quant/StudioSave';
-import { fingerprint, newLink, readLink, writeLink, type StudioLink } from '../quant/studio-save';
-import { studioCopy } from '../quant/studio-copy';
-import { builderCopy } from '../quant/builder-copy';
-import { SignalBuilder } from '../quant/SignalBuilder';
-import { StudioTemplates } from '../quant/StudioTemplates';
-import { emptySignalRules } from '../quant/signal-rules';
 import { quantStrategyHeadSchema, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
-import { QuantRooms } from '../quant/QuantRooms';
-import { PaperOrders } from '../quant/PaperOrders';
+import {
+  limitsCopy,
+  researchCopy,
+  PYTHON_TEMPLATE,
+  sandboxLimitRefusalOf,
+  sandboxLimitSentence,
+  StudioLibrary,
+  StudioSave,
+  fingerprint,
+  newLink,
+  readLink,
+  writeLink,
+  type StudioLink,
+  studioCopy,
+  builderCopy,
+  SignalBuilder,
+  StudioTemplates,
+  emptySignalRules,
+  QuantRooms,
+  PaperOrders,
+} from '../quant';
 import './quant-analysis.css';
 /** A service sometimes answers with its own refusal code; customers read the plain sentence for it instead. */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
