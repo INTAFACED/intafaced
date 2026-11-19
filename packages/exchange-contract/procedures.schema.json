@@ -6,6 +6,21 @@
       "transport": "http",
       "method": "POST",
       "path": "/markets/:marketId/orders",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "marketId": {
+            "type": "string"
+          }
+        },
+        "required": ["marketId"]
+      },
+      "access": {
+        "caller": "service",
+        "callers": ["svc-trade", "svc-execution", "svc-fix"]
+      },
+      "refusals": {},
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -858,7 +873,256 @@
         },
         "required": ["accepted", "sequence", "fills", "resting", "rejected", "cancellations", "triggered"],
         "additionalProperties": false
-      }
+      },
+      "checks": {
+        "matching.proof_binds_snapshot": {
+          "at": "input.lifecycleProof",
+          "says": "the proof's action is one the snapshot allows; its checkedAt, transitionId and evidenceRefs equal the snapshot's; its snapshotId is the SHA-256 of the snapshot as parsed"
+        },
+        "matching.snapshot_actions_fit_state": {
+          "at": "input.lifecycleProof.snapshot",
+          "says": "the snapshot's allowed actions are unique and permitted by its state (none in a no-action state; only risk-reducing ones when halted)"
+        },
+        "exchange.spine_id_clean": {
+          "at": [
+            "input.lifecycleProof.snapshot.marketId",
+            "input.lifecycleProof.snapshot.ruleVersion",
+            "input.lifecycleProof.snapshot.instrumentId",
+            "input.lifecycleProof.snapshot.instrumentVersion",
+            "input.lifecycleProof.snapshot.reasonCode",
+            "input.lifecycleProof.snapshot.transitionId",
+            "input.lifecycleProof.snapshot.evidenceRefs[]"
+          ],
+          "says": "an identifier has no leading or trailing space and no control character"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "orderId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "accountId": "desk",
+            "type": "limit",
+            "side": "buy",
+            "qty": "10",
+            "price": "100",
+            "tif": "GTC",
+            "lifecycleProof": {
+              "action": "PLACE",
+              "decision": "ELIGIBLE",
+              "checkedAt": "2026-08-25T16:00:00.000Z",
+              "snapshotId": "trade.lifecycle.snapshot:a934c96f1d538289f94b67756c7c5595ff49f20b4523d478444eb4b18db92cba",
+              "transitionId": "test.transition",
+              "evidenceRefs": ["test.evidence"],
+              "snapshot": {
+                "marketId": "BTC-USDT",
+                "ruleVersion": "test.rules.v1",
+                "instrumentId": "BTC-USDT",
+                "instrumentVersion": "test.instrument.v1",
+                "state": "OPEN",
+                "reasonCategory": "NORMAL",
+                "reasonCode": "trade.lifecycle.ready",
+                "effectiveAt": "2026-08-25T16:00:00.000Z",
+                "observedAt": "2026-08-25T16:00:00.000Z",
+                "lastGoodState": "OPEN",
+                "allowedActions": ["PLACE", "PLACE_POST_ONLY"],
+                "transitionId": "test.transition",
+                "evidenceRefs": ["test.evidence"]
+              }
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "orderId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "accountId": "desk",
+            "type": "market",
+            "side": "buy",
+            "qty": "10",
+            "price": null,
+            "tif": "IOC",
+            "lifecycleProof": {
+              "action": "PLACE",
+              "decision": "ELIGIBLE",
+              "checkedAt": "2026-08-25T16:00:00.000Z",
+              "snapshotId": "trade.lifecycle.snapshot:a934c96f1d538289f94b67756c7c5595ff49f20b4523d478444eb4b18db92cba",
+              "transitionId": "test.transition",
+              "evidenceRefs": ["test.evidence"],
+              "snapshot": {
+                "marketId": "BTC-USDT",
+                "ruleVersion": "test.rules.v1",
+                "instrumentId": "BTC-USDT",
+                "instrumentVersion": "test.instrument.v1",
+                "state": "OPEN",
+                "reasonCategory": "NORMAL",
+                "reasonCode": "trade.lifecycle.ready",
+                "effectiveAt": "2026-08-25T16:00:00.000Z",
+                "observedAt": "2026-08-25T16:00:00.000Z",
+                "lastGoodState": "OPEN",
+                "allowedActions": ["PLACE", "PLACE_POST_ONLY"],
+                "transitionId": "test.transition",
+                "evidenceRefs": ["test.evidence"]
+              }
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "orderId": "ORD-0001",
+            "accountId": "acct-desk",
+            "type": "limit",
+            "side": "buy",
+            "qty": "1",
+            "price": "1",
+            "tif": "GTC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "orderId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "accountId": "desk",
+            "type": "limit",
+            "side": "buy",
+            "qty": "-1",
+            "price": "100",
+            "tif": "GTC",
+            "lifecycleProof": {
+              "action": "PLACE",
+              "decision": "ELIGIBLE",
+              "checkedAt": "2026-08-25T16:00:00.000Z",
+              "snapshotId": "trade.lifecycle.snapshot:a934c96f1d538289f94b67756c7c5595ff49f20b4523d478444eb4b18db92cba",
+              "transitionId": "test.transition",
+              "evidenceRefs": ["test.evidence"],
+              "snapshot": {
+                "marketId": "BTC-USDT",
+                "ruleVersion": "test.rules.v1",
+                "instrumentId": "BTC-USDT",
+                "instrumentVersion": "test.instrument.v1",
+                "state": "OPEN",
+                "reasonCategory": "NORMAL",
+                "reasonCode": "trade.lifecycle.ready",
+                "effectiveAt": "2026-08-25T16:00:00.000Z",
+                "observedAt": "2026-08-25T16:00:00.000Z",
+                "lastGoodState": "OPEN",
+                "allowedActions": ["PLACE", "PLACE_POST_ONLY"],
+                "transitionId": "test.transition",
+                "evidenceRefs": ["test.evidence"]
+              }
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "matching.proof_binds_snapshot",
+          "input": {
+            "orderId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "accountId": "desk",
+            "type": "limit",
+            "side": "buy",
+            "qty": "10",
+            "price": "100",
+            "tif": "GTC",
+            "lifecycleProof": {
+              "action": "PLACE",
+              "decision": "ELIGIBLE",
+              "checkedAt": "2026-08-25T16:00:01.000Z",
+              "snapshotId": "trade.lifecycle.snapshot:a934c96f1d538289f94b67756c7c5595ff49f20b4523d478444eb4b18db92cba",
+              "transitionId": "test.transition",
+              "evidenceRefs": ["test.evidence"],
+              "snapshot": {
+                "marketId": "BTC-USDT",
+                "ruleVersion": "test.rules.v1",
+                "instrumentId": "BTC-USDT",
+                "instrumentVersion": "test.instrument.v1",
+                "state": "OPEN",
+                "reasonCategory": "NORMAL",
+                "reasonCode": "trade.lifecycle.ready",
+                "effectiveAt": "2026-08-25T16:00:00.000Z",
+                "observedAt": "2026-08-25T16:00:00.000Z",
+                "lastGoodState": "OPEN",
+                "allowedActions": ["PLACE", "PLACE_POST_ONLY"],
+                "transitionId": "test.transition",
+                "evidenceRefs": ["test.evidence"]
+              }
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "matching.snapshot_actions_fit_state",
+          "input": {
+            "orderId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "accountId": "desk",
+            "type": "limit",
+            "side": "buy",
+            "qty": "10",
+            "price": "100",
+            "tif": "GTC",
+            "lifecycleProof": {
+              "action": "PLACE",
+              "decision": "ELIGIBLE",
+              "checkedAt": "2026-08-25T16:00:00.000Z",
+              "snapshotId": "trade.lifecycle.snapshot:a934c96f1d538289f94b67756c7c5595ff49f20b4523d478444eb4b18db92cba",
+              "transitionId": "test.transition",
+              "evidenceRefs": ["test.evidence"],
+              "snapshot": {
+                "marketId": "BTC-USDT",
+                "ruleVersion": "test.rules.v1",
+                "instrumentId": "BTC-USDT",
+                "instrumentVersion": "test.instrument.v1",
+                "state": "HALTED",
+                "reasonCategory": "NORMAL",
+                "reasonCode": "trade.lifecycle.ready",
+                "effectiveAt": "2026-08-25T16:00:00.000Z",
+                "observedAt": "2026-08-25T16:00:00.000Z",
+                "lastGoodState": "OPEN",
+                "allowedActions": ["PLACE"],
+                "transitionId": "test.transition",
+                "evidenceRefs": ["test.evidence"]
+              }
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "exchange.spine_id_clean",
+          "input": {
+            "orderId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "accountId": "desk",
+            "type": "limit",
+            "side": "buy",
+            "qty": "10",
+            "price": "100",
+            "tif": "GTC",
+            "lifecycleProof": {
+              "action": "PLACE",
+              "decision": "ELIGIBLE",
+              "checkedAt": "2026-08-25T16:00:00.000Z",
+              "snapshotId": "trade.lifecycle.snapshot:a934c96f1d538289f94b67756c7c5595ff49f20b4523d478444eb4b18db92cba",
+              "transitionId": "test.transition",
+              "evidenceRefs": ["test.evidence"],
+              "snapshot": {
+                "marketId": "BTC-USDT",
+                "ruleVersion": "test.rules.v1",
+                "instrumentId": "BTC-USDT",
+                "instrumentVersion": "test.instrument.v1",
+                "state": "OPEN",
+                "reasonCategory": "NORMAL",
+                "reasonCode": " trade.lifecycle.ready",
+                "effectiveAt": "2026-08-25T16:00:00.000Z",
+                "observedAt": "2026-08-25T16:00:00.000Z",
+                "lastGoodState": "OPEN",
+                "allowedActions": ["PLACE", "PLACE_POST_ONLY"],
+                "transitionId": "test.transition",
+                "evidenceRefs": ["test.evidence"]
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

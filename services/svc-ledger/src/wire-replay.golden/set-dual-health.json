@@ -1,0 +1,6 @@
+{
+  "bodies": ["{\"statusCode\":500,\"error\":\"Internal Server Error\",\"message\":\"replay stub: sql\"}"],
+  "answers": {
+    "set-dual GET /health absent anon": [500, 0]
+  }
+}

@@ -45,7 +45,7 @@ Within the floor, these win over any agent's or reviewer's preference.
 
 ## Services
 
-- Services never read each other's tables. Use tRPC through `packages/contracts`, or an event declared in `packages/events/src/catalog.ts`. Consumers are idempotent.
+- Services never read each other's tables: they call through a record or an event ([`docs/agents/shape.md`](docs/agents/shape.md), rules 1 and 3). Consumers are idempotent.
 - User-facing copy names no partner or model vendor (`pnpm scan:brand`). The one exception: Hyperliquid is named as the execution venue in the venue disclosure and the terms, as the owner adopted on 8 Nov 2026 (Positioning: "Hyperliquid is disclosed as the execution venue"). Model vendors and every other partner stay unnamed.
 
 ## GitHub and git
@@ -59,8 +59,10 @@ Within the floor, these win over any agent's or reviewer's preference.
 Where each kind of thing lives across the factory, this repo included, is one map: INTAFACED/project-state `AGENTS.md`, "Where things live" (the product spec is there too, under `product/`). This list names only what is inside this repo.
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the generated `docs/SERVICES.md`: apps, services, packages, ports, env, the money flow and how to run.
+- [`docs/agents/shape.md`](docs/agents/shape.md): the one way to add a call, a feature, a piece of state, a UI part, a service's wiring or a list. Read it before adding any of them.
 - [`docs/agents/build-slice.md`](docs/agents/build-slice.md): how to build a journey and prove it. [`CONTRIBUTING.md`](CONTRIBUTING.md): setup, worktrees, commits and the CI check names.
 - [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations. [`docs/refs/`](docs/refs/): measured front-end references.
 - [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape. [`apps/customer/README.md`](apps/customer/README.md): where customer screens and rooms go.
+- Rust lives in `crates/` (one Cargo workspace, toolchain pinned in `rust-toolchain.toml`): `pnpm rust:check` runs what CI's Rust job runs (format, clippy with warnings as errors, tests); `pnpm rust:fmt` formats.
 - Each service's `README.md`: read it before you edit that service. Find code with `rg`.
 - Issues and domain notes: `docs/agents/issue-tracker.md`, `domain.md`. Active work and owners: open GitHub PRs and issues.

@@ -99,8 +99,28 @@ test('planted: a full-suite change whose own ci.yml ran one shard fails; the who
   assert.equal(one.ok, false);
   assert.match(one.lines.join('\n'), /16 shards never ran|of its 16 shards never ran/);
   const all = Array.from({ length: 16 }, (_, i) => `Tests (${i + 1}/16)`);
-  assert.equal(judgeCiJobs({ run: run(1), jobs: green(all), files: full }).ok, true);
-  assert.equal(judgeCiJobs({ run: run(1), jobs: green(all.slice(1)), files: full }).ok, false, 'one shard short');
+  // ci.yml is in the change, so its Rust job runs too (ci-affected.mjs classify `rust`).
+  assert.equal(judgeCiJobs({ run: run(1), jobs: green([...all, 'Rust']), files: full }).ok, true);
+  assert.equal(judgeCiJobs({ run: run(1), jobs: green([...all.slice(1), 'Rust']), files: full }).ok, false, 'one shard short');
+});
+
+test('planted: a change that reaches Rust fails without a green Rust job; Rust files alone need no test shard', () => {
+  const rust = ['crates/svc-tax/src/lib.rs'];
+  assert.equal(judgeCiJobs({ run: run(1), jobs: green(['Rust']), files: rust }).ok, true);
+  const missing = judgeCiJobs({ run: run(1), jobs: green([]), files: rust });
+  assert.equal(missing.ok, false);
+  assert.match(missing.lines.join('\n'), /rust was missing/);
+  assert.equal(
+    judgeCiJobs({ run: run(1), jobs: green(['Rust']).map((j) => (j.name === 'Rust' ? { ...j, conclusion: 'failure' } : j)), files: rust })
+      .ok,
+    false,
+  );
+  assert.equal(
+    judgeCiJobs({ run: run(1), jobs: green(['Rust']).map((j) => (j.name === 'Rust' ? { ...j, conclusion: 'skipped' } : j)), files: rust })
+      .ok,
+    false,
+  );
+  assert.equal(judgeCiJobs({ run: run(1), jobs: green(), files: product }).ok, true, 'a TypeScript change needs no Rust job');
 });
 
 test('a CI run back in progress only because its own seal job is being re-run is still judged (CI review on 7a7eb9a0)', () => {

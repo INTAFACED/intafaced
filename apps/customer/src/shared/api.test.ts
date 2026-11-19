@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { defineProcedure, NO_INPUT } from '@intafaced/contracts/procedure';
 import { createApiClient, setScopedBearer } from './api';
 import { savePreferences } from './preferences';
 
@@ -245,5 +246,31 @@ describe('a call with its own bearer', () => {
       setScopedBearer(null);
     }
     expect(seen).toEqual(['Bearer confirm-token', 'Bearer session-token', 'Bearer session-token', 'Bearer session-token']);
+  });
+});
+
+describe("a record's own accept checks", () => {
+  const SAVED = defineProcedure({
+    name: 'plant.saved',
+    service: 'svc-tax',
+    module: 'tax',
+    transport: 'trpc',
+    kind: 'query',
+    path: 'plantSaved',
+    access: { caller: 'public' },
+    refusals: {},
+    input: NO_INPUT,
+    output: z.object({ saved: z.boolean() }),
+    accept: {
+      'plant.saved_true': { says: 'the reply says saved', holds: (reply) => z.object({ saved: z.literal(true) }).safeParse(reply).success },
+    },
+    samples: [{ verdict: 'accept' }],
+  });
+  const answering = (saved: boolean) =>
+    createApiClient({ fetch: async () => new Response(JSON.stringify({ result: { data: { saved } } })) });
+
+  it('run in api.call: a reply one refuses reads as unverified, never as data', async () => {
+    expect(await answering(true).call(SAVED, undefined)).toEqual({ ok: true, data: { saved: true } });
+    expect(await answering(false).call(SAVED, undefined)).toMatchObject({ ok: false, reason: 'invalid_response' });
   });
 });

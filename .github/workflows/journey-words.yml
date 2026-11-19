@@ -1,0 +1,126 @@
+# The journey list follows the journey words.
+#
+# docs/roadmap/journeys.json and slices.json are written by `node tooling/scripts/roadmap.mjs --index` from the journey
+# words and slice specs, which live in the private project repository; this repository is public, so nothing here can
+# rebuild them on a pull request. Until this ran, nothing said when the words changed and the list did not: the list
+# drifted twice in two days (eight journeys behind on 17 Nov; six again on 18 Nov, a day after the hand repair).
+#
+# Every hour, after each change on main to the list or its builder, and by hand, this reads the words at the project
+# repository's main and runs `roadmap.mjs --check`, which fails naming the journeys and slices that differ and the
+# command that fixes them. While the list is behind it keeps one open `bug` issue saying so (the next builder's item,
+# who runs the command and opens the list's `gate:` pull request, where the journey-list guard still judges every drop);
+# once the list follows again, it closes that issue. The run stays green while the issue carries the drift, so a
+# drift never reads as a red main and the hourly schedule mails nobody; it fails only when it can't read or report.
+#
+# Order: the words merge first, in the project repository; within the hour this opens the issue; the regenerated list
+# follows in its own pull request here. No word of the words is printed or written here: `--check` prints only journey
+# and slice ids, which the committed list already holds.
+#
+# The words are read with the project-state read token the CI review uses, minted from the Mac agents' GitHub App
+# (contents: read on project-state alone, revoked when the job ends), else the old secret. Both live in the `ci-review`
+# environment, whose deployment branch rule allows main alone: this runs main's copy of this file and of roadmap.mjs,
+# never a pull request's, and a manual run on another branch is refused by the environment.
+name: Journey words
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/roadmap/**'
+      - 'tooling/scripts/roadmap.mjs'
+      - '.github/workflows/journey-words.yml'
+
+permissions: {}
+
+concurrency:
+  group: journey-words
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: The journey list follows the words
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10 # healthy run: under a minute
+    environment: ci-review
+    env:
+      APP_KEY_SET: ${{ secrets.INTAFACED_APP_KEY != '' }} # true or false only; the key itself is read by one step
+      TITLE: 'journey list: behind the journey words'
+    permissions:
+      contents: read
+      issues: write # the one drift issue: opened, or closed once the list follows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - name: Mint a project-state read token
+        id: ps-token
+        if: env.APP_KEY_SET == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: Iv23lihKJK3UhiuiTgLa
+          private-key: ${{ secrets.INTAFACED_APP_KEY }}
+          owner: INTAFACED
+          repositories: project-state
+          permission-contents: read
+
+      # Only the operation-zero folder, at main's tip, with no history; the token goes in one header, never a URL.
+      - name: Read the words
+        env:
+          PS_TOKEN: ${{ steps.ps-token.outputs.token || secrets.PROJECT_STATE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "$PS_TOKEN" ] || { echo "::error::no project-state read token"; exit 1; }
+          basic="$(printf 'x-access-token:%s' "$PS_TOKEN" | base64 -w0)"
+          echo "::add-mask::$basic"
+          dir="$RUNNER_TEMP/project-state"
+          git -c http.extraheader="AUTHORIZATION: basic $basic" clone -q --depth 1 --filter=blob:none --sparse \
+            https://github.com/INTAFACED/project-state.git "$dir"
+          git -C "$dir" -c http.extraheader="AUTHORIZATION: basic $basic" sparse-checkout set operation-zero
+          [ -d "$dir/operation-zero/modules" ] || { echo "::error::the words were not read (no operation-zero/modules)"; exit 1; }
+
+      - name: Check the list
+        id: check
+        run: |
+          set -uo pipefail
+          code=0
+          node tooling/scripts/roadmap.mjs --check "$RUNNER_TEMP/project-state/operation-zero" > "$RUNNER_TEMP/check.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/check.txt"
+          case "$code" in
+            0) echo "behind=false" >> "$GITHUB_OUTPUT" ;;
+            1) grep -q '^roadmap: the journey list is behind the words' "$RUNNER_TEMP/check.txt" \
+                 || { echo "::error::roadmap.mjs --check failed for another reason"; exit 1; }
+               echo "behind=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::roadmap.mjs --check exited $code"; exit 1 ;;
+          esac
+          cat "$RUNNER_TEMP/check.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the drift issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEHIND: ${{ steps.check.outputs.behind }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          open="$(gh issue list -R "$GITHUB_REPOSITORY" --state open --label bug --search "in:title \"$TITLE\"" \
+            --json number,title --jq "[.[] | select(.title == env.TITLE) | .number] | first // empty")"
+          if [ "$BEHIND" = "true" ]; then
+            if [ -n "$open" ]; then echo "still behind; #$open already says so"; exit 0; fi
+            {
+              echo "$(cat "$RUNNER_TEMP/check.txt")"
+              echo
+              echo "Found by $RUN_URL against the journey words on the project repository's main."
+              echo
+              echo "**Fix:** with the project repository checked out, run \`node tooling/scripts/roadmap.mjs --index <its operation-zero folder>\` on a branch of current main, then open a \`gate:\` pull request with only \`docs/roadmap/\`. A journey or step that leaves the list needs the \`Journey-retired:\` line the journey-list guard asks for. This issue closes itself on the first run after the list follows the words (.github/workflows/journey-words.yml)."
+            } > "$RUNNER_TEMP/body.md"
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$TITLE" --label bug --body-file "$RUNNER_TEMP/body.md"
+          elif [ -n "$open" ]; then
+            gh issue close "$open" -R "$GITHUB_REPOSITORY" --comment "The list follows the journey words again: $RUN_URL"
+          fi

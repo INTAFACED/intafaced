@@ -1,6 +1,12 @@
 import { P2P_DELIST_REASONS } from '@intafaced/contracts/p2p-delist';
 import { P2P_FIELD_KEY, P2P_RULE_CLASS } from '@intafaced/contracts/p2p-rule-class';
-import type { ProcedureInput, ProcedureOutput, ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
+import {
+  replyAccepted,
+  type ProcedureInput,
+  type ProcedureOutput,
+  type ProcedureRecord,
+  type TrpcTransport,
+} from '@intafaced/contracts/procedure';
 import { z, type ZodType } from 'zod';
 import { uiMessage, type UiMessage } from './ui-copy';
 
@@ -338,7 +344,8 @@ export function createApiClient(
     ): Promise<ApiResult<ProcedureOutput<R>>> {
       const { accept, ...rest } = opts;
       const output = record.output as ZodType<ProcedureOutput<R>>;
-      const schema = accept ? output.refine(accept) : output;
+      // The record's own `accept` checks (every caller's), then this caller's: a reply either refuses reads as unverified.
+      const schema = output.refine((data) => replyAccepted(record, data) && (accept === undefined || accept(data)));
       const base = `/api/${encodeURIComponent(record.module)}/trpc/${encodeURIComponent(record.path)}`;
       if (record.kind === 'query')
         return request(

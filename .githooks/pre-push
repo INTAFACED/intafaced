@@ -66,6 +66,20 @@ fi
 if git diff --name-only "${SCAN_BASE:-HEAD}" HEAD | grep -qE '\.test\.|turbo\.json$|package\.json$|test-read-edges\.json$' &&
   ! (CDPATH= cd -- "$TOP" && node tooling/ci/cross-package-reads.mjs) </dev/null; then exit 1; fi
 
+# CI's Rust job, by its own command (`pnpm rust:check`: format, clippy with warnings as errors, tests), when this branch
+# changes a Rust file (ci-affected.mjs isRustFile). A push that changes none pays nothing.
+if [ -f "$TOP/Cargo.toml" ] && [ "$(CDPATH= cd -- "$TOP" && node tooling/ci/ci-affected.mjs --rust-files 2>/dev/null)" = "true" ]; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "  ✖ this push changes Rust, and cargo is missing — push refused. Install rustup, then the pinned toolchain:" >&2
+    echo "    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none && rustup toolchain install" >&2
+    exit 1
+  fi
+  if ! (CDPATH= cd -- "$TOP" && pnpm -s rust:check) </dev/null; then
+    echo "  ✖ rust:check failed — push refused. The failing format, lint or test is above; CI's Rust job runs the same command." >&2
+    exit 1
+  fi
+fi
+
 protected="main"
 remote_ref_prefix="refs/heads/"
 
@@ -133,7 +147,8 @@ if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
 fi
 
 # What runs here takes seconds: the tooling tests that read
-# journey files (when one is pushed), the lint ratchet on the pushed files, the cross-package read scan, the Doctrine
+# journey files (when one is pushed), the lint ratchet on the pushed files, the cross-package read scan, rust:check (when
+# Rust is pushed), the Doctrine
 # gates that read the pushed tree, the typecheck of the packages the push reaches (within its time limit), the CI review's
 # size count and the refusal of main. Only on GitHub: build, the whole repo's typecheck, unit tests, the other tooling tests and the gates gates.mjs leaves to CI (on the Mac CI's checks took 13 to 91 minutes
 # a push under three builders; GitHub runs them in 9 to 20), on the pull request.
