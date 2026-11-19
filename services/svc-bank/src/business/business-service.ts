@@ -1074,7 +1074,10 @@ export class BusinessService {
               ${input.payrollId}::uuid, ${input.accountId}::uuid, ${input.actorUserId},
               ${input.fromSpaceId}::uuid, ${account.assetId}, ${posted.id}
             )
-            ON CONFLICT (id) DO NOTHING
+            -- No target: id and ledger_tx_id name the same run (the ledger post is
+            -- idempotent on payrollId), so a racing copy absorbs on either key and
+            -- reads the row that won below (#8892).
+            ON CONFLICT DO NOTHING
             RETURNING id, account_id, actor_user_id, from_space_id, asset_id, ledger_tx_id, created_at
           `;
           if (inserted[0]) {

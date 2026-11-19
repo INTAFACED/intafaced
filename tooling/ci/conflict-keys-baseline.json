@@ -144,15 +144,6 @@
       "why": "id is randomUUID() made fresh on every call (business-payouts.ts:997), so two inserts never share it."
     },
     {
-      "file": "services/svc-bank/src/business/business-service.ts",
-      "table": "business_payroll_runs",
-      "target": "(id)",
-      "constraint": "business_payroll_runs_ledger_tx_id_key",
-      "verdict": "race",
-      "issue": 8892,
-      "why": "ledger_tx_id = posted.id, and the ledger post is idempotent on payrollId, so two concurrent runs of the same payroll get the same tx id. The insert (business-service.ts:1070) runs after the post with no lock, so the loser raises 23505 business_payroll_runs_ledger_tx_id_key instead of absorbing on id."
-    },
-    {
       "file": "services/svc-bank/src/cards/card-service.ts",
       "table": "cards",
       "target": "(issuer, issuer_ref)",
