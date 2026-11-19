@@ -36,6 +36,7 @@ import {
   MINING_POW,
   MINING_PROBE,
 } from './mining-procedures.js';
+import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } from './ops-public-procedures.js';
 import {
   TAX_HEALTH,
   TAX_LOT_BOOK,
@@ -91,6 +92,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   MINING_CONNECTION,
   MINING_POW,
   MINING_PROBE,
+  OPS_HOME_CONFIG,
+  OPS_VALUATION_PRICES,
+  OPS_OUTREACH_PUBLIC_SETTINGS,
   TAX_HEALTH,
   TAX_LOT_BOOK,
   TAX_PNL_OVER_TIME,

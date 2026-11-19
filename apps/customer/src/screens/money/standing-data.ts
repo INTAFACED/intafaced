@@ -6,7 +6,8 @@
  */
 import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { useMemo } from 'react';
-import { VALUATION_PRICES_PROCEDURE, valuationPricesOutputSchema, type ValuationPrices } from '@intafaced/contracts/valuation-prices';
+import { OPS_VALUATION_PRICES } from '@intafaced/contracts/ops-public-procedures';
+import type { ValuationPrices } from '@intafaced/contracts/valuation-prices';
 import { useApi, useSession } from '../../features/session/session';
 import { createProtocolApi } from '../../features/protocol/api';
 import { nativeCurrency } from '../../features/protocol/wallet/transfer';
@@ -89,11 +90,7 @@ export function usePartnerRead(): PartnerRead {
 /** The published prices, or `failed` when svc-ops did not answer (then nothing is valued, and the room says so). */
 export function useValuationPrices(): { prices: ValuationPrices | null; failed: boolean } {
   const { api } = useSession();
-  const read = usePolled(
-    (signal) => api.query('ops', VALUATION_PRICES_PROCEDURE, undefined, valuationPricesOutputSchema, { signal }),
-    'standing:prices',
-    READ_EVERY_MS * 10,
-  );
+  const read = usePolled((signal) => api.call(OPS_VALUATION_PRICES, undefined, { signal }), 'standing:prices', READ_EVERY_MS * 10);
   return { prices: read.data, failed: !read.data && Boolean(read.failure) };
 }
 

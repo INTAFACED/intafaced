@@ -1,4 +1,4 @@
-import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema } from '@intafaced/contracts/home-work-items';
+import { OPS_HOME_CONFIG } from '@intafaced/contracts/ops-public-procedures';
 import { useSession } from '../../features/session/session';
 import { useResource } from '../../shared/resource';
 
@@ -12,10 +12,7 @@ export type ActivityLimit =
 
 export function useRecentActivityLimit(): ActivityLimit {
   const { api } = useSession();
-  const config = useResource(
-    (signal) => api.query('ops', HOME_CONFIG_PROCEDURE, undefined, homeConfigOutputSchema, { signal }),
-    'home-config',
-  );
+  const config = useResource((signal) => api.call(OPS_HOME_CONFIG, undefined, { signal }), 'home-config');
   const resource = config.resource;
   if (resource.status === 'loading') return { state: 'loading' };
   if (resource.status === 'failed') return { state: 'failed', retry: config.reload };

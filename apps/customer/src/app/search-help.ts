@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema } from '@intafaced/contracts/home-work-items';
+import { OPS_HOME_CONFIG } from '@intafaced/contracts/ops-public-procedures';
 import { publishedCopy, publishedLanguageFor } from '../shared/copy';
 import type { ApiClient } from '../shared/api';
 import { useApi } from '../features/session/session';
@@ -68,10 +68,7 @@ export async function searchHelp(
  */
 export function useHelpResultCap(open: boolean): HelpCap {
   const api = useApi();
-  const { resource, reload } = useResource(
-    (signal) => api.query('ops', HOME_CONFIG_PROCEDURE, undefined, homeConfigOutputSchema, { signal }),
-    'search-help-cap',
-  );
+  const { resource, reload } = useResource((signal) => api.call(OPS_HOME_CONFIG, undefined, { signal }), 'search-help-cap');
   const failed = resource.status === 'failed';
   const wasOpen = useRef(open);
   useEffect(() => {
