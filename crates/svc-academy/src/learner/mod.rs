@@ -3,6 +3,7 @@
 //! `router.ts`). `slices/learner.rs` routes each call here.
 
 pub mod planner;
+pub mod preview;
 pub mod purchases;
 pub mod sql;
 pub mod store;
