@@ -18,7 +18,7 @@ import { BlockPage, TxPage } from './explorer/pages';
 import { PoolPage } from './pools/PoolPage';
 import { ContractPage } from './contracts/ContractPage';
 import { OrdersRoom } from './orders/OrdersRoom';
-import { OwnFreezeNotice } from '../account/OwnFreezeNotice';
+import { OwnFreezeNotice } from '../account';
 
 /**
  * Mounts one component per Web3 route (IA-SPEC 2.8). A tab route renders its room's tab; a detail route renders its full

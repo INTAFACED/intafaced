@@ -113,6 +113,9 @@ const PROTOCOL_PLANE_SERVICES = deriveProtocolPlaneServices();
 const WRITE_SURFACE = [
   { pattern: /\bledger\s*\.\s*post\s*\(/, reason: 'calls ledger.post() — that is custody' },
   { pattern: /from\s+['"]@intafaced\/ledger-client\/recipes['"]/, reason: 'imports ledger write recipes' },
+  // svc-ledger's postRecipe door runs a recipe by name: its client is a write path like `ledger.post`.
+  { pattern: /from\s+['"]@intafaced\/ledger-client\/post-recipe['"]/, reason: 'imports the postRecipe door client — that posts' },
+  { pattern: /\bpostRecipe\s*\(/, reason: 'calls postRecipe() — that is custody' },
   {
     pattern:
       /import\s*\{[^}]*\b(recipes|deposit|withdrawHold|withdrawSettle|tradeFill|escrowLock|escrowRelease|stake|feeCharge|rewardPay|mintEmission|loanCollateralLock|loanCollateralRelease|loanDraw|loanRepay|loanLiquidate|loanBadDebt|loanReserveFund)\b[^}]*\}\s*from\s*['"]@intafaced\/ledger-client['"]/s,

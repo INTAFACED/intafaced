@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 
 /**
- * A business account as svc-bank `bank.business.list` returns it. Its own module because the session reads the list
- * at sign-in, and the rest of the bank's contracts (and their copy) need not load with it.
+ * A business account as svc-bank `bank.business.list` returns it. The session owns it because it reads the list at
+ * sign-in, and the rest of the bank's contracts (and their copy) need not load with it; money reads it through the
+ * session's entry.
  */
 export const businessSchema = z.object({
   id: z.string(),
