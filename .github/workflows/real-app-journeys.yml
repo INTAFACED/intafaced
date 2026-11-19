@@ -866,21 +866,20 @@ jobs:
       # The history goes only on the markets journeys read the past of (`--markets journeys`, HISTORY_SYMBOLS in
       # local-test-market.mjs, which local-test-market-history.test.mjs keeps whole): four of six markets, 149 s against 193 s
       # measured on one shard on 13 Nov, a saving every shard makes (project-state #2065 row d37).
-      # A targeted run's shard whose journey files provably read no market's past writes none (tooling/scripts/
+      # A shard whose journey files provably read no market's past writes none (tooling/scripts/
       # journey-market-past.mjs: no chart, candle, tape or backtest word in the file or the helpers it imports): the
-      # history was 208 s of this step's 297 on run 43668181917. Any doubt writes it. Main's runs and a pull request's
-      # full run have no target, so they always write it. A journey that reads the past without it sees an empty chart
-      # and fails; it never passes on one.
+      # history was 208 s of this step's 297 on run 43668181917. Every planned shard asks, a full run's (main's, a pull
+      # request's) as a targeted run's: 43 of a full plan's 90 shards read none (project-state#3329: full runs held all
+      # 500 hosted runners). Any doubt writes it, and a run without a plan always does. A journey that reads the past
+      # without it sees an empty chart and fails; it never passes on one.
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         env:
           SHARDS: ${{ needs.touch.outputs.shards }}
           SHARD: ${{ matrix.shard }}
         run: |
           history=journeys
-          if [ -n "$JOURNEYS_TARGET" ] && [ -n "$SHARDS" ]; then
-            files=$(jq -r --argjson n "$SHARD" '.[$n - 1] // ""' <<<"$SHARDS") || files=""
-            # shellcheck disable=SC2086 # the plan's file names, split on spaces on purpose
-            history=$(node tooling/scripts/journey-market-past.mjs $files) || history=journeys
+          if [ -n "$SHARDS" ]; then
+            history=$(node tooling/scripts/journey-market-past.mjs --shard "$SHARD") || history=journeys
           fi
           node tooling/scripts/local-test-stack.mjs restart matching
           node tooling/scripts/local-test-gates.mjs apply
