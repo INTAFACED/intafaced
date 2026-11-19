@@ -1,6 +1,6 @@
 import { copy, t as copyText, Text } from './copy';
 import { Page, Panel, EmptyState } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
@@ -25,7 +25,7 @@ import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
 import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
-import { quantRoute } from '../quant/QuantRoutes';
+import { quantRoute } from '../quant';
 import { Support, supportPageTitleKey } from './Support';
 import { SupportChatRoom } from './SupportChat';
 import { chatCopy } from './support-chat-copy';
