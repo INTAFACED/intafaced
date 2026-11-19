@@ -87,6 +87,66 @@ export const payDestinationCancelHoldOutputSchema = z
   })
   .strict();
 
+/** `merchant.payoutDestinations.add`: the destination as saved, unverified; nothing is paid to it until it is verified. */
+export const payDestinationAddOutputSchema = z.object({
+  kind: z.string(),
+  ref: z.string(),
+  railId: z.string(),
+  status: z.literal('unverified'),
+  activatesAt: z.null(),
+});
+
+/** `merchant.payoutDestinations.remove`. */
+export const payDestinationRemoveOutputSchema = z.object({ removed: z.literal(true) });
+
+/** One settlement as `merchantOps.payouts.list` shows it: the reference is masked when it is an address. */
+export const payPayoutListItemSchema = z.object({
+  id: z.string(),
+  merchantId: z.string(),
+  window: z.string(),
+  assetId: payAssetCodeSchema,
+  gross: payAmountStringSchema,
+  fees: payAmountStringSchema,
+  net: payAmountStringSchema,
+  status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
+  payoutMethod: z.string().nullable(),
+  payoutReference: z.string().nullable(),
+  createdAt: payTimestampSchema,
+});
+export type PayPayoutListItem = z.infer<typeof payPayoutListItemSchema>;
+
+/** What a merchant may export (`merchantOps.exports.*`). */
+export const PAY_EXPORT_KINDS = ['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees'] as const;
+export type PayExportKind = (typeof PAY_EXPORT_KINDS)[number];
+
+/** One export job, as `merchantOps.exports.create` answers it. A field not reached yet is null. */
+export const payExportJobSchema = z.object({
+  jobId: z.string(),
+  kind: z.enum(PAY_EXPORT_KINDS),
+  filters: z.object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    status: z.string().optional(),
+    assetId: z.string().optional(),
+    amountMin: z.string().optional(),
+    amountMax: z.string().optional(),
+  }),
+  columns: z.array(z.string()),
+  status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  failureCode: z.string().nullable(),
+  fileName: z.string().nullable(),
+  sizeBytes: z.string().nullable(),
+  rowCount: z.number().int().nullable(),
+  sha256: z.string().nullable(),
+  requestedBy: z.string(),
+  asOf: payTimestampSchema.nullable(),
+  generatedAt: payTimestampSchema.nullable(),
+  expiresAt: payTimestampSchema.nullable(),
+  createdAt: payTimestampSchema,
+  completedAt: payTimestampSchema.nullable(),
+});
+export type PayExportJob = z.infer<typeof payExportJobSchema>;
+
 export const payPayoutDestinationListInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
@@ -283,6 +343,7 @@ export const payStatementPageSchema = payPageSchema(payStatementLineSchema).exte
     })
     .strict(),
 });
+export type PayStatementPage = z.infer<typeof payStatementPageSchema>;
 
 export const payLifecycleKindSchema = z.enum([
   'settlement.opened',

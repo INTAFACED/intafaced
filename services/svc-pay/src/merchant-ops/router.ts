@@ -1,6 +1,15 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema, router, TRPCError } from '@intafaced/contracts';
+import {
+  merchantCustomerSeriesInputSchema,
+  merchantCustomerSeriesSchema,
+  PAY_EXPORT_KINDS,
+  payExportJobSchema,
+  payPageSchema,
+  payPayoutListItemSchema,
+  router,
+  TRPCError,
+} from '@intafaced/contracts';
 import { merchantActivationSchema } from '@intafaced/contracts/merchant-activation';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -11,7 +20,7 @@ import { DisputeOpsService, EVIDENCE_KINDS } from './disputes.js';
 import { EVIDENCE_UPLOAD_OFF, type DisputeEvidenceGate } from './dispute-evidence-policy.js';
 import { MerchantOpsError, wrapOps } from './errors.js';
 import { INVOICE_STATUSES, InvoiceService, type InvoiceLinkPort } from './invoices.js';
-import { EXPORT_KINDS, ExportService, type ExportDeps } from './exports.js';
+import { ExportService, type ExportDeps } from './exports.js';
 import { MerchantActivationView } from './activation.js';
 import { MerchantKybView } from './kyb.js';
 import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
@@ -441,7 +450,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           .input(
             z.object({
               requestId: id,
-              kind: z.enum(EXPORT_KINDS),
+              kind: z.enum(PAY_EXPORT_KINDS),
               filters: z
                 .object({
                   from: iso.optional(),
@@ -468,6 +477,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
                 .optional(),
             }),
           )
+          .output(payExportJobSchema)
           .mutation(({ ctx, input }) =>
             wrapOps(async () => {
               const p = need();
@@ -486,7 +496,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             z.object({
               limit: limitInput,
               cursor: cursorInput,
-              kind: z.enum(EXPORT_KINDS).optional(),
+              kind: z.enum(PAY_EXPORT_KINDS).optional(),
               status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']).optional(),
               search: z.string().trim().min(1).max(200).optional(),
               from: iso.optional(),
@@ -535,6 +545,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               search: z.string().trim().min(1).max(200).optional(),
             }),
           )
+          .output(payPageSchema(payPayoutListItemSchema))
           .query(({ ctx, input }) => wrapOps(async () => need().payouts.list(await callerOf(ctx), input))),
       }),
 
