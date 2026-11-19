@@ -320,9 +320,10 @@ const blockerOf = (code: BlockerCode) =>
       params: z.record(z.string(), z.string()),
     })
     .strict();
-export const blockerSchema = z.union(
-  BLOCKER_CODES.map(blockerOf) as unknown as [ReturnType<typeof blockerOf>, ...ReturnType<typeof blockerOf>[]],
-);
+/** Named (`id`), so the record's export writes the union once under `$defs` and each action refers to it. */
+export const blockerSchema = z
+  .union(BLOCKER_CODES.map(blockerOf) as unknown as [ReturnType<typeof blockerOf>, ...ReturnType<typeof blockerOf>[]])
+  .meta({ id: 'ProtocolBlocker' });
 const sourceAnswerSchema = z.enum(['ok', 'checking', 'no_reply', 'not_connected', 'down']);
 export const protocolBlockersOutputSchema = z
   .object({
