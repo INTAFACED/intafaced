@@ -1,3 +1,4 @@
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
@@ -879,7 +880,17 @@ describe('s2s HTTP — service credentials', () => {
           seen.push(input);
           return {
             entries: [
-              { ...historyEntry, assetId: 'USDT', entryId: '42', rail: 'crypto-native', orderId: null, fee: 123_000_000_000_000_000n },
+              {
+                ...historyEntry,
+                assetId: 'USDT',
+                entryId: '42',
+                rail: 'crypto-native',
+                // The engine's `HistoryPageEntry` always carries both; main's stub left them out and the door sent no key.
+                product: null,
+                orderId: null,
+                fee: 123_000_000_000_000_000n,
+                withdrawalId: null,
+              },
             ],
             nextCursor: 'abc',
           };
@@ -901,8 +912,10 @@ describe('s2s HTTP — service credentials', () => {
           assetId: 'USDT',
           entryId: '42',
           rail: 'crypto-native',
+          product: null,
           orderId: null,
           fee: '0.123',
+          withdrawalId: null,
         },
       ],
       nextCursor: 'abc',
@@ -924,6 +937,43 @@ describe('s2s HTTP — service credentials', () => {
     const res = await send(app, '/trpc/history', serviceAuthHeadersForBody('svc-bank', SECRET, old), old);
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe('ledger.history_page_socket');
+    await app.close();
+  });
+
+  it.each(LEDGER_HISTORY_PAGE.samples.map((sample, i) => ({ ...sample, i })))(
+    "the door reaches its record's sample #$i verdict ($verdict): a refused input is 400 and the ledger is never asked",
+    async ({ input, verdict }) => {
+      let asked = false;
+      const app = await mount(
+        stubService({
+          historyPage: async () => {
+            asked = true;
+            return { entries: [], nextCursor: null };
+          },
+        }),
+      );
+      const payload = wire(input);
+      const res = await send(app, LEDGER_HISTORY_PAGE.path, serviceAuthHeadersForBody('svc-tax', SECRET, payload), payload);
+      if (verdict === 'refuse') {
+        expect(res.statusCode, res.body).toBe(400);
+        expect(asked).toBe(false);
+      } else {
+        expect(res.statusCode, res.body).toBe(200);
+        expect(asked).toBe(true);
+      }
+      await app.close();
+    },
+  );
+
+  it("a reply that breaks the door's record is the ledger's fault: 500, never a 400 that blames the caller", async () => {
+    const app = await mount(
+      stubService({
+        historyPage: async () => ({ entries: [{ txId: 't' }], nextCursor: null }) as never,
+      }),
+    );
+    const payload = wire({ ownerType: 'user', ownerId: USER, kind: 'available' });
+    const res = await send(app, LEDGER_HISTORY_PAGE.path, serviceAuthHeadersForBody('svc-tax', SECRET, payload), payload);
+    expect(res.statusCode).toBe(500);
     await app.close();
   });
 

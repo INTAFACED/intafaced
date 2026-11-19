@@ -1,11 +1,11 @@
+import { TAX_EXPORT_LOT_METHODS } from '@intafaced/contracts/tax-procedures';
 import { formatAmount, isZero, type Amount } from '@intafaced/ledger-client';
 import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_UNDERFLOW } from './codes.js';
 
-export const LOT_METHODS = ['FIFO', 'LIFO', 'HIFO'] as const;
-export type LotMethod = (typeof LOT_METHODS)[number];
+export type LotMethod = (typeof TAX_EXPORT_LOT_METHODS)[number];
 
 export function isLotMethod(value: string): value is LotMethod {
-  return (LOT_METHODS as readonly string[]).includes(value);
+  return (TAX_EXPORT_LOT_METHODS as readonly string[]).includes(value);
 }
 
 export interface LotMovement {
