@@ -254,3 +254,63 @@ fn leaves_video_metadata_null_until_the_owner_sets_it() {
     assert_eq!(entry.language, None);
     assert_eq!(entry.captions_url, None);
 }
+
+// ── the certificate a read issues: failure branches ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn reads_at_once_issue_one_certificate() {
+    let Some((db, st)) = store() else { return };
+    for course in ["markets", "builder", "sovereign"] {
+        finish(&db, course, USER);
+    }
+    save(&st, Some(4), &[], t0()).unwrap();
+    let url = db.url.clone();
+    let reads: Vec<_> = (0..4)
+        .map(|_| {
+            let url = url.clone();
+            std::thread::spawn(move || {
+                let st = Store::Pool(service_kit::pg::Pool::new(&url, 2));
+                programmes::programme(&st, USER, "trader-path", t0()).map(|j| s(&j, "certificate.publicId"))
+            })
+        })
+        .collect();
+    // The TypeScript's insert arbitrates on (user_id, cert_id) only, so a read that loses the race on the other unique
+    // key (idempotency_key) refuses with 23505, as the same statement does there. Every read that answers names the
+    // one grant, and the next read answers it too.
+    let mut ids: Vec<String> = Vec::new();
+    for h in reads {
+        match h.join().unwrap() {
+            Ok(id) => ids.push(id),
+            Err(Refusal::Internal { code, .. }) => assert_eq!(code.as_deref(), Some("23505")),
+            Err(other) => panic!("{other:?}"),
+        }
+    }
+    assert!(ids.iter().all(|i| *i == ids[0]), "{ids:?}");
+    assert_eq!(db.texts(&format!("SELECT cert_id FROM academy.cert_grants WHERE user_id = '{USER}'")), [CERT]);
+    let after = s(&read(&st, USER), "certificate.publicId");
+    assert!(ids.is_empty() || ids[0] == after);
+    assert_eq!(db.texts(&format!("SELECT public_id::text FROM academy.cert_grants WHERE user_id = '{USER}'")), [after]);
+}
+
+#[test]
+fn a_store_that_fails_mid_read_issues_nothing_and_the_next_read_issues_once() {
+    let Some((db, st)) = store() else { return };
+    for course in ["markets", "builder", "sovereign"] {
+        finish(&db, course, USER);
+    }
+    save(&st, Some(4), &[], t0()).unwrap();
+    // The grant insert fails (a trigger stands in for the database refusing at that point): nothing is issued.
+    db.client()
+        .batch_execute(
+            "CREATE FUNCTION academy.test_refuse_grant() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'TEST grant refused'; END $$; \
+             CREATE TRIGGER test_refuse_grant BEFORE INSERT ON academy.cert_grants FOR EACH ROW EXECUTE FUNCTION academy.test_refuse_grant();",
+        )
+        .unwrap();
+    assert!(programmes::programme(&st, USER, "trader-path", t0()).is_err());
+    assert!(db.texts("SELECT cert_id FROM academy.cert_grants").is_empty());
+    db.client()
+        .batch_execute("DROP TRIGGER test_refuse_grant ON academy.cert_grants; DROP FUNCTION academy.test_refuse_grant();")
+        .unwrap();
+    assert_eq!(s(&read(&st, USER), "certificate.state"), "earned");
+    assert_eq!(db.texts("SELECT cert_id FROM academy.cert_grants"), [CERT]);
+}
