@@ -58,7 +58,7 @@ export interface TransferResult {
   amount: string;
 }
 
-/** A move the partner bank made (OWNER 226): one partner instruction under the business key, nothing on the ledger. */
+/** A move the partner bank made: one partner instruction under the business key, nothing on the ledger. */
 export interface PartnerTransferResult {
   transferId: string;
   occurrence: number;
@@ -277,7 +277,7 @@ export class TransferService {
 
   /**
    * The person's own move between spaces (`transfers.create`): the ledger's `bankTransfer` on the custodial layer, or,
-   * when the partner bank holds this money (OWNER 226), ONE partner move under the same business key
+   * when the partner bank holds this money, ONE partner move under the same business key
    * (`bank.transfer.<keySpace>:<transferId>:0`) and nothing posted to the ledger.
    *
    * If this crashes exactly here, after the partner moved and before we answered, nobody's funds are stranded: the
@@ -378,7 +378,7 @@ export class TransferService {
 
   /**
    * A send to another person's main space under the `p2p` key: the ledger's `bankTransfer` on the custodial layer, or,
-   * when the partner bank holds both people's money (OWNER 226), ONE partner move from the sender's account at the
+   * when the partner bank holds both people's money, ONE partner move from the sender's account at the
    * partner to the recipient's under the same business key (`bank.transfer.p2p:<transferId>:0`), and nothing posted to the
    * ledger. One side at the partner and the other on the ledger is refused by name (`partnerCustodyMismatch`).
    */
@@ -879,9 +879,9 @@ export class TransferService {
    * TWO QUERIES, AND THE SECOND ONE IS THE IMPORTANT ONE.
    *
    * A `pending` row is an occurrence this service CLAIMED and never posted — a
-   * process that died between the two. Sweeping it used to be a side effect of
-   * the schedule being due again, which was true enough while every schedule was
-   * either active or dead: tomorrow's pass would pick the row up.
+   * process that died between the two. Sweeping it as a side effect of the
+   * schedule being due again would be enough if every schedule were either
+   * active or dead: tomorrow's pass would pick the row up.
    *
    * `pause` broke that, and it broke it silently. A paused schedule is never
    * selected by the due query, so a claim stranded before the pause would sit
@@ -1199,8 +1199,8 @@ export class TransferService {
         let to: Awaited<ReturnType<SpaceService['get']>>;
         try {
           // On `tx`, not the pool: this transaction already holds a connection,
-          // and a second one from the same pool is a wait with no timeout
-          // (GitHub issue #4621). Plain reads, no lock needed.
+          // and a second one from the same pool is a wait with no timeout.
+          // Plain reads, no lock needed.
           from = await this.spaces.resolveForDebit(schedule.fromSpaceId, now, tx);
           to = await this.spaces.resolveForCredit(schedule.toSpaceId, { actingUserId: from.userId }, tx);
           // The sender's freeze is held at the edge, and this run never passes the edge: a frozen, closed or unknown
@@ -1223,7 +1223,7 @@ export class TransferService {
             // ledger.post already moved value under bank.transfer.sched:<id>:<n>. A
             // later lock must RECOVER that movement as settled — never mark
             // rejected while the ledger already moved money.
-            // The same for a partner-held source (OWNER 226): the partner's move under the key is the movement.
+            // The same for a partner-held source: the partner's move under the key is the movement.
             const key = bankTransferKey('sched', schedule.id, occurrence);
             const partner = this.spaces.custody.bankFor(schedule.userId);
             const priorMove = partner ? await partner.moveByKey(key) : null;
@@ -1344,7 +1344,7 @@ export class TransferService {
   }
 
   /**
-   * A standing order's occurrence when the partner bank holds the person's money (OWNER 226): ONE partner move under
+   * A standing order's occurrence when the partner bank holds the person's money: ONE partner move under
    * `bank.transfer.sched:<scheduleId>:<occurrence>`, the key the ledger path posts under, and nothing on the ledger. The
    * claim row records the partner's reference. Too little at the partner is a refusal of this occurrence (after the bills
    * pot top-up, as on the ledger path); anything else (the partner down, its reply lost) rethrows, the claim rolls back,
@@ -1530,7 +1530,7 @@ export class TransferService {
       amount: formatAmount(parseAmount(r.amount)),
       status: r.status,
       ledgerTxId: r.ledger_tx_id,
-      // The partner's reference when the partner bank made this occurrence's move (OWNER 226); null on the ledger path.
+      // The partner's reference when the partner bank made this occurrence's move; null on the ledger path.
       partnerMoveId: r.partner_move_id,
       rejectionCode: r.rejection_code,
     }));

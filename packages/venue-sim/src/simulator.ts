@@ -325,7 +325,7 @@ export const TEST_VENUE_AGENT_VALIDITY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
 
 export interface SimSwitches {
   venueDown: boolean;
-  /** The venue's builder totals read as not known (OWNER 288 1e), as on a venue that publishes none. */
+  /** The venue's builder totals read as not known, as on a venue that publishes none. */
   builderTotalsUnknown: boolean;
   /** The market list leaves out every perpetual (a venue that lists no contract here); orders are not affected. */
   unlistPerpetuals: boolean;
@@ -583,7 +583,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly chainDeposits = new Map<string, { readonly accountKey: string; record: UserVenueDeposit }>();
   private seqCounter = 0;
   private fillCounter = 0;
-  /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
+  /** Builder fees charged, by builder address and fee asset: the venue's own builder totals. */
   private readonly builderEarned = new Map<string, Map<string, Amount>>();
   /** Builder fee claims, by builder address, oldest first: the venue's own claim record (J-derivatives-17). */
   private readonly builderClaimRecord = new Map<string, UserVenueBuilderClaim[]>();
@@ -2037,7 +2037,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   /**
-   * The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e): every builder fee it charged on a fill that
+   * The TEST venue's own builder-fee totals for `builder`: every builder fee it charged on a fill that
    * carried that builder, per fee asset, and what of it the builder has not claimed (`claimBuilderFees`). The
    * `builderTotalsUnknown` switch answers not known.
    */
@@ -3365,7 +3365,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return div(mul(intent.price, BPS), parseAmount(String(setting!.leverageBps)), QUOTE_ROUND);
   }
 
-  /** Whether the venue charges a builder fee on this order at all: never on a spot buy (project-state #1888). */
+  /** Whether the venue charges a builder fee on this order at all: never on a spot buy. */
   private builderApplies(intent: PlaceUserOrderIntent): boolean {
     return !(this.market(intent.symbol).kind === 'spot' && intent.side === 'buy');
   }
@@ -3449,7 +3449,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const venueFeeDue = div(mul(feeBasis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
       // As the venue does: a builder fee never applies to the buying side of a spot trade, only to a spot sell and to
       // both sides of a perp ("builder codes do not apply to the buying side of spot trades", Hyperliquid's
-      // builder-codes page, read 9 Nov 2026; project-state #1888).
+      // builder-codes page, read 9 Nov 2026).
       const builderApplies = side.builderFee !== null && !feeInBase;
       let builderFee = builderApplies ? div(mul(feeBasis, side.builderFee!.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
       let venueFee = venueFeeDue;
