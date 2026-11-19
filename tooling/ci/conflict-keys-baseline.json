@@ -673,15 +673,6 @@
       "why": "Only with two processes driving the same liquidation rung: id and client id both derive from (liquidationId, rungId) (matched-orders.ts:2457-2458), and driveLiquidationBook takes no lock before its SELECT-then-insert (2460, 2488). Its only caller is the in-process futures.liquidation job (job-host.ts:44 guards overlap only inside one process). Two replicas give equal target and equal id, and the loser gets 23505 futures_orders_pkey."
     },
     {
-      "file": "services/svc-trade/src/grid/store.ts",
-      "table": "grid_bot_orders",
-      "target": "(client_order_id)",
-      "constraint": "grid_bot_orders_pair_uq",
-      "verdict": "race",
-      "issue": 8878,
-      "why": "client_order_id = gridClientOrderId(botId, level, side, cycle) (grid/grid-service.ts:558, 958), built from the same columns as grid_bot_orders_pair_uq, and saveOrder takes no lock (grid/store.ts:497). Two concurrent stop() calls (a double Stop press; stop() at grid-service.ts:886 is explicitly re-runnable) both run windDown → unsavedSlots → saveOrder for the same recovered slot (grid-service.ts:909-913). The same goes for a fill tick (placeMissingBuys, 1044) racing a stop. The loser gets 23505 on pair_uq."
-    },
-    {
       "file": "services/svc-trade/src/index.ts",
       "table": "orders",
       "target": "(id)",
