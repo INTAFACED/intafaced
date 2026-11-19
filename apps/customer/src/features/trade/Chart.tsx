@@ -28,7 +28,7 @@ import {
 } from '../../shared/preferences';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { DailyMetadata, DailyPlan } from './zoned-daily-history';
 import { TIMEFRAMES } from './trade-api';
 import { PriceAlerts } from './PriceAlerts';

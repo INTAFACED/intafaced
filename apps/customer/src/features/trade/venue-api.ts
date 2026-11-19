@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, formatAmount, parseAmount, signedDecimalSchema } from '../../shared/money';
-import type { TypedDataDocument } from '../protocol/wallet/eip1193';
+import type { TypedDataDocument } from '../protocol';
 
 /**
  * The customer's own account on a user-signed venue, through svc-trade's user-venue door (B1). The venue is the record of

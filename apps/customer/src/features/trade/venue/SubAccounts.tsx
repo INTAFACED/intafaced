@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Button, DataTable } from '../../../shared/ui';
 import { displayAmount } from '../../../shared/money';
-import { usePolled } from '../../protocol/wallet/use-polled';
+import { usePolled } from '../../protocol';
 import { canonicalDecimal, draftId, keys, type AsOf, type VenueBalance } from '../venue-api';
 import { AsOfLine, OutcomeLine, TestMark, VENUE_POLL_MS, keepsDraft, useVenueApi, type ActionResult, type RunAction } from './VenueKit';
 import { venueCopy } from './venue-copy';

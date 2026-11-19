@@ -5,7 +5,7 @@ import type { ApiResult } from '../../shared/api';
 import { customerRoomHref } from '../../app/navigation';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { Listing } from './trade-api';
 import { priceAlertsCopy as copy } from './price-alerts-copy';
 import './price-alerts.css';

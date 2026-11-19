@@ -9,7 +9,7 @@ import { isRegionBlocked } from '../region';
 import { formatUnits } from '../swap/swap-math';
 import { walletCopy } from './copy';
 import { RepresentationPanel } from './RepresentationPanel';
-import { isFactoryUnset } from './AccountsPanel';
+import { isFactoryUnset, toWei, utcTime } from './wallet-text';
 import { sessionCopy } from './session-copy';
 import { shortContract } from './transfer';
 import { useWallet, waitMined } from './WalletProvider';
@@ -28,18 +28,6 @@ const CATCH_UP_READS = 30;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const SELECTOR = /^0x[0-9a-fA-F]{8}$/;
 const MAX_HOURS = 720;
-
-/** "2026-11-07 08:30 UTC": one clock for everyone, as the chain keeps it. */
-export function utcTime(iso: string): string {
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
-}
-
-/** A decimal amount of native currency in wei; null when it is not a plain number of at most 18 decimals. */
-export function toWei(text: string): string | null {
-  const match = /^(\d{1,30})(?:\.(\d{1,18}))?$/.exec(text.trim());
-  if (!match) return null;
-  return (BigInt(match[1]!) * 10n ** 18n + BigInt((match[2] ?? '').padEnd(18, '0'))).toString();
-}
 
 /**
  * /wallet/session-keys (D-portfolio-wallet-02): every session key the connected wallet's smart account granted, read from
