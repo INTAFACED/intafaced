@@ -154,12 +154,101 @@ export const matchingSubmitReplySchema = z.object({
   ),
 });
 
+/** A TEST order a desk would send: a limit buy with the lifecycle proof svc-trade attaches (its digest computed, not typed). */
+const SAMPLE_PROOF_SNAPSHOT = {
+  marketId: 'BTC-USDT',
+  ruleVersion: 'test.rules.v1',
+  instrumentId: 'BTC-USDT',
+  instrumentVersion: 'test.instrument.v1',
+  state: 'OPEN',
+  reasonCategory: 'NORMAL',
+  reasonCode: 'trade.lifecycle.ready',
+  effectiveAt: '2026-08-25T16:00:00.000Z',
+  observedAt: '2026-08-25T16:00:00.000Z',
+  lastGoodState: 'OPEN',
+  allowedActions: ['PLACE', 'PLACE_POST_ONLY'],
+  transitionId: 'test.transition',
+  evidenceRefs: ['test.evidence'],
+};
+const SAMPLE_ORDER = {
+  orderId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  accountId: 'desk',
+  type: 'limit',
+  side: 'buy',
+  qty: '10',
+  price: '100',
+  tif: 'GTC',
+  lifecycleProof: {
+    action: 'PLACE',
+    decision: 'ELIGIBLE',
+    checkedAt: '2026-08-25T16:00:00.000Z',
+    snapshotId: 'trade.lifecycle.snapshot:a934c96f1d538289f94b67756c7c5595ff49f20b4523d478444eb4b18db92cba',
+    transitionId: 'test.transition',
+    evidenceRefs: ['test.evidence'],
+    snapshot: SAMPLE_PROOF_SNAPSHOT,
+  },
+};
+
 export const MATCHING_SUBMIT_ORDER = defineProcedure({
   name: 'matching.orders.submit',
   service: 'svc-matching',
   transport: 'http',
   method: 'POST',
   path: '/markets/:marketId/orders',
+  params: z.object({ marketId: z.string() }),
+  access: { caller: 'service', callers: ['svc-trade', 'svc-execution', 'svc-fix'] },
+  /** Its refusals are 400 `{ code: 'BadRequest', issues }` with no machine code per cause, so none is listed by code yet. */
+  refusals: {},
+  checks: {
+    'matching.proof_binds_snapshot': {
+      at: 'input.lifecycleProof',
+      says: "the proof's action is one the snapshot allows; its checkedAt, transitionId and evidenceRefs equal the snapshot's; its snapshotId is the SHA-256 of the snapshot as parsed",
+    },
+    'matching.snapshot_actions_fit_state': {
+      at: 'input.lifecycleProof.snapshot',
+      says: "the snapshot's allowed actions are unique and permitted by its state (none in a no-action state; only risk-reducing ones when halted)",
+    },
+    'exchange.spine_id_clean': {
+      at: ['marketId', 'ruleVersion', 'instrumentId', 'instrumentVersion', 'reasonCode', 'transitionId', 'evidenceRefs[]'].map(
+        (field) => `input.lifecycleProof.snapshot.${field}`,
+      ),
+      says: 'an identifier has no leading or trailing space and no control character',
+    },
+  },
   input: matchingSubmitBodySchema,
   output: matchingSubmitReplySchema,
+  samples: [
+    { verdict: 'accept', input: SAMPLE_ORDER },
+    { verdict: 'accept', input: { ...SAMPLE_ORDER, type: 'market', price: null, tif: 'IOC' } },
+    // A client order id where a GUID belongs, and no lifecycle proof.
+    {
+      verdict: 'refuse',
+      input: { orderId: 'ORD-0001', accountId: 'acct-desk', type: 'limit', side: 'buy', qty: '1', price: '1', tif: 'GTC' },
+    },
+    { verdict: 'refuse', input: { ...SAMPLE_ORDER, qty: '-1' } },
+    {
+      verdict: 'refuse',
+      input: { ...SAMPLE_ORDER, lifecycleProof: { ...SAMPLE_ORDER.lifecycleProof, checkedAt: '2026-08-25T16:00:01.000Z' } },
+      by: 'matching.proof_binds_snapshot',
+    },
+    {
+      verdict: 'refuse',
+      input: {
+        ...SAMPLE_ORDER,
+        lifecycleProof: {
+          ...SAMPLE_ORDER.lifecycleProof,
+          snapshot: { ...SAMPLE_PROOF_SNAPSHOT, state: 'HALTED', allowedActions: ['PLACE'] },
+        },
+      },
+      by: 'matching.snapshot_actions_fit_state',
+    },
+    {
+      verdict: 'refuse',
+      input: {
+        ...SAMPLE_ORDER,
+        lifecycleProof: { ...SAMPLE_ORDER.lifecycleProof, snapshot: { ...SAMPLE_PROOF_SNAPSHOT, reasonCode: ' trade.lifecycle.ready' } },
+      },
+      by: 'exchange.spine_id_clean',
+    },
+  ],
 });

@@ -293,6 +293,8 @@ export const supportTicketEventKindSchema = z.enum([
   'escalated',
   /** Merged: this request absorbed a duplicate, or was folded into another. Note names the other request. */
   'merged',
+  /** An operator read the ticket owner's price alerts and saved desk layouts (J-charts-desk-19 #1). Note: `customer:<id>`. */
+  'charts_lookup',
 ]);
 export type SupportTicketEventKind = z.infer<typeof supportTicketEventKindSchema>;
 

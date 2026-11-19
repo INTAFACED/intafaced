@@ -194,6 +194,7 @@
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "$TURBO_ROOT$/services/svc-ws/**",
+        "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -222,6 +223,7 @@
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "$TURBO_ROOT$/services/svc-ws/**",
+        "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -275,10 +277,7 @@
       "outputs": [],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/auth/**",
-        "$TURBO_ROOT$/packages/config/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
-        "$TURBO_ROOT$/packages/contracts/**",
         "$TURBO_ROOT$/packages/db/**",
         "$TURBO_ROOT$/packages/events/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",

@@ -46,6 +46,11 @@ export const GATE_PATHS = [
   ['docs/runbooks/journey-baseline.json', "the steps the Real-app journeys run on main may fail, which decide that run's verdict"],
   ['docs/roadmap/journeys.json', 'the journey steps the journeys run, its verdict and the money rule read'],
   ['.oxlintrc.json', "the lint rules the lint ratchet judges every pull request by (it reads main's copy)"],
+  ['Cargo.toml', "the Rust workspace's lints (unsafe code forbidden, no unwrap or float arithmetic) and its release profile"],
+  ['clippy.toml', 'where the Rust lints let tests unwrap, panic and index'],
+  ['rust-toolchain.toml', 'the Rust toolchain every machine and CI job compiles and lints with'],
+  ['.cargo/**', 'cargo settings that could swap a crate source or change how Rust builds'],
+  ['**/build.rs', 'Rust code that runs at build time, on CI and on every builder machine'],
   ['tooling/lint/**', 'the garden lint plugin and the ratchet start dates the lint ratchet reads from main'],
   ['tooling/coverage-law-index.json', "the private law's structure, which decides coverage-check's chapter spans and blank-line refusals"],
 ];

@@ -23,7 +23,7 @@ import {
   type RateLimitConfig,
 } from './hardening.js';
 import { KillSwitchState, resolvedPathname } from './kill-switch.js';
-import { adapterRead, FIX_STATUS_UPSTREAM_PATH, registerAdapterStatusRoute, SBE_STATUS_UPSTREAM_PATH } from './adapter-status-door.js';
+import { adapterRead, registerAdapterStatusRoute } from './adapter-status-door.js';
 import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
@@ -359,7 +359,6 @@ registerAdapterStatusRoute(app, {
     env.FIX_STATUS_URL,
     env.FIX_STATUS_READ_SECRET,
     {
-      path: FIX_STATUS_UPSTREAM_PATH,
       service: 'svc-fix',
       code: 'fix_status_unconfigured',
       urlKey: 'FIX_STATUS_URL',
@@ -372,7 +371,6 @@ registerAdapterStatusRoute(app, {
     env.WS_STATUS_URL,
     env.WS_STATUS_READ_SECRET,
     {
-      path: SBE_STATUS_UPSTREAM_PATH,
       service: 'svc-ws',
       code: 'ws_status_unconfigured',
       urlKey: 'WS_STATUS_URL',

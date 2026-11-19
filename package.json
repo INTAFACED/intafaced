@@ -14,6 +14,8 @@
     "mobile": "pnpm --filter mobile native:stage",
     "dev": "turbo run dev",
     "lint": "oxlint -c .oxlintrc.json",
+    "rust:check": "cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked",
+    "rust:fmt": "cargo fmt --all",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:watch": "turbo run test:watch",

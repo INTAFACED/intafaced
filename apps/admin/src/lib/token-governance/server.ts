@@ -1,11 +1,17 @@
 import 'server-only';
 import { doorForScope } from '@intafaced/contracts';
-import type { ExecuteFn, ExecuteReply } from '@/lib/desk/approval-steps';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import {
+  type DeskRequest,
+  type ExecuteFn,
+  type ExecuteReply,
+  explainRefusal,
+  failureRefusal,
+  founderCall,
+  type FounderCallContext,
+  type Part,
+  partFrom,
+  type RefusalView,
+} from '@/lib/desk';
 import {
   isObj,
   readRoleResult,

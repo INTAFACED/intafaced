@@ -20,7 +20,8 @@
 # Uses NO third-party action, for the same reason gitleaks.yml uses the binary
 # rather than gitleaks-action: a workflow installed to reduce third-party trust
 # should not begin by adding some. Everything here is `pnpm audit` — already in
-# the toolchain — read by tooling/ci/dependency-audit.mjs.
+# the toolchain — and OSV's API for the crates in Cargo.lock, both read by
+# tooling/ci/dependency-audit.mjs.
 #
 # RUNS ON EVERY PULL REQUEST, and the path filter that used to narrow it is
 # gone. Two reasons, and the second is the one that matters.
@@ -42,8 +43,8 @@
 # for seven hours, and 22 of them changed no dependency. With `--base HEAD^1`
 # (the base side of the PR's merge commit, hence `fetch-depth: 2`) the script
 # holds a PR into main to the full ratchet only when it touches the lockfile,
-# the root package.json, pnpm-workspace.yaml, .npmrc, .pnpmfile.cjs or the
-# frozen list itself (tooling/ci/dependency-audit.mjs).
+# the root package.json, pnpm-workspace.yaml, .npmrc, .pnpmfile.cjs, Cargo.lock
+# or the frozen list itself (tooling/ci/dependency-audit.mjs).
 #
 # ON MAIN IT IS THE FULL RATCHET. Every push to main runs both jobs, and Main
 # trust (main-trust.yml) watches this workflow: a red re-runs once, then opens

@@ -173,6 +173,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // metric definitions, read from the labelled TEST profile so the copy journeys run on TEST money. Each one
     // blank refuses by name (services/svc-trade/src/env.ts); production stays blank until the owner sets it.
     TRADE_COPY_FEE_SHARE_LAW: testValue('TRADE_COPY_FEE_SHARE_LAW'),
+    // LOCAL TEST, not owner decisions: the charts module's fallback feed source list and its audit export row limit
+    // (J-charts-desk-19 #3 #4). `LOCAL_STACK_TRADE_CHART_FALLBACK=blank` on a restart leaves the list blank, so a switch
+    // to a fallback refuses trade.chart_feed.fallback_sources_unset. Production stays blank until the owner sets both.
+    TRADE_CHART_FEED_FALLBACK_SOURCES:
+      process.env.LOCAL_STACK_TRADE_CHART_FALLBACK === 'blank' ? '' : testValue('TRADE_CHART_FEED_FALLBACK_SOURCES'),
+    TRADE_CHART_CONTROL_EXPORT_ROW_LIMIT: testValue('TRADE_CHART_CONTROL_EXPORT_ROW_LIMIT'),
     // `LOCAL_STACK_TRADE_COPY_JURISDICTION=blank` on a restart leaves the country list blank, so J-copy-bots-otc-01 #5
     // sees every follow refused.
     TRADE_COPY_JURISDICTION_LAW:
@@ -282,7 +288,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // perpetual XFND-PERP (the one whose funding the TEST venue builds and settles).
           // ETH-USDC is left unlisted, for two operators to review.
           // J-derivatives-12's TEST perpetual XBIL-PERP (the one its bills come from: funding, a close and a liquidation).
-          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP',
+          // J-derivatives-26's TEST perpetual XCRS-PERP (cross margin, liquidated at the account's cross level).
+          TRADE_USER_VENUE_TEST_LISTINGS:
+            'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP,XRSK-PERP,XLIQ-PERP,XFND-PERP,XBIL-PERP,XCRS-PERP',
           // J-derivatives-12 #5: the labelled TEST eligibility level for the venue's perpetuals;
           // `LOCAL_STACK_USER_VENUE_ELIGIBILITY=off` leaves it blank, so the eligible list is empty with its reason.
           TRADE_USER_VENUE_ELIGIBILITY_LEVEL:

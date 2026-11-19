@@ -1048,7 +1048,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-ord-02"], "noSlice": false },
       { "n": 2, "slices": ["BK-acct-01"], "noSlice": false },
@@ -1248,7 +1248,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-cissue-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cissue-02"], "noSlice": false },
@@ -1266,7 +1266,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-cctl-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cctl-02"], "noSlice": false },
@@ -1502,7 +1502,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-ccrypto-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-ccrypto-01"], "noSlice": false },
@@ -1883,7 +1883,7 @@
     "steps": [
       { "n": 1, "slices": ["I-kyc-compliance-06"], "noSlice": false },
       { "n": 2, "slices": ["SP-order-entry-01"], "noSlice": false },
-      { "n": 3, "slices": ["I-kyc-compliance-08", "I-kyc-compliance-02"], "noSlice": false },
+      { "n": 3, "slices": ["I-kyc-compliance-19", "I-kyc-compliance-02"], "noSlice": false },
       { "n": 4, "slices": ["W-deposit-05", "D-venue-11"], "noSlice": false },
       { "n": 5, "slices": ["SP-order-01", "SP-markets-data-01", "SP-developer-status-01"], "noSlice": false },
       { "n": 6, "slices": ["SP-order-entry-03", "SP-order-entry-04", "SP-fees-vip-02"], "noSlice": false },
@@ -4865,7 +4865,7 @@
     "module": "identity",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["I-kyc-compliance-04", "I-kyc-compliance-05"], "noSlice": false },
       { "n": 2, "slices": ["I-kyc-compliance-08"], "noSlice": false },

@@ -5,18 +5,21 @@
  * Each adapter is read on its own, signed as `svc-edge` with that adapter's dedicated read key (`FIX_STATUS_READ_SECRET`,
  * `WS_STATUS_READ_SECRET`), never a fleet secret: the edge holds none. A blank URL or key leaves that half refused by name,
  * and the other half still reads. Only the named fields go on, so nothing an adapter might add (and no balance, margin
- * or Greeks: neither adapter holds one) reaches the console through here.
+ * or Greeks: neither adapter holds one) reaches the console through here. svc-ws's half is called through its record
+ * (`WS_SBE_CONSUMERS`), which names its path and parses its reply.
  */
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import { serviceCallSigner } from '@intafaced/contracts';
+import { callHttpRecord } from '@intafaced/contracts/procedure-http';
+import { sbeConsumerSchema, WS_SBE_CONSUMERS } from '@intafaced/contracts/ws-procedures';
+import { z } from 'zod';
 import { statusForAuthError } from './admin-api.js';
 import type { EdgeS2s } from './s2s.js';
 
 export const ADAPTER_STATUS_EDGE_PATH = '/admin/trade-ops/adapters/status';
-export const FIX_STATUS_UPSTREAM_PATH = '/internal/status';
-export const SBE_STATUS_UPSTREAM_PATH = '/internal/sbe/consumers';
+const FIX_STATUS_UPSTREAM_PATH = '/internal/status';
 
 export type AdapterRead =
   | { readonly kind: 'answered'; readonly status: number; readonly body: unknown }
@@ -39,13 +42,29 @@ export interface AdapterStatusDeps {
   readonly now?: () => number;
 }
 
-/** A signed GET of exactly `${baseUrl}${path}`, as svc-edge, with the adapter's own read key. */
+const jsonOrNull = (text: string): unknown => {
+  try {
+    return text ? (JSON.parse(text) as unknown) : null;
+  } catch {
+    return null;
+  }
+};
+
+/** A read that never reached an answer: past the timeout is unknown, anything else unavailable. */
+function unanswered(err: unknown, service: string, timeoutMs: number): AdapterRead {
+  const name = err instanceof Error ? err.name : '';
+  if (name === 'TimeoutError' || name === 'AbortError')
+    return { kind: 'unknown', error: `${service} did not answer before ${timeoutMs}ms` };
+  return { kind: 'unavailable', error: `${service} did not answer: ${err instanceof Error ? err.message : String(err)}` };
+}
+
+/** A signed GET of exactly `${baseUrl}${path}`, as svc-edge, with svc-fix's own read key. */
 export function httpAdapterStatusRead(
   baseUrl: string,
   path: string,
   secret: string,
   timeoutMs: number,
-  service: 'svc-fix' | 'svc-ws',
+  service: 'svc-fix',
   fetchFn: typeof fetch = globalThis.fetch,
   s2s?: EdgeS2s,
 ): AdapterStatusRead {
@@ -59,19 +78,52 @@ export function httpAdapterStatusRead(
         headers: sign('', { method: 'GET', url: new URL(target), contentType: '' }),
         signal: AbortSignal.timeout(timeoutMs),
       });
-      const text = await res.text();
-      let body: unknown = null;
-      try {
-        body = text ? (JSON.parse(text) as unknown) : null;
-      } catch {
-        body = null;
-      }
-      return { kind: 'answered', status: res.status, body };
+      return { kind: 'answered', status: res.status, body: jsonOrNull(await res.text()) };
     } catch (err) {
-      const name = err instanceof Error ? err.name : '';
-      if (name === 'TimeoutError' || name === 'AbortError')
-        return { kind: 'unknown', error: `${service} did not answer before ${timeoutMs}ms` };
-      return { kind: 'unavailable', error: `${service} did not answer: ${err instanceof Error ? err.message : String(err)}` };
+      return unanswered(err, service, timeoutMs);
+    }
+  };
+}
+
+/** svc-ws's refusal, as `callHttpRecord` hands it back: its status and its body as sent. */
+class SbeRefused extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: unknown,
+  ) {
+    super(`svc-ws answered ${status}`);
+  }
+}
+
+/**
+ * svc-ws's SBE consumer list through its record, signed as svc-edge with `WS_STATUS_READ_SECRET`. A refusal comes back
+ * answered with its status and body; a reply the record does not parse comes back with no body, so it reads as unreadable.
+ */
+export function sbeStatusRead(options: {
+  readonly baseUrl: string;
+  readonly secret: string;
+  readonly timeoutMs: number;
+  readonly fetchFn?: typeof fetch;
+  readonly s2s?: EdgeS2s | undefined;
+}): AdapterStatusRead {
+  const { baseUrl, secret, timeoutMs, s2s, fetchFn = globalThis.fetch } = options;
+  const sign = serviceCallSigner({ service: 'svc-edge', audience: WS_SBE_CONSUMERS.service, legacySecret: secret, s2s });
+  const fetcher: typeof fetch = (input, init) => fetchFn(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  return async () => {
+    try {
+      const body = await callHttpRecord(WS_SBE_CONSUMERS, {
+        baseUrl,
+        input: undefined,
+        sign,
+        errorOf: (_path, status, detail) => new SbeRefused(status, jsonOrNull(detail)),
+        fetcher,
+      });
+      return { kind: 'answered', status: 200, body };
+    } catch (err) {
+      if (err instanceof SbeRefused) return { kind: 'answered', status: err.status, body: err.body };
+      // A 2xx whose body is not JSON, or not the record's shape: answered, with nothing readable.
+      if (err instanceof z.ZodError || err instanceof SyntaxError) return { kind: 'answered', status: 200, body: null };
+      return unanswered(err, WS_SBE_CONSUMERS.service, timeoutMs);
     }
   };
 }
@@ -81,7 +133,6 @@ export function adapterRead(
   url: string | undefined,
   secret: string | undefined,
   spec: {
-    readonly path: string;
     readonly service: 'svc-fix' | 'svc-ws';
     readonly code: AdapterBlock['code'];
     readonly urlKey: AdapterBlock['key'];
@@ -92,7 +143,9 @@ export function adapterRead(
 ): AdapterStatusRead | AdapterBlock {
   if (!url) return { code: spec.code, key: spec.urlKey };
   if (!secret) return { code: spec.code, key: spec.secretKey };
-  return httpAdapterStatusRead(url, spec.path, secret, timeoutMs, spec.service, undefined, s2s);
+  return spec.service === 'svc-ws'
+    ? sbeStatusRead({ baseUrl: url, secret, timeoutMs, s2s })
+    : httpAdapterStatusRead(url, FIX_STATUS_UPSTREAM_PATH, secret, timeoutMs, spec.service, undefined, s2s);
 }
 
 const isText = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -151,26 +204,14 @@ export function parseFixStatus(raw: unknown): {
   return { sessions, compIdMapSet: r.compIdMapSet, compIdMap, asOf: r.asOf };
 }
 
-export interface SbeConsumer {
-  readonly id: string;
-  readonly marketId: string;
-  readonly connectedAt: string;
-  readonly framesSent: number;
-  readonly lastSequence: string | null;
-}
+export type SbeConsumer = z.output<typeof sbeConsumerSchema>;
 
+/** svc-ws's reply by its record, named fields only (`service` is the record's own literal and is not passed on). */
 export function parseSbeStatus(raw: unknown): { codecLinked: boolean; consumers: SbeConsumer[]; asOf: string } | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  if (typeof r.codecLinked !== 'boolean' || !Array.isArray(r.consumers) || !isText(r.asOf)) return null;
-  const consumers: SbeConsumer[] = [];
-  for (const c of r.consumers as unknown[]) {
-    const x = c && typeof c === 'object' ? (c as Record<string, unknown>) : null;
-    if (!x || !isText(x.id) || !isText(x.marketId) || !isText(x.connectedAt) || !isCount(x.framesSent)) return null;
-    if (!(x.lastSequence === null || isText(x.lastSequence))) return null;
-    consumers.push({ id: x.id, marketId: x.marketId, connectedAt: x.connectedAt, framesSent: x.framesSent, lastSequence: x.lastSequence });
-  }
-  return { codecLinked: r.codecLinked, consumers, asOf: r.asOf };
+  const read = WS_SBE_CONSUMERS.output.safeParse(raw);
+  if (!read.success) return null;
+  const { codecLinked, consumers, asOf } = read.data;
+  return { codecLinked, consumers, asOf };
 }
 
 type Half<T> =

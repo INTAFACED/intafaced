@@ -29,6 +29,7 @@ import type { MarketMaintenanceBoard } from './market-maintenance-read.js';
 import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
+import type { CandleGate } from './admin/chart-feed-controls.js';
 import { publicRead } from './route-inventory.js';
 import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
 
@@ -78,6 +79,11 @@ export interface PublicRestDeps {
   publishedFeeRates?(markets: readonly Market[]): Promise<ReadonlyMap<string, { makerBps: number; takerBps: number }> | null>;
   /** Charts owner values (C-ops-04). Absent: the owner-values read refuses, it never answers with a default. */
   chartOwnerValues?: ChartOwnerValuesPublicReader;
+  /**
+   * A market's chart feed control (J-charts-desk-19): disabled or switched to an unconnected fallback refuses the candle
+   * read by name; delisted with history serves only candles that opened before the delisting. Absent: every chart serves.
+   */
+  chartFeedGate?: (symbol: string) => Promise<CandleGate>;
   /**
    * Matching's published trading rulebook (RC-cex-spot-08): `current` is GET /rulebook, `versions` GET /rulebook/versions,
    * passed on as matching serves them. Absent, or throwing, answers 503 (trade.rulebook_unavailable); never invented text.
@@ -1167,8 +1173,14 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
 
     try {
+      const gate = deps.chartFeedGate ? await deps.chartFeedGate(market.symbol) : ({ kind: 'serve', until: null } as const);
+      if (gate.kind === 'refuse') {
+        return sendCcxt(reply, { status: 503, body: { code: 'ExchangeNotAvailable', message: gate.message, intafacedCode: gate.code } });
+      }
       const candles = await deps.candles(market.id, tf.data, limit, sinceParsed.sinceMs);
-      return reply.code(200).send(candles.map(presentOhlcv));
+      const until = gate.until?.getTime() ?? null;
+      const served = until === null ? candles : candles.filter((c) => c.openTimeMs < until);
+      return reply.code(200).send(served.map(presentOhlcv));
     } catch (err) {
       return sendMapped(reply, err);
     }

@@ -15,10 +15,14 @@ import {
 import { blocked, ok, refused } from '@/lib/trade-ops/outcome';
 import { readKillSwitchSnapshot, readOpenOrders } from '@/lib/trade-ops/reads';
 import { historyRows, validateLimit, validateUserId } from '@/lib/trade-ops/restrictions';
+import { exportChartFeedControls } from '@/lib/trade-ops/chart-feed-calls';
+import { CHART_CONTROL_COLUMNS, chartControlRows } from '@/lib/trade-ops/chart-feed-model';
 
 /**
  * Exports BFF. The browser asks for the rows of one readable dataset and writes the file itself.
- *   POST { action: 'prepare', dataset, includeSeeded?, userId? }   -> Outcome<{ dataset, scope, columns, rows, filename, note }>
+ *   POST { action: 'prepare', dataset, includeSeeded?, userId?, day? }   -> Outcome<{ dataset, scope, columns, rows, filename, note }>
+ *        chart_controls_audit: every applied chart feed change (svc-trade's journal), optionally one UTC day (YYYY-MM-DD);
+ *        svc-trade refuses the whole file over the owner's row limit, naming the limit.
  *   POST { action: 'server_export', dataset: 'fills'|'positions'|'order_history', ... } -> BLOCKED (export_missing)
  * Rows are plain text exactly as the services sent them (decimals untouched); csv.ts does the quoting.
  */
@@ -74,6 +78,29 @@ export const POST = (req: Request) =>
           rows: killSwitchRows(r.data.audit),
           filename: exportFilename('kill-switch-audit', r.asOf),
           notes: [],
+        },
+        r.asOf,
+      );
+    }
+    if (dataset === 'chart_controls_audit') {
+      const day = typeof body.day === 'string' ? body.day.trim() : '';
+      if (day !== '' && (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(`${day}T00:00:00Z`))))
+        return refused('trade_ops.date_invalid', 'The day is not a valid date (YYYY-MM-DD).', 400);
+      const from = day ? `${day}T00:00:00.000Z` : null;
+      const to = day ? new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString() : null;
+      const r = await exportChartFeedControls(ctx, { from, to });
+      if (r.kind !== 'ok') return r;
+      const scope = day ? `chart-controls-audit-${day}` : 'chart-controls-audit';
+      return ok<PreparedExport>(
+        {
+          dataset,
+          scope,
+          columns: CHART_CONTROL_COLUMNS,
+          rows: chartControlRows(r.data.rows),
+          filename: exportFilename(scope, r.asOf),
+          notes: [
+            `Every applied chart feed change${day ? ` on ${day} (UTC)` : ''}, oldest first, with who proposed, approved and applied it. The owner's row limit is ${r.data.rowLimit}.`,
+          ],
         },
         r.asOf,
       );

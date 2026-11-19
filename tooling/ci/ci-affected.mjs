@@ -8,6 +8,10 @@
  *   affected — turbo runs the changed packages, their dependents and the readers listed in
  *              tooling/ci/test-read-edges.json (`--filters` prints the turbo filters);
  *   neither  — docs only; the seal then needs no test job.
+ * Apart from those, `rust` says whether CI's Rust job runs (format, clippy, tests: `pnpm rust:check`): a change to a
+ * Rust file (isRustFile), to a TypeScript service a crate replaces (its code and the recorded answers the crate's tests
+ * read: rustCrates), to what defines that job, and every run-everything run. A change to Rust files alone runs no
+ * TypeScript tests.
  *
  *   node tooling/ci/ci-affected.mjs --files services/svc-protocol/src/x.ts
  *   node tooling/ci/ci-affected.mjs --github-output
@@ -17,8 +21,8 @@
  * `push:main` and a merge queue's commit (`merge_group`, what main becomes) always classify as full (the trunk seal).
  */
 import { execFileSync } from 'node:child_process';
-import { realpathSync, writeFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { allEdges } from './cross-package-reads.mjs';
 import { SPLIT } from './test-shards.mjs';
 
@@ -54,6 +58,45 @@ export const GATE_FILES = [
 const GATE_BASENAMES = new Set(['AGENTS.md', 'CLAUDE.md', 'SKILL.md']);
 
 const PRODUCT_DIRS = /^(apps|services|packages)\//;
+
+/** Rust's own files: the code, every crate's manifest, the lock file, and the workspace's toolchain and lint config. */
+const RUST_ROOT_FILES = new Set(['Cargo.lock', 'rust-toolchain.toml', 'clippy.toml', 'rustfmt.toml', 'deny.toml']);
+export const isRustFile = (file) => {
+  const f = posix(file);
+  return (
+    f.endsWith('.rs') ||
+    f === 'Cargo.toml' ||
+    f.endsWith('/Cargo.toml') ||
+    RUST_ROOT_FILES.has(f) ||
+    f.startsWith('crates/') ||
+    f.startsWith('.cargo/')
+  );
+};
+/**
+ * The crates in `crates/`, each named after the TypeScript service it replaces. While a crate is built beside its
+ * TypeScript service, it is tested against that service's recorded answers, so a change there runs the Rust job before
+ * main does; once it replaced the service (`crates/svc-tax`), the answers live in the crate's own fixtures. Read from
+ * the folder, never kept by hand.
+ */
+export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url))) {
+  try {
+    return readdirSync(`${root}/crates`, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return [];
+  }
+}
+/**
+ * Files outside `crates/` that the crates' tests read (`include_str!`): svc-tax's records and their samples, and the
+ * compose file that starts it (crates/svc-tax/tests/procedure_samples.rs, refusal_coverage.rs, boot.rs).
+ */
+const RUST_READS = new Set(['packages/contracts/procedures.schema.json', 'docker-compose.apps.yml']);
+/** A file the Rust job judges: a Rust file, a file the crates' tests read, or anything in a TypeScript service a crate replaces. */
+export const reachesRust = (file, crates = rustCrates()) =>
+  isRustFile(file) || RUST_READS.has(posix(file)) || crates.some((name) => posix(file).startsWith(`services/${name}/`));
+/** What defines the Rust job (its steps, and the `rust:check` script it runs): a change to one runs it too. */
+const RUST_JOB_FILES = ['.github/workflows/ci.yml', 'package.json'];
 
 function posix(p) {
   return String(p || '')
@@ -95,18 +138,20 @@ export function mergeEdges(a, b) {
  * affected — run the tests of the changed packages, their dependents, and the readers of what they changed.
  * Neither  — nothing to test (docs only); the seal then needs no test job.
  */
-export function classify(files, { forceFull = false } = {}) {
-  if (forceFull) return { full: true, affected: false };
+export function classify(files, { forceFull = false, crates = rustCrates() } = {}) {
+  if (forceFull) return { full: true, affected: false, rust: true };
   const list = (files || []).map(posix).filter(Boolean);
+  const rust = list.some((f) => reachesRust(f, crates) || RUST_JOB_FILES.includes(f));
   let affected = false;
   for (const file of list) {
-    if (isGateFile(file)) return { full: true, affected: false };
+    if (isGateFile(file)) return { full: true, affected: false, rust };
     if (isDoc(file)) continue;
-    if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) return { full: true, affected: false };
+    if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) return { full: true, affected: false, rust };
+    if (isRustFile(file) && !PRODUCT_DIRS.test(file)) continue; // the Rust job tests it
     if (PRODUCT_DIRS.test(file)) affected = true;
-    else return { full: true, affected: false }; // unknown root path: run everything, never a silent skip
+    else return { full: true, affected: false, rust }; // unknown root path: run everything, never a silent skip
   }
-  return { full: false, affected };
+  return { full: false, affected, rust };
 }
 
 /** turbo filters for an affected run: changed packages plus dependents, plus the readers of changed packages. */
@@ -187,6 +232,8 @@ export function sealNeeded(flags, results) {
       problems.push(`tests-full was ${results['tests-full'] || 'missing'} (${flags.full ? 'full run' : 'affected run'} required)`);
     }
   }
+  // The Rust job, when the change reaches Rust: skipped or missing is a failure then, as for the tests.
+  if (flags.rust && results.rust !== 'success') problems.push(`rust was ${results.rust || 'missing'} (the change reaches Rust)`);
   return problems;
 }
 
@@ -244,6 +291,7 @@ function runSeal() {
   const flags = {
     full: process.env.FULL === 'true',
     affected: process.env.AFFECTED === 'true',
+    rust: process.env.RUST === 'true',
   };
   const results = {
     changes: process.env.CHANGES,
@@ -251,6 +299,7 @@ function runSeal() {
     format: process.env.FORMAT,
     build: process.env.BUILD,
     'tests-full': process.env.T_FULL,
+    rust: process.env.RUST_RESULT,
   };
   const problems = sealNeeded(flags, results);
   if (problems.length) {
@@ -268,6 +317,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   const args = process.argv.slice(2);
   if (args.includes('--seal')) {
     runSeal();
+    process.exit(0);
+  }
+
+  // The pre-push hook's question: does this branch change what the Rust job judges? Prints true or false.
+  if (args.includes('--rust-files')) {
+    const crates = rustCrates();
+    console.log(gitChangedFiles().some((f) => reachesRust(f, crates)) ? 'true' : 'false');
     process.exit(0);
   }
 

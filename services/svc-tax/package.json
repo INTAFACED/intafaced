@@ -9,7 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "vitest run",
+    "test": "PROCEDURE_REFUSALS_CHECK=1 vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx scripts/migrate.ts",
     "clean": "rimraf dist .turbo"

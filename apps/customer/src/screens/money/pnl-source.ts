@@ -3,16 +3,18 @@ import { useCallback, useMemo } from 'react';
 import { useDataEnv, useSource, type Loadable } from '../../data';
 import { constantSource } from '../../data/source';
 import {
-  LOT_METHODS,
-  basisWriteResultSchema,
-  lotBookSchema,
-  lotChoiceSavedSchema,
-  missingBasisSchema,
-  type LotBook,
-  type LotMethod,
-  type MissingBasis,
-} from './pnl-model';
-import { pnlOverTimeSchema, type PnlOverTime } from './pnl-time-model';
+  TAX_BASIS_OVERRIDE_REMOVE,
+  TAX_BASIS_OVERRIDE_SET,
+  TAX_LOT_BOOK,
+  TAX_MISSING_BASIS,
+  TAX_PICK_SALE_LOT,
+  TAX_PNL_OVER_TIME,
+  TAX_SET_DAY_METHOD,
+  TAX_SET_INCLUDE_TRANSFERS,
+  TAX_SET_LOT_METHOD,
+} from '@intafaced/contracts/tax-procedures';
+import { LOT_METHODS, type LotBook, type LotMethod, type MissingBasis } from './pnl-model';
+import type { PnlOverTime } from './pnl-time-model';
 import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, bankValueOverTimeSchema, type BankValueOverTime } from './value-time-model';
 
 const LOT_BOOK_INTERVAL = 60_000;
@@ -41,7 +43,7 @@ export function useLotBook(method: LotBookAsk): Loadable<LotBook> {
           : env.userId
             ? env.poller.source<LotBook>(
                 bookKey(env.userId, method),
-                (signal) => env.api.query('tax', 'lotBook', askInput(method), lotBookSchema, { signal }),
+                (signal) => env.api.call(TAX_LOT_BOOK, askInput(method), { signal }),
                 { intervalMs: LOT_BOOK_INTERVAL },
               )
             : constantSource<LotBook>({ status: 'refused', code: 'auth.required' }),
@@ -61,7 +63,7 @@ export function useMissingBasis(method: LotBookAsk): Loadable<MissingBasis> {
           : env.userId
             ? env.poller.source<MissingBasis>(
                 missingKey(env.userId, method),
-                (signal) => env.api.query('tax', 'missingBasis', askInput(method), missingBasisSchema, { signal }),
+                (signal) => env.api.call(TAX_MISSING_BASIS, askInput(method), { signal }),
                 { intervalMs: LOT_BOOK_INTERVAL },
               )
             : constantSource<MissingBasis>({ status: 'refused', code: 'auth.required' }),
@@ -89,7 +91,7 @@ export function usePnlOverTime(ask: { from: string; to?: string; utcOffsetMinute
       pnlKeys.add(key);
       if (pnlKeys.size > PNL_KEYS_KEPT) pnlKeys.delete(pnlKeys.values().next().value!);
       const input = { from, ...(to === undefined ? {} : { to }), utcOffsetMinutes: offset };
-      return env.poller.source<PnlOverTime>(key, (signal) => env.api.query('tax', 'pnlOverTime', input, pnlOverTimeSchema, { signal }), {
+      return env.poller.source<PnlOverTime>(key, (signal) => env.api.call(TAX_PNL_OVER_TIME, input, { signal }), {
         intervalMs: LOT_BOOK_INTERVAL,
       });
     }, [env, from, to, offset]),
@@ -161,8 +163,8 @@ export function useBasisOverride(): {
       return { ok: true };
     };
     return {
-      set: async (input) => done(await env.api.mutate('tax', 'basisOverride.set', input, basisWriteResultSchema)),
-      remove: async (lotId) => done(await env.api.mutate('tax', 'basisOverride.remove', { lotId }, basisWriteResultSchema)),
+      set: async (input) => done(await env.api.call(TAX_BASIS_OVERRIDE_SET, input)),
+      remove: async (lotId) => done(await env.api.call(TAX_BASIS_OVERRIDE_REMOVE, { lotId })),
     };
   }, [env]);
 }
@@ -173,6 +175,20 @@ export type LotChoice =
   | { procedure: 'pickSaleLot'; input: { saleTxId: string; assetId: string; lotId: string | null } }
   | { procedure: 'setIncludeTransfers'; input: { include: boolean | null } };
 
+/** Each choice through its own record. */
+function saveChoice(api: ReturnType<typeof useDataEnv>['api'], choice: LotChoice) {
+  switch (choice.procedure) {
+    case 'setLotMethod':
+      return api.call(TAX_SET_LOT_METHOD, choice.input);
+    case 'setDayMethod':
+      return api.call(TAX_SET_DAY_METHOD, choice.input);
+    case 'pickSaleLot':
+      return api.call(TAX_PICK_SALE_LOT, choice.input);
+    case 'setIncludeTransfers':
+      return api.call(TAX_SET_INCLUDE_TRANSFERS, choice.input);
+  }
+}
+
 /**
  * Saves one cost-basis choice, then reads the saved book and its missing list again. Settings only: nothing moves. An
  * `uncertain` answer may have been stored, so the book is read again for it too. Whether transfers count changes the book
@@ -182,7 +198,7 @@ export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome>
   const env = useDataEnv();
   return useCallback(
     async (choice) => {
-      const result = await env.api.mutate('tax', choice.procedure, choice.input, lotChoiceSavedSchema);
+      const result = await saveChoice(env.api, choice);
       const unsure = !result.ok && result.reason === 'uncertain';
       if ((result.ok || unsure) && env.userId) {
         for (const each of choice.procedure === 'setIncludeTransfers' ? [...LOT_METHODS, 'saved' as const] : ['saved' as const]) {

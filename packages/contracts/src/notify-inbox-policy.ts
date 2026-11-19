@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineProcedure } from './procedure.js';
+import { defineProcedure, NO_INPUT } from './procedure.js';
 
 /**
  * `notify` `notify.inboxPolicy`: the owner's notification-centre values, the page size the inbox is listed by and the
@@ -14,7 +14,10 @@ export const NOTIFY_INBOX_POLICY = defineProcedure({
   transport: 'trpc',
   kind: 'query',
   path: 'notify.inboxPolicy',
-  input: z.void(),
+  access: { caller: 'public' },
+  /** It reads two owner values and refuses nothing: a blank value is null with its code. */
+  refusals: {},
+  input: NO_INPUT,
   output: z.object({
     pageSize: z.number().int().positive().nullable(),
     pageSizeUnsetCode: z.literal('notify.list_limit_unset').nullable(),
@@ -24,5 +27,6 @@ export const NOTIFY_INBOX_POLICY = defineProcedure({
     retention: z.enum(['keeps_every_row', 'days']),
     inventsLimits: z.literal(false),
   }),
+  samples: [{ verdict: 'accept' }],
 });
 export type NotifyInboxPolicy = z.output<typeof NOTIFY_INBOX_POLICY.output>;

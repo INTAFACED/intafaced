@@ -33,7 +33,10 @@ export const marketLifecycleAdmissionProofSchema = z
     if (JSON.stringify(proof.evidenceRefs) !== JSON.stringify(proof.snapshot.evidenceRefs)) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['evidenceRefs'], message: 'evidenceRefs must match snapshot' });
     }
-    if (snapshotIdFor(proof.snapshot) !== proof.snapshotId) {
+    // Hashed only when the snapshot itself parses: a broken snapshot is already refused by its own issues, and hashing it
+    // with `.parse` threw out of `safeParse` (svc-matching answered 500 instead of 400).
+    const snapshot = marketStateSnapshotSchema.safeParse(proof.snapshot);
+    if (snapshot.success && snapshotIdOfParsed(snapshot.data) !== proof.snapshotId) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['snapshotId'], message: 'snapshotId must hash the exact snapshot' });
     }
   });
@@ -50,7 +53,10 @@ function freezeDeep<T>(value: T): T {
 
 /** Deterministic ID of the canonical parsed snapshot, compatible with svc-trade. */
 export function snapshotIdFor(snapshot: MarketStateSnapshot): string {
-  const parsed = marketStateSnapshotSchema.parse(snapshot);
+  return snapshotIdOfParsed(marketStateSnapshotSchema.parse(snapshot));
+}
+
+function snapshotIdOfParsed(parsed: MarketStateSnapshot): string {
   return `trade.lifecycle.snapshot:${createHash('sha256').update(JSON.stringify(parsed)).digest('hex')}`;
 }
 
