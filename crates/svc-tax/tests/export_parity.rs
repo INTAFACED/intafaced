@@ -1,4 +1,4 @@
-//! Export parity: the year export over a ledger that holds something. `services/svc-tax/src/export-parity.golden.json`
+//! Export parity: the year export over a ledger that holds something. `crates/svc-tax/tests/fixtures/export-parity.golden.json`
 //! holds the ledger (as data) and the pack the TypeScript service made from it (`export-parity.test.ts`); the Rust
 //! service reads the same ledger and must make the same pack, byte for byte, its file included.
 #![allow(
@@ -8,16 +8,18 @@
     reason = "a test: a failure is the point"
 )]
 
+use std::sync::Arc;
 use svc_tax::json::{self, Json};
+
+use svc_tax::ports::{Ledger, TaxBalance};
 use svc_tax::tax::{
-    Account, Amount, Balance, Failure, HistoryEntry, LakeStatus, LedgerReads, Range,
-    SubAccountLine, SubAccountReads, TaxDeps, TaxService,
+    Account, Amount, Failure, HistoryEntry, LakeStatus, Range, SubAccountLine, TaxDeps, TaxService,
 };
 use svc_tax::time::{self, Instant};
 
 const GOLDEN: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../services/svc-tax/src/export-parity.golden.json"
+    "/tests/fixtures/export-parity.golden.json"
 );
 
 fn s(v: &Json, key: &str) -> String {
@@ -52,14 +54,16 @@ struct Fixture {
     sub_accounts: bool,
 }
 
-impl LedgerReads for Fixture {
-    fn balances(&self, user_id: &str) -> Result<Vec<Balance>, Failure> {
+impl Ledger for Fixture {
+    fn balances(&self, _owner_type: &str, user_id: &str) -> Result<Vec<TaxBalance>, Failure> {
         let Some(Json::Array(rows)) = self.ledger.get("balances") else {
             panic!("balances")
         };
         Ok(rows
             .iter()
-            .map(|b| Balance {
+            .map(|b| TaxBalance {
+                purpose: None,
+                account_id: String::new(),
                 account: Account {
                     owner_type: "user".to_owned(),
                     owner_id: user_id.to_owned(),
@@ -91,25 +95,29 @@ impl LedgerReads for Fixture {
             .collect())
     }
 
-    fn sub_accounts(&self) -> Option<&dyn SubAccountReads> {
-        self.sub_accounts.then_some(self as &dyn SubAccountReads)
-    }
-}
-
-impl SubAccountReads for Fixture {
-    fn ids(&self, _user_id: &str) -> Result<Vec<String>, Failure> {
+    fn sub_account_ids(&self, _user_id: &str) -> Option<Result<Vec<String>, Failure>> {
+        if !self.sub_accounts {
+            return None;
+        }
         let Some(Json::Object(subs)) = self.ledger.get("subAccounts") else {
             panic!("subAccounts")
         };
-        Ok(subs.iter().map(|(k, _)| k.clone()).collect())
+        Some(Ok(subs.iter().map(|(k, _)| k.clone()).collect()))
     }
 
-    fn activity(&self, id: &str, _range: Range) -> Result<Vec<SubAccountLine>, Failure> {
+    fn sub_account_activity(
+        &self,
+        id: &str,
+        _range: Range,
+    ) -> Option<Result<Vec<SubAccountLine>, Failure>> {
+        if !self.sub_accounts {
+            return None;
+        }
         let Some(Json::Array(lines)) = self.ledger.get("subAccounts").and_then(|x| x.get(id))
         else {
-            return Ok(Vec::new());
+            return Some(Ok(Vec::new()));
         };
-        Ok(lines
+        Some(Ok(lines
             .iter()
             .map(|l| SubAccountLine {
                 id: s(l, "id"),
@@ -122,7 +130,7 @@ impl SubAccountReads for Fixture {
                 cost_basis: opt_amount(l, "costBasis"),
                 proceeds: opt_amount(l, "proceeds"),
             })
-            .collect())
+            .collect()))
     }
 }
 
@@ -140,20 +148,23 @@ fn each_run_makes_the_recorded_pack_byte_for_byte() {
         let Some(Json::Number(years)) = run.get("historyYears") else {
             panic!("historyYears")
         };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a small whole number of years"
+        )]
+        let years = *years as i64;
         let tax = TaxService::new(TaxDeps {
-            map_raw: r#"{"DE":{}}"#.to_owned(),
-            reads: Box::new(Fixture {
-                ledger: golden.get("ledger").unwrap().clone(),
-                sub_accounts,
-            }),
             lake: LakeStatus::lake(None),
             indexer: LakeStatus::indexer(Some("http://indexer")),
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "a small whole number of years"
-            )]
-            history_years: Some(*years as i64),
-            now: Box::new(move || now),
+            ..TaxDeps::new(
+                r#"{"DE":{}}"#,
+                Arc::new(Fixture {
+                    ledger: golden.get("ledger").unwrap().clone(),
+                    sub_accounts,
+                }),
+                Some(years),
+                Box::new(move || now),
+            )
         })
         .unwrap();
         let pack = tax
