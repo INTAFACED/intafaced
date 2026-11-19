@@ -102,15 +102,6 @@
     },
     {
       "file": "services/svc-bank/src/business/business-cards.ts",
-      "table": "business_card_purchases",
-      "target": "(id)",
-      "constraint": "business_card_purchases_partner_key_key",
-      "verdict": "race",
-      "issue": 8888,
-      "why": "partner_key = cardCaptureKey(purchaseId) (business-cards.ts:53). testPurchase (business-cards.ts:375-399) checks for a prior row, then inserts on this.sql with no lock. Two presses or a retry with the same purchaseId both pass the check, and the loser raises 23505 business_card_purchases_partner_key_key instead of reading the purchase back."
-    },
-    {
-      "file": "services/svc-bank/src/business/business-cards.ts",
       "table": "business_reimbursements",
       "target": "(id)",
       "constraint": "business_reimbursements_partner_key_key",
