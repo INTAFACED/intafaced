@@ -11,7 +11,7 @@ import {
 } from '@intafaced/ui';
 import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session';
+import { useSession } from '../../session/session';
 import { fmtAmount } from '../../../data/format';
 import { useDataEnv } from '../../../data/hooks';
 import { defaultDeskPair } from '../../../app/navigation';
@@ -20,7 +20,7 @@ import type { Loadable } from '../../../data/types';
 import { useOpenPositions } from '../../../screens/trade/futures/data';
 import { closeAllPlan, stateOf } from '../../../screens/trade/futures/model';
 import { futuresRefusal, isPlaneOff } from '../../../screens/trade/futures/refusals';
-import { readStatusFeed } from '../../developers';
+import { readStatusFeed } from '../../../shared/notify-reads';
 import { createTradeApi, type Order } from '../trade-api';
 import { OPEN_ORDERS_LIMIT, judgeCancelEverything, openIncidents, summariseOpenOrders, type CancelEverythingVerdict } from './risk-model';
 import { riskCopy } from './risk-copy';

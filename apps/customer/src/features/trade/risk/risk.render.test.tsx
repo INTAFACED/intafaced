@@ -26,8 +26,8 @@ vi.mock('../../../screens/trade/futures/data', async (original) => {
   const real = await original<typeof import('../../../screens/trade/futures/data')>();
   return { ...real, useOpenPositions: () => world.positions };
 });
-vi.mock('../../developers/developers-api', async (original) => {
-  const real = await original<typeof import('../../developers')>();
+vi.mock('../../../shared/notify-reads', async (original) => {
+  const real = await original<typeof import('../../../shared/notify-reads')>();
   return { ...real, readStatusFeed: async () => world.feed };
 });
 
