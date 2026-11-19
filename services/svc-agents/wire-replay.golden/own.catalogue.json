@@ -12,7 +12,7 @@
   "answers": {
     "own.catalogue valid anon": {
       "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"req-19v\"}}}"
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"<request>\"}}}"
     },
     "own.catalogue valid read": {
       "status": 200,
@@ -32,7 +32,7 @@
     },
     "own.catalogue absent anon": {
       "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"req-1a0\"}}}"
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"<request>\"}}}"
     },
     "own.catalogue absent read": {
       "status": 200,
@@ -52,7 +52,7 @@
     },
     "own.catalogue wrong-type anon": {
       "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"req-1a5\"}}}"
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"<request>\"}}}"
     },
     "own.catalogue wrong-type read": {
       "status": 200,
@@ -72,7 +72,7 @@
     },
     "own.catalogue empty anon": {
       "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"req-1aa\"}}}"
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"<request>\"}}}"
     },
     "own.catalogue empty read": {
       "status": 200,
@@ -92,7 +92,7 @@
     },
     "own.catalogue extra-key anon": {
       "status": 401,
-      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"req-1af\"}}}"
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.catalogue\",\"requestId\":\"<request>\"}}}"
     },
     "own.catalogue extra-key read": {
       "status": 200,

@@ -24,8 +24,8 @@ import { NO_TIER_LAWS } from './tier-laws.js';
  *
  * The recording is split by the call's first path segment (its first two when one segment's file would pass FILE_CAP)
  * into `services/svc-agents/wire-replay.golden/<area>.json`, data kept out of `src`. Fastify numbers each request
- * (`req-1`, `req-2`, ...), which is the adapter's count and not the router's answer, so it is recorded as `<request>`:
- * a call added later shifts no other answer.
+ * in base 36 (`req-1`, ..., `req-a`), which is the adapter's count and not the router's answer, so every id is
+ * recorded as `<request>`: a call added later shifts no other answer.
  *
  * `WIRE_REPLAY_WRITE=1` rewrites the golden files (then `prettier --write` them). Only for a change that is meant to
  * change the wire, named in its PR.
@@ -194,7 +194,7 @@ async function hit(app: Awaited<ReturnType<typeof serve>>, path: string, kind: s
   // tRPC's dev stack trace carries file paths and line numbers, which move with any edit.
   const body = res.body
     .replace(/"stack":"(?:[^"\\]|\\.)*"/g, '"stack":"<stack>"')
-    .replace(/"requestId":"req-\d+"/g, '"requestId":"<request>"');
+    .replace(/"requestId":"req-[0-9a-z]+"/g, '"requestId":"<request>"');
   return { status: res.statusCode, body };
 }
 
