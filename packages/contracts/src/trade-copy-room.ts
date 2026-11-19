@@ -4,6 +4,7 @@
  * service sentence is ever kept (`residual` and `statusLine` are deliberately left out). Browser-safe: zod only.
  */
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { signedAmountSchema, unsignedAmountSchema } from './wire-amount.js';
 
 export const copyDeskSchema = z.object({
@@ -39,7 +40,7 @@ export const providerSignalSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   recommendedAmount: unsignedAmountSchema.nullable(),
   feeModel: z.enum(['free', 'monthly']),
   price: unsignedAmountSchema.nullable(),
@@ -70,7 +71,7 @@ export const signalEarningsSchema = z.object({
   settlement: z.literal('at_sale'),
   assets: z.array(
     z.object({
-      assetId: z.string(),
+      assetId: assetIdSchema,
       gross: unsignedAmountSchema,
       commission: unsignedAmountSchema,
       net: unsignedAmountSchema,
@@ -314,12 +315,12 @@ export const copiedMarketSchema = z.object({
 export const leadEarningsSchema = z.object({
   profitShare: z.string(),
   leaderShareBps: z.string().nullable(),
-  totals: z.array(z.object({ assetId: z.string(), amount: unsignedAmountSchema })),
+  totals: z.array(z.object({ assetId: assetIdSchema, amount: unsignedAmountSchema })),
   items: z.array(
     z.object({
       fillId: z.string(),
       followId: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       feeOnFill: unsignedAmountSchema,
       appliedShareBps: z.number().int(),
       amount: unsignedAmountSchema,

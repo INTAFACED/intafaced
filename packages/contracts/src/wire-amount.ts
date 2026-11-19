@@ -10,31 +10,29 @@ import { z } from 'zod';
 
 const AMOUNT = /^(-)?(\d+)(?:\.(\d+))?$/;
 const PLACES = 18;
-/** 20 nines before the point and 18 after, in units of 10^-18: `MAX_AMOUNT` in ledger-client. */
-const MAX_SCALED = 10n ** 38n - 1n;
+/** numeric(38,18) holds 20 digits before the point: the whole part stays below 10^20. */
+const WHOLE_LIMIT = 10n ** 20n;
 
-/** The amount's scaled value, or null when `parseAmount` would refuse it. */
-function scaled(value: string): bigint | null {
+/** How `parseAmount` reads the string: refused (null), or whether it is below zero. */
+function readAmount(value: string): { negative: boolean } | null {
   const m = AMOUNT.exec(value.trim());
   if (!m) return null;
   const [, sign, whole = '0', frac = ''] = m;
-  if (frac.length > PLACES) return null;
-  const magnitude = BigInt(whole) * 10n ** BigInt(PLACES) + BigInt(frac.padEnd(PLACES, '0') || '0');
-  if (magnitude > MAX_SCALED) return null;
-  return sign === '-' ? -magnitude : magnitude;
+  if (frac.length > PLACES || BigInt(whole) >= WHOLE_LIMIT) return null;
+  return { negative: sign === '-' && /[1-9]/.test(whole + frac) };
 }
 
 /** An amount of zero or more ("-0" is zero). */
 export const unsignedAmountSchema = z.string().refine(
   (value) => {
-    const v = scaled(value);
-    return v !== null && v >= 0n;
+    const read = readAmount(value);
+    return read !== null && !read.negative;
   },
   { error: 'Expected an unsigned exact decimal string', abort: true },
 );
 
 /** An amount that may be below zero: a profit, a change. */
-export const signedAmountSchema = z.string().refine((value) => scaled(value) !== null, {
+export const signedAmountSchema = z.string().refine((value) => readAmount(value) !== null, {
   error: 'Expected an exact decimal string',
   abort: true,
 });

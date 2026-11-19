@@ -3,6 +3,7 @@
  * the bank's decimal strings. Browser-safe (zod only).
  */
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 const pricedSchema = z.object({
   asset: z.string(),
@@ -31,7 +32,7 @@ export const summarySchema = z.object({
 export const breakdownSchema = z.object({
   assets: z.array(
     z.object({
-      assetId: z.string(),
+      assetId: assetIdSchema,
       total: z.string(),
       available: z.string(),
       locked: z.array(
