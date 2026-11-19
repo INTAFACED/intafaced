@@ -1196,31 +1196,24 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       await assertBooksAgree();
     });
 
-    it('two processes storing one rung’s IOC at once: one order row, never a duplicate key (#8877)', async () => {
+    it('two processes driving one rung’s IOC at once: one order row and one send, never a duplicate key (#8877)', async () => {
       const { alice } = await aliceLongBobShort();
-      const [position] = await sql<Record<string, unknown>[]>`
-        SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
-               margin_asset, margin_adjust_request
-          FROM trade.positions WHERE id = ${alice.id}
-      `;
-      // Two replicas of the liquidation job reach the store for the same rung: id, client id and rung id are all equal.
-      // A narrow window, so 20 rounds of 8 at once; on the targeted insert the losers raised 23505 every run.
-      const svc = build() as unknown as {
-        storeLiquidationOrder: (p: unknown, i: unknown, c: string, o: string) => Promise<{ id: string }>;
-      };
-      const store = svc.storeLiquidationOrder.bind(svc);
+      mark = A('89');
+      // Two replicas of the liquidation job drive the same rung: the order id, client id and rung id are all equal. A
+      // narrow window, so 20 rounds of 8 at once; on the targeted insert the losers raised 23505 every run.
+      const port = build().liquidationPort;
       for (let round = 0; round < 20; round += 1) {
         const rungId = randomUUID();
         const liquidationId = `liq:${alice.id}`;
-        const clientOrderId = liquidationClientOrderId(liquidationId, rungId);
-        const orderId = matchedOrderIdFor(ALICE, MARKET, clientOrderId);
-        const input = { rungId, liquidationId, positionId: alice.id, sizeClosed: A('2'), closesPosition: true, mark: A('89') };
-        const outs = await Promise.allSettled(Array.from({ length: 8 }, () => store(position, input, clientOrderId, orderId)));
+        const orderId = matchedOrderIdFor(ALICE, MARKET, liquidationClientOrderId(liquidationId, rungId));
+        const input = { rungId, liquidationId, positionId: alice.id, sizeClosed: A('2'), closesPosition: true, mark };
+        const outs = await Promise.allSettled(Array.from({ length: 8 }, () => port.driveBook(input)));
         const failed = outs.filter((o) => o.status === 'rejected').map((o) => String((o as PromiseRejectedResult).reason));
         expect(failed).toEqual([]);
-        for (const out of outs) expect((out as PromiseFulfilledResult<{ id: string }>).value.id).toBe(orderId);
+        for (const out of outs) expect((out as PromiseFulfilledResult<{ orderId: string }>).value.orderId).toBe(orderId);
         const rows = await sql`SELECT id FROM trade.futures_orders WHERE liquidation_rung_id = ${rungId}`;
-        expect(rows).toHaveLength(1);
+        expect(rows.map((r) => r.id)).toEqual([orderId]);
+        expect(engine.submits.filter((s) => s.orderId === orderId)).toHaveLength(1);
       }
     }, 60_000);
 
