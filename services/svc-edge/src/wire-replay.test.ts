@@ -215,10 +215,15 @@ function steady(text: string, path: string): string {
   return out.replace(/"(serverReceived|serverSent|receivedAt|sentAt|uptimeSeconds|durationMs)":\s*[0-9.]+/g, '"$1":"<n>"');
 }
 
-/** Any method Fastify mounts, TRACE and WebDAV included, so `node:http` rather than `fetch`. */
+/**
+ * Any method Fastify mounts, TRACE and WebDAV included, so `node:http` rather than `fetch`. Each request gets its own
+ * socket (`agent: false`): the server closes some connections after answering (a TRACE with a body), and a pooled
+ * socket reused in that window fails with ECONNRESET under load. `connection` is not a recorded header.
+ */
 function raw(base: string, method: string, path: string, headers: Record<string, string>, body: string | undefined) {
   return new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }>((resolve, reject) => {
-    const req = request(`${base}${path}`, { method, headers }, (res) => {
+    const req = request(`${base}${path}`, { method, headers, agent: false }, (res) => {
+      if (req.reusedSocket) reject(new Error(`${method} ${path} went out on a reused socket; every request needs its own`));
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString() }));
