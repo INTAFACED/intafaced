@@ -774,15 +774,6 @@
     },
     {
       "file": "services/svc-trade/src/signals/signal-desk.ts",
-      "table": "signal_intents",
-      "target": "(intent_key)",
-      "constraint": "signal_intents_pkey",
-      "verdict": "race",
-      "issue": 8882,
-      "why": "id = idFor(intent_key) (signal-desk.ts:364-368), a hash of the target. A redelivered alert (same webhook and alertId) arriving concurrently passes the signal_alert_results check (343-345) twice, and the loser gets 23505 signal_intents_pkey instead of DO NOTHING."
-    },
-    {
-      "file": "services/svc-trade/src/signals/signal-desk.ts",
       "table": "signal_webhooks",
       "target": "(user_id, client_request_id)",
       "constraint": "signal_webhooks_pkey",
