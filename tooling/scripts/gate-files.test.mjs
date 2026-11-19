@@ -23,6 +23,11 @@ test('gate files: the four things the brief names, plus the tools themselves', (
   assert.ok(touched('docs/runbooks/journey-baseline.json'));
   assert.ok(touched('docs/roadmap/journeys.json'));
   assert.ok(touched('tooling/coverage-law-index.json'));
+  // The Rust lint and toolchain settings: loosening one would let what CI's Rust job refuses through.
+  for (const f of ['Cargo.toml', 'clippy.toml', 'rust-toolchain.toml', '.cargo/config.toml', 'crates/svc-tax/build.rs'])
+    assert.ok(touched(f), f);
+  assert.ok(!touched('crates/svc-tax/Cargo.toml'));
+  assert.ok(!touched('crates/svc-tax/src/lib.rs'));
   assert.ok(!touched('docs/runbooks/journey-baseline-proof/J-agents-03-6.txt'));
   assert.ok(!touched('docs/roadmap/slices.json'));
 });

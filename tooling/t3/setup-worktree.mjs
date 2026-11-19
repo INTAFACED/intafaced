@@ -4,7 +4,7 @@
 // `setup-failed` (with the install's last lines). See CONTRIBUTING.md, "Worktrees". They live under node_modules/ because
 // T3's worktree cleanup ("keep when any local files") skips node_modules/ but keeps a worktree holding any other ignored
 // file, so markers in an ignored .t3/ kept every finished worktree on disk. pnpm install leaves the folder in place.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,3 +69,13 @@ if (status !== 0 || cancelled) {
   detail = cancelled ? `Cancelled by ${cancelled}.` : tail.trimEnd().split('\n').slice(-30).join('\n');
   process.exit(status || 1);
 }
+
+// The Rust toolchain rust-toolchain.toml pins, so `pnpm rust:check` needs no step by hand. rustup installs it once per
+// machine (a no-op when it is there). Without rustup the install above still stands: the line to run is printed, and
+// only a push that changes Rust is refused for it (.githooks/pre-push).
+const rustup = spawnSync('rustup', ['toolchain', 'install'], { cwd: worktree, stdio: ['ignore', 'inherit', 'inherit'] });
+if (rustup.error)
+  console.warn(
+    "rustup is missing, so the Rust toolchain is not installed. Run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none && rustup toolchain install",
+  );
+else if (rustup.status !== 0) console.warn(`rustup toolchain install exited ${rustup.status}; pnpm rust:check installs it on first use.`);
