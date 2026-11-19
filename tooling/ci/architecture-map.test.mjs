@@ -72,7 +72,7 @@ test('docs/agents/shape.md names only paths and rules that exist', () => {
 
 test('shape.md: a renamed example file, a missing folder and an unrun rule each fail', () => {
   const page = readFileSync(new URL('../../docs/agents/shape.md', import.meta.url), 'utf8');
-  const have = new Set(['packages/contracts/src/tax-procedures.ts', 'apps/customer/src/features']);
+  const have = new Set(['packages', 'services', 'apps', 'packages/contracts/src/tax-procedures.ts', 'apps/customer/src/features']);
   const exists = (rel) => have.has(rel);
   const planted = [
     'Copy `packages/contracts/src/tax-procedures.ts`, then `services/svc-gone/src/router.ts`.',
