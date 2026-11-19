@@ -1,7 +1,9 @@
 import { recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { postPayLedger } from './ledger-receipt.js';
 
 /**
- * Production posts for chargeback money. Every call is a ledger-client recipe.
+ * Production posts for chargeback money. Every call is a ledger-client recipe,
+ * posted through `postPayLedger` so a receipt that does not match its request is refused.
  * No fee and no penalty is added here: pay pricing has no dispute-fee field,
  * so a blank fee posts nothing (`DISPUTE_FEE_NOTE`).
  *
@@ -41,7 +43,7 @@ export interface ChargebackShortfallPostInput {
 }
 
 export async function postDisputeOpening(ledger: LedgerClient, input: ChargebackPostInput): Promise<{ txId: string }> {
-  const tx = await ledger.post(recipes.chargebackOpen(input));
+  const tx = await postPayLedger(ledger, recipes.chargebackOpen(input));
   return { txId: tx.id };
 }
 
@@ -52,7 +54,7 @@ export function disputeOpeningKey(input: ChargebackPostInput): string {
 
 /** House covers the part the merchant pots could not. Fails when the fund cannot. */
 export async function postDisputeShortfall(ledger: LedgerClient, input: ChargebackShortfallPostInput): Promise<{ txId: string }> {
-  const tx = await ledger.post(recipes.chargebackShortfall(input));
+  const tx = await postPayLedger(ledger, recipes.chargebackShortfall(input));
   return { txId: tx.id };
 }
 
@@ -62,7 +64,7 @@ export function disputeShortfallKey(input: ChargebackShortfallPostInput): string
 
 /** Representment won: the rail returns the merchant legs in the same proportions. */
 export async function postDisputeWon(ledger: LedgerClient, input: ChargebackPostInput): Promise<{ txId: string }> {
-  const tx = await ledger.post(recipes.chargebackWon(input));
+  const tx = await postPayLedger(ledger, recipes.chargebackWon(input));
   return { txId: tx.id };
 }
 
@@ -72,7 +74,7 @@ export function disputeWonKey(input: ChargebackPostInput): string {
 
 /** Insurance is repaid before the merchant sees a won recovery. Its own key. */
 export async function postDisputeShortfallRecovered(ledger: LedgerClient, input: ChargebackShortfallPostInput): Promise<{ txId: string }> {
-  const tx = await ledger.post(recipes.chargebackShortfallRecovered(input));
+  const tx = await postPayLedger(ledger, recipes.chargebackShortfallRecovered(input));
   return { txId: tx.id };
 }
 
