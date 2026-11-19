@@ -32,6 +32,8 @@ import {
   router,
   scopedProcedure,
   supportAccountGroundingSchema,
+  supportChartsLookupInputSchema,
+  supportChartsLookupSchema,
   supportAttachmentDownloadSchema,
   supportBulkInputSchema,
   supportBulkPolicySchema,
@@ -241,6 +243,8 @@ export function mapError(err: unknown): never {
     ) {
       throw new TRPCError({ code: 'CONFLICT', message });
     }
+    // The lookup's trail row did not land, so nothing was read (J-charts-desk-19 #1).
+    if (err.code === 'support.charts_lookup_unaudited') throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message });
     if (err.code === 'support.release.not_found' || err.code === 'support.assign.not_found' || err.code === 'support.group_unknown') {
       throw new TRPCError({ code: 'NOT_FOUND', message });
     }
@@ -677,6 +681,25 @@ export function createSupportRouter(
             operatorId: ctx.principal!.userId,
             ticketId: input.ticketId,
           });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * A customer's price alerts, their trigger history and saved desk layouts, for a ticket the agent can see
+     * (C-ops-03 (a), J-charts-desk-19 #1). Read-only. The customer comes off the ticket: the input is `.strict()`, so a
+     * `userId` is refused rather than silently dropped, as on `accountState`. One `charts_lookup` trail row is written
+     * before anything is read; when it does not land the lookup is refused.
+     */
+    ticketChartsLookup: scopedProcedure('support:ops')
+      .input(supportChartsLookupInputSchema)
+      .output(supportChartsLookupSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          const principal = principalOf(ctx.principal);
+          requireSupportOps(principal);
+          return await support.readChartsLookup({ operatorId: principal.userId, ticketId: input.ticketId });
         } catch (err) {
           mapError(err);
         }

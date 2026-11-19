@@ -39,6 +39,8 @@ import { tradingAccountCopy } from './trading-account-copy';
 /** The asset a move carries: TEST USDC on the stack, the venue's deposit route's own asset. */
 const ASSET = 'USDC';
 const READ_EVERY_MS = 3_000;
+/** The move's amount field, which a margin call's action opens (J-derivatives-26 #2). */
+const MOVE_AMOUNT_ID = 'move-in-amount';
 const FOLLOW_MS = 120_000;
 const FOLLOW_EVERY_MS = 1_500;
 
@@ -144,12 +146,25 @@ function Room({ owner, status }: { owner: string; status: VenueUp }) {
   const [revision, setRevision] = useState(0);
   const spaces = useSpendingSpaces(revision);
   const partner = (spaces.data ?? []).find((s) => s.heldAt)?.heldAt?.label ?? null;
+  // A margin call's one action (J-derivatives-26 #2): the person's own move, opened at its amount; nothing moves until they sign.
+  const openMoveIn = () => {
+    const amount = document.getElementById(MOVE_AMOUNT_ID);
+    amount?.scrollIntoView({ block: 'center' });
+    amount?.focus();
+  };
   return (
     <>
       <div className="grid-2" data-revision={revision}>
         <section className="dk-panel" aria-label="Trading" data-testid="group-trading">
           {venues.map((venue) => (
-            <VenueAccount key={venue.id ?? 'venue'} owner={owner} venue={venue} test={status.test} revision={revision} />
+            <VenueAccount
+              key={venue.id ?? 'venue'}
+              owner={owner}
+              venue={venue}
+              test={status.test}
+              revision={revision}
+              onMoveIn={openMoveIn}
+            />
           ))}
         </section>
         <SpendingGroup revision={revision} spaces={spaces} />
@@ -159,7 +174,19 @@ function Room({ owner, status }: { owner: string; status: VenueUp }) {
   );
 }
 
-function VenueAccount({ owner, venue, test, revision }: { owner: string; venue: Venue; test: boolean; revision: number }) {
+function VenueAccount({
+  owner,
+  venue,
+  test,
+  revision,
+  onMoveIn,
+}: {
+  owner: string;
+  venue: Venue;
+  test: boolean;
+  revision: number;
+  onMoveIn: () => void;
+}) {
   const { t } = tradingAccountCopy.useCopy();
   const api = useVenueApi();
   const balances = usePolled(
@@ -202,6 +229,104 @@ function VenueAccount({ owner, venue, test, revision }: { owner: string; venue: 
           ))}
         </DataTable>
       )}
+      <CrossMargin owner={owner} venue={venue} revision={revision} onMoveIn={onMoveIn} />
+      <Liquidations owner={owner} venue={venue} revision={revision} />
+    </div>
+  );
+}
+
+/**
+ * The venue account's cross margin as the venue judges it (J-derivatives-26 #1 #2): its equity, maintenance requirement,
+ * margin ratio and liquidation level, exact decimals as the venue reports them, with their time. While the venue calls
+ * for margin, one alert names the trading account, with one action: the person's own move into it. Nothing moves from
+ * spending unless they sign that move.
+ */
+function CrossMargin({ owner, venue, revision, onMoveIn }: { owner: string; venue: Venue; revision: number; onMoveIn: () => void }) {
+  const { t } = tradingAccountCopy.useCopy();
+  const api = useVenueApi();
+  const summary = usePolled(
+    (signal) => api.accountSummary(owner, signal, venue.id),
+    `trading:cross:${owner}:${venue.id ?? ''}:${revision}`,
+    VENUE_POLL_MS,
+  );
+  const s = summary.data?.value ?? null;
+  const cross = s?.cross ?? null;
+  if (!s || !cross) return null;
+  return (
+    <div className="form-stack" data-testid="cross-margin" data-state={cross.state}>
+      {cross.state === 'margin_call' ? (
+        <div role="alert" className="failure" data-testid="margin-call">
+          <p>{t('marginCall', { venue: venue.name })}</p>
+          <Button onClick={onMoveIn}>{t('marginCallAction')}</Button>
+        </div>
+      ) : null}
+      <h3 className="dk-tab-title">{t('crossTitle')}</h3>
+      <p className="muted">
+        {t('tradingSource', { venue: venue.name })} · <AsOf iso={summary.data?.asOf} t={t} />
+      </p>
+      <dl className="protocol-facts">
+        <CrossLine name="equity" label={t('crossEquity')} value={`${cross.equity} ${s.asset}`} />
+        <CrossLine name="maintenance" label={t('crossMaintenance')} value={`${cross.maintenanceMargin} ${s.asset}`} />
+        <CrossLine
+          name="ratio"
+          label={t('crossRatio')}
+          value={cross.marginRatio.known ? cross.marginRatio.value : t('notReported')}
+          raw={cross.marginRatio.known ? cross.marginRatio.value : ''}
+        />
+        <CrossLine name="liquidation" label={t('crossLiquidation')} value={`${cross.liquidationEquity} ${s.asset}`} />
+      </dl>
+      <p className="muted" data-line="cross-rule">
+        {cross.rule}
+      </p>
+    </div>
+  );
+}
+
+function CrossLine({ name, label, value, raw }: { name: string; label: string; value: string; raw?: string }) {
+  return (
+    <div data-line={name} data-value={raw ?? value.split(' ')[0]}>
+      <dt>{label}</dt>
+      <dd className="numeric">{value}</dd>
+    </div>
+  );
+}
+
+/** Every liquidation the venue reports on the account, each part with its size, price, fee and the venue's id (#3). */
+function Liquidations({ owner, venue, revision }: { owner: string; venue: Venue; revision: number }) {
+  const { t } = tradingAccountCopy.useCopy();
+  const api = useVenueApi();
+  const read = usePolled(
+    (signal) => api.liquidations(owner, signal, venue.id),
+    `trading:liquidations:${owner}:${venue.id ?? ''}:${revision}`,
+    VENUE_POLL_MS,
+  );
+  const parts = (read.data?.value ?? []).flatMap((l) => l.parts.map((part) => ({ l, part })));
+  if (parts.length === 0) return null;
+  return (
+    <div data-testid="trading-liquidations">
+      <h3 className="dk-tab-title">{t('liquidationsTitle')}</h3>
+      <p className="muted">
+        {t('liquidationsSource', { venue: venue.name })} · <AsOf iso={read.data?.asOf} t={t} />
+      </p>
+      <DataTable label={t('liquidationsTitle')} headers={[t('hMarket'), t('hSize'), t('hPrice'), t('hFee'), t('hVenueId')]}>
+        {parts.map(({ l, part }) => (
+          <tr key={part.partId} data-part={part.partId} data-liquidation={l.liquidationId}>
+            <td>
+              {l.symbol} · {t(l.side === 'long' ? 'sideLong' : 'sideShort')}
+            </td>
+            <td className="numeric" data-cell="size">
+              {part.size}
+            </td>
+            <td className="numeric" data-cell="price">
+              {part.price}
+            </td>
+            <td className="numeric" data-cell="fee">
+              {part.fee} {part.feeAsset}
+            </td>
+            <td data-cell="id">{part.partId}</td>
+          </tr>
+        ))}
+      </DataTable>
     </div>
   );
 }
@@ -453,6 +578,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
       {stage.at === 'idle' || stage.at === 'done' ? (
         <div className="form-row">
           <Field
+            id={MOVE_AMOUNT_ID}
             label={t('moveAmount', { asset: ASSET })}
             name="move-amount"
             inputMode="decimal"

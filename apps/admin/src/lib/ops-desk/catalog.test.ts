@@ -10,6 +10,7 @@ import {
   BANK_CUSTOMER_ENTRIES,
   BANK_CUSTOMER_ENTRIES_CHECK,
   DESKS,
+  narrowDesk,
   DESK_IDS,
   PAY_TRANSFER_DETAIL,
   academySectionDesk,
@@ -346,6 +347,26 @@ describe('the desks cover what the product order asks for', () => {
       expect(desk.pages).toBe(ACADEMY_PAGES);
     }
     expect(() => academySectionDesk('nope')).toThrow();
+  });
+
+  it('academy: the grant audit narrows to the one course or certificate the address names, and nothing else does', () => {
+    const desk = academySectionDesk('grants');
+    const audit = (d: typeof desk) => d.sections[0]!.reads.find((r) => r.id === 'academy.grant-audit')!;
+    const enrolments = (d: typeof desk) => d.sections[0]!.reads.find((r) => r.id === 'academy.enrolments')!;
+    const course = narrowDesk(desk, { course: 'foundations' });
+    expect(audit(course).input).toEqual({ course: 'foundations' });
+    expect(audit(course).emptyText).toBe('svc-academy records no grants or revokes for this course.');
+    expect(audit(course).narrowed).toEqual({ key: 'course', value: 'foundations', label: 'Course' });
+    expect(course.filter).toEqual({ course: 'foundations' });
+    expect(enrolments(course)).toBe(enrolments(desk));
+    expect(audit(narrowDesk(desk, { certificate: 'foundations-v1' })).input).toEqual({ certificate: 'foundations-v1' });
+    // Both named: only the first the read lists goes on, so the service is never asked for both.
+    expect(audit(narrowDesk(desk, { certificate: 'c', course: 'a' })).input).toEqual({ course: 'a' });
+    // A key no read names, a value of the wrong shape, or a repeated key narrows nothing: the desk is the same object.
+    for (const params of [{}, { section: 'grants' }, { learner: 'x' }, { course: 'a b' }, { course: '' }, { course: ['a', 'b'] }]) {
+      expect(narrowDesk(desk, params)).toBe(desk);
+    }
+    expect(narrowDesk(desk, { course: 'x'.repeat(121) })).toBe(desk);
   });
   it('more: agents, quant, mining, launch, market, token, campaigns', () => {
     expect(sections('more')).toEqual(expect.arrayContaining(['agents', 'quant', 'mining', 'launch', 'market', 'token', 'campaigns']));

@@ -29,8 +29,13 @@ export async function deskGet(request: Request, deskId: OpsDeskId): Promise<Resp
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
   // `?section=<id>` (repeatable) reads only those sections; an id the desk does not have reads nothing.
-  const sections = new URL(request.url).searchParams.getAll('section');
-  return Response.json(await loadDesk(session, deskId, new Date(), sections.length > 0 ? sections : undefined), { headers: NO_STORE });
+  const params = new URL(request.url).searchParams;
+  const sections = params.getAll('section');
+  // Any other key is a narrowing (`?course=<slug>`), which only a read that names it takes (`narrowDesk`).
+  const filter = Object.fromEntries([...params].filter(([k]) => k !== 'section'));
+  return Response.json(await loadDesk(session, deskId, new Date(), sections.length > 0 ? sections : undefined, filter), {
+    headers: NO_STORE,
+  });
 }
 
 export async function deskPost(request: Request, deskId: OpsDeskId, kinds: readonly string[]): Promise<Response> {

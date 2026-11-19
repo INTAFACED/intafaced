@@ -446,6 +446,18 @@ const venueAccountSummarySchema = z.object({
   usedMargin: decimalSchema,
   maintenanceMargin: decimalSchema,
   marginRatio: maybeKnown(decimalSchema),
+  /** The account's cross margin as the venue judges it (J-derivatives-26): null with no cross position open. */
+  cross: z
+    .object({
+      state: z.enum(['healthy', 'margin_call']),
+      equity: signedDecimalSchema,
+      maintenanceMargin: decimalSchema,
+      marginRatio: maybeKnown(decimalSchema),
+      liquidationEquity: decimalSchema,
+      rule: z.string(),
+    })
+    .nullable()
+    .optional(),
 });
 export type VenueAccountSummary = z.infer<typeof venueAccountSummarySchema>;
 

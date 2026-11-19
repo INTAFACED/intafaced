@@ -62,6 +62,7 @@ import { wireTradeOpsAdmin } from './admin/wire.js';
 import { parseMetricsWindowSeconds } from './admin/copy-bots-otc.js';
 import { parseSweepEnabled, parseSweepLimit, parseSweepMinAgeSeconds } from './admin/bust.js';
 import { chartOwnerValuesPublicReader, readChartScalars } from './admin/chart-owner-values.js';
+import { chartFeedCandleGate, parseExportRowLimit, parseFallbackSources } from './admin/chart-feed-controls.js';
 import { readQueuePosition } from './spot/queue-position.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
@@ -829,6 +830,10 @@ export const appRouter = createTradeRouter(
     vipProofKey: parseVipProofKey(env.TRADE_VIP_PROOF_KEY),
     otcLaw: otcDeskLaw,
     metricsWindowSeconds: parseMetricsWindowSeconds(env.TRADE_OPS_METRICS_WINDOW_SECONDS),
+    chartFeed: {
+      fallbackSources: parseFallbackSources(env.TRADE_CHART_FEED_FALLBACK_SOURCES),
+      exportRowLimit: parseExportRowLimit(env.TRADE_CHART_CONTROL_EXPORT_ROW_LIMIT),
+    },
     sweepLimit: parseSweepLimit(env.TRADE_OPERATOR_SWEEP_LIMIT),
     sweepMinAgeSeconds: parseSweepMinAgeSeconds(env.TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS),
     sweepEnabled: parseSweepEnabled(env.TRADE_OPERATOR_SWEEP_ENABLED),
@@ -1382,6 +1387,7 @@ registerPublicRest(app, {
     return new Map(Object.entries(presentAccountFees(markets, schedule)).map(([symbol, row]) => [symbol, row]));
   },
   chartOwnerValues: chartOwnerValuesPublicReader(sql),
+  chartFeedGate: chartFeedCandleGate(sql),
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),

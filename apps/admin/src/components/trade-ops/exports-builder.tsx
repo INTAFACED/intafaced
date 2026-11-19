@@ -17,6 +17,7 @@ export function ExportsBuilder() {
   const [dataset, setDataset] = useState<ExportDataset>('open_orders');
   const [includeSeeded, setIncludeSeeded] = useState(false);
   const [userId, setUserId] = useState('');
+  const [day, setDay] = useState('');
   const [busy, setBusy] = useState(false);
   const [prepared, setPrepared] = useState<Outcome<PreparedExport> | null>(null);
 
@@ -26,7 +27,7 @@ export function ExportsBuilder() {
   async function read() {
     setBusy(true);
     setPrepared(null);
-    const out = await tradeOpsAction<PreparedExport>('exports', { action: 'prepare', dataset, includeSeeded, userId });
+    const out = await tradeOpsAction<PreparedExport>('exports', { action: 'prepare', dataset, includeSeeded, userId, day });
     setBusy(false);
     setPrepared(out);
   }
@@ -76,6 +77,11 @@ export function ExportsBuilder() {
             spellCheck={false}
             placeholder="3f2b8c1e-5d4a-4b7e-9c3a-1a2b3c4d5e6f"
           />
+        </Field>
+      ) : null}
+      {dataset === 'chart_controls_audit' ? (
+        <Field label="Day (UTC, YYYY-MM-DD; blank for every change)" density="dense" className="w-[26rem] max-w-full">
+          <Input value={day} onValueChange={setDay} density="dense" autoComplete="off" spellCheck={false} placeholder="2026-11-19" />
         </Field>
       ) : null}
       <div>

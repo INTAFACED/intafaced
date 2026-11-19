@@ -202,6 +202,33 @@ describe('recovery claims', () => {
     expect(n).toBe(1);
   });
 
+  it('opens racing their own retry all answer the one claim; opens racing under another notice are refused (#8900)', async () => {
+    const OTHER_NOTICE = '76666666-6666-4666-8666-666666666666';
+    const { as } = mount({ estates: { [HEIR]: [ESTATE], [STRANGER]: [{ ...ESTATE, noticeId: OTHER_NOTICE }] } });
+    for (let round = 0; round < 20; round += 1) {
+      await sql`TRUNCATE bank.recovery_claims CASCADE`;
+      const same = await Promise.allSettled(Array.from({ length: 6 }, () => as(HEIR).recovery.claims.open({ ownerUserId: OWNER })));
+      const rejected = same.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      expect(rejected, String(rejected.map((r) => r.reason?.cause ?? r.reason))).toHaveLength(0);
+      for (const r of same) expect((r as PromiseFulfilledResult<{ claimId: string }>).value.claimId).toBe(recoveryClaimId(OWNER, NOTICE));
+      expect(await sql`SELECT id FROM bank.recovery_claims`).toHaveLength(1);
+    }
+
+    for (let round = 0; round < 20; round += 1) {
+      await sql`TRUNCATE bank.recovery_claims CASCADE`;
+      const rivals = await Promise.allSettled(
+        Array.from({ length: 6 }, (_, i) => as(i % 2 === 0 ? HEIR : STRANGER).recovery.claims.open({ ownerUserId: OWNER })),
+      );
+      const [row] = await sql<Array<{ heir_user_id: string }>>`SELECT heir_user_id FROM bank.recovery_claims`;
+      for (const [i, r] of rivals.entries()) {
+        const caller = i % 2 === 0 ? HEIR : STRANGER;
+        if (caller === row!.heir_user_id) expect(r.status, String((r as PromiseRejectedResult).reason?.cause)).toBe('fulfilled');
+        else expect(r).toMatchObject({ status: 'rejected', reason: refused('bank.recovery_claim_conflict', 'CONFLICT') });
+      }
+      expect(await sql`SELECT id FROM bank.recovery_claims`).toHaveLength(1);
+    }
+  });
+
   it('identity refusing the signatures moves nothing and names identity’s code', async () => {
     const { identity, as } = mount();
     await fund(OWNER, 'USDT', '100');
