@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { crewExportForOwner, crewProjection } from './blueprint-crew-codec';
+import { BLUEPRINT_EXPORT } from '@intafaced/contracts/blueprint-procedures';
+import { crewExportOwnedBy, crewProjection } from './blueprint-crew-codec';
+
+/** What the room accepts: the record's reply schema, then the room's own owner check (`api.call`'s `accept`). */
+const crewExportForOwner = (owner: string) => BLUEPRINT_EXPORT.output.refine(crewExportOwnedBy(owner));
 
 const owner = '11111111-1111-4111-8111-111111111111';
 const peer = '22222222-2222-4222-8222-222222222222';
@@ -38,7 +42,7 @@ function exportRecord() {
     crew: { id: crewId, name: '', formedAt: time, season: 1, xp: '-9007199254740993', lobbyId: null, capacity: 2 },
     membership: { crewId, userId: owner, role: 'builder', joinedAt: time },
     crewmates: [{ userId: peer, role: 'scout', joinedAt: time }],
-    matchRuns: [{ id: crewId, candidates: { privateInput: 'not retained' }, scores: [], placedCrewId: peer, ts: time }],
+    matchRuns: [{ id: crewId, candidates: [{ crewId: peer, size: 4 }], scores: { [peer]: 7321 }, placedCrewId: peer, ts: time }],
     mentorMatches: [{ studentId: owner, mentorId: peer, fitScore: 50, status: 'shortlisted' }],
     mentoringOthers: [{ studentId: peer, mentorId: owner, fitScore: 50, status: 'accepted' }],
     shares: [],
@@ -60,7 +64,6 @@ describe('signed-owner crew export projection', () => {
     expect(read.crew.name).toBe('');
     expect(read.exportedAt).toBe(time);
     for (const field of ['blueprint', 'card', 'matchRuns', 'mentorMatches', 'mentoringOthers']) expect(read).not.toHaveProperty(field);
-    expect(JSON.stringify(read)).not.toContain('privateInput');
   });
   it('permits coherent crew membership without a profile/card and a returned legacy capacity of one', () => {
     const record = { ...exportRecord(), blueprint: null, card: null, crewmates: [], crew: { ...exportRecord().crew, capacity: 1 } };
