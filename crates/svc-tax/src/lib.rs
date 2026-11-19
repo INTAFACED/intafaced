@@ -2,11 +2,11 @@
 //! holds no balance and posts nothing. The binary (`main.rs`) serves tRPC over HTTP (`server.rs`, `wire.rs`) and applies
 //! the `tax` schema's migrations (`svc-tax migrate`); `service.rs` builds every port once at start-up.
 //!
-//! It is built to replace the TypeScript service (`services/svc-tax`), which still serves until the change that starts
-//! this binary in the stack and deletes it. A TypeScript file named in a comment here (`lot-book.ts`) is that
-//! service's. What the TypeScript answered is kept as the reference this service is held to byte for byte: the wire
-//! replay (`tests/wire_replay.rs`), the service parity corpus (`tests/service_parity.rs`), the I/O golden
-//! (`tests/io_golden.rs`), the export (`tests/export_parity.rs`) and zod's input checks (`tests/input_parity.rs`).
+//! It replaced the TypeScript service (`services/svc-tax`, deleted in the change that made this one run; read it in git
+//! history before that merge). A TypeScript file named in a comment here (`lot-book.ts`) was that service's. What the
+//! TypeScript answered is kept as the reference this service is held to byte for byte: the wire replay
+//! (`tests/wire_replay.rs`), the service parity corpus (`tests/service_parity.rs`), the I/O golden (`tests/io_golden.rs`),
+//! the export (`tests/export_parity.rs`) and zod's input checks (`tests/input_parity.rs`).
 
 pub mod access;
 pub mod basis;

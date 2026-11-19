@@ -756,7 +756,6 @@ const BACKEND_PKGS = [
   'svc-blueprint',
   'svc-quant',
   'svc-execution',
-  'svc-tax',
   'svc-mining-pool',
   'svc-ops',
   'svc-protocol',
@@ -771,11 +770,11 @@ function gitHead() {
   return r.stdout.trim();
 }
 
-/** Runs `pnpm args` with its output in logs/<label>.log; `spawner` is spawnSync or spawn. */
-function pnpmRun(spawner, args, label, extraEnv) {
+/** Runs `pnpm args` (or `cmd args`) with its output in logs/<label>.log; `spawner` is spawnSync or spawn. */
+function pnpmRun(spawner, args, label, extraEnv, cmd = 'pnpm') {
   const logPath = path.join(P.logs, `${label}.log`);
   const fd = fs.openSync(logPath, 'w', 0o600);
-  const result = spawner('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
+  const result = spawner(cmd, args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
   const failed = (status) => {
     const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
     fail(`${label} failed (exit ${status}). Log: ${logPath}\n${tail}`);
@@ -795,9 +794,9 @@ process.on('exit', () => {
   for (const child of livePnpm) child.kill('SIGTERM');
 });
 
-/** runPnpm without blocking, so several can run side by side. */
-function runPnpmAsync(args, label, extraEnv = {}) {
-  const { fd, result: child, failed } = pnpmRun(spawn, args, label, extraEnv);
+/** runPnpm without blocking, so several can run side by side. `cmd` runs another program the same way (svc-tax's binary). */
+function runPnpmAsync(args, label, extraEnv = {}, cmd = 'pnpm') {
+  const { fd, result: child, failed } = pnpmRun(spawn, args, label, extraEnv, cmd);
   livePnpm.add(child);
   return new Promise((resolve) => {
     let finished = false;
@@ -1152,11 +1151,80 @@ function javaBin() {
   return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
 }
 
+// ── svc-tax (Rust) ──────────────────────────────────────────────────────────
+
+const TAX_CRATE = path.join(REPO, 'crates', 'svc-tax');
+/** The release binary, copied beside the crate (dist/ is ignored by git, so the journeys' shared build carries it). */
+export const TAX_BIN = path.join(TAX_CRATE, 'dist', 'svc-tax');
+const TAX_BIN_INPUTS = path.join(TAX_CRATE, 'dist', 'stack-bin-inputs.sha256');
+
+/** A hash of everything the binary is built from: the workspace manifest, lockfile and toolchain, and the crate. */
+export function taxBinInputs(repo = REPO) {
+  const crate = path.join(repo, 'crates', 'svc-tax');
+  const walk = (dir) =>
+    fs.existsSync(dir)
+      ? fs
+          .readdirSync(dir, { withFileTypes: true })
+          .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]))
+      : [];
+  const files = [
+    path.join(repo, 'Cargo.toml'),
+    path.join(repo, 'Cargo.lock'),
+    path.join(repo, 'rust-toolchain.toml'),
+    path.join(crate, 'Cargo.toml'),
+    ...walk(path.join(crate, 'src')),
+    ...walk(path.join(crate, 'migrations')),
+  ]
+    .filter((f) => fs.existsSync(f))
+    .sort();
+  const hash = crypto.createHash('sha256');
+  for (const f of files) hash.update(path.relative(repo, f)).update('\0').update(fs.readFileSync(f)).update('\0');
+  return hash.digest('hex');
+}
+
+/** cargo from the caller's PATH (rustup's proxy, which installs the toolchain rust-toolchain.toml pins), else ~/.cargo/bin. */
+function cargoBin() {
+  const found = spawnSync('sh', ['-c', 'command -v cargo'], { encoding: 'utf8' }).stdout.trim();
+  if (found) return found;
+  const own = path.join(os.homedir(), '.cargo', 'bin', 'cargo');
+  if (fs.existsSync(own)) return own;
+  return fail('svc-tax is Rust and cargo is not installed: install rustup (https://rustup.rs), then start again');
+}
+
+/** Builds svc-tax's release binary when its inputs changed since the last build, or on --rebuild. */
+function ensureTaxBinary(rebuild) {
+  const want = taxBinInputs();
+  const have = fs.existsSync(TAX_BIN_INPUTS) ? fs.readFileSync(TAX_BIN_INPUTS, 'utf8').trim() : '';
+  if (!rebuild && fs.existsSync(TAX_BIN) && have === want) return;
+  say('  build: svc-tax (Rust)…');
+  const cargo = cargoBin();
+  const target = path.join(STATE, 'cargo-target');
+  const logPath = path.join(P.logs, 'build-tax.log');
+  const fd = fs.openSync(logPath, 'w', 0o600);
+  const r = spawnSync(cargo, ['build', '--release', '--locked', '-p', 'svc-tax'], {
+    cwd: REPO,
+    // The caller's PATH as well: rustup's proxy finds its toolchains through it and through RUSTUP_HOME/CARGO_HOME.
+    env: { ...baseEnv(), PATH: `${path.dirname(cargo)}:${process.env.PATH ?? ''}:${PNPM_PATH}`, CARGO_TARGET_DIR: target },
+    stdio: ['ignore', fd, fd],
+  });
+  fs.closeSync(fd);
+  const built = path.join(target, 'release', 'svc-tax');
+  if (r.status !== 0 || !fs.existsSync(built)) {
+    const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
+    fail(`svc-tax did not build (see ${logPath})\n${tail}`);
+  }
+  fs.mkdirSync(path.dirname(TAX_BIN), { recursive: true });
+  fs.copyFileSync(built, TAX_BIN);
+  fs.chmodSync(TAX_BIN, 0o755);
+  fs.writeFileSync(TAX_BIN_INPUTS, `${want}\n`);
+}
+
 /** `admin: false` leaves the founder console alone (the journeys' shared build, whose public artifact must not carry it). */
 function ensureBuilt(rebuild, { admin = true } = {}) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
   ensureFixJar(rebuild);
+  ensureTaxBinary(rebuild);
   const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
   if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
   if (backend === 'none') {
@@ -1228,9 +1296,12 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
 // one per core (they were 19 runs of about a second each, one after another).
 async function migrate(secrets, schemas = SCHEMAS) {
   await inPool(schemas, os.availableParallelism(), (s) =>
-    runPnpmAsync(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
-      DATABASE_URL: dbUrl(`svc_${s}`, secrets),
-    }),
+    // svc-tax is a Rust binary that applies its own schema's migrations (`svc-tax migrate`); the rest are Node packages.
+    s === 'tax'
+      ? runPnpmAsync(['migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) }, TAX_BIN)
+      : runPnpmAsync(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
+          DATABASE_URL: dbUrl(`svc_${s}`, secrets),
+        }),
   );
   say(`  migrations: ${schemas.length ? schemas.join(', ') : 'none needed'} applied (idempotent)`);
 }
@@ -1803,9 +1874,11 @@ async function startNodeService(def) {
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
-  // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); every other one is Node.
-  const argv = def.java ? [javaBin(), '-cp', FIX_JAR, def.java.main] : [process.execPath, entry];
-  const pid = startProc(def.name, argv, env, path.join(REPO, 'services', `svc-${def.name}`), { build });
+  // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); svc-tax runs its Rust binary
+  // (ensureTaxBinary); every other one is Node.
+  const argv = def.java ? [javaBin(), '-cp', FIX_JAR, def.java.main] : def.rust ? [TAX_BIN] : [process.execPath, entry];
+  const cwd = def.rust ? TAX_CRATE : path.join(REPO, 'services', `svc-${def.name}`);
+  const pid = startProc(def.name, argv, env, cwd, { build });
   if (def.name === 'ops') {
     // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
     const procs = readProcs();
@@ -2782,8 +2855,9 @@ function cmdPlan(flags) {
     port: Number(d.env().HTTP_PORT),
     url: `http://${HOST}:${d.env().HTTP_PORT}`,
     schema: SCHEMAS.find((s) => serviceOfSchema(s) === d.name) ?? null,
-    // A Java service is built as its jar (ensureFixJar), not as a Node package.
+    // A Java service is built as its jar (ensureFixJar), a Rust one as its binary (ensureTaxBinary), not as a Node package.
     java: Boolean(d.java),
+    rust: Boolean(d.rust),
     running: ownedAlive(procs[d.name]),
     // Started on the build on disk now; false means a start would restart it onto the newer build (verify doctor reads it).
     onCurrentBuild: onCurrentBuild(procs[d.name], currentBuild('backendBuild')),

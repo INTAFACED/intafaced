@@ -1881,7 +1881,7 @@ export const FEATURES = [
     plane: 'B',
     status: 'done',
     dependsOn: ['ledger.double-entry', 'connect.data-lake', 'indexer.readmodels'],
-    requires: ['services/svc-tax'],
+    requires: ['crates/svc-tax'],
     note:
       '**Done 2026-08-23:** svc-tax + /portfolio tax card. Caller selects FIFO|LIFO|HIFO. Blank owner TAX_JURISDICTION_MAP_JSON → tax.jurisdiction_unmapped (never a silent country). Empty books → empty pack, not $0 PnL. ' +
       'Residuals: counsel jurisdiction map (owner JSON); data-lake and indexer.readmodels blocked reads named absent on the pack (tax.data_lake_unavailable / tax.indexer_unavailable) — not invented, not CSV re-import.',

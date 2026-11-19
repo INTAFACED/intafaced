@@ -1,4 +1,4 @@
-//! `svc-tax migrate [--down]` (the TypeScript service's `scripts/migrate.ts`, over the same files): applies every `*.sql` in
+//! `svc-tax migrate [--down]` (was the TypeScript service's `scripts/migrate.ts`): applies every `*.sql` in
 //! `crates/svc-tax/migrations` in name order, tracked in `tax.__migrations`, each file once; `--down` reverses them.
 //! The `tax` schema comes from the database bootstrap. The files are built into the binary, so the runner needs nothing
 //! beside it. Its lines are the TypeScript runner's (`↑`, `·`, `↓`, `✓`).
