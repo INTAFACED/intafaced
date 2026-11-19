@@ -9,8 +9,9 @@
  *              tooling/ci/test-read-edges.json (`--filters` prints the turbo filters);
  *   neither  — docs only; the seal then needs no test job.
  * Apart from those, `rust` says whether CI's Rust job runs (format, clippy, tests: `pnpm rust:check`): a change to a
- * Rust file (RUST_FILES) or to what defines that job, and every run-everything run. A change to Rust files alone runs
- * no TypeScript tests.
+ * Rust file (isRustFile), to a TypeScript service a crate replaces (its code and the recorded answers the crate's tests
+ * read: rustCrates), to what defines that job, and every run-everything run. A change to Rust files alone runs no
+ * TypeScript tests.
  *
  *   node tooling/ci/ci-affected.mjs --files services/svc-protocol/src/x.ts
  *   node tooling/ci/ci-affected.mjs --github-output
@@ -20,8 +21,8 @@
  * `push:main` and a merge queue's commit (`merge_group`, what main becomes) always classify as full (the trunk seal).
  */
 import { execFileSync } from 'node:child_process';
-import { realpathSync, writeFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { allEdges } from './cross-package-reads.mjs';
 import { SPLIT } from './test-shards.mjs';
 
@@ -71,6 +72,23 @@ export const isRustFile = (file) => {
     f.startsWith('.cargo/')
   );
 };
+/**
+ * The crates in `crates/`, each named after the TypeScript service it replaces: `crates/svc-tax` is tested against
+ * `services/svc-tax`'s recorded answers (`wire-replay.golden.json`, `export-parity.golden.json`), so a change there runs
+ * the Rust job before main does. Read from the folder, never kept by hand.
+ */
+export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url))) {
+  try {
+    return readdirSync(`${root}/crates`, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return [];
+  }
+}
+/** A file the Rust job judges: a Rust file, or anything in a TypeScript service a crate replaces. */
+export const reachesRust = (file, crates = rustCrates()) =>
+  isRustFile(file) || crates.some((name) => posix(file).startsWith(`services/${name}/`));
 /** What defines the Rust job (its steps, and the `rust:check` script it runs): a change to one runs it too. */
 const RUST_JOB_FILES = ['.github/workflows/ci.yml', 'package.json'];
 
@@ -114,10 +132,10 @@ export function mergeEdges(a, b) {
  * affected — run the tests of the changed packages, their dependents, and the readers of what they changed.
  * Neither  — nothing to test (docs only); the seal then needs no test job.
  */
-export function classify(files, { forceFull = false } = {}) {
+export function classify(files, { forceFull = false, crates = rustCrates() } = {}) {
   if (forceFull) return { full: true, affected: false, rust: true };
   const list = (files || []).map(posix).filter(Boolean);
-  const rust = list.some((f) => isRustFile(f) || RUST_JOB_FILES.includes(f));
+  const rust = list.some((f) => reachesRust(f, crates) || RUST_JOB_FILES.includes(f));
   let affected = false;
   for (const file of list) {
     if (isGateFile(file)) return { full: true, affected: false, rust };
@@ -296,9 +314,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     process.exit(0);
   }
 
-  // The pre-push hook's question: does this branch change a Rust file? Prints true or false.
+  // The pre-push hook's question: does this branch change what the Rust job judges? Prints true or false.
   if (args.includes('--rust-files')) {
-    console.log(gitChangedFiles().some(isRustFile) ? 'true' : 'false');
+    const crates = rustCrates();
+    console.log(gitChangedFiles().some((f) => reachesRust(f, crates)) ? 'true' : 'false');
     process.exit(0);
   }
 
