@@ -5,7 +5,8 @@
     "garden/no-hand-typed-patch",
     "garden/no-sign-in-in-step",
     "garden/no-call-by-name",
-    "garden/no-runtime-swap"
+    "garden/no-runtime-swap",
+    "garden/no-cross-feature-import"
   ],
   "fixes": {
     "eslint/no-console": "log through the service's structured logger (Fastify's app.log or req.log, an object first, then the message), not console.",

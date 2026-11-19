@@ -276,6 +276,7 @@ jobs:
     outputs:
       full: ${{ steps.cls.outputs.full }}
       affected: ${{ steps.cls.outputs.affected }}
+      rust: ${{ steps.cls.outputs.rust }}
       shards: ${{ steps.cls.outputs.shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -305,6 +306,45 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: format:check
         run: pnpm format:check
+
+  # The Rust workspace (Cargo.toml, crates/): format, clippy with warnings as errors, and tests, by the same command a
+  # builder runs (`pnpm rust:check`). It runs when the change reaches Rust (ci-affected.mjs `rust`: a Rust file, this
+  # file or the root package.json) and on every run-everything run; the seal then needs it green, skipped or not.
+  # The runner's rustup installs the toolchain rust-toolchain.toml pins; no third-party action is involved.
+  rust:
+    name: Rust
+    if: needs.changes.outputs.rust == 'true'
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15 # healthy run: 1-2 min while the workspace holds one empty crate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Install the pinned toolchain
+        run: rustup toolchain install && rustc --version && cargo clippy --version
+      - name: rust:check
+        run: pnpm rust:check
+      # Every run also proves the check can fail: rust:check must fail, for the planted reason, on a clippy warning
+      # (warnings are errors) and on a failing test, each planted in an untracked test file and removed after.
+      - name: rust:check fails on a planted clippy warning and on a planted failing test
+        run: |
+          plant() {
+            printf '%s\n' "$2" > crates/svc-tax/tests/planted.rs
+            if pnpm -s rust:check > "$RUNNER_TEMP/planted-$1.log" 2>&1; then
+              cat "$RUNNER_TEMP/planted-$1.log"; echo "::error::rust:check passed a planted $1"; exit 1
+            fi
+            if ! grep -q "$3" "$RUNNER_TEMP/planted-$1.log"; then
+              cat "$RUNNER_TEMP/planted-$1.log"; echo "::error::rust:check failed a planted $1, but not for it (no '$3')"; exit 1
+            fi
+            echo "rust:check failed the planted $1, as it must: $(grep -m1 "$3" "$RUNNER_TEMP/planted-$1.log")"
+          }
+          mkdir crates/svc-tax/tests
+          plant 'clippy warning' $'#[test]\nfn planted_warning() {\n    let v = vec![1];\n    assert_eq!(v.len(), 1);\n}' 'clippy::useless-vec. implied by .-D warnings'
+          plant 'failing test' $'#[test]\nfn planted_failure() {\n    assert_eq!(svc_tax::SERVICE, "planted");\n}' 'test planted_failure ... FAILED'
+          rm -r crates/svc-tax/tests
 
   build:
     name: Typecheck & build
@@ -614,7 +654,7 @@ jobs:
       actions: read # the CI review's runs and their jobs on the head (ci-review.yml); no comment or status is read
       pull-requests: read # the changed files, to tell whether this change needs the independent review or a full journeys run
       issues: read # the journeys verdict a shared-setup change needs reads the regression issues the baseline names
-    needs: [changes, gates, format, build, test-full]
+    needs: [changes, gates, format, build, test-full, rust]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Require needed jobs
@@ -622,11 +662,13 @@ jobs:
         env:
           FULL: ${{ needs.changes.outputs.full }}
           AFFECTED: ${{ needs.changes.outputs.affected }}
+          RUST: ${{ needs.changes.outputs.rust }}
           CHANGES: ${{ needs.changes.result }}
           GATES: ${{ needs.gates.result }}
           FORMAT: ${{ needs.format.result }}
           BUILD: ${{ needs.build.result }}
           T_FULL: ${{ needs.test-full.result }}
+          RUST_RESULT: ${{ needs.rust.result }}
         run: node tooling/ci/ci-affected.mjs --seal
       # The default branch's copy of the seal's scripts, which decide the two steps below whatever the pull request changes.
       - name: The default branch's seal scripts
@@ -715,7 +757,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [changes, gates, format, build, test-full, merge-seal]
+    needs: [changes, gates, format, build, test-full, rust, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
