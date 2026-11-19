@@ -8,4 +8,4 @@ import 'server-only';
 export { BANK_CUSTOMER_BALANCES, DESKS, FORBID_BANK_OPS, allReads, readSpecFor } from './catalog';
 export { formatDuration, readData } from './model';
 export { loadRead, loadReads } from './server';
-export type { Column, DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec, Row, Unavailable } from './types';
+export type { Cell, CellValue, Column, DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec, Row, Unavailable } from './types';

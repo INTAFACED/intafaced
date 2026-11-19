@@ -1,7 +1,7 @@
 import type { ModuleId } from '@intafaced/config';
 import { SERVICE_SOURCE_UNAVAILABLE, type ServiceRecord } from '@intafaced/contracts/ops-console-services';
-import type { OpsRead } from '@/lib/console-announcements/model';
-import { HEALTH_SOURCE_UNWIRED, type HealthRow } from '@/lib/module-health/board';
+import type { OpsRead } from '@/lib/console-announcements';
+import { HEALTH_SOURCE_UNWIRED, type HealthRow } from '@/lib/module-health';
 import { isRecord } from '@intafaced/contracts/guards';
 
 /**

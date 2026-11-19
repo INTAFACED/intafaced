@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { TestDataBadge } from '@/components/merchants/test-data-badge';
+import { TestDataBadge } from '@/components/test-data-badge';
 import { PageFinder } from './navigation';
 import './screens.css';
 export function FounderOpsShell({ children, showBadge = true }: { children: ReactNode; showBadge?: boolean }) {
