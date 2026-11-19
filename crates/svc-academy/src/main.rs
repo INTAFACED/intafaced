@@ -129,6 +129,8 @@ fn run() -> Result<(), String> {
     let env = env::load(&process_env()).map_err(|e| e.message)?;
     // The embedded spine loads, or the service does not start (the TypeScript catalog throws at module load).
     spine::check()?;
+    // `assertCertCatalog(CERT_CATALOG)` at module load: a broken certificate catalogue does not start.
+    svc_academy::certs::catalog::check()?;
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let log = Logger::stdout(&str_of("LOG_LEVEL"));
     let fetch: Arc<dyn Fetch> = Arc::new(UreqFetch::new());
@@ -185,10 +187,43 @@ fn run() -> Result<(), String> {
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
     }
-    server::serve(&server, &app, &log, &telemetry, &stop);
+    // AC-certificates-02: the issue sweep issues delayed certificates once due, one sweep at a time; blank interval, no
+    // sweep (and a delayed rule refuses `academy.cert_sweep_unset`). It finishes its sweep before the process stops.
+    let sweep_every = env
+        .int("ACADEMY_CERT_ISSUE_SWEEP_SECONDS")
+        .and_then(|s| u64::try_from(s).ok());
+    std::thread::scope(|s| {
+        if let Some(seconds) = sweep_every {
+            let (app, log, stop) = (&app, &log, &stop);
+            s.spawn(move || cert_sweep(app, log, stop, std::time::Duration::from_secs(seconds)));
+        }
+        server::serve(&server, &app, &log, &telemetry, &stop);
+    });
     drop(server);
     app.wire.end();
     telemetry.shutdown();
     log.info(Vec::new(), "svc-academy stopped");
     Ok(())
+}
+
+/// `setInterval(() => academy.issueDueCertificates(), seconds * 1000)`, never stacked: each sweep runs to its end, then
+/// the next waits its interval. A failed sweep is logged and the next one retries.
+fn cert_sweep(app: &App<AcademyDoor>, log: &Logger, stop: &AtomicBool, every: std::time::Duration) {
+    let tick = std::time::Duration::from_millis(200);
+    loop {
+        let mut waited = std::time::Duration::ZERO;
+        while waited < every {
+            if stop.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            std::thread::sleep(tick);
+            waited += tick;
+        }
+        if let Err(e) = app.wire.sweep_certs() {
+            log.error(
+                vec![("err", Json::str(format!("{e:?}")))],
+                "certificate issue sweep failed; the next one retries",
+            );
+        }
+    }
 }

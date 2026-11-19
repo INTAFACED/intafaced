@@ -8,6 +8,7 @@
 //! its refusals, `env` its environment and `settings` the owner settings register.
 
 pub mod access;
+pub mod certs;
 pub mod curriculum;
 pub mod db;
 pub mod door;

@@ -34,6 +34,12 @@ pub trait Door: Sync {
     fn next_request_id(&self) -> String;
     /// Answers one request under the id the server already gave it.
     fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response;
+    /// Answers one request from the TCP peer `peer` (Fastify's `req.ip`: the socket's address, blank when unknown). A
+    /// door that never reads the caller's address answers as `handle_as`.
+    fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
+        let _ = peer;
+        self.handle_as(req, request_id)
+    }
 }
 
 /// Fastify's request ids: `req-1`, `req-2`, ... in base 36, one per request this process takes.
@@ -87,6 +93,19 @@ impl<D: Door> App<D> {
         body: &str,
         request_id: &str,
     ) -> Answer {
+        self.route_from(method, url, headers, body, request_id, "")
+    }
+
+    /// Routes one request from the TCP peer `peer`, as Fastify would.
+    pub fn route_from(
+        &self,
+        method: &str,
+        url: &str,
+        headers: &[(String, String)],
+        body: &str,
+        request_id: &str,
+        peer: &str,
+    ) -> Answer {
         let path = url.split_once('?').map_or(url, |(p, _)| p);
         let json = |status: u16, body: String| Answer {
             status,
@@ -105,7 +124,7 @@ impl<D: Door> App<D> {
                 return json(200, self.ready_body.clone());
             }
         }
-        let res = self.wire.handle_as(
+        let res = self.wire.handle_from(
             &Request {
                 method,
                 url,
@@ -113,6 +132,7 @@ impl<D: Door> App<D> {
                 body,
             },
             request_id,
+            peer,
         );
         Answer {
             status: res.status,
@@ -195,7 +215,11 @@ fn answer<D: Door>(mut req: tiny_http::Request, app: &App<D>, log: &Logger, tele
     let mut bytes = Vec::new();
     let _ = req.as_reader().read_to_end(&mut bytes);
     let body = String::from_utf8_lossy(&bytes);
-    let out = app.route(&method, &url, &headers, &body, &request_id);
+    let peer = req
+        .remote_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_default();
+    let out = app.route_from(&method, &url, &headers, &body, &request_id, &peer);
     let status = out.status;
     let content = if method == "HEAD" {
         Vec::new()

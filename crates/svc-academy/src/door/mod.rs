@@ -149,6 +149,10 @@ pub struct Ctx<'a> {
     pub store: &'a Store,
     pub ports: &'a Ports,
     pub settings: &'a Settings,
+    /// The TCP peer the server read the request from (Fastify's `req.ip`), trimmed by the handler; blank when unknown.
+    pub client_address: &'a str,
+    /// The process's certificate state: `certVerify`'s window and the clock.
+    pub certs: &'a crate::certs::State,
 }
 
 impl Ctx<'_> {
@@ -187,6 +191,7 @@ pub struct AcademyDoor {
     now: fn() -> Instant,
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
+    certs: crate::certs::State,
 }
 
 /// The system clock.
@@ -216,6 +221,7 @@ impl AcademyDoor {
             now: config.now,
             requests: RequestIds::new(),
             edge_key: None,
+            certs: crate::certs::State::new(config.now),
         })
     }
 
@@ -247,6 +253,16 @@ impl AcademyDoor {
 
     /// Answers one request under the id the server already gave it.
     pub fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
+        self.handle_from(req, request_id, "")
+    }
+
+    /// One issue sweep (`academy.issueDueCertificates()`): the delayed certificates due now.
+    pub fn sweep_certs(&self) -> Result<i64, Refusal> {
+        crate::certs::sweep(&self.store, &self.ports, &self.settings.0, self.now)
+    }
+
+    /// Answers one request from the TCP peer `peer` (its address, blank when unknown).
+    pub fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
         // The coach's S2S door, beside `/trpc` (`registerInternalCurriculumRoute`).
         if let Some(res) = crate::curriculum::internal::route(&self.ports.services, req) {
             return res;
@@ -254,7 +270,7 @@ impl AcademyDoor {
         let Some((path, query)) = trpc::route(req.url) else {
             return trpc::route_not_found(req);
         };
-        match self.answer(req, &path, query) {
+        match self.answer(req, &path, query, peer) {
             Ok(data) => trpc::ok(data),
             Err(e) => trpc::render(&e, &path, request_id, "svc-academy", self.dev),
         }
@@ -265,6 +281,7 @@ impl AcademyDoor {
         req: &Request<'_>,
         path: &str,
         query: &str,
+        peer: &str,
     ) -> Result<Option<Json>, TrpcError> {
         if trpc::query_param(query, "batch").is_some() {
             return Err(TrpcError::plain(
@@ -327,6 +344,8 @@ impl AcademyDoor {
             store: &self.store,
             ports: &self.ports,
             settings: &self.settings,
+            client_address: peer,
+            certs: &self.certs,
         };
         slices::handle(&ctx).map_err(refuse)
     }
@@ -340,5 +359,9 @@ impl Door for AcademyDoor {
 
     fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
         AcademyDoor::handle_as(self, req, request_id)
+    }
+
+    fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
+        AcademyDoor::handle_from(self, req, request_id, peer)
     }
 }

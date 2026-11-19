@@ -325,8 +325,9 @@ impl JetStreamBus {
 }
 
 impl Bus for JetStreamBus {
+    /// `BusCertXpPublisher.id`: what `/ready` and `certXpPlane` name.
     fn id(&self) -> &str {
-        "nats"
+        "bus"
     }
     fn usable(&self) -> bool {
         true
