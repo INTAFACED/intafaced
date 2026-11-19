@@ -250,8 +250,7 @@ describe('business bulk payments, contractors and crypto payroll (J-bank-21)', (
       const id = round === 0 ? runId : randomUUID();
       const runs = await Promise.all(Array.from({ length: 8 }, () => owner.businessPayouts.importRun({ accountId, runId: id, csv: CSV })));
       expect(runs.map((r) => [r.id, r.total, r.issues.length])).toEqual(Array.from({ length: 8 }, () => [id, '300', 2]));
-      const [{ n }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM bank.business_bulk_lines WHERE run_id = ${id}::uuid`;
-      expect(n).toBe(3);
+      expect(await sql`SELECT 1 FROM bank.business_bulk_lines WHERE run_id = ${id}::uuid`).toHaveLength(3);
     }
     expect(await sql`SELECT 1 FROM bank.business_bulk_runs WHERE account_id = ${accountId}::uuid`).toHaveLength(5);
   });
