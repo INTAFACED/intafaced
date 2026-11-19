@@ -1,8 +1,8 @@
 import { quantQuotaSchema } from '@intafaced/contracts/quant-algo';
 import { DataTable, Panel } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
-import { Read } from '../more/common';
-import { useApi } from '../session/session';
+import { Read } from '../more';
+import { useApi } from '../session';
 import { usageCopy } from './usage-copy';
 import { limitsCopy } from './limits-copy';
 
