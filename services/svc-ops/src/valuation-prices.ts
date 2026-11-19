@@ -9,8 +9,9 @@
  * refuses at boot, so a misspelt asset never reaches a customer as a different total.
  */
 import { isExplicitDevOrTest } from '@intafaced/config';
+import { OPS_VALUATION_PRICES } from '@intafaced/contracts/ops-public-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  publicProcedure,
   router,
   VALUATION_PRICES_UNSET,
   valuationPriceSchema,
@@ -50,9 +51,16 @@ export function valuationPricesFromEnv(
   });
 }
 
-/** `valuation.prices`: public and read only. Prices are not personal, and the answer is the same for everyone. */
+/**
+ * `valuation.prices`, mounted from its record (`OPS_VALUATION_PRICES`): public and read only. Prices are not personal, and
+ * the answer is the same for everyone. It refuses nothing: an unpublished list is an answer.
+ */
 export function createValuationPricesRouter(prices: ValuationPrices) {
   return router({
-    prices: publicProcedure.output(valuationPricesOutputSchema).query(() => prices),
+    prices: mountRecord(
+      OPS_VALUATION_PRICES,
+      () => prices,
+      () => undefined,
+    ),
   });
 }

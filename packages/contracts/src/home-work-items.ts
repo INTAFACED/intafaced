@@ -156,3 +156,12 @@ export const homeConfigOutputSchema = z.object({
   revision: z.number().int().nonnegative(),
 });
 export type HomeConfig = z.infer<typeof homeConfigOutputSchema>;
+
+/**
+ * `home.config` as its record sends it (`OPS_HOME_CONFIG`): the same fields, with "each kind once" moved from the schema
+ * to the record's `accept`, where every caller runs it. svc-ops checks the order at boot with `homeConfigOutputSchema`.
+ */
+export const homeConfigReplySchema = homeConfigOutputSchema.extend({ workListOrder: z.array(workItemKindSchema).min(1).nullable() });
+/** True when no kind appears twice in the owners' order (blank passes). */
+export const eachWorkKindOnce = (reply: { readonly workListOrder: readonly string[] | null }): boolean =>
+  reply.workListOrder === null || new Set(reply.workListOrder).size === reply.workListOrder.length;

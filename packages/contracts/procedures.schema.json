@@ -2072,6 +2072,265 @@
         }
       ]
     },
+    "ops.home.config": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "home.config",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "workListCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workListOrder": {
+            "anyOf": [
+              {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["verification", "new_device", "margin_health", "loan_payment_due", "card_frozen", "payout_waiting"]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "searchResultCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "noticeStripLimit": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recentActivityLimit": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["workListCap", "workListOrder", "searchResultCap", "noticeStripLimit", "recentActivityLimit", "revision"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "eachKindOnce": "no kind appears twice in workListOrder"
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "ops.outreach.publicSettings": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "outreach.publicSettings",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {
+        "ops.crm.storage_unconfigured": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "joinUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "partnerTerms": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appStoreUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["joinUrl", "partnerTerms", "appStoreUrl", "revision", "updatedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "ops.valuation.prices": {
+      "service": "svc-ops",
+      "module": "ops",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "valuation.prices",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "published": {
+                "type": "boolean",
+                "const": false
+              },
+              "code": {
+                "type": "string",
+                "const": "valuation.prices_unset"
+              }
+            },
+            "required": ["published", "code"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "published": {
+                "type": "boolean",
+                "const": true
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "asOf": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "prices": {
+                "maxItems": 500,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "asset": {
+                      "type": "string",
+                      "pattern": "^[A-Z0-9]{2,16}$"
+                    },
+                    "usd": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    }
+                  },
+                  "required": ["asset", "usd"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["published", "test", "source", "asOf", "prices"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "accept": {
+        "aboveZero": "every published price is greater than zero",
+        "onePerAsset": "no asset is priced twice"
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "tax.basisOverride.remove": {
       "service": "svc-tax",
       "module": "tax",

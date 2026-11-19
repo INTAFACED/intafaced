@@ -15,6 +15,7 @@ import {
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
+import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } from './ops-public-procedures.js';
 import {
   TAX_HEALTH,
   TAX_LOT_BOOK,
@@ -47,6 +48,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BLUEPRINT_MENTORS,
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
+  OPS_HOME_CONFIG,
+  OPS_VALUATION_PRICES,
+  OPS_OUTREACH_PUBLIC_SETTINGS,
   TAX_HEALTH,
   TAX_LOT_BOOK,
   TAX_PNL_OVER_TIME,

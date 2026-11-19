@@ -44,3 +44,20 @@ export const valuationPricesOutputSchema = z.discriminatedUnion('published', [
   }),
 ]);
 export type ValuationPrices = z.infer<typeof valuationPricesOutputSchema>;
+
+/**
+ * `valuation.prices` as its record sends it (`OPS_VALUATION_PRICES`): the same shape, with "greater than zero" and "one
+ * price per asset" moved from the schema to the record's `accept`, where every caller runs them. svc-ops builds its
+ * answer with `valuationPricesOutputSchema`, which keeps both.
+ */
+export const valuationPricesReplySchema = z.discriminatedUnion('published', [
+  valuationPricesOutputSchema.options[0],
+  valuationPricesOutputSchema.options[1].extend({ prices: z.array(z.object({ asset: assetId, usd: decimalString })).max(500) }),
+]);
+type PricesReply = z.infer<typeof valuationPricesReplySchema>;
+const pricesOf = (reply: PricesReply) => (reply.published ? reply.prices : []);
+/** Every published price is greater than zero. */
+export const everyPriceAboveZero = (reply: PricesReply): boolean => pricesOf(reply).every((row) => /[1-9]/.test(row.usd));
+/** No asset is priced twice. */
+export const onePricePerAsset = (reply: PricesReply): boolean =>
+  new Set(pricesOf(reply).map((row) => row.asset)).size === pricesOf(reply).length;
