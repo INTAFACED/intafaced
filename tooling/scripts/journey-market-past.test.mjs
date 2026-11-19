@@ -115,11 +115,14 @@ test('on the real journeys, a full plan of MAX_SHARDS: the chart desks keep the 
   assert.ok(none >= MAX_SHARDS / 5, `${none} of ${MAX_SHARDS} shards skip the history`);
 });
 
-test('the market step asks on every planned shard, a full run\'s too, and writes the history on any doubt', () => {
+test("the market step asks on every planned shard, a full run's too, and writes the history on any doubt", () => {
   const wf = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
   const step = wf.slice(wf.indexOf('- name: Open the TEST markets, write TEST chart history'), wf.indexOf('- name: Load the TEST content'));
   assert.ok(step.length > 0, 'the market step is in the workflow');
-  assert.match(step, /if \[ -n "\$SHARDS" \]; then\n\s+history=\$\(node tooling\/scripts\/journey-market-past\.mjs --shard "\$SHARD"\) \|\| history=journeys\n\s+fi/);
+  assert.match(
+    step,
+    /if \[ -n "\$SHARDS" \]; then\n\s+history=\$\(node tooling\/scripts\/journey-market-past\.mjs --shard "\$SHARD"\) \|\| history=journeys\n\s+fi/,
+  );
   assert.doesNotMatch(step, /JOURNEYS_TARGET/, 'a full run has no target, and must still ask');
   assert.match(step, /^\s+history=journeys$/m, 'a run without a plan writes it');
   assert.match(step, /if \[ "\$history" = none \]; then/, 'only an exact `none` skips it');
