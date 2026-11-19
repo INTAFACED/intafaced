@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * The Customer app's rendered output, part by part: every room the look gate draws (tests/real-app/routes.mjs) and the
+ * The Customer app's rendered output, part by part: every room the look gate draws (its `sweepRoutes`) and the
  * named states in parts.ts, signed in as the look gate's TEST account at its frozen time, each compared with the markup
  * main recorded in apps/customer/render-record/. A difference fails its part and prints the first lines that differ.
  *
@@ -23,7 +23,11 @@ const RECORD = process.env.RENDER_RECORD === '1';
 const routes: string[] = JSON.parse(
   execFileSync(
     process.execPath,
-    ['--input-type=module', '-e', "import { sweepRoutes } from './tests/real-app/routes.mjs'; console.log(JSON.stringify(sweepRoutes()))"],
+    [
+      '--input-type=module',
+      '-e',
+      "import { sweepRoutes } from '../../tooling/ci/look-gate/rooms.mjs'; console.log(JSON.stringify(sweepRoutes()))",
+    ],
     { encoding: 'utf8' },
   ),
 );

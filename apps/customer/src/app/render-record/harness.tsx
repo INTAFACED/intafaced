@@ -3,8 +3,7 @@ import GLOBAL_CSS from '../../shared/styles.css?raw';
 import { createRoot } from 'react-dom/client';
 import { vi } from 'vitest';
 // The look gate's TEST account: every Customer room's calls answered from the screen tests' wire fixtures.
-import { fixtureAnswer } from '../../../../../tooling/ci/look-gate/fixture-answer.mjs';
-import { SIGNED_OUT, VIEW } from '../../../tests/real-app/look-fixtures.mjs';
+import { fixtureAnswer, SIGNED_OUT, VIEW } from '../../../../../tooling/ci/look-gate/fixture-answer.mjs';
 
 /** The look gate's frozen time (tooling/ci/look-gate/look-gate.mjs FROZEN), so a recording never depends on the day. */
 const FROZEN = Date.parse('2026-10-21T12:00:00Z');

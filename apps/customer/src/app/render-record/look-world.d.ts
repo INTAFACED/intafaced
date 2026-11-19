@@ -6,8 +6,6 @@ declare module '*/look-gate/fixture-answer.mjs' {
     body: string,
     options: { signedIn: boolean; now: number },
   ): { status: number; json: unknown } | null;
-}
-declare module '*/real-app/look-fixtures.mjs' {
   export const SIGNED_OUT: string[];
   export const VIEW: Record<string, unknown>;
 }
