@@ -1,4 +1,4 @@
-import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

@@ -52,7 +52,7 @@ describe('the written records of calls', () => {
         stdio: 'pipe',
       }),
     ).not.toThrow();
-    expect(CONTRACT_PROCEDURES.map((r) => r.name)).toEqual(expect.arrayContaining(['ledger.historyPage', 'tax.health', 'tax.exportPack']));
+    expect(CONTRACT_PROCEDURES.map((r) => r.name)).toEqual(expect.arrayContaining(['tax.health', 'tax.exportPack']));
     expect(CONTRACT_PROCEDURES.filter((r) => r.service === 'svc-tax')).toHaveLength(12);
   });
 

@@ -1,4 +1,4 @@
-import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {

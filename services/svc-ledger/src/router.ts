@@ -1,4 +1,4 @@
-import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import { z } from 'zod';
 import { AuthError, type Principal } from '@intafaced/auth';
 import {

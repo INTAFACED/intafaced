@@ -1,5 +1,5 @@
 import { httpRecordHandler } from '@intafaced/contracts/procedure-http';
-import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import { RESTORE_ASOF_INVALID, RESTORE_ASOF_UNANSWERABLE } from './ledger/postgres-ledger.js';
 import { SKEW_BOUND_UNSET } from './ledger/clock-skew.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';

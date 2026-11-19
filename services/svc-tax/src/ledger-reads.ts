@@ -1,7 +1,7 @@
 import { parseAmount, rehydrateLedgerHttpError, type AccountRef, type Amount } from '@intafaced/ledger-client';
 import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { callHttpRecord } from '@intafaced/contracts/procedure-http';
-import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import { TAX_LEDGER_HISTORY_UNAVAILABLE, TAX_LEDGER_UNWIRED, TaxError } from './codes.js';
 import type { Fill } from './lot-book.js';

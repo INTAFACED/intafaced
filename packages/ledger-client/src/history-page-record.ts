@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import { accountRefSchema, describeOwnerIdSpace, isValidOwnerId } from '@intafaced/ledger-client';
-import { assetIdSchema } from './asset-id.js';
-import { defineProcedure } from './procedure.js';
+import { assetIdSchema } from '@intafaced/contracts/asset-id';
+import { defineProcedure } from '@intafaced/contracts/procedure';
+import { accountRefSchema, describeOwnerIdSpace, isValidOwnerId } from './types.js';
 
 /**
- * svc-ledger's paged history door (`historyPage`, U5a), one record for both ends: svc-ledger mounts
+ * svc-ledger's paged history door (`historyPage`, U5a), one record for both ends, kept with the ledger's own types
+ * (here, not in contracts, so contracts never depends on the money package): svc-ledger mounts
  * its plain HTTP route from it (`s2s-http.ts`), and svc-tax's ledger reader calls it through it (`ledger-reads.ts`).
  * Main had two declarations: the served route (no output schema) and an unserved tRPC procedure whose output lacked
  * `withdrawalId`, which the served route sends.

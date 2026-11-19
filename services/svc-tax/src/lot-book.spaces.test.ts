@@ -1,4 +1,4 @@
-import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import type { z } from 'zod';
 import { afterEach, describe, expect, it } from 'vitest';
 import { asAssetId } from '@intafaced/contracts/asset-id';

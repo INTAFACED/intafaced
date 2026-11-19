@@ -1,4 +1,4 @@
-import { LEDGER_HISTORY_PAGE } from '@intafaced/contracts/ledger-history-page';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import type { ServiceName } from '@intafaced/contracts';
 import { LEDGER_CALLER_SERVICES } from './caller-allowlist.js';
 
@@ -33,7 +33,7 @@ export const LEDGER_DOOR_CALLERS = {
   txByKey: [...READERS, ...POSTERS_WITHOUT_READS],
   txById: READERS,
   history: READERS,
-  /** From its record (`@intafaced/contracts/ledger-history-page`); `door-callers.record.test.ts` holds it equal to READERS. */
+  /** From its record (`@intafaced/ledger-client/history-page`); `door-callers.record.test.ts` holds it equal to READERS. */
   historyPage: LEDGER_HISTORY_PAGE.access.callers,
   /** What one owner holds now and how it moved since a point in time: svc-bank's value-over-time read (J-portfolio-05). */
   holdingsHistory: ['svc-bank'],

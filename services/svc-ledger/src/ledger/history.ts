@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { accountRefSchema, formatAmount, LedgerError, type Amount } from '@intafaced/ledger-client';
-import { HISTORY_PRODUCTS, HISTORY_RAILS, historyPageInputSchema } from '@intafaced/contracts/ledger-history-page';
+import { HISTORY_PRODUCTS, HISTORY_RAILS, historyPageInputSchema } from '@intafaced/ledger-client/history-page';
 
 /**
  * ENTRY HISTORY — the read behind svc-bank's spend view (§8.1).
@@ -229,7 +229,7 @@ export function parseHistoryDoorInput(body: unknown): HistoryInput {
  * time bound would have to walk every newer entry. The schema is strict, so a
  * stray `before` (or any unknown key) is refused, not silently ignored.
  */
-export { HISTORY_PAGE_DEFAULT_LIMIT, HISTORY_PAGE_MAX_LIMIT, historyPageInputSchema } from '@intafaced/contracts/ledger-history-page';
+export { HISTORY_PAGE_DEFAULT_LIMIT, HISTORY_PAGE_MAX_LIMIT, historyPageInputSchema } from '@intafaced/ledger-client/history-page';
 
 export type HistoryPageInput = z.infer<typeof historyPageInputSchema>;
 
