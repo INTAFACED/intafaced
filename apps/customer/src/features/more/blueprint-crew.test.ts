@@ -64,6 +64,8 @@ describe('signed-owner crew export projection', () => {
     expect(read.crew.name).toBe('');
     expect(read.exportedAt).toBe(time);
     for (const field of ['blueprint', 'card', 'matchRuns', 'mentorMatches', 'mentoringOthers']) expect(read).not.toHaveProperty(field);
+    // Nothing from the match runs (crew ids, sizes, scores) rides along: the projection holds exactly these fields.
+    expect(Object.keys(read).sort()).toEqual(['crew', 'exportedAt', 'members', 'profileAvailable', 'status']);
   });
   it('permits coherent crew membership without a profile/card and a returned legacy capacity of one', () => {
     const record = { ...exportRecord(), blueprint: null, card: null, crewmates: [], crew: { ...exportRecord().crew, capacity: 1 } };
