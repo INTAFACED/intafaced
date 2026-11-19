@@ -1,0 +1,18 @@
+[package]
+name = "svc-academy"
+version = "0.0.0"
+description = "svc-academy: the Academy's courses, cohorts, assessments, certificates and community. The Rust port's door."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+service-kit = { path = "../service-kit" }
+sha2 = "0.10"
+postgres = "0.19"
+signal-hook = "0.3"
+tiny_http = "0.12"
+url = "2"

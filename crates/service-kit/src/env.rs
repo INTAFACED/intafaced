@@ -255,6 +255,61 @@ pub fn base(f: &mut Fields<'_>, service_name: ServiceName) -> BaseEnv {
     }
 }
 
+/// `postgresEnvSchema`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostgresEnv {
+    pub url: String,
+    pub pool_max: i64,
+    pub ssl: bool,
+}
+
+/// `postgresEnvSchema`'s fields: the address has no default, and a blank or unset pool size refuses (never 10).
+pub fn postgres(f: &mut Fields<'_>) -> PostgresEnv {
+    let v = f
+        .get("DATABASE_URL")
+        .map_or(Err(REQUIRED_STRING.to_owned()), url_field);
+    let url = f.field("DATABASE_URL", v, String::new());
+    // Blank is undefined, and `Number(undefined)` is NaN.
+    let v = coerce_int(
+        f.blank("DATABASE_POOL_MAX").unwrap_or("NaN"),
+        Some((1, false)),
+        Some(200),
+    );
+    let pool_max = f.field("DATABASE_POOL_MAX", v, 0);
+    let ssl = f.get("DATABASE_SSL").is_some_and(truthy);
+    PostgresEnv { url, pool_max, ssl }
+}
+
+/// `redisEnvSchema`'s one field.
+pub fn redis(f: &mut Fields<'_>) -> String {
+    let v = f
+        .get("REDIS_URL")
+        .map_or(Ok("redis://localhost:6379".to_owned()), url_field);
+    f.field("REDIS_URL", v, String::new())
+}
+
+/// `natsEnvSchema`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NatsEnv {
+    pub url: String,
+    pub stream_prefix: String,
+}
+
+/// `natsEnvSchema`'s fields: the address is trimmed and must not be blank.
+pub fn nats(f: &mut Fields<'_>) -> NatsEnv {
+    let v = f
+        .get("NATS_URL")
+        .map_or(Ok("nats://localhost:4222".to_owned()), |v| {
+            min_len(js_trim(v), 1)
+        });
+    let url = f.field("NATS_URL", v, String::new());
+    let stream_prefix = f
+        .get("NATS_STREAM_PREFIX")
+        .unwrap_or("INTAFACED")
+        .to_owned();
+    NatsEnv { url, stream_prefix }
+}
+
 /// `otelEnvSchema`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OtelEnv {
