@@ -16,7 +16,7 @@ export const scheduleSchema = z.object({
   endsAt: z.string().nullable(),
   nextRunAt: z.string(),
   status: z.string(),
-  revision: z.number().int().positive(),
+  revision: z.number().int(),
   /** The person's own space the order pays from. */
   fromSpaceId: z.string().optional(),
   /** The person's own space it pays into, or null when it pays another person. */
