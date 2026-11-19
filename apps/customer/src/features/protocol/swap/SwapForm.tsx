@@ -12,7 +12,7 @@ import { navigate } from '../../../app/location';
 import { Button, Dialog, Failure, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { networkLabel } from '../blockers';
 import { isRegionBlocked, useRegionBlocked } from '../region';
