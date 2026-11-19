@@ -2,8 +2,7 @@ import { staffHoldListInputSchema } from '@intafaced/contracts/ops-staff-holds';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { holdExecute, holdWritesParked, readHolds } from '@/lib/accounts/holds-server';
-import { failureRefusal } from '@/lib/ops-desk/execute';
-import { handleStep } from '@/lib/desk/step-route';
+import { failureRefusal, handleStep } from '@/lib/desk';
 
 /**
  * Staff holds on one customer's funds (J-ops-console-04 #2-#5, OPS-accounts-desk-01).

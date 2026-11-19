@@ -32,7 +32,7 @@ import { PrivateOrderHub } from './private/hub.js';
 import { PositionsStream } from './private/positions-stream.js';
 import { HttpFuturesMarkFeed } from './public/futures-mark.js';
 import { registerRoutes } from './routes.js';
-import { SBE_STATUS_PATH, SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
+import { SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
 import { serviceSbeCodec } from './sbe-runtime.js';
 import { registerTapeLabelDoor } from './tape-label-http.js';
 import { TradeHub } from './trade/hub.js';
@@ -59,6 +59,8 @@ import { createWebSocketGateway } from './ws/gateway.js';
  * meant to change the wire, named in its PR.
  */
 
+/** The SBE door's path as main served it, written out so the replay does not take it from the record it checks. */
+const SBE_STATUS_PATH = '/internal/sbe/consumers';
 const GOLDEN = new URL('./wire-replay.golden.json', import.meta.url);
 /** A port nothing listens on: an outside service that is not there. */
 const NOWHERE = 'http://127.0.0.1:1';
