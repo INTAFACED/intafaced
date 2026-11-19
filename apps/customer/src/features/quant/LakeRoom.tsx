@@ -2,8 +2,8 @@ import { QUANT_LAKE_KINDS, quantLakeCatalogueSchema, type QuantLakeCatalogue } f
 import { useState } from 'react';
 import { useResource } from '../../shared/resource';
 import { DataTable, Failure, Loading, Panel } from '../../shared/ui';
-import { Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Select } from '../more';
+import { useApi } from '../session';
 import { QuantRooms } from './QuantRooms';
 import { researchCopy } from './research-copy';
 import { refusalCode } from './StrategyTeam';

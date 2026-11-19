@@ -2,7 +2,10 @@ export { useVenueMode } from './use-venue-mode';
 export {
   preparedAnswerSchema,
   venueApi,
+  venueBalanceSchema,
+  venueFillSchema,
   venueOrderSchema,
+  venuePositionSchema,
   walletTypedData,
   type VenueFeeRates,
   type VenueFeeTier,
