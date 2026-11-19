@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto';
 import path from 'node:path';
 import { HOOK_PORTS } from '../local-test-facts.mjs';
 import { loadProfile } from '../owner-settings.mjs';
@@ -17,9 +18,16 @@ export function onEmptyNoticesDb(url) {
   u.pathname = `/${NOTIFY_EMPTY_NOTICES_DB}`;
   return u.toString();
 }
-/** LOCAL TEST only: the push application key the TEST push stand-in hands browsers (a P-256 public key; its private half was
- *  never kept). Production has none until the owner configures push delivery. */
-const LOCAL_TEST_PUSH_KEY = 'BCOnhgGJygEZFzKtnBSDYgSKSL2Lv74VEfd45O8MzRWvE_swbTqR3oBusUqy_rT1NU9SDzTZNXNMZRiZJu805xo';
+/**
+ * LOCAL TEST only: a push application key the TEST push stand-in hands browsers, made fresh at each start of notify (a
+ * P-256 public key as browsers take it; its private half is thrown away, since the stand-in never pushes). Production has
+ * none until the owner configures push delivery.
+ */
+function localTestPushKey() {
+  const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const { x, y } = publicKey.export({ format: 'jwk' });
+  return Buffer.concat([Buffer.from([4]), Buffer.from(x, 'base64url'), Buffer.from(y, 'base64url')]).toString('base64url');
+}
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
@@ -79,7 +87,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     ...(process.env.LOCAL_STACK_NOTIFY_PUSH === 'on'
       ? {
           NOTIFY_PUSH_TEST_OUTBOX: path.join(STATE, 'notify-push-outbox.log'),
-          NOTIFY_PUSH_PUBLIC_KEY: LOCAL_TEST_PUSH_KEY,
+          NOTIFY_PUSH_PUBLIC_KEY: localTestPushKey(),
           NOTIFY_VERIFY_CODE_PEPPER: secrets.notifyVerifyCode,
         }
       : {}),
