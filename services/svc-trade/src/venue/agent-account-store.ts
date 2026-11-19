@@ -276,7 +276,7 @@ export class SqlAgentAccountStore implements AgentAccountStore {
 
   /**
    * No conflict target: agent_address is made from (user_id, account_id), so both unique keys name the same row, and a
-   * racing twin of this open must land on the row that won whichever key Postgres checks first (#8886). An address held
+   * racing twin of this open must land on the row that won whichever key Postgres checks first. An address held
    * by another account stores nothing, and the read below says so.
    */
   async insertOnce(a: AgentAccountRecord, m: AgentMoveRecord) {
