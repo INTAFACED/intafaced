@@ -7,7 +7,7 @@ import { TransactionView } from '@/components/ledger-lookup';
 import { RecordView } from '@/components/pay-transfer';
 import { fetchTransfer } from '@/lib/ops-desk/browser';
 import type { OwnFetch } from '@/lib/ops-desk/own-server';
-import { lookupRefusal } from '@/lib/ledger/lookup';
+import { lookupRefusal } from '@/lib/ledger-lookup';
 import { ledgerHref, PAYMENT_REFERENCE_UNWIRED, SEARCH_SOURCE_UNAVAILABLE } from '@/lib/search/cross-search';
 import type { SearchAnswer } from '@/lib/search/server';
 import './desk.css';

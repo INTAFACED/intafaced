@@ -100,7 +100,7 @@ function parsePosting(raw: unknown): LedgerPosting | null {
 }
 
 /** One booked transaction as svc-ledger's lookup answers it, or null when the body is not that shape. */
-export function parseLedgerTransaction(raw: unknown): LedgerTransaction | null {
+function parseLedgerTransaction(raw: unknown): LedgerTransaction | null {
   if (!raw || typeof raw !== 'object') return null;
   const t = raw as Record<string, unknown>;
   if (!str(t.txId) || !str(t.businessKey) || !str(t.module) || !str(t.reason) || !str(t.hash)) return null;

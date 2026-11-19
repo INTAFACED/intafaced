@@ -13,4 +13,4 @@ export {
   type VenuePublicFees,
 } from './venue-api';
 export { bpsToPercent, rateShown } from './venue/fee-rates';
-export { TestMark, useOwner, useVenueApi, VenueFrame, WalletBar } from './venue/VenueKit';
+export { AsOfLine, TestMark, useOwner, useVenueApi, VenueFrame, WalletBar } from './venue/VenueKit';

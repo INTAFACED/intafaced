@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { payloadHashFor, proposeInputFor } from '@/lib/desk/approval-hash';
-import { confirmPhrase, readDeskRequest, requestReason, type DeskRequest } from '@/lib/desk/approval-packet';
-import { treasuryToken } from '@/lib/recon-alerts/fixtures.test-util';
+import { confirmPhrase, payloadHashFor, proposeInputFor, readDeskRequest, requestReason, type DeskRequest } from '@/lib/desk';
+import { treasuryToken } from '@/testing/recon-alert-fixtures.test-util';
 import { readStampAnswer, restoreExecute } from './execute';
 
 const ctx = {
