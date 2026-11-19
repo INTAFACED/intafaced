@@ -1,0 +1,54 @@
+{
+  "inputs": {
+    "fees.schedule": { "sample": "null", "sample-nulls": "null" }
+  },
+  "bodies": [
+    "{\"error\":{\"message\":\"P2P_FEE_BPS is unset — refusing rather than inventing a house take\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"fees.schedule\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"p2p.fee_bps_unset\"}}}}"
+  ],
+  "answers": {
+    "boot fees.schedule": {
+      "absent anon": [412, 0],
+      "absent no-scope": [412, 0],
+      "absent customer": [412, 0],
+      "absent customer-US": [412, 0],
+      "absent customer-KP": [412, 0],
+      "absent all": [412, 0],
+      "absent forged": [412, 0],
+      "null anon": [412, 0],
+      "null no-scope": [412, 0],
+      "null customer": [412, 0],
+      "null customer-US": [412, 0],
+      "null customer-KP": [412, 0],
+      "null all": [412, 0],
+      "null forged": [412, 0],
+      "wrong-type anon": [412, 0],
+      "wrong-type no-scope": [412, 0],
+      "wrong-type customer": [412, 0],
+      "wrong-type customer-US": [412, 0],
+      "wrong-type customer-KP": [412, 0],
+      "wrong-type all": [412, 0],
+      "wrong-type forged": [412, 0],
+      "empty anon": [412, 0],
+      "empty no-scope": [412, 0],
+      "empty customer": [412, 0],
+      "empty customer-US": [412, 0],
+      "empty customer-KP": [412, 0],
+      "empty all": [412, 0],
+      "empty forged": [412, 0],
+      "sample anon": [412, 0],
+      "sample no-scope": [412, 0],
+      "sample customer": [412, 0],
+      "sample customer-US": [412, 0],
+      "sample customer-KP": [412, 0],
+      "sample all": [412, 0],
+      "sample forged": [412, 0],
+      "sample-nulls anon": [412, 0],
+      "sample-nulls no-scope": [412, 0],
+      "sample-nulls customer": [412, 0],
+      "sample-nulls customer-US": [412, 0],
+      "sample-nulls customer-KP": [412, 0],
+      "sample-nulls all": [412, 0],
+      "sample-nulls forged": [412, 0]
+    }
+  }
+}
