@@ -7,7 +7,7 @@ vi.mock('../../shared/preferences', async (original) => {
 import { NoticeDetail, NoticeList, NoticeMissing } from './NoticeFeed';
 import { feedNotices, isNoticeId, maintenancePhase, readNotice, type Notice } from './notices-api';
 import type { ApiClient } from '../../shared/api';
-import { entrySchema } from '../developers/developers-api';
+import { entrySchema } from '../../shared/notify-reads';
 
 const notice = (over: Partial<Notice>): Notice =>
   entrySchema.parse({

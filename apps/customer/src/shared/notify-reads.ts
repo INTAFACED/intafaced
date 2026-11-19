@@ -1,11 +1,11 @@
 // hand-declared-ok: svc-notify has no browser-safe response schema in packages/contracts; these mirror its router outputs exactly
 /**
- * The developer pages' reads of svc-notify (module `notify`, tRPC through the edge). All three are public procedures, so
+ * The reads of svc-notify shared by the developer pages, the public notices and status pages, funding notices and risk control (module `notify`, tRPC through the edge). All three are public procedures, so
  * they work signed out. Shapes mirror `services/svc-notify/src/router.ts` (`statusFeedOutput`, `noticeWireOutput`,
  * `changelogOutput`); a response that does not match is refused, never shown.
  */
 import { z } from 'zod';
-import type { ApiClient, ApiResult } from '../../shared/api';
+import type { ApiClient, ApiResult } from './api';
 
 const impact = z.enum(['none', 'minor', 'major', 'critical']);
 export const STATUS_COMPONENT_IDS = ['api', 'webhooks', 'console'] as const;
