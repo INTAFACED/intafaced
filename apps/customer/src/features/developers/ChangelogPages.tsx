@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { liveCopy } from './developers-live-copy';
 import {
   CHANGELOG_AREA_IDS,
@@ -9,9 +9,9 @@ import {
   type ChangelogAreaId,
   type ChangelogEntry,
   type UpcomingChanges,
-} from './developers-api';
+} from '../../shared/notify-reads';
 import { useRead } from './use-read';
-import '../public/public-pages.css';
+import '../../shared/public-pages.css';
 
 /** /developers/changelog: published entries newest first, filtered by area and by the breaking flag. */
 export function ChangelogPage() {

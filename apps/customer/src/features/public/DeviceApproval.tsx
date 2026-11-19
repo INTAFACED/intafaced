@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
-import { sessionSchema, useSession, type Session } from '../session/session';
+import { sessionSchema, useSession, type Session } from '../session';
 import { validAuthSession } from './public-auth-guards';
 import { deviceApprovalCopy } from './device-approval-copy';
 

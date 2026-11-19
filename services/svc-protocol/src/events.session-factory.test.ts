@@ -8,7 +8,6 @@ import { ChainObserver } from './events.js';
 
 const CHAIN_ID = 8453;
 const FACTORY: Address = '0x1111111111111111111111111111111111111111';
-const IMPLEMENTATION: Address = '0x2222222222222222222222222222222222222222';
 const DEPLOYED: Address = '0x3333333333333333333333333333333333333333';
 const UNDEPLOYED: Address = '0x4444444444444444444444444444444444444444';
 const FOREIGN: Address = '0x5555555555555555555555555555555555555555';
@@ -66,7 +65,7 @@ async function settle(): Promise<void> {
 describe('session logs publish only for a registered factory account', () => {
   it('drops an unregistered look-alike and publishes registered accounts, deployed or not', async () => {
     const store = new MemoryAccountStore();
-    const registry = new AccountRegistry(store, { chainId: CHAIN_ID, factory: FACTORY, implementation: IMPLEMENTATION });
+    const registry = new AccountRegistry(store, { chainId: CHAIN_ID });
     const row = {
       userId: USER_ID,
       chainId: CHAIN_ID,

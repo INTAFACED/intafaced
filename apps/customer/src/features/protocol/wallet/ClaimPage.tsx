@@ -4,7 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { Button, EmptyState, Loading, Page, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import '../protocol.css';
 import { CLAIM_ESCROW_CALLS, linkAmount } from './ClaimLinksPanel';

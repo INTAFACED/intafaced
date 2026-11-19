@@ -5,7 +5,7 @@ import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { ServiceOffNotice } from '../../../shared/service-off';
 import { Button, Field, Loading, Panel } from '../../../shared/ui';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { networkLabel } from '../blockers';
 import { WatchShell } from '../watch/AddressPage';

@@ -18,7 +18,7 @@ import {
   watchVoucherSchema,
   type ExportFile,
 } from '@intafaced/contracts/campaigns-watch';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
+import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk';
 import { check, ruleReply } from './builder-server';
 
 /**

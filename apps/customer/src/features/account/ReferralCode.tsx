@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { referralCodeCopy as copy } from './referral-code-copy';
 
 // The person's short referral code beside the invitation link (CM-referral-01, J-campaigns-05 #1). The code is made on

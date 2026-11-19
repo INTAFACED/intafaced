@@ -1,6 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
+import { founderCall, type FounderCallContext, partFrom, type PartLabels } from '@/lib/desk';
 import { readChannelSettings, readTemplates, type NotifyConfigView } from './config-model';
 
 /**

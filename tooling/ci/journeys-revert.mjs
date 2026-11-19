@@ -1429,7 +1429,21 @@ async function confirmFiles(env) {
   output({ files: files.join(' '), steps: parseSteps(env.STEPS).join(',') });
 }
 
-const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles, refresh, spent };
+/** `early` as its job runs it. Its own error (a GitHub 403, a network "fetch failed") stops it, no retry, and hands the
+ *  run to the run-end start (`trigger`, main trust), which reads the same reports: it never fails main's journeys run,
+ *  whose conclusion is main's verdict. Twice on 19 Nov 2026 it did, with every journey green (runs 44579190194: a 403;
+ *  44608160601: "fetch failed"), and main read red for a run's length (project-state#2548). */
+export async function earlyJob(env, deps) {
+  try {
+    return await early(env, deps);
+  } catch (e) {
+    console.log(`::warning title=Journeys revert, early::stopped: ${e.message}; the run-end start decides`);
+    summary([`Journeys revert, early: stopped (${e.message}); the run-end start (main trust) decides.`]);
+    return 0;
+  }
+}
+
+const COMMANDS = { trigger, find, open, settle, early: earlyJob, confirm, back, 'confirm-files': confirmFiles, refresh, spent };
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const cmd = COMMANDS[process.argv[2]];
   if (!cmd) {

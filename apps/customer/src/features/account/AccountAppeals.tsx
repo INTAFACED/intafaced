@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { AccountRestriction } from '@intafaced/contracts/identity-account-status';
 import { appealSchema, appealsMineSchema, APPEAL_TEXT_MAX, type Appeal } from '@intafaced/contracts/identity-appeals';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';

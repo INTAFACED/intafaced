@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
@@ -31,7 +31,7 @@ import { RankPerks } from './RankPerks';
 import { Membership } from './Membership';
 import { VerifyEmail } from './VerifyEmail';
 import { AccountStatus } from './AccountStatus';
-import { EligibilityStatement } from '../money/Eligibility';
+import { EligibilityStatement } from '../money';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { useIdentity } from '../../screens/pay/identity-state';
 import { featureById } from '../../app/feature-registry';

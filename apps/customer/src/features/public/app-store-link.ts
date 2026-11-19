@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { outreachPublicProblem } from '@intafaced/contracts/outreach-public';
 import { OPS_OUTREACH_PUBLIC_SETTINGS } from '@intafaced/contracts/ops-public-procedures';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 
 /**
  * The store link /app shows (SP-pages-03): the founders' https store address from the outreach desk, or `null` when none is

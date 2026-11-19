@@ -11,6 +11,7 @@ import {
   bisectTitle,
   breakIssueNotes,
   cancelDoomed,
+  earlyJob,
   commitReaches,
   isAutoRevert,
   coveredSteps,
@@ -630,4 +631,48 @@ test('spent: an open automatic revert closes once main passes its failing steps 
   left({ pr: pr({ head: { ...pr().head, ref: 'fix/x' } }) }, 'another branch: never');
   left({ pr: pr({ head: { ...pr().head, repo: { full_name: 'x/y' } } }) }, 'a fork: never');
   left({ pr: pr({ draft: true }) }, 'a draft: never');
+});
+
+test("early: its own GitHub error stops it and hands the run to the run-end start, never failing main's run (project-state#2548)", async () => {
+  const env = {
+    GITHUB_REPOSITORY: 'INTAFACED/intafaced',
+    WORKFLOW_ID: 'real-app-journeys.yml',
+    RUN_ID: '44608160601',
+    HEAD_SHA: 'c'.repeat(40),
+  };
+  const real = globalThis.fetch;
+  const out = [];
+  const log = console.log;
+  const write = process.stdout.write;
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  delete process.env.GITHUB_STEP_SUMMARY;
+  console.log = (line) => out.push(String(line));
+  process.stdout.write = (text) => (out.push(String(text)), true);
+  try {
+    // Run 44608160601, 19 Nov 2026: "✖ journeys-revert early: fetch failed", every journey green, main read red.
+    globalThis.fetch = async () => {
+      throw new TypeError('fetch failed');
+    };
+    assert.equal(await earlyJob(env), 0, 'a network failure: the job ends 0');
+    // Run 44579190194: "GitHub 403 on GET .../jobs: stopping, not retrying".
+    let calls = 0;
+    globalThis.fetch = async () => (calls++, new Response('{}', { status: 403 }));
+    assert.equal(await earlyJob(env), 0, 'a 403: the job ends 0');
+    assert.equal(calls, 1, 'a 403 stops at once: no retry');
+    // A known-good read passes through as before.
+    globalThis.fetch = async () => new Response(JSON.stringify({ head_branch: 'fix/x' }), { status: 200 });
+    assert.equal(await earlyJob(env), undefined, 'a run not on main: nothing to do, as before');
+  } finally {
+    globalThis.fetch = real;
+    console.log = log;
+    process.stdout.write = write;
+    if (summaryFile !== undefined) process.env.GITHUB_STEP_SUMMARY = summaryFile;
+  }
+  const text = out.join('\n');
+  assert.match(text, /::warning title=Journeys revert, early::stopped: fetch failed; the run-end start decides/);
+  assert.match(
+    text,
+    /stopped \(GitHub 403 on GET \/repos\/INTAFACED\/intafaced\/actions\/runs\/44608160601: stopping, not retrying\); the run-end start \(main trust\) decides/,
+  );
+  assert.match(text, /is not on main; nothing to do/);
 });

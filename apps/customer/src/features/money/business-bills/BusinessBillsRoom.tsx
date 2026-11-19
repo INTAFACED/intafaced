@@ -14,7 +14,7 @@ import { businessTeamOverviewSchema } from '@intafaced/contracts/bank-business-t
 import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { useHeldId, type HeldId } from '../business-team/held-id';
 
 /**

@@ -3,9 +3,9 @@ import { POINTS_TIER_OWNER_QUESTION } from '@intafaced/contracts/campaigns-catal
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { EmptyState, Page, Panel } from '../../shared/ui';
-import { feeTierFetcher, type FeeTier, type FeeTierPass } from '../public/fee-tier';
+import { feeTierFetcher, type FeeTier, type FeeTierPass } from '../public';
 import { PromotionTabs } from './Promotions';
 import { promotionsCopy } from './promotions-copy';
 import { perksCopy } from './perks-copy';

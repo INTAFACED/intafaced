@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { formatWhen } from '@/lib/as-of';
-import { lookupQuery, lookupRefusal, type LedgerLookupAnswer, type LedgerLookupQuery, type LedgerTransaction } from '@/lib/ledger/lookup';
+import { lookupQuery, lookupRefusal, type LedgerLookupAnswer, type LedgerLookupQuery, type LedgerTransaction } from '@/lib/ledger-lookup';
 
 type Mode = 'txId' | 'businessKey';
 

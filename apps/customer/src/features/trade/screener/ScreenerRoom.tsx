@@ -5,9 +5,8 @@ import type { SavedScreen } from '@intafaced/contracts/watchlists-preferences';
 import { RecordListTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { Button, Checkbox, Input, Sparkline } from '@intafaced/ui';
 import { fmtAmount, fmtPct, fmtPrice, useMarkets, useSparklines, useTickers, type TickerRow } from '../../../data';
-import { useSession } from '../../session/session';
-import { useSavedScreens, useWatchlists } from '../../watchlists/store';
-import { chartHrefFor } from '../../watchlists/links';
+import { useSession } from '../../session';
+import { chartHrefFor, useSavedScreens, useWatchlists } from '../../watchlists';
 import {
   BLANK_FILTERS,
   DEFAULT_COLUMNS,

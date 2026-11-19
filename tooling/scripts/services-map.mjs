@@ -211,9 +211,23 @@ export function rustPurpose(lib) {
   return (first[0].toUpperCase() + first.slice(1)).replace(/\|/g, '\\|');
 }
 
-/** Required env of a Rust service: each field `env.rs` refuses when unset (`get("X").map_or(Err(...`). */
-export function rustRequiredEnv(src) {
-  return [...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.map_or\(\s*Err\(/g)].map((m) => m[1]).sort();
+const refusedWhenUnset = (src) => [...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.map_or\(\s*Err\(/g)].map((m) => m[1]);
+
+/**
+ * Required env of a Rust service: each field `env.rs` refuses when unset (`get("X").map_or(Err(...`), and each one the
+ * kit's env slices it calls by path (`service_kit::env::edge(`) refuse, read from the slice's own body in `kit`
+ * (`crates/service-kit/src/env.rs`).
+ */
+export function rustRequiredEnv(src, kit = '') {
+  const slices = new Map(
+    kit.split(/\n(?=pub fn )/).flatMap((chunk) => {
+      const name = /^pub fn (\w+)\(/.exec(chunk)?.[1];
+      return name ? [[name, chunk]] : [];
+    }),
+  );
+  const called = [...src.matchAll(/\bservice_kit::env::(\w+)\(/g)].map((m) => m[1]);
+  const fromKit = called.flatMap((name) => refusedWhenUnset(slices.get(name) ?? ''));
+  return [...new Set([...refusedWhenUnset(src), ...fromKit])].sort();
 }
 
 /** Refuses over an empty tree: a map of nothing must not read as a current map. */
@@ -256,7 +270,9 @@ export function render() {
     if (c) host = c.published ? `published ${c.published}` : 'compose network only';
     if (c?.profile) host += `, profile ${c.profile}`;
     const envFile = `crates/${s}/src/env.rs`;
-    const names = existsSync(join(ROOT, envFile)) ? rustRequiredEnv(read(envFile)) : null;
+    const kitEnv = 'crates/service-kit/src/env.rs';
+    const kit = existsSync(join(ROOT, kitEnv)) ? read(kitEnv) : '';
+    const names = existsSync(join(ROOT, envFile)) ? rustRequiredEnv(read(envFile), kit) : null;
     const env = names === null ? 'see `src/env.rs`' : names.length ? names.map((n) => `\`${n}\``).join(', ') : 'none';
     const purposeText = existsSync(join(ROOT, `crates/${s}/src/lib.rs`)) ? rustPurpose(read(`crates/${s}/src/lib.rs`)) : 'No `src/lib.rs`.';
     rows.push(`| \`${s}\` (Rust, \`crates/${s}\`) | ${purposeText} | ${c?.port ?? '-'} | ${host} | ${env} |`);

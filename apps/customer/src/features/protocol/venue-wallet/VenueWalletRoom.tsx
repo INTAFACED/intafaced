@@ -6,9 +6,9 @@ import type { VenueWalletAction } from '@intafaced/contracts/protocol-venue-wall
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { Field } from '../../../shared/ui';
-import { useSession } from '../../session/session';
-import { StepUpConfirm } from '../../money/StepUpConfirm';
-import type { StepUpBegin } from '../../account/security-step-up';
+import { useSession } from '../../session';
+import { StepUpConfirm } from '../../money';
+import type { StepUpBegin } from '../../account';
 import { useWallet } from '../wallet/WalletProvider';
 import { APP_CHAIN_ID, type TypedDataDocument } from '../wallet/eip1193';
 import { transferCalldata } from '../wallet/transfer';

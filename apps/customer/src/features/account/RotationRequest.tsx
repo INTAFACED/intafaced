@@ -3,7 +3,7 @@ import type { ApiKeyRotateOutput } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 import { Button, Failure } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { ShownOnce } from './ApiKeyCreate';
 import { approveRotationRequest, readRotationRequest, type RotationRequestRead } from './developer-keys-api';
 

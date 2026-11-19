@@ -9,7 +9,7 @@ import {
   type CompromiseChecklistItem,
 } from '@intafaced/contracts/identity-compromise';
 import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
 import { Button, Failure, Field, Loading } from '../../shared/ui';

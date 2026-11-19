@@ -1,14 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { decodeFunctionData, type Address, type Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import type { Principal } from '@intafaced/auth';
-import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import type { Address, Hex } from 'viem';
+import { createEdgeContext } from '@intafaced/contracts';
 import { createProtocolRouter } from './router.js';
 import { ProtocolChain } from './chain/client.js';
-import { accountFactoryAbi } from './chain/abi.js';
-import { getUserOperationHash } from './chain/userop.js';
+import { accountFactoryAbi, smartAccountAbi } from './chain/abi.js';
 import { loadArtifact } from './chain/artifacts.js';
-import { AccountRegistry, bindingMessage, MemoryAccountStore } from './accounts/registry.js';
 import { SessionRelay } from './session/relay.js';
 import { DEFAULT_USER_SALT } from './accounts/address.js';
 import {
@@ -24,10 +20,10 @@ import {
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * THE FOUR PROCEDURES THAT HAVE NEVER RETURNED A VALUE
+ * THE SMART-ACCOUNT PROCEDURES, ON A REAL CHAIN
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * `predictAddress`, `buildDeployment`, `sessionStatus`, `claimAccount`.
+ * `chainStatus`, `predictAddress`, `buildSessionGrant`, `buildRevokeAllSessions`.
  *
  * Every existing test of these either stubs the chain (`router.mount.test.ts`
  * supplies `isDeployed: async () => false`, which is a plausible answer nobody
@@ -38,9 +34,8 @@ import {
  *
  * This file wires the REAL `ProtocolChain` — the same class `index.ts` builds —
  * to a real anvil, deploys the real factory, and drives the real router. The
- * only things faked are the ones that are not chain state: the registry's
- * storage (`MemoryAccountStore`, as `registry.test.ts` already uses) and the
- * edge principal, which is signed for real with a test secret.
+ * session the owner grants is read back off the account itself, not through
+ * the service.
  *
  * Skips without a chain, hard-fails on CI where `REQUIRE_EVM_CHAIN=1`.
  * `router.mount.test.ts` is what proves the refusals still hold when it is
@@ -56,31 +51,7 @@ if (!reachable && devChainRequired()) {
 }
 
 const ENTRYPOINT: Address = '0x0000000071727De22E5E9d8BAf0edAc6f37da032';
-const SECRET = 'a-protocol-live-chain-edge-secret-length';
-const USER = '11111111-1111-4111-8111-111111111111';
-
-const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-protocol' });
-
-function signedContext() {
-  const raw = encodePrincipal({
-    sub: USER,
-    userId: USER,
-    sid: '22222222-2222-4222-8222-222222222222',
-    scopes: ['protocol:read'],
-    tier: 'none',
-    mfa: false,
-    expiresAt: new Date(Date.now() + 60_000),
-  } as Principal);
-  return edgeContext({
-    headers: {
-      'x-intafaced-principal': raw,
-      'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'DE'),
-      'x-intafaced-region': 'DE',
-    },
-    id: 'req-live',
-  });
-}
-
+const edgeContext = createEdgeContext({ secret: 'a-protocol-live-chain-edge-secret-length', serviceName: 'svc-protocol' });
 const anonymousContext = () => edgeContext({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-live-anon' });
 
 describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
@@ -88,13 +59,11 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
   let implementation: Address;
   let chain: ProtocolChain;
   let clients: DevChainClients;
-  let caller: ReturnType<ReturnType<typeof createProtocolRouter>['createCaller']>;
   let anonCaller: ReturnType<ReturnType<typeof createProtocolRouter>['createCaller']>;
 
   /**
    * The owner IS the deployer here, because these tests must sign as the owner
-   * (`grantSession` is owner-only, and `claimAccount` needs the owner's
-   * signature). `suiteAccount(import.meta.url)` is the same account
+   * (`grantSession` is owner-only). `suiteAccount(import.meta.url)` is the same account
    * `devSuiteClients` puts in the wallet below — derived from this file's path,
    * so no other suite can be sending from it. See `scripts/dev-chain.ts`.
    */
@@ -114,18 +83,27 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
       implementation,
     });
 
-    const registry = new AccountRegistry(new MemoryAccountStore(), { chainId: DEV_CHAIN_ID, factory, implementation });
     const router = createProtocolRouter({
       chain,
-      registry,
-      relay: new SessionRelay(chain),
+      relay: new SessionRelay(),
       relayEnabled: () => true,
       ammFactoryAddress: () => '0x0000000000000000000000000000000000000000',
       swapSlippageBps: () => null,
     });
-    caller = router.createCaller(signedContext());
     anonCaller = router.createCaller(anonymousContext());
   }, 60_000);
+
+  const isLive = (account: Address, sessionKey: Address) =>
+    clients.publicClient.readContract({ address: account, abi: smartAccountAbi, functionName: 'isSessionLive', args: [sessionKey] });
+  const sessionOf = async (account: Address, sessionKey: Address) => {
+    const record = await clients.publicClient.readContract({
+      address: account,
+      abi: smartAccountAbi,
+      functionName: 'getSession',
+      args: [sessionKey],
+    });
+    return { ...record, validUntil: Number(record.validUntil) };
+  };
 
   // ── chainStatus ──────────────────────────────────────────────────────────
 
@@ -154,8 +132,7 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
     const emptyChain = new ProtocolChain({ chainId: DEV_CHAIN_ID, rpcUrl, entryPoint: ENTRYPOINT, factory: bogus, implementation });
     const router = createProtocolRouter({
       chain: emptyChain,
-      registry: new AccountRegistry(new MemoryAccountStore(), { chainId: DEV_CHAIN_ID, factory: bogus, implementation }),
-      relay: new SessionRelay(emptyChain),
+      relay: new SessionRelay(),
       relayEnabled: () => true,
       ammFactoryAddress: () => '0x0000000000000000000000000000000000000000',
       swapSlippageBps: () => null,
@@ -210,59 +187,11 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
     await expect(anonCaller.predictAddress({ owner })).resolves.toMatchObject({ deployed: true });
   }, 60_000);
 
-  // ── buildDeployment ──────────────────────────────────────────────────────
-
-  /**
-   * The calldata is unsigned and anyone may send it — that is the point. This
-   * asserts it is calldata the deployed factory actually accepts, by sending it
-   * as a raw transaction rather than through viem's encoder a second time.
-   */
-  it('builds deployment calldata the real factory executes', async () => {
-    const owner: Address = '0x00000000000000000000000000000000000000b2';
-    const built = await anonCaller.buildDeployment({ owner });
-
-    expect(built.to.toLowerCase()).toBe(factory.toLowerCase());
-    expect(built.value).toBe('0');
-
-    const decoded = decodeFunctionData({ abi: accountFactoryAbi, data: built.data as Hex });
-    expect(decoded.functionName).toBe('createAccount');
-    expect(decoded.args?.[0]).toBe(owner);
-
-    const hash = await clients.walletClient.sendTransaction({
-      to: built.to as Address,
-      data: built.data as Hex,
-      value: 0n,
-      account: clients.walletClient.account!,
-      chain: clients.walletClient.chain,
-    });
-    const receipt = await clients.publicClient.waitForTransactionReceipt({ hash });
-    expect(receipt.status).toBe('success');
-
-    const code = await clients.publicClient.getCode({ address: built.predictedAddress as Address });
-    expect(code, 'the account did not land at the address buildDeployment promised').not.toBe('0x');
-    expect(code).toBeDefined();
-  }, 60_000);
-
-  // ── sessionStatus ────────────────────────────────────────────────────────
-
-  it('refuses sessionStatus for an address that holds no code, instead of saying "no session"', async () => {
-    const undeployed = (await anonCaller.predictAddress({ owner: '0x00000000000000000000000000000000000000c3' })).address;
-    await expect(anonCaller.sessionStatus({ account: undeployed, sessionKey: ownerAccount.address })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-      message: expect.stringContaining('protocol.contract_not_deployed'),
-    });
-  });
-
   /**
    * The whole session lifecycle, through the service's own builders:
    * `buildSessionGrant` produces calldata → the OWNER signs and sends it (the
-   * platform cannot; it holds no key for this account) → `sessionStatus` reads
-   * back what the chain stored.
-   *
-   * `exists: false` before and `exists: true` after is the assertion that makes
-   * the negative answer trustworthy. It is the same shape the service returns
-   * when it could not read anything, which is exactly why #193 made the
-   * unreadable case refuse.
+   * platform cannot; it holds no key for this account) → the account itself
+   * answers what it stored.
    */
   it('reads a real granted session back off the chain', async () => {
     const owner = ownerAccount.address;
@@ -282,13 +211,8 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
     }
     const account = predicted.address as Address;
 
-    // A deployed account whose owner granted this key nothing. THIS is the only
-    // situation allowed to answer exists:false.
-    await expect(anonCaller.sessionStatus({ account, sessionKey })).resolves.toMatchObject({
-      exists: false,
-      live: false,
-      spentWei: null,
-    });
+    // A deployed account whose owner granted this key nothing.
+    await expect(isLive(account, sessionKey)).resolves.toBe(false);
 
     const validUntil = Math.floor(Date.now() / 1000) + 3_600;
     const grant = await anonCaller.buildSessionGrant({
@@ -313,16 +237,11 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
     });
     expect((await clients.publicClient.waitForTransactionReceipt({ hash })).status).toBe('success');
 
-    const status = await anonCaller.sessionStatus({ account, sessionKey });
-    expect(status).toMatchObject({
-      exists: true,
-      live: true,
-      validUntil,
-      spentWei: '0',
-      revoked: false,
-    });
+    await expect(isLive(account, sessionKey)).resolves.toBe(true);
+    const stored = await sessionOf(account, sessionKey);
+    expect(stored).toMatchObject({ validUntil, spentWei: 0n, revoked: false });
     // The commitment the account stored is the one the service said it would.
-    expect(status.specHash).toBe(grant.specHash);
+    expect(stored.specHash).toBe(grant.specHash);
   }, 90_000);
 
   /** The panic button, end to end: one call, every session dead. */
@@ -351,7 +270,7 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
         chain: clients.walletClient.chain,
       }),
     });
-    await expect(anonCaller.sessionStatus({ account, sessionKey })).resolves.toMatchObject({ live: true });
+    await expect(isLive(account, sessionKey)).resolves.toBe(true);
 
     const revoke = await anonCaller.buildRevokeAllSessions({ account });
     await clients.publicClient.waitForTransactionReceipt({
@@ -364,130 +283,6 @@ describe.skipIf(!reachable)('svc-protocol against a real chain', () => {
       }),
     });
 
-    await expect(anonCaller.sessionStatus({ account, sessionKey })).resolves.toMatchObject({ live: false });
+    await expect(isLive(account, sessionKey)).resolves.toBe(false);
   }, 90_000);
-
-  // ── claimAccount ─────────────────────────────────────────────────────────
-
-  /**
-   * The registry is a read model, not custody — but `deployed` on the record it
-   * writes comes from the chain, and that read had never happened. A claim made
-   * with no chain refuses; a claim made here records what is actually there.
-   */
-  it('claims a deployed account and records the deployment state it read', async () => {
-    const owner = ownerAccount.address;
-    const predicted = await anonCaller.predictAddress({ owner });
-    expect(predicted.deployed).toBe(true);
-
-    const signature = await ownerAccount.signMessage({
-      message: bindingMessage({ userId: USER, chainId: DEV_CHAIN_ID, address: predicted.address as Address }),
-    });
-
-    await expect(caller.claimAccount({ owner, address: predicted.address, signature })).resolves.toMatchObject({
-      address: predicted.address,
-      owner,
-      deployed: true,
-    });
-    await expect(caller.myAccounts({ limit: 50 })).resolves.toHaveLength(1);
-  }, 60_000);
-
-  it('claims an undeployed account as deployed:false — the address exists before the code does', async () => {
-    const undeployedOwner = privateKeyToAccount(`0x${'5a'.repeat(32)}` as Hex);
-    const predicted = await anonCaller.predictAddress({ owner: undeployedOwner.address });
-    expect(predicted.deployed).toBe(false);
-
-    const signature = await undeployedOwner.signMessage({
-      message: bindingMessage({ userId: USER, chainId: DEV_CHAIN_ID, address: predicted.address as Address }),
-    });
-
-    await expect(caller.claimAccount({ owner: undeployedOwner.address, address: predicted.address, signature })).resolves.toMatchObject({
-      deployed: false,
-    });
-  }, 60_000);
-
-  it('still refuses a claim whose signature is not the owner key', async () => {
-    const impostor = privateKeyToAccount(`0x${'7b'.repeat(32)}` as Hex);
-    const victimOwner = privateKeyToAccount(`0x${'6c'.repeat(32)}` as Hex);
-    const predicted = await anonCaller.predictAddress({ owner: victimOwner.address });
-
-    const signature = await impostor.signMessage({
-      message: bindingMessage({ userId: USER, chainId: DEV_CHAIN_ID, address: predicted.address as Address }),
-    });
-
-    await expect(caller.claimAccount({ owner: victimOwner.address, address: predicted.address, signature })).rejects.toMatchObject({
-      code: 'BAD_REQUEST',
-    });
-  });
-
-  // ── what a dev chain still cannot do ─────────────────────────────────────
-
-  function userOp(account: string, signature: Hex) {
-    return {
-      sender: account,
-      nonce: '0',
-      callData: '0x' as Hex,
-      callGasLimit: '100000',
-      verificationGasLimit: '100000',
-      preVerificationGas: '50000',
-      maxFeePerGas: '1000000000',
-      maxPriorityFeePerGas: '1000000000',
-      signature,
-    };
-  }
-
-  /**
-   * FOUND BY GIVING THIS PATH A CHAIN TO STAND ON.
-   *
-   * With no chain, `relayUserOperation` never got past the first read, so the
-   * envelope decoder was unreachable in practice. With one, a malformed
-   * signature reached `decodeSignatureEnvelope`, threw `SignatureEnvelopeError`,
-   * and — because nothing in `toTrpcError` recognised it — arrived at the caller
-   * as `INTERNAL_SERVER_ERROR: 'Protocol request failed'`. A 500 for the
-   * caller's own malformed bytes invites a retry that can never succeed and
-   * hides the reason. It is a 400 now.
-   */
-  it('calls a malformed signature envelope a bad request, not a server error', async () => {
-    const account = (await anonCaller.predictAddress({ owner: ownerAccount.address })).address;
-    await expect(anonCaller.relayUserOperation({ account, userOp: userOp(account, '0x') })).rejects.toMatchObject({
-      code: 'BAD_REQUEST',
-      message: expect.stringContaining('signature envelope'),
-    });
-  });
-
-  /**
-   * Stated as a test so it cannot be forgotten. Anvil gives us a chain; it does
-   * not give us an ERC-4337 EntryPoint (a public singleton we do not own and
-   * which is not in this repository) or a bundler. So relaying still refuses
-   * here even for a correctly signed operation — `relay.bundler_unavailable`,
-   * with the note that the user can submit it themselves. That is the honest
-   * answer, not a regression, and it is why `socket.evm-bundler` stays open.
-   */
-  it('still refuses to relay a correctly signed operation: no bundler on a dev chain', async () => {
-    const owner = ownerAccount.address;
-    const account = (await anonCaller.predictAddress({ owner })).address as Address;
-
-    const op = userOp(account, '0x');
-    const hash = getUserOperationHash({
-      userOp: {
-        sender: account,
-        nonce: 0n,
-        callData: '0x',
-        callGasLimit: 100_000n,
-        verificationGasLimit: 100_000n,
-        preVerificationGas: 50_000n,
-        maxFeePerGas: 1_000_000_000n,
-        maxPriorityFeePerGas: 1_000_000_000n,
-        signature: '0x',
-      },
-      entryPoint: ENTRYPOINT,
-      chainId: DEV_CHAIN_ID,
-    });
-    // Mode byte 0x00 = owner, then the owner's own 65-byte signature.
-    const signature = `0x00${(await ownerAccount.signMessage({ message: { raw: hash } })).slice(2)}` as Hex;
-
-    await expect(anonCaller.relayUserOperation({ account, userOp: { ...op, signature } })).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      message: expect.stringContaining('No bundler configured'),
-    });
-  }, 60_000);
 });

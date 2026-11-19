@@ -20,7 +20,7 @@ import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, Field, Loading, Panel } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyCodeOf, academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyDiscussionHref, formatMoment } from './academy-lms';

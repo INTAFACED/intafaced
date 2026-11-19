@@ -1,6 +1,6 @@
-import { lazy, Suspense } from 'react';
+import { Suspense, type ComponentType } from 'react';
 import { BrandLockup, BrandWordmark } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { SignUp } from './SignUp';
@@ -10,7 +10,7 @@ import { RecoverAccount } from './RecoverAccount';
 import { FreezeConfirm } from './FreezeConfirm';
 import { AppealSignedOut } from './AppealSignedOut';
 import { Invitation } from './Invitation';
-import { DevelopersRoutes } from '../developers/DevelopersRoutes';
+import { DevelopersRoutes } from '../developers';
 import { PublicHelp as Help } from './PublicHelp';
 import { HelpLibrary } from './HelpLibrary';
 import { helpLibraryPath } from './help-library';
@@ -29,16 +29,7 @@ import { RulebookRoom } from './rulebook/RulebookRoom';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
-
-// A guest's support links (SP-tickets-01) load only when one is opened.
-const GuestVerify = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestVerify })));
-const GuestRequest = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestRequest })));
-// Live chat as a guest (SP-chat-01).
-const GuestChat = lazy(() => import('../more/SupportChat').then((m) => ({ default: m.SupportChatRoom })));
-const GuestNewRequest = lazy(() => import('../more/SupportGuest').then((m) => ({ default: m.GuestNewRequest })));
-
-// A backtest result shared by link (AL-report-03) loads only when one is opened.
-const SharedResultRoute = lazy(() => import('../quant/SharedResultRoute'));
+import { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from '../more';
 
 /** The public header carries the horizontal lockup (mark 28 pixels, small drawing); the footer line the wordmark alone. */
 function Brand({ footer }: { footer?: boolean }) {
@@ -75,7 +66,11 @@ export function PublicHeader({ path }: { path: string }) {
     </header>
   );
 }
-export function PublicRoutes({ path }: { path: string }) {
+/**
+ * `SharedResult` is the quant room a backtest result shared by link opens (AL-report-03). The app passes it in, lazily
+ * loaded, so the public rooms neither reach inside quant nor load its entry.
+ */
+export function PublicRoutes({ path, SharedResult }: { path: string; SharedResult: ComponentType<{ path: string }> }) {
   const { t } = publicCopy.useCopy();
   const auth = path.startsWith('/login') || path === '/register';
   const library = helpLibraryPath(path);
@@ -138,7 +133,7 @@ export function PublicRoutes({ path }: { path: string }) {
           <NoticePage detail id={path.split('/')[2] ?? null} />
         ) : path.startsWith('/quant/share/') ? (
           <Suspense fallback={null}>
-            <SharedResultRoute path={path} />
+            <SharedResult path={path} />
           </Suspense>
         ) : path === '/fees' ? (
           <FeesPage />

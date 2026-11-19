@@ -155,7 +155,10 @@ export class SqlLiveRunStore implements LiveRunStore {
         ${r.restartAttempts}, ${r.statePolicy}, ${r.liveControl}, ${r.state}, ${r.endReason}, ${r.permission}, ${r.restarts},
         ${r.nextSeq}, ${this.sql.json(r.strategyState)}, ${r.heartbeatAt}, ${r.stopSeq}, ${r.createdAt}, ${r.startedAt},
         ${r.stoppedAt})
-      ON CONFLICT (user_id, run_id) DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
+    // No target: (user_id, run_id) and agent_address name the same run, so a racing start of it reads the stored row
+    // instead of raising 23505 on the key the target did not name. A different run on the same agent address
+    // stores nothing, and the read below refuses.
     const stored = await this.find(r.userId, r.runId);
     if (!stored) throw new Error(`the live run ${r.runId} was not stored`);
     return stored;

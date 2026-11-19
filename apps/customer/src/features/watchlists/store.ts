@@ -19,7 +19,7 @@ import {
   type SavedScreensValue,
   type WatchlistsValue,
 } from '@intafaced/contracts/watchlists-preferences';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { rebaseAndWrite, type CommitOutcome, type RecordIo, type RecordUpdate } from './rebase';
 
 export type RecordStatus = 'loading' | 'ready' | 'signed-out' | 'error';

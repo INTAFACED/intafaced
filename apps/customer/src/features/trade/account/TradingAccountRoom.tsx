@@ -5,19 +5,19 @@ import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { Button, DataTable, EmptyState, Field, Loading, Page } from '../../../shared/ui';
 import { displayAmount } from '../../../shared/money';
 import type { ApiResult } from '../../../shared/api';
-import { useSession } from '../../session/session';
-import { StepUpConfirm } from '../../money/StepUpConfirm';
-import type { StepUpBegin } from '../../account/security-step-up';
-import { useWallet } from '../../protocol/wallet/WalletProvider';
-import { usePolled } from '../../protocol/wallet/use-polled';
-import { APP_CHAIN_ID } from '../../protocol/wallet/eip1193';
-import { transferCalldata } from '../../protocol/wallet/transfer';
+import { useSession } from '../../session';
+import { StepUpConfirm } from '../../money';
+import type { StepUpBegin } from '../../account';
 import {
+  APP_CHAIN_ID,
   canonicalAmount,
   createVenueAccountApi,
   toTokenUnits,
+  transferCalldata,
+  usePolled,
+  useWallet,
   type VenueDepositRoute,
-} from '../../protocol/venue-wallet/venue-account-api';
+} from '../../protocol';
 import { sleep as pause } from '@intafaced/contracts/sleep';
 import { useVenueMode } from '../use-venue-mode';
 import type { VenueUp } from '../venue-api';

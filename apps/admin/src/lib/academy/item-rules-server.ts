@@ -4,9 +4,15 @@ import {
   academyGrantCourseExtensionInputSchema,
   academySetCourseItemPrerequisitesInputSchema,
 } from '@intafaced/contracts/academy-course-item-rules';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+} from '@/lib/desk';
 import type { AcademyCourseItemRules, ItemRulesDeskReply, ItemRulesView } from './item-rules-model';
 
 /**

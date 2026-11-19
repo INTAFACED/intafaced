@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { date, funds, useBankRead, useSpaces } from './components';
 import { railPayeeSchema, railSendCheckSchema, railSendSchema, type RailPayee, type RailSend, type RegionNotice } from './contracts';
 import { DepthPanel } from './DepthParts';

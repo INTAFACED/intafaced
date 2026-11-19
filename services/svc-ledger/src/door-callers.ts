@@ -1,4 +1,5 @@
 import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
+import { LEDGER_POST_RECIPE } from '@intafaced/ledger-client/post-recipe';
 import type { ServiceName } from '@intafaced/contracts';
 import { LEDGER_CALLER_SERVICES } from './caller-allowlist.js';
 
@@ -28,6 +29,11 @@ export const READERS: readonly ServiceName[] = [
 
 export const LEDGER_DOOR_CALLERS = {
   post: POSTERS,
+  /**
+   * Post a recipe by name and inputs (`@intafaced/ledger-client/post-recipe`): from its record, which names the services
+   * granted a recipe on that door; `post-recipe-door.test.ts` holds the two equal.
+   */
+  postRecipe: LEDGER_POST_RECIPE.access.callers,
   balance: READERS,
   balances: READERS,
   txByKey: [...READERS, ...POSTERS_WITHOUT_READS],

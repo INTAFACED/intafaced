@@ -1,7 +1,7 @@
 import { uiDirection } from '../../shared/locale';
 import { tradeCopy as copy, CopyText, choiceNode } from './copy';
 import { useEffect, useMemo, useState } from 'react';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { navigate } from '../../app/location';
 import { hiddenFeatureFor } from '../../app/feature-registry';

@@ -169,6 +169,20 @@ describe('SqlGridStore (shared test postgres)', () => {
     expect((await store.listOrders(BOT)).map((o) => o.status)).toEqual(['filled']);
   });
 
+  it('the same order saved twice at once stores one row and answers both, never a 23505 on grid_bot_orders_pair_uq', async () => {
+    // Two stop() calls (a double Stop press) or a fill tick racing a stop both save the same recovered slot. One
+    // round is a narrow window; 40 rounds of 8 at once lost the race on main.
+    await store.createWithReserve(bot(), reserve(), async () => {});
+    for (let cycle = 0; cycle < 40; cycle += 1) {
+      const order: GridOrder = { ...buy(), cycle, clientOrderId: gridClientOrderId(BOT, 0, 'buy', cycle) };
+      const outs = await Promise.allSettled(Array.from({ length: 8 }, () => store.saveOrder(order)));
+      const failed = outs.filter((o) => o.status === 'rejected').map((o) => String((o as PromiseRejectedResult).reason));
+      expect(failed).toEqual([]);
+      for (const out of outs) expect((out as PromiseFulfilledResult<GridOrder>).value).toEqual(order);
+    }
+    expect(await store.listOrders(BOT)).toHaveLength(40);
+  }, 60_000);
+
   it('a part filled order closes as partial with no profit', async () => {
     await store.createWithReserve(bot(), reserve(), async () => {});
     await store.saveOrder(buy());

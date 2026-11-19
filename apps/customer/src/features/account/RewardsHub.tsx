@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { REWARD_STATUSES, myRewardsSchema, type MyReward, type MyRewards } from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { rewardsHubCopy } from './rewards-hub-copy';

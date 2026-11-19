@@ -11,7 +11,7 @@ import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Loading, Panel } from '../../shared/ui';
 import { navigate } from '../../app/location';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, formatDay } from './academy-lms';
 import { AcademyRefusal, GuardedButton, itemTypeLabel, pathLabel } from './AcademyLmsParts';

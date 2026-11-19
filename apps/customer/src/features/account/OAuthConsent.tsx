@@ -3,12 +3,16 @@ import { Button } from '@intafaced/ui';
 import { EmptyState, Failure, Loading, Page } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { useSession } from '../session/session';
-import { appsCopy, scopeCopyKey } from '../developers/apps/apps-copy';
-import { Refused } from '../developers/apps/AppsRoom';
-import { decideAuthorize, previewAuthorize } from '../developers/apps/oauth-api';
-import { followableRedirect, parseAuthorizeSearch } from '../developers/apps/oauth-model';
-import '../developers/apps/apps.css';
+import { useSession } from '../session';
+import {
+  appsCopy,
+  decideAuthorize,
+  followableRedirect,
+  parseAuthorizeSearch,
+  previewAuthorize,
+  Refused,
+  scopeCopyKey,
+} from '../developers';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 

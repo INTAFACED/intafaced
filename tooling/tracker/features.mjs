@@ -993,7 +993,8 @@ export const FEATURES = [
     note:
       '**D26-P1-A2 Done 2026-08-21:** constant-product pools mounted (`mount-vs-tracker.ts`); mint/swap on-chain proven. ' +
       'quoteExactIn + quoteFromPool + buildCreatePool + buildSwapExactIn on router. ' +
-      'Class X residual: external contract audit; live chain RPC Nitro.',
+      'Class X residual: external contract audit; live chain RPC Nitro. ' +
+      '2026-11-19: quoteExactIn, buildCreatePool, buildMintLiquidity, buildApprove and poolReserves were deleted, nothing called them (project-state#3292).',
   }),
   f('protocol.lending', 'On-chain lending markets, keeper liquidations', {
     module: 'protocol',
@@ -1468,16 +1469,12 @@ export const FEATURES = [
     plane: 'B',
     status: 'done',
     dependsOn: [],
-    requires: [
-      'services/svc-protocol/src/launch/mount-vs-tracker.ts',
-      'services/svc-protocol/src/launch/mount-vs-tracker.test.ts',
-      'services/svc-protocol/src/launch/token-factory-onchain.test.ts',
-      'services/svc-protocol/contracts/launch',
-    ],
+    requires: ['services/svc-protocol/src/launch/token-factory-onchain.test.ts', 'services/svc-protocol/contracts/launch'],
     note:
       '**D26-P1-L1 Done 2026-08-21:** token factory mounted (`mount-vs-tracker.ts`); CREATE2 launch proven on chain. ' +
       'status + predictTokenAddress + buildTokenDeployment + tokenInfo; unsigned calldata only. ' +
-      'Class X residual: template not audited; live factory Nitro RPC.',
+      'Class X residual: template not audited; live factory Nitro RPC. ' +
+      '2026-11-19: the four launch calls were deleted, nothing called them (project-state#3292); the contract and its on-chain proof remain.',
   }),
   f('launch.meme-factory', 'One-click meme launch + instant market + LP', {
     owner: 'shehzad002',

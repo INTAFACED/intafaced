@@ -4,7 +4,7 @@ import { readKillSwitches, setKillSwitch } from '@/lib/control-plane-client';
 import { readConsoleStatus } from '@/lib/console-status';
 import { decodeKillExecute } from '@/lib/desk/execute-decode';
 import { killRefusalFor, moduleKillBlockedReason } from '@/lib/desk/module-kill-model';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { handleStep } from '@/lib/desk/step-route';
 
 /**

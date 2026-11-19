@@ -1,8 +1,7 @@
 import 'server-only';
 import { payCustodyOpenItemsReplySchema } from '@intafaced/contracts/pay-custody-deposit';
 import { custodyApproverViewSchema, custodyTaskDetailSchema, custodyTaskViewSchema } from '@intafaced/contracts/custody-approval-tasks';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, type FounderCallResult, partFrom, type Part, type PartLabels } from '@/lib/desk';
 import { PENDING_WINDOW, RECENT_WINDOW, type CustodyOpsRead } from './server-types';
 import type { CustodyTask, CustodyTaskDetail, Decision } from './model';
 import { OPEN_ITEMS_WINDOW } from './open-items';

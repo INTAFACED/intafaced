@@ -1,10 +1,21 @@
 import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
 import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
+import {
+  P2P_ACCESS_ELIGIBILITY,
+  P2P_CONTACTS_BLOCK,
+  P2P_CONTACTS_FOLLOW,
+  P2P_CONTACTS_LIST,
+  P2P_CONTACTS_UNBLOCK,
+  P2P_CONTACTS_UNFOLLOW,
+  P2P_FIAT_LIST,
+  P2P_HEALTH,
+  P2P_LIMITS_VERIFICATION,
+} from '@intafaced/contracts/p2p-procedures';
 import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { createMoneyClient } from '../money/client';
+import { createMoneyClient } from '../money';
 import { createMerchantRefundApi } from './merchant-refund-api';
 import * as s from './schemas';
 import { shareCopy } from './personal/p2p-share-copy';
@@ -355,6 +366,13 @@ function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false
 export const PAUSED_OFFERS_SHOWN = 200;
 /** P-ads-merchant-07: a share token as svc-p2p makes it. */
 const SHARE_TOKEN = /^[A-Za-z0-9_-]{32}$/;
+/** Each contacts change, by the record that makes it. */
+const CONTACT_CHANGES = {
+  follow: P2P_CONTACTS_FOLLOW,
+  unfollow: P2P_CONTACTS_UNFOLLOW,
+  block: P2P_CONTACTS_BLOCK,
+  unblock: P2P_CONTACTS_UNBLOCK,
+} as const;
 
 /**
  * P-ads-merchant-07: a private ad without a link, or a link that ended or was withdrawn, in plain words rather than the
@@ -542,8 +560,9 @@ export function createPersonalPayApi(
     /** One reply from the person a review is about. */
     replyReview: (input: { tradeId: string; text: string }) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'reviews.reply', input, s.orderReviewSchema),
-    health: (signal?: AbortSignal) => api.query('p2p', 'health', undefined, s.p2pHealthSchema, { signal }),
-    fiat: (signal?: AbortSignal) => api.query('p2p', 'fiat.list', undefined, z.array(s.fiatSchema), { signal }),
+    /** Only a live service answers `ok: true`; anything else reads as unverified. */
+    health: (signal?: AbortSignal) => api.call(P2P_HEALTH, undefined, { signal, accept: (health) => health.ok }),
+    fiat: (signal?: AbortSignal) => api.call(P2P_FIAT_LIST, undefined, { signal }),
     methods: (signal?: AbortSignal) => api.query('p2p', 'instruments.methods.list', { limit: 200 }, z.array(s.methodSchema), { signal }),
     instruments: (limit: number, signal?: AbortSignal) =>
       api.query('p2p', 'instruments.list', { limit }, z.array(s.instrumentSchema), { signal }),
@@ -647,7 +666,7 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.query('p2p', 'contacts.list', undefined, s.contactsSchema, { signal });
+      return api.call(P2P_CONTACTS_LIST, undefined, { signal });
     },
     /**
      * `contacts.follow | unfollow | block | unblock`. `idempotencyKey` makes a repeat of the same change harmless; the
@@ -657,13 +676,13 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.mutate('p2p', `contacts.${change}`, { peerId, idempotencyKey }, s.contactsSchema, { signal });
+      return api.call(CONTACT_CHANGES[change], { peerId, idempotencyKey }, { signal });
     },
     /** `access.eligibility`: what this person needs before taking an ad, check by check. */
     eligibility(signal?: AbortSignal) {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
-      return api.query('p2p', 'access.eligibility', undefined, s.p2pEligibilitySchema, { signal });
+      return api.call(P2P_ACCESS_ELIGIBILITY, undefined, { signal });
     },
     /** P-ads-merchant-01: the advertiser terms version to accept before posting an ad, and when this person accepted it. */
     advertiserTerms(signal?: AbortSignal) {
@@ -687,7 +706,7 @@ export function createPersonalPayApi(
     levelLimits(signal?: AbortSignal) {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
-      return api.query('p2p', 'limits.verification', undefined, s.p2pLevelLimitsSchema, { signal });
+      return api.call(P2P_LIMITS_VERIFICATION, undefined, { signal });
     },
     /** P-ads-merchant-12: what posting an ad in this fiat needs, each check with this person's value and the target. */
     postingEligibility(fiatCurrency: string, signal?: AbortSignal) {

@@ -126,6 +126,15 @@ test("a Rust service's required env is each field env.rs refuses when unset, and
     let b = field("B_PORT", get("B_PORT").map_or(Ok(4020), |v| coerce_int(v)));
     let c = get("C_NAME").unwrap_or("x");`;
   assert.deepEqual(rustRequiredEnv(env), ['A_SECRET']);
+  const kit = `
+pub fn edge(f: &mut Fields<'_>) -> EdgeEnv {
+    let v = f.get("K_SECRET").map_or(Err(REQUIRED_STRING.to_owned()), |v| min_len(v, 32));
+}
+pub fn s2s(f: &mut Fields<'_>) -> S2sEnv {
+    let v = f.get("S_SECRET").map_or(Err(REQUIRED_STRING.to_owned()), |v| min_len(v, 32));
+}`;
+  // A kit slice's refusals count only when the service calls that slice by path.
+  assert.deepEqual(rustRequiredEnv(`${env}\n    let e = service_kit::env::edge(&mut f);`, kit), ['A_SECRET', 'K_SECRET']);
   assert.equal(
     rustPurpose('//! svc-x: the lot export over ledger reads. It posts nothing.\n//! More.\nuse a;'),
     'The lot export over ledger reads.',

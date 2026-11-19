@@ -4,7 +4,7 @@ import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
 import { Button, Failure, Panel } from '../../../shared/ui';
 import { futuresRefusal } from '../../../screens/trade/futures/refusals';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { conventionPath } from './PortfolioPanel';
 import { portfolioCopy } from './portfolio-copy';
 

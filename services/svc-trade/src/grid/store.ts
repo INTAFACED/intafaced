@@ -501,7 +501,9 @@ export class SqlGridStore implements GridStore {
       VALUES (${order.clientOrderId}, ${order.botId}, ${order.levelIndex}, ${order.side}, ${order.cycle}, ${order.orderId},
               ${formatAmount(order.price)}, ${formatAmount(order.qty)}, ${formatAmount(order.holdAmount)}, ${order.status},
               ${order.pairProfit === null ? null : formatAmount(order.pairProfit)}, ${order.placedAt}, ${order.closedAt})
-      ON CONFLICT (client_order_id) DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
+    // No conflict target: client_order_id is gridClientOrderId(bot, level, side, cycle), the columns of
+    // grid_bot_orders_pair_uq, so a clash on either key means this order is already stored.
     const rows = await this.sql.unsafe<OrderRow[]>(`SELECT ${ORDER_COLUMNS} FROM grid_bot_orders WHERE client_order_id = $1`, [
       order.clientOrderId,
     ]);

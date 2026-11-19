@@ -1,4 +1,6 @@
 import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
+import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
+import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
@@ -1312,8 +1314,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.health',
         title: 'Service health',
         note: '"Moderation configured" means someone is on the moderator list. svc-p2p cannot tell whether that person is actually watching the queue.',
-        module: 'p2p',
-        procedure: 'health',
+        ...readOf(P2P_HEALTH),
         shape: 'record',
         columns: [
           bool('ok', 'Answering'),
@@ -1329,8 +1330,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.fiat',
         title: 'Fiat currencies enabled',
         note: 'Currencies P2P can trade against, from configuration. Not a volume.',
-        module: 'p2p',
-        procedure: 'fiat.list',
+        ...readOf(P2P_FIAT_LIST),
         shape: 'list',
         idKey: 'code',
         columns: [text('code', 'Code'), text('name', 'Name'), text('symbol', 'Symbol'), int('minorUnits', 'Minor units')],
@@ -2359,9 +2359,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.chain',
         title: 'Chain status',
         note: 'A probe, not a heartbeat: it says whether a chain answered and whether the contracts hold code. The chain id below decides the network label in the blockers; it is never assumed to be INTACHAIN.',
-        module: 'protocol',
+        ...readOf(PROTOCOL_CHAIN_STATUS),
         plainName: 'chain status',
-        procedure: 'chainStatus',
         shape: 'record',
         columns: [
           bool('reachable', 'A chain answered'),
@@ -2401,9 +2400,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.audit',
         title: 'Audit status',
         note: 'The committed internal review package. "Audited by an outside firm" must be no: a service answer that says otherwise is refused as unreadable instead of shown.',
-        module: 'protocol',
+        ...readOf(PROTOCOL_AUDIT_STATUS),
         plainName: 'audit status',
-        procedure: 'auditStatus',
         shape: 'record',
         columns: [
           text('id', 'Package'),
@@ -2485,9 +2483,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.health',
         title: 'Protocol service health',
         note: 'Process-level facts from svc-protocol: whether relaying is switched on and whether the account factory is set. Says nothing about the chain.',
-        module: 'protocol',
+        ...readOf(PROTOCOL_HEALTH),
         plainName: 'protocol service health',
-        procedure: 'health',
         shape: 'record',
         columns: [bool('relayEnabled', 'Relaying switched on'), bool('factoryConfigured', 'Account factory configured')],
         emptyText: '',
