@@ -15,7 +15,7 @@ const world = vi.hoisted(() => ({
   sent: [] as unknown[],
   answer: undefined as unknown as (input: Record<string, unknown>) => unknown,
 }));
-vi.mock('../session/session', () => {
+vi.mock('../session', () => {
   const api = {
     query: async () => ({ ok: true, data: [] }),
     mutate: async (_module: string, _procedure: string, input: Record<string, unknown>) => {

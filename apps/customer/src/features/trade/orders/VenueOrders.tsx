@@ -6,7 +6,7 @@ import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Loading, Page } from '../../../shared/ui';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { zoneName } from '../../../screens/trade/desk/time';
 import { useVenueMode } from '../use-venue-mode';
 import type { VenueFill, VenueHistoryPage, VenueHistoryQuery, VenueOrder, VenueOrderRecord } from '../venue-api';

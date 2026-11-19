@@ -5,7 +5,7 @@ import { FlowTemplate, KeyValue, formatMoney } from '@intafaced/ui/lit/templates
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { leadApplyCopy } from './lead-apply-copy';
 
 /**

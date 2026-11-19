@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { SessionProvider, useSession, type Session } from '../session/session';
+import { SessionProvider, useSession, type Session } from '../session';
 import { AuthForm } from './AuthForm';
 
 // What is typed while the boot refresh is answering stays when it answers. A restored session used to count as a change

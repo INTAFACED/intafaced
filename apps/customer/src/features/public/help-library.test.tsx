@@ -13,7 +13,7 @@ const world = vi.hoisted(() => ({
   answer: undefined as unknown as (procedure: string, input: unknown) => unknown,
   asked: [] as unknown[],
 }));
-vi.mock('../session/session', () => {
+vi.mock('../session', () => {
   const api = {
     query: async (_module: string, procedure: string, input: unknown) => {
       world.asked.push([procedure, input]);

@@ -6,7 +6,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 import { findRoom } from '../../app/navigation';
 import type { ApiClient } from '../../shared/api';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { DevelopersRoutes } from './DevelopersRoutes';
 import { readServerClock } from '../../shared/server-clock';
 import { developersCopy } from './developers-copy';

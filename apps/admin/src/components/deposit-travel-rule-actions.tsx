@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import { StepReplyView } from '@/components/approval-workbench';
 import { REASON_MAX, REASON_MIN, UUID, validReason } from '@/lib/desk/approval-packet';
-import { readStepReply, type StepReply } from '@/lib/desk/approval-types';
+import { readStepReply, type StepReply } from '@/lib/approval-types';
 import { travelRuleSteps, type TravelRuleAction } from '@/lib/deposit-travel-rule/model';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { rowText } from '@/lib/ops-desk/actions-model';

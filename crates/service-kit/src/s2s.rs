@@ -1,4 +1,4 @@
-//! How svc-tax signs a call to another service (`packages/contracts/src/service-auth.ts`, `service-keys.ts`,
+//! How a service signs a call to another service (`packages/contracts/src/service-auth.ts`, `service-keys.ts`,
 //! `service-auth-http.ts`, `s2s-env.ts`): the shared-secret form (v2, bound to the body) and, once S2S is on, the
 //! service's own Ed25519 key (v3). Header names, values and their order are the TypeScript's, byte for byte
 //! (`tests/s2s_vector.rs` replays a vector the TypeScript signer recorded).
@@ -353,13 +353,14 @@ pub enum Mode {
     Keypair,
 }
 
-/// `s2sFromEnv`'s outcome as svc-tax uses it: a signer and its mode, or nothing (the shared secret alone).
+/// `s2sFromEnv`'s outcome as a calling service uses it: a signer and its mode, or nothing (the shared secret alone).
 pub struct S2s {
     pub signer: Option<Arc<ServiceSigner>>,
     pub mode: Option<Mode>,
 }
 
-/// `s2sFromEnv(env, self)`. The verifier it also builds is not kept: svc-tax receives no service calls.
+/// `s2sFromEnv(env, self)`. The verifier it also builds is not kept here: svc-tax, the first user, receives no service
+/// calls; a service that does adds its verifier beside this.
 pub fn s2s_from_env(
     mode: &str,
     keyring: Option<&str>,

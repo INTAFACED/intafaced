@@ -34,23 +34,7 @@ use crate::ports::{
 use crate::time::Instant;
 use crate::venue_book::{BookShared, VenueExtras, venue_arrival_lines, with_venue};
 
-/// Money is a scaled integer: 18 decimal places (`packages/ledger-client/src/money.ts`).
-pub type Amount = i128;
-const DECIMALS: usize = 18;
-const SCALE: Amount = 1_000_000_000_000_000_000;
-
-/// `formatAmount`: the shortest decimal string, no trailing zeros.
-pub fn format_amount(value: Amount) -> String {
-    let sign = if value < 0 { "-" } else { "" };
-    let abs = value.unsigned_abs();
-    let scale = SCALE.unsigned_abs();
-    let (whole, frac) = (abs / scale, abs % scale);
-    if frac == 0 {
-        return format!("{sign}{whole}");
-    }
-    let digits = format!("{frac:0DECIMALS$}");
-    format!("{sign}{whole}.{}", digits.trim_end_matches('0'))
-}
+pub use service_kit::money::{Amount, format_amount};
 
 /// A named refusal (`TaxError`): sent as PRECONDITION_FAILED, the code leading the message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1333,14 +1317,6 @@ mod tests {
         assert_eq!(base64(b"fo"), "Zm8=");
         assert_eq!(base64(b"foo"), "Zm9v");
         assert_eq!(base64("é\n".as_bytes()), "w6kK");
-    }
-
-    #[test]
-    fn formats_amounts_as_the_ledger_client_does() {
-        assert_eq!(format_amount(0), "0");
-        assert_eq!(format_amount(1_500_000_000_000_000_000), "1.5");
-        assert_eq!(format_amount(-1), "-0.000000000000000001");
-        assert_eq!(format_amount(-2 * SCALE), "-2");
     }
 
     #[test]

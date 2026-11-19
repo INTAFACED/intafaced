@@ -1,6 +1,6 @@
 import type { Cell, CellValue, Column, ReadData, ReadOutcome, ReadSpec, Row } from './types';
 import { formatWhen } from '@/lib/as-of';
-import { codeWords } from '@/lib/desk/words';
+import { codeWords } from '@/lib/code-words';
 import { isRecord } from '@intafaced/contracts/guards';
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { StatusFeed } from '../../developers/developers-api';
+import type { StatusFeed } from '../../developers';
 import type { Order } from '../trade-api';
 import { judgeCancelEverything, openIncidents, summariseOpenOrders } from './risk-model';
 

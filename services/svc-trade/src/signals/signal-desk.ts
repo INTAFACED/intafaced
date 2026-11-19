@@ -364,11 +364,13 @@ export class SignalDesk {
     const at = now.toISOString();
     // The intent row is written before the order is prepared; a crash after it leaves it pending under its key, and the
     // door's own store under the alert's order key means a later prepare of it returns the same action, never a second.
+    // The id is a hash of intent_key, so both unique keys name the same row: no conflict target, so a concurrent
+    // redelivery that loses the race on either key gets the row that won, never a 23505.
     await this.ports.sql`
       INSERT INTO trade.signal_intents (id, webhook_id, alert_id, action, intent_key, side, sizing, status, created_at, updated_at)
       VALUES (${idFor(key)}, ${hook.id}, ${alertId}, 'open', ${key}, ${side},
         ${this.ports.sql.json({ kind: 'quantity', value: formatAmount(qty) } as never)}, 'pending', ${at}, ${at})
-      ON CONFLICT (intent_key) DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
     let status: SignalIntentView['status'];
     let actionKey: string | null = null;
     let venueClientOrderId: string | null = null;

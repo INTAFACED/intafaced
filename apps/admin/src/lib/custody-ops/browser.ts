@@ -1,6 +1,6 @@
 /** Browser hop for the custody approvals desk. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import { TASK_STATUSES, type CustodyTask, type CustodyTaskDetail, type Decision } from './model';
 import type { CustodyOpsRead } from './server-types';
 import { isRecord } from '@intafaced/contracts/guards';

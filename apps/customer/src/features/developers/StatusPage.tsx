@@ -1,5 +1,5 @@
 import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { liveCopy } from './developers-live-copy';
 import { readStatusFeed, STATUS_COMPONENT_IDS, type StatusFeed } from './developers-api';
 import { useRead } from './use-read';

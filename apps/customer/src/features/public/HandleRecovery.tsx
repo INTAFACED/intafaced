@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Field } from '../../shared/ui';
 import { singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { recoveryCopy } from './password-recovery-copy';
 import { requestProblem, requestedSchema, validEmail, type RecoveryProblem } from './password-recovery';
 import { handleRecoveryCopy } from './handle-recovery-copy';
