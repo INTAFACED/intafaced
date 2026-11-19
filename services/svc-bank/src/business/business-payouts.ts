@@ -416,7 +416,8 @@ export class BusinessPayoutsService {
         INSERT INTO bank.business_bulk_runs (id, account_id, created_by, file_sha256, asset_id, amount, partner_key)
         VALUES (${input.runId}::uuid, ${input.accountId}::uuid, ${input.userId}, ${sha}, ${seat.account.assetId},
                 ${formatAmount(total)}::numeric, ${bulkPayKey(input.runId)})
-        ON CONFLICT (id) DO NOTHING
+        -- No target: partner_key is the run id's key (business_bulk_runs_key_ck), so either key's clash is the same run.
+        ON CONFLICT DO NOTHING
         RETURNING id
       `;
       if (made.length === 0) return;
