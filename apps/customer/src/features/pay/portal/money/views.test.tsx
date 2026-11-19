@@ -30,7 +30,11 @@ import { PayoutDetailView } from './Payouts';
 import { TierLadder } from './Limits';
 import { calculatorAssets, TierFeeTable } from './Pricing';
 import { EffectiveFeeView, EffectiveRatesList } from './fee-rate';
-import type { MerchantTierList as TierList, MerchantTierSummary as TierSummary } from '@intafaced/contracts/merchant-control';
+import {
+  merchantTierListSchema,
+  type MerchantTierList as TierList,
+  type MerchantTierSummary as TierSummary,
+} from '@intafaced/contracts/merchant-control';
 import { NoPayable } from './PayoutNew';
 import { RefundChip } from './Refunds';
 import { statementColumns } from './Statement';
@@ -638,6 +642,15 @@ describe('the tier fee table (M-money-out-06)', () => {
     const out = table([tier({ id: 'a', name: 'TEST A', caps }), tier({ id: 'c', name: 'TEST C', caps, fees: [fee] })], null);
     expect(rowOf(out, 'a-none').match(/Not set/g)).toHaveLength(2);
     expect(rowOf(out, 'c-USDT').match(/Not set/g)).toHaveLength(1);
+    // A tier with no fee list, or a payout fee kind nothing pays out, is refused at the parse, never read as free.
+    const wire = (t: object) => ({
+      status: 'configured',
+      ownTierId: null,
+      tiers: [{ ...tier({ id: 'test-b', name: 'TEST B', caps }), ...t }],
+    });
+    expect(merchantTierListSchema.safeParse(wire({ fees: undefined })).success).toBe(false);
+    expect(merchantTierListSchema.safeParse(wire({ fees: [fee], payoutFee: { kind: 'charged_later' } })).success).toBe(false);
+    expect(merchantTierListSchema.safeParse(wire({ fees: [fee] })).success).toBe(true);
     expect(out).not.toContain('Not charged');
     expect(out).not.toContain('your tier');
     expect(out).not.toMatch(/0\.00%|Free/);
