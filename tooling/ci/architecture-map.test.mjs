@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { currentFolders, problems, renderBlock, tableRows } from './architecture-map.mjs';
+import { currentFolders, problems, renderBlock, shapeCheck, shapeProblems, tableRows } from './architecture-map.mjs';
 
 const doc = readFileSync(new URL('../../docs/ARCHITECTURE.md', import.meta.url), 'utf8');
 const folders = currentFolders();
@@ -63,5 +63,26 @@ test('--check says the committed doc is current', () => {
   const out = execFileSync(process.execPath, [new URL('./architecture-map.mjs', import.meta.url).pathname, '--check'], {
     encoding: 'utf8',
   });
-  assert.match(out, /is current/);
+  assert.match(out, /are current/);
+});
+
+test('docs/agents/shape.md names only paths and rules that exist', () => {
+  assert.deepEqual(shapeCheck(), []);
+});
+
+test('shape.md: a renamed example file, a missing folder and an unrun rule each fail', () => {
+  const page = readFileSync(new URL('../../docs/agents/shape.md', import.meta.url), 'utf8');
+  const have = new Set(['packages/contracts/src/tax-procedures.ts', 'apps/customer/src/features']);
+  const exists = (rel) => have.has(rel);
+  const planted = [
+    'Copy `packages/contracts/src/tax-procedures.ts`, then `services/svc-gone/src/router.ts`.',
+    'Its entry is `apps/customer/src/features/<area>/index.ts`; a screen is `apps/customer/src/screenz/<id>/index.tsx`.',
+    'Fails: `garden/no-hand-schema`, `garden/no-such-rule`.',
+  ].join('\n');
+  assert.deepEqual(shapeProblems(planted, exists, ['garden/no-hand-schema']), [
+    'docs/agents/shape.md names `services/svc-gone/src/router.ts`, which does not exist: name the file to copy as it is on main.',
+    'docs/agents/shape.md names `apps/customer/src/screenz`, which does not exist: name the file to copy as it is on main.',
+    'docs/agents/shape.md names `garden/no-such-rule`, which .oxlintrc.json does not run: name a rule that runs.',
+  ]);
+  assert.ok(page.includes('`services/svc-tax/src/router.ts`'), 'the page names its call example');
 });
