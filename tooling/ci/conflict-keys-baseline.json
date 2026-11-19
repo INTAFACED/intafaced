@@ -189,15 +189,6 @@
     },
     {
       "file": "services/svc-bank/src/cards/card-service.ts",
-      "table": "card_wallet_tokens",
-      "target": "(card_id, wallet)",
-      "constraint": "card_wallet_tokens_pkey",
-      "verdict": "race",
-      "issue": 8895,
-      "why": "id = input.provisionId, the caller's command id, so a retry repeats it. The insert (card-service.ts:1799) runs on this.sql with no lock, and auditSecret (ON CONFLICT DO NOTHING, card-service.ts:4242) does not serialise. Two concurrent same-provisionId requests can both pass the (card_id, wallet) pre-check, and the loser raises 23505 card_wallet_tokens_pkey."
-    },
-    {
-      "file": "services/svc-bank/src/cards/card-service.ts",
       "table": "cards",
       "target": "(issuer, issuer_ref)",
       "constraint": "cards_pkey",

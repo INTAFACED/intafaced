@@ -1794,11 +1794,13 @@ export class CardService {
       payloadHash,
     });
     // One token per card and wallet: adding the same card to the same wallet again keeps the first row. The payload is
-    // not kept.
+    // not kept. Both keys name the same row: the audit above binds a provision id to this card and wallet, so a row with
+    // this id is this card's token for this wallet. No conflict target, so a concurrent retry with the same id that loses
+    // on the id key keeps the row that won instead of raising.
     await this.sql`
       INSERT INTO bank.card_wallet_tokens (id, card_id, user_id, wallet)
       VALUES (${input.provisionId}, ${card.id}, ${input.userId}, ${input.wallet})
-      ON CONFLICT (card_id, wallet) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
     return { payload: provisioned.payload, expiresAt: this.secretExpiresAt() };
   }
