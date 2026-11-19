@@ -3,7 +3,7 @@
 //! `featured_events` row with who and why; nothing is promoted automatically.
 
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::schema::{Value, js_trim};
 
 use super::courses::topic_json;
@@ -72,12 +72,12 @@ pub fn featured_slot<C: postgres::GenericClient>(c: &mut C) -> Result<Json, Refu
     ]))
 }
 
-pub fn slot(pool: &Pool) -> Result<Json, Refusal> {
+pub fn slot(pool: &Store) -> Result<Json, Refusal> {
     sql::client(pool, featured_slot)
 }
 
 /// `LearnHub.featureLesson`: a lesson live to learners in a draft or published course fills the slot.
-pub fn feature_lesson(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn feature_lesson(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let item_id = text(input, "itemId");
     let reason = js_trim(text(input, "reason"));
     sql::begin(pool, |tx| {
@@ -126,14 +126,14 @@ const CLEAR: &str = "WITH gone AS (DELETE FROM academy.featured_items WHERE slot
      SELECT 'hub', 'cleared', item_slug, course_item_id, $1::text, $2::text::uuid, $3::text::timestamptz FROM gone";
 
 /// `LearnHub.clearFeatured`.
-pub fn clear_featured(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn clear_featured(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let reason = js_trim(text(input, "reason"));
     sql::client(pool, |c| sql::exec(c, CLEAR, &[&reason, &operator, &at(now)]))?;
     slot(pool)
 }
 
 /// `FeaturedSlot.choose`: the reason first; `itemSlug: null` clears the slot, a slug must be on the spine.
-pub fn set_featured(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_featured(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let reason = js_trim(text(input, "reason"));
     if reason.is_empty() {
         return refuse("academy.reason_required", "academy.reason_required");
@@ -168,7 +168,7 @@ pub fn set_featured(pool: &Pool, input: &Value, operator: &str, now: i64) -> Res
 }
 
 /// `LearnHub.topics`: the owner's limit before anything is read.
-pub fn topics(pool: &Pool, limit: Option<i64>) -> Result<Json, Refusal> {
+pub fn topics(pool: &Store, limit: Option<i64>) -> Result<Json, Refusal> {
     let Some(limit) = limit else {
         return refuse("the owner has not set how many topics a list shows", "academy.topics_list_limit_unset");
     };
@@ -189,7 +189,7 @@ pub fn topics(pool: &Pool, limit: Option<i64>) -> Result<Json, Refusal> {
 }
 
 /// `LearnHub.createTopic`: keyed by its address; a repeat with the same name answers with it.
-pub fn create_topic(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn create_topic(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let slug = text(input, "slug");
     spine::assert_slug_not_reserved(slug)?;
     let name = js_trim(text(input, "name"));

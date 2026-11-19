@@ -1,4 +1,5 @@
-//! How the authoring slice talks to Postgres as `postgres.js` did for the TypeScript.
+//! How the authoring slice talks to Postgres (through the [`Store`], so a check before the first query answers first, as
+//! the TypeScript's does over a database that is down) as `postgres.js` did for the TypeScript.
 //!
 //! Every parameter goes as text and is cast in the statement (`$1::text::uuid`, `$2::text::timestamptz`), the way an
 //! untyped postgres.js parameter reaches the server; every column comes back as the TypeScript saw it: a `uuid` as its
@@ -10,7 +11,7 @@
 use postgres::types::{FromSql, ToSql};
 use postgres::{GenericClient, Row, Transaction};
 
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::time::Instant;
 
 use crate::db;
@@ -71,8 +72,8 @@ pub fn opt_iso_of(row: &Row, column: &str) -> Result<Option<String>, Refusal> {
 }
 
 /// `sql.begin(fn)`: one transaction at the server's default isolation.
-pub fn begin<T>(pool: &Pool, f: impl FnOnce(&mut Transaction<'_>) -> Result<T, Refusal>) -> Result<T, Refusal> {
-    db::with_client(pool, |client| {
+pub fn begin<T>(store: &Store, f: impl FnOnce(&mut Transaction<'_>) -> Result<T, Refusal>) -> Result<T, Refusal> {
+    db::with_client(store.pool()?, |client| {
         let mut tx = client.transaction().map_err(|e| db::refusal(&e))?;
         let out = f(&mut tx)?;
         tx.commit().map_err(|e| db::refusal(&e))?;
@@ -81,10 +82,10 @@ pub fn begin<T>(pool: &Pool, f: impl FnOnce(&mut Transaction<'_>) -> Result<T, R
 }
 
 /// `@intafaced/db` `transaction(sql, fn)`: serializable, up to five tries on `40001` or `40P01`, with jittered backoff.
-pub fn serializable<T>(pool: &Pool, mut f: impl FnMut(&mut Transaction<'_>) -> Result<T, Refusal>) -> Result<T, Refusal> {
+pub fn serializable<T>(store: &Store, mut f: impl FnMut(&mut Transaction<'_>) -> Result<T, Refusal>) -> Result<T, Refusal> {
     let mut attempt: u32 = 1;
     loop {
-        match db::transaction(pool, postgres::IsolationLevel::Serializable, &mut f) {
+        match db::transaction(store.pool()?, postgres::IsolationLevel::Serializable, &mut f) {
             Err(Refusal::Internal { code: Some(code), .. })
                 if (code == db::SERIALIZATION_FAILURE || code == "40P01") && attempt < 5 =>
             {
@@ -98,8 +99,8 @@ pub fn serializable<T>(pool: &Pool, mut f: impl FnMut(&mut Transaction<'_>) -> R
 }
 
 /// One statement or more outside a transaction, on one connection.
-pub fn client<T>(pool: &Pool, f: impl FnOnce(&mut postgres::Client) -> Result<T, Refusal>) -> Result<T, Refusal> {
-    db::with_client(pool, f)
+pub fn client<T>(store: &Store, f: impl FnOnce(&mut postgres::Client) -> Result<T, Refusal>) -> Result<T, Refusal> {
+    db::with_client(store.pool()?, f)
 }
 
 fn random_bytes<const N: usize>() -> Result<[u8; N], Refusal> {

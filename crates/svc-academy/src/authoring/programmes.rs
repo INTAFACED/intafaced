@@ -6,7 +6,7 @@
 use postgres::GenericClient;
 
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::schema::Value;
 
 use super::sql::{self, at, first, get, iso, ms, query};
@@ -129,7 +129,7 @@ pub fn assert_save(slug: &str, courses: &[&str], max: Option<i64>) -> Result<(),
 }
 
 /// `ProgrammeRecords.save`: the checks, then one serializable transaction under the programme's advisory lock.
-pub fn save(pool: &Pool, input: &Value, operator: &str, now: i64, max: Option<i64>) -> Result<Json, Refusal> {
+pub fn save(pool: &Store, input: &Value, operator: &str, now: i64, max: Option<i64>) -> Result<Json, Refusal> {
     let slug = text(input, "slug");
     let title = text(input, "title");
     let summary = text(input, "summary");
@@ -213,7 +213,7 @@ pub fn save(pool: &Pool, input: &Value, operator: &str, now: i64, max: Option<i6
 }
 
 /// `adminProgrammes(limit)`.
-pub fn admin_list(pool: &Pool, limit: i64) -> Result<Json, Refusal> {
+pub fn admin_list(pool: &Store, limit: i64) -> Result<Json, Refusal> {
     let rows = sql::client(pool, |c| {
         select(
             c,
@@ -393,7 +393,7 @@ fn standing<C: GenericClient>(c: &mut C, user_id: &str, record: &Record, l: &Lea
 }
 
 /// `programme({ userId, slug })`.
-pub fn programme(pool: &Pool, user_id: &str, slug: &str, now: i64) -> Result<Json, Refusal> {
+pub fn programme(pool: &Store, user_id: &str, slug: &str, now: i64) -> Result<Json, Refusal> {
     sql::client(pool, |c| {
         let Some(record) = select(
             c,
@@ -412,7 +412,7 @@ pub fn programme(pool: &Pool, user_id: &str, slug: &str, now: i64) -> Result<Jso
 }
 
 /// `programmes({ userId, limit, mine })`.
-pub fn programmes(pool: &Pool, user_id: &str, limit: i64, mine: bool, now: i64) -> Result<Json, Refusal> {
+pub fn programmes(pool: &Store, user_id: &str, limit: i64, mine: bool, now: i64) -> Result<Json, Refusal> {
     sql::client(pool, |c| {
         let l = learner(c, user_id)?;
         let records = select(

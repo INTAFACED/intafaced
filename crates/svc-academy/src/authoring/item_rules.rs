@@ -6,7 +6,7 @@
 use postgres::{GenericClient, Transaction};
 
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::schema::Value;
 
 use super::release::find_cycle;
@@ -101,7 +101,7 @@ pub fn view<C: GenericClient>(c: &mut C, course_id: &str) -> Result<Json, Refusa
     ]))
 }
 
-pub fn admin_view(pool: &Pool, course_id: &str) -> Result<Json, Refusal> {
+pub fn admin_view(pool: &Store, course_id: &str) -> Result<Json, Refusal> {
     sql::client(pool, |c| view(c, course_id))
 }
 
@@ -110,7 +110,7 @@ fn gated(kind: &str) -> bool {
 }
 
 /// `setPrerequisites`.
-pub fn set_prerequisites(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_prerequisites(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let course_id = text(input, "courseId");
     let item_id = text(input, "itemId");
     let reason = text(input, "reason");

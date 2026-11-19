@@ -5,7 +5,7 @@
 use postgres::{GenericClient, Transaction};
 
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::schema::Value;
 
 use super::sql::{self, P, at, first, get, int, iso_of, ms, opt_int, query};
@@ -353,7 +353,7 @@ fn sections_of(input: &Value) -> Vec<SectionIn<'_>> {
 
 impl CourseRecords {
     /// `create`: `assertSlugFree` before anything is read, then the insert keyed by the slug.
-    pub fn create(&self, pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn create(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
         let slug = text(input, "slug");
         assert_slug_free(slug)?;
         let d = Details::of(input);
@@ -398,7 +398,7 @@ impl CourseRecords {
     }
 
     /// `duplicate`: a new draft at its own address, copied from any course; no learner record is read or written.
-    pub fn duplicate(&self, pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn duplicate(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
         let slug = text(input, "slug");
         assert_slug_free(slug)?;
         let title = text(input, "title");
@@ -579,7 +579,7 @@ impl CourseRecords {
         })
     }
 
-    pub fn update(&self, pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn update(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
         let d = Details::of(input);
         let price = canonical_price(d.price);
         let revision = super::int(input, "revision");
@@ -614,7 +614,7 @@ impl CourseRecords {
     }
 
     /// `setTopics`: the topics as a whole over the revision read.
-    pub fn set_topics(&self, pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn set_topics(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
         let revision = super::int(input, "revision");
         let topic_ids: Vec<String> = input
             .get("topicIds")
@@ -669,7 +669,7 @@ impl CourseRecords {
         })
     }
 
-    pub fn set_state(&self, pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn set_state(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
         let revision = super::int(input, "revision");
         let to = text(input, "to");
         let reason = text(input, "reason");
@@ -715,7 +715,7 @@ impl CourseRecords {
         })
     }
 
-    pub fn withdraw_price(&self, pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn withdraw_price(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
         let revision = super::int(input, "revision");
         let reason = text(input, "reason");
         sql::begin(pool, |tx| {
@@ -757,7 +757,7 @@ impl CourseRecords {
     }
 
     /// `saveOutline`: both limits set and the outline inside them before anything is read.
-    pub fn save_outline(&self, pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+    pub fn save_outline(&self, pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
         let (max_sections, max_items) = self.limits.both()?;
         let sections = sections_of(input);
         let item_count: usize = sections
@@ -805,7 +805,7 @@ impl CourseRecords {
     }
 
     /// `get(courseId)` outside a transaction.
-    pub fn get(&self, pool: &Pool, course_id: &str) -> Result<Json, Refusal> {
+    pub fn get(&self, pool: &Store, course_id: &str) -> Result<Json, Refusal> {
         sql::client(pool, |c| Ok(self.get_in(c, course_id)?.json(self.limits)))
     }
 
@@ -859,7 +859,7 @@ impl CourseRecords {
     }
 
     /// `list({ state, limit })`: a missing page size refuses before anything is read.
-    pub fn list(&self, pool: &Pool, input: &Value) -> Result<Json, Refusal> {
+    pub fn list(&self, pool: &Store, input: &Value) -> Result<Json, Refusal> {
         let Some(limit) = super::opt_int(input, "limit") else {
             return refuse("the course list needs a page size", "academy.courses_list_limit_unset");
         };

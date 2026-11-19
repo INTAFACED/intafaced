@@ -4,7 +4,7 @@
 use postgres::GenericClient;
 
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::schema::js_trim;
 
 use super::refuse;
@@ -308,7 +308,7 @@ pub fn item_videos<C: GenericClient>(c: &mut C, item_slugs: &[String]) -> Result
 }
 
 /// `VideoTracks.setItemVideo`.
-pub fn set_item_video(pool: &Pool, item_slug: &str, video_slug: Option<&str>, operator: &str, reason: &str, now: i64) -> Result<(), Refusal> {
+pub fn set_item_video(pool: &Store, item_slug: &str, video_slug: Option<&str>, operator: &str, reason: &str, now: i64) -> Result<(), Refusal> {
     sql::client(pool, |c| {
         match video_slug {
             None => sql::exec(c, "DELETE FROM academy.item_videos WHERE item_slug = $1::text", &[&item_slug])?,
@@ -326,7 +326,7 @@ pub fn set_item_video(pool: &Pool, item_slug: &str, video_slug: Option<&str>, op
 }
 
 /// `VideoTracks.tracks`: in the order staff listed them, read back as cues.
-pub fn tracks(pool: &Pool, video_slug: &str) -> Result<Vec<Track>, Refusal> {
+pub fn tracks(pool: &Store, video_slug: &str) -> Result<Vec<Track>, Refusal> {
     let rows = sql::client(pool, |c| {
         query(
             c,
@@ -353,7 +353,7 @@ pub struct TrackIn<'a> {
 }
 
 /// `VideoTracks.setTracks`: every file checked before anything is written; `[]` removes them all.
-pub fn set_tracks(pool: &Pool, video_slug: &str, input: &[TrackIn<'_>], operator: &str, reason: &str, now: i64) -> Result<Vec<Track>, Refusal> {
+pub fn set_tracks(pool: &Store, video_slug: &str, input: &[TrackIn<'_>], operator: &str, reason: &str, now: i64) -> Result<Vec<Track>, Refusal> {
     let mut languages: Vec<&str> = input.iter().map(|t| t.language).collect();
     languages.sort_unstable();
     languages.dedup();

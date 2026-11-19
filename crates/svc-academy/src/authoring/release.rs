@@ -7,7 +7,7 @@
 use postgres::{GenericClient, Transaction};
 
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::schema::{Value, js_trim};
 use service_kit::time::js_date;
 
@@ -293,7 +293,7 @@ pub fn load<C: GenericClient>(c: &mut C, user_id: &str, item_slug: &str, now: i6
 }
 
 /// `ReleaseAccess.itemRelease`: the spine check, the course start, then the view.
-pub fn item_release(pool: &Pool, user_id: &str, item_slug: &str, now: i64) -> Result<View, Refusal> {
+pub fn item_release(pool: &Store, user_id: &str, item_slug: &str, now: i64) -> Result<View, Refusal> {
     let slug = require_slug(item_slug)?;
     sql::client(pool, |c| {
         let starts = match spine::get(&slug) {
@@ -305,7 +305,7 @@ pub fn item_release(pool: &Pool, user_id: &str, item_slug: &str, now: i64) -> Re
 }
 
 /// `setItemPrerequisites`: the whole set, under one advisory lock, refused when the graph then has a cycle.
-pub fn set_item_prerequisites(pool: &Pool, input: &Value) -> Result<Json, Refusal> {
+pub fn set_item_prerequisites(pool: &Store, input: &Value) -> Result<Json, Refusal> {
     let item = require_slug(text(input, "itemSlug"))?;
     let raw: Vec<&str> = input
         .get("prerequisites")
@@ -345,7 +345,7 @@ fn date_field(input: &Value, key: &str) -> Option<i64> {
 }
 
 /// `setItemWindow`: cleared, or upserted.
-pub fn set_item_window(pool: &Pool, input: &Value) -> Result<Json, Refusal> {
+pub fn set_item_window(pool: &Store, input: &Value) -> Result<Json, Refusal> {
     let item = require_slug(text(input, "itemSlug"))?;
     let window = cleared_or_window(
         date_field(input, "availableFrom"),
@@ -390,7 +390,7 @@ pub fn published_course(slug: &str) -> Result<&'static str, Refusal> {
 }
 
 /// `CourseStarts.set`: the published-course check and the reason before the write.
-pub fn set_course_start(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_course_start(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let slug = published_course(text(input, "slug"))?;
     let reason = js_trim(text(input, "reason"));
     if reason.is_empty() {
@@ -603,12 +603,12 @@ pub fn release_view<C: GenericClient>(c: &mut C, course_id: &str) -> Result<Json
     ]))
 }
 
-pub fn course_release(pool: &Pool, course_id: &str) -> Result<Json, Refusal> {
+pub fn course_release(pool: &Store, course_id: &str) -> Result<Json, Refusal> {
     sql::client(pool, |c| release_view(c, course_id))
 }
 
 /// `CourseRelease.setSectionRelease`.
-pub fn set_section_release(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_section_release(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let course_id = text(input, "courseId");
     let section_id = text(input, "sectionId");
     let reason = text(input, "reason");
@@ -667,7 +667,7 @@ pub fn set_section_release(pool: &Pool, input: &Value, operator: &str, now: i64)
 }
 
 /// `CourseRelease.setPacing`.
-pub fn set_pacing(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_pacing(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let course_id = text(input, "courseId");
     let pacing = text(input, "pacing");
     let reason = text(input, "reason");

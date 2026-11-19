@@ -9,7 +9,7 @@ use std::time::Duration;
 use sha2::{Digest, Sha256};
 
 use service_kit::json::{self, Json};
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::schema::Value;
 
 use super::sql::{self, at, first, get, iso_of, ms, query};
@@ -137,7 +137,7 @@ impl Limits {
 
 /// `CourseMedia`'s parts.
 pub struct Media<'a> {
-    pub pool: &'a Pool,
+    pub pool: &'a Store,
     pub storage: Option<&'a Storage>,
     pub limits: &'a Limits,
     pub read_back: &'a dyn ReadBack,

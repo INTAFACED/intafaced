@@ -2,7 +2,7 @@
 //! course, each change with who and why; a field not changed keeps its stored value.
 
 use service_kit::json::Json;
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::schema::{Value, js_trim};
 use service_kit::time::js_date;
 
@@ -62,7 +62,7 @@ struct Change {
 }
 
 /// `write`: the published-course check and the reason, then one upsert that keeps what it does not change.
-fn write(pool: &Pool, input: &Value, operator: &str, now: i64, change: Change) -> Result<Json, Refusal> {
+fn write(pool: &Store, input: &Value, operator: &str, now: i64, change: Change) -> Result<Json, Refusal> {
     let slug = published_course(text(input, "slug"))?;
     let reason = js_trim(text(input, "reason"));
     if reason.is_empty() {
@@ -114,7 +114,7 @@ fn write(pool: &Pool, input: &Value, operator: &str, now: i64, change: Change) -
 }
 
 /// `setSeatCap`: a whole number above zero, or `null` to take it off.
-pub fn set_seat_cap(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_seat_cap(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let cap = input.get("seatCap").as_number();
     if let Some(n) = cap
         && !(n.fract() == 0.0 && n > 0.0 && n <= 9_007_199_254_740_991.0)
@@ -135,7 +135,7 @@ pub fn set_seat_cap(pool: &Pool, input: &Value, operator: &str, now: i64) -> Res
 }
 
 /// `setWindow`: opens before closes, checked before anything else.
-pub fn set_window(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_window(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let date = |k: &str| super::opt_text(input, k).and_then(|s| js_date(s).map(|i| i.0));
     let (opens, closes) = (date("opensAt"), date("closesAt"));
     if let (Some(o), Some(c)) = (opens, closes)
@@ -156,7 +156,7 @@ pub fn set_window(pool: &Pool, input: &Value, operator: &str, now: i64) -> Resul
 }
 
 /// `setVisibility`.
-pub fn set_visibility(pool: &Pool, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
+pub fn set_visibility(pool: &Store, input: &Value, operator: &str, now: i64) -> Result<Json, Refusal> {
     let v = text(input, "visibility");
     if !VISIBILITIES.contains(&v) {
         return refuse("academy.course_visibility_invalid", "academy.cert_invalid");

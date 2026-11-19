@@ -6,7 +6,7 @@
 use postgres::{GenericClient, Transaction};
 
 use service_kit::json::{self, Json};
-use service_kit::pg::Pool;
+use crate::db::Store;
 use service_kit::schema::{Value, js_trim};
 
 use super::courses::CourseRecords;
@@ -354,7 +354,7 @@ fn own_course_event(tx: &mut Transaction<'_>, item: &Item, actor: &str, kind: &s
 
 /// `LessonRecords`.
 pub struct Lessons<'a> {
-    pub pool: &'a Pool,
+    pub pool: &'a Store,
     pub courses: &'a CourseRecords,
     pub import_max_bytes: Option<i64>,
 }
