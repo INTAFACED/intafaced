@@ -107,7 +107,7 @@ const FIXED_IDS = new Set([USER, ID, SESSION]);
 const BASE_ENV: NodeJS.ProcessEnv = {
   APP_ENV: 'test',
   SERVICE_NAME: 'svc-p2p',
-  DATABASE_URL: 'postgres://replay:replay@localhost:5432/replay',
+  DATABASE_URL: 'postgres://replay:replay@localhost:5432/replay_test',
   DATABASE_POOL_MAX: '1',
   EDGE_PRINCIPAL_SECRET: SECRET,
   INTERNAL_SERVICE_SECRET: INTERNAL,
