@@ -348,7 +348,7 @@ fn a_course_duplicate_is_a_draft_at_its_own_address_with_the_outline_and_newest_
         ),
     );
     // No learner record on the copy; the source keeps its learner.
-    assert_eq!(db.texts("SELECT course_id::text FROM academy.course_enrolments"), [course_id.clone()]);
+    assert_eq!(db.texts("SELECT course_id::text FROM academy.course_enrolments"), std::slice::from_ref(&course_id));
     // The source is unchanged.
     same(at_path(&c.get(&st, &course_id).unwrap(), "course"), at_path(&source, "course"));
     // A repeat after a lost reply answers with the stored copy; anyone else at that address is a taken slug.

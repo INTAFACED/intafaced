@@ -43,6 +43,24 @@ pub fn cleared_or_window(from: Option<i64>, until: Option<i64>, due: Option<i64>
     Ok(Some(Window { from, until, due }))
 }
 
+/// `requireExtensionReason`: the reason trimmed, or refused when blank (the extension calls' first check).
+pub fn require_extension_reason(reason: &str) -> Result<&str, Refusal> {
+    let trimmed = js_trim(reason);
+    if trimmed.is_empty() {
+        return refuse("academy.reason_required", "academy.reason_required");
+    }
+    Ok(trimmed)
+}
+
+/// `assertExtensionExtends`: an extension must pass the published window's end and its due.
+pub fn assert_extension_extends(window: Window, extended_until: i64) -> Result<(), Refusal> {
+    let bound = window.due.map_or(window.until, |d| d.min(window.until));
+    if extended_until <= bound {
+        return refuse("extension does not pass the published window", "academy.window_invalid");
+    }
+    Ok(())
+}
+
 /// `normalizePrerequisites`: each on the spine, no self-edge, deduplicated and sorted.
 pub fn normalize_prerequisites(item_slug: &str, raw: &[&str]) -> Result<Vec<String>, Refusal> {
     let item = require_slug(item_slug)?;
@@ -200,6 +218,7 @@ impl View {
             ("extendedUntil", opt_ms(self.extended_until)),
             ("reason", nullable(self.reason.clone())),
             ("grantedAt", opt_ms(self.granted_at)),
+            ("grantedBy", nullable(self.granted_by.clone())),
         ])
     }
 }
