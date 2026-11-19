@@ -15,6 +15,7 @@ use service_kit::pg::Pool;
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_academy::community::{Db, analytics, moderation};
 use svc_academy::curriculum::{internal::ServiceAuth, spine};
 use svc_academy::db::Store;
 use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
@@ -22,6 +23,7 @@ use svc_academy::env::{self, AcademyEnv};
 use svc_academy::migrate;
 use svc_academy::ports::{JetStreamBus, Ports};
 use svc_academy::settings::Settings;
+use svc_academy::slices;
 
 fn process_env() -> BTreeMap<String, String> {
     std::env::vars_os()
@@ -86,6 +88,39 @@ fn door(env: &AcademyEnv, bus: Option<JetStreamBus>) -> Result<AcademyDoor, Stri
     })
 }
 
+/// AC-analytics-02: the report sweep runs requested reports, one sweep at a time, every `ACADEMY_REPORT_SWEEP_SECONDS`
+/// (the first after one interval, as `setInterval`), on its own connection. A blank interval runs none.
+fn report_sweep(
+    door: &AcademyDoor,
+    log: &Logger,
+    stop: &Arc<AtomicBool>,
+) -> Option<std::thread::JoinHandle<()>> {
+    let settings = slices::community::report_settings(door.settings());
+    let seconds = u64::try_from(settings.sweep_seconds?).ok()?;
+    let url = door.store().pool().ok()?.url().to_owned();
+    let (log, stop) = (log.clone(), stop.clone());
+    Some(std::thread::spawn(move || {
+        let pool = Pool::new(&url, 1);
+        let tick = std::time::Duration::from_millis(200);
+        'sweeps: loop {
+            let due = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+            while std::time::Instant::now() < due {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    break 'sweeps;
+                }
+                std::thread::sleep(tick);
+            }
+            if let Err(e) = analytics::sweep(&pool, &settings, system_now()) {
+                log.error(
+                    vec![("err", Json::str(format!("{e:?}")))],
+                    "report sweep failed; the next one retries",
+                );
+            }
+        }
+        pool.end();
+    }))
+}
+
 fn run() -> Result<(), String> {
     let env = env::load(&process_env()).map_err(|e| e.message)?;
     // The embedded spine loads, or the service does not start (the TypeScript catalog throws at module load).
@@ -123,6 +158,20 @@ fn run() -> Result<(), String> {
             return Err(e);
         }
     };
+    // AC-rooms-02: author notices a down bus left waiting go now. A failure leaves them waiting; the boot goes on.
+    let outbox = moderation::Outbox {
+        bus: door.ports().bus.as_ref(),
+        producer: slices::community::producer(door.settings()),
+        log: &slices::community::log_notice_error,
+    };
+    if let Err(e) = moderation::send_waiting(&Db(door.store()), &outbox) {
+        log.error(
+            vec![("err", Json::str(format!("{e:?}")))],
+            "moderation notices could not be sent at boot",
+        );
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let report_sweep = report_sweep(&door, &log, &stop);
     let ready_body = door.ready().compact();
     let app = App {
         wire: door,
@@ -142,12 +191,14 @@ fn run() -> Result<(), String> {
         "svc-academy ready",
     );
 
-    let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
     }
     server::serve(&server, &app, &log, &telemetry, &stop);
     drop(server);
+    if let Some(t) = report_sweep {
+        let _ = t.join();
+    }
     app.wire.end();
     telemetry.shutdown();
     log.info(Vec::new(), "svc-academy stopped");
