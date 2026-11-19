@@ -308,8 +308,8 @@ jobs:
         run: pnpm format:check
 
   # The Rust workspace (Cargo.toml, crates/): format, clippy with warnings as errors, and tests, by the same command a
-  # builder runs (`pnpm rust:check`). It runs when the change reaches Rust (ci-affected.mjs `rust`: a Rust file, this
-  # file or the root package.json) and on every run-everything run; the seal then needs it green, skipped or not.
+  # builder runs (`pnpm rust:check`). It runs when the change reaches Rust (ci-affected.mjs `rust`: a Rust file, the
+  # TypeScript service a crate replaces and whose recorded answers its tests read, this file or the root package.json) and on every run-everything run; the seal then needs it green, skipped or not.
   # The runner's rustup installs the toolchain rust-toolchain.toml pins; no third-party action is involved.
   rust:
     name: Rust

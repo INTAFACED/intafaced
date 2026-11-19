@@ -1,0 +1,50 @@
+{
+  "inputs": {
+    "venueEconomics": { "sample": "{\"period\":\"placeholder\"}", "sample-nulls": "{\"period\":null}" }
+  },
+  "bodies": [
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"venueEconomics\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"venueEconomics\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"venueEconomics\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"venueEconomics\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"venueEconomics\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"venueEconomics\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"period\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"venueEconomics\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"ops.cost_storage_unconfigured — No durable storage is configured for venue cost entries. Nothing was read or saved.\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"venueEconomics\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"ops.cost_storage_unconfigured\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"period\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"venueEconomics\",\"requestId\":\"replay-request\"}}}"
+  ],
+  "answers": {
+    "blank venueEconomics": {
+      "absent anon": [401, 0],
+      "absent no-scope": [403, 1],
+      "absent all": [400, 2],
+      "absent all-no-mfa": [400, 2],
+      "absent all-US": [403, 3],
+      "null anon": [401, 0],
+      "null no-scope": [403, 1],
+      "null all": [400, 4],
+      "null all-no-mfa": [400, 4],
+      "null all-US": [403, 3],
+      "wrong-type anon": [401, 0],
+      "wrong-type no-scope": [403, 1],
+      "wrong-type all": [400, 5],
+      "wrong-type all-no-mfa": [400, 5],
+      "wrong-type all-US": [403, 3],
+      "empty anon": [401, 0],
+      "empty no-scope": [403, 1],
+      "empty all": [400, 6],
+      "empty all-no-mfa": [400, 6],
+      "empty all-US": [403, 3],
+      "sample anon": [401, 0],
+      "sample no-scope": [403, 1],
+      "sample all": [412, 7],
+      "sample all-no-mfa": [412, 7],
+      "sample all-US": [403, 3],
+      "sample-nulls anon": [401, 0],
+      "sample-nulls no-scope": [403, 1],
+      "sample-nulls all": [400, 8],
+      "sample-nulls all-no-mfa": [400, 8],
+      "sample-nulls all-US": [403, 3]
+    }
+  }
+}
