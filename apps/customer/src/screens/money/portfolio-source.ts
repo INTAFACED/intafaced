@@ -388,7 +388,7 @@ export interface LockSplit {
 }
 
 /** Reshape the bank's answer into one `LockSplit` per coin. Sums are exact (scaled integers), never floating point. */
-export function lockSplits(answer: z.infer<typeof breakdownSchema>): Record<string, LockSplit> | null {
+export function lockSplits(answer: z.input<typeof breakdownSchema>): Record<string, LockSplit> | null {
   const out: Record<string, LockSplit> = {};
   for (const asset of answer.assets) {
     // One amount that does not parse makes the whole answer unusable: never turn an unknown figure into a shown zero.
