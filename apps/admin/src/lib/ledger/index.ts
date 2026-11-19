@@ -5,4 +5,5 @@ import 'server-only';
  * (`garden/no-cross-feature-import`); a piece it needs that is not listed is exported here first. This entry is for
  * server code: the treasury transport reads the console's token.
  */
+export { readLedgerLookup, type LedgerLookupOutcome } from './lookup-server';
 export { treasuryTransport } from './reconciliation-server';
