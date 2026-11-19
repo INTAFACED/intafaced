@@ -613,15 +613,6 @@
       "why": "trigger_key is not in the column list (service.ts:1572-1574), so it is NULL, and NULLs do not clash in a plain unique index. syncRiskStop writes armed rows only."
     },
     {
-      "file": "services/svc-trade/src/futures/margin-call-transport.ts",
-      "table": "position_margin_calls",
-      "target": "(position_id) WHERE cleared_atisnull",
-      "constraint": "position_margin_calls_seq_uidx",
-      "verdict": "race",
-      "issue": 8876,
-      "why": "Only with two svc-trade processes running the futures.liquidation job: job-host.ts:44 guards overlap only inside one process, and nothing locks per position (no advisory lock or FOR UPDATE in liquidation-tick.ts). Two ticks on the same position with no open call both compute next_seq = MAX+1 in their own snapshot (margin-call-transport.ts:154-158), so they write equal (position_id, sequence). The loser gets 23505 on position_margin_calls_seq_uidx. durableMarginCallNotifier (margin-call-transport.ts:86) turns that into delivered:false."
-    },
-    {
       "file": "services/svc-trade/src/futures/matched-orders.ts",
       "table": "futures_orders",
       "target": "(user_id, market_id, client_order_id)",
