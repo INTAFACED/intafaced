@@ -197,6 +197,11 @@ impl Wire {
     }
 
     /// Also believes principals the edge signed with its key (`edgeTrustFromEnv`).
+    /// Whether a principal signed by the edge's key is believed here (`EDGE_PRINCIPAL_PUBLIC_KEY` set at boot).
+    pub fn trusts_edge_key(&self) -> bool {
+        self.edge_key.is_some()
+    }
+
     pub fn with_edge_key(mut self, key: EdgeKey) -> Wire {
         self.edge_key = Some(key);
         self
