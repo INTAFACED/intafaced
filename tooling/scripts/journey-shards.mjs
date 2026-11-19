@@ -66,7 +66,16 @@ export const MIN_SHARDS = 8;
 // 43745093079 planned 64 and passed them in shards of 3 to 6: steps that read the shared stack failed only beside a pull
 // request's extra neighbours, and the pull request waited 420 minutes.) A targeted run too big for its cap plans the
 // same way (targetedShards).
-export const MAX_SHARDS = 64;
+// Raised from 64 to 90 on 19 Nov 2026 (INTAFACED/project-state#3240): main's run 44464621638 planned 64 shards of about
+// 14 minutes (891 in all against the 10-minute target, so the ceiling bound), their journeys took 6.7 to 18.1 minutes
+// (median 12.5) and the run ended at 29.4. Replaying that run's own times through this planner: 64 shards give a median
+// shard of 11.9 minutes of journeys, 90 give 8.5 (p90 9.3); past that the longest file (J-campaigns-18, 14.7) sets the
+// end. Never past JOBS_PAGE less the workflow's other jobs (jobsFit): the readers of a run's jobs ask one page of 100
+// (journeys-revert.mjs early, main-trust.mjs, post-merge-trust.mjs, journey-seal.mjs), so a shard on page two would be
+// a shard they never see.
+export const MAX_SHARDS = 90;
+// One page of the jobs API, as the run's readers ask it (`jobs?per_page=100`).
+export const JOBS_PAGE = 100;
 // The workflow stops a shard's journeys after this (Playwright's globalTimeout), so the shard still reports.
 const JOURNEY_LIMIT_MINUTES = Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS || 3_600_000) / 60_000;
 // The planner warns when a shard's journeys come within this of the limit; a capped plan must stay clear of it.
@@ -286,6 +295,21 @@ export function planCovers(plan, files, fresh = new Set()) {
  */
 export function fullPlan() {
   return { target: MIN_TARGET_MINUTES * 60_000, max: MAX_SHARDS };
+}
+
+/**
+ * The jobs a Real-app journeys run holds besides its shards: the job keys of the workflow file, less the one matrix job.
+ * Problems with `max` shards beside them on one page of the jobs API, or none. Pure, for the tests.
+ */
+export function jobsFit(workflowText, max = MAX_SHARDS, page = JOBS_PAGE) {
+  const body = String(workflowText).split(/^jobs:$/m)[1] ?? '';
+  const others = (body.match(/^ {2}[a-z][a-z0-9_-]*:$/gm) ?? []).length - 1;
+  if (others < 1) return [`no jobs read from the workflow`];
+  return others + max > page
+    ? [
+        `${max} shards and ${others} other jobs make ${others + max}, past one page of ${page} jobs: lower MAX_SHARDS in tooling/scripts/journey-shards.mjs to ${page - others} or less`,
+      ]
+    : [];
 }
 
 /** How many shards keep each one's journeys near `targetMs`, between `min` and `max`. */
