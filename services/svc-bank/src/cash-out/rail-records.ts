@@ -131,6 +131,17 @@ export function railRecorder(dir: string, rail: string, lockWaitMs = 10_000) {
     async has(key: string): Promise<boolean> {
       return (await readComplete(file, rail)).lines.some((line) => line.key === key);
     },
+    /** Every complete movement the rail recorded, oldest first, each checked. */
+    async movements(): Promise<Array<RailMovement & { readonly at: Date }>> {
+      return (await readComplete(file, rail)).lines.map((line) => ({
+        key: line.key,
+        direction: line.direction as 'in' | 'out',
+        assetId: line.assetId,
+        amount: parseAmount(line.amount),
+        ...(line.ref === undefined ? {} : { ref: line.ref }),
+        at: new Date(line.at),
+      }));
+    },
   };
 }
 

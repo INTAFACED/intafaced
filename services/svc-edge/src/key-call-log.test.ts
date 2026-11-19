@@ -58,7 +58,7 @@ describe('reportKeyCall', () => {
     const fetch = (async (url: string, init: RequestInit) => {
       seen.push({ url, init });
       return new Response(JSON.stringify({ result: { data: { recorded: true } } }), { status: 200 });
-    }) as unknown as typeof globalThis.fetch;
+    }) as typeof globalThis.fetch;
     expect(await reportKeyCall({ identityUrl: 'http://identity.test/', identityOwnershipSecret: SECRET, fetch, report })).toBe(true);
     expect(seen).toHaveLength(1);
     expect(seen[0]!.url).toBe('http://identity.test/trpc/developerKeys.recordCall');
@@ -67,10 +67,10 @@ describe('reportKeyCall', () => {
   });
 
   it('answers false, never throws, when identity refuses or cannot be reached', async () => {
-    const refusing = (async () => new Response('{}', { status: 401 })) as unknown as typeof globalThis.fetch;
+    const refusing = (async () => new Response('{}', { status: 401 })) as typeof globalThis.fetch;
     const down = (async () => {
       throw new Error('ECONNREFUSED');
-    }) as unknown as typeof globalThis.fetch;
+    }) as typeof globalThis.fetch;
     expect(await reportKeyCall({ identityUrl: 'http://identity.test', identityOwnershipSecret: SECRET, fetch: refusing, report })).toBe(
       false,
     );

@@ -201,7 +201,6 @@ export function ExportButton({
   const { can } = useMerchantAccess();
   const [state, setState] = useState<'idle' | 'busy' | 'started' | { message: string }>('idle');
   // A different view is a different request; the same view clicked twice replays the first.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const requestId = useMemo(newRequestId, [kind, JSON.stringify(query)]);
   const allowed = can('exports.create');
   return (

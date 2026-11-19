@@ -1,4 +1,16 @@
 import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
+import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
+import {
+  P2P_ACCESS_ELIGIBILITY,
+  P2P_CONTACTS_BLOCK,
+  P2P_CONTACTS_FOLLOW,
+  P2P_CONTACTS_LIST,
+  P2P_CONTACTS_UNBLOCK,
+  P2P_CONTACTS_UNFOLLOW,
+  P2P_FIAT_LIST,
+  P2P_HEALTH,
+  P2P_LIMITS_VERIFICATION,
+} from '@intafaced/contracts/p2p-procedures';
 import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -354,6 +366,13 @@ function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false
 export const PAUSED_OFFERS_SHOWN = 200;
 /** P-ads-merchant-07: a share token as svc-p2p makes it. */
 const SHARE_TOKEN = /^[A-Za-z0-9_-]{32}$/;
+/** Each contacts change, by the record that makes it. */
+const CONTACT_CHANGES = {
+  follow: P2P_CONTACTS_FOLLOW,
+  unfollow: P2P_CONTACTS_UNFOLLOW,
+  block: P2P_CONTACTS_BLOCK,
+  unblock: P2P_CONTACTS_UNBLOCK,
+} as const;
 
 /**
  * P-ads-merchant-07: a private ad without a link, or a link that ended or was withdrawn, in plain words rather than the
@@ -447,10 +466,12 @@ export function createPersonalPayApi(
   async function spaces(signal?: AbortSignal) {
     const denied = signedIn();
     if (denied) return denied;
-    const result = await api.query('bank', 'spaces.list', { limit: 200 }, z.array(s.spaceSchema), { signal });
+    const result = await api.call(BANK_SPACES_LIST, { limit: 200 }, { signal });
+    if (!result.ok) return result;
+    // A space the partner bank holds has no ledger account, so Pay cannot draw on it: it is not offered as a source.
+    const payable = result.data.flatMap((space) => (space.ledgerAccount ? [{ ...space, ledgerAccount: space.ledgerAccount }] : []));
     if (
-      result.ok &&
-      result.data.some(
+      payable.some(
         (space) =>
           space.ledgerAccount.assetId !== space.assetId ||
           (space.kind === 'primary'
@@ -459,7 +480,7 @@ export function createPersonalPayApi(
       )
     )
       return payRefusal('theSourceAccountProjectionDoesNotMatch', { code: 'pay.source_projection_invalid', reason: 'invalid_response' });
-    return result;
+    return { ok: true as const, data: payable };
   }
   return {
     spaces,
@@ -539,8 +560,9 @@ export function createPersonalPayApi(
     /** One reply from the person a review is about. */
     replyReview: (input: { tradeId: string; text: string }) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'reviews.reply', input, s.orderReviewSchema),
-    health: (signal?: AbortSignal) => api.query('p2p', 'health', undefined, s.p2pHealthSchema, { signal }),
-    fiat: (signal?: AbortSignal) => api.query('p2p', 'fiat.list', undefined, z.array(s.fiatSchema), { signal }),
+    /** Only a live service answers `ok: true`; anything else reads as unverified. */
+    health: (signal?: AbortSignal) => api.call(P2P_HEALTH, undefined, { signal, accept: (health) => health.ok }),
+    fiat: (signal?: AbortSignal) => api.call(P2P_FIAT_LIST, undefined, { signal }),
     methods: (signal?: AbortSignal) => api.query('p2p', 'instruments.methods.list', { limit: 200 }, z.array(s.methodSchema), { signal }),
     instruments: (limit: number, signal?: AbortSignal) =>
       api.query('p2p', 'instruments.list', { limit }, z.array(s.instrumentSchema), { signal }),
@@ -573,6 +595,14 @@ export function createPersonalPayApi(
       const key = names.find((name) => name === asset) ?? names.find((name) => name.toLowerCase() === asset.toLowerCase());
       return { ok: true, data: key === undefined ? '0' : result.data.balances[key]!.free };
     },
+    /** RC-p2p-02: the contract escrow for one asset: offered, or refused with its blocker; mainnet is always off. */
+    contractEscrow: (asset: string, signal?: AbortSignal) =>
+      api.query('p2p', 'trades.contractEscrow', { asset }, s.contractEscrowOfferSchema, { signal }),
+    /** RC-p2p-02: the seller attaches the deal they opened and locked; svc-p2p reads it from the chain and checks it. */
+    attachContractDeal: (tradeId: string, dealId: string) =>
+      api.mutate('p2p', 'trades.attachContractDeal', { tradeId, dealId }, s.tradeSchema),
+    /** RC-p2p-02: either party brings the order to its deal's chain state (released, refunded, disputed). */
+    syncContractDeal: (tradeId: string) => api.mutate('p2p', 'trades.syncContractDeal', { tradeId }, s.tradeSchema),
     reputation: async (counterparty: string, signal?: AbortSignal) => {
       const denied = signedIn();
       if (denied) return denied;
@@ -636,7 +666,7 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.query('p2p', 'contacts.list', undefined, s.contactsSchema, { signal });
+      return api.call(P2P_CONTACTS_LIST, undefined, { signal });
     },
     /**
      * `contacts.follow | unfollow | block | unblock`. `idempotencyKey` makes a repeat of the same change harmless; the
@@ -646,13 +676,13 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.mutate('p2p', `contacts.${change}`, { peerId, idempotencyKey }, s.contactsSchema, { signal });
+      return api.call(CONTACT_CHANGES[change], { peerId, idempotencyKey }, { signal });
     },
     /** `access.eligibility`: what this person needs before taking an ad, check by check. */
     eligibility(signal?: AbortSignal) {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
-      return api.query('p2p', 'access.eligibility', undefined, s.p2pEligibilitySchema, { signal });
+      return api.call(P2P_ACCESS_ELIGIBILITY, undefined, { signal });
     },
     /** P-ads-merchant-01: the advertiser terms version to accept before posting an ad, and when this person accepted it. */
     advertiserTerms(signal?: AbortSignal) {
@@ -676,7 +706,7 @@ export function createPersonalPayApi(
     levelLimits(signal?: AbortSignal) {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
-      return api.query('p2p', 'limits.verification', undefined, s.p2pLevelLimitsSchema, { signal });
+      return api.call(P2P_LIMITS_VERIFICATION, undefined, { signal });
     },
     /** P-ads-merchant-12: what posting an ad in this fiat needs, each check with this person's value and the target. */
     postingEligibility(fiatCurrency: string, signal?: AbortSignal) {
@@ -965,7 +995,14 @@ export function createPersonalPayApi(
     async takeOffer(
       offer: s.Offer,
       request: TakeRequest,
-      reviewed: { quote: s.TakeQuote; current: () => boolean; recoveryCurrent?: () => boolean; stepUpApprovalId?: string },
+      reviewed: {
+        quote: s.TakeQuote;
+        current: () => boolean;
+        recoveryCurrent?: () => boolean;
+        stepUpApprovalId?: string;
+        /** RC-p2p-02: a contract-escrow order paying the buyer's own connected wallet. Absent: the ledger escrow. */
+        contractEscrow?: { buyerWallet: string };
+      },
     ) {
       const denied = signedIn();
       if (denied) return denied;
@@ -1008,6 +1045,7 @@ export function createPersonalPayApi(
             ...shareOf(offer.id),
             // The fresh confirmation of exactly this review; inside this session's confirmed ten minutes there is none.
             ...(reviewed.stepUpApprovalId ? { stepUpApprovalId: reviewed.stepUpApprovalId } : {}),
+            ...(reviewed.contractEscrow ? { escrowKind: 'contract', buyerWallet: reviewed.contractEscrow.buyerWallet } : {}),
           },
           s.tradeSchema,
         );

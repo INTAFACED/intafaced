@@ -1,5 +1,5 @@
-import { QUANT_QUOTA_RESOURCES, type QuantQuotaResource } from '@intafaced/contracts';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
+import { QUANT_QUOTA_RESOURCES, QUANT_SANDBOX_LIMITS, type QuantQuotaResource, type QuantSandboxLimit } from '@intafaced/contracts';
 import type { AccountCounts } from './counts.js';
 import { QUANT_QUOTA_EXCEEDED, QUANT_QUOTA_PROFILE_UNSET, QUANT_QUOTA_UNSET, QuantError } from '../errors.js';
 
@@ -30,7 +30,30 @@ export function isQuotaResource(value: string): value is QuotaResource {
   return (QUOTA_RESOURCES as readonly string[]).includes(value);
 }
 
-export type Db = Sql | TransactionSql;
+/**
+ * The sandbox limits a profile carries (AL-limits-02, J-algo-dev-12), in the order a refusal names the first unset one.
+ * Each is an owner value: blank refuses every start `quant.sandbox_limit_unset`; `0` is a deliberate value.
+ */
+export const SANDBOX_LIMITS = QUANT_SANDBOX_LIMITS;
+export type SandboxLimit = QuantSandboxLimit;
+
+/** What each sandbox limit bounds, in the words a refusal names it with. */
+export const SANDBOX_LIMIT_NAMES: Record<SandboxLimit, string> = {
+  wall_clock_ms: 'wall-clock time per run in milliseconds',
+  memory_bytes: 'memory per run in bytes',
+  output_bytes: 'log output per run in bytes',
+};
+
+export function isSandboxLimit(value: string): value is SandboxLimit {
+  return (SANDBOX_LIMITS as readonly string[]).includes(value);
+}
+
+/** A profile's stored sandbox limit; null is blank ("not set"). */
+export interface SandboxLimitRow {
+  readonly limit: SandboxLimit;
+  readonly value: bigint | null;
+  readonly setAt: string;
+}
 
 /** One resource a write adds to: what the account holds now (counted after the lock) and how much this write adds. */
 export interface QuotaNeed {
@@ -58,8 +81,8 @@ export interface QuotaLimitRow {
  * count can't drift from the data and two writes racing at the limit can't both pass.
  */
 export interface QuotaGate {
-  lock(db: Db | null, accountId: string, resources: readonly QuotaResource[]): Promise<void>;
-  check(db: Db | null, accountId: string, needs: readonly QuotaNeed[]): Promise<void>;
+  lock(db: Queryable | null, accountId: string, resources: readonly QuotaResource[]): Promise<void>;
+  check(db: Queryable | null, accountId: string, needs: readonly QuotaNeed[]): Promise<void>;
 }
 
 /** The operator's writes and the reads behind `quota.get`. */
@@ -68,6 +91,17 @@ export interface QuotaRepository {
   /** What the account holds now, counted from its stored rows. */
   counts(accountId: string): Promise<AccountCounts>;
   limits(profile: string): Promise<readonly QuotaLimitRow[]>;
+  /** A profile's sandbox limits as stored (J-algo-dev-12). */
+  sandboxLimits(profile: string): Promise<readonly SandboxLimitRow[]>;
+  /** Sets one sandbox limit of one profile; blank is "not set". A reason is required and kept with the actor. */
+  setSandboxLimit(input: {
+    readonly profile: string;
+    readonly limit: SandboxLimit;
+    readonly value: bigint | null;
+    readonly reason: string;
+    readonly actor: string;
+    readonly idempotencyKey: string;
+  }): Promise<{ readonly profile: string; readonly limit: SandboxLimit; readonly value: bigint | null; readonly setAt: string }>;
   set(input: {
     readonly profile: string;
     readonly resource: QuotaResource;
@@ -83,6 +117,33 @@ export interface QuotaRepository {
     readonly actor: string;
     readonly idempotencyKey: string;
   }): Promise<{ readonly accountId: string; readonly profile: string; readonly assignedAt: string }>;
+  /** Every published compute tier (RC-algo-dev-05), by profile name. */
+  tiers(): Promise<readonly TierRow[]>;
+  /** Publishes or withdraws the tier on one profile. A reason is required and kept with the actor. */
+  setTier(input: {
+    readonly profile: string;
+    readonly dataFreshnessSeconds: bigint | null;
+    readonly priorityClass: bigint | null;
+    readonly published: boolean;
+    readonly reason: string;
+    readonly actor: string;
+    readonly idempotencyKey: string;
+  }): Promise<TierWrite>;
+}
+
+/**
+ * A compute tier on a quota profile (RC-algo-dev-05): how fresh the data a run reads is, in whole seconds behind the
+ * exchange's own prices, and its execution priority class. Both are owner values; null is blank ("not set").
+ */
+export interface TierRow {
+  readonly profile: string;
+  readonly dataFreshnessSeconds: bigint | null;
+  readonly priorityClass: bigint | null;
+  readonly setAt: string;
+}
+
+export interface TierWrite extends TierRow {
+  readonly published: boolean;
 }
 
 /**
@@ -109,6 +170,14 @@ export function judgeNeeds(
   }
 }
 
+/** An owner value as the operator sends it: a whole number as a decimal string, or blank for "not set". */
+export function parseWhole(field: string, raw: string | null | undefined): bigint | null {
+  const text = raw?.trim() ?? '';
+  if (!text) return null;
+  if (!/^\d{1,18}$/.test(text)) throw new QuantError('quant.params_invalid', `${field} — a whole number of at most 18 digits, or blank`);
+  return BigInt(text);
+}
+
 /** A limit as the operator sends it: a whole number as a decimal string, or blank for "not set". */
 export function parseLimit(raw: string | null | undefined): bigint | null {
   const text = raw?.trim() ?? '';
@@ -121,6 +190,8 @@ export function parseLimit(raw: string | null | undefined): bigint | null {
 export interface QuotaSeed {
   readonly profile: string;
   readonly limits: Readonly<Partial<Record<QuotaResource, string>>>;
+  /** The TEST profile's sandbox limits (J-algo-dev-12), so every journey's run can start on the stack. */
+  readonly sandbox?: Readonly<Partial<Record<SandboxLimit, string>>>;
 }
 
 export function parseQuotaSeed(raw: string | undefined): QuotaSeed | null {
@@ -142,5 +213,16 @@ export function parseQuotaSeed(raw: string | undefined): QuotaSeed | null {
     if (typeof value !== 'string' || !/^\d{1,18}$/.test(value)) throw new Error(`QUANT_TEST_QUOTA_SEED ${resource} is not a whole number`);
     limits[resource] = value;
   }
-  return { profile: rec.profile, limits };
+  const sandbox: Partial<Record<SandboxLimit, string>> = {};
+  const rawSandbox = (parsed as { sandbox?: unknown }).sandbox;
+  if (rawSandbox !== undefined) {
+    if (!rawSandbox || typeof rawSandbox !== 'object') throw new Error('QUANT_TEST_QUOTA_SEED sandbox is not an object');
+    for (const [limit, value] of Object.entries(rawSandbox as Record<string, unknown>)) {
+      if (!isSandboxLimit(limit)) throw new Error(`QUANT_TEST_QUOTA_SEED names an unknown sandbox limit ${limit}`);
+      if (typeof value !== 'string' || !/^\d{1,18}$/.test(value))
+        throw new Error(`QUANT_TEST_QUOTA_SEED sandbox ${limit} is not a whole number`);
+      sandbox[limit] = value;
+    }
+  }
+  return { profile: rec.profile, limits, sandbox };
 }

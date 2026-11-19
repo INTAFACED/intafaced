@@ -2,8 +2,8 @@ import { QUANT_BAR_SIZES, quantCompileOutputSchema, type QuantSignalRules } from
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Select } from '../more';
+import { useApi } from '../session';
 import { builderCopy } from './builder-copy';
 import { ruleRefusal, trimSignalRules, type RuleInputName, type RuleRefusal } from './signal-rules';
 

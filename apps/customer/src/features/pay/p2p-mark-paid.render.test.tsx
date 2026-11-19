@@ -47,7 +47,7 @@ const trade: Trade = {
 const byText = (text: string) => [...document.querySelectorAll('button')].filter((button) => button.textContent === text);
 
 async function openMarkPaid(manageTrade: PersonalPayApi['manageTrade']) {
-  const pay = { manageTrade } as unknown as PersonalPayApi;
+  const pay = { manageTrade } as PersonalPayApi;
   root = createRoot(host);
   const mounted = root;
   await act(async () =>
@@ -60,7 +60,7 @@ async function openMarkPaid(manageTrade: PersonalPayApi['manageTrade']) {
 describe('Mark payment sent checklist (J-p2p-01 #7)', () => {
   it('keeps the confirm off until all three lines are ticked, then marks the order paid once', async () => {
     const manageTrade = vi.fn(async (..._args: unknown[]) => ({ ok: true as const, data: { ...trade, status: 'fiat_sent' as const } }));
-    const checklist = await openMarkPaid(manageTrade as unknown as PersonalPayApi['manageTrade']);
+    const checklist = await openMarkPaid(manageTrade as PersonalPayApi['manageTrade']);
     expect(checklist.textContent).toContain('I paid 9.2 EUR, the exact amount of this order');
     expect(checklist.textContent).toContain('I paid from an account in my own name');
     expect(checklist.textContent).toContain('I paid to the payment details shown on this order');
@@ -95,7 +95,7 @@ describe('Mark payment sent checklist (J-p2p-01 #7)', () => {
   });
 
   it('is not offered to the seller', async () => {
-    const pay = {} as unknown as PersonalPayApi;
+    const pay = {} as PersonalPayApi;
     root = createRoot(host);
     const mounted = root;
     await act(async () =>

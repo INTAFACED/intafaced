@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * An account's operator metadata on the ledger desk (J-ops-console-03 #6, #7, OPS-ledger-desk-01): the shapes the console
  * reads from svc-ledger through svc-edge, and the checks it makes before sending a write. svc-ledger checks everything
@@ -48,10 +49,6 @@ export interface AccountMetadata {
 
 export function isAccountId(value: unknown): value is string {
   return typeof value === 'string' && UUID.test(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 const isRevision = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= REVISION_MAX;

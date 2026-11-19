@@ -7,6 +7,7 @@
  * prices can't be read, or the account is paused) is shown as that refusal and never papered over by the fallback.
  * Each row of the result says which one it came from (`source`).
  */
+import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { useEffect, useMemo } from 'react';
 import { z } from 'zod';
 import { classOf, useDataEnv, useSource, type Decimal, type Holding, type Loadable, type PortfolioSummary } from '../../data';
@@ -351,13 +352,6 @@ export function useHomePortfolio(unit: MoneyUnit = 'USD'): Loadable<HomePortfoli
 
 // ── named accounts ("Spaces" on the server) ──────────────────────────────────
 
-const spaceSchema = z.object({
-  id: z.string(),
-  assetId: z.string(),
-  kind: z.string(),
-  name: z.string(),
-  balance: z.string(),
-});
 export interface NamedAccount {
   id: string;
   name: string;
@@ -369,7 +363,7 @@ const SPACES_PAGE = 200;
 
 function accountsFetcher(env: DataEnv): Fetcher<NamedAccount[]> {
   return async (signal) => {
-    const result = await env.api.query('bank', 'spaces.list', { limit: SPACES_PAGE }, z.array(spaceSchema), { signal });
+    const result = await env.api.call(BANK_SPACES_LIST, { limit: SPACES_PAGE }, { signal });
     if (!result.ok) return result;
     // A full page may not be the whole list, and a partial list would undercount; say it is not available instead.
     if (result.data.length >= SPACES_PAGE) return { ok: false, reason: 'spaces_list_may_be_partial' };

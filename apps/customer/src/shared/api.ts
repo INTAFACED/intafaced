@@ -1,5 +1,12 @@
 import { P2P_DELIST_REASONS } from '@intafaced/contracts/p2p-delist';
 import { P2P_FIELD_KEY, P2P_RULE_CLASS } from '@intafaced/contracts/p2p-rule-class';
+import {
+  replyAccepted,
+  type ProcedureInput,
+  type ProcedureOutput,
+  type ProcedureRecord,
+  type TrpcTransport,
+} from '@intafaced/contracts/procedure';
 import { z, type ZodType } from 'zod';
 import { uiMessage, type UiMessage } from './ui-copy';
 
@@ -163,8 +170,11 @@ export function createApiClient(
     token?: () => string | undefined;
     canWrite?: () => boolean;
     fetch?: typeof fetch;
-    /** `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore). */
-    credentials?: 'same-origin' | 'include';
+    /**
+     * `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore), or must
+     * send nothing that names the person (`omit`: the address tracker's public reads carry no cookie).
+     */
+    credentials?: 'same-origin' | 'include' | 'omit';
     /** Per-request timeout. Default 15 s; session refresh uses a shorter one (see session-restore.ts). */
     timeoutMs?: number;
     onUnauthorized?: (requestToken: string | undefined) => void;
@@ -304,7 +314,7 @@ export function createApiClient(
           response.status,
         );
       return { ok: true, data: data.data };
-    } catch (error) {
+    } catch {
       if (method === 'GET' && requestOptions.signal?.aborted) return authoredRefusal('aborted', { key: 'stopped' });
       return authoredRefusal(method === 'GET' ? 'unreachable' : 'uncertain', {
         key: method === 'GET' ? 'serviceUnreachable' : 'connectionUncertain',
@@ -319,6 +329,35 @@ export function createApiClient(
      * Async review checks use the same immediate guard as HTTP dispatch. */
     canWrite() {
       return options.canWrite?.() ?? true;
+    },
+    /**
+     * One call by its written record (`@intafaced/contracts/procedure`): the path, the input type and the reply parser all
+     * come from the record the service mounts, so this caller cannot drift from it.
+     */
+    call<R extends AppProcedure>(
+      record: R,
+      input: ProcedureInput<R>,
+      opts: RequestOptions & {
+        /** This caller's own check over the record's answer; an answer it refuses reads as an unverified one. */
+        accept?: (data: ProcedureOutput<R>) => boolean;
+      } = {},
+    ): Promise<ApiResult<ProcedureOutput<R>>> {
+      const { accept, ...rest } = opts;
+      const output = record.output as ZodType<ProcedureOutput<R>>;
+      // The record's own `accept` checks (every caller's), then this caller's: a reply either refuses reads as unverified.
+      const schema = output.refine((data) => replyAccepted(record, data) && (accept === undefined || accept(data)));
+      const base = `/api/${encodeURIComponent(record.module)}/trpc/${encodeURIComponent(record.path)}`;
+      if (record.kind === 'query')
+        return request(
+          `${base}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`,
+          'GET',
+          schema,
+          undefined,
+          false,
+          rest,
+        );
+      const bearer = rest.bearer ?? scopedBearer?.(record.module, record.path);
+      return request(base, 'POST', schema, input ?? {}, false, bearer === undefined ? rest : { ...rest, bearer });
     },
     query<T>(module: string, procedure: string, input: unknown, schema: ZodType<T>, opts: RequestOptions = {}) {
       const url = `/api/${encodeURIComponent(module)}/trpc/${encodeURIComponent(procedure)}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`;
@@ -360,6 +399,8 @@ export function createApiClient(
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;
+/** A record an app can call: a tRPC procedure the edge routes under a module. */
+export type AppProcedure = ProcedureRecord & TrpcTransport & { readonly module: string };
 export function unavailable<T = never>(message: string): ApiResult<T> {
   return { ok: false, reason: 'not_supported', message };
 }

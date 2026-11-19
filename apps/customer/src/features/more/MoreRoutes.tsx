@@ -1,6 +1,6 @@
 import { copy, t as copyText, Text } from './copy';
 import { Page, Panel, EmptyState } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
@@ -8,6 +8,10 @@ import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilde
 import { agentBuilderCopy } from './agent-builder-copy';
 import { AgentsTeam } from './AgentsTeam';
 import { AgentApprovals } from './AgentApprovals';
+import { AgentConnect } from './AgentConnect';
+import { agentConnectCopy } from './agent-connect-copy';
+import { AgentRunPage, agentRunId } from './AgentRun';
+import { agentRunCopy } from './agent-run-copy';
 import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
@@ -21,7 +25,8 @@ import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
 import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
-import { quantRoute } from '../quant/QuantRoutes';
+import { quantRoute } from '../quant';
+import { quantModeRoute } from './quant-mode-route';
 import { Support, supportPageTitleKey } from './Support';
 import { SupportChatRoom } from './SupportChat';
 import { chatCopy } from './support-chat-copy';
@@ -51,7 +56,8 @@ function MoreRooms({ path }: { path: string }) {
   const url = new URL(path, location.origin),
     p = url.pathname;
   const paper = url.searchParams.get('simulated') === 'true';
-  const quant = p === '/quant' || p.startsWith('/quant/') ? quantRoute(p, paper, userId ?? null) : null;
+  const quant =
+    p === '/quant' || p.startsWith('/quant/') ? (quantRoute(p, paper, userId ?? null) ?? quantModeRoute(p, paper, userId ?? null)) : null;
   let title: ReactNode = copyText('moreroutes.more'),
     description: ReactNode = undefined,
     content: ReactNode = (
@@ -83,9 +89,17 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
     content = <Agents paper={paper} />;
+  } else if (p === '/agents/connect') {
+    title = <agentConnectCopy.Copy k="title" />;
+    description = <agentConnectCopy.Copy k="description" />;
+    content = <AgentConnect />;
   } else if (p === '/agents/new') {
     title = agentBuilderCopy.t('newAgent');
     content = <NewAgent />;
+  } else if (agentRunId(p)) {
+    const runId = agentRunId(p)!;
+    title = agentRunCopy.t('title');
+    content = <AgentRunPage key={runId} runId={runId} />;
   } else if (ownAgentId(p)) {
     const id = ownAgentId(p)!;
     title = <OwnAgentTitle id={id} />;

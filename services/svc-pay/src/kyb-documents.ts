@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   kybDocumentRowSchema,
   kybUploadRulesSchema,
@@ -68,7 +68,7 @@ interface OpenApplication {
 }
 
 /** Read with the caller's connection; `lock` takes a share lock on the application and its merchant (a decision waits). */
-async function openApplication(q: Sql, applicationId: string, lock: boolean): Promise<OpenApplication> {
+async function openApplication(q: Queryable, applicationId: string, lock: boolean): Promise<OpenApplication> {
   const [app] = lock
     ? await q<OpenApplication[]>`
         SELECT a.state, a.entity_type, a.country, a.documents_after_seq,
@@ -105,7 +105,7 @@ export interface DocumentRow {
  * The current upload of each document key of an application: the latest row per key above the boundary a restart or
  * type change set. Read with the caller's connection, so a transaction sees its own view.
  */
-export async function currentDocuments(q: Sql, applicationId: string, afterSeq: string | number): Promise<DocumentRow[]> {
+export async function currentDocuments(q: Queryable, applicationId: string, afterSeq: string | number): Promise<DocumentRow[]> {
   return q<DocumentRow[]>`
     SELECT DISTINCT ON (document_key) id, document_key, content_type, byte_length, sha256, state, rejection_reason, created_at
       FROM pay.kyb_documents WHERE application_id = ${applicationId} AND seq > ${afterSeq}
@@ -258,7 +258,7 @@ export class KybDocumentService {
     return transaction(this.sql, (tx) => this.reviewViewIn(tx, merchantId), { isolation: 'repeatable read', maxAttempts: 3 });
   }
 
-  private async reviewViewIn(q: Sql, merchantId: string): Promise<KybDocumentReviewView> {
+  private async reviewViewIn(q: Queryable, merchantId: string): Promise<KybDocumentReviewView> {
     const [merchant] = await q<Array<{ id: string; kyb_status: string; kyb_ref: string | null }>>`
       SELECT id, kyb_status, kyb_ref FROM pay.merchants WHERE id = ${merchantId}
     `;

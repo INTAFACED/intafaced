@@ -1,7 +1,7 @@
 import { supportMulePolicySchema } from '@intafaced/contracts/support-safety';
 import { Failure, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { defineCopy } from '../../shared/i18n';
 import './help.css';
 

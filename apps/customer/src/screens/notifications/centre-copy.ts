@@ -116,6 +116,7 @@ export const centreCopy = defineCopy('notifications-centre', {
   cellUnavailable: 'Not offered',
   cellFixedOn: 'Always on. We keep this one on for your protection.',
   cellPlatformOff: 'Not set up on this platform, so nothing can be sent here.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   cellNotConnected: 'Not connected on this platform, so nothing can be sent here.',
   catLockedWrite: 'That choice is fixed on, so it stayed on.',
   // Quiet hours

@@ -1,8 +1,19 @@
 import { z } from 'zod';
+import {
+  ALERT_OWNER_KEYS,
+  AlertOwnerValueError,
+  NOTIFY_OWNER_VALUE_FORBIDDEN,
+  NOTIFY_OWNER_VALUE_STALE,
+  PLAN_ID,
+  type AlertOwnerValues,
+} from './alerts/owner-values.js';
 import { guestNotificationsRouter } from './guests/router.js';
 import { guestVerificationRouter } from './guests/verification-router.js';
+import { supportChartsRouter } from './alerts/support-charts-router.js';
 import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
 import { navMetricsRouter } from './nav-metrics/router.js';
+import { reconAlertFeedRouter } from './reconciliation-alert-feed/router.js';
+import { MemoryReconAlertFeedStore, type ReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
 import type { NavMetricStore } from './nav-metrics/counts.js';
 import type { GuestNotificationService } from './guests/service.js';
 import type { GuestVerificationService } from './guests/verification.js';
@@ -41,11 +52,14 @@ import {
 } from './alerts/service.js';
 import { NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from './alerts/trigger-log.js';
 import { AlertValidationError } from './alerts/store.js';
+import { AlertWebhookError, NO_WEBHOOK_POLICY } from './alerts/webhook.js';
 import { WatchRuleError, type WatchRule, type WatchRuleService } from './alerts/watch-rules.js';
 import {
   ALERT_CONDITIONS,
   ALERT_FREQUENCIES,
+  ALERT_OUT_CHANNELS,
   ALERT_PRICE_SOURCES,
+  type AlertOutChannel,
   AlertKindUnpublishedError,
   type AlertCondition,
   type AlertExtra,
@@ -62,6 +76,7 @@ import {
 } from './alerts/types.js';
 import { describeChannelsPolicy } from './channels-policy.js';
 import { PUSH_KEY_UNSET, pushKeyPolicy } from './push-key.js';
+import { NOTIFY_INBOX_POLICY } from '@intafaced/contracts/notify-inbox-policy';
 import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
 import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, venueIncidentOutput, type VenueIncidentLoader } from './venue-incident-truth.js';
@@ -497,7 +512,20 @@ const alertExtras = {
     .array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string().min(1).max(64) }))
     .max(20)
     .optional(),
+  /** Out-of-app channels for this alert; in-app is always written. Omitted: the person's notification settings decide. */
+  channels: z.array(z.enum(ALERT_OUT_CHANNELS)).max(ALERT_OUT_CHANNELS.length).optional(),
+  /** The person's own https endpoint, posted to each time the alert fires. Checked by the service (alerts/webhook.ts). */
+  webhookUrl: z.string().max(2048).optional(),
 };
+
+/** One webhook attempt as the page shows it: a status and a cause code, never the endpoint's answer body. */
+const webhookAttemptOutput = z.object({
+  n: z.number().int(),
+  at: z.string(),
+  status: z.number().int().nullable(),
+  cause: z.enum(['ok', 'redirect', 'refused', 'unavailable', 'gateway_timeout', 'timeout', 'unreachable', 'private_address']),
+  durationMs: z.number().int(),
+});
 
 const priceAlertOutput = z.object({
   id: z.string().guid(),
@@ -523,6 +551,9 @@ const priceAlertOutput = z.object({
   /** Why a stopped alert was stopped by the platform: `burst` (it triggered too often). Null for a pause by the person. */
   stopReason: z.enum(['burst']).nullable(),
   lastFiredAt: z.string().nullable(),
+  /** The out-of-app channels chosen for this alert; null follows the person's notification settings. */
+  channels: z.array(z.enum(ALERT_OUT_CHANNELS)).nullable(),
+  webhookUrl: z.string().nullable(),
 });
 
 /**
@@ -615,6 +646,8 @@ function priceAlertToWire(row: PriceAlert) {
     fireCount: row.fireCount,
     stopReason: row.stopReason,
     lastFiredAt: row.lastFiredAt ? row.lastFiredAt.toISOString() : null,
+    channels: row.channels ? [...row.channels] : null,
+    webhookUrl: row.webhookUrl,
   };
 }
 
@@ -625,6 +658,13 @@ function priceAlertToWire(row: PriceAlert) {
  * @param loadVenueIncident Matching halt / incident-silence truth. Default is
  * unwired — `ok` is process liveness, never an invented all-clear.
  */
+/** The owner values store, or a typed refusal while this process has none wired. */
+function ownerValuesOrRefuse(alerts: AlertService | undefined): AlertOwnerValues {
+  const values = alerts?.ownerValuesStore();
+  if (!values) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.alert_owner_values_unwired' });
+  return values;
+}
+
 export function createNotifyRouter(
   notify: NotifyService,
   alerts?: AlertService,
@@ -635,10 +675,16 @@ export function createNotifyRouter(
   navMetrics?: NavMetricStore,
   verifications?: GuestVerificationService,
   watchRules?: WatchRuleService,
+  reconAlertFeed: { store: ReconAlertFeedStore; attached: () => boolean } = {
+    store: new MemoryReconAlertFeedStore(),
+    attached: () => false,
+  },
 ) {
   return router({
+    reconciliationAlertFeed: reconAlertFeedRouter(reconAlertFeed.store, reconAlertFeed.attached),
     guestNotifications: guestNotificationsRouter(guests),
     guestVerification: guestVerificationRouter(verifications),
+    supportCharts: supportChartsRouter(alerts),
     navMetrics: navMetricsRouter(navMetrics),
     statusPage: statusPageRouter(statusPage),
     health: publicProcedure
@@ -755,7 +801,8 @@ export function createNotifyRouter(
        * Notification centre owner values — page size, unread cap, retention.
        * Blank values report unset with their typed code; nothing is defaulted.
        */
-      inboxPolicy: publicProcedure.query(() => describeInboxPolicy(inbox)),
+      // Its answer is the record's; any input is still taken as before (the wire replay holds that), since the call reads none.
+      inboxPolicy: publicProcedure.output(NOTIFY_INBOX_POLICY.output).query(() => describeInboxPolicy(inbox)),
 
       /**
        * Public announcement. Real content is not published here.
@@ -962,6 +1009,61 @@ export function createNotifyRouter(
             });
           }
         }),
+
+      /**
+       * Alert engine and delivery health (C-ops-01; J-charts-desk-18 #3 #4), `admin:read` only: the sweep's last pass and
+       * its lag, firings today by kind, alert deliveries today by channel and status, and the open alert count. Read only.
+       */
+      opsAlertEngineHealth: scopedProcedure('admin:read', { module: 'notify' }).query(async () => {
+        if (!alerts) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.alert_ops_unwired' });
+        try {
+          return await alerts.opsHealth();
+        } catch (err) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: err instanceof Error ? err.message : 'notify.alert_ops_unwired',
+          });
+        }
+      }),
+
+      /**
+       * The alert owner values (J-charts-desk-18 #5 #6): the price-alert quota per plan and the trigger-log retention, where
+       * each comes from, who set it and when. `get` is admin:read; `set` is admin:write, one value per write with a reason.
+       */
+      opsAlertOwnerValues: router({
+        get: scopedProcedure('admin:read', { module: 'notify' }).query(async ({ ctx }) => ownerValuesOrRefuse(alerts).get(ctx.principal)),
+        set: scopedProcedure('admin:write', { module: 'notify' })
+          .input(
+            z
+              .object({
+                key: z.enum(ALERT_OWNER_KEYS),
+                plan: z.string().regex(PLAN_ID).nullable().optional(),
+                value: z.number().int().nullable(),
+                expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
+                reason: z.string().max(500),
+                clientRequestId: z.string().trim().min(1).max(160),
+              })
+              .strict(),
+          )
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await ownerValuesOrRefuse(alerts).set(ctx.principal, input);
+            } catch (err) {
+              if (err instanceof AlertOwnerValueError) {
+                throw new TRPCError({
+                  code:
+                    err.code === NOTIFY_OWNER_VALUE_FORBIDDEN
+                      ? 'FORBIDDEN'
+                      : err.code === NOTIFY_OWNER_VALUE_STALE
+                        ? 'CONFLICT'
+                        : 'BAD_REQUEST',
+                  message: `${err.code}: ${err.message}`,
+                });
+              }
+              throw err;
+            }
+          }),
+      }),
 
       operatorProviderHealth: scopedProcedure('admin:read', { module: 'notify' })
         .output(
@@ -1825,6 +1927,8 @@ export function createNotifyRouter(
               extras?: AlertExtra[];
               frequency?: AlertFrequency;
               source?: AlertPriceSource;
+              channels?: AlertOutChannel[];
+              webhookUrl?: string;
             };
             const condition = extras.condition;
             // A named condition and a direction that disagree is a bad request, never a guess. `crossing` has no direction.
@@ -1844,6 +1948,8 @@ export function createNotifyRouter(
               ...(extras.extras ? { extras: extras.extras } : {}),
               ...(extras.frequency ? { frequency: extras.frequency } : {}),
               ...(extras.source ? { source: extras.source } : {}),
+              ...(extras.channels ? { channels: extras.channels } : {}),
+              ...(extras.webhookUrl !== undefined ? { webhookUrl: extras.webhookUrl } : {}),
             });
             return {
               alert: priceAlertToWire(row),
@@ -1868,8 +1974,37 @@ export function createNotifyRouter(
             if (err instanceof AlertValidationError) {
               throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
             }
+            if (err instanceof AlertWebhookError) {
+              // A blank owner setting is a precondition; a URL the policy refuses is the caller's to fix.
+              throw new TRPCError({
+                code: err.code.startsWith('notify.') ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
+                message: err.message,
+                cause: err,
+              });
+            }
             throw err;
           }
+        }),
+
+      /**
+       * The owner's alert webhook policy as the alerts page publishes it (J-charts-desk-10 #4): the ports a webhook may use and the
+       * resend schedule. Either blank is `null`, and the page says what that means: no webhook can be saved, or nothing is resent.
+       */
+      alertWebhookPolicy: scopedProcedure('notify:read', { module: 'notify' })
+        .output(
+          z.object({
+            ports: z.array(z.number().int()).nullable(),
+            retrySeconds: z.array(z.number().int()).nullable(),
+            timeoutMs: z.number().int(),
+          }),
+        )
+        .query(() => {
+          const policy = alerts?.webhookPolicy() ?? NO_WEBHOOK_POLICY;
+          return {
+            ports: policy.ports ? [...policy.ports] : null,
+            retrySeconds: policy.retrySeconds ? [...policy.retrySeconds] : null,
+            timeoutMs: policy.timeoutMs,
+          };
         }),
 
       /**
@@ -2064,6 +2199,16 @@ export function createNotifyRouter(
                 markPrice: z.string(),
                 firedAt: z.string(),
                 notificationId: z.string().nullable(),
+                /** What happened on each channel for this firing, from the fan-out's own rows. In-app is one of them. */
+                deliveries: z.array(deliveryOutput),
+                /** The webhook's record for this firing, or null when the alert had none. */
+                webhook: z
+                  .object({
+                    status: z.enum(['pending', 'delivered', 'failed']),
+                    attempts: z.array(webhookAttemptOutput),
+                    nextAttemptAt: z.string().nullable(),
+                  })
+                  .nullable(),
               }),
             ),
           }),
@@ -2075,18 +2220,30 @@ export function createNotifyRouter(
               ...(input.alertId ? { alertId: input.alertId } : {}),
               limit: input.limit,
             });
+            const delivery = await alerts.triggerDeliveries(ctx.principal.userId, log.triggers);
             return {
               retentionDays: log.retentionDays,
-              items: log.triggers.map((t) => ({
-                alertId: t.alertId,
-                seq: t.seq,
-                marketId: t.marketId,
-                condition: t.condition,
-                targetPrice: t.targetPrice,
-                markPrice: t.markPrice,
-                firedAt: t.firedAt.toISOString(),
-                notificationId: t.notificationId,
-              })),
+              items: log.triggers.map((t) => {
+                const d = delivery.get(`${t.alertId}:${t.seq}`);
+                return {
+                  alertId: t.alertId,
+                  seq: t.seq,
+                  marketId: t.marketId,
+                  condition: t.condition,
+                  targetPrice: t.targetPrice,
+                  markPrice: t.markPrice,
+                  firedAt: t.firedAt.toISOString(),
+                  notificationId: t.notificationId,
+                  deliveries: (d?.channels ?? []).map(deliveryToWire),
+                  webhook: d?.webhook
+                    ? {
+                        status: d.webhook.status,
+                        attempts: d.webhook.attempts.map((a) => ({ ...a })),
+                        nextAttemptAt: d.webhook.nextAttemptAt ? d.webhook.nextAttemptAt.toISOString() : null,
+                      }
+                    : null,
+                };
+              }),
             };
           } catch (err) {
             throw alertManagerError(err);

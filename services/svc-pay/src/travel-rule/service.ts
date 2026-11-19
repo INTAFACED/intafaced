@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { MessageCipher } from './cipher.js';
 import { TravelRuleError } from './errors.js';
@@ -242,7 +242,7 @@ export class TravelRuleService {
 
   // ── transfers ──────────────────────────────────────────────────────────────
 
-  private async loadTransfer(q: Sql, where: 'id' | 'withdrawal', value: string, lock = false): Promise<TransferRow | undefined> {
+  private async loadTransfer(q: Queryable, where: 'id' | 'withdrawal', value: string, lock = false): Promise<TransferRow | undefined> {
     const col = where === 'id' ? 't.id' : 't.withdrawal_id';
     // Lock in its own statement: under READ COMMITTED the next statement then reads the latest transition afresh. Locking
     // inside the joined select would re-check only the transfer row and could return a stale status.
@@ -301,7 +301,7 @@ export class TravelRuleService {
    * stored record. A wait deadline is set when the transfer enters a waiting status.
    */
   private async move(
-    tx: Sql,
+    tx: Queryable,
     t: TransferRow,
     to: TransferStatus,
     source: 'system' | 'counterparty' | 'operator',
@@ -326,7 +326,7 @@ export class TravelRuleService {
     return { ...t, status: to, wait_deadline: deadline };
   }
 
-  private async locked<T>(transferId: string, fn: (tx: Sql, t: TransferRow) => Promise<T>): Promise<T> {
+  private async locked<T>(transferId: string, fn: (tx: Queryable, t: TransferRow) => Promise<T>): Promise<T> {
     return transaction(
       this.deps.sql,
       async (tx) => {

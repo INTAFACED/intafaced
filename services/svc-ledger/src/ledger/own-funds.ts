@@ -1,5 +1,6 @@
 import { formatAmount, isCustomerBalanceAccount, isOwnFundsPlace, OWN_FUNDS_PLACE_PREFIXES, type Amount } from '@intafaced/ledger-client';
 import type { LedgerOwnFunds, LedgerOwnFundsPlace, OwnFundsPlaceKind } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts';
 
 /**
  * INTAFACED'S OWN FUNDS: every house and module account with a balance, for svc-ops' capital monitor (J-ops-console-24 #1).
@@ -76,7 +77,7 @@ export function placeOf(r: OwnFundsPlaceRow): LedgerOwnFundsPlace {
   const prefix = OWN_FUNDS_PLACE_PREFIXES.find((p) => r.ownerId.startsWith(p))!;
   const placeId = r.ownerId.slice(prefix.length);
   if (placeId === '') throw new OwnFundsPlaceRowError(r.ownerId, 'the place has no id');
-  return { kind: PLACE_KIND[prefix], placeId, assetId: r.assetId, held: formatAmount(-r.balance) };
+  return { kind: PLACE_KIND[prefix], placeId, assetId: asAssetId(r.assetId), held: formatAmount(-r.balance) };
 }
 
 export class OwnFundsCustomerRowError extends Error {
@@ -99,7 +100,7 @@ export function serializeOwnFunds(asOf: Date, rows: readonly OwnFundsRow[], plac
       .map((r) => ({
         ownerType: r.ownerType,
         ownerId: r.ownerId,
-        assetId: r.assetId,
+        assetId: asAssetId(r.assetId),
         kind: r.kind,
         purpose: r.purpose,
         balance: formatAmount(r.balance),

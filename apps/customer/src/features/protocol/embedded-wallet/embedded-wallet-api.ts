@@ -1,9 +1,5 @@
-import {
-  PROTOCOL_EMBEDDED_WALLET_REFUSALS,
-  protocolEmbeddedWalletCreateOutputSchema,
-  protocolEmbeddedWalletStatusOutputSchema,
-  type EmbeddedWalletPasskey,
-} from '@intafaced/contracts/protocol-embedded-wallet';
+import { PROTOCOL_EMBEDDED_WALLET_REFUSALS, type EmbeddedWalletPasskey } from '@intafaced/contracts/protocol-embedded-wallet';
+import { PROTOCOL_EMBEDDED_WALLET_CREATE, PROTOCOL_EMBEDDED_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
 import type { ApiClient } from '../../../shared/api';
 
 /**
@@ -15,11 +11,9 @@ const keepSessionFor = PROTOCOL_EMBEDDED_WALLET_REFUSALS;
 
 export function createEmbeddedWalletApi(api: ApiClient) {
   return {
-    status: (signal?: AbortSignal) =>
-      api.query('protocol', 'embeddedWallet.status', undefined, protocolEmbeddedWalletStatusOutputSchema, { keepSessionFor, signal }),
+    status: (signal?: AbortSignal) => api.call(PROTOCOL_EMBEDDED_WALLET_STATUS, undefined, { keepSessionFor, signal }),
     /** Makes the person's one wallet, or answers the one they have. The passkey is public: an id and a public key. */
-    create: (passkey: EmbeddedWalletPasskey) =>
-      api.mutate('protocol', 'embeddedWallet.create', { passkey }, protocolEmbeddedWalletCreateOutputSchema, { keepSessionFor }),
+    create: (passkey: EmbeddedWalletPasskey) => api.call(PROTOCOL_EMBEDDED_WALLET_CREATE, { passkey }, { keepSessionFor }),
   };
 }
 export type EmbeddedWalletApi = ReturnType<typeof createEmbeddedWalletApi>;

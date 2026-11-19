@@ -4,10 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
 import { KycSelfieDecide, selfieDecideHold } from '@/components/kyc-selfie-decide';
-import { confirmPhrase, readDeskRequest, requestReason } from '@/lib/desk/approval-packet';
-import { payloadHashFor, proposeInputFor } from '@/lib/desk/approval-hash';
-import { stepGate } from '@/lib/desk/desk-model';
-import type { Row } from '@/lib/ops-desk/types';
+import { confirmPhrase, payloadHashFor, proposeInputFor, readDeskRequest, requestReason, stepGate } from '@/lib/desk';
+import type { Row } from '@/lib/ops-desk';
 import { kycSelfieDecideExecute } from './decide';
 import { readSelfie } from './selfie';
 

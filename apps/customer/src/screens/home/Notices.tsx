@@ -5,7 +5,8 @@ import { homeCopy } from './copy';
 import { noticeCopy } from './notice-copy';
 import { StatusTag } from './deps';
 import { homeNotices, type HomeNotice } from './notice-model';
-import { HOME_CONFIG_PROCEDURE, homeConfigOutputSchema, NOTICE_STRIP_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
+import { NOTICE_STRIP_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
+import { OPS_HOME_CONFIG } from '@intafaced/contracts/ops-public-procedures';
 import { NOTICE_LIST_LIMIT, readLatestAnnouncements, readNoticeStatus } from '../../features/public/notices-api';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
@@ -48,10 +49,7 @@ function useLogged(resource: Resource<unknown>, what: string) {
 export function HomeNotices() {
   const { api } = useSession();
   const status = useResource((signal) => readNoticeStatus(api, signal), 'home-notice-status');
-  const config = useResource(
-    (signal) => api.query('ops', HOME_CONFIG_PROCEDURE, undefined, homeConfigOutputSchema, { signal }),
-    'home-config',
-  );
+  const config = useResource((signal) => api.call(OPS_HOME_CONFIG, undefined, { signal }), 'home-config');
   const limit = config.resource.status === 'ready' ? config.resource.data.noticeStripLimit : null;
   const announcement = useResource(
     (signal) =>

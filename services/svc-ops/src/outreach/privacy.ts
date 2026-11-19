@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   crmErasureAdvanceInputSchema,
   crmErasureBeginInputSchema,
@@ -29,7 +29,7 @@ type ClusterSelection = {
 };
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-export async function privacyReadLock(tx: Sql): Promise<void> {
+export async function privacyReadLock(tx: Queryable): Promise<void> {
   await tx`SELECT pg_advisory_xact_lock_shared(hashtext('ops.crm.privacy'))`;
 }
 /** Acquire the gate BEFORE PostgreSQL establishes a repeatable-read snapshot. */
@@ -58,15 +58,15 @@ export async function withPrivacySnapshot<T>(sql: Sql, read: (tx: Sql) => Promis
     }
   }
 }
-export async function assertContactWritable(tx: Sql, contactId: string): Promise<void> {
+export async function assertContactWritable(tx: Queryable, contactId: string): Promise<void> {
   const rows = await tx`SELECT status FROM ops.crm_erasure_intents WHERE ${contactId}::uuid=ANY(contact_ids) LIMIT 1`;
   if (rows[0]) throw new OutreachError(rows[0].status === 'complete' ? 'ops.crm.contact_erased' : 'ops.crm.erasure_pending');
 }
-export async function assertSubmissionWritable(tx: Sql, submissionId: string): Promise<void> {
+export async function assertSubmissionWritable(tx: Queryable, submissionId: string): Promise<void> {
   const rows = await tx`SELECT id FROM ops.crm_erasure_intents WHERE ${submissionId}::uuid=ANY(submission_ids) LIMIT 1`;
   if (rows.length) throw new OutreachError('ops.crm.continuation_invalid');
 }
-export async function assertRequestNotErased(tx: Sql, requestId: string, prospect = false): Promise<void> {
+export async function assertRequestNotErased(tx: Queryable, requestId: string, prospect = false): Promise<void> {
   const rows = await tx`SELECT request_id FROM ops.crm_erased_requests WHERE request_id=${requestId}`;
   if (rows.length) throw new OutreachError(prospect ? 'ops.crm.continuation_invalid' : 'ops.crm.request_erased');
 }
@@ -88,7 +88,7 @@ export class OutreachPrivacy {
         fleetSecrets: [process.env.INTERNAL_SERVICE_SECRET, process.env.EDGE_PRINCIPAL_SECRET, process.env.OPS_NOTIFY_SERVICE_SECRET],
       });
   }
-  private async controlled<T>(actor: string | null, fn: (tx: Sql) => Promise<T>): Promise<T> {
+  private async controlled<T>(actor: string | null, fn: (tx: Queryable) => Promise<T>): Promise<T> {
     if (!this.sql) throw new OutreachError('ops.crm.storage_unconfigured');
     const config = outreachConfigSchema.safeParse(this.configuration);
     if (!config.success) throw new OutreachError('ops.crm.configuration_unverified');
@@ -113,7 +113,7 @@ export class OutreachPrivacy {
       throw new OutreachError('ops.crm.storage_unavailable');
     }
   }
-  private async cluster(tx: Sql, canonicalContactId: string) {
+  private async cluster(tx: Queryable, canonicalContactId: string) {
     const aliases = await tx`SELECT contact_id FROM ops.crm_contact_aliases WHERE contact_id=${canonicalContactId}`;
     if (aliases.length) throw new OutreachError('ops.crm.canonical_target_required');
     const contacts = await tx`SELECT id,revision,md5(record::text) AS digest FROM ops.crm_contacts
@@ -162,7 +162,7 @@ export class OutreachPrivacy {
       return (await this.cluster(tx, input.canonicalContactId)).preview;
     });
   }
-  private async request(tx: Sql, input: { requestId: string }, actor: string, operation: string) {
+  private async request(tx: Queryable, input: { requestId: string }, actor: string, operation: string) {
     const rows = await tx`SELECT * FROM ops.crm_privacy_requests WHERE request_id=${input.requestId}`;
     const row = rows[0];
     if (!row) {
@@ -178,11 +178,11 @@ export class OutreachPrivacy {
       throw new OutreachError('ops.crm.idempotency_conflict');
     return String(row.intent_id);
   }
-  private async remember(tx: Sql, input: { requestId: string }, actor: string, operation: string, intentId: string) {
+  private async remember(tx: Queryable, input: { requestId: string }, actor: string, operation: string, intentId: string) {
     await tx`INSERT INTO ops.crm_privacy_requests(request_id,actor_user_id,operation,fingerprint,intent_id)
       VALUES (${input.requestId},${actor.toLowerCase()},${operation},${digest(input)},${intentId})`;
   }
-  private async readStatus(tx: Sql, intentId: string) {
+  private async readStatus(tx: Queryable, intentId: string) {
     const rows =
       await tx`SELECT e.*,(SELECT count(*)::int FROM ops.crm_erasure_notifications n WHERE n.intent_id=e.id AND n.receipt IS NULL) AS pending
       FROM ops.crm_erasure_intents e WHERE e.id=${intentId}`;
@@ -231,7 +231,7 @@ export class OutreachPrivacy {
       });
     });
   }
-  private async latestReview(tx: Sql, canonicalContactId: string) {
+  private async latestReview(tx: Queryable, canonicalContactId: string) {
     const [row] = await tx`SELECT canonical_revision,record FROM ops.crm_retention_reviews
       WHERE canonical_contact_id=${canonicalContactId} ORDER BY revision DESC LIMIT 1`;
     return row ? { canonicalRevision: row.canonical_revision, review: crmRetentionReviewSchema.parse(row.record) } : null;
@@ -295,7 +295,7 @@ export class OutreachPrivacy {
       return result;
     });
   }
-  private async retentionAge(tx: Sql, selection: ClusterSelection) {
+  private async retentionAge(tx: Queryable, selection: ClusterSelection) {
     const [clock] = await tx`SELECT max(contact_at) AS meaningful_at FROM (
       SELECT (record->>'capturedAt')::timestamptz AS contact_at FROM ops.crm_submissions WHERE id=ANY(${tx.array(selection.submissionIds)}::uuid[])
       UNION ALL SELECT created_at FROM ops.crm_opportunities WHERE id=ANY(${tx.array(selection.opportunityIds)}::uuid[])
@@ -320,7 +320,7 @@ export class OutreachPrivacy {
     );
     return { eligible: this.now().getTime() >= eligibleAt.getTime() && !active };
   }
-  private async createIntent(tx: Sql, selection: ClusterSelection, actor: string | null, requestId: string, reason: string) {
+  private async createIntent(tx: Queryable, selection: ClusterSelection, actor: string | null, requestId: string, reason: string) {
     const intentId = randomUUID();
     const actorKind = actor === null ? 'system' : 'founder';
     await tx`INSERT INTO ops.crm_erasure_intents(id,canonical_contact_id,actor_user_id,actor_kind,request_id,reason,requested_at,contact_ids,submission_ids,opportunity_ids,snapshot)
@@ -359,7 +359,7 @@ export class OutreachPrivacy {
     });
     return this.controlled(actor, (tx) => this.advanceIntent(tx, input.intentId));
   }
-  private async advanceIntent(tx: Sql, intentId: string) {
+  private async advanceIntent(tx: Queryable, intentId: string) {
     let status = await this.readStatus(tx, intentId);
     if (status.status === 'complete') return status;
     if (this.archivePublisher) await confirmArchive(tx, intentId, this.archivePublisher);

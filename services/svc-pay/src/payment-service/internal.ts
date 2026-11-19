@@ -7,9 +7,9 @@
  * It imports no value from `payment-service.ts`, so loading any area file first cannot hit a half-loaded class file.
  */
 
+import type { Queryable } from '@intafaced/db';
 import { MerchantStoredFeeError, normalizeStoredFeeBps } from '../starter-fee.js';
 import { randomUUID } from 'node:crypto';
-import type { Sql } from 'postgres';
 import { formatAmount, InsufficientFundsError, LedgerError, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { railBlockingReason, railReasonCode, type PaymentIntent, type RailAdapter, type RailResult } from '../rails/rail-adapter.js';
 import { type SettlementLedgerPlan } from '../settlement-ledger.js';
@@ -17,6 +17,7 @@ import { ListQueryError, parseListFilters, type ListFilters } from '../list-page
 import { MAX_FEE_BPS } from '../fee-bps-bound.js';
 import type {
   PayErrorCode,
+  PaymentCustody,
   PaymentStatus,
   PayService,
   PaymentRow,
@@ -58,6 +59,28 @@ export function publishedDefaultFeeBps(feeBps: number | null | undefined): numbe
     throw new PayError(`Fee must be an integer between 0 and ${MAX_FEE_BPS} bps, got ${feeBps}`, 'pay.merchant_pricing_invalid');
   }
   return feeBps;
+}
+
+/**
+ * Our fee rate with the partner that takes a payment (`PAY_PARTNER_FEE_BPS`): unset refuses `pay.partner_fee_rate_unset`,
+ * never the business's price and never 0. Read before the payer is shown where to pay, and again at capture.
+ */
+export function partnerFeeBpsOf(rates: Readonly<Record<string, number>>, partnerId: string): number {
+  const bps = Object.hasOwn(rates, partnerId) ? rates[partnerId] : undefined;
+  if (bps === undefined) {
+    throw new PayError(`Our fee rate with ${partnerId} is unset, so no payment it takes can be opened`, 'pay.partner_fee_rate_unset', {
+      partnerId,
+    });
+  }
+  return bps;
+}
+
+/**
+ * The fee on one business's payments: its own pricing, or the published default (as settlement reads it). Blank refuses
+ * `pay.fee_bps_unset`, never 0. The launch model reads it before a payer is shown where to pay, and again at capture.
+ */
+export function paymentFeeBpsOf(merchant: Pick<MerchantRecord, 'pricing'>, defaultFeeBps: number | null | undefined): number {
+  return merchant.pricing.feeBps !== undefined ? merchant.pricing.feeBps : publishedDefaultFeeBps(defaultFeeBps);
 }
 
 export function assertOwnerPageLimit(limit: number | undefined, code: PayErrorCode, cap: number, message: string): number {
@@ -182,7 +205,7 @@ export function paymentCreationPayload(input: Parameters<PayService['createPayme
 }
 
 export async function insertPayment(
-  tx: Sql,
+  tx: Queryable,
   input: {
     id?: string;
     merchantId: string;
@@ -196,15 +219,17 @@ export async function insertPayment(
     metadata?: Record<string, string>;
     /** Immutable. Written only when the creating key was sandbox. */
     sandbox?: boolean;
+    /** Who holds the payment's money (launch money model). Absent: `platform`, the custodial layer. */
+    custody?: PaymentCustody;
   },
 ): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
-    INSERT INTO pay.payments (id, merchant_id, profile_id, amount, currency, method, rail_adapter, status)
+    INSERT INTO pay.payments (id, merchant_id, profile_id, amount, currency, method, rail_adapter, status, custody)
     VALUES (
       ${input.id ?? randomUUID()}, ${input.merchantId}, ${input.profileId ?? null}, ${formatAmount(input.amount)}::numeric,
-      ${input.assetId}, ${input.method}, ${input.railAdapter}, 'created'
+      ${input.assetId}, ${input.method}, ${input.railAdapter}, 'created', ${input.custody ?? 'platform'}
     )
-    RETURNING id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
+    RETURNING id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at, custody
   `;
   const row = rows[0]!;
 
@@ -253,7 +278,7 @@ export async function insertPayment(
  * both are booked. `payment_links.uses` then reads 2 and the next open is
  * refused. The service says so rather than implying a hard cap it cannot keep.
  */
-export async function completeCheckoutSession(tx: Sql, paymentId: string): Promise<void> {
+export async function completeCheckoutSession(tx: Queryable, paymentId: string): Promise<void> {
   const closed = await tx<Array<{ link_id: string }>>`
     UPDATE pay.checkout_sessions
        SET status = 'completed', updated_at = now()
@@ -265,9 +290,9 @@ export async function completeCheckoutSession(tx: Sql, paymentId: string): Promi
   }
 }
 
-export async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
+export async function readPayment(tx: Queryable, paymentId: string): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
-    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
+    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at, custody
       FROM pay.payments WHERE id = ${paymentId}
   `;
   const row = rows[0];
@@ -275,9 +300,9 @@ export async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRo
   return row;
 }
 
-export async function lockPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
+export async function lockPayment(tx: Queryable, paymentId: string): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
-    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
+    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at, custody
       FROM pay.payments WHERE id = ${paymentId} FOR UPDATE
   `;
   const row = rows[0];
@@ -310,7 +335,7 @@ export function readIncludedAmount(raw: string | null): { amount: Amount | null;
   }
 }
 
-export async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured: Amount; refunded: Amount }> {
+export async function totalsFor(sql: Queryable, paymentId: string): Promise<{ captured: Amount; refunded: Amount }> {
   const rows = await sql<Array<{ captured: string; refunded: string }>>`
     SELECT
       COALESCE(SUM(CASE WHEN event = 'captured' THEN (payload->>'amount')::numeric END), 0) AS captured,
@@ -321,7 +346,7 @@ export async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured
   return { captured: parseAmount(row?.captured ?? '0'), refunded: parseAmount(row?.refunded ?? '0') };
 }
 
-export async function countEvents(sql: Sql, paymentId: string, event: string): Promise<number> {
+export async function countEvents(sql: Queryable, paymentId: string, event: string): Promise<number> {
   const rows = await sql<Array<{ n: string }>>`
     SELECT COUNT(*)::text AS n FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = ${event}
   `;
@@ -348,7 +373,7 @@ export function openingTxIdFromDetail(detail: Record<string, unknown> | undefine
  * The dispute's live opening plan: the latest `chargeback.opening_planned` that no later `chargeback.opening_plan_voided`
  * retired. A void applies to the plans before it; a plan made after a void is live.
  */
-export async function readLivePlan(sql: Sql, paymentId: string, disputeId: string): Promise<ChargebackPlan | null> {
+export async function readLivePlan(sql: Queryable, paymentId: string, disputeId: string): Promise<ChargebackPlan | null> {
   const rows = await sql<Array<{ seq: string; event: string; payload: Omit<ChargebackPlan, 'seq'> }>>`
     SELECT seq, event, payload FROM pay.payment_events
      WHERE payment_id = ${paymentId}
@@ -363,7 +388,7 @@ export async function readLivePlan(sql: Sql, paymentId: string, disputeId: strin
   return live;
 }
 
-export async function appendEvent(sql: Sql, paymentId: string, event: string, payload: Record<string, unknown>): Promise<void> {
+export async function appendEvent(sql: Queryable, paymentId: string, event: string, payload: Record<string, unknown>): Promise<void> {
   await sql`
     INSERT INTO pay.payment_events (payment_id, event, payload)
     VALUES (${paymentId}, ${event}, ${sql.json(payload as never)})
@@ -371,7 +396,7 @@ export async function appendEvent(sql: Sql, paymentId: string, event: string, pa
 }
 
 /** The instrument the payment was created with, read back off the `created` event. */
-export async function instrumentFor(sql: Sql, paymentId: string): Promise<PaymentIntent['instrument']> {
+export async function instrumentFor(sql: Queryable, paymentId: string): Promise<PaymentIntent['instrument']> {
   const rows = await sql<Array<{ payload: Record<string, unknown> }>>`
     SELECT payload FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'created' LIMIT 1
   `;
@@ -431,7 +456,7 @@ export function railPayload(result: RailResult): Record<string, unknown> {
 
 /** One `merchant_kyb_events` row, written inside the transaction that moved `kyb_status`. */
 export async function recordKybEvent(
-  tx: Sql,
+  tx: Queryable,
   e: {
     merchantId: string;
     from: MerchantRecord['kybStatus'];

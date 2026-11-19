@@ -22,6 +22,7 @@ import {
   type StaffHoldReleaseInput,
   type StaffHoldResult,
   type StaffHoldState,
+  asAssetId,
 } from '@intafaced/contracts';
 import {
   OPS_IDEMPOTENCY_CONFLICT,
@@ -107,7 +108,7 @@ function view(hold: HoldRow, movements: readonly MovementRow[]): StaffHold {
   return {
     holdNo: hold.holdNo,
     userId: hold.userId,
-    assetId: hold.assetId,
+    assetId: asAssetId(hold.assetId),
     amount: hold.amount,
     remaining: hold.remaining,
     state: hold.state,

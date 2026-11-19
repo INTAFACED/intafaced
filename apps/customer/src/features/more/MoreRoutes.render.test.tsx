@@ -9,6 +9,12 @@ vi.mock('../../shared/preferences', async (original) => {
 vi.stubGlobal('location', new URL('https://app.example.com/'));
 // A room may tidy its own address while it renders; on the server there is no history to tidy.
 vi.stubGlobal('history', { state: null, replaceState: () => undefined, pushState: () => undefined });
+// The rooms render as a signed-out visitor (the app holds every room until the boot refresh answers, #8658), so a private
+// section draws the sign-in panel, whose return link reads the address through a browser store; on the server it is `/`.
+vi.mock('../../app/location', async (original) => {
+  const real = await original<typeof import('../../app/location')>();
+  return { ...real, useReturnLocation: () => '/', currentReturnLocation: () => '/' };
+});
 
 import { SessionProvider } from '../session/session';
 import { MoreRoutes, SECTION_TABS } from './MoreRoutes';

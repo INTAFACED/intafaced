@@ -396,6 +396,11 @@ export function CardCashback() {
           </p>
           {c.unpaid !== '0' && <p>{t('cashbackUnpaid', { amount: c.unpaid, asset: c.assetId })}</p>}
           {c.refused !== '0' && <p>{t('cashbackRefused', { amount: c.refused, asset: c.assetId })}</p>}
+          {c.toWallet !== '0' && (
+            <p data-testid="card-cashback-wallet" data-owed={c.toWallet}>
+              {t('cashbackToWallet', { amount: c.toWallet, asset: c.assetId })} <a href="/uc/promotion">{t('cashbackToWalletLink')}</a>
+            </p>
+          )}
           {c.simulated && <p className="money-caption">{t('cashbackSimulated')}</p>}
         </>
       ) : (
@@ -509,6 +514,12 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
                 </td>
                 <td data-testid={`card-pay-from-${row.assetId}-rate`}>
                   {offeredRow ? known(row.rate, (v) => `${v} ${p.settlementAssetId ?? ''}`.trim()) : null}
+                  {offeredRow && row.rate !== null ? (
+                    <span className="money-caption" data-testid={`card-pay-from-${row.assetId}-rate-estimate`}>
+                      {' '}
+                      ({t('payFromEstimate')})
+                    </span>
+                  ) : null}
                 </td>
                 <td data-testid={`card-pay-from-${row.assetId}-rate-time`}>
                   {offeredRow ? (
@@ -524,6 +535,9 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
           })}
         </tbody>
       </table>
+      <p className="money-caption" data-testid="card-pay-from-estimate">
+        {t('payFromEstimateNote')}
+      </p>
       <p data-testid="card-pay-from-saved">
         {t('payFromSavedHead')}:{' '}
         {p.order

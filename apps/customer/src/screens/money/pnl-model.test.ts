@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import {
   coinMethod,
   lotAccountFromQuery,
@@ -27,7 +28,7 @@ const book = (over: Partial<LotBook> = {}): LotBook => ({
   preview: false,
   choices: { status: 'saved', accountMethod: null, assetMethods: [], days: [], picks: [], includeTransfers: null },
   indicator: 'indicator_not_tax_advice',
-  assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: '200', held: '1', uncountedQty: '0' }],
+  assets: [{ assetId: asAssetId('BTC'), openQty: '1', openCostUsd: '200', held: '1', uncountedQty: '0' }],
   sales: [],
   lots: [],
   realizedUsd: '200',
@@ -66,9 +67,10 @@ describe('pnlView', () => {
 
   it('values only the part the trades account for when more is held (a deposit on top)', () => {
     // 2 BTC held, worth 500 in all; 1 is from trades at cost 200: its share of the value is 250.
-    const view = pnlView(book({ assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: '200', held: '2', uncountedQty: '0' }] }), [
-      row('BTC', '2', '500'),
-    ]);
+    const view = pnlView(
+      book({ assets: [{ assetId: asAssetId('BTC'), openQty: '1', openCostUsd: '200', held: '2', uncountedQty: '0' }] }),
+      [row('BTC', '2', '500')],
+    );
     expect(view.assets[0]).toMatchObject({ valueUsd: '250', unrealisedUsd: '50', knownQty: '1', otherQty: '1' });
   });
 
@@ -77,9 +79,10 @@ describe('pnlView', () => {
   });
 
   it('an unknown cost is not zero: unrealised is null with a reason', () => {
-    const view = pnlView(book({ assets: [{ assetId: 'ETH', openQty: '10', openCostUsd: null, held: '10', uncountedQty: '0' }] }), [
-      row('ETH', '10', '900'),
-    ]);
+    const view = pnlView(
+      book({ assets: [{ assetId: asAssetId('ETH'), openQty: '10', openCostUsd: null, held: '10', uncountedQty: '0' }] }),
+      [row('ETH', '10', '900')],
+    );
     expect(view.assets[0]).toMatchObject({ costUsd: null, valueUsd: '900', unrealisedUsd: null, reason: 'cost_unknown' });
     expect(view.unrealisedUsd).toBeNull();
   });
@@ -93,7 +96,7 @@ describe('pnlView', () => {
   it('when coins left another way the cost is unknown and says so', () => {
     const view = pnlView(
       book({
-        assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: null, held: '0.4', uncountedQty: '0' }],
+        assets: [{ assetId: asAssetId('BTC'), openQty: '1', openCostUsd: null, held: '0.4', uncountedQty: '0' }],
         residuals: ['tax.lot_book_unreconciled'],
       }),
       [row('BTC', '0.4', '100')],
@@ -105,9 +108,9 @@ describe('pnlView', () => {
     const view = pnlView(
       book({
         assets: [
-          { assetId: 'BTC', openQty: '1', openCostUsd: '200', held: '1', uncountedQty: '0' },
-          { assetId: 'ETH', openQty: '10', openCostUsd: null, held: '10', uncountedQty: '0' },
-          { assetId: 'USDT', openQty: '0', openCostUsd: '0', held: '300', uncountedQty: '0' },
+          { assetId: asAssetId('BTC'), openQty: '1', openCostUsd: '200', held: '1', uncountedQty: '0' },
+          { assetId: asAssetId('ETH'), openQty: '10', openCostUsd: null, held: '10', uncountedQty: '0' },
+          { assetId: asAssetId('USDT'), openQty: '0', openCostUsd: '0', held: '300', uncountedQty: '0' },
         ],
       }),
       [row('BTC', '1', '250'), row('ETH', '10', '900')],
@@ -123,15 +126,16 @@ describe('pnlView', () => {
 
 describe('average price and the method in the link', () => {
   it('average price is open cost over open quantity, fee inside: 0.0999 BTC received for 7.7 USDT is 77.077077...', () => {
-    const view = pnlView(book({ assets: [{ assetId: 'BTC', openQty: '0.0999', openCostUsd: '7.7', held: '0.0999', uncountedQty: '0' }] }), [
-      row('BTC', '0.0999', '13.2867'),
-    ]);
+    const view = pnlView(
+      book({ assets: [{ assetId: asAssetId('BTC'), openQty: '0.0999', openCostUsd: '7.7', held: '0.0999', uncountedQty: '0' }] }),
+      [row('BTC', '0.0999', '13.2867')],
+    );
     expect(view.assets[0]!.avgPriceUsd).toBe('77.077077077077077077');
     expect(view.assets[0]!.costUsd).toBe('7.7');
   });
 
   it('an unknown cost has no average price, never a zero', () => {
-    const view = pnlView(book({ assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: null, held: '1', uncountedQty: '0' }] }), [
+    const view = pnlView(book({ assets: [{ assetId: asAssetId('BTC'), openQty: '1', openCostUsd: null, held: '1', uncountedQty: '0' }] }), [
       row('BTC', '1', '250'),
     ]);
     expect(view.assets[0]!.avgPriceUsd).toBeNull();
@@ -149,7 +153,7 @@ describe('average price and the method in the link', () => {
 describe('lots', () => {
   const lot = (id: string, assetId: string, source: LotBookLot['source']): LotBookLot => ({
     id,
-    assetId,
+    assetId: asAssetId(assetId),
     acquiredAt: '2026-10-20T10:00:00.000Z',
     source,
     qty: '1',
@@ -177,7 +181,7 @@ describe('lots', () => {
     };
     const spaced = book({
       lots: [...lots.lots, carried],
-      spaces: { status: 'read', list: [{ spaceId: SPACE, assetId: 'ETH', name: 'Cold TEST', archived: true }] },
+      spaces: { status: 'read', list: [{ spaceId: SPACE, assetId: asAssetId('ETH'), name: 'Cold TEST', archived: true }] },
     });
     expect(lotAccounts(spaced, 'ETH')).toEqual(['main', SPACE]);
     expect(lotAccounts(spaced, 'BTC')).toEqual(['main']);
@@ -188,7 +192,7 @@ describe('lots', () => {
     expect(lotAccountFromQuery('?account=nope', lotAccounts(spaced, 'ETH'))).toBe('all');
     expect(spaceOf(spaced, SPACE)).toEqual({ name: 'Cold TEST', archived: true });
     // A sale on the main account cannot pick a lot that sits in a space.
-    const sale = { assetId: 'ETH', disposedAt: '2026-10-22T10:00:00.000Z', matches: [] } as unknown as LotBookSale;
+    const sale = { assetId: asAssetId('ETH'), disposedAt: '2026-10-22T10:00:00.000Z', matches: [] } as unknown as LotBookSale;
     expect(pickableLots(spaced, sale).map((l) => l.id)).toEqual(['lot:a:ETH', 'lot:c:ETH']);
     expect(spaceOf(book({ spaces: { status: 'unavailable', code: 'tax.own_spaces_unavailable' } }), SPACE)).toBeNull();
   });
@@ -207,7 +211,7 @@ describe('lots', () => {
       choices: {
         status: 'saved',
         accountMethod: null,
-        assetMethods: [{ assetId: 'ETH', method: 'HIFO' }],
+        assetMethods: [{ assetId: asAssetId('ETH'), method: 'HIFO' }],
         days: [],
         picks: [],
         includeTransfers: null,
@@ -219,7 +223,7 @@ describe('lots', () => {
       method: 'FIFO',
       methodSource: 'default',
       pickedLotId: null,
-      assetId: 'ETH',
+      assetId: asAssetId('ETH'),
       txId: 's1',
       disposedAt: '2026-10-21T10:00:00.000Z',
       qty: '1',
@@ -255,7 +259,7 @@ describe('missing cost', () => {
     items: [
       {
         lotId: 'lot:d1:BTC',
-        assetId: 'BTC',
+        assetId: asAssetId('BTC'),
         kind: 'open' as const,
         qty: '0.003',
         code: 'tax.cost_basis_unavailable' as const,
@@ -264,7 +268,7 @@ describe('missing cost', () => {
       },
       {
         lotId: 'lot:d1:BTC',
-        assetId: 'BTC',
+        assetId: asAssetId('BTC'),
         kind: 'disposal' as const,
         qty: '0.001',
         code: 'tax.cost_basis_unavailable' as const,
@@ -273,7 +277,7 @@ describe('missing cost', () => {
       },
       {
         lotId: null,
-        assetId: 'BTC',
+        assetId: asAssetId('BTC'),
         kind: 'disposal' as const,
         qty: '0.0005',
         code: 'tax.lot_underflow' as const,
@@ -285,9 +289,9 @@ describe('missing cost', () => {
 
   it('lists the open lots with no cost, and the unknown parts of one sale', () => {
     expect(lotsMissingCost(missing).map((item) => item.lotId)).toEqual(['lot:d1:BTC']);
-    expect(unknownShareOf(missing, { txId: 's1', assetId: 'BTC' }).map((item) => item.qty)).toEqual(['0.001']);
-    expect(unknownShareOf(missing, { txId: 's2', assetId: 'BTC' }).map((item) => item.lotId)).toEqual([null]);
-    expect(unknownShareOf(missing, { txId: 's3', assetId: 'BTC' })).toEqual([]);
+    expect(unknownShareOf(missing, { txId: 's1', assetId: asAssetId('BTC') }).map((item) => item.qty)).toEqual(['0.001']);
+    expect(unknownShareOf(missing, { txId: 's2', assetId: asAssetId('BTC') }).map((item) => item.lotId)).toEqual([null]);
+    expect(unknownShareOf(missing, { txId: 's3', assetId: asAssetId('BTC') })).toEqual([]);
   });
 });
 
@@ -296,7 +300,7 @@ describe('the five views (J-portfolio-05 #1)', () => {
   const now = Date.parse('2026-10-24T12:00:00.000Z');
   const lot = (over: Partial<LotBookLot>): LotBookLot => ({
     id: 'lot:x:BTC',
-    assetId: 'BTC',
+    assetId: asAssetId('BTC'),
     acquiredAt: '2026-10-01T10:00:00.000Z',
     source: 'trade',
     qty: '1',
@@ -315,7 +319,7 @@ describe('the five views (J-portfolio-05 #1)', () => {
     method: 'FIFO',
     methodSource: 'default',
     pickedLotId: null,
-    assetId: 'BTC',
+    assetId: asAssetId('BTC'),
     txId: 's1',
     disposedAt: '2026-10-10T10:00:00.000Z',
     qty: '0.5',
@@ -330,8 +334,8 @@ describe('the five views (J-portfolio-05 #1)', () => {
   // six hours ago. A deposit of 2 ETH is left out (transfers off).
   const full = book({
     assets: [
-      { assetId: 'BTC', openQty: '1', openCostUsd: '190', held: '1', uncountedQty: '0' },
-      { assetId: 'ETH', openQty: '0', openCostUsd: '0', held: '2', uncountedQty: '2' },
+      { assetId: asAssetId('BTC'), openQty: '1', openCostUsd: '190', held: '1', uncountedQty: '0' },
+      { assetId: asAssetId('ETH'), openQty: '0', openCostUsd: '0', held: '2', uncountedQty: '2' },
     ],
     lots: [
       lot({ id: 'lot:a:BTC', remaining: '0.5', remainingCostUsd: '50' }),
@@ -345,7 +349,7 @@ describe('the five views (J-portfolio-05 #1)', () => {
       }),
       lot({
         id: 'lot:c:ETH',
-        assetId: 'ETH',
+        assetId: asAssetId('ETH'),
         source: 'deposit',
         qty: '2',
         remaining: '2',
@@ -356,7 +360,7 @@ describe('the five views (J-portfolio-05 #1)', () => {
     ],
     sales: [
       sale({ txId: 'w1', kind: 'moved_out', disposedAt: '2026-10-12T10:00:00.000Z', realizedUsd: '25' }),
-      sale({ fee: { status: 'known', assetId: 'USDT', amount: '1.5', usd: '1.5' } }),
+      sale({ fee: { status: 'known', assetId: asAssetId('USDT'), amount: '1.5', usd: '1.5' } }),
     ],
     realizedUsd: '65',
     includeTransfers: false,
@@ -376,12 +380,12 @@ describe('the five views (J-portfolio-05 #1)', () => {
   it('last is the newest trade: the buy six hours ago, worth 150 now for 140, is +10; a withdrawal is not a trade', () => {
     const f = pnlFigures(full, rows, now);
     expect(f.last).toEqual({
-      trade: { kind: 'buy', assetId: 'BTC', at: '2026-10-24T06:00:00.000Z', figure: { kind: 'value', usd: '10' } },
+      trade: { kind: 'buy', assetId: asAssetId('BTC'), at: '2026-10-24T06:00:00.000Z', figure: { kind: 'value', usd: '10' } },
       figure: { kind: 'value', usd: '10' },
     });
     // Without that buy, the newest counted sale: +40, not the later withdrawal's 25.
     const older = pnlFigures({ ...full, lots: full.lots.filter((l) => l.id !== 'lot:b:BTC') }, rows, now);
-    expect(older.last.trade).toMatchObject({ kind: 'sale', assetId: 'BTC', at: '2026-10-10T10:00:00.000Z' });
+    expect(older.last.trade).toMatchObject({ kind: 'sale', assetId: asAssetId('BTC'), at: '2026-10-10T10:00:00.000Z' });
     expect(older.last.figure).toEqual({ kind: 'value', usd: '40' });
   });
 
@@ -425,14 +429,15 @@ describe('the five views (J-portfolio-05 #1)', () => {
 
   it('a quantity from transfers left out is named on its own, not as "no recorded cost"', () => {
     // Held 2: 1 in counted lots, 0.5 from a deposit left out, and 0.5 no lot accounts for.
-    const view = pnlView(book({ assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: '200', held: '2', uncountedQty: '0.5' }] }), [
-      row('BTC', '2', '500'),
-    ]);
+    const view = pnlView(
+      book({ assets: [{ assetId: asAssetId('BTC'), openQty: '1', openCostUsd: '200', held: '2', uncountedQty: '0.5' }] }),
+      [row('BTC', '2', '500')],
+    );
     expect(view.assets[0]).toMatchObject({ knownQty: '1', otherQty: '0.5', uncountedQty: '0.5', valueUsd: '250', unrealisedUsd: '50' });
   });
   it('a coin held only in lots left out is listed as not counted, and stays out of every figure', () => {
     const only = book({
-      assets: [{ assetId: 'ETH', openQty: '0', openCostUsd: '0', held: '2', uncountedQty: '2' }],
+      assets: [{ assetId: asAssetId('ETH'), openQty: '0', openCostUsd: '0', held: '2', uncountedQty: '2' }],
       sales: [],
       realizedUsd: null,
     });
@@ -447,7 +452,7 @@ describe('the five views (J-portfolio-05 #1)', () => {
 
   it('not reconciled is checked against every open lot, counted or not', () => {
     const short = book({
-      assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: null, held: '1.5', uncountedQty: '1' }],
+      assets: [{ assetId: asAssetId('BTC'), openQty: '1', openCostUsd: null, held: '1.5', uncountedQty: '1' }],
       residuals: ['tax.lot_book_unreconciled'],
     });
     expect(pnlView(short, rows).assets[0]).toMatchObject({ reason: 'not_reconciled' });
@@ -465,7 +470,7 @@ describe('the five views (J-portfolio-05 #1)', () => {
     });
     const short = {
       ...full,
-      assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: null, held: '0.5', uncountedQty: '0' }],
+      assets: [{ assetId: asAssetId('BTC'), openQty: '1', openCostUsd: null, held: '0.5', uncountedQty: '0' }],
       residuals: ['tax.lot_book_unreconciled'],
     };
     expect(pnlFigures(short, rows, now).day).toEqual({ kind: 'unknown', reason: 'cost_unknown' });
@@ -477,7 +482,7 @@ describe('venue account lots', () => {
   const VENUE = 'venue:test-venue:0x00000000000000000000000000000000000000a1';
   const lot = (over: Partial<LotBookLot>): LotBookLot => ({
     id: 'lot:t1:BTC',
-    assetId: 'BTC',
+    assetId: asAssetId('BTC'),
     acquiredAt: '2026-11-01T00:00:00.000Z',
     source: 'trade',
     qty: '1',
@@ -500,8 +505,8 @@ describe('venue account lots', () => {
   });
   const withVenue = book({
     assets: [
-      { assetId: 'BTC', openQty: '1', openCostUsd: '100', held: '1', uncountedQty: '0' },
-      { assetId: 'BTC', openQty: '0.00999', openCostUsd: '600', held: '0.00999', uncountedQty: '0', venueAccount: VENUE },
+      { assetId: asAssetId('BTC'), openQty: '1', openCostUsd: '100', held: '1', uncountedQty: '0' },
+      { assetId: asAssetId('BTC'), openQty: '0.00999', openCostUsd: '600', held: '0.00999', uncountedQty: '0', venueAccount: VENUE },
     ],
     lots: [lot({}), venueLot],
     realizedUsd: null,
@@ -544,7 +549,7 @@ describe('venue account lots', () => {
       method: 'FIFO',
       methodSource: 'default',
       pickedLotId: null,
-      assetId: 'BTC',
+      assetId: asAssetId('BTC'),
       txId: 's1',
       disposedAt: '2026-11-11T00:00:00.000Z',
       qty: '0.001',
@@ -569,7 +574,7 @@ describe('venue account lots', () => {
           method: 'FIFO',
           methodSource: 'default',
           pickedLotId: null,
-          assetId: 'BTC',
+          assetId: asAssetId('BTC'),
           txId: `${VENUE}:f3`,
           disposedAt: '2026-11-11T00:00:00.000Z',
           qty: '0.00999',

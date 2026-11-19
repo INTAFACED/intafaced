@@ -223,6 +223,22 @@ export function assertMarketOpen(market: Market, at: Date): void {
 }
 
 /**
+ * A new listing's opening window (J-cex-spot-14 #7, SP-markets-data-02): until `openingWindowEndsAt`, the book takes
+ * limit orders only. A market order, and a stop of either kind (a conditional order turns into a market or limit order
+ * the moment it triggers, inside the window), is refused with `trade.opening_window`, before any hold. A window that
+ * has ended, or a market with none, restricts nothing. `at` is the request's one clock read, as for `assertMarketOpen`.
+ */
+export function assertOutsideOpeningWindow(market: Pick<Market, 'symbol' | 'openingWindowEndsAt'>, type: string, at: Date): void {
+  const ends = market.openingWindowEndsAt;
+  if (!(ends instanceof Date) || Number.isNaN(ends.getTime()) || at.getTime() >= ends.getTime()) return;
+  if (type === 'limit') return;
+  throw new TradeError(
+    `${market.symbol} is in its opening window until ${ends.toISOString()}: only limit orders are taken`,
+    'trade.opening_window',
+  );
+}
+
+/**
  * SOCKET §13 — stop and take-profit orders.
  *
  * The engine already matches `stop` and `stop_limit`, and the public contract

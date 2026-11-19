@@ -498,6 +498,50 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
 }
 
+// The ws process carries the multiplexed door's TEST values from the ws profile, verbatim, so the door mounts on this
+// stack and takes subscriptions (#8311) instead of staying down on ws.mux_idle_unset.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const ws = localTestServiceEnvs().find((service) => service.name === 'ws');
+  const profile = loadProfile().values;
+  for (const name of [
+    'WS_MUX_IDLE_MS',
+    'WS_MUX_MAX_SEATS',
+    'WS_MUX_MAX_SUBSCRIPTIONS',
+    'WS_MUX_MAX_OPS_PER_SECOND',
+    'WS_MAX_CONNECTIONS',
+    'WS_HIGH_WATER_BYTES',
+  ]) {
+    assert.equal(profile[name]?.service, 'ws', `${name} is not in the ws profile`);
+    assert.equal(ws.env[name], profile[name].value, `ws env ${name} differs from the ws profile`);
+  }
+  console.log('local-test-stack: ws multiplexed door TEST values come from the ws profile');
+}
+
+// The ws process carries the per-IP cap and storm ban from the ws profile (J-developer-09 #6), and
+// LOCAL_STACK_WS_IP_BAN_SECONDS=off blanks only the ban time, so a journey can show the ban refusing to enable.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const names = ['WS_PER_IP_MAX_CONNECTIONS', 'WS_PER_IP_STORMS_BEFORE_BAN', 'WS_PER_IP_BAN_SECONDS'];
+  const ws = localTestServiceEnvs().find((service) => service.name === 'ws');
+  for (const name of names) {
+    assert.equal(profile[name]?.service, 'ws', `${name} is not in the ws profile`);
+    assert.equal(ws.env[name], profile[name].value, `ws env ${name} differs from the ws profile`);
+  }
+  process.env.LOCAL_STACK_WS_IP_BAN_SECONDS = 'off';
+  try {
+    const blank = localTestServiceEnvs().find((service) => service.name === 'ws');
+    assert.equal(blank.env.WS_PER_IP_BAN_SECONDS, '', 'the off switch must leave WS_PER_IP_BAN_SECONDS blank');
+    assert.equal(blank.env.WS_PER_IP_MAX_CONNECTIONS, profile.WS_PER_IP_MAX_CONNECTIONS.value);
+  } finally {
+    delete process.env.LOCAL_STACK_WS_IP_BAN_SECONDS;
+  }
+  console.log('local-test-stack: ws per-IP cap and ban TEST values come from the ws profile; the ban time can be blanked');
+}
+
 // The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
 // journey meets the rule instead of the unset refusal.
 {
@@ -545,6 +589,40 @@ const script = resolve(here, 'local-test-stack.mjs');
     else process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = before;
   }
   console.log('local-test-stack: the copy country list blank switch blanks only TRADE_COPY_JURISDICTION_LAW');
+}
+
+// LOCAL_STACK_TRADE_COPY_LEAD_BALANCE=blank leaves only the TEST least venue balance to lead blank, so
+// J-copy-bots-otc-04 #1 can restart trade to show an application refused naming the threshold.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const before = process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE;
+  try {
+    delete process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE;
+    const set = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(set.TRADE_COPY_LEAD_MIN_VENUE_USDC, profile.TRADE_COPY_LEAD_MIN_VENUE_USDC.value);
+    process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = 'blank';
+    const blank = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(blank.TRADE_COPY_LEAD_MIN_VENUE_USDC, '', 'the blank switch must leave the least venue balance to lead blank');
+    assert.deepEqual(
+      { ...blank, TRADE_COPY_LEAD_MIN_VENUE_USDC: set.TRADE_COPY_LEAD_MIN_VENUE_USDC },
+      set,
+      'the blank switch must change nothing else in trade',
+    );
+    // A decimal sets the least venue balance (the lead equity minimum too), so J-copy-bots-otc-04 #7 can refuse a lead.
+    process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = '1000000';
+    const raised = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(raised.TRADE_COPY_LEAD_MIN_VENUE_USDC, '1000000', 'a decimal switch must set the least venue balance to lead');
+    assert.deepEqual({ ...raised, TRADE_COPY_LEAD_MIN_VENUE_USDC: set.TRADE_COPY_LEAD_MIN_VENUE_USDC }, set, 'and change nothing else');
+    process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = 'lots';
+    const junk = localTestServiceEnvs().find((service) => service.name === 'trade').env;
+    assert.equal(junk.TRADE_COPY_LEAD_MIN_VENUE_USDC, set.TRADE_COPY_LEAD_MIN_VENUE_USDC, 'anything else keeps the TEST value');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE;
+    else process.env.LOCAL_STACK_TRADE_COPY_LEAD_BALANCE = before;
+  }
+  console.log('local-test-stack: the lead balance blank switch blanks only TRADE_COPY_LEAD_MIN_VENUE_USDC');
 }
 
 // The agents process routes the TEST Coach task on the stand-in engine at the profile's TEST route, verbatim, and
@@ -767,6 +845,11 @@ try {
       assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'pom.xml')), true, `no services/svc-${sv.name}/pom.xml`);
       continue;
     }
+    if (sv.rust) {
+      // svc-tax runs its Rust binary, which the stack builds from its crate (ensureTaxBinary).
+      assert.equal(existsSync(join(repo, 'crates', `svc-${sv.name}`, 'Cargo.toml')), true, `no crates/svc-${sv.name}/Cargo.toml`);
+      continue;
+    }
     assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'src', 'index.ts')), true, `no services/svc-${sv.name}`);
     assert.equal(plan.backendPackages.includes(`svc-${sv.name}`), true, `svc-${sv.name} is started but never built`);
   }
@@ -775,6 +858,12 @@ try {
     // (`pnpm --filter <service> db:migrate`), pointing at a file that exists (svc-ops keeps it in src/db).
     const owner = plan.services.find((x) => x.schema === schema);
     assert.ok(owner, `schema ${schema} has no service`);
+    if (owner.rust) {
+      // A Rust service applies its own migrations (`svc-<name> migrate`) from the SQL files in its crate.
+      const dir = join(repo, 'crates', `svc-${owner.name}`, 'migrations');
+      assert.ok(existsSync(dir) && readdirSync(dir).some((f) => f.endsWith('.sql')), `crates/svc-${owner.name} has no migrations`);
+      continue;
+    }
     const dir = join(repo, 'services', `svc-${owner.name}`);
     const migrate = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts?.['db:migrate'] ?? '';
     const file = /^(?:tsx|node) (\S+\.(?:ts|mjs))$/.exec(migrate)?.[1];
@@ -1015,7 +1104,10 @@ console.log('local-test-stack: customer folder override checks passed');
     assert.match(status().stdout, /market-maker\s+-\s+-\s+not started/);
     // Started once, process gone: DOWN, and `status` exits non-zero so a script or a glance notices.
     mkdirSync(join(state, 'run'), { recursive: true });
-    writeFileSync(join(state, 'run', 'market.json'), JSON.stringify({ pid: 99998, startedAt: '2026-10-14T00:00:00.000Z' }));
+    writeFileSync(
+      join(state, 'run', 'processes.json'),
+      JSON.stringify({ 'market-maker': { pid: 99998, startedAt: '2026-10-14T00:00:00.000Z' } }),
+    );
     const down = status();
     assert.match(down.stdout, /market-maker\s+-\s+99998\s+DOWN \(was running/);
     assert.equal(down.status, 1);
@@ -1030,16 +1122,18 @@ console.log('local-test-stack: customer folder override checks passed');
     /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('apex'\)\) await startApex\(\);\s*if \(!only \|\| HOST_SITES\.some\(\(name\) => only\.includes\(name\)\)\) await checkLocalTestHosts\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*if \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\) await startTeamTls\(\);\s*ensureMarket\(\);/,
   );
   // The TEST chain (local-test-chain.mjs) stops after the services that read it (svc-protocol), before NATS. A second
-  // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against.
+  // worker (`second-worker`) stops before the services, so none outlives the database or bus it runs against. The TEST
+  // market maker stops first, while Edge still runs to take its order cancels.
   assert.match(
     source,
-    /const order = \[\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
+    /const order = \[\s*\/\/[^\n]*\n\s*MAKER_RECORD,\s*'team-tls',\s*'admin',\s*'apex',\s*'invitation',\s*'customer',\s*\.\.\.serviceNames\(\)\.map\(\(name\) => `\$\{name\}-2`\),\s*\.\.\.serviceNames\(\)\.reverse\(\),\s*'chain',\s*'video-store',\s*'rail-statements',\s*'test-venue',\s*'test-venue-b',\s*'test-wallet-provider',\s*'nats',?\s*\];/,
   );
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
   assert.match(source, /APP_ENV: 'dev',/);
   assert.match(source, /async function cmdRestart[\s\S]*?await cmdStart\(\[\]\);/);
-  assert.match(source, /local-test-market\.mjs'\), 'ensure'\]/);
+  assert.match(source, /function ensureMarket\(\) \{\n\s+const r = marketTool\('ensure'\);/);
+  assert.match(source, /local-test-market\.mjs'\), cmd\]/);
   console.log('local-test-stack: market supervision checks passed');
 }
 
@@ -1412,8 +1506,16 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   // An absent service doesn't fail the start, but a service that is DOWN still does.
   assert.match(source, /const absent = r\.status !== 200 \? absentWhy\(n, chain\) : null;/);
-  assert.match(source, /every\(\(r\) => \/\^\(ok\|absent\)\\b\/\.test\(String\(r\[3\]\)\)\)/);
-  assert.equal(/^(ok|absent)\b/.test('DOWN (0)'), false);
+  assert.match(source, /every\(\(r\) => \/\^\(ok\|absent\|off\)\\b\/\.test\(String\(r\[3\]\)\)\)/);
+  assert.equal(/^(ok|absent|off)\b/.test('DOWN (0)'), false);
+  // "off" is written only for a TEST adapter this start never recorded, or a stopped venue the switch doesn't ask for; one
+  // the switch asks for (and the wallet provider, always) is checked, so DOWN still fails.
+  assert.match(
+    source,
+    /if \(!procs\[name\] \|\| \(!wanted\[name\] && !ownedAlive\(procs\[name\]\)\)\) \{\s*rows\.push\(\[`\$\{name\} \(TEST\)`, PORTS\[name\], '-', 'off \(not started\)'\]\);/,
+  );
+  assert.match(source, /'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true/);
+  assert.equal((source.match(/'off \(not started\)'/g) ?? []).length, 1);
   // `restart <service>` is a stop and a full start, so it takes the same path.
   assert.match(source, /await cmdStop\(names\);\s*await cmdStart\(\[\]\);/);
   console.log('local-test-stack: with no TEST chain the indexer is left out and named, and the start still passes');
@@ -1594,13 +1696,263 @@ console.log('local-test-stack: customer folder override checks passed');
 
 // No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
 // every restart that started it refused with "in use by a process this script did not start" (journeys run 42524275189).
+// Nor does one slot's stack take another slot's port (LOCAL_STACK_SLOT 0 to 3), its second workers' included.
 {
-  const { CHAIN_PORTS } = await import('./local-test-chain.mjs');
-  const table = /const PORTS = \{([\s\S]*?)\n\};/.exec(source)?.[1] ?? '';
-  const stackPorts = [...table.matchAll(/'?[\w-]+'?: (\d{4,5}),/g)].map((m) => Number(m[1]));
-  assert.ok(stackPorts.length > 20, 'the stack port table was read');
-  const clash = stackPorts.filter((port) => Object.values(CHAIN_PORTS).includes(port));
-  assert.deepEqual(clash, [], `stack ports also used by the test chain: ${clash.join(', ')}`);
-  assert.equal(new Set(stackPorts).size, stackPorts.length, 'every stack port is used once');
-  console.log('local-test-stack: no stack port collides with the test chain or with another stack port');
+  const { slotPorts } = await import('./local-test-facts.mjs');
+  const held = [0, 1, 2, 3].flatMap((slot) => {
+    const { stack, fixSockets, hooks, chain } = slotPorts(slot);
+    const workers = Array.from({ length: 20 }, (_, i) => stack.edge + 400 + i);
+    return [...Object.values(stack), ...Object.values(fixSockets), ...Object.values(hooks), ...Object.values(chain), ...workers];
+  });
+  assert.ok(held.length > 4 * 40, 'the port tables were read');
+  const clash = held.filter((port, i) => held.indexOf(port) !== i);
+  assert.deepEqual(clash, [], `ports held twice: ${clash.join(', ')}`);
+  assert.equal(slotPorts(0).stack.customer, 3210, 'slot 0 keeps the ports the stack always had');
+  console.log('local-test-stack: every port of every slot, the test chain and second workers included, is held once');
+}
+
+// A start never calls the stack's own running service a stranger: matching's own process answered its health late on a
+// busy runner and `restart notify` refused port 14505 as "in use by a process this script did not start" (journeys run
+// 43663982223, J-support-public-07 #5, #8434). Its own process is waited for; only a port with no matching record refuses.
+{
+  const { portDecision } = await import('./local-test-stack.mjs');
+  assert.equal(portDecision({ owned: true, healthy: true, portInUse: true }), 'ready');
+  assert.equal(portDecision({ owned: true, healthy: false, portInUse: true }), 'wait', 'its own late service is waited for, not refused');
+  assert.equal(portDecision({ owned: false, healthy: false, portInUse: true }), 'refuse', "a stranger's port still refuses");
+  assert.equal(portDecision({ owned: false, healthy: false, portInUse: false }), 'start');
+  assert.match(
+    source,
+    /if \(decision === 'wait'\) return waitHealthy\(def\.name, url, rec\.pid\);/,
+    'startNodeService waits on its own late service',
+  );
+  console.log("local-test-stack: a start waits for the stack's own late service and refuses only a stranger's port");
+}
+
+// The health table does not call a running service DOWN on one late read: svc-matching's process kept running while one
+// 2.5 s /health read went unanswered, and `restart academy` exited 1 on it (journeys run 44566531740, J-academy-11 #3,
+// #9088). A running process with no answer is read again within a window; an answer, or a gone process, counts at once.
+{
+  const { settledHealth } = await import('./local-test-stack.mjs');
+  const clock = () => {
+    let t = 0;
+    return { now: () => t, pause: async (ms) => void (t += ms) };
+  };
+  const reads = (...statuses) => {
+    const seen = [];
+    return { seen, read: async () => ({ status: statuses[Math.min(seen.push(1) - 1, statuses.length - 1)] }) };
+  };
+  let c = clock();
+  let r = reads(0, 0, 200);
+  assert.equal((await settledHealth(r.read, { alive: () => true, ...c })).status, 200, 'a late answer from a running service is ok');
+  assert.equal(r.seen.length, 3);
+  c = clock();
+  r = reads(0);
+  assert.equal((await settledHealth(r.read, { alive: () => false, ...c })).status, 0, 'a gone process is DOWN at once');
+  assert.equal(r.seen.length, 1);
+  c = clock();
+  r = reads(503, 200);
+  assert.equal((await settledHealth(r.read, { alive: () => true, ...c })).status, 503, 'a refusing answer is not read again');
+  c = clock();
+  r = reads(0);
+  assert.equal(
+    (await settledHealth(r.read, { alive: () => true, windowMs: 2000, pauseMs: 500, ...c })).status,
+    0,
+    'still silent after the window: DOWN',
+  );
+  assert.equal(r.seen.length, 5, 'read again only within the window');
+  assert.match(
+    source,
+    /settledHealth\(\(\) => httpGet\(`\$\{urlOf\(n\)\}\/health`, 2500\), \{ alive: \(\) => ownedAlive\(procs\[n\]\) \}\)/,
+    'the table reads each service through it',
+  );
+  console.log('local-test-stack: the health table waits for a running service that answers late, never for a gone one');
+}
+
+// A slot whose owner is gone is taken back; a live owner's never (takeSlot, ownerGone). Failure it prevents: on 16 Nov
+// slots 0 and 1 were held by the stacks of two settled builders whose PRs had merged, so a counted build found every
+// slot held (project-state#2553 comment 6903867491).
+{
+  const { ownerGone } = await import('./local-test-stack.mjs');
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const repo = mkdtempSync(join(tmpdir(), 'owner-'));
+  const state = join(repo, 'state');
+  mkdirSync(join(state, 'run'), { recursive: true });
+  writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ edge: { pid: 500 } }));
+  const claim = { repo, pid: 400, state };
+  const parents = () =>
+    new Map([
+      [500, 1],
+      [501, 500],
+      [600, 1],
+    ]);
+  const dead = () => false;
+  assert.equal(
+    ownerGone(claim, { alive: (pid) => pid === 400, cwds: () => new Map(), parents }),
+    false,
+    'a start still running owns its slot',
+  );
+  assert.equal(
+    ownerGone(claim, {
+      alive: dead,
+      cwds: () =>
+        new Map([
+          [500, `${repo}/services/svc-edge`],
+          [501, repo],
+        ]),
+      parents,
+    }),
+    true,
+    'only the stack and its children left in the checkout: the owner is gone',
+  );
+  assert.equal(
+    ownerGone(claim, {
+      alive: dead,
+      cwds: () =>
+        new Map([
+          [500, repo],
+          [600, repo],
+        ]),
+      parents,
+    }),
+    false,
+    "a builder's agent working in the checkout owns its slot",
+  );
+  assert.equal(
+    ownerGone(claim, { alive: dead, cwds: () => new Map([[600, `${repo}-other`]]), parents }),
+    true,
+    'a sibling folder with the same prefix is not the checkout',
+  );
+  assert.equal(ownerGone(claim, { alive: dead, cwds: () => null, parents }), false, 'processes unreadable: the owner counts as present');
+  assert.equal(
+    ownerGone({ ...claim, repo: join(repo, 'removed') }, { alive: dead, cwds: () => null, parents }),
+    true,
+    'a removed checkout has no owner',
+  );
+  // An agent working outside the checkout (a scratchpad checkout's agent sits in its own worktree) owns the slot while
+  // that same process lives (fresh review on #8599).
+  const owned = { ...claim, owner: { pid: 700, startedAt: 1000 } };
+  const onlyStack = () => new Map([[500, `${repo}/services/svc-edge`]]);
+  assert.equal(
+    ownerGone(owned, { alive: dead, identity: (pid) => (pid === 700 ? { startedAt: 1500 } : null), cwds: onlyStack, parents }),
+    false,
+    'the recorded agent still running, elsewhere: the owner is present',
+  );
+  assert.equal(
+    ownerGone(owned, { alive: dead, identity: (pid) => (pid === 700 ? { startedAt: 999_000 } : null), cwds: onlyStack, parents }),
+    true,
+    'its pid reused by another process: the owner is gone',
+  );
+  assert.equal(
+    ownerGone(owned, { alive: dead, identity: () => null, cwds: onlyStack, parents }),
+    true,
+    'the agent ended: the owner is gone',
+  );
+  // The stack's own TEST market maker counts as the stack: it records itself in the stack's one process record, and runs
+  // detached with the checkout as its folder (launchd its parent) and lsof children under it. Failure it prevents: on
+  // 17 Nov slots 0 and 1 stayed held 21 and 19 hours after their PRs merged, because the maker's pid lived in a file of
+  // its own (run/market.json) that the owner test never read, so reap said every stack had its owner (project-state#2935).
+  const finished = () =>
+    new Map([
+      [500, `${repo}/services/svc-edge`],
+      [800, repo],
+      [801, repo],
+    ]);
+  const marketParents = () =>
+    new Map([
+      [500, 1],
+      [800, 1],
+      [801, 800],
+      [600, 1],
+    ]);
+  const shapedLikeSlot0 = { ...claim, owner: { pid: 700, startedAt: 1000 } };
+  writeFileSync(
+    join(state, 'run', 'processes.json'),
+    JSON.stringify({ edge: { pid: 500 }, market: { pid: 900 }, 'market-maker': { pid: 800 } }),
+  );
+  assert.equal(
+    ownerGone(shapedLikeSlot0, { alive: dead, identity: () => null, cwds: finished, parents: marketParents }),
+    true,
+    'start and agent ended, only the stack and its own market maker left in the checkout: the owner is gone',
+  );
+  assert.equal(
+    ownerGone(shapedLikeSlot0, {
+      alive: dead,
+      identity: (pid) => (pid === 700 ? { startedAt: 1000 } : null),
+      cwds: finished,
+      parents: marketParents,
+    }),
+    false,
+    'the same stack with its agent alive: the owner is present',
+  );
+  assert.equal(
+    ownerGone(shapedLikeSlot0, {
+      alive: dead,
+      identity: () => null,
+      cwds: () => new Map([...finished(), [600, repo]]),
+      parents: marketParents,
+    }),
+    false,
+    'any process in the checkout that the stack did not start: the owner is present',
+  );
+  // A stack started before the maker's record moved keeps it in run/market.json (the two on the Mac on 17 Nov).
+  writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ edge: { pid: 500 } }));
+  writeFileSync(join(state, 'run', 'market.json'), JSON.stringify({ pid: 800 }));
+  assert.equal(
+    ownerGone(shapedLikeSlot0, { alive: dead, identity: () => null, cwds: finished, parents: marketParents }),
+    true,
+    'a stack whose maker record predates the move reads the same',
+  );
+  rmSync(join(state, 'run', 'market.json'));
+  // And `stop` stops that maker through its own stop (first, asserted with the stop order): none is left quoting.
+  assert.match(source, /if \(name === MAKER_RECORD\) \{\n[^\n]*\n\s+const r = marketTool\('stop'\);/, "the maker's own stop does it");
+  const { agentOwner } = await import('./local-test-stack.mjs');
+  const chain = () =>
+    new Map([
+      [process.pid, 40],
+      [40, 30],
+      [30, 20],
+      [20, 1],
+    ]);
+  const names = (top) => () =>
+    new Map([
+      [40, 'node'],
+      [30, '/bin/zsh'],
+      [20, top],
+    ]);
+  assert.deepEqual(
+    agentOwner(chain, names('agent'), () => ({ startedAt: 42 })),
+    { pid: 20, startedAt: 42 },
+    'a start records the first process above it that is not a shell or launcher: the agent',
+  );
+  const nested = () =>
+    new Map([
+      [process.pid, 50],
+      [50, 40],
+      [40, 30],
+      [30, 20],
+      [20, 1],
+    ]);
+  assert.deepEqual(
+    agentOwner(
+      nested,
+      () =>
+        new Map([
+          [50, 'pnpm'],
+          [40, 'bash'],
+          [30, '-zsh'],
+          [20, 'agent'],
+        ]),
+      () => ({ startedAt: 7 }),
+    ),
+    { pid: 20, startedAt: 7 },
+    'a shell inside a shell is passed over too: the owner is never a shell that ends with its command',
+  );
+  assert.equal(agentOwner(chain, names('zsh')), null, 'only launchers up to launchd: no owner, the folder test decides');
+  assert.equal(
+    agentOwner(chain, names('agent'), () => null),
+    null,
+    'an agent whose start time cannot be read records none',
+  );
+
+  console.log('local-test-stack: a slot whose owner is gone is taken back, and a live owner keeps its own');
 }

@@ -6,10 +6,7 @@ import {
   incidentMetricsSchema,
   type IncidentDetail,
 } from '@intafaced/contracts/ops-incidents';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { opsReadOf } from '@/lib/desk/ops-read';
-import { writeRefusalOf } from '@/lib/desk/write-refusal';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import { founderCall, opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView } from '@/lib/desk';
 
 /** svc-ops' staff incidents (OPS-oncall-02), read and changed as the signed-in person. Nothing is cached. */
 

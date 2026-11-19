@@ -1,4 +1,5 @@
 import type { Part } from '@/lib/desk/part';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Notification delivery health: strict reader and the figures that can honestly be computed from one page of
@@ -47,9 +48,6 @@ export interface NotifyView {
   readonly health: Part<NotifyHealth>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 const isIso = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
 
 export function readDeliveries(raw: unknown, limit: number): DeliveriesRead | null {

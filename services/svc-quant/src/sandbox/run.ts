@@ -36,6 +36,17 @@ export type SandboxRunResult = SimulatedPerformanceStamp & {
   readonly ticks: { label: 'TEST'; path: Record<string, string[]> };
   readonly venue: 'internal';
   readonly venueVault: 'unset' | 'set';
+  /**
+   * The limits this run met, the same for every language (AL-limits-02; J-algo-dev-16 #1): the plan's wall-clock, memory
+   * and output caps and the isolate's operation and source ceilings.
+   */
+  readonly limits: {
+    readonly wallClockMs: number | null;
+    readonly memoryBytes: number | null;
+    readonly outputBytes: number | null;
+    readonly maxOps: number | null;
+    readonly maxSource: number | null;
+  };
 };
 
 export interface SandboxDeps {
@@ -75,6 +86,13 @@ export function runSandbox(input: SandboxRunInput, deps: SandboxDeps): SandboxRu
     ticks: { label: 'TEST', path: Object.fromEntries(Object.entries(TEST_TICKS).map(([symbol, path]) => [symbol, [...path]])) },
     venue: 'internal',
     venueVault: deps.venueVaultSet ? 'set' : 'unset',
+    limits: {
+      wallClockMs: deps.limits.run?.wallClockMs ?? null,
+      memoryBytes: deps.limits.run?.memoryBytes ?? null,
+      outputBytes: deps.limits.run?.outputBytes ?? null,
+      maxOps: deps.limits.maxOps ?? null,
+      maxSource: deps.limits.maxSource ?? null,
+    },
     ...stamp,
   };
 }

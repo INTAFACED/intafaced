@@ -19,13 +19,15 @@
  *      head's seal or an older red seal re-run beside it on the same head.
  *   6. Main first (item 3): Real-app journeys holds a run off main back while main's jobs wait for runners, in a step
  *      of the touch job that never runs on main and can't fail the run, inside the job's time limit.
+ *   7. Main bisect: a journeys revert, confirm or settle gets one group per red commit and broken steps, so two breaks in
+ *      one main run never wait behind or replace each other, and the same break dispatched twice still shares one.
  * Planted faults at the bottom prove each rule fails on the shape it forbids. Run by tooling/scripts/tooling-tests.mjs.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFER_MARK, DISPATCH_MARK, PLAN_JOB, RELEASE_JOB } from './main-first.mjs';
+import { BUILD_JOB, DEFER_MARK, DISPATCH_MARK, PLAN_JOB, RELEASE_JOB } from './main-first.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -274,26 +276,33 @@ export function journeysProblems(text) {
   });
   if (pr.group !== branch('').group) problems.push("a pull request's run and a manual full run on its branch are in different groups");
   if (!pr.cancel) problems.push('a newer pull request run does not cancel the superseded one');
-  // A fork's pull request or a draft runs nothing, in a group of its own, so it never cancels a branch's run (council
-  // R1, R2/G2): a fork branch named like this repository's, or a draft push racing a manual run.
-  for (const pull of [
-    { draft: false, head: { repo: { full_name: 'someone/fork' } } },
-    { draft: true, head: { repo: { full_name: REPO } } },
-  ]) {
-    const other = resolve(text, {
+  // A fork's pull request runs nothing, in a group of its own, so it never cancels a branch's run (council R1): a fork
+  // branch named like this repository's. A draft runs from its first push, in its branch's group, as a ready pull request
+  // does (#8707). `ready_for_review` keeps a group of its own: on the head its push already runs, it never cancels that.
+  const prRun = (pull, action = 'synchronize', id = 2) =>
+    resolve(text, {
       github: {
         workflow: 'Real-app journeys',
         repository: REPO,
         event_name: 'pull_request',
         ref: 'refs/pull/8/merge',
         head_ref: 'b1',
-        run_id: 2,
-        event: { pull_request: pull },
+        run_id: id,
+        event: { action, pull_request: pull },
       },
       inputs: {},
     });
-    if (other.group === branch('').group) problems.push(`a ${pull.draft ? 'draft' : "fork's"} pull request run shares a branch's group`);
-  }
+  if (prRun({ draft: false, head: { repo: { full_name: 'someone/fork' } } }).group === branch('').group)
+    problems.push("a fork's pull request run shares a branch's group");
+  const draft = { draft: true, head: { repo: { full_name: REPO } } };
+  for (const action of ['opened', 'synchronize', 'reopened'])
+    if (prRun(draft, action).group !== branch('').group || !prRun(draft, action).cancel)
+      problems.push(`a draft's ${action} run is not in its branch's group, cancelling the superseded one`);
+  const ready = prRun({ draft: false, head: { repo: { full_name: REPO } } }, 'ready_for_review', 3);
+  if (ready.group === branch('').group)
+    problems.push("ready_for_review shares its branch's group, so it would cancel the run its push started");
+  if (ready.group === prRun({ draft: false, head: { repo: { full_name: REPO } } }, 'ready_for_review', 4).group)
+    problems.push('two ready_for_review runs share a group');
   const run = (ref, j) => resolve(text, journeysRun('workflow_dispatch', ref, j)).group;
   if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
     problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');
@@ -387,10 +396,14 @@ export function mainFirstProblems(text) {
   const defer = step(touch, `"${DEFER_MARK}"`);
   if (!defer || !/\n {8}if: steps\.first\.outputs\.deferred == 'true'\n/.test(defer))
     problems.push(`the touch job has no step "${DEFER_MARK}" run exactly when deferred, so the release can't find deferred runs`);
-  // The touch job plans the shards too, so every run, main's and a branch's, queues for runners twice (this job, then
-  // the shards), not three times: no planner job of its own, and the shards wait on the touch job alone.
-  if (job(text, 'plan') || !/\n {4}needs: \[touch\]\n/.test(job(text, 'journeys')))
-    problems.push('the shards wait on a job after the touch job, so every run queues for runners three times');
+  // The touch job plans the shards too: no planner job of its own. The shards wait on the touch job and the build job
+  // alone, so no shard holds a runner while the build runs, and no other hop sits between.
+  if (job(text, 'plan') || !/\n {4}needs: \[touch, build\]\n/.test(job(text, 'journeys')))
+    problems.push('the shards wait on a job other than the touch and build jobs, so every run queues for runners once more');
+  // A shard that took a runner before the build ended would hold it while it waits: the shards take the build only
+  // through `needs`, never by asking the API in a loop.
+  if (/actions\/runs\/\$GITHUB_RUN_ID\/jobs/.test(job(text, 'journeys')))
+    problems.push("a shard asks the API for the build job's state, so it holds a runner while the build runs");
   if (/\n {4}if: /.test(touch.split('\n    steps:\n')[0] ?? ''))
     problems.push('the touch job is skipped somewhere, so that run plans no shards');
   for (const key of ['build', 'journeys'])
@@ -429,12 +442,13 @@ export function mainFirstProblems(text) {
     failsOn(MAIN, 'skipped')
   )
     problems.push("the scoreboard doesn't fail a run off main whose touch job didn't finish, so it can read as an empty run");
-  // The release: on main after the planner, with the right to re-run, running main-first.mjs --release.
+  // The release: on main after the planner and the build (the shards queue when both end), with the right to re-run,
+  // running main-first.mjs --release.
   const release = job(text, 'release');
   const relIf = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(release)?.[1] ?? '';
   if (
     !release ||
-    !/\n {4}needs: \[touch\]\n/.test(release) ||
+    !/\n {4}needs: \[touch, build\]\n/.test(release) ||
     !/\n {6}actions: write/.test(release) ||
     !/main-first\.mjs --release/.test(release) ||
     !relIf.includes("github.ref == 'refs/heads/main'")
@@ -478,8 +492,30 @@ export function mainFirstProblems(text) {
     );
   if (!new RegExp(`\n {4}name: ${PLAN_JOB.replace(/[()]/g, '\\$&')}\n`).test(text))
     problems.push(`no job is named "${PLAN_JOB}", the name main-first.mjs reads to know main's shards are queued`);
+  if (!new RegExp(`\n  build:\n    name: ${BUILD_JOB}\n`).test(text))
+    problems.push(`no build job is named "${BUILD_JOB}", the name main-first.mjs reads to know main's shards are not queued yet`);
   if (!new RegExp(`\n  release:\n    name: ${RELEASE_JOB}\n`).test(text))
     problems.push(`no release job is named "${RELEASE_JOB}", the name main-first.mjs reads to know main already let deferred runs go`);
+  return problems;
+}
+
+// ---- rule 7: one main bisect per break ------------------------------------------------------------------------------
+
+const bisectRun = (inputs) => ({ github: { event_name: 'workflow_dispatch', ref: 'refs/heads/main' }, inputs });
+
+/** Problems with rule 7 in main-bisect.yml's text, or []. */
+export function bisectProblems(text) {
+  const problems = [];
+  const group = (i) => resolve(text, bisectRun({ base: 'main', bad: 'b'.repeat(40), confirm: '', ...i }))?.group;
+  for (const confirm of ['', 'true', 'settle']) {
+    const a = group({ journeys: 'J-a-01#2', confirm });
+    const b = group({ journeys: 'J-b-02#8', confirm });
+    if (!a || a === b) problems.push(`two breaks on one commit share a group (confirm '${confirm}'): ${a}`);
+    if (a !== group({ journeys: 'J-a-01#2', confirm })) problems.push(`the same break gets two groups (confirm '${confirm}')`);
+  }
+  if (group({ journeys: 'J-a-01#2' }) === group({ journeys: 'J-a-01#2', confirm: 'true' }))
+    problems.push('a revert and its confirm share a group');
+  if (resolve(text, bisectRun({ journeys: 'J-a-01#2', base: 'main', bad: 'b' }))?.cancel) problems.push('a bisect can be cancelled');
   return problems;
 }
 
@@ -514,21 +550,24 @@ test("Real-app journeys: a run off main waits for main's jobs to get runners, an
   assert.deepEqual(mainFirstProblems(read('real-app-journeys.yml')), []);
 });
 
+test('Main bisect: two breaks on one main commit each get their own group, and a bisect is never cancelled', () => {
+  assert.deepEqual(bisectProblems(read('main-bisect.yml')), []);
+});
+
 // ---- planted faults ------------------------------------------------------------------------------------------------
 
 const drop = (text) => text.replace(/^concurrency:\n(?:[ #].*\n|\n)*/m, '');
 
 test('planted: a pull-request workflow without its concurrency group fails rule 1', () => {
-  assert.ok(concurrency(read('look-gate.yml')), 'look-gate.yml has a group to remove');
-  assert.match(prProblems('look-gate.yml', drop(read('look-gate.yml')))[0], /no top-level concurrency group/);
+  assert.ok(concurrency(read('pr-checks.yml')), 'pr-checks.yml has a group to remove');
+  assert.match(prProblems('pr-checks.yml', drop(read('pr-checks.yml')))[0], /no top-level concurrency group/);
 });
 
 test('planted: a pull-request workflow that never cancels, or keys on the base ref, fails rule 1', () => {
-  const t = read('gate-file-guard.yml');
-  assert.match(
-    prProblems('gate-file-guard.yml', t.replace('cancel-in-progress: true', 'cancel-in-progress: false')).join(),
-    /doesn't cancel/,
-  );
+  const t = read('pr-checks.yml');
+  const never = t.replace("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", 'cancel-in-progress: false');
+  assert.notEqual(never, t);
+  assert.match(prProblems('pr-checks.yml', never).join(), /doesn't cancel/);
   const target = `on:\n  pull_request_target:\n\nconcurrency:\n  group: x-\${{ github.ref }}\n  cancel-in-progress: true\n`;
   assert.match(prProblems('x.yml', target).join(), /share a group/);
 });
@@ -639,9 +678,22 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   );
   assert.notEqual(touchOffMain, t);
   assert.ok(mainFirstProblems(touchOffMain).some((p) => /plans no shards/.test(p)));
-  const planHop = t.replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch\]/, '$1needs: [touch, plan]');
+  const planHop = t.replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch, build\]/, '$1needs: [touch, build, plan]');
   assert.notEqual(planHop, t);
-  assert.ok(mainFirstProblems(planHop).some((p) => /three times/.test(p)));
+  assert.ok(mainFirstProblems(planHop).some((p) => /once more/.test(p)));
+  // The shape this replaced: shards needing the touch job alone, polling the API for the build.
+  const pollBuild = t
+    .replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch, build\]/, '$1needs: [touch]')
+    .replace(
+      "      - name: Download the run's build\n",
+      '      - name: Wait\n        run: gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs"\n      - name: Download the run\'s build\n',
+    );
+  assert.notEqual(pollBuild, t);
+  assert.ok(mainFirstProblems(pollBuild).some((p) => /once more/.test(p)));
+  assert.ok(mainFirstProblems(pollBuild).some((p) => /holds a runner while the build runs/.test(p)));
+  const releaseEarly = t.replace(/(\n  release:\n(?: {4}.*\n)*? {4})needs: \[touch, build\]/, '$1needs: [touch]');
+  assert.notEqual(releaseEarly, t);
+  assert.ok(mainFirstProblems(releaseEarly).some((p) => /never runs/.test(p)));
   const noRelease = t.replace('run: node .base/tooling/ci/main-first.mjs --release', 'run: node .base/tooling/ci/main-first.mjs');
   assert.notEqual(noRelease, t);
   assert.ok(mainFirstProblems(noRelease).some((p) => /never runs/.test(p)));
@@ -690,4 +742,15 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   assert.notEqual(renamed, t);
   assert.ok(mainFirstProblems(renamed).some((p) => /What this run runs/.test(p)));
   assert.match(mainFirstProblems(t.replace("- name: Main's journeys first", '- name: Something else'))[0], /no step/);
+});
+
+test("planted: yesterday's main bisect group (one per red commit, steps only on a settle) fails rule 7", () => {
+  const old = read('main-bisect.yml').replace(
+    /^  group: .*$/m,
+    "  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}{3}', inputs.confirm == 'true' && '-confirm' || inputs.confirm == 'settle' && '-settle' || '', inputs.base, inputs.bad, inputs.confirm == 'settle' && format('-{0}', inputs.journeys) || '') || 'main-bisect' }}",
+  );
+  assert.deepEqual(bisectProblems(old), [
+    "two breaks on one commit share a group (confirm ''): main-bisect-journeys-main-" + 'b'.repeat(40),
+    "two breaks on one commit share a group (confirm 'true'): main-bisect-journeys-confirm-main-" + 'b'.repeat(40),
+  ]);
 });

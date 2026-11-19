@@ -15,7 +15,7 @@
  * read. No money moves here.
  */
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { AcademyLearnerGrant, AcademyLearnerPage, AcademyLearnerProgress, AcademyLearners } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import { CURRICULUM_PATHS, getCurriculumItem, listCurriculum, type CurriculumPath } from '../curriculum/catalog.js';
@@ -98,7 +98,7 @@ export class LearnerDesk {
     });
   }
 
-  private async nextGrantEvent(tx: Sql, grantId: string): Promise<number> {
+  private async nextGrantEvent(tx: Queryable, grantId: string): Promise<number> {
     const [row] = await tx<Array<{ n: number }>>`
       SELECT COALESCE(MAX(n), 0)::int + 1 AS n FROM academy.access_grant_events WHERE grant_id = ${grantId}
     `;
@@ -356,7 +356,7 @@ export class LearnerDesk {
   }
 
   private async event(
-    tx: Sql,
+    tx: Queryable,
     e: {
       userId: string;
       kind: LearnerEventKind;
@@ -390,7 +390,10 @@ export class LearnerDesk {
   }
 
   /** The event for an item staff marked complete for the learner, written in the completion's own transaction. */
-  async recordMarkComplete(tx: Sql, input: { userId: string; itemSlug: string; reason: string; key: string; actorId: string; now: Date }) {
+  async recordMarkComplete(
+    tx: Queryable,
+    input: { userId: string; itemSlug: string; reason: string; key: string; actorId: string; now: Date },
+  ) {
     await this.event(tx, {
       userId: input.userId,
       kind: 'marked_complete',

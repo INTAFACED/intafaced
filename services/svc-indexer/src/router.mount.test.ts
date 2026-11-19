@@ -14,7 +14,7 @@ import { CHAIN_ID } from './testing/conformance.js';
 process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
 
 /**
- * THE MOUNT BOUNDARY, for svc-indexer (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-indexer.
  *
  * The context comes from `createEdgeContext` over real headers, exactly as
  * `index.ts` builds it, rather than from a `Context` literal — a literal would

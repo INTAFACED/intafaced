@@ -644,12 +644,14 @@ export class AcademyCustomerStore {
             ORDER BY e.at DESC, e.key DESC
             LIMIT ${limit + 1})
           UNION ALL
-          (SELECT user_id, 'certificate_granted', cert_id, 'issue', NULL, NULL, granted_at, idempotency_key
-             FROM academy.cert_grants
+          (SELECT g.user_id, 'certificate_granted', g.cert_id, CASE WHEN x.public_id IS NULL THEN 'issue' ELSE 'exception' END,
+                  x.granted_by::text, x.reason, g.granted_at, g.idempotency_key
+             FROM academy.cert_grants g
+             LEFT JOIN academy.cert_exceptions x ON x.public_id = g.public_id
             WHERE ${readCerts}
-              AND (${certificate}::text IS NULL OR cert_id = ${certificate})
-              AND (${atCursor}::timestamptz IS NULL OR (granted_at, idempotency_key) < (${atCursor}::timestamptz, ${refCursor}::text))
-            ORDER BY granted_at DESC, idempotency_key DESC
+              AND (${certificate}::text IS NULL OR g.cert_id = ${certificate})
+              AND (${atCursor}::timestamptz IS NULL OR (g.granted_at, g.idempotency_key) < (${atCursor}::timestamptz, ${refCursor}::text))
+            ORDER BY g.granted_at DESC, g.idempotency_key DESC
             LIMIT ${limit + 1})
           UNION ALL
           (SELECT user_id, 'certificate_revoked', cert_id, NULL, revoked_by::text, reason, revoked_at, 'revoke:' || public_id
@@ -735,10 +737,23 @@ export class AcademyCustomerStore {
     return { from: window.fromIso, to: window.toIso, pathSlug: path, items };
   }
 
-  async opsMetrics(input: { from: string; to: string }): Promise<{ from: string; to: string; days: OpsDay[] }> {
+  /**
+   * The daily activity table. A day before the service began recording (`academy.metrics_recording`, or the oldest row
+   * already stored if that is earlier) has no figure: each of its cells is `metric_not_recorded`, never zero.
+   */
+  async opsMetrics(input: { from: string; to: string }): Promise<{ from: string; to: string; recordingSince: string; days: OpsDay[] }> {
     const window = utcWindow('opsMetrics', input.from, input.to);
     const { start, endExclusive } = window;
-    const [lessonRows, completionRows, grantRows] = await Promise.all([
+    const [sinceRows, lessonRows, completionRows, grantRows] = await Promise.all([
+      this.sql<Array<{ day: string }>>`
+        SELECT to_char(LEAST(
+          (SELECT since FROM academy.metrics_recording WHERE id = 1),
+          (SELECT min(touched_at) FROM academy.learning_touches),
+          (SELECT min(completed_at) FROM academy.cert_item_completions),
+          (SELECT min(granted_at) FROM academy.cert_grants),
+          now()
+        ) AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day
+      `,
       this.sql<Array<{ day: string; n: number }>>`
         SELECT to_char(touched_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, COUNT(*)::int AS n
           FROM academy.learning_touches
@@ -761,12 +776,16 @@ export class AcademyCustomerStore {
     const lessons = new Map(lessonRows.map((r) => [r.day, r.n]));
     const completions = new Map(completionRows.map((r) => [r.day, r.n]));
     const grants = new Map(grantRows.map((r) => [r.day, r.n]));
-    const days = utcDaysInclusive(window.fromIso, window.toIso).map((date) => ({
-      date,
-      lessonsRead: metricFromCount(lessons.get(date), true),
-      completions: metricFromCount(completions.get(date), true),
-      grants: metricFromCount(grants.get(date), true),
-    }));
-    return { from: window.fromIso, to: window.toIso, days };
+    const recordingSince = sinceRows[0]!.day;
+    const days = utcDaysInclusive(window.fromIso, window.toIso).map((date) => {
+      const recorded = date >= recordingSince;
+      return {
+        date,
+        lessonsRead: metricFromCount(lessons.get(date), recorded),
+        completions: metricFromCount(completions.get(date), recorded),
+        grants: metricFromCount(grants.get(date), recorded),
+      };
+    });
+    return { from: window.fromIso, to: window.toIso, recordingSince, days };
   }
 }

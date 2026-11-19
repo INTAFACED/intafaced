@@ -7,14 +7,17 @@
  *   (the browser build cannot import that package's root, so the rows are copied and the test fails when they drift);
  * - svc-trade's route inventory, `GET /api/v1/routes` (`services/svc-trade/src/route-inventory.ts`): every `/api/v1`
  *   route as svc-trade mounts it, each once, with the access and the scopes its registration declares. svc-trade refuses
- *   to boot a route without a declaration, so that list is every route. The test reads the declarations in the source;
- *   the journey reads the live list and makes a signed-out call to each route;
+ *   to boot a route without a declaration, so that list is every route. Each route's access and scopes are not written
+ *   here: they come from `SERVED_ROUTES`, which `node tooling/ci/published-routes.mjs --write` generates from those
+ *   registrations. A row here holds only a route's words; the journey reads the live list and makes a signed-out call
+ *   to each route;
  * - the key plane in svc-edge: `requiredScopeFor` in `services/svc-edge/src/gateway-plane.ts` (a key needs `trade:read`
  *   for a read and `trade:write` for anything else on `/api/v1`), and `EDGE_RATE_COST` in `services/svc-edge/src/hardening.ts`
  *   (every counted request costs 1; there are no per-route weights);
  * - svc-trade's capability matrix, `CCXT_CAPABILITY_MATRIX` in `services/svc-trade/src/ccxt-capability-matrix.ts`, for
  *   the refusals named beyond the ones every route shares.
  */
+import { SERVED_ROUTES } from './served-routes.generated';
 
 export type Product = 'general' | 'spot' | 'derivatives' | 'funding' | 'accounts';
 export const PRODUCTS: readonly Product[] = ['general', 'spot', 'derivatives', 'funding', 'accounts'];
@@ -22,7 +25,7 @@ export const PRODUCTS: readonly Product[] = ['general', 'spot', 'derivatives', '
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 /** The scope the edge asks a key for on a method. */
 export type MethodScope = 'trade:read' | 'trade:write';
-export type Scope = MethodScope | 'admin:read';
+export type Scope = MethodScope | 'admin:read' | 'copy:lead';
 /** Who may call a route, as its registration declares: anyone, a signed caller, or another service only. */
 export type Access = 'public' | 'private' | 'internal';
 
@@ -37,16 +40,13 @@ export const TRADE_UNAUTHENTICATED_CODE: SignedOut = { status: 401, field: 'code
 /** A service-to-service route asked without a service signature. */
 export const SERVICE_CREDENTIALS_REQUIRED: SignedOut = TRADE_UNAUTHENTICATED;
 
-export type RestRoute = {
+/** A route's words: what the portal says about a route svc-trade serves. */
+export type RouteWords = {
   /** The CCXT-style method name; the contract table's key where the route is in it. */
   name: string;
   method: Method;
   path: string;
   product: Product;
-  /** Who may call it, as its registration in svc-trade declares (`GET /api/v1/routes`). */
-  access: Access;
-  /** Scopes a key needs beyond its method's (an admin read). */
-  alsoNeeds?: readonly Scope[];
   /** The refusal a signed-out caller gets where it is not `AUTH_REQUIRED`; a public route has none. */
   signedOut?: SignedOut;
   /** Mounted only while futures orders go through matching (`TRADE_FUTURES_MATCHING_ENABLED`); otherwise not found. */
@@ -58,6 +58,17 @@ export type RestRoute = {
   /** Refusals named in svc-trade's capability matrix for this route, beyond the ones every route shares. */
   refusals?: readonly { status: '400' | '501'; codes: readonly string[] }[];
 };
+
+/** A published route: its words, and who may call it and the scopes a key needs, as svc-trade's registration declares. */
+export type RestRoute = RouteWords & { access: Access; scopes: readonly Scope[] };
+
+/** `SERVED_ROUTES` by route: `GET /api/v1/time` to its access and scopes. */
+const SERVED = new Map(
+  SERVED_ROUTES.map((line) => {
+    const [method, path, access, scopes] = line.split(' ');
+    return [`${method} ${path}`, { access: access as Access, scopes: (scopes ? scopes.split('+') : []) as Scope[] }];
+  }),
+);
 
 /** Every counted request costs 1 against the key's (or the address's) bucket at the edge: `EDGE_RATE_COST`. */
 export const CALL_COST = 1;
@@ -73,9 +84,8 @@ export const withinWindow = (offsetMs: number, roundTripMs: number, windowSecond
 /** A key on `/api/v1` needs `trade:read` for a read and `trade:write` for every other method (`requiredScopeFor`). */
 export const scopeFor = (method: Method): MethodScope => (method === 'GET' ? 'trade:read' : 'trade:write');
 
-/** Every scope a key needs on a route: its method's and any more it declares. A key never reaches an internal route. */
-export const scopesOf = (route: Pick<RestRoute, 'method' | 'access' | 'alsoNeeds'>): readonly Scope[] =>
-  route.access === 'internal' ? [] : [scopeFor(route.method), ...(route.alsoNeeds ?? [])];
+/** Every scope a key needs on a route, as its registration declares: its method's and any more. None on an internal route. */
+export const scopesOf = (route: Pick<RestRoute, 'scopes'>): readonly Scope[] => route.scopes;
 
 /** What a signed-out caller gets on a route; a public route answers them. */
 /** The scopes a key needs, joined for a table cell. */
@@ -84,14 +94,15 @@ export const scopeText = (route: RestRoute) => scopesOf(route).join(' + ');
 export const signedOutOf = (route: Pick<RestRoute, 'access' | 'signedOut'>): SignedOut | null =>
   route.access === 'public' ? null : (route.signedOut ?? AUTH_REQUIRED);
 
-export const REST_REFERENCE: readonly RestRoute[] = [
+/** Every route's words. A route svc-trade no longer serves is not published; the test names it and every unworded route. */
+export const ROUTE_WORDS: readonly RouteWords[] = [
   // General
   {
     name: 'fetchTime',
     method: 'GET',
     path: '/api/v1/time',
     product: 'general',
-    access: 'public',
+
     summary: 'Server time in Unix milliseconds',
   },
   {
@@ -99,7 +110,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/capabilities',
     product: 'general',
-    access: 'public',
+
     summary: 'The live inventory of routes, their refusals and the rate limit notes',
   },
   {
@@ -107,17 +118,17 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/routes',
     product: 'general',
-    access: 'public',
+
     summary: 'Every /api/v1 route svc-trade mounts, each once, with who may call it and the scopes a key needs',
   },
   // Spot: public
-  { name: 'fetchMarkets', method: 'GET', path: '/api/v1/markets', product: 'spot', access: 'public', summary: 'Listed markets' },
+  { name: 'fetchMarkets', method: 'GET', path: '/api/v1/markets', product: 'spot', summary: 'Listed markets' },
   {
     name: 'fetchOrderTypes',
     method: 'GET',
     path: '/api/v1/order-types',
     product: 'spot',
-    access: 'public',
+
     summary: 'The spot order types the ticket shows, how each is sent and its times in force, then each type refused',
   },
   {
@@ -125,7 +136,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/ticker/:symbol',
     product: 'spot',
-    access: 'public',
+
     summary: 'Best bid, ask and last trade of one market',
   },
   {
@@ -133,7 +144,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/tickers',
     product: 'spot',
-    access: 'public',
+
     summary: 'Tickers of every market with a book',
   },
   {
@@ -141,7 +152,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/spreads',
     product: 'spot',
-    access: 'public',
+
     summary: 'The bid-ask spread of every market with a book',
   },
   {
@@ -149,7 +160,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/analytics/:symbol',
     product: 'spot',
-    access: 'public',
+
     summary: 'One market’s aggressor differential and trade count over a named window',
   },
   {
@@ -157,7 +168,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/orderbook/:symbol',
     product: 'spot',
-    access: 'public',
+
     summary: 'Order book depth of one market',
   },
   {
@@ -165,7 +176,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/ohlcv/:symbol',
     product: 'spot',
-    access: 'public',
+
     summary: 'Candles built from real fills',
   },
   {
@@ -173,7 +184,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/trades/:symbol',
     product: 'spot',
-    access: 'public',
+
     summary: 'Public trade tape of one market',
   },
   {
@@ -181,7 +192,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/market-halt/:symbol',
     product: 'spot',
-    access: 'public',
+
     summary: 'Whether one market is halted',
   },
   {
@@ -189,7 +200,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/rulebook',
     product: 'spot',
-    access: 'public',
+
     summary: 'The trading rulebook in force, section by section',
   },
   {
@@ -197,7 +208,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/rulebook/versions',
     product: 'spot',
-    access: 'public',
+
     summary: 'Every published rulebook version and what each changed',
   },
   {
@@ -205,7 +216,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/market-lifecycle/:symbol',
     product: 'spot',
-    access: 'public',
+
     summary: 'Listing state of one market',
   },
   {
@@ -213,7 +224,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/charts/owner-values',
     product: 'spot',
-    access: 'public',
+
     summary: 'Chart limits the owner has set; a blank one is null',
   },
   {
@@ -221,17 +232,17 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/fees/published',
     product: 'spot',
-    access: 'public',
+
     summary: 'The published fee schedule per market, pair group and tier; an unpublished schedule refuses',
   },
   // Spot: private
-  { name: 'createOrder', method: 'POST', path: '/api/v1/orders', product: 'spot', access: 'private', summary: 'Place an order' },
+  { name: 'createOrder', method: 'POST', path: '/api/v1/orders', product: 'spot', summary: 'Place an order' },
   {
     name: 'createConvertQuote',
     method: 'POST',
     path: '/api/v1/convert/quote',
     product: 'spot',
-    access: 'private',
+
     summary: 'A firm convert price for an amount of one coin into another; nothing is held',
   },
   {
@@ -239,7 +250,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/convert/accept',
     product: 'spot',
-    access: 'private',
+
     summary: 'Convert at a quoted price; the same quote id again answers the same conversion',
   },
   {
@@ -247,19 +258,19 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'DELETE',
     path: '/api/v1/orders/:id',
     product: 'spot',
-    access: 'private',
+
     summary: 'Cancel one open order',
   },
-  { name: 'cancelAllOrders', method: 'DELETE', path: '/api/v1/orders', product: 'spot', access: 'private', summary: 'Cancel open orders' },
-  { name: 'fetchOrder', method: 'GET', path: '/api/v1/orders/:id', product: 'spot', access: 'private', summary: 'One order' },
-  { name: 'fetchOpenOrders', method: 'GET', path: '/api/v1/orders/open', product: 'spot', access: 'private', summary: 'Open orders' },
-  { name: 'fetchClosedOrders', method: 'GET', path: '/api/v1/orders/closed', product: 'spot', access: 'private', summary: 'Closed orders' },
+  { name: 'cancelAllOrders', method: 'DELETE', path: '/api/v1/orders', product: 'spot', summary: 'Cancel open orders' },
+  { name: 'fetchOrder', method: 'GET', path: '/api/v1/orders/:id', product: 'spot', summary: 'One order' },
+  { name: 'fetchOpenOrders', method: 'GET', path: '/api/v1/orders/open', product: 'spot', summary: 'Open orders' },
+  { name: 'fetchClosedOrders', method: 'GET', path: '/api/v1/orders/closed', product: 'spot', summary: 'Closed orders' },
   {
     name: 'previewOrder',
     method: 'POST',
     path: '/api/v1/orders/preview',
     product: 'spot',
-    access: 'private',
+
     summary: 'What an order would hold and cost, and why it would be refused, without placing it',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -268,7 +279,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/orders/batch-amend',
     product: 'spot',
-    access: 'private',
+
     summary: 'Amend several open orders one by one, with a result for each',
   },
   {
@@ -276,7 +287,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/orders/batch-cancel',
     product: 'spot',
-    access: 'private',
+
     summary: 'Cancel several orders by id one by one, with a result for each',
   },
   {
@@ -284,7 +295,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/markets/:marketId/orders/mass-cancel',
     product: 'spot',
-    access: 'private',
+
     summary: 'Cancel the caller’s open orders in one market',
   },
   {
@@ -292,7 +303,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/orders/cancel-all-after',
     product: 'spot',
-    access: 'private',
+
     summary: 'Arm or disarm the switch that cancels every open order after a timeout',
   },
   {
@@ -300,7 +311,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/orders/cancel-all-after',
     product: 'spot',
-    access: 'private',
+
     summary: 'Whether the cancel-all switch is armed, and the timeouts allowed',
   },
   {
@@ -308,7 +319,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/orders/batch',
     product: 'spot',
-    access: 'private',
+
     summary: 'Place several orders one by one, with a result for each',
   },
   {
@@ -316,7 +327,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'PATCH',
     path: '/api/v1/orders/:id',
     product: 'spot',
-    access: 'private',
+
     summary: 'Amend an open order in the book; a change of side, market or price is named a cancel and replace',
   },
   {
@@ -324,7 +335,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/orders/:id/replace',
     product: 'spot',
-    access: 'private',
+
     summary: 'Cancel an open order, then place its replacement once the cancel has settled',
   },
   {
@@ -332,7 +343,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/orders/:id/amendments',
     product: 'spot',
-    access: 'private',
+
     summary: 'Each amend and replace of one order, oldest first',
   },
   {
@@ -340,7 +351,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/orders/:id/queue',
     product: 'spot',
-    access: 'private',
+
     summary: 'Orders and size ahead of one of your resting orders in the matching queue, with a fill estimate when the window is set',
   },
   {
@@ -348,7 +359,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/orders/:id/trades',
     product: 'spot',
-    access: 'private',
+
     summary: 'One order’s fills, oldest first, each with its role, fee and fee rate',
   },
   {
@@ -356,7 +367,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/orders/by-client-id/:clientOrderId',
     product: 'spot',
-    access: 'private',
+
     summary: 'One order by its client order id; symbol is required',
   },
   {
@@ -364,7 +375,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/orders/by-client/:clientOrderId',
     product: 'spot',
-    access: 'private',
+
     summary: 'The same read under its shorter path',
   },
   {
@@ -372,7 +383,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'DELETE',
     path: '/api/v1/orders/by-client-id/:clientOrderId',
     product: 'spot',
-    access: 'private',
+
     summary: 'Cancel one open order by its client order id; symbol is required',
   },
   {
@@ -380,7 +391,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'DELETE',
     path: '/api/v1/orders/by-client/:clientOrderId',
     product: 'spot',
-    access: 'private',
+
     summary: 'The same cancel under its shorter path',
   },
   {
@@ -388,7 +399,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/spot/positions/close',
     product: 'spot',
-    access: 'private',
+
     summary: 'Flatten a spot position through the matching engine; a flat position refuses',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -397,7 +408,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/promotions',
     product: 'spot',
-    access: 'private',
+
     summary: 'Preview a promotion; nothing is created and nothing moves',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -406,7 +417,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/quant/live-deploy',
     product: 'spot',
-    access: 'private',
+
     summary: 'Preview putting a strategy live; it never launches one',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -415,7 +426,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/signals/webhook/:webhookId',
     product: 'spot',
-    access: 'public',
+
     summary: "A chart alert for one of your webhooks; the webhook's own token in the body, never an API key",
   },
   // Derivatives
@@ -424,7 +435,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/funding-rate/:symbol',
     product: 'derivatives',
-    access: 'public',
+
     summary: 'Published funding rate of one futures market',
     refusals: [{ status: '501', codes: ['trade.funding_rate_spot_market', 'trade.funding_rate_unavailable'] }],
   },
@@ -433,15 +444,23 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/order-types',
     product: 'derivatives',
-    access: 'public',
+
     summary: 'Order types, time in force and flags per futures market',
+  },
+  {
+    name: 'fetchFuturesMarginModes',
+    method: 'GET',
+    path: '/api/v1/futures/margin-modes',
+    product: 'derivatives',
+
+    summary: 'Futures margin modes, whether each is offered, and the typed refusal of each that is not',
   },
   {
     name: 'fetchFundingRateHistory',
     method: 'GET',
     path: '/api/v1/funding-history/:symbol',
     product: 'derivatives',
-    access: 'public',
+
     summary: 'Funding rate history of one futures market',
   },
   {
@@ -449,7 +468,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/ticker',
     product: 'derivatives',
-    access: 'public',
+
     summary: 'The futures strip; a market fact not yet known is null',
   },
   {
@@ -457,7 +476,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/tiers',
     product: 'derivatives',
-    access: 'public',
+
     summary: 'The leverage and margin tiers per futures market, as published',
   },
   {
@@ -465,7 +484,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/outcomes/markets',
     product: 'derivatives',
-    access: 'public',
+
     summary: 'Listed outcome markets',
   },
   {
@@ -473,7 +492,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/positions',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Open positions',
   },
   {
@@ -481,7 +500,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/positions/closed',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Closed and liquidated positions',
   },
   {
@@ -489,7 +508,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/positions/:id',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'One position',
   },
   {
@@ -497,7 +516,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/positions/:id/margin-call',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'The margin call open on one position',
   },
   {
@@ -505,7 +524,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/positions',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Open an isolated futures position at the mark, with the leverage named',
   },
   {
@@ -513,7 +532,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/positions/:id/close',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Close a position, in full or in part',
   },
   {
@@ -521,7 +540,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'DELETE',
     path: '/api/v1/positions/:id',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Mounted to refuse a cancel-shaped close; a position closes through its close route',
   },
   {
@@ -529,7 +548,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/positions/margin',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Add collateral to an isolated position',
   },
   {
@@ -537,7 +556,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/positions/margin/reduce',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Take excess collateral out of an isolated position',
   },
   {
@@ -545,7 +564,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/adl-disclosure',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'The auto-deleveraging disclosure, and whether this account has acknowledged it',
   },
   {
@@ -553,7 +572,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/futures/adl-disclosure/ack',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Acknowledge the current auto-deleveraging disclosure',
   },
   {
@@ -561,7 +580,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/adl-events',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Auto-deleveraging events disclosed to this account',
   },
   {
@@ -569,7 +588,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/positions/leverage',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Change the leverage of an isolated position',
     refusals: [{ status: '400', codes: ['trade.leverage_too_high', 'trade.leverage_would_liquidate', 'trade.insufficient_margin'] }],
   },
@@ -578,7 +597,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/positions/margin-mode',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Mounted only to refuse: margin mode is chosen when a position opens',
     refusals: [{ status: '501', codes: ['trade.margin_mode_unsupported'] }],
   },
@@ -587,7 +606,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/account/gated-list',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Each futures contract open or blocked for this account, with every reason',
   },
   {
@@ -595,7 +614,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/positions/:id/liquidation',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'The liquidation state of one position',
   },
   {
@@ -603,7 +622,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/liquidations',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'This account’s liquidation rungs',
   },
   {
@@ -611,7 +630,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/payouts',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'This account’s profit payouts: paid, or owed while the clearing pot is short',
   },
   {
@@ -619,7 +638,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/positions/:id/funding-payments',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Funding paid and received on one position',
   },
   {
@@ -627,7 +646,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/futures/positions/close-all',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Close every open position, or those in one market; clientBatchId is required',
   },
   {
@@ -635,7 +654,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/margin-summary',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'This account’s futures margin in one summary',
   },
   {
@@ -643,7 +662,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/position-mode',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'This account’s position mode',
   },
   {
@@ -651,7 +670,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'PUT',
     path: '/api/v1/futures/position-mode',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Change this account’s position mode',
   },
   {
@@ -659,7 +678,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/futures/leverage',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'The same leverage change as POST /api/v1/positions/leverage',
     refusals: [{ status: '400', codes: ['trade.leverage_too_high', 'trade.leverage_would_liquidate', 'trade.insufficient_margin'] }],
   },
@@ -668,7 +687,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/futures/calculator',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Margin, liquidation price and tier for a position you describe; nothing is placed',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -677,7 +696,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/collateral',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Collateral by class, the buying power it leaves, and the classes refused with their code',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -686,7 +705,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/futures/conditional-orders',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Place a conditional order that arms on its trigger',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -695,7 +714,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/conditional-orders',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'This account’s conditional orders',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -704,7 +723,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/conditional-orders/:id',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'One conditional order',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -713,7 +732,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'DELETE',
     path: '/api/v1/futures/conditional-orders/:id',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Cancel one conditional order',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -722,7 +741,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'PUT',
     path: '/api/v1/positions/:id/protection',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Set the protective orders of one position',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -731,7 +750,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/positions/:id/risk-stop',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'The pre-liquidation stop on one position, its close price and the margin ratio now',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -740,7 +759,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'PUT',
     path: '/api/v1/positions/:id/risk-stop',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Set or clear the pre-liquidation stop of one position',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -749,7 +768,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/entry-protection',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'What each opening order asked to be protected with, and how far its legs have armed',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -758,7 +777,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/futures/orders',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Place a futures order in the book',
     signedOutWithoutMatching: TRADE_UNAUTHENTICATED,
   },
@@ -767,7 +786,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/orders',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'This account’s futures orders',
     signedOutWithoutMatching: TRADE_UNAUTHENTICATED,
   },
@@ -776,7 +795,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/orders/:id',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'One futures order: where it came from, its label, what its hold did',
     onlyWithFuturesMatching: true,
   },
@@ -785,7 +804,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/futures/executions',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'This account’s futures executions: fills, liquidations and auto-deleverages',
     onlyWithFuturesMatching: true,
   },
@@ -794,7 +813,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'DELETE',
     path: '/api/v1/futures/orders/:id',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Cancel one futures order',
     signedOutWithoutMatching: TRADE_UNAUTHENTICATED,
   },
@@ -803,7 +822,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/futures/orders/split',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Place one futures order as several children; the answer lists each child placed',
     onlyWithFuturesMatching: true,
   },
@@ -812,7 +831,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/positions/:id/reverse',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Close a position and open the opposite one; the same request id never places a leg twice',
     onlyWithFuturesMatching: true,
   },
@@ -821,7 +840,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/positions/preview',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'The risk of a futures position before it opens; nothing is placed',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -830,7 +849,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/greeks/what-if',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Option greeks under a what-if; nothing is placed',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -839,7 +858,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/greeks/delta-hedge',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'The orders a delta hedge would place; none is placed',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -848,7 +867,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/outcomes/orders',
     product: 'derivatives',
-    access: 'private',
+
     summary: 'Place an order on an outcome market',
     signedOut: TRADE_UNAUTHENTICATED,
   },
@@ -857,7 +876,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/outcomes/markets/publish',
     product: 'derivatives',
-    access: 'internal',
+
     summary:
       'Service to service only: publish an outcome market. Today it answers 412 owner.decision (the owner has not decided who determines a result) and publishes nothing',
     signedOut: SERVICE_CREDENTIALS_REQUIRED,
@@ -867,7 +886,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/outcomes/settle',
     product: 'derivatives',
-    access: 'internal',
+
     summary: 'Service to service only: settle an outcome market. No key or session reaches it',
     signedOut: SERVICE_CREDENTIALS_REQUIRED,
   },
@@ -877,7 +896,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/status',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Whether the venue your own wallet trades on is switched on here, which venue it is, and whether it is TEST',
   },
   {
@@ -885,7 +904,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/markets',
     product: 'accounts',
-    access: 'private',
+
     summary: 'The venue’s markets for your account: order types, time in force, margin modes, lot and tick, its fees or "not known"',
   },
   {
@@ -893,7 +912,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/gated-list',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Each perpetual on the venue, open or blocked for your account, with every reason a new open would be refused',
   },
   {
@@ -901,16 +920,41 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/best-prices',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'The venue’s best bid and ask on one market, from its own book, with its as-of time: where a market order’s worst price is set from',
+  },
+  {
+    name: 'venueBook',
+    method: 'GET',
+    path: '/api/v1/venue/book',
+    product: 'accounts',
+
+    summary: 'The venue’s own book on one market we list, bids and asks best first, each level’s price and size, with its as-of time',
+  },
+  {
+    name: 'venueTrades',
+    method: 'GET',
+    path: '/api/v1/venue/trades',
+    product: 'accounts',
+
+    summary: 'The venue’s newest public prints on one market we list, newest first: price, size, the side that crossed and when',
+  },
+  {
+    name: 'venueCandles',
+    method: 'GET',
+    path: '/api/v1/venue/candles',
+    product: 'accounts',
+
+    summary:
+      'Candles of the venue’s own prints on one market we list, on one interval, oldest first: an interval with no print is not sent',
   },
   {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',
     product: 'accounts',
-    access: 'public',
+
     summary:
       'The funding the venue published at each settled interval on its listed perpetual on one asset, since a time: refused by name where none is published',
   },
@@ -919,7 +963,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/balances',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your venue account’s balances (free and locked) as the venue reports them, with its as-of time',
   },
   {
@@ -927,7 +971,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/orders/open',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your open orders on the venue, with what each one locks',
   },
   {
@@ -935,7 +979,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/positions',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your positions on the venue, with margin and liquidation price (or "not known")',
   },
   {
@@ -943,7 +987,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/agents',
     product: 'accounts',
-    access: 'private',
+
     summary: 'The agent keys your wallet has approved on the venue',
   },
   {
@@ -951,7 +995,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/sub-accounts',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your sub-accounts on the venue, read on your main account',
   },
   {
@@ -959,15 +1003,32 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/orders/by-client-id',
     product: 'accounts',
-    access: 'private',
-    summary: 'One venue order by its client order id: how an answer that was not definite is read back',
+
+    summary:
+      'One venue order by your own client id (clientOrderKey) or the venue client order id: its state, and how an answer that was not definite is read back',
+  },
+  {
+    name: 'venueOrderHistory',
+    method: 'GET',
+    path: '/api/v1/venue/orders/history',
+    product: 'accounts',
+
+    summary: 'Your venue order history as the venue keeps it, filtered by side, state, market and time placed, a page at a time',
+  },
+  {
+    name: 'venueOrderRecord',
+    method: 'GET',
+    path: '/api/v1/venue/orders/record',
+    product: 'accounts',
+
+    summary: 'Our record of one venue order: when it was placed, each accepted amendment, and the builder fee it was signed with',
   },
   {
     name: 'venueFills',
     method: 'GET',
     path: '/api/v1/venue/fills',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your fills on the venue since a time, with the venue’s fee and our builder fee as separate lines',
   },
   {
@@ -975,23 +1036,111 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/deposits',
     product: 'accounts',
-    access: 'private',
+
     summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
+  },
+  {
+    name: 'venueWithdrawalTerms',
+    method: 'GET',
+    path: '/api/v1/venue/withdrawal-terms',
+    product: 'accounts',
+
+    summary: "The venue's published terms for withdrawing an asset: its fee, the network fee and the arrival time, or not known",
   },
   {
     name: 'venueLeverage',
     method: 'GET',
     path: '/api/v1/venue/leverage',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your leverage and margin mode on one venue perpetual, or none set',
+  },
+  {
+    name: 'venueLeverageChange',
+    method: 'GET',
+    path: '/api/v1/venue/leverage-change',
+    product: 'accounts',
+
+    summary: "What a leverage change would do to your open position's margin, by the venue's own rule, before anything is signed",
+  },
+  {
+    name: 'venueIsolatedMargin',
+    method: 'GET',
+    path: '/api/v1/venue/isolated-margin',
+    product: 'accounts',
+
+    summary: "Your open isolated position's margin on one venue perpetual and the venue's limit for removing it",
+  },
+  {
+    name: 'venueAccountSummary',
+    method: 'GET',
+    path: '/api/v1/venue/account-summary',
+    product: 'accounts',
+
+    summary: 'Your equity, free collateral, used margin, maintenance and margin ratio as the venue reports them',
+  },
+  {
+    name: 'venueLiquidation',
+    method: 'GET',
+    path: '/api/v1/venue/liquidation',
+    product: 'accounts',
+
+    summary: "Your position's liquidation state on one venue perpetual (none, in progress or done) and the venue's price and fee rules",
+  },
+  {
+    name: 'venueLiquidations',
+    method: 'GET',
+    path: '/api/v1/venue/liquidations',
+    product: 'accounts',
+
+    summary: 'Each liquidation the venue reports on your account, every part with its price, size, fee and the venue’s ids',
+  },
+  {
+    name: 'venueDeleverages',
+    method: 'GET',
+    path: '/api/v1/venue/deleverages',
+    product: 'accounts',
+
+    summary: 'Each auto-deleveraging of your positions the venue reports: the close and the venue’s notice',
+  },
+  {
+    name: 'venueAdlDisclosure',
+    method: 'GET',
+    path: '/api/v1/venue/adl-disclosure',
+    product: 'accounts',
+
+    summary: 'The venue’s auto-deleveraging rules with their version, and whether you acknowledged that version',
+  },
+  {
+    name: 'venueAdlDisclosureAck',
+    method: 'POST',
+    path: '/api/v1/venue/adl-disclosure/ack',
+    product: 'accounts',
+
+    summary: 'Acknowledge the version of the venue’s auto-deleveraging rules you read; a version it has replaced is refused',
+  },
+  {
+    name: 'venueInsuranceFund',
+    method: 'GET',
+    path: '/api/v1/venue/insurance-fund',
+    product: 'accounts',
+
+    summary: 'The venue’s own insurance fund and where to read it, or “not published by this venue”, never 0',
+  },
+  {
+    name: 'venueLiquidationAlerts',
+    method: 'GET',
+    path: '/api/v1/venue/liquidation-alerts',
+    product: 'accounts',
+
+    summary: 'The venue’s public liquidation and auto-deleveraging alerts: market, side, size and price, with no account',
   },
   {
     name: 'venueMarketMargin',
     method: 'GET',
     path: '/api/v1/venue/market-margin',
     product: 'accounts',
-    access: 'private',
+
     summary: "Your balance in the margin account a market's deployer keeps for it, apart from your main account",
   },
   {
@@ -999,23 +1148,97 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/settlements',
     product: 'accounts',
-    access: 'private',
+
     summary: "Your positions the venue settled and orders it cancelled when a market's deployer halted it or it split",
+  },
+  {
+    name: 'venueFundingPayments',
+    method: 'GET',
+    path: '/api/v1/venue/funding-payments',
+    product: 'accounts',
+
+    summary: 'The funding the venue charged or paid on each of your positions, one payment per position per period, as the venue booked it',
+  },
+  {
+    name: 'venueBuilderFees',
+    method: 'GET',
+    path: '/api/v1/venue/builder-fees',
+    product: 'accounts',
+    summary: 'Our builder fee on each fill of your own orders on the venue account, with the ledger transaction it was posted under',
+  },
+  {
+    name: 'venueEligibleInstruments',
+    method: 'GET',
+    path: '/api/v1/venue/eligible-instruments',
+    product: 'accounts',
+    summary: 'The perpetuals your account is eligible for on the venue, each with its settle asset, or none with the reason',
+  },
+  {
+    name: 'venuePriceHistory',
+    method: 'GET',
+    path: '/api/v1/venue/price-history',
+    product: 'accounts',
+
+    summary:
+      "The venue's mark or index price series on a listed perpetual, since a time: an index the venue does not publish answers null with its reason",
+  },
+  {
+    name: 'venueScheduledCancel',
+    method: 'GET',
+    path: '/api/v1/venue/scheduled-cancel',
+    product: 'accounts',
+
+    summary: "When the venue's own scheduled cancel cancels every open order of your venue account, and when it last did",
+  },
+  {
+    name: 'createVenueStatement',
+    method: 'POST',
+    path: '/api/v1/venue/statements',
+    product: 'accounts',
+
+    summary:
+      "Ask for a statement of your venue account's orders, trades and money movements over a finished range, from the venue's own records",
+  },
+  {
+    name: 'fetchVenueStatementFile',
+    method: 'GET',
+    path: '/api/v1/venue/statements/:id/file',
+    product: 'accounts',
+
+    summary: 'The file of one finished venue statement, with its SHA-256',
   },
   {
     name: 'venueBuilderFeeApproval',
     method: 'GET',
     path: '/api/v1/venue/builder-fee-approval',
     product: 'accounts',
-    access: 'private',
+
     summary: 'The most your wallet has approved for our builder fee on the venue',
+  },
+  {
+    name: 'venueFeeTier',
+    method: 'GET',
+    path: '/api/v1/venue/fee-tier',
+    product: 'accounts',
+
+    summary:
+      'Your fee tier on the venue as it reports it: the tier, the volume it counted, your maker and taker rates, and when it last placed you',
+  },
+  {
+    name: 'venueFees',
+    method: 'GET',
+    path: '/api/v1/venue/fees',
+    product: 'accounts',
+
+    summary:
+      'The venue’s published fee tiers, each listed market’s maker and taker rates, the venue’s cap on a builder fee there, and our builder fee: blank reads not set',
   },
   {
     name: 'venueMarketVenues',
     method: 'GET',
     path: '/api/v1/venue/markets/:symbol/venues',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Every venue for one market: its price, depth and fees as it reports them, whether you can sign there, and whether it is up',
   },
   {
@@ -1023,7 +1246,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/route-preview',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Which venue your order goes to, its expected fill and fees, and why that venue',
   },
   {
@@ -1031,7 +1254,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/withdrawals/:nonce',
     product: 'accounts',
-    access: 'private',
+
     summary: 'One venue withdrawal by its signed nonce: pending, done or failed, with its fee or "not known"',
   },
   {
@@ -1039,7 +1262,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/preview',
     product: 'accounts',
-    access: 'private',
+
     summary: 'What an order would lock and its fee lines, from the venue’s own figures. Sends nothing',
   },
   {
@@ -1047,7 +1270,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/convert/sell-quote',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'The venue’s own price for selling an amount on your venue account now: what fills, its average price and fees, or "not known". Sends nothing',
   },
@@ -1056,7 +1279,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/prepare',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'The exact payload your wallet signs for an action, stored under its business key. Sends nothing; a withdrawal needs step-up first',
   },
@@ -1065,7 +1288,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/submit',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Send the signed action. An answer that is not definite comes back with how to read it back; it is never sent as a new action',
   },
   {
@@ -1073,7 +1296,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/agent-accounts/terms',
     product: 'accounts',
-    access: 'private',
+
     summary:
       "The owner's ceiling for an agent account's cap, its funding asset and the bounds on every assistant order; a blank one refuses",
   },
@@ -1082,7 +1305,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/agent-accounts',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'Your agent accounts: each a sub-account under your wallet, with its cap, what you moved in and out, and its balances as the venue reports them',
   },
@@ -1091,7 +1314,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/agent-accounts',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'Create an agent account with a cap and its first funding, after step-up; your wallet signs opening the sub-account, the agent permission and the move',
   },
@@ -1100,7 +1323,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/agent-accounts/:id',
     product: 'accounts',
-    access: 'private',
+
     summary: 'One agent account, read back from the venue, with the next action your wallet is asked to sign',
   },
   {
@@ -1108,7 +1331,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/submit',
     product: 'accounts',
-    access: 'private',
+
     summary: "Send one of the agent account's actions with your wallet's signature; each is sent once under its key",
   },
   {
@@ -1116,7 +1339,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/abandon',
     product: 'accounts',
-    access: 'private',
+
     summary: 'End an agent account you rejected a signature for while it was opening, before its first move is signed; nothing moves',
   },
   {
@@ -1124,7 +1347,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/fund',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Move more into the agent account; past your cap it is refused, naming the room left, before your wallet is asked',
   },
   {
@@ -1132,7 +1355,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/withdraw',
     product: 'accounts',
-    access: 'private',
+
     summary: "Move the agent account's balance back to your main venue account",
   },
   {
@@ -1140,7 +1363,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/cap',
     product: 'accounts',
-    access: 'private',
+
     summary: "Change the agent account's cap; above the owner's ceiling it is refused, naming the ceiling",
   },
   {
@@ -1148,7 +1371,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/limits',
     product: 'accounts',
-    access: 'private',
+
     summary: "Set the agent account's per-order size, leverage and daily-loss caps; one above the owner's ceiling is refused, naming it",
   },
   {
@@ -1156,7 +1379,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/close',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Close the agent account; refused, naming it, while a position, an order, a balance or a move is open',
   },
   {
@@ -1164,7 +1387,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/agent-accounts/connections',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Which of your agent API keys is connected to which agent account; a key trades only the account it is connected to',
   },
   {
@@ -1172,16 +1395,34 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/connections',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'Connect one of your agent API keys to this agent account, from your own sign-in after step-up, never from a key; a key already connected elsewhere is refused',
+  },
+  {
+    name: 'venueAgentRevoke',
+    method: 'POST',
+    path: '/api/v1/venue/agent-accounts/connections/:keyId/revoke',
+    product: 'accounts',
+
+    summary:
+      "Revoke your assistant, from your own sign-in: its key places nothing more, its resting orders are cancelled once, our copy of its venue agent key is dropped, and your wallet signs the venue's revoke; open positions stay",
+  },
+  {
+    name: 'venueAgentActivity',
+    method: 'GET',
+    path: '/api/v1/venue/agent-accounts/connections/:keyId/activity',
+    product: 'accounts',
+
+    summary:
+      "Your assistant connection's Activity, from your own sign-in: one row per call made with its key, refused ones included, newest first, each with its time, tool, outcome and order id; format=csv exports the same rows",
   },
   {
     name: 'venueAgentOrder',
     method: 'POST',
     path: '/api/v1/venue/agent/orders',
     product: 'accounts',
-    access: 'private',
+
     summary:
       "Your assistant's spot order, from its agent key: placed only on the agent account the key is connected to, held to your cap first, and sent once per clientOrderId; an answer that is not definite is 202, retried with the same id",
   },
@@ -1190,7 +1431,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/own-agents/:agentId/allowances',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'Your own agent’s allowances on your venue sub-account: amount, what is left, period end and whether the venue still lists its agent permission',
   },
@@ -1199,7 +1440,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/own-agents/:agentId/allowances',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'Grant your own agent an allowance (amount and period) on one of your venue sub-accounts; a blank amount or period is refused with the field named, and the answer is the agent permission for your wallet to sign',
   },
@@ -1208,7 +1449,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/own-agents/:agentId/allowances/:id/submit',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Send your wallet’s signature of the allowance’s agent permission, or of its revoke, to the venue',
   },
   {
@@ -1216,7 +1457,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/own-agents/:agentId/allowances/:id/abandon',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your wallet rejected the agent permission: the allowance is not granted and nothing was sent',
   },
   {
@@ -1224,16 +1465,186 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/own-agents/:agentId/allowances/:id/revoke',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'Revoke the allowance: our copy of the agent key is dropped and the next order refused at once; the answer is the venue’s revoke for your wallet to sign',
+  },
+  {
+    name: 'venueProtections',
+    method: 'GET',
+    path: '/api/v1/venue/protections',
+    product: 'accounts',
+
+    summary:
+      'A position’s protections on your own venue account: the venue’s trigger orders and the stops our engine runs, each with where it rests, its trigger and source, and its state',
+  },
+  {
+    name: 'venueProtectionCreate',
+    method: 'POST',
+    path: '/api/v1/venue/protections',
+    product: 'accounts',
+
+    summary:
+      'Protect a position: a take profit, stop loss, stop market or stop limit the venue takes answers its unsigned trigger order for your wallet; a trailing stop or an index stop is armed on our engine (201) under your agent permission',
+  },
+  {
+    name: 'venueProtectionCancel',
+    method: 'DELETE',
+    path: '/api/v1/venue/protections/:id',
+    product: 'accounts',
+
+    summary: 'Cancel a stop on our engine that has not fired; nothing is sent to the venue',
+  },
+  {
+    name: 'venueProtectionAgent',
+    method: 'GET',
+    path: '/api/v1/venue/protection-agent',
+    product: 'accounts',
+
+    summary:
+      'The agent key our engine signs your stops with, and whether your venue account lists it approved; it can trade, never withdraw',
+  },
+  {
+    name: 'venueProtectionAgentPrepare',
+    method: 'POST',
+    path: '/api/v1/venue/protection-agent/prepare',
+    product: 'accounts',
+
+    summary: 'The unsigned approval of that agent key, for your wallet to sign and send through /api/v1/venue/submit',
+  },
+  {
+    name: 'venueSpotOrders',
+    method: 'GET',
+    path: '/api/v1/venue/spot-orders',
+    product: 'accounts',
+
+    summary:
+      'Your stop-limit, stop-market, OCO, bracket and linked-close orders on your own venue account: each leg with where it rests, its trigger, what the venue locks for it now and its state',
+  },
+  {
+    name: 'venueSpotOrderCreate',
+    method: 'POST',
+    path: '/api/v1/venue/spot-orders',
+    product: 'accounts',
+
+    summary:
+      'Place a conditional spot order: a stop the venue holds answers its unsigned trigger order for your wallet; the rest is run by INTAFACED on our engine (201) under your agent permission, a bracket’s entry answered unsigned for your wallet',
+  },
+  {
+    name: 'venueSpotOrderReview',
+    method: 'POST',
+    path: '/api/v1/venue/spot-orders/review',
+    product: 'accounts',
+
+    summary: 'The fee of each leg of a conditional spot order, as maker or taker, from the venue’s published schedule and our builder fee',
+  },
+  {
+    name: 'venueSpotOrderModify',
+    method: 'PATCH',
+    path: '/api/v1/venue/spot-orders/:id',
+    product: 'accounts',
+
+    summary: 'Change a live stop’s trigger and limit, judged as a new one would be',
+  },
+  {
+    name: 'venueSpotOrderCancel',
+    method: 'DELETE',
+    path: '/api/v1/venue/spot-orders/:id',
+    product: 'accounts',
+
+    summary: 'Cancel a conditional spot order: what rests on the venue for it is cancelled there, releasing its lock',
+  },
+  {
+    name: 'venueSpotAgent',
+    method: 'GET',
+    path: '/api/v1/venue/spot-agent',
+    product: 'accounts',
+
+    summary:
+      'The agent key our engine signs your conditional spot orders with, and whether your venue account lists it approved; it can trade, never withdraw',
+  },
+  {
+    name: 'venueSpotAgentPrepare',
+    method: 'POST',
+    path: '/api/v1/venue/spot-agent/prepare',
+    product: 'accounts',
+
+    summary: 'The unsigned approval of the spot-order agent key, for your wallet to sign and send through /api/v1/venue/submit',
+  },
+  {
+    name: 'liveRuns',
+    method: 'GET',
+    path: '/api/v1/quant/live-runs',
+    product: 'accounts',
+
+    summary: 'Your live strategy runs, newest first: strategy, version, state and why a run stopped',
+  },
+  {
+    name: 'liveRunStart',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs',
+    product: 'accounts',
+
+    summary:
+      'Start a saved order-block strategy live on one of your own venue sub-accounts, from a signed-in session only (an API key answers 404 quant.key_no_such_endpoint: there is no deploy by key); a blank restart-attempt, state-on-restart or cap setting is refused with the field named, and the answer is the agent permission for your wallet to sign',
+  },
+  {
+    name: 'liveRun',
+    method: 'GET',
+    path: '/api/v1/quant/live-runs/:id',
+    product: 'accounts',
+
+    summary:
+      'One live run: state, safeguards (restarts, state kept or dropped), its orders read back by client order id, your sub-account as the venue reports it with its as-of time, and the log',
+  },
+  {
+    name: 'liveRunSubmit',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/submit',
+    product: 'accounts',
+
+    summary: 'Send your wallet’s signature of the run’s agent permission to the venue; the run goes live once the venue lists it',
+  },
+  {
+    name: 'liveRunStop',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/stop',
+    product: 'accounts',
+
+    summary: 'Stop the run: its open venue orders are cancelled and the position is kept; the same seq again changes nothing',
+  },
+  {
+    name: 'liveRunLiquidate',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/liquidate',
+    product: 'accounts',
+
+    summary:
+      'Liquidate the run: stop it, then one reduce-only order per position under algo:liquidate:<run>:<seq>; the run ends flat; refused with the freeze reason while your account is frozen',
+  },
+  {
+    name: 'liveRunOrder',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/orders',
+    product: 'accounts',
+
+    summary:
+      'A manual order for a running strategy under its next seq; the same seq again is the same order; refused without the live-control grant',
+  },
+  {
+    name: 'liveRunTestKill',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/test/kill-process',
+    product: 'accounts',
+
+    summary: 'TEST venue only: stop the run’s process heartbeat, so the supervisor reconciles and restarts it within its attempt limit',
   },
   {
     name: 'ownAgentOrderPreview',
     method: 'POST',
     path: '/api/v1/venue/own-agents/:agentId/orders/preview',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'Preview your own agent’s order: side, market, order type, size, price, fee and what it draws on the allowance; nothing is sent',
   },
@@ -1242,7 +1653,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/own-agents/:agentId/orders',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'Place the order you approved: held to the allowance and your agent policy before the agent permission signs, and sent once per orderId; an answer that is not definite is 202, retried with the same id',
   },
@@ -1251,15 +1662,50 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/own-agents/:agentId/orders',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your own agent’s orders, each read back from the venue by its client order id',
+  },
+  {
+    name: 'ownAgentRebalances',
+    method: 'GET',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances',
+    product: 'accounts',
+
+    summary:
+      'The Portfolio planner’s rebalance proposals for your own agent’s sub-account, newest first: holdings as the venue reports them, each order, and whether you approved or rejected it',
+  },
+  {
+    name: 'ownAgentRebalancePropose',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances',
+    product: 'accounts',
+
+    summary:
+      'Ask the Portfolio planner for a rebalance to your targets (proposalId and each asset’s percent): the market orders it proposes, and nothing is sent; a blank target is refused naming the asset',
+  },
+  {
+    name: 'ownAgentRebalanceApprove',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances/:id/approve',
+    product: 'accounts',
+
+    summary:
+      'Approve a proposal: refused whole when its orders need more than the allowance has left; otherwise each order is placed by the agent permission, once, and approving again reads the same orders back',
+  },
+  {
+    name: 'ownAgentRebalanceReject',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances/:id/reject',
+    product: 'accounts',
+
+    summary: 'Reject a proposal: nothing is sent, nothing changes, and it is never approved',
   },
   {
     name: 'venueOrders',
     method: 'GET',
     path: '/api/v1/venue/orders',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your orders sent through the venue door, oldest first, a page at a time by cursor; each order once',
   },
   {
@@ -1267,7 +1713,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/orders/by-key',
     product: 'accounts',
-    access: 'private',
+
     summary: 'One order by its Idempotency-Key or action key: accepted with the venue’s record, or unknown until the venue answers',
   },
   {
@@ -1275,7 +1721,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/venue/session',
     product: 'accounts',
-    access: 'private',
+
     summary: 'This sign-in’s trading session: its key’s address and expiry, read against the venue’s own agent list',
   },
   {
@@ -1283,7 +1729,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/session/start',
     product: 'accounts',
-    access: 'private',
+
     summary:
       'Your wallet’s one approval for a fresh session key that can trade and never withdraw. Takes the key’s address only; signed-in session only',
   },
@@ -1292,7 +1738,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/venue/session/end',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Your wallet’s revoke of this sign-in’s session key. A key once used is never approved again',
   },
   // Accounts
@@ -1301,7 +1747,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/account/balance',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Account balances',
   },
   {
@@ -1309,7 +1755,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/account/fees',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Maker and taker fee rates',
   },
   {
@@ -1317,7 +1763,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/account/trades',
     product: 'accounts',
-    access: 'private',
+
     summary: 'The account’s own fills',
   },
   {
@@ -1325,7 +1771,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/ledger',
     product: 'accounts',
-    access: 'private',
+
     summary: 'The account’s balance changes, newest first',
   },
   {
@@ -1333,7 +1779,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/statements',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Ask for a statement of orders, trades and balance changes over a finished range',
   },
   {
@@ -1341,7 +1787,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/statements/:id',
     product: 'accounts',
-    access: 'private',
+
     summary: 'One statement request and its state',
   },
   {
@@ -1349,7 +1795,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/statements/:id/file',
     product: 'accounts',
-    access: 'private',
+
     summary: 'A finished statement as a CSV file',
   },
   {
@@ -1357,7 +1803,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/account/fee-tier',
     product: 'accounts',
-    access: 'private',
+
     summary: 'This account’s fee tier',
     signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
@@ -1366,15 +1812,31 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/account/market-lifecycle/:symbol',
     product: 'accounts',
-    access: 'private',
+
     summary: 'The listing state of one market as this account meets it',
+  },
+  {
+    name: 'requestApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation',
+    product: 'accounts',
+
+    summary: 'The calling key asks for its own rotation; a different person on the account approves it',
+  },
+  {
+    name: 'approveApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation/approve',
+    product: 'accounts',
+
+    summary: 'Approve a rotation request. A key never approves its own: refused identity.rotation_self_approval',
   },
   {
     name: 'fetchConvertExport',
     method: 'GET',
     path: '/api/v1/convert/export',
     product: 'accounts',
-    access: 'private',
+
     summary: 'This account’s convert history as a CSV file',
   },
   {
@@ -1382,15 +1844,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/copy/export',
     product: 'accounts',
-    access: 'private',
+
     summary: 'This account’s copy-trading history as a CSV file',
+  },
+  {
+    name: 'createLeadOrder',
+    method: 'POST',
+    path: '/api/v1/copy/lead/orders',
+    product: 'accounts',
+    summary: 'Place an order as an approved copy-trading lead, on an instrument your lead listing names; then as Place an order',
   },
   {
     name: 'fetchRfqExport',
     method: 'GET',
     path: '/api/v1/rfq/export',
     product: 'accounts',
-    access: 'private',
+
     summary: 'This account’s request-for-quote history as a CSV file',
   },
   {
@@ -1398,7 +1867,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/bots/grid',
     product: 'spot',
-    access: 'private',
+
     summary: 'This account’s spot grid bots',
   },
   {
@@ -1406,7 +1875,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/bots/grid/:id',
     product: 'spot',
-    access: 'private',
+
     summary: 'One spot grid bot, with its levels and orders',
   },
   {
@@ -1414,7 +1883,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/bots/grid',
     product: 'spot',
-    access: 'private',
+
     summary: 'Start a neutral spot grid bot; the same clientId returns the same bot',
   },
   {
@@ -1422,7 +1891,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/bots/grid/:id/stop',
     product: 'spot',
-    access: 'private',
+
     summary: 'Stop a grid bot; what it bought stays in the balance (settlement keep)',
   },
   {
@@ -1430,16 +1899,16 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/bots/grid/:id/withdraw',
     product: 'spot',
-    access: 'private',
+
     summary:
-      'Withdraw a grid bot’s profit; needs a step-up approval made in the calling session (403 identity.step_up_required without one)',
+      'Refused for every key (403 trade.api_withdraw_not_allowed): no API key or bot can withdraw; you withdraw from the venue with your own wallet, and nothing moves',
   },
   {
     name: 'fetchAlgoOrders',
     method: 'GET',
     path: '/api/v1/algo',
     product: 'spot',
-    access: 'private',
+
     summary: 'Your algo orders (TWAP, VWAP, POV, chase), newest first; limit is required',
   },
   {
@@ -1447,7 +1916,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/algo/:id',
     product: 'spot',
-    access: 'private',
+
     summary: 'One algo order with its filled quantity',
   },
   {
@@ -1455,7 +1924,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/algo',
     product: 'spot',
-    access: 'private',
+
     summary:
       'Place a twap, vwap, pov or chase order (kind in the body); the same clientAlgoId returns the same order; trigger, oco, conditional and trailing refuse trade.algo_kind_not_built',
   },
@@ -1464,7 +1933,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'PATCH',
     path: '/api/v1/algo/:id',
     product: 'spot',
-    access: 'private',
+
     summary: 'Refused trade.algo_params_immutable: an algo order’s parameters are fixed at create',
   },
   {
@@ -1472,7 +1941,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/algo/:id/cancel',
     product: 'spot',
-    access: 'private',
+
     summary: 'Cancel an algo order; no new slices are placed',
   },
   {
@@ -1480,7 +1949,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/vip/applications',
     product: 'accounts',
-    access: 'private',
+
     summary: 'This account’s VIP applications',
     signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
@@ -1489,7 +1958,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'POST',
     path: '/api/v1/vip/applications',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Apply for a VIP tier',
     signedOut: TRADE_UNAUTHENTICATED_CODE,
   },
@@ -1498,20 +1967,23 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     method: 'GET',
     path: '/api/v1/admin/orders/open',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Staff only: open orders across accounts',
-    alsoNeeds: ['admin:read'],
   },
   {
     name: 'fetchAdminFees',
     method: 'GET',
     path: '/api/v1/admin/fees',
     product: 'accounts',
-    access: 'private',
+
     summary: 'Staff only: the fee schedule customers are charged, per market, with its source',
-    alsoNeeds: ['admin:read'],
   },
 ];
+
+export const REST_REFERENCE: readonly RestRoute[] = ROUTE_WORDS.flatMap((words) => {
+  const served = SERVED.get(`${words.method} ${words.path}`);
+  return served ? [{ ...words, ...served }] : [];
+});
 
 /** svc-ws's four doors: one market per socket, many channels on one socket, the account's own lifecycle, and the drop copy. */
 export const STREAM_DOORS = ['market', 'mux', 'private', 'drop-copy'] as const;
@@ -1558,7 +2030,7 @@ export const routeLine = (route: Pick<RestRoute, 'method' | 'path'>) => `${route
 
 /** The permission-to-endpoint table: one row per scope a key can hold, with every route a key with it may call. */
 export function permissionTable(): { scope: Scope; routes: RestRoute[] }[] {
-  return (['trade:read', 'trade:write'] as const).map((scope) => ({
+  return (['trade:read', 'trade:write', 'copy:lead'] as const).map((scope) => ({
     scope,
     routes: REST_REFERENCE.filter((route) => !neverOnAKey(route) && scopesOf(route).includes(scope)),
   }));

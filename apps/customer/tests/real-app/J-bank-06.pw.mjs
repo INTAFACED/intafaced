@@ -1,16 +1,18 @@
 // World: none
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api as stackApi, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
-// J-bank-06, in the running app (docs/roadmap/journeys.json): I schedule payments and standing orders. Steps 1 to 3
-// (BK-xfer-10): a one-off on a date, a standing order edited with a revision, and what a run does. One TEST account
-// funded with TEST 100 USDT moves money between its own spaces. The stack has no timer for the standing-order runner:
+// J-bank-06, in the running app (docs/roadmap/journeys.json): I schedule payments and standing orders. The person's bank
+// money is held at the TEST partner bank (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226), funded
+// there with TEST 100 USDT (`testPartner.fund`, the partner's figure): every run, collection and block is an instruction
+// to the partner, and the ledger posts nothing, which each money step checks. Steps 1 to 3 (BK-xfer-10): a one-off on a
+// date, a standing order edited with a revision, and what a run does, between the person's own spaces at the partner. The stack has no timer for the standing-order runner:
 // this file runs it with the job door's own signed call, as a scheduler would. The edit cutoff is the bank profile's
 // TEST value of 60 minutes. Step 4 (BK-xfer-11): direct debits through the stack's TEST scheme stand-in (`dd-sim`),
 // whose creditors set up mandates and present collections only by its signed job doors, which this file calls as the
-// scheme would; the collection run is its job door too. Step 5 (BK-acct-10): the money calendar over what steps 3 and 4
+// scheme would; the collection run is its job door too. Step 5 (BK-acct-10): the money calendar over what steps 1 to 4
 // left, read only. Step 6 (BK-acct-10): the payment reminder rule saved under its business key, money-moving rules
 // refused while their terms are unpublished, the notification choices read from the account's own settings, and the
 // notices the bank's notice job owes, run with its signed job door as a scheduler would.
@@ -18,6 +20,9 @@ const J = 'J-bank-06';
 const TRIP = 'Trip TEST';
 const EMPTY = 'Empty TEST';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const PARTNER_BANK = 'TEST partner bank';
+/** The TEST partner's own reason code for a collection on a mandate the person blocked with it. */
+const PARTNER_DD_BLOCKED = 'test_partner.dd_mandate_blocked';
 
 test.describe.configure({ mode: 'default' });
 
@@ -81,13 +86,14 @@ const runOnce = () => scheme('run-due-transfers', {});
  * check this person's own records, not the stack-wide totals.
  */
 async function runDue() {
-  const total = { passes: 0, settled: 0, rejected: 0 };
+  const total = { passes: 0, settled: 0, rejected: 0, failures: [] };
   while (total.passes < 30) {
     const pass = await runOnce();
     if (pass.schedulesConsidered === 0) break;
     total.passes += 1;
     total.settled += pass.settled;
     total.rejected += pass.rejected;
+    total.failures.push(...(pass.failures ?? []));
   }
   return total;
 }
@@ -98,6 +104,24 @@ function person() {
   return who;
 }
 const main = (rows) => rows.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+/**
+ * The journey's start at the TEST partner bank: the person's bank money held there (`custody: 'off'`) and TEST 100 USDT
+ * paid in there, the partner's figure and no ledger post. The TEST partner keeps its book in memory for one svc-bank
+ * process (svc-bank `partner/test-partner.ts`); this file never restarts svc-bank.
+ */
+async function atPartner(who) {
+  const own = await bank(who);
+  const held = await own.mutate('testPartner.set', { custody: 'off' });
+  expect(held, JSON.stringify(held.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  const funded = await own.mutate('testPartner.fund', { fundId: `jb06-${who.email}`.slice(0, 64), assetId: 'USDT', amount: '100' });
+  expect(funded, JSON.stringify(funded.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { balance: '100' } });
+  expect(main(await spaces(who))).toMatchObject({ balance: '100', ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+}
+/** The ledger's USDT figures for `who`, in units: their bank money is the partner's, so these never change. */
+async function ledgerUsdt(who) {
+  const row = (await (await stackApi(who)).balances()).USDT;
+  return row ? { free: toUnits(row.free), used: toUnits(row.used), total: toUnits(row.total) } : null;
+}
 const named = (rows, name) => rows.find((s) => s.name === name);
 async function spaces(who) {
   const res = await (await bank(who)).query('spaces.list', { limit: 50 });
@@ -139,14 +163,14 @@ async function scheduleInApp(page, { cadence, amount, startsAt, endsAt }) {
   return dialog;
 }
 
-test(`${J} #1 schedules a one-off for tomorrow: it is listed once with its date, and a one-off with an end date is refused`, async ({
+test(`${J} #1 schedules a one-off for tomorrow: on its date the partner is instructed once under a retry-safe key, and the schedule ends`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
   const who = await signUp(page, 'jb6');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  run.reset({ who });
+  await atPartner(who);
+  run.reset({ who, ledger: await ledgerUsdt(who) });
   const api = await bank(who);
   expect((await api.mutate('spaces.create', { assetId: 'USDT', name: TRIP })).ok).toBe(true);
   expect((await api.mutate('spaces.create', { assetId: 'USDT', name: EMPTY })).ok).toBe(true);
@@ -163,20 +187,64 @@ test(`${J} #1 schedules a one-off for tomorrow: it is listed once with its date,
     .first()
     .click();
 
+  // Scheduled in the app for tomorrow: one scheduled item with its date, and nothing sent to the partner yet.
   const tomorrow = inHours(24);
+  const start = await spaces(who);
   const dialog = await scheduleInApp(page, { cadence: 'One-off', amount: '5', startsAt: tomorrow });
   await dialog.getByRole('button', { name: 'Confirm' }).click();
   await expect(dialog.getByText('Confirmed by the service')).toBeVisible({ timeout: 30_000 });
-
   const [once] = (await schedules(who)).filter((s) => s.cadence === 'once');
   expect(once).toMatchObject({ amount: '5', status: 'active', endsAt: null, revision: 1 });
   expect(Math.abs(Date.parse(once.nextRunAt) - tomorrow.getTime())).toBeLessThan(60_000);
   await page.goto('/bank/transfers');
   await expect(row(page, once.id)).toContainText('once · active');
-  run.write({ once: once.id });
+  await runDue();
+  expect(await executions(who, once.id)).toEqual([]);
+  expect(main(await spaces(who)).balance).toBe(main(start).balance);
+
+  // On its date: a one-off whose date has come (made the same way, through the person's own API, dated a minute ago).
+  // The partner makes the move and its answer is lost once (the TEST switch), so the runner must send the same key
+  // again: the partner answers with the move it made, and the money moves once.
+  const due = randomUUID();
+  const made = await api.mutate('transfers.schedule', {
+    scheduleId: due,
+    fromSpaceId: main(start).id,
+    toSpaceId: named(start, TRIP).id,
+    amount: '7',
+    cadence: 'once',
+    startsAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  expect(made.ok).toBe(true);
+  expect(await api.mutate('testPartner.set', { nextReply: 'lost' })).toMatchObject({ ok: true });
+  const passes = await runDue();
+  expect(passes.failures.some((f) => f.scheduleId === due && f.code === 'bank.partner_reply_lost')).toBe(true);
+  const after = await spaces(who);
+  expect(toUnits(main(start).balance) - toUnits(main(after).balance)).toBe(toUnits('7'));
+  expect(toUnits(named(after, TRIP).balance) - toUnits(named(start, TRIP).balance)).toBe(toUnits('7'));
+  const [instructed] = await executions(who, due);
+  expect(instructed).toMatchObject({ occurrence: 0, amount: '7', status: 'settled', rejectionCode: null, ledgerTxId: null });
+  expect(instructed.partnerMoveId).toBeTruthy();
+  // The schedule ends, and another pass instructs nothing more.
+  expect((await schedules(who)).find((s) => s.id === due)).toMatchObject({ status: 'completed' });
+  await runDue();
+  expect(await executions(who, due)).toHaveLength(1);
+  expect(main(await spaces(who)).balance).toBe(main(after).balance);
+  // The ledger posted nothing: the money is the partner's.
+  expect(await ledgerUsdt(who)).toEqual(run.read().ledger);
+
+  // In the app: the one-off completed, its run sent to the partner bank under the partner's move.
+  await page.goto('/bank/transfers');
+  await expect(row(page, due)).toContainText('once · completed');
+  await row(page, due).getByRole('button', { name: 'Execution history' }).click();
+  const history = page.getByTestId('money-selected-instruction').getByTestId('money-execution-history');
+  await expect(history).toContainText('settled');
+  await expect(history.getByTestId('money-execution-partner')).toContainText(instructed.partnerMoveId);
+  run.write({ once: once.id, due });
 });
 
-test(`${J} #2 edits a standing order's amount and end date: revision 2 is shown, and a stale second edit is refused`, async ({ page }) => {
+test(`${J} #2 edits a standing order's amount: the revision is shown, a second edit at the same revision is refused, and failed runs list their reason`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   const who = person();
   await signIn(page, who);
@@ -206,8 +274,8 @@ test(`${J} #2 edits a standing order's amount and end date: revision 2 is shown,
   await expect(facts).toContainText('No end date');
   await expect(facts.locator('div').filter({ hasText: 'Revision' }).locator('dd')).toHaveText('2');
 
-  // A stale edit: the review is open on revision 2 when the order changes elsewhere (the person's own API, as another
-  // device would). Confirming is refused by name, and the order keeps the other change.
+  // A second edit sent at the same revision: the review is open on revision 2 when the order changes elsewhere (the
+  // person's own API, as another device would). Confirming is refused by name, and the order keeps the other change.
   await page.goto('/bank/transfers');
   await row(page, order.id).getByRole('button', { name: 'Edit' }).click();
   const late = page.getByRole('dialog');
@@ -218,6 +286,10 @@ test(`${J} #2 edits a standing order's amount and end date: revision 2 is shown,
   expect(elsewhere.ok).toBe(true);
   await late.getByRole('button', { name: 'Confirm' }).click();
   await expect(late).toContainText('This standing order changed since you opened it', { timeout: 30_000 });
+  expect((await schedules(who)).find((s) => s.id === order.id)).toMatchObject({ amount: '14', revision: 3 });
+  // The same stale revision sent straight to the service is refused too, and changes nothing.
+  const stale = await api.mutate('transfers.updateSchedule', { scheduleId: order.id, revision: 2, amount: '11', endsAt: null });
+  expect(stale.ok).toBe(false);
   expect((await schedules(who)).find((s) => s.id === order.id)).toMatchObject({ amount: '14', revision: 3 });
 
   // An order whose next run is inside the TEST cutoff of 60 minutes cannot be edited.
@@ -240,82 +312,87 @@ test(`${J} #2 edits a standing order's amount and end date: revision 2 is shown,
   await close.getByRole('button', { name: 'Confirm' }).click();
   await expect(close).toContainText('The next run is too close to change this order now. Nothing was changed.', { timeout: 30_000 });
   expect((await api.mutate('transfers.cancel', { scheduleId: soon })).ok).toBe(true);
-  run.write({ monthly: order.id });
+
+  // A failed run lists its reason: a daily order out of the empty space, due a minute ago, refused at the partner.
+  const short = randomUUID();
+  const empty = await api.mutate('transfers.schedule', {
+    scheduleId: short,
+    fromSpaceId: named(all, EMPTY).id,
+    toSpaceId: main(all).id,
+    amount: '3',
+    cadence: 'daily',
+    startsAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  expect(empty.ok).toBe(true);
+  await runDue();
+  const [failed] = await executions(who, short);
+  expect(failed).toMatchObject({ occurrence: 0, status: 'rejected', rejectionCode: 'bank.partner_insufficient_funds', ledgerTxId: null });
+  await page.goto('/bank/transfers');
+  await row(page, short).getByRole('button', { name: 'Execution history' }).click();
+  const history = page.getByTestId('money-selected-instruction').getByTestId('money-execution-history');
+  await expect(history).toContainText('rejected');
+  await expect(history).toContainText('bank.partner_insufficient_funds');
+  expect((await api.mutate('transfers.cancel', { scheduleId: short })).ok).toBe(true);
+  run.write({ monthly: order.id, short });
 });
 
-test(`${J} #3 a due one-off posts once and completes, and a run with too little money fails by name and posts nothing`, async ({
+test(`${J} #3 a run with too little money: the partner's refusal is recorded as a failed run for insufficient funds, and nothing is sent`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
   const who = person();
   const api = await bank(who);
   const before = await spaces(who);
-  const due = randomUUID(),
-    short = randomUUID();
-  const past = new Date(Date.now() - 60_000).toISOString();
-  // Made through the person's own API with a first run a minute ago, so the next runner pass finds them due.
-  const once = await api.mutate('transfers.schedule', {
-    scheduleId: due,
+  // A weekly order for more than the main balance holds, due a minute ago, so the next runner pass finds it due.
+  const big = randomUUID();
+  const more = fromUnits(toUnits(main(before).balance) + toUnits('1000'));
+  const made = await api.mutate('transfers.schedule', {
+    scheduleId: big,
     fromSpaceId: main(before).id,
     toSpaceId: named(before, TRIP).id,
-    amount: '7',
-    cadence: 'once',
-    startsAt: past,
+    amount: more,
+    cadence: 'weekly',
+    startsAt: new Date(Date.now() - 60_000).toISOString(),
   });
-  expect(once.ok).toBe(true);
-  const empty = await api.mutate('transfers.schedule', {
-    scheduleId: short,
-    fromSpaceId: named(before, EMPTY).id,
-    toSpaceId: main(before).id,
-    amount: '3',
-    cadence: 'daily',
-    startsAt: past,
-  });
-  expect(empty.ok).toBe(true);
-
-  // Other journeys' orders on this stack may be due too, so this counts at least these two.
-  const first = await runDue();
-  expect(first.settled).toBeGreaterThanOrEqual(1);
-  expect(first.rejected).toBeGreaterThanOrEqual(1);
-  const after = await spaces(who);
-  expect(toUnits(main(before).balance) - toUnits(main(after).balance)).toBe(toUnits('7'));
-  expect(toUnits(named(after, TRIP).balance) - toUnits(named(before, TRIP).balance)).toBe(toUnits('7'));
-  expect(toUnits(named(after, EMPTY).balance)).toBe(0n);
-
-  const [posted] = await executions(who, due);
-  expect(posted).toMatchObject({ occurrence: 0, amount: '7', status: 'settled', rejectionCode: null });
-  expect(posted.ledgerTxId).toBeTruthy();
-  expect((await schedules(who)).find((s) => s.id === due)).toMatchObject({ status: 'completed' });
-  const [failed] = await executions(who, short);
-  expect(failed).toMatchObject({ occurrence: 0, status: 'rejected', rejectionCode: 'ledger.insufficient_funds', ledgerTxId: null });
-
-  // A second pass posts nothing more: the one-off is done and the failed day is recorded.
+  expect(made, JSON.stringify(made.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
   await runDue();
-  const again = await spaces(who);
-  expect(main(again).balance).toBe(main(after).balance);
-  expect(await executions(who, due)).toHaveLength(1);
-  expect(await executions(who, short)).toHaveLength(1);
-  run.write({ due, short });
 
-  // Both outcomes in the app, from the instructions' own history.
+  const [failed] = await executions(who, big);
+  expect(failed).toMatchObject({
+    occurrence: 0,
+    amount: more,
+    status: 'rejected',
+    rejectionCode: 'bank.partner_insufficient_funds',
+    ledgerTxId: null,
+    partnerMoveId: null,
+  });
+  // Nothing sent: every space as it was, and the ledger posted nothing.
+  const after = await spaces(who);
+  for (const space of before) expect(after.find((s) => s.id === space.id)?.balance).toBe(space.balance);
+  expect(await ledgerUsdt(who)).toEqual(run.read().ledger);
+  // A second pass sends nothing for the same occurrence: the failed run is recorded once.
+  await runDue();
+  expect(await executions(who, big)).toHaveLength(1);
+  expect(main(await spaces(who)).balance).toBe(main(before).balance);
+
   await signIn(page, who);
   await page.goto('/bank/transfers');
-  await expect(row(page, due)).toContainText('once · completed');
-  await row(page, short).getByRole('button', { name: 'Execution history' }).click();
+  await row(page, big).getByRole('button', { name: 'Execution history' }).click();
   const history = page.getByTestId('money-selected-instruction').getByTestId('money-execution-history');
   await expect(history).toContainText('rejected');
-  await expect(history).toContainText('ledger.insufficient_funds');
+  await expect(history).toContainText('bank.partner_insufficient_funds');
   await expect(history).toContainText('No ledger reference recorded');
-  expect((await api.mutate('transfers.cancel', { scheduleId: short })).ok).toBe(true);
+  await expect(history.getByTestId('money-execution-partner')).toHaveCount(0);
+  expect((await api.mutate('transfers.cancel', { scheduleId: big })).ok).toBe(true);
+  run.write({ big });
 });
 
-test(`${J} #4 sees each direct debit with what it collects next, blocks one, and a collection that fails costs no fee and a collected one can be refunded`, async ({
+test(`${J} #4 blocks a direct debit mandate: the block is sent to the partner, new collections are refused with the partner's reason, and 10 against a balance of 4 fails with its reason and a refund path`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
   const who = person();
   const api = await bank(who);
-  const before = main(await spaces(who));
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
@@ -334,7 +411,6 @@ test(`${J} #4 sees each direct debit with what it collects next, blocks one, and
   const again = await job('dd-sim/mandate', { mandateId: gym, userId: owner, creditorId: 'TEST-GYM', reference: 'OTHER', assetId: 'USDT' });
   expect(again.body?.code).toBe('bank.dd_mandate_conflict');
   await scheme('dd-sim/collection', { mandateId: gym, collectionId: `${tag}-due`, amount: '5', dueAt: at(-0.01) });
-  await scheme('dd-sim/collection', { mandateId: gym, collectionId: `${tag}-huge`, amount: '100000', dueAt: at(-0.01) });
   await scheme('dd-sim/collection', { mandateId: gym, collectionId: `${tag}-next`, amount: '5', dueAt: at(10) });
   await scheme('dd-sim/collection', { mandateId: power, collectionId: `${tag}-bill`, amount: '12.5', dueAt: at(5) });
 
@@ -354,44 +430,81 @@ test(`${J} #4 sees each direct debit with what it collects next, blocks one, and
   await expect(gymRow).toContainText('5 USDT');
   await expect(powerRow).toContainText('12.5 USDT');
 
-  // Block the power company: its upcoming bill is refused now, and nothing is taken.
+  // Block the power company: the block is sent to the partner bank, its upcoming bill is refused with the partner's
+  // reason, and the list shows it blocked.
   await powerRow.getByRole('button', { name: 'Block' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(`PWR ${tag}`);
   await dialog.getByRole('button', { name: 'Block mandate' }).click();
-  await expect(page.getByText('Blocked TEST Power company. Upcoming collections refused: 1.')).toBeVisible();
+  await expect(
+    page.getByText('Block sent to TEST partner bank. Blocked TEST Power company. Upcoming collections refused: 1.'),
+  ).toBeVisible();
   await expect(powerRow).toContainText('Blocked since');
   await expect(powerRow).toContainText('Nothing due in the next month');
-  // A collection it presents while blocked is refused too.
+  // A new collection it presents while blocked is rejected with the reason the partner reports.
   const late = await scheme('dd-sim/collection', { mandateId: power, collectionId: `${tag}-late`, amount: '3', dueAt: at(2) });
-  expect(late).toMatchObject({ status: 'rejected', failureCode: 'bank.dd_mandate_blocked', ledgerTxId: null });
+  expect(late).toMatchObject({ status: 'rejected', failureCode: PARTNER_DD_BLOCKED, ledgerTxId: null, partnerMoveId: null });
 
-  // The collection run: the due 5 is collected once; the 100000 fails on too little money, posts nothing, costs no fee.
-  // Other journeys' collections share this stack, so the run is passed until this person's two due ones are decided.
-  const decided = async () => {
+  // The collection run: the gym's due 5 is taken once by the partner, and nothing is posted on the ledger.
+  // Other journeys' collections share this stack, so the run is passed until this person's due one is decided.
+  const decided = async (...ids) => {
     const { collections } = (await api.query('directDebits.list', {})).data;
     const done = (id) => collections.some((c) => c.collectionId === id && (c.status === 'collected' || c.status === 'failed'));
-    return done(`${tag}-due`) && done(`${tag}-huge`);
+    return ids.every((id) => done(`${tag}-${id}`));
   };
-  for (let pass = 0; pass < 20 && !(await decided()); pass += 1) await scheme('run-due-direct-debits', { limit: 50 });
-  expect(await decided()).toBe(true);
-  const after = main(await spaces(who));
-  expect(toUnits(before.balance) - toUnits(after.balance)).toBe(toUnits('5'));
+  const before = main(await spaces(who));
+  for (let pass = 0; pass < 20 && !(await decided('due')); pass += 1) await scheme('run-due-direct-debits', { limit: 50 });
+  expect(await decided('due')).toBe(true);
+  const taken = main(await spaces(who));
+  expect(toUnits(before.balance) - toUnits(taken.balance)).toBe(toUnits('5'));
   await scheme('run-due-direct-debits', { limit: 50 });
-  expect(main(await spaces(who)).balance).toBe(after.balance);
+  expect(main(await spaces(who)).balance).toBe(taken.balance);
+
+  // A collection of 10 against a main balance of 4: the rest moves to the trip space first, then the gym presents 10.
+  const rest = toUnits(taken.balance) - toUnits('4');
+  const trip = named(await spaces(who), TRIP);
+  const moved = await api.mutate('transfers.create', {
+    transferId: randomUUID(),
+    fromSpaceId: taken.id,
+    toSpaceId: trip.id,
+    amount: fromUnits(rest),
+  });
+  expect(moved, JSON.stringify(moved.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { ledgerTxId: null } });
+  expect(main(await spaces(who)).balance).toBe('4');
+  await scheme('dd-sim/collection', { mandateId: gym, collectionId: `${tag}-ten`, amount: '10', dueAt: at(-0.001) });
+  for (let pass = 0; pass < 20 && !(await decided('ten')); pass += 1) await scheme('run-due-direct-debits', { limit: 50 });
+  expect(await decided('ten')).toBe(true);
+  expect(main(await spaces(who)).balance).toBe('4');
+  const listed = (await api.query('directDebits.list', {})).data;
+  const byId = (id) => listed.collections.find((c) => c.collectionId === `${tag}-${id}`);
+  expect(byId('due')).toMatchObject({ status: 'collected', ledgerTxId: null });
+  expect(byId('due').partnerMoveId).toBeTruthy();
+  expect(byId('ten')).toMatchObject({
+    status: 'failed',
+    failureCode: 'bank.partner_insufficient_funds',
+    ledgerTxId: null,
+    partnerMoveId: null,
+    refund: { state: 'none' },
+  });
+  expect(await ledgerUsdt(who)).toEqual(run.read().ledger);
 
   await page.reload();
   const collected = page.getByTestId(`dd-collection-${tag}-due`);
   await expect(collected).toContainText('Collected');
   await expect(collected).toContainText('5 USDT');
-  const failed = page.getByTestId(`dd-collection-${tag}-huge`);
+  await expect(collected.getByTestId('dd-partner-move')).toContainText(byId('due').partnerMoveId);
+  const failed = page.getByTestId(`dd-collection-${tag}-ten`);
   await expect(failed).toContainText('Failed');
-  await expect(failed).toContainText('Your main balance did not have enough money. Nothing was taken.');
+  await expect(failed).toContainText('The partner bank reported too little money in your main balance. Nothing was taken.');
+  await expect(failed).toContainText('bank.partner_insufficient_funds');
   await expect(failed).toContainText('Not set. No fee was charged.');
-  await expect(failed).toContainText('bank.dd_failure_fee_unset');
-  const refused = page.getByTestId(`dd-collection-${tag}-bill`);
-  await expect(refused).toContainText('Refused because you blocked this mandate. Nothing was taken.');
+  // Its refund path: nothing was taken, and a debit that was taken is asked back from this list.
+  await expect(failed).toContainText('Nothing was taken, so nothing needs refunding.');
   await expect(failed.getByRole('button', { name: 'Request a refund' })).toHaveCount(0);
+  const refused = page.getByTestId(`dd-collection-${tag}-bill`);
+  await expect(refused).toContainText('The partner bank refused it because you blocked this mandate. Nothing was taken.');
+  await expect(refused).toContainText(PARTNER_DD_BLOCKED);
+  await expect(page.getByTestId(`dd-collection-${tag}-late`)).toContainText(PARTNER_DD_BLOCKED);
 
   // Inside the 30-day TEST guarantee period, the collected 5 can be asked back, once.
   await collected.getByRole('button', { name: 'Request a refund' }).click();
@@ -400,10 +513,9 @@ test(`${J} #4 sees each direct debit with what it collects next, blocks one, and
   await ask.getByRole('button', { name: 'Send refund request' }).click();
   await expect(page.getByText('Refund request sent for 5 USDT. Support will look at it.')).toBeVisible();
   await expect(collected).toContainText('Requested on');
-  const listed = (await api.query('directDebits.list', {})).data;
-  const row = listed.collections.find((c) => c.collectionId === `${tag}-due`);
-  expect(row.refund.state).toBe('requested');
-  const twice = await api.mutate('directDebits.requestRefund', { collectionId: row.id, reason: 'TEST again' });
+  const refundRow = (await api.query('directDebits.list', {})).data.collections.find((c) => c.collectionId === `${tag}-due`);
+  expect(refundRow.refund.state).toBe('requested');
+  const twice = await api.mutate('directDebits.requestRefund', { collectionId: refundRow.id, reason: 'TEST again' });
   expect(twice.ok).toBe(true);
   expect(twice.data.created).toBe(false);
 
@@ -434,7 +546,7 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
   test.setTimeout(240_000);
   const who = person();
   const { once, monthly, due, short, dd } = run.read();
-  if (!due || !short) throw new Error(`${J}: #3 left no standing orders, so the calendar has nothing of its own to show`);
+  if (!due || !short) throw new Error(`${J}: #1 or #2 left no standing orders, so the calendar has nothing of its own to show`);
   if (!dd) throw new Error(`${J}: #4 left no direct debits, so the calendar has nothing of its own to show`);
   const api = await bank(who);
   const before = main(await spaces(who)).balance;
@@ -447,7 +559,7 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
     return found;
   };
   const collected = collection('due'),
-    huge = collection('huge'),
+    huge = collection('ten'),
     blocked = collection('bill'),
     next = collection('next');
   const monthOf = (iso) => iso.slice(0, 7);
@@ -464,15 +576,15 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
   const ran = await read(ranMonth);
   const byKey = (view, key) => view.items.find((i) => i.key === key);
   expect(byKey(ran, `${due}:0`)).toMatchObject({ source: 'standing_orders', status: 'done', amount: '7' });
-  expect(byKey(ran, `${short}:0`)).toMatchObject({ status: 'failed', reasonCode: 'ledger.insufficient_funds' });
-  // #3 cancelled the empty order after its failed day, so none of its later days are on the calendar.
+  expect(byKey(ran, `${short}:0`)).toMatchObject({ status: 'failed', reasonCode: 'bank.partner_insufficient_funds' });
+  // #2 cancelled the empty order after its failed day, so none of its later days are on the calendar.
   expect(ran.items.filter((i) => i.refId === short).map((i) => i.status)).toEqual(['failed']);
   expect(ran.sources.find((s) => s.source === 'loans')).toMatchObject({ state: 'not_set', code: 'bank.loan_schedule_unset' });
   expect(ran.sources.find((s) => s.source === 'bills')).toMatchObject({ state: 'ok', code: 'bank.bills_psp_unset' });
   for (const [row, status, reason] of [
     [collected, 'done', null],
-    [huge, 'failed', 'bank.insufficient_funds'],
-    [blocked, 'refused', 'bank.dd_mandate_blocked'],
+    [huge, 'failed', 'bank.partner_insufficient_funds'],
+    [blocked, 'refused', PARTNER_DD_BLOCKED],
     [next, 'upcoming', null],
   ]) {
     const view = monthOf(row.dueAt) === ranMonth ? ran : await read(monthOf(row.dueAt));
@@ -521,7 +633,7 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
   const failedRow = page.getByTestId(`cal-row-${short}:0`);
   await expect(failedRow).toContainText('Failed');
   await expect(failedRow).toContainText('There was not enough money. Nothing was taken.');
-  await expect(failedRow).toContainText('ledger.insufficient_funds');
+  await expect(failedRow).toContainText('bank.partner_insufficient_funds');
   await expect(page.getByTestId(`cal-row-${due}:0`)).toContainText('Done');
 
   // Filter by kind: direct debits off leaves the standing orders showing.
@@ -684,7 +796,7 @@ test(`${J} #6 the notice job tells the person once: a reminder before the one-of
   test.setTimeout(120_000);
   const who = person();
   const { once, short } = run.read();
-  if (!once || !short) throw new Error(`${J}: #1 or #3 left no order to tell the person about`);
+  if (!once || !short) throw new Error(`${J}: #1 or #2 left no order to tell the person about`);
   const notify = await bank(who, 'notify');
   // Two passes, as a scheduler that retried would make them: the outbox owes each notice once.
   for (let pass = 0; pass < 2; pass += 1) await scheme('run-scheduled-notices', { limit: 100 });

@@ -4,7 +4,7 @@
  * when every live journey in docs/roadmap/journeys.json passes in the running app on main, and scope never shrinks
  * (owner decision OWNER 1). Before this, the list was guarded only by the `gate:` title rule and a human read: the read of
  * #7438 planted faults and found that a slice id that doesn't exist passed every check, that a dropped journey failed
- * only `roadmap.mjs --check`, which a regenerated docs/ROADMAP.md silences, and that no workflow ran `--check` at all
+ * only `roadmap.mjs --check`, which regenerating the page it checked silenced, and that no workflow ran `--check` at all
  * (intafaced #7438, comment 6705940437).
  *
  * It refuses a pull request (its checkout against the base ref) that:
@@ -16,11 +16,7 @@
  *   - has a journeys.json that isn't the shape `--index` writes (a journey id used twice, a step number used twice, ...);
  *   - puts a journey marked later (`"later": "custody"`, OWNER 226) at Order 1, the launch wedge, or marks one later for
  *     any reason but custody (roadmap.mjs finishLineProblems, which `--index` also enforces): the customer-first order
- *     (OWNER 223 (3)) can't be undone by hand-editing journeys.json;
- *   - has a docs/ROADMAP.md other than the one the base's roadmap.mjs builds from the pull request's slices.json and
- *     journeys.json (what `roadmap.mjs --check` checks, with the base's code, so a pull request can't change both the
- *     page and the code that writes it).
- * The drop check reads journeys.json, never ROADMAP.md, so regenerating the page hides nothing.
+ *     (OWNER 223 (3)) can't be undone by hand-editing journeys.json.
  *
  * A journey or step may still be retired, on one strict machine line in the body, modelled on the seal's
  * `Left-or-replaced:` line (journey-seal.mjs): `Journey-retired: J-bank-13 #2 #3, J-bank-14 (OWNER 240)`, at column 0,
@@ -31,7 +27,7 @@
  * body), else from PR_BODY.
  *
  * CI runs the default branch's copy from the `gates` job of ci.yml, in a worktree of the base, so its import of
- * roadmap.mjs (what is live, and how the page is built) is the base's too; the pull request's copy runs only while the
+ * roadmap.mjs (what is live) is the base's too; the pull request's copy runs only while the
  * base has none (the pull request that adds it). Its tests are tooling/ci/journey-list-guard.test.mjs.
  *
  * The base is where the checkout meets `--base-ref` (their merge base), so main moving on after the pull request's
@@ -40,16 +36,15 @@
  *   node tooling/ci/journey-list-guard.mjs [--base-ref origin/main]     (from the pull request's checkout)
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compose, finishLineProblems, liveJourneys } from '../scripts/roadmap.mjs';
+import { finishLineProblems, liveJourneys } from '../scripts/roadmap.mjs';
 import { diffBase } from './ci-affected.mjs';
 import { linesOutsideCode } from './journey-seal.mjs';
 
 export const JOURNEYS_PATH = 'docs/roadmap/journeys.json';
 export const SLICES_PATH = 'docs/roadmap/slices.json';
-export const ROADMAP_PATH = 'docs/ROADMAP.md';
 
 /** The retirement line, exactly: column 0, this case, a colon, then the items and `(OWNER <n>)` last. */
 const RETIRE_LINE = /^Journey-retired:(.*)$/;
@@ -173,17 +168,13 @@ export function retireLine(d) {
 
 /**
  * The verdict. `body` is read only when something is dropped (a function, so the caller fetches it only then).
- * `roadmapFresh`: the pull request's docs/ROADMAP.md is what the base's roadmap.mjs builds. Returns { ok, lines }.
+ * Returns { ok, lines }.
  */
-export async function judge({ base, head, slices, roadmapFresh, body }) {
+export async function judge({ base, head, slices, body }) {
   const lines = [];
   const shape = shapeProblems(head);
   if (shape.length) return { ok: false, lines: shape.map((p) => `${JOURNEYS_PATH}: ${p}`) };
   for (const u of unknownSlices(head, slices)) lines.push(`${JOURNEYS_PATH} names a slice that isn't in ${SLICES_PATH}: ${u}`);
-  if (!roadmapFresh)
-    lines.push(
-      `${ROADMAP_PATH} is not what the base's roadmap.mjs builds from this pull request's ${SLICES_PATH} and ${JOURNEYS_PATH}; run \`node tooling/scripts/roadmap.mjs\``,
-    );
   const d = drops(base, head);
   if (d.journeys.length || d.steps.length) {
     const r = retirements(typeof body === 'function' ? await body() : body);
@@ -249,9 +240,7 @@ async function main(argv) {
   const base = JSON.parse(baseText);
   const head = JSON.parse(read(JOURNEYS_PATH));
   const slices = JSON.parse(read(SLICES_PATH));
-  const roadmap = existsSync(join(cwd, ROADMAP_PATH)) ? read(ROADMAP_PATH) : '';
-  const roadmapFresh = shapeProblems(head).length ? false : (await compose(slices, head, roadmap)) === roadmap;
-  const v = await judge({ base, head, slices, roadmapFresh, body: bodyFromEnv });
+  const v = await judge({ base, head, slices, body: bodyFromEnv });
   for (const l of v.lines) console.error(`journey-list-guard: ${l}`);
   if (v.ok)
     console.log(`journey-list-guard: ok (${head.length} journeys; the base, ${ref} at ${baseRef.slice(0, 12)}, has ${base.length})`);

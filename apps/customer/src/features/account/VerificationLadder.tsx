@@ -7,7 +7,7 @@ import {
   type KycLadderRung,
 } from '@intafaced/contracts/identity-kyc-levels';
 import { payWithdrawalTierLimitsOutputSchema, type PayWithdrawalTierLimits } from '@intafaced/contracts/pay-withdrawal-tier-limits';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { verificationLadderCopy as copy } from './verification-ladder-copy';

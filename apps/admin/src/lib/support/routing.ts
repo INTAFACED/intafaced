@@ -1,4 +1,5 @@
 import type { StaffMemberView } from './staff';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Who gets which request (SP-routing-01), and the logs the agent directory and the group settings read (SP-agents-01,
@@ -90,7 +91,6 @@ export interface GroupLogRow {
   readonly at: string;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
 const isTime = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
 const nullableText = (v: unknown): v is string | null => v === null || isText(v);

@@ -23,7 +23,7 @@ const base = {
   expiresAt: '2026-10-21T09:20:00Z',
   createdAt: '2026-10-20T09:20:00Z',
   decidedAt: null,
-} as unknown as ApprovalRequest;
+} as ApprovalRequest;
 
 let viewer: string | null = owner;
 let resource: Resource<unknown> = { status: 'loading' };

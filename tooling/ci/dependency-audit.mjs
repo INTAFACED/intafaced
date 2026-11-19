@@ -58,6 +58,16 @@
  * The list is meant to shrink to zero. When it does, flip this to a plain
  * `--audit-level=high` and delete the baseline.
  *
+ * RUST'S PACKAGES ARE HELD TO THE SAME RATCHET
+ *
+ * `pnpm audit` reads only the npm tree. The Rust workspace's outside crates are the
+ * registry packages in `Cargo.lock` (CI builds with `--locked`, so a crate change
+ * without a lock change fails before anything runs). Each is asked of OSV
+ * (api.osv.dev, which carries the RustSec database), with no tool to install. An
+ * informational RustSec notice (unmaintained, unsound) or a withdrawn advisory is
+ * printed and passes, as `cargo audit` treats it; a vulnerability joins the same
+ * list as npm's, and a GHSA that only repeats a RustSec id is counted once.
+ *
  * Usage:  pnpm scan:deps          (needs network — the advisory DB is remote)
  *         node tooling/ci/dependency-audit.mjs --base HEAD^1   (CI, pull requests)
  *         node tooling/ci/dependency-audit.mjs --self-test
@@ -65,6 +75,7 @@
  * dependency.
  */
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -82,86 +93,22 @@ export const DEPENDENCY_FILES = [
   '.npmrc',
   '.pnpmfile.cjs',
   'tooling/ci/dependency-audit.mjs',
+  'Cargo.lock',
 ];
 
 /**
- * Advisories present when this gate was installed (2026-08-06, tip 7207d6ec).
+ * Advisories in the tree that cannot be updated yet. The thirteen entries frozen when this gate was installed
+ * (2026-08-06) have all left the tree and their lines are deleted.
  *
- * `note` is the reason it is still here — a path, or the work it is waiting on.
- *
- * BOTH PRODUCTION-PATH ENTRIES ARE GONE as of this bump, and that is the
- * ratchet's whole point rather than an aside. `drizzle-orm` (direct, 13
- * dependents, every service that touches Postgres) and `fast-uri` (transitive
- * under `fastify`, reached by every service) were the two that mattered. The
- * scan refused this PR until their lines were deleted — a fix nobody records
- * leaves a baseline describing a tree that no longer exists.
- *
- * What remains reaches no request path: it arrives through build or lint
- * tooling.
+ * `note` is the reason it is still here: a path, and the work it is waiting on.
  */
 const KNOWN = {
-  'GHSA-mh99-v99m-4gvg': {
+  'GHSA-fc5q-39xc-vjpf': {
     severity: 'high',
-    module: 'brace-expansion',
-    note: 'eslint > minimatch. Lint tooling; never runs in a service.',
-  },
-  'GHSA-rgw5-rvv9-x895': {
-    severity: 'high',
-    module: 'brace-expansion',
-    note: 'eslint and rimraf > glob > minimatch. Lint and clean tooling; never runs in a service.',
-  },
-  'GHSA-ph9p-34f9-6g65': { severity: 'high', module: 'tmp', note: 'svc-indexer > solc > tmp. Solidity compiler, build-time only.' },
-  'GHSA-52f5-9888-hmc6': { severity: 'low', module: 'tmp', note: 'svc-indexer > solc > tmp. Solidity compiler, build-time only.' },
-  'GHSA-67mh-4wv8-2f99': {
-    severity: 'moderate',
-    module: 'esbuild',
-    note: 'packages/db > drizzle-kit > esbuild. Migration tooling, build-time only.',
-  },
-  'GHSA-2883-xcg3-v3hh': {
-    severity: 'high',
-    module: 'js-yaml',
-    note: 'eslint > @eslint/eslintrc > js-yaml. Lint tooling; never runs in a service. Patch is js-yaml 4.3.2.',
-  },
-  // Advisory DB moved on 2026-10-01. None of these packages were added by the
-  // recovery-enum change. A version bump is its own supply-chain PR.
-  'GHSA-q2hr-2g5m-vwhr': {
-    severity: 'moderate',
-    module: 'brace-expansion',
-    note: 'eslint > minimatch. Lint tooling; never runs in a service.',
-  },
-  'GHSA-qhr7-859c-m2p7': {
-    severity: 'high',
-    module: 'brace-expansion',
-    note: 'eslint > minimatch. Lint tooling; never runs in a service.',
-  },
-  'GHSA-6j4f-fj2g-mc7p': {
-    severity: 'high',
-    module: 'brace-expansion',
-    note: 'eslint > minimatch. Lint tooling; never runs in a service.',
-  },
-  'GHSA-g3hv-75wg-m249': {
-    severity: 'moderate',
-    module: 'minimatch',
+    module: 'picomatch',
     note:
-      'eslint, rimraf > glob, and testcontainers > archiver > glob / readdir-glob > minimatch. Lint, clean and test tooling; ' +
-      'never runs in a service. The patch is minimatch 11, a major none of them accepts yet (eslint pins the 3.x API).',
-  },
-  'GHSA-3g3m-2fjr-6pw4': {
-    severity: 'moderate',
-    module: 'glob',
-    note:
-      'rimraf > glob and testcontainers > archiver > archiver-utils > glob. Clean and test tooling; never runs in a service, ' +
-      'and neither passes an AbortSignal. The patch is glob 14, a major neither accepts yet.',
-  },
-  'GHSA-m9gg-hp2v-232j': {
-    severity: 'high',
-    module: '@grpc/grpc-js',
-    note: 'testcontainers > dockerode > @grpc/grpc-js. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-f596-whhp-79r4': {
-    severity: 'low',
-    module: '@grpc/grpc-js',
-    note: 'testcontainers > dockerode > @grpc/grpc-js. Test-only Docker client. Not a service request path.',
+      'vitest, vite and @tailwindcss/vite > picomatch (dev dependencies only; `pnpm why picomatch -r --prod` is empty). ' +
+      'Test and build tooling; never runs in a service. No patched picomatch exists yet (affected <= 4.0.7, the latest).',
   },
 };
 
@@ -203,12 +150,89 @@ function readAudit() {
   }
 }
 
+/** The registry crates in a `Cargo.lock`: the workspace's own crates have no `source` and are not asked about. */
+export function cargoPackages(lockText) {
+  const out = [];
+  for (const block of String(lockText)
+    .split(/^\[\[package\]\]$/m)
+    .slice(1)) {
+    const field = (key) => block.match(new RegExp(`^${key} = "([^"]*)"$`, 'm'))?.[1];
+    const [name, version, source] = [field('name'), field('version'), field('source')];
+    if (name && version && source?.startsWith('registry+')) out.push({ name, version });
+  }
+  return out;
+}
+
+/**
+ * From OSV's answers, the advisories that count: per crate, `ids` is what the batch query listed and `details` each id's
+ * record. A withdrawn record or an informational RustSec notice is set apart; a GHSA that a RustSec id it was listed
+ * with names as an alias (or that names it) is the same advisory, counted once under the RustSec id.
+ */
+export function rustAdvisories(packages, ids, details) {
+  const found = new Map();
+  const notices = [];
+  packages.forEach((pkg, i) => {
+    const list = ids[i] ?? [];
+    const same = (a, b) => (details[a]?.aliases ?? []).includes(b) || (details[b]?.aliases ?? []).includes(a);
+    for (const id of list) {
+      const d = details[id] ?? {};
+      const informational = (d.affected ?? []).map((a) => a.database_specific?.informational).find(Boolean);
+      if (d.withdrawn || informational) {
+        notices.push(`${id} ${pkg.name} ${pkg.version}: ${d.withdrawn ? 'withdrawn' : informational}`);
+        continue;
+      }
+      if (!id.startsWith('RUSTSEC-') && list.some((other) => other.startsWith('RUSTSEC-') && same(id, other))) continue;
+      const rated = [id, ...list.filter((other) => other !== id && same(id, other))]
+        .map((x) => details[x]?.database_specific?.severity)
+        .find((sev) => typeof sev === 'string');
+      found.set(id, { severity: rated ? rated.toLowerCase() : 'unrated', module: `${pkg.name}@${pkg.version} (crate)` });
+    }
+  });
+  return { found, notices };
+}
+
+/** Asks OSV about every registry crate in Cargo.lock; `problem` when OSV could not be read, so nothing was cleared. */
+async function readRustAudit() {
+  let lock;
+  try {
+    lock = readFileSync(join(ROOT, 'Cargo.lock'), 'utf8');
+  } catch {
+    return { found: new Map(), notices: [] };
+  }
+  const packages = cargoPackages(lock);
+  if (packages.length === 0) return { found: new Map(), notices: [] };
+  try {
+    const ask = async (url, init) => {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+      return res.json();
+    };
+    const batch = await ask('https://api.osv.dev/v1/querybatch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        queries: packages.map((p) => ({ package: { ecosystem: 'crates.io', name: p.name }, version: p.version })),
+      }),
+    });
+    if (!Array.isArray(batch?.results) || batch.results.length !== packages.length) {
+      throw new Error(`querybatch answered ${JSON.stringify(batch).slice(0, 300)}`);
+    }
+    if (batch.results.some((r) => r?.next_page_token)) throw new Error('querybatch paged its answer; read every page');
+    const ids = batch.results.map((r) => (r?.vulns ?? []).map((v) => v.id));
+    const details = {};
+    for (const id of new Set(ids.flat())) details[id] = await ask(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`);
+    return rustAdvisories(packages, ids, details);
+  } catch (err) {
+    return { problem: String(err?.message ?? err).slice(0, 800) };
+  }
+}
+
 /** A GitHub annotation on the run, so a passing PR still shows what main has to fix. */
 function warn(message) {
   console.log(process.env.GITHUB_ACTIONS ? `::warning title=Dependency audit::${message}` : `! ${message}`);
 }
 
-function main() {
+async function main() {
   const at = process.argv.indexOf('--base');
   const base = at > 0 ? process.argv[at + 1] : null;
   const changed = base ? changedSince(base) : null;
@@ -230,12 +254,21 @@ function main() {
     ({ report, problem } = readAudit());
     if (!report) console.error(`dependency-audit: attempt ${attempt} could not read \`pnpm audit --json\`: ${problem}`);
   }
+  let rust;
+  for (let attempt = 1; attempt <= 3 && !rust?.found; attempt++) {
+    rust = await readRustAudit();
+    if (!rust.found) console.error(`dependency-audit: attempt ${attempt} could not read OSV for Cargo.lock: ${rust.problem}`);
+  }
+  if (!rust.found) {
+    report = undefined;
+    problem = `OSV (Rust crates): ${rust.problem}`;
+  }
   if (!report && !strict) {
-    warn('could not read `pnpm audit --json` (the advisory database is remote). This PR changes no dependency, so it passes.');
+    warn('could not read `pnpm audit --json` or OSV (the advisory databases are remote). This PR changes no dependency, so it passes.');
     process.exit(0);
   }
   if (!report) {
-    console.error('\n✖ dependency-audit could not read `pnpm audit --json`.');
+    console.error('\n✖ dependency-audit could not read `pnpm audit --json` or OSV for Cargo.lock.');
     console.error('  This needs network: the advisory database is remote. A run that cannot');
     console.error('  reach it has not cleared anything and must not be reported as clean.\n');
     console.error(problem);
@@ -252,6 +285,8 @@ function main() {
         .pop();
     if (id) seen.set(id, { severity: a.severity, module: a.module_name });
   }
+  for (const [id, meta] of rust.found) seen.set(id, meta);
+  for (const notice of rust.notices) console.log(`  notice (passes, as \`cargo audit\` does): ${notice}`);
 
   const { added, stale, fail } = judge([...seen.keys()], KNOWN, strict);
   const seenById = Object.fromEntries(seen);
@@ -283,7 +318,10 @@ function main() {
   }
 
   console.error(`\n✖ ${added.length} NEW advisory(ies) — the list cannot grow:\n`);
-  for (const id of added) console.error(`    ${bySeverity(id, seenById)}  ${id}  https://github.com/advisories/${id}`);
+  for (const id of added)
+    console.error(
+      `    ${bySeverity(id, seenById)}  ${id}  ${id.startsWith('GHSA-') ? 'https://github.com/advisories/' : 'https://osv.dev/vulnerability/'}${id}`,
+    );
   console.error('\n  Update the dependency, or add it to KNOWN with the reason it cannot');
   console.error('  be updated yet. Adding it without a reason is how this list stops meaning anything.\n');
 
@@ -306,9 +344,43 @@ function selfTest() {
   eq(judge(['GHSA-a', 'GHSA-b', 'GHSA-new'], known, true), { added: ['GHSA-new'], stale: [], fail: true }, 'new fails a strict run');
   eq(judge(['GHSA-a'], known, true), { added: [], stale: ['GHSA-b'], fail: false }, 'stale only warns, even a strict run');
   eq(judge(['GHSA-a', 'GHSA-new'], known, false), { added: ['GHSA-new'], stale: ['GHSA-b'], fail: false }, 'both only warn a PR');
-  console.log('✓ dependency-audit --self-test OK (11 fixtures)');
+  eq(dependencyChanges(['Cargo.lock']), ['Cargo.lock'], 'the Rust lock file');
+  const lock = [
+    'version = 4',
+    '',
+    '[[package]]',
+    'name = "smallvec"',
+    'version = "0.6.9"',
+    'source = "registry+https://github.com/rust-lang/crates.io-index"',
+    '',
+    '[[package]]',
+    'name = "svc-tax"',
+    'version = "0.0.0"',
+    '',
+  ].join('\n');
+  eq(cargoPackages(lock), [{ name: 'smallvec', version: '0.6.9' }], 'registry crates only, the workspace crate left out');
+  const pkgs = [{ name: 'smallvec', version: '0.6.9' }];
+  const details = {
+    'RUSTSEC-2019-0009': { aliases: ['GHSA-mm7v-vpv8-xfc3'] },
+    'GHSA-mm7v-vpv8-xfc3': { aliases: ['RUSTSEC-2019-0009'], database_specific: { severity: 'CRITICAL' } },
+    'GHSA-only': { database_specific: { severity: 'HIGH' } },
+    'RUSTSEC-unmaintained': { affected: [{ database_specific: { informational: 'unmaintained' } }] },
+    'RUSTSEC-withdrawn': { withdrawn: '2024-01-01T00:00:00Z' },
+  };
+  const got = rustAdvisories(pkgs, [Object.keys(details)], details);
+  eq(
+    [...got.found],
+    [
+      ['RUSTSEC-2019-0009', { severity: 'critical', module: 'smallvec@0.6.9 (crate)' }],
+      ['GHSA-only', { severity: 'high', module: 'smallvec@0.6.9 (crate)' }],
+    ],
+    'a GHSA repeating a RustSec id counts once, rated by its alias',
+  );
+  eq(got.notices.length, 2, 'an unmaintained notice and a withdrawn advisory pass as notices');
+  eq(judge([...got.found.keys()], {}, true).fail, true, 'a vulnerable crate fails a strict run');
+  console.log('✓ dependency-audit --self-test OK (15 fixtures)');
 }
 
 // Nothing imports this file, so there is no main-module guard to fail open on an odd checkout path.
 if (process.argv.includes('--self-test')) selfTest();
-else main();
+else await main();

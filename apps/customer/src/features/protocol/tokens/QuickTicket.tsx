@@ -4,7 +4,7 @@ import { Button, Failure, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import type { ProtocolApi, RepresentationStatus } from '../api';
-import { REGION_BLOCKED_CODE, useRegionBlocked } from '../region';
+import { isRegionBlocked, useRegionBlocked } from '../region';
 import { swapCopy } from '../swap/copy';
 import { bpsToPercent, minimumOut } from '../swap/swap-math';
 import { RepresentationPanel } from '../wallet/RepresentationPanel';
@@ -214,7 +214,7 @@ export function QuickTicket({ data, api, t }: { data: TokenPageData; api: Protoc
       const gate = await api.representationStatus(owner);
       if (!gate.ok)
         return setProblem(
-          gate.code === REGION_BLOCKED_CODE
+          isRegionBlocked(gate.code)
             ? swap('regionBlocked')
             : gate.code === 'compliance.representation_unset'
               ? swap('representationUnset')

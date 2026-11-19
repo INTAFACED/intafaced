@@ -10,6 +10,8 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { AcademyService } from '../academy-service.js';
 import { NullStreamProvider } from '../stream/provider.js';
 import { FOUNDATIONS_V1 } from './catalog.js';
+import type { CertGrantRecord } from './progress.js';
+import type { CertXpEmitResult, CertXpPublisher } from './xp-publish.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -34,7 +36,22 @@ const PROPOSER = '66666666-6666-4666-8666-666666666666';
 const APPROVER = '55555555-5555-4555-8555-555555555555';
 const T0 = new Date('2026-10-24T12:00:00.000Z');
 
-function service() {
+/** Records every award and reversal the service publishes. */
+class RecordingXp implements CertXpPublisher {
+  readonly id = 'recording';
+  readonly usable = true;
+  readonly sent: string[] = [];
+  async publishCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult> {
+    this.sent.push(`award:${grant.idempotencyKey}`);
+    return { emitted: true, idempotencyKey: `academy.cert:${grant.idempotencyKey}`, xpDelta: 100 };
+  }
+  async reverseCertXp(grant: CertGrantRecord): Promise<CertXpEmitResult> {
+    this.sent.push(`reverse:${grant.idempotencyKey}`);
+    return { emitted: true, idempotencyKey: `academy.cert:reverse:${grant.idempotencyKey}`, xpDelta: -100 };
+  }
+}
+
+function service(xp?: CertXpPublisher) {
   return new AcademyService(
     sql,
     { stakeOf: async () => 0n },
@@ -45,6 +62,7 @@ function service() {
     },
     new NullStreamProvider(),
     { tournamentEnabled: false, paperTradingEnabled: false },
+    ...(xp ? [xp] : []),
   );
 }
 
@@ -106,5 +124,22 @@ describe('certificate revocation', () => {
     await expect(revoke(academy, publicId, '   ')).rejects.toMatchObject({ code: 'academy.cert_invalid' });
     expect(await sql`SELECT 1 FROM academy.cert_revocations`).toHaveLength(0);
     expect((await academy.certVerify(publicId)).status).toBe('valid');
+  });
+  it('takes the XP back on revoke, after publishing the award again, and again on a repeat (J-academy-17 #6)', async () => {
+    const xp = new RecordingXp();
+    const academy = service(xp);
+    const publicId = await issued(academy);
+    const key = `cert:${USER}:${CERT}`;
+    expect(xp.sent).toEqual([`award:${key}`]);
+    await revoke(academy, publicId);
+    expect(xp.sent).toEqual([`award:${key}`, `award:${key}`, `reverse:${key}`]);
+    await academy.settleRevokedXp(publicId);
+    expect(xp.sent.slice(3)).toEqual([`award:${key}`, `reverse:${key}`]);
+    // A certificate that stands is never reversed.
+    await db.truncateAll();
+    const standing = await issued(academy);
+    xp.sent.length = 0;
+    expect(await academy.settleRevokedXp(standing)).toBeNull();
+    expect(xp.sent).toEqual([]);
   });
 });

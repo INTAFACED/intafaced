@@ -1,6 +1,6 @@
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useMemo, useState, type ReactNode } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { defineCopy } from '../../shared/i18n';
 import { displayAmount } from '../../shared/money';

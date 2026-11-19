@@ -19,6 +19,7 @@ import { PortalReview } from '../ui/PortalReview';
 import { plainCode } from '../ui/plain-code';
 import { paymentsCopy as c } from './copy';
 import { CheckoutLook } from './CheckoutLook';
+import { ReceivingWallet } from './ReceivingWallet';
 import { CheckoutMethods } from './CheckoutMethods';
 import { definite } from './not-available';
 import type { CheckoutSettings } from './schemas';
@@ -206,6 +207,7 @@ export function CheckoutSettingsView({
     <div className="stack">
       {portal && <CheckoutLook portal={portal} />}
       {portal && <CheckoutMethods portal={portal} />}
+      {portal && <ReceivingWallet portal={portal} />}
       <PaySection title={c.t('cs_currentTitle')} description={c.t('cs_currentBody')}>
         <Gate resource={settings} retry={retry} rows={3}>
           {(s) =>

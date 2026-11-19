@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { readData } from '@/lib/ops-desk/model';
-import { codeWords } from '@/lib/desk/words';
+import { readData } from '@/lib/ops-desk';
+import { codeWords } from '@/lib/code-words';
 import { moduleForPage } from '@/lib/modules';
 import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, tabPlan } from './record';
 

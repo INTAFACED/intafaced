@@ -1,4 +1,5 @@
 import { parseKycRequirementsByLevel, parseKycReviewHoursByLevel } from './kyc/levels.js';
+import { extraControlsFor } from './account/safety.js';
 import { parseKycRejectReasons, relayKycCaseEvents } from './kyc/cases.js';
 import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
@@ -13,15 +14,18 @@ import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
 import { serviceOfRequest } from './s2s-door.js';
+import { mintStreamToken, parseStreamTokenTtl, StreamTokenError } from './stream-token.js';
 import { readIdentityWatermark } from './restore-watermark.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { SignInChallengeService, parseSignInChallengePolicy } from './auth/signin-challenge.js';
 import { relaySecurityFactorEvents } from './auth/factor-changed-notice.js';
 import { AuthService } from './auth/auth-service.js';
+import { countryListUnset } from './auth/sign-up.js';
 import { parseStaffTestRoster } from '@intafaced/auth';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
+import { openIdentitySms } from './auth/local-sms.js';
 import { withAntiPhishingCode } from './profile/anti-phishing-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -30,9 +34,11 @@ import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
+import { registerRotationRequestRoutes } from './auth/key-rotation-requests.js';
 import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { linkedWallets, registerLinkedWalletsRoute } from './auth/linked-wallets.js';
-import { readAgentKey, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
+import { deskLayoutsFor, registerSupportDeskLayoutsRoute } from './preferences/desk-layouts-support-read.js';
+import { readAgentKey, readAgentKeyCalls, registerAgentKeyCallsRoute, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -40,6 +46,8 @@ import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
 import { parseShareTagHitsPerIpMinute, parseShareTagKey } from './affiliates/share-tag.js';
 import { ReferralRebindService } from './affiliates/referral-rebind.js';
+import { PartnerApplicationService, parsePartnerMinQualified, parsePartnerReapplyDays } from './affiliates/partner-application.js';
+import { parseProgrammeDepth } from './affiliates/programme-depth.js';
 import {
   ReferralLapseService,
   lapseSweepStatusLine,
@@ -55,6 +63,7 @@ import { parseDmaHierarchyLawJson } from './orgs/dma-hierarchy.js';
 import { createLedgerClient } from './ledger-client.js';
 import { assertArgon2Available, argon2Available, parseBreachedPasswords, useBreachedPasswords } from './auth/passwords.js';
 import { createIdentityRouter } from './router.js';
+import { PgHandleLookupLimiter } from './handle-lookup.js';
 import { createTradeIdentityAuthRouter } from './auth/trade-identity-auth-router.js';
 import { assertStaffSessionLive, createSqlTradeIdentityStore } from './auth/trade-identity-auth.js';
 import { gateFrozenSubAccount } from './auth/sub-account-place-gate.js';
@@ -124,6 +133,7 @@ import { withFreezeLink } from './auth/freeze-link.js';
 import { createRecoveryKeysRouter } from './recovery-keys-router.js';
 import { createDeathNoticesRouter } from './death-notices-router.js';
 import { listRecoveryEstates, relayDeathNoticeEvents, verifyRecoveryClaim } from './auth/death-notices.js';
+import { relaySelfFreezeEvents } from './auth/self-freeze-events.js';
 import { registerRecoveryClaimVerifyRoute } from './auth/recovery-claim-verify.js';
 import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
@@ -151,10 +161,12 @@ import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth
 import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
+import { httpLeadCheck } from './auth/lead-key-check.js';
 import { parseApiKeyCapByTier, parsePortfolioKeyCap, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
 import { parseDeveloperRoles } from './auth/developer-team.js';
 import { installApiKeyRateExchange, parseRatePolicy } from './auth/api-rate-limits.js';
 import { createApiRateLimitsRouter } from './api-rate-limits-router.js';
+import { parseRotateOverlapMaxSeconds } from './auth/developer-key-rotate.js';
 import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
 import { parseSandboxBaseUrl, parseSandboxCapByTier } from './auth/developer-sandboxes.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
@@ -179,7 +191,7 @@ import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
 import { AntiPhishingService, antiPhishingKey } from './profile/anti-phishing.js';
 import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
-import { registerClosureFinalize } from './closure/closure-job.js';
+import { registerClosureFinalize, registerGraceClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
 import { AccountClosureService } from './closure/closure-service.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
@@ -210,7 +222,7 @@ registerProcessHooks(
 /**
  * svc-identity — one account, one verification, one rank (§4.1).
  *
- * Graph W1-C: mount tRPC; verify edge-signed principal (mount-boundary #48).
+ * Graph W1-C: mount tRPC; verify edge-signed principal.
  * Blueprint cascade: subscribe to blueprintCreated/Deleted so profiles.blueprint_id
  * tracks svc-blueprint without writing across service tables (§2 / §7.2).
  * XP: subscribe to xpEarned, so awards published by svc-p2p and svc-trade reach
@@ -233,6 +245,8 @@ assertSigningEncKey(env);
 const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
 // The owner's signing window (DV-auth-01). Blank stays null: every signed request refuses `auth.request_window_unset`.
 const requestSignWindowSeconds = parseRequestSignWindow(env.IDENTITY_REQUEST_SIGN_WINDOW_SECONDS);
+// The owner's stream-token lifetime (J-developer-09 #2). Blank stays null: every mint refuses `identity.stream_token_ttl_unset`.
+const streamTokenTtlSeconds = parseStreamTokenTtl(env.IDENTITY_STREAM_TOKEN_TTL_SECONDS);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -248,6 +262,13 @@ await sql`SELECT 1 FROM users LIMIT 1`.catch(() => {
 await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: auth_attempts (with consecutive_failures) is missing — apply drizzle/0027_auth_attempt_lockouts.sql before starting svc-identity',
+  );
+});
+
+// The shared people-lookup budget (#4689): without its table every lookup would fail, not the start.
+await sql`SELECT hits FROM handle_lookup_budget LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: handle_lookup_budget is missing — apply drizzle/20261113152845_handle_lookup_budget.sql before starting svc-identity',
   );
 });
 
@@ -349,17 +370,18 @@ const authKeyRing = new AuthKeyRing(sql, env.JWT_ACCESS_SECRET, parseAuthKeys(en
 await authKeyRing.refresh();
 authKeyRing.start();
 
+const accessTokenConfig = authKeyRing.tokenConfig({
+  secret: env.JWT_ACCESS_SECRET,
+  issuer: env.JWT_ISSUER,
+  audience: env.JWT_AUDIENCE,
+  accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+  refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
+});
 const auth = new AuthService(
   sql,
   bus,
   rank,
-  authKeyRing.tokenConfig({
-    secret: env.JWT_ACCESS_SECRET,
-    issuer: env.JWT_ISSUER,
-    audience: env.JWT_AUDIENCE,
-    accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
-    refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
-  }),
+  accessTokenConfig,
   {
     rpID: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,
@@ -378,6 +400,8 @@ const auth = new AuthService(
 // The owner's idle sign-out and device limit (I-signin-sessions-06); a value that is not a whole number stops the start.
 const sessionLimits = parseSessionLimits(env, { accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS });
 auth.setSessionLimits(sessionLimits);
+// While the owner's blocked-countries list is not set, no sign-in door opens a session (J-identity-22 #1).
+auth.setCountryListGate(countryListUnset);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
 /** The same keys on the inbound doors: a key-signed caller is named by its own key. */
@@ -418,6 +442,12 @@ const transportMail = openIdentityMail({
   appEnv: process.env.APP_ENV,
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
+});
+// Texted codes: the LOCAL-TEST outbox file in dev and test only, as for mail; unset, a phone link answers vendor.sms.
+const sms = openIdentitySms({
+  appEnv: process.env.APP_ENV,
+  transport: env.IDENTITY_SMS_TRANSPORT,
+  outboxPath: env.IDENTITY_LOCAL_SMS_OUTBOX,
 });
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
@@ -535,6 +565,12 @@ const signInChallenge = new SignInChallengeService(sql, parseSignInChallengePoli
 const referralCodes = new ReferralCodeService(sql, parseReferralCodeLength(env.IDENTITY_REFERRAL_CODE_LENGTH));
 const referralAttachWindowSeconds = parseAttachWindowSeconds(env.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS);
 const referralLapsePeriodSeconds = parseLapsePeriodSeconds(env.IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS);
+const programmeDepth = parseProgrammeDepth(env.IDENTITY_PARTNER_PROGRAMME_DEPTH);
+const partnerApplications = new PartnerApplicationService(sql, {
+  minQualifiedInvitees: parsePartnerMinQualified(env.IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES),
+  reapplyDays: parsePartnerReapplyDays(env.IDENTITY_PARTNER_REAPPLY_DAYS),
+  programmeDepth,
+});
 const referralLapseSweepSeconds = parseLapseSweepSeconds(env.IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS);
 const referralLapse = new ReferralLapseService(sql, { periodSeconds: referralLapsePeriodSeconds });
 const freeze = new FreezeService(sql);
@@ -731,6 +767,9 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    extraControlsMin: env.IDENTITY_EXTRA_CONTROLS_MIN,
+    // One budget per person across every replica and restart (#4689).
+    handleLookupLimiter: new PgHandleLookupLimiter(sql),
     // The code-less register door is for the dev and test stacks' own tools only.
     directRegister: isExplicitDevOrTest(process.env.APP_ENV),
     signInChallenge,
@@ -753,6 +792,8 @@ export const appRouter = mergeRouters(
     referralCodes,
     referralAttachWindowSeconds,
     referralRebind: new ReferralRebindService(sql, actionApprovals, { attachWindowSeconds: referralAttachWindowSeconds }),
+    partnerApplications,
+    programmeDepth,
     referralLapse,
     freeze,
     accruals,
@@ -789,9 +830,16 @@ export const appRouter = mergeRouters(
     portfolioKeyCap: parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX),
     developerRoles: parseDeveloperRoles(env.IDENTITY_DEVELOPER_ROLES),
     idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
+    rotateOverlapMaxSeconds: parseRotateOverlapMaxSeconds(env.IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS),
     mayMint: passkeyMintRule(sql),
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
+    // svc-trade's base URL, the same one the closure check uses: trade answers both questions.
+    leadCheck: httpLeadCheck({
+      url: env.IDENTITY_CLOSURE_TRADE_URL,
+      secret: closureSecret,
+      ...(outS2s ? { s2s: { signer: outS2s.signer, mode: outS2s.mode } } : {}),
+    }),
   }),
   createApiRateLimitsRouter(sql, ratePolicy),
   createDeveloperSandboxesRouter({
@@ -825,6 +873,11 @@ export const appRouter = mergeRouters(
       listCap: env.IDENTITY_WATCHLIST_LIST_CAP ?? null,
       symbolCap: env.IDENTITY_WATCHLIST_SYMBOL_CAP ?? null,
       savedScreenCap: env.IDENTITY_SAVED_SCREEN_CAP ?? null,
+    },
+    deskLayouts: {
+      layoutCap: env.IDENTITY_DESK_LAYOUT_CAP ?? null,
+      restoreCap: env.IDENTITY_DESK_LAYOUT_RESTORE_CAP ?? null,
+      restoreDays: env.IDENTITY_DESK_LAYOUT_RESTORE_DAYS ?? null,
     },
   }),
   createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
@@ -886,7 +939,7 @@ export const appRouter = mergeRouters(
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
-  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social }),
+  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social, phone: { sms } }),
   createWorkItemsRouter(sql),
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
@@ -967,8 +1020,12 @@ app.addHook('onRequest', (req, _reply, done) => {
   const clientProduct = typeof productHeader === 'string' ? productHeader.trim() : undefined;
   const rawAgent = req.headers['user-agent'];
   const userAgent = typeof rawAgent === 'string' ? rawAgent : undefined;
+  const rawRegion = req.headers['x-intafaced-region'];
+  const region = typeof rawRegion === 'string' ? rawRegion : undefined;
   requestIpAls.run(clientIp || undefined, () => {
-    requestProductAls.run(clientProduct || undefined, () => requestMetaAls.run({ ip: clientIp || undefined, userAgent }, () => done()));
+    requestProductAls.run(clientProduct || undefined, () =>
+      requestMetaAls.run({ ip: clientIp || undefined, userAgent, region }, () => done()),
+    );
   });
 });
 
@@ -1008,6 +1065,7 @@ registerAffiliateProducerAccrue(app, {
   freeze,
   accruals,
   accrualTierLaw,
+  programmeDepth,
   activity: referralLapse,
 });
 
@@ -1022,12 +1080,15 @@ registerBusinessDirectoryRoutes(app, {
 registerHolderNameCheck(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, details: customerDetails });
 
 registerClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, closure });
+registerGraceClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, controls: founderControls });
 registerAffiliateProducerPayout(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
   freeze,
+  accounts: auth,
   accruals,
   accrualTierLaw,
+  programmeDepth,
   ledger,
   // Accrue already installed retainRawBody on this instance.
   installRawBody: false,
@@ -1049,6 +1110,20 @@ registerNavigatorSessionRoutes(app, {
  * Authenticated by the shared service secret — same control as bank jobs (#62).
  * Previously unauthenticated (full audit L2-3).
  */
+/**
+ * A short-lived stream token for an API key (J-developer-09 #2). svc-edge forwards `POST /api/v1/stream/token` here
+ * with the key's exchanged principal; the token is cut from that principal and grants no more (`stream-token.ts`).
+ */
+app.post('/api/v1/stream/token', async (req, reply) => {
+  const { principal } = identityRequestContext(req);
+  try {
+    return await mintStreamToken({ principal, ttlSeconds: streamTokenTtlSeconds, tokens: accessTokenConfig });
+  } catch (err) {
+    if (err instanceof StreamTokenError) return reply.code(err.status).send({ error: { code: err.code, message: err.message } });
+    throw err;
+  }
+});
+
 /**
  * The joint-restore position (OPS-ledger-desk-05). A read for svc-ops alone; any other service, or none, is refused.
  */
@@ -1085,6 +1160,14 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
   return gated.body;
 });
 
+/** A key's own rotation request, through svc-trade's REST door (key-rotation-requests.ts, J-developer-07 #3). */
+registerRotationRequestRoutes(app, {
+  sql,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
 /** Mail another service asks identity to send to a customer's own proved address (service-mail.ts). */
 registerServiceMailRoute(app, {
   queue: (input) => auth.queueServiceMail(input),
@@ -1109,9 +1192,25 @@ registerLinkedWalletsRoute(app, {
   ...(doorS2s ? { s2s: doorS2s } : {}),
 });
 
+/** One account's saved desk layouts, for svc-support's ticket lookup (desk-layouts-support-read.ts, J-charts-desk-19 #1). */
+registerSupportDeskLayoutsRoute(app, {
+  read: (userId) => deskLayoutsFor(sql, userId),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
 /** One of a person's own API keys, for svc-trade's agent-account binding (agent-key-read.ts, J-agents-21 #6). */
 registerAgentKeyReadRoute(app, {
   read: (userId, keyId) => readAgentKey(sql, userId, keyId),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
+/** One of a person's own API keys' call log, for svc-trade's assistant Activity (agent-key-read.ts, J-agents-21 #11). */
+registerAgentKeyCallsRoute(app, {
+  read: (userId, keyId, limit) => readAgentKeyCalls(sql, userId, keyId, limit),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),
@@ -1243,6 +1342,22 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
   return view;
 });
 
+/**
+ * A person's step-up extras (BK-safe-01, J-bank-18 #4), `extraControlsForSchema`. svc-bank reads it on every send to
+ * another person and holds a send above the allowance; it keeps no copy. Service credentials only. A malformed id is a
+ * 404, which the caller refuses on; a read error is a 500, which it also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/extra-controls/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return extraControlsFor(sql, userId);
+});
+
 /** A support agent's withdrawal freeze from a customer's request (J-support-public-20 #7): svc-support only. */
 registerSupportWithdrawalFreezeRoute(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -1363,6 +1478,17 @@ setInterval(() => {
       deathNoticeRelayRunning = false;
     });
 }, 3_000).unref();
+// The owner's own freeze (J-wallet-13 #1): announced from its own row once it commits, at least once; one run at a time.
+let selfFreezeRelayRunning = false;
+setInterval(() => {
+  if (selfFreezeRelayRunning) return;
+  selfFreezeRelayRunning = true;
+  void relaySelfFreezeEvents({ sql, bus, now: () => new Date() })
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'identity.self_freeze_relay_failed'))
+    .finally(() => {
+      selfFreezeRelayRunning = false;
+    });
+}, 1_000).unref();
 // KYC case history (I-kyc-compliance-01): kycSubmitted and kycRejected from their own rows, at least once; one run at a time.
 let kycCaseRelayRunning = false;
 setInterval(() => {

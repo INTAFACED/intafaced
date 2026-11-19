@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { encodeAbiParameters, keccak256, concat, slice, getAddress } from 'viem';
 import type { Address, Hex } from 'viem';
+import { PROTOCOL_DEFAULT_USER_SALT } from '@intafaced/contracts/protocol-procedures';
 import {
   accountSalt,
   computeAccountAddress,
@@ -113,5 +114,11 @@ describe('the Solidity factory derives it the same way', () => {
 
   it('binds the owner into the salt', () => {
     expect(source).toContain('keccak256(abi.encode(owner, userSalt))');
+  });
+});
+
+describe('DEFAULT_USER_SALT', () => {
+  it('is the record default, kept literal so the dev deploy script loads before any package build', () => {
+    expect(DEFAULT_USER_SALT).toBe(PROTOCOL_DEFAULT_USER_SALT);
   });
 });

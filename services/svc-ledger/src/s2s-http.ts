@@ -1,3 +1,14 @@
+import { httpRecordHandler } from '@intafaced/contracts/procedure-http';
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
+import {
+  LEDGER_POST_RECIPE,
+  POST_RECIPE_INPUT_INVALID,
+  POST_RECIPE_UNKNOWN,
+  isPostRecipeName,
+  postRecipeRequest,
+} from '@intafaced/ledger-client/post-recipe';
+import { OutputBreaksRecordError } from '@intafaced/contracts/procedure-http';
+import { isRecord } from '@intafaced/contracts/guards';
 import { RESTORE_ASOF_INVALID, RESTORE_ASOF_UNANSWERABLE } from './ledger/postgres-ledger.js';
 import { SKEW_BOUND_UNSET } from './ledger/clock-skew.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -16,6 +27,7 @@ import {
 import {
   CUSTODY_LAYER_OFF_CODE,
   formatAmount,
+  ledgerPostWire,
   parseAmount,
   accountPurpose,
   accountRefSchema,
@@ -34,7 +46,7 @@ import { handleFinanceClose } from './ledger/finance-close.js';
 import { parseFeeRevenueInput, serializeFeeRevenue } from './ledger/fee-revenue.js';
 import { serializeOwnFunds } from './ledger/own-funds.js';
 import { parseHoldingsHistoryInput, serializeHoldingsHistory } from './ledger/holdings-history.js';
-import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
+import { parseHistoryDoorInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { handleReportExport } from './ledger/report-export.js';
 import { handleResilience } from './ledger/resilience-gate.js';
 import { handleStatementPnlHappyOrRefuse } from './ledger/statement-pnl-reproduce.js';
@@ -48,6 +60,7 @@ import {
   type PostCaller,
 } from './caller-binding.js';
 import { LEDGER_DOOR_CALLERS, type LedgerDoor } from './door-callers.js';
+import { grantFor } from './caller-allowlist.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { MAKER_REBATE_UNBOUND_CODE, assertMakerRebateBound } from './maker-rebate-binding.js';
 import { CAMPAIGN_LOCK_UNBOUND_CODE, assertCampaignLockBound } from './campaign-lock-binding.js';
@@ -136,6 +149,8 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
       err.code === LEDGER_HOLDINGS_HISTORY_TOO_LARGE ||
       err.code === 'ledger.history_cursor_invalid' ||
       err.code === RECIPE_REQUIRED_CODE ||
+      err.code === POST_RECIPE_UNKNOWN ||
+      err.code === POST_RECIPE_INPUT_INVALID ||
       err.code === MAKER_REBATE_UNBOUND_CODE ||
       err.code === CAMPAIGN_LOCK_UNBOUND_CODE ||
       err.code === WITHDRAW_RETURN_UNBOUND_CODE ||
@@ -176,7 +191,17 @@ export interface PortfolioIndexerCompose {
 }
 
 export async function handleS2sPost(ledger: LedgerService, body: unknown, caller?: PostCaller, binding?: CallerBindingOptions) {
-  const input = postRequestSchema.parse(body);
+  return postChecked(ledger, postRequestSchema.parse(body), { caller, binding });
+}
+
+/** Who sent a post, as the door proved it, and how its binding is judged. Omitted on direct unit calls. */
+interface PostSender {
+  readonly caller?: PostCaller;
+  readonly binding?: CallerBindingOptions;
+}
+
+/** Everything `post` does after parsing its body: the one pipeline both posting doors run. */
+async function postChecked(ledger: LedgerService, input: z.output<typeof postRequestSchema>, { caller, binding }: PostSender) {
   // Direct unit calls omit the caller and stay on the recipe gate. Both doors
   // that accept a network post pass the verified caller in.
   if (caller) applyCallerBinding(caller, input, binding);
@@ -199,6 +224,38 @@ export async function handleS2sPost(ledger: LedgerService, body: unknown, caller
     ...(input.correlationId ? { correlationId: input.correlationId } : {}),
   });
   return postAcknowledgement(tx);
+}
+
+/**
+ * `postRecipe`: the caller names a recipe and its business inputs; the ledger builds the post with the registry recipe
+ * (`@intafaced/ledger-client/post-recipe`) and books it through `postChecked`, the same pipeline as `/trpc/post`: caller
+ * binding, recipe gate, the binding checks, idempotency, freeze, custody switch. Nothing is read or written before the
+ * recipe is known, granted to a proven caller, and its inputs are valid.
+ *
+ * A proven caller (S2S v3 key) must hold a grant for the NAMED recipe in its module (`caller-allowlist.ts`), not just
+ * for some recipe with the same legs. A claimed name under the shared secret is counted by `applyCallerBinding`, as on
+ * `post`; `keypair` mode refuses it at the door.
+ */
+async function handleS2sPostRecipe(ledger: LedgerService, body: unknown, { caller, binding }: PostSender) {
+  const named = isRecord(body) ? body.recipe : undefined;
+  if (!isPostRecipeName(named)) throw new LedgerError(`postRecipe does not post ${JSON.stringify(named ?? null)}.`, POST_RECIPE_UNKNOWN);
+  // Before the inputs are even read: a caller learns nothing about a recipe it may not post.
+  const grant = caller?.kind === 'bound' ? grantFor(caller.service, named) : undefined;
+  if (caller?.kind === 'bound' && !grant) throw new LedgerError(`Caller ${caller.service} may not post recipe ${named}.`, CALLER_FORBIDDEN);
+  const { request } = postRecipeRequest(body);
+  if (caller?.kind === 'bound' && grant?.module !== request.module) {
+    throw new LedgerError(`Caller ${caller.service} may not post module ${request.module} as ${named}.`, CALLER_FORBIDDEN);
+  }
+  const ack = await postChecked(ledger, postRequestSchema.parse(ledgerPostWire(request)), { caller, binding });
+  const reply = LEDGER_POST_RECIPE.output.safeParse({
+    ...ack,
+    idempotencyKey: request.idempotencyKey,
+    module: request.module,
+    reason: request.reason,
+  });
+  // The ledger's own reply breaking its record is this service's fault: never a 400 that blames the caller.
+  if (!reply.success) throw new OutputBreaksRecordError(LEDGER_POST_RECIPE.name, reply.error.message);
+  return reply.data;
 }
 
 /**
@@ -273,9 +330,9 @@ export async function handleS2sHistory(ledger: LedgerService, body: unknown) {
  * asset) comes from the body, which only an authenticated service can send; the
  * cursor is a position inside that scope and is never read for an account.
  */
-export async function handleS2sHistoryPage(ledger: LedgerService, body: unknown) {
-  return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(body)));
-}
+export const handleS2sHistoryPage = httpRecordHandler(LEDGER_HISTORY_PAGE, async (ledger: LedgerService, input) =>
+  serializeHistoryPage(await ledger.historyPage(input)),
+);
 
 /**
  * What one customer or Space holds now and how it moved since `from`, per asset, reason and bucket (J-portfolio-05).
@@ -584,6 +641,16 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
       return reply.code(status).send(body);
     }
   });
+  // Post a recipe by its name and inputs; the ledger runs the recipe. Same proven caller, same pipeline as post.
+  app.post(LEDGER_POST_RECIPE.path, async (req, reply) => {
+    try {
+      const caller = authenticate(req, 'postRecipe');
+      return await handleS2sPostRecipe(ledger, req.body, { caller, binding: bindingOptions });
+    } catch (err) {
+      const { status, body } = httpError(err);
+      return reply.code(status).send(body);
+    }
+  });
   app.post('/trpc/balance', guarded('balance', handleS2sBalance));
   app.post('/trpc/balances', guarded('balances', handleS2sBalances));
   // Read-only existence check by idempotency key; same `guarded` door.
@@ -598,7 +665,7 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   // is one door, and every route goes through it.
   app.post('/trpc/history', guarded('history', handleS2sHistory));
   // Paged sibling, same `guarded` door (U5a).
-  app.post('/trpc/historyPage', guarded('historyPage', handleS2sHistoryPage));
+  app.post(LEDGER_HISTORY_PAGE.path, guarded('historyPage', handleS2sHistoryPage));
   // What one owner holds now and how it moved since a point in time (J-portfolio-05). Same `guarded` door.
   app.post('/trpc/holdingsHistory', guarded('holdingsHistory', handleS2sHoldingsHistory));
   // The asset and network registry (W-balances-05). Reads, same `guarded` door.

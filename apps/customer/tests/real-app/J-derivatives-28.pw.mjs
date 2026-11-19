@@ -6,6 +6,7 @@ import { test, expect } from './journey.mjs';
 import { api, journeyState, restartWithSetting, toUnits, fromUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import {
   continueInWallet,
@@ -89,17 +90,8 @@ const desk = async (page) => {
 async function reconnect(page, wallet) {
   await page.reload();
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  // The desk may keep the wallet connected across the reload; connect it again only when it asks to be. The desk shows
-  // Connect first and then restores a still-authorised wallet on its own (eth_accounts, WalletProvider), so the button
-  // can go between seeing it and pressing it (#8049): press it only while no address is shown, and never wait on a
-  // button that has gone.
-  const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
   const address = page.getByTestId('venue-wallet-address');
-  await expect(async () => {
-    if (await address.isVisible()) return;
-    await connect.click({ timeout: 2_000 });
-    await expect(address).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 30_000 });
+  await connectWhenAsked(page, address);
   await expect(address).toHaveText(wallet.address);
   await expect(page.getByTestId('venue-routes')).toBeVisible({ timeout: 30_000 });
 }

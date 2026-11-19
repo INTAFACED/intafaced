@@ -87,6 +87,23 @@ export const certGrant = z.object({
   publicId: publicCertCode.optional(),
   /** `revoked` once Academy revoked it: no sheet, no XP line, and the public check says revoked. */
   status: z.enum(['valid', 'revoked']).optional(),
+  /**
+   * The design revision this certificate prints (AC-certificates-03): the one active when it was issued, never a later
+   * edit. Null or absent when it was issued before any design was active; the sheet then prints the certificate's name.
+   */
+  design: z
+    .object({
+      revision: z.number().int().positive(),
+      title: z.string().min(1),
+      body: z.string().min(1),
+      signatories: z.array(z.object({ name: z.string().min(1), role: z.string().min(1) })),
+      disclaimer: z.string().nullable(),
+      language: z.string().min(1),
+      size: z.enum(['a4', 'letter']),
+      effortHours: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type CertGrant = z.infer<typeof certGrant>;
 
@@ -322,6 +339,8 @@ export function certificateDocument(card: CertificateCard, owner: string) {
     /** The code anyone can check on the public verify box; null when the service sent none. */
     code: card.grant.publicId ?? null,
     requirements: card.definition.requiredItemSlugs.length,
+    /** The design revision it was issued under, or null: then the sheet prints the certificate's name and standard text. */
+    design: card.grant.design ?? null,
   };
 }
 

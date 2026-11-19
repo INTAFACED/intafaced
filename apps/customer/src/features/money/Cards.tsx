@@ -205,9 +205,67 @@ export function CardActions({
   );
 }
 
-function Decision({ row, asset }: { row: CardDecision; asset: string }) {
+/**
+ * A payment taken by the pay-from order (J-bank-29 #3 to #7): the order the partner walked and, once it held, the asset it
+ * held from, the amount, the rate and the rate's time, then what it settled and returned, each as the partner reported it.
+ */
+function PaidFrom({ row }: { row: CardDecision }) {
+  const feed = cardFeedCopy.useCopy();
+  const p = row.payFrom;
+  if (!p) return null;
+  const held = p.assetId !== null && row.decision === 'approved' && row.conversion !== null ? row.conversion : null;
+  return (
+    <div className="money-card-pay-from" data-testid="card-paid-from" data-asset={p.assetId ?? ''}>
+      {held && p.assetId ? (
+        <dl>
+          <div>
+            <dt data-testid="card-paid-from-asset">{feed.t('paidFrom', { asset: p.assetId })}</dt>
+            <dd data-testid="card-paid-from-held">
+              <CardQuantity value={row.amount} asset={p.assetId} />
+            </dd>
+          </div>
+          <div>
+            <dt>{feed.t('paidFromRate')}</dt>
+            <dd data-testid="card-paid-from-rate" lang="zxx" dir="ltr">
+              {`${displayAmount(held.rate)} ${held.settlementAssetId} / ${p.assetId}`}
+            </dd>
+          </div>
+          <div>
+            <dt>{feed.t('paidFromRateTime')}</dt>
+            <dd data-testid="card-paid-from-rate-time">
+              <ReportedTime value={held.rateAsOf} />
+            </dd>
+          </div>
+          {p.captured !== null && (
+            <div>
+              <dt>{feed.t('paidFromSettled')}</dt>
+              <dd data-testid="card-paid-from-settled">
+                <CardQuantity value={p.captured} asset={p.assetId} />
+              </dd>
+            </div>
+          )}
+          {p.returned !== null && (
+            <div>
+              <dt>{feed.t('paidFromReturned', { asset: p.assetId })}</dt>
+              <dd data-testid="card-paid-from-returned">
+                <CardQuantity value={p.returned} asset={p.assetId} />
+              </dd>
+            </div>
+          )}
+        </dl>
+      ) : null}
+      <p className="money-caption" data-testid="card-paid-from-order">
+        {feed.t('paidFromOrder', { order: p.order.join(', ') })}
+      </p>
+    </div>
+  );
+}
+
+function Decision({ row, asset: cardAsset, settles }: { row: CardDecision; asset: string; settles: string }) {
   const { Copy } = cardCopy.useCopy();
   const feed = cardFeedCopy.useCopy();
+  // A pay-from payment's amount is in the asset the partner held from, or, before it held, the merchant's own asset.
+  const asset = row.payFrom ? (row.payFrom.assetId ?? row.conversion?.settlementAssetId ?? settles) : cardAsset;
   return (
     <article className="money-card-decision">
       <header>
@@ -265,6 +323,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
       </dl>
       <DecisionMerchant merchant={row.merchant ?? null} country={row.merchantCountry ?? null} />
       {row.recurring && <p className="money-caption">{feed.t('feedRecurring')}</p>}
+      <PaidFrom row={row} />
       {row.refund && (
         <dl className="money-card-refund" data-refund={row.refund.status}>
           <dt>{feed.t('feedRefund')}</dt>
@@ -420,7 +479,7 @@ function CardRead({
                   <ol className="money-card-decisions">
                     {rows.map((row, index) => (
                       <li key={`${row.id}:${index}`}>
-                        <Decision row={row} asset={card.assetId} />
+                        <Decision row={row} asset={card.assetId} settles={card.settlementAssetId} />
                       </li>
                     ))}
                   </ol>

@@ -22,6 +22,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameS
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureToolchain } from './ensure-toolchain.mjs';
+import { isResolutionFailure, RETRY_WAIT_MS } from '../../../tooling/scripts/mvn-run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TOOLS_DIR = join(ROOT, '.tools');
@@ -122,32 +123,47 @@ async function withBuildLock(fn) {
   }
 }
 
+/** One `mvn package`. Maven writes its [ERROR] lines to stdout, so both streams are kept for the failure message. */
+function mvnPackage(env, mvnEnv, extra) {
+  return new Promise((resolve) => {
+    let output = '';
+    let timedOut = false;
+    child = spawn(env.MVN, [...extra, '-q', `-Dmaven.repo.local=${env.MAVEN_REPO}`, '-DskipTests', 'package'], {
+      cwd: ROOT,
+      env: mvnEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, MVN_TIMEOUT_MS);
+    child.stdout.on('data', (d) => (output += d));
+    child.stderr.on('data', (d) => (output += d));
+    child.on('close', (status, signal) => {
+      clearTimeout(timer);
+      child = null;
+      resolve({ status: timedOut ? null : status, signal: timedOut ? 'timeout' : signal, output });
+    });
+  });
+}
+
 async function build(env, jar) {
   const mvnEnv = { ...process.env, JAVA_HOME: env.JAVA_HOME, PATH: `${join(env.JAVA_HOME, 'bin')}:${process.env.PATH ?? ''}` };
   // Start the shade step from a freshly packaged jar, never from an earlier (maybe truncated) output.
   for (const name of ['sbe-codec-0.0.0.jar', 'original-sbe-codec-0.0.0.jar', 'sbe-codec-0.0.0-shaded.jar']) {
     rmSync(join(ROOT, 'target', name), { force: true });
   }
-  const r = await new Promise((resolve) => {
-    let stderr = '';
-    let timedOut = false;
-    child = spawn(env.MVN, ['-q', `-Dmaven.repo.local=${env.MAVEN_REPO}`, '-DskipTests', 'package'], {
-      cwd: ROOT,
-      env: mvnEnv,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGKILL');
-    }, MVN_TIMEOUT_MS);
-    child.stderr.on('data', (d) => (stderr += d));
-    child.on('close', (status, signal) => {
-      clearTimeout(timer);
-      child = null;
-      resolve({ status: timedOut ? null : status, signal: timedOut ? 'timeout' : signal, stderr });
-    });
-  });
-  if (r.status !== 0) throw new Error(`mvn package failed (${r.status ?? r.signal}): ${r.stderr.slice(0, 400)}`);
+  // A resolution failure (Maven Central missing a plugin for a moment, #8121) is tried once more with -U, which asks
+  // Central again instead of trusting the miss Maven cached in the local repository; anything else fails at once.
+  let r = await mvnPackage(env, mvnEnv, []);
+  if (r.status !== 0 && isResolutionFailure(r.output)) {
+    process.stderr.write(
+      `sbe-codec jar: mvn could not resolve a plugin or dependency; trying once more with -U in ${RETRY_WAIT_MS / 1000} s (#8121)\n`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, RETRY_WAIT_MS));
+    r = await mvnPackage(env, mvnEnv, ['-U']);
+  }
+  if (r.status !== 0) throw new Error(`mvn package failed (${r.status ?? r.signal}): ${r.output.slice(0, 1200)}`);
   const built = join(ROOT, 'target', 'sbe-codec-0.0.0.jar');
   const listing = execFileSync(join(env.JAVA_HOME, 'bin', 'jar'), ['tf', built], { encoding: 'utf8', env: mvnEnv });
   if (!listing.includes('org/agrona/MutableDirectBuffer.class') || !listing.includes('io/intafaced/sbe/SbeCodecMain.class')) {

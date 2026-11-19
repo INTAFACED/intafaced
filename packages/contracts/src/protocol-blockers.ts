@@ -10,7 +10,7 @@ import { z } from 'zod';
  */
 
 /**
- * Whether the owner recorded a GO on INTACHAIN P1 (decision D-134, merged as #4640). The GO clears only the P1 blocker:
+ * Whether the owner recorded a GO on INTACHAIN P1 (decision D-134). The GO clears only the P1 blocker:
  * bridge, stake and unstake still stop at the missing chain and bridge services, every action stays not audited, and no
  * testnet is labelled mainnet.
  */
@@ -57,6 +57,22 @@ export const protocolServiceHealthSchema = z.object({
   factoryConfigured: z.boolean(),
   venueVaultConfigured: z.boolean().optional(),
 });
+/** svc-protocol's chain answer in `health`: never probed there (`chainStatus` probes), so never a chain id. */
+export const PROTOCOL_CHAIN_UNPROBED = 'protocol.chain_unprobed' as const;
+/** svc-protocol `health`: process liveness and configuration facts, and an honest "chain not probed here". */
+export const protocolHealthHonestySchema = z.object({
+  ok: z.literal(true),
+  service: z.literal('svc-protocol'),
+  relayEnabled: z.boolean(),
+  factoryConfigured: z.boolean(),
+  venueVaultConfigured: z.boolean().optional(),
+  chain: z.object({
+    status: z.literal('unprobed'),
+    code: z.literal(PROTOCOL_CHAIN_UNPROBED),
+    observedChainId: z.null(),
+  }),
+});
+export type ProtocolHealthHonesty = z.infer<typeof protocolHealthHonestySchema>;
 export const indexerStatusSchema = z.object({
   chainId: z.number(),
   chainSource: z.string(),
@@ -295,14 +311,19 @@ export const protocolBlockersInputSchema = z
       .optional(),
   })
   .strict();
+/** One blocker per code, its key tied to it (`blk_<code>`): written as a union so the rule travels in the record's export. */
+const blockerOf = (code: BlockerCode) =>
+  z
+    .object({
+      code: z.literal(code),
+      key: z.literal(`blk_${code}` as const),
+      params: z.record(z.string(), z.string()),
+    })
+    .strict();
+/** Named (`id`), so the record's export writes the union once under `$defs` and each action refers to it. */
 export const blockerSchema = z
-  .object({
-    code: z.enum(BLOCKER_CODES),
-    key: z.string(),
-    params: z.record(z.string(), z.string()),
-  })
-  .strict()
-  .refine((found) => found.key === `blk_${found.code}`, { message: 'key must be blk_<code>', path: ['key'] });
+  .union(BLOCKER_CODES.map(blockerOf) as unknown as [ReturnType<typeof blockerOf>, ...ReturnType<typeof blockerOf>[]])
+  .meta({ id: 'ProtocolBlocker' });
 const sourceAnswerSchema = z.enum(['ok', 'checking', 'no_reply', 'not_connected', 'down']);
 export const protocolBlockersOutputSchema = z
   .object({

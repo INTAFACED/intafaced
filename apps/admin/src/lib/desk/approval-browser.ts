@@ -1,8 +1,8 @@
 /** Browser hop for the two-founder desks. It talks only to the same-origin BFF; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { DeskRequest } from './approval-packet';
-import { readStepReply, type StepName, type StepReply } from './approval-types';
-import { explainRefusal } from './refusal-copy';
+import { readStepReply, type StepName, type StepReply } from '../approval-types';
+import { explainRefusal } from '../refusal-copy';
 
 export type ApprovalEndpoint =
   | '/api/kill-switch'

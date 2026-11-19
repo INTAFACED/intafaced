@@ -15,7 +15,6 @@ import {
   fmtAmount,
   fmtChangeLine,
   fmtPct,
-  fmtUsd,
   HeroNumber,
   isHiddenPath,
   Money,
@@ -27,7 +26,6 @@ import {
   StateBlock,
   toFixedString,
   useMarkets,
-  type BalanceEntry,
   type Loadable,
   type MarketRow,
 } from './deps';
@@ -210,8 +208,6 @@ export function isSmall(row: MoneyRow): boolean {
   const value = dec(row.usdValue);
   return value !== null && value < SCALE;
 }
-
-type Balances = Loadable<Record<string, BalanceEntry>>;
 
 function Colgroup({ pro }: { pro: boolean }) {
   return (

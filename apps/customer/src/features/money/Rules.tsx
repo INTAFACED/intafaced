@@ -3,7 +3,7 @@ import { Button, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { CATEGORY_CHANNELS, type CategoryPrefRow } from '../../screens/notifications/notify-api';
 import { useCategoryPrefs } from '../../screens/notifications/use-category-prefs';
-import { useBankRead } from './components';
+import { useBankRead, useSpaces } from './components';
 import { reminderLeadChoices, rulesWrites, type ReminderRule } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { rulesCopy } from './rules-copy';
@@ -173,7 +173,7 @@ function ChoicesPanel() {
 function MoneyRulePanel({ code }: { code: string }) {
   const { t } = rulesCopy.useCopy();
   const { api } = useSession();
-  const spaces = useBankRead('spaces.list', { limit: 50 });
+  const spaces = useSpaces(50);
   const [form, setForm] = useState({ name: '', from: '', to: '', trigger: 'date', cadence: 'monthly', above: '', amount: '' });
   const [requestId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);

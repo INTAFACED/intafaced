@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
 import { uiCopy } from '../../../../shared/ui-copy';
-import { requestPasskeyAssertion } from '../../../session/webauthn';
-import { useSession } from '../../../session/session';
+import { requestPasskeyAssertion, useSession } from '../../../session';
 import { Field } from '../../ui-kit';
 import { useNow } from '../hooks';
 import type { MoneyKind } from './money-step';

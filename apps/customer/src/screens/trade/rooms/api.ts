@@ -202,6 +202,8 @@ export interface IcebergOrder {
   price: string;
   displayQty: string;
   clientOrderId: string;
+  /** A listed lead's Lead trade switch: an iceberg is never a lead trade, so a lead always sends false (CB-copy-14). */
+  lead?: false;
 }
 
 export interface CreateTwapInput {

@@ -7,13 +7,7 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import {
-  ActionApprovalConsumeError,
-  ACTION_APPROVAL_PAYLOAD_MISMATCH,
-  stubApprovalConsumer,
-  unwiredApprovalConsumer,
-  type ActionApprovalConsumer,
-} from '../../action-approval-consume.js';
+import { stubApprovalConsumer, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../../action-approval-consume.js';
 import { createPayNamespaces } from '../../namespaces/index.js';
 
 /**

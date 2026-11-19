@@ -19,7 +19,7 @@ import {
 } from '@/lib/custody-ops/model';
 import { OPEN_ITEM_KIND_LABEL, openItemWhy, shownLine, sumLine, type OpenItems } from '@/lib/custody-ops/open-items';
 import { PENDING_WINDOW, RECENT_WINDOW, type CustodyOpsRead } from '@/lib/custody-ops/server-types';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import type { Part } from '@/lib/desk/part';
 import { shortId } from '@/lib/desk/desk-model';
 import { formatAsOf, formatWhen } from '@/lib/as-of';

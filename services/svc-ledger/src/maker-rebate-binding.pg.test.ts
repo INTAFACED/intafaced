@@ -95,7 +95,7 @@ describe('maker rebate bound to its posted fill (Postgres)', () => {
       post: (req: PostRequest) => engine.post(req),
       getTxByKey: (key: string) => engine.getTxByKey(key),
       balance: (ref: Parameters<PostgresLedger['balance']>[0]) => engine.balance(ref),
-    } as unknown as LedgerService;
+    } as LedgerService;
     // Other fills' fees already in house trade fees: 1 BTC.
     await engine.post(recipes.deposit({ userId: OTHER, assetId: 'BTC', amount: amt('1'), rail: 'test', railRef: 'pool-btc' }));
     await engine.post({

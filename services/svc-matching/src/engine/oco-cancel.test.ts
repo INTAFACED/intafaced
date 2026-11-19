@@ -243,7 +243,7 @@ describe('OCO — cancel both siblings', () => {
           qty: '1',
           oco: true,
           cancel: true,
-          type: 'option' as unknown as EngineOrderType,
+          type: 'option' as EngineOrderType,
         }),
       ),
     ).toBe(false);

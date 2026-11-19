@@ -2,7 +2,8 @@
  * Copy observation → scoped mirror plan (D-S-03 §2).
  *
  * No discretion: we either mirror within the follower's envelope or refuse
- * with a typed reason. Never resize, never invent a fill, never silently drop.
+ * with a typed reason. A copy is sized only by the follower's own rule (a fixed amount or smart sync); never invent a
+ * fill, never silently drop.
  * Session-key enforcement is on-chain; this is the service-side honesty gate.
  */
 
@@ -128,14 +129,30 @@ export function planMirror(input: {
   }
 
   // A fixed amount sizes every copied order at that quote amount, the quantity scaled from the leader's fill price.
-  // Rounded down to the market's lot step, so the quote amount is what that quantity costs at the leader's price.
+  // Smart sync (CB-copy-05) scales the leader's quantity by the follower's total over the leader's balance, both read
+  // when the follow started. Either is rounded down to the market's lot step, and the notional is what that quantity
+  // costs at the leader's price. A follow with neither copies the leader's own quantity.
   const fixed = follow.envelope.fixedOrderSize;
-  const scaled = fixed === undefined ? observation.qty : (observation.qty * fixed) / observation.notional;
-  const qty = fixed !== undefined && input.lotSize !== undefined && input.lotSize > 0n ? scaled - (scaled % input.lotSize) : scaled;
-  if (qty <= 0n) {
-    throw new CopyError('The fixed amount buys less than the smallest quantity at this price', 'trade.copy_cap_exceeded');
+  const sync = follow.envelope.sizingMode === 'smart_sync' ? follow.envelope.smartSync : undefined;
+  if (follow.envelope.sizingMode === 'smart_sync' && !sync) {
+    throw new CopyError('Smart sync has no readings to size by — refuse rather than invent', 'trade.copy_limit_unevaluable');
   }
-  const notional = fixed === undefined ? observation.notional : (qty * observation.notional) / observation.qty;
+  const resized = sync !== undefined || fixed !== undefined;
+  const scaled = sync
+    ? (observation.qty * sync.followerTotal) / sync.leaderEquity
+    : fixed === undefined
+      ? observation.qty
+      : (observation.qty * fixed) / observation.notional;
+  const qty = resized && input.lotSize !== undefined && input.lotSize > 0n ? scaled - (scaled % input.lotSize) : scaled;
+  if (qty <= 0n) {
+    throw new CopyError(
+      sync
+        ? 'Smart sync sizes this copy below the smallest quantity'
+        : 'The fixed amount buys less than the smallest quantity at this price',
+      'trade.copy_cap_exceeded',
+    );
+  }
+  const notional = resized ? (qty * observation.notional) / observation.qty : observation.notional;
 
   if (notional > follow.envelope.maxNotionalPerOrder) {
     throw new CopyError(

@@ -65,7 +65,7 @@ function OfferLimits({ offer }: { offer: Offer }) {
 export function OfferPrice({ offer }: { offer: Offer }) {
   const { Copy, t } = offerCopy.useCopy();
   return (
-    <div className="p2p-offer-price">
+    <div className="p2p-offer-price" data-testid="p2p-offer-price">
       {offer.priceType === 'float' ? (
         <>
           <span className="muted">
@@ -433,13 +433,13 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                                   )
                                 ) : (
                                   <>
-                                    <span className="p2p-offer-reference">
+                                    <span className="p2p-offer-reference" data-testid="p2p-offer-trader">
                                       <TraderName record={record} />
                                     </span>
                                     <TraderSummary record={record} />
                                   </>
                                 )}
-                                <span className="muted" lang="zxx">
+                                <span className="muted" lang="zxx" data-testid="p2p-offer-methods">
                                   {offerMethods(offer).join(', ') || payCopy.t('noUsableMethodsDeclared')}
                                 </span>
                                 <OfferSettlement offer={offer} label={(methodId) => methodId} />
@@ -451,7 +451,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                                 <span className="muted">
                                   <Copy k="limit" />
                                 </span>
-                                <span>
+                                <span data-testid="p2p-offer-limits">
                                   <PayAmount value={offer.minAmount} unit={offer.asset} label={payCopy.t('assetLimits')} /> –{' '}
                                   <PayAmount value={offer.maxAmount} unit={offer.asset} label={payCopy.t('assetLimits')} />
                                 </span>

@@ -19,8 +19,8 @@ import { MemoryLedger, formatAmount, parseAmount, recipes } from '@intafaced/led
 import type { Principal } from '@intafaced/auth';
 import type { EngineSubmitRequest, EngineSubmitResult, MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
-import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
-import { MatchedFuturesOrders, MatchedOrderError, type PlaceMatchedOrderInput } from './matched-orders.js';
+import { type TradingAdmissionPort } from '../controls/trading-controls.js';
+import { MatchedFuturesOrders, type PlaceMatchedOrderInput } from './matched-orders.js';
 import { matchedOrderIdFor } from './ids.js';
 import { createConditionalOrderService, type ConditionalOrderService } from './conditional-orders/service.js';
 import { FuturesError, type RiskStopFigures } from './position-service.js';

@@ -5,7 +5,7 @@ vi.mock('../../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
-import { SessionProvider } from '../../session/session';
+import { SessionProvider } from '../../session';
 import { DevelopersRoutes } from '../DevelopersRoutes';
 import { developersRoute } from '../developers-model';
 import { tradeErrorsCopy, causeKey } from './trade-errors-copy';

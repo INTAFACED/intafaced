@@ -20,7 +20,6 @@ import {
   usePortfolio,
   usePreferences,
   useSession,
-  useTicker,
   type Loadable,
   type MarketRow,
   type PortfolioSummary,

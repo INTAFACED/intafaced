@@ -31,7 +31,7 @@ function gatedSql() {
       return Promise.resolve([]);
     }
     throw new Error(`unexpected query: ${q}`);
-  }) as unknown as Sql;
+  }) as Sql;
   Object.assign(sql, {
     json: (value: unknown) => ({ value }),
     begin: (_mode: string, fn: (tx: Sql) => Promise<unknown>) => fn(sql),

@@ -156,5 +156,45 @@ export function createPostgresLifecycleRepository(sql: Sql, schema = 'quant', no
         return input.response;
       });
     },
+
+    async audit(limit) {
+      const rows = await query<{
+        idempotency_key: string;
+        account_id: string;
+        strategy_id: string;
+        strategy_version: number;
+        actor: string;
+        response: Response;
+        from_stage: string | null;
+        to_stage: string | null;
+        stage_run_ids: string[] | null;
+        stage_at: Date | string | null;
+      }>(
+        sql,
+        `SELECT d.idempotency_key, d.account_id, d.strategy_id, d.strategy_version, d.actor, d.response,
+                s.from_stage, s.to_stage, s.run_ids AS stage_run_ids, s.at AS stage_at
+           FROM ${t('gate_decisions')} d
+           LEFT JOIN ${t('strategy_stages')} s ON s.decision_key = d.idempotency_key
+          ORDER BY d.at DESC, d.idempotency_key DESC
+          LIMIT $1`,
+        [limit],
+      );
+      const counted = await query<{ n: string }>(sql, `SELECT count(*)::text AS n FROM ${t('gate_decisions')}`, []);
+      return {
+        total: Number(counted[0]?.n ?? 0),
+        rows: rows.map((row) => ({
+          key: row.idempotency_key,
+          accountId: row.account_id,
+          strategyId: row.strategy_id,
+          strategyVersion: row.strategy_version,
+          actor: row.actor,
+          decision: row.response.decision,
+          stage:
+            row.from_stage && row.to_stage && row.stage_at
+              ? { from: row.from_stage as never, to: row.to_stage as never, runIds: row.stage_run_ids ?? [], at: iso(row.stage_at) }
+              : null,
+        })),
+      };
+    },
   };
 }

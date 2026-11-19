@@ -1,5 +1,5 @@
-import { cellOfRow } from '@/lib/ops-desk/model';
-import type { Cell, DeskView } from '@/lib/ops-desk/types';
+import { cellOfRow } from '@/lib/cell-of-row';
+import type { Cell, DeskView } from '@/lib/ops-desk';
 import { formatAsOf } from '@/lib/as-of';
 
 /**

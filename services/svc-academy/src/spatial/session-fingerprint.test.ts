@@ -30,7 +30,7 @@ describe('session sceneFingerprint honesty (read token)', () => {
     expect(d.ok).toBe(true);
     if (!d.ok) return;
     // Client would store this as session.scene after write; re-read must match.
-    const stored = d.scene as unknown as Record<string, unknown>;
+    const stored = d.scene as Record<string, unknown>;
     expect(fingerprintFromStoredScene(stored)).toBe(d.fingerprint);
     // Stale host with wrong token conflicts
     const conflict = decideHostSceneWrite({

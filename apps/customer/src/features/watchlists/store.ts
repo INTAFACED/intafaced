@@ -10,10 +10,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z, type ZodType } from 'zod';
 import {
+  SAVED_SCREENS_NAMESPACE,
   savedScreensPreferenceSchema,
+  savedScreensRequestId,
   watchlistsRequestId,
   watchlistsPreferenceSchema,
   WATCHLISTS_NAMESPACE,
+  type SavedScreensValue,
   type WatchlistsValue,
 } from '@intafaced/contracts/watchlists-preferences';
 import { useSession } from '../session/session';
@@ -156,6 +159,16 @@ export function useWatchlists(): RecordStore<WatchlistsValue> {
     WATCHLISTS_NAMESPACE,
     { read: watchlistsPreferenceSchema, stored: watchlistsStoredSchema },
     watchlistsRequestId,
+    [],
+  );
+}
+
+/** The account's saved screens (`trade.screens`, C-alerts-scan-07). */
+export function useSavedScreens(): RecordStore<SavedScreensValue> {
+  return useAccountRecord<SavedScreensValue>(
+    SAVED_SCREENS_NAMESPACE,
+    { read: savedScreensPreferenceSchema, stored: savedScreensStoredSchema },
+    savedScreensRequestId,
     [],
   );
 }

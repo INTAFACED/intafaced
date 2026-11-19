@@ -81,6 +81,7 @@ if (!(await postgresAvailable(TEST_URL))) {
         kind: 'agent',
         scopes: ['trade:read', 'trade:write'],
         revoked: false,
+        expiresAt: null,
       });
       expect(await readAgentKey(db.sql, me, theirs)).toEqual({ state: 'none' });
       expect(await readAgentKey(db.sql, me, '22222222-2222-4222-8222-222222222222')).toEqual({ state: 'none' });
@@ -92,6 +93,12 @@ if (!(await postgresAvailable(TEST_URL))) {
       expect(await readAgentKey(db.sql, me, await key(me, 'agent', ['trade:read'], { revoked: true }))).toMatchObject({ revoked: true });
       expect(await readAgentKey(db.sql, me, await key(me, 'agent', ['trade:read'], { expiresAt: '2020-01-01T00:00:00Z' }))).toMatchObject({
         revoked: true,
+        expiresAt: '2020-01-01T00:00:00.000Z',
+      });
+      // #19: a live key's end date is read as it is held, for svc-trade to check against the venue's longest agent permission.
+      expect(await readAgentKey(db.sql, me, await key(me, 'agent', ['trade:read'], { expiresAt: '2099-06-01T00:00:00Z' }))).toMatchObject({
+        revoked: false,
+        expiresAt: '2099-06-01T00:00:00.000Z',
       });
     });
   });

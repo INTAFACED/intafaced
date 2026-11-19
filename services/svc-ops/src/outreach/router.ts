@@ -21,6 +21,8 @@ import {
   crmActivitySchema,
   type Context,
 } from '@intafaced/contracts';
+import { OPS_OUTREACH_PUBLIC_SETTINGS } from '@intafaced/contracts/ops-public-procedures';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import type { OutreachCrm } from './crm.js';
 import { OutreachError } from './config.js';
 import type { FounderAuthority } from './authority.js';
@@ -53,6 +55,13 @@ function settingsBook(book: PublicSettingsBook | undefined): PublicSettingsBook 
   if (!book) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'ops.crm.storage_unconfigured' });
   return book;
 }
+
+/**
+ * The public read's one named refusal, as `settingsBook` and `mapped` already shape it: PRECONDITION_FAILED with the code
+ * as its message. Passed on unchanged; any other error leaves as it did.
+ */
+const storageRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && err.message === 'ops.crm.storage_unconfigured' ? { code: err.message, error: err } : undefined;
 
 export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthority, publicSettings?: PublicSettingsBook) {
   const staffRead = scopedProcedure('ops:read').use(async ({ ctx, next }) =>
@@ -222,9 +231,7 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .query(() => ({ status: 'disabled' as const, reason: 'api_access_unavailable' as const })),
     // SP-pages-02: the public partner page reads where the invitation site is served and the programme terms. A blank
     // value is null, never an error; a founder sets them with a reason, from the revision they read.
-    publicSettings: publicProcedure
-      .output(workflow.outreachPublicSettingsSchema)
-      .query(() => mapped(() => settingsBook(publicSettings).get())),
+    publicSettings: mountRecord(OPS_OUTREACH_PUBLIC_SETTINGS, () => mapped(() => settingsBook(publicSettings).get()), storageRefusal),
     setPublicSettings: staffWrite
       .input(workflow.outreachPublicSettingsSetInputSchema)
       .output(workflow.outreachPublicSettingsSchema)

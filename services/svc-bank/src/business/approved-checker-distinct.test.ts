@@ -123,7 +123,7 @@ async function insertApproval(tx: Tx, accountId: string, amount: string, status:
 async function refused(tx: Tx, write: (sp: Tx) => Promise<unknown>): Promise<unknown> {
   try {
     await tx.savepoint(async (sp) => {
-      await write(sp as unknown as Tx);
+      await write(sp as Tx);
     });
     return undefined;
   } catch (err) {

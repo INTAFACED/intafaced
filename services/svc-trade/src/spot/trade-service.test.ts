@@ -28,19 +28,10 @@ import { DROP_COPY_SOURCE_REST, type DropCopyFillWire } from './drop-copy-ingest
 import { TradeError, type Market } from './types.js';
 import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS, classifyHoldPostError, type HoldUnknownAlert } from './hold-outcome.js';
 import { fakeOrder, presentCcxtOrder } from '../private-rest.js';
-import { HOUSE_MM_USER_UUID, mmSeedOrderIdFor, orderIdFor } from './ids.js';
+import { mmSeedOrderIdFor } from './ids.js';
 import { MM_MATCHING_ACCOUNT_ID } from '../mm/seed-market.js';
 import { looksLikeAnonymousCustomerFill, recoverMatchingAccountId } from '../mm/fill-account.js';
-import {
-  PUBLISHED_TEST_FEE_SCHEDULE,
-  READY_MARKET_LIFECYCLE,
-  StubMatching,
-  StubPerks,
-  StubSubAccounts,
-  UnreachableMatching,
-  principalFor,
-  restsInFull,
-} from './testing.js';
+import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, restsInFull } from './testing.js';
 import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from './fee-schedule.js';
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
 

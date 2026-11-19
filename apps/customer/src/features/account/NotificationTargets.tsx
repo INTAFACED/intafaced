@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { notificationTargetsCopy as copy } from './notification-targets-copy';
 import './notification-targets.css';
 

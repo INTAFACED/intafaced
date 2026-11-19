@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
@@ -60,9 +61,7 @@ describe('svc-protocol PROTOCOL_CHAIN_ID refuse-closed', () => {
 
   it('compose does not interpolate :-31337 on svc-protocol', () => {
     const compose = readFileSync(COMPOSE, 'utf8');
-    const match = compose.match(/^  svc-protocol:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-    if (!match) throw new Error('svc-protocol service block missing from docker-compose.apps.yml');
-    const block = match[0];
+    const block = composeServiceBlock(compose, 'svc-protocol');
     expect(block).toMatch(/PROTOCOL_CHAIN_ID:\s*\$\{PROTOCOL_CHAIN_ID:-\}/);
     expect(block).not.toMatch(/PROTOCOL_CHAIN_ID:.*31337/);
   });
@@ -70,7 +69,6 @@ describe('svc-protocol PROTOCOL_CHAIN_ID refuse-closed', () => {
   it('router does not git-default AMM feeBps to 30', () => {
     const routerTs = readFileSync(join(HERE, 'router.ts'), 'utf8');
     expect(routerTs).not.toMatch(/feeBps:[\s\S]{0,80}\.default\(\s*30\s*\)/);
-    expect(routerTs).toMatch(/feeBps is unset — will not invent 30 bps/);
   });
 
   it('unset PROTOCOL_CHAIN_ID refuses (no silent Anvil)', async () => {

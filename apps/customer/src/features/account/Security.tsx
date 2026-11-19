@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { StaffAccessLink } from './StaffAccess';
 import { flushSync } from 'react-dom';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { currentReturnLocation, navigate } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -51,7 +52,7 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import './security.css';
 import { VerifyEmail } from './VerifyEmail';
-import { WithdrawStepUp } from '../money/WithdrawStepUp';
+import { WithdrawStepUp } from '../money';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
 type Original = {
@@ -637,6 +638,7 @@ export function Security() {
             <Copy k={journal.failed ? 'storage' : problem!} />
           </p>
         )}
+        <StaffAccessLink />
         <div className="security__layout">
           <section data-testid="security__passkeys" className="security__passkeys security__card" aria-label={t('passkeys')}>
             <div className="section-heading">

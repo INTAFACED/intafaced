@@ -162,7 +162,7 @@ export function ocoCancelResult(book: OrderBook, order: OcoCancelOrder, cancel: 
 export function installOcoCancel(ctor: typeof OrderBook): void {
   if (!ctor) return;
   const proto = ctor.prototype as {
-    submit: (order: EngineOrder, now?: Date | null) => SubmitResult;
+    submit: OrderBook['submit'];
     cancel: OrderBook['cancel'];
     [FLAG]?: boolean;
   };

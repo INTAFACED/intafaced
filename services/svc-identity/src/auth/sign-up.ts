@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { checkAccess, checkCitizenship, hasSubdivisionRows, isSubdivisionCode, regionCodeChain } from '@intafaced/config';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { flowSubjectHash, type PasswordResetMail } from './password-reset.js';
 import { sealBirthDate } from '../kyc/birth-date.js';
@@ -46,6 +46,8 @@ export type SignUpErrorCode =
   | 'identity.country_invalid'
   | 'identity.region_blocked'
   | 'identity.subdivision_required'
+  | 'identity.us_person_unanswered'
+  | 'identity.us_person_blocked'
   | 'identity.screening_unset'
   | 'identity.signup_expired'
   | 'identity.signup_code_invalid'
@@ -111,6 +113,11 @@ export interface SignUpStart {
   readonly subdivision?: string | undefined;
   /** Country of citizenship (ISO 3166-1 alpha-2), or an ISO 3166-2 subdivision. Screened against the sanctions list only. */
   readonly nationality?: string | undefined;
+  /**
+   * The person's own answer: a US citizen, green-card holder or US resident, wherever they live. Required: an unanswered
+   * question is refused (`identity.us_person_unanswered`), never taken as no. Not kept; only read at the door.
+   */
+  readonly usPerson?: boolean | undefined;
   /** `YYYY-MM-DD`. Checked against the owner's minimum age; kept only sealed (`birthDateKey`). */
   readonly dateOfBirth: string;
   readonly accountType: AccountType;
@@ -220,6 +227,16 @@ function secondsUntil(at: Date, now: Date): number {
   return Math.max(1, Math.ceil((at.getTime() - now.getTime()) / 1000));
 }
 
+/**
+ * True while the owner's blocked-countries list is not set (no list, or a placeholder read under fail-closed): the same
+ * answer sign-up's country check gets (`identity.screening_unset`), so sign-in refuses exactly when sign-up does
+ * (J-identity-22 #1). The screening refusal comes before any region rule in `checkAccess`, so the region asked is moot.
+ */
+export function countryListUnset(): boolean {
+  const { code } = checkAccess({ module: 'identity', region: 'DE', plane: 'fiat', kycTier: 'none' });
+  return code === 'denied.screening_unconfigured' || code === 'denied.screening_fixture';
+}
+
 /** Age, then country and nationality. Throws the first refusal; nothing has been written yet. Exported for its unit test. */
 export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCountries'>, input: SignUpStart, now: Date): string {
   const minAge = intIn(deps.minAgeYears, 1, MAX_MIN_AGE);
@@ -240,7 +257,7 @@ export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCou
   if (nationalityRaw && !nationality) throw new SignUpError('Choose your nationality from the list.', 'identity.country_invalid');
 
   const paused = (code: string): boolean => code === 'denied.screening_unconfigured' || code === 'denied.screening_fixture';
-  const pausedError = () => new SignUpError('Sign-up is paused: the sanctions screening list is not set.', 'identity.screening_unset');
+  const pausedError = () => new SignUpError('Sign-up is paused: the blocked-countries list is not set.', 'identity.screening_unset');
   const blocked = () => new SignUpError('We cannot open accounts for this country right now.', 'identity.region_blocked');
   const closedSet = new Set((deps.closedCountries ?? []).map((c) => c.trim().toUpperCase()));
   // The owner's sign-up off switch names countries; it covers every subdivision in them.
@@ -251,15 +268,38 @@ export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCou
   // country first, so a paused screening list or a whole-country block answers before anyone is asked for a province.
   // A country with a subdivision blocked on its own (Ontario in Canada) then needs the subdivision, or the bare
   // country would let an Ontario resident through.
+  // A region either authority blocks is refused with that block's own reason ("Ontario, Canada is not served at
+  // launch."), so the person reads why; the owner's per-country switch carries none and keeps its general sentence.
+  const refused = (decision: { code: string; reason: string }) =>
+    paused(decision.code)
+      ? pausedError()
+      : new SignUpError(decision.reason.trim() || 'We cannot open accounts for this country right now.', 'identity.region_blocked');
   if (closed(subdivision ?? country)) throw blocked();
   const home = access(country);
-  if (!home.allowed) throw paused(home.code) ? pausedError() : blocked();
+  if (!home.allowed) throw refused(home);
   if (!subdivision && hasSubdivisionRows(country)) {
     throw new SignUpError('Choose the state or province you live in.', 'identity.subdivision_required');
   }
   if (subdivision) {
     const residence = access(subdivision);
-    if (!residence.allowed) throw paused(residence.code) ? pausedError() : blocked();
+    if (!residence.allowed) throw refused(residence);
+  }
+
+  // The US-person question (a US citizen, green-card holder or US resident, wherever they live), read from the person's
+  // own answer. Unanswered is refused, never taken as no. A yes is refused where the owner's lists block the US; where
+  // they do not, it passes.
+  if (typeof input.usPerson !== 'boolean') {
+    throw new SignUpError('Answer whether you are a US person before we can open an account.', 'identity.us_person_unanswered');
+  }
+  if (input.usPerson) {
+    const us = access('US');
+    if (!us.allowed) {
+      if (paused(us.code)) throw pausedError();
+      throw new SignUpError(
+        `We cannot open accounts for US persons (US citizens, green-card holders and US residents, wherever they live). ${us.reason.trim()}`.trim(),
+        'identity.us_person_blocked',
+      );
+    }
   }
 
   // Citizenship, wherever the person lives: the owner's sign-up off switch, the per-country switch with the identity
@@ -363,7 +403,7 @@ type OpenSignUp = {
 };
 
 /** One sign-up flow and its draft. `lock` holds the flow row until the caller's transaction ends. */
-async function readFlow(sql: Sql, flowId: string, lock = false): Promise<OpenSignUp | undefined> {
+async function readFlow(sql: Queryable, flowId: string, lock = false): Promise<OpenSignUp | undefined> {
   if (!/^[0-9a-f-]{36}$/i.test(flowId)) return undefined;
   const rows = lock
     ? await sql<OpenSignUp[]>`
@@ -448,7 +488,7 @@ export async function resendSignUp(deps: SignUpDeps, input: { flowId: string }):
 export async function confirmSignUp(
   deps: SignUpDeps,
   input: { flowId: string; code: string },
-  create: (tx: Sql, draft: SignUpDraft) => Promise<string>,
+  create: (tx: Queryable, draft: SignUpDraft) => Promise<string>,
 ): Promise<{ userId: string; draft: SignUpDraft }> {
   const budget = requireBudget(deps);
   const now = deps.now();

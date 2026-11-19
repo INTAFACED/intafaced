@@ -14,6 +14,9 @@ import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
 import { createBankServices, memoryRecipientState, type BankServiceOptions } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
+import { testPartner } from '../partner/test-partner.js';
+import type { PartnerCardHolds } from '../cards/partner-card-holds.js';
+import { CurrencyService } from './currencies.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -239,6 +242,57 @@ describe('account home (BK-acct-01) and the space limit (BK-pots-01)', () => {
         expect(row!.live > 0 && row!.removed).toBe(false);
         await sql`UPDATE bank.spaces SET archived_at = now() WHERE user_id = ${ADA} AND kind = 'named'`;
       }
+    });
+
+    it('refuses, for a person the partner holds money for, while the partner reports a card hold, a purchase hold or an open order in it with a balance of 0', async () => {
+      const partner = testPartner();
+      partner.set(ADA, { custody: 'off' });
+      let held = '5';
+      const cardHolds: Pick<PartnerCardHolds, 'figures'> = {
+        figures: async ({ assetId }) => ({
+          test: true,
+          mode: 'partner_holds',
+          assetId,
+          available: '25',
+          held: assetId === 'USDC' ? held : null,
+        }),
+      };
+      const { bank, api } = as(ADA, { ...allowed, testPartner: partner, cards: { partnerHolds: cardHolds as PartnerCardHolds } });
+      await api.currencies.add({ assetId: 'USDC' });
+      expect((await api.currencies.list()).currencies).toMatchObject([{ assetId: 'USDC', balance: '0' }]);
+      // An open card hold at the partner, with the partner's balance reading 0.
+      expect(codeOf(await api.currencies.remove({ assetId: 'USDC' }).catch((e: unknown) => e))).toBe('bank.currency_in_use');
+      held = '0';
+      // An open order the partner reports in it.
+      partner.set(ADA, { openOrder: 'USDC' });
+      expect(codeOf(await api.currencies.remove({ assetId: 'USDC' }).catch((e: unknown) => e))).toBe('bank.currency_in_use');
+      partner.set(ADA, { openOrder: 'BTC' });
+      // A purchase hold the partner reports, not yet released.
+      const holding = new CurrencyService(sql, ledger, bank.spaces, {
+        currencies: allowed.accountCurrencies,
+        purchases: {
+          purchasesFor: () => ({
+            label: 'TEST partner bank',
+            credit: async () => {
+              throw new Error('not used');
+            },
+            returned: async () => {
+              throw new Error('not used');
+            },
+            holds: async () => ({
+              label: 'TEST partner bank',
+              reported: true,
+              asOf: new Date(),
+              holds: [{ id: 'h1', purchaseKey: 'p1', assetId: 'USDC', amount: parseAmount('3'), paidBy: 'card', releaseAt: new Date() }],
+              released: [],
+            }),
+          }),
+        },
+      });
+      expect(await holding.remove(ADA, 'USDC').catch((e: unknown) => (e as { code?: string }).code)).toBe('bank.currency_in_use');
+      expect(await primaries(ADA)).toEqual([{ asset_id: 'USDC', removed: false }]);
+      // Nothing held, no order in it: it comes off.
+      expect(await api.currencies.remove({ assetId: 'USDC' })).toEqual({ assetId: 'USDC', removed: true });
     });
 
     it('touches only the caller’s own currencies', async () => {

@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 
 /**
@@ -113,7 +113,7 @@ const linkRow = (r: { merchant_id: string; day: string; link_id: string; payment
  * `captured` / `refunded` amounts are the `payload.amount` decimal strings the
  * payment service writes, summed as exact `numeric`.
  */
-export async function computeFromSource(sql: Sql, keys: readonly MetricsKey[]): Promise<DayProjection> {
+export async function computeFromSource(sql: Queryable, keys: readonly MetricsKey[]): Promise<DayProjection> {
   if (keys.length === 0) return emptyProjection();
   const { ids, days } = keyArrays(keys);
   const k = sql`
@@ -226,7 +226,7 @@ export async function computeFromSource(sql: Sql, keys: readonly MetricsKey[]): 
 }
 
 /** What the projection tables currently say for `keys`. */
-export async function readProjection(sql: Sql, keys: readonly MetricsKey[]): Promise<DayProjection> {
+export async function readProjection(sql: Queryable, keys: readonly MetricsKey[]): Promise<DayProjection> {
   if (keys.length === 0) return emptyProjection();
   const { ids, days } = keyArrays(keys);
   const k = sql`k AS (SELECT t.merchant_id, t.day FROM unnest(${sql.array(ids)}::uuid[], ${sql.array(days)}::date[]) AS t(merchant_id, day))`;
@@ -254,7 +254,7 @@ export async function readProjection(sql: Sql, keys: readonly MetricsKey[]): Pro
 }
 
 /** Replace one merchant-day's projection rows with `next`. Call inside the key's transaction. */
-export async function replaceProjection(tx: Sql, key: MetricsKey, next: DayProjection): Promise<void> {
+export async function replaceProjection(tx: Queryable, key: MetricsKey, next: DayProjection): Promise<void> {
   await tx`DELETE FROM pay.metrics_merchant_day WHERE merchant_id = ${key.merchantId} AND day = ${key.day}::date`;
   await tx`DELETE FROM pay.metrics_merchant_day_status WHERE merchant_id = ${key.merchantId} AND day = ${key.day}::date`;
   await tx`DELETE FROM pay.metrics_merchant_day_link WHERE merchant_id = ${key.merchantId} AND day = ${key.day}::date`;
@@ -283,7 +283,7 @@ export async function replaceProjection(tx: Sql, key: MetricsKey, next: DayProje
 }
 
 /** Every merchant-day a source row can contribute to. A superset is harmless: an empty recompute writes nothing. */
-export async function listSourceKeys(sql: Sql, merchantId?: string): Promise<MetricsKey[]> {
+export async function listSourceKeys(sql: Queryable, merchantId?: string): Promise<MetricsKey[]> {
   const only = merchantId ? sql`AND merchant_id = ${merchantId}` : sql``;
   const rows = await sql<Array<{ merchant_id: string; day: string }>>`
     SELECT DISTINCT merchant_id, day::text AS day FROM (
@@ -300,7 +300,7 @@ export async function listSourceKeys(sql: Sql, merchantId?: string): Promise<Met
 }
 
 /** Every merchant-day the projection tables hold a row for. */
-export async function listProjectionKeys(sql: Sql, merchantId?: string): Promise<MetricsKey[]> {
+export async function listProjectionKeys(sql: Queryable, merchantId?: string): Promise<MetricsKey[]> {
   const only = merchantId ? sql`WHERE merchant_id = ${merchantId}` : sql``;
   const rows = await sql<Array<{ merchant_id: string; day: string }>>`
     SELECT DISTINCT merchant_id, day::text AS day FROM (

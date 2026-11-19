@@ -7,6 +7,7 @@
  * the owner can always switch a key off. API-key and sub-account callers can
  * never take these actions.
  */
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { TRPCError } from '@intafaced/contracts';
@@ -139,9 +140,9 @@ export async function narrowOrGuardedChange<L, T>(args: {
   caller: Caller;
   proof: PayStepUpFactorProof | undefined;
   action: { action: string; keyId: string };
-  readLocked: (tx: Sql) => Promise<L>;
+  readLocked: (tx: Queryable) => Promise<L>;
   narrows: (locked: L) => boolean;
-  write: (tx: Sql) => Promise<T>;
+  write: (tx: Queryable) => Promise<T>;
 }): Promise<T> {
   if (args.caller.kid || args.caller.sub_account) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot create or change keys' });
@@ -164,10 +165,10 @@ export async function narrowOrGuardedAllowlistChange<T>(args: {
   caller: Caller;
   proof: PayStepUpFactorProof | undefined;
   action: { action: string; keyId: string };
-  readLocked: (tx: Sql) => Promise<string[]>;
+  readLocked: (tx: Queryable) => Promise<string[]>;
   nextFrom: (current: string[]) => string[];
   norm?: (v: string) => string;
-  write: (tx: Sql) => Promise<T>;
+  write: (tx: Queryable) => Promise<T>;
 }): Promise<T> {
   const { nextFrom, norm, ...rest } = args;
   return narrowOrGuardedChange({ ...rest, narrows: (current: string[]) => narrowsAllowlist(current, nextFrom(current), norm) });

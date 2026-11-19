@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { OpsCapitalAlert } from '@intafaced/contracts';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
+import { asAssetId } from '@intafaced/contracts';
 
 /** One version of one asset's threshold. `minimum` null is a cleared threshold: the asset is not monitored. */
 export interface StoredThreshold {
@@ -174,7 +175,7 @@ export class SqlCapitalStore implements CapitalStore {
         FROM ops.capital_breach_alerts ORDER BY opened_at DESC, key LIMIT ${limit}`;
     return rows.map((r) => ({
       key: r.key,
-      assetId: r.asset_id,
+      assetId: asAssetId(r.asset_id),
       period: r.period,
       buffer: trim(r.buffer),
       minimum: trim(r.minimum),

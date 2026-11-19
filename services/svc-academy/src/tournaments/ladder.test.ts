@@ -104,7 +104,6 @@ import {
   leaderboardStatusLineTokenCount,
   parseLeaderboardStatusLine,
   leaderboardStatusLineMatches,
-  parseLeaderboardStatusLineDetailed,
   leaderboardStatusLineDetailedConsistent,
   standingCountInRange,
   maxScoreAtLeast,

@@ -31,6 +31,8 @@ export interface MarketRow {
   listed_at: Date | null;
   /** Absent on reads that do not select it. */
   delists_at?: Date | null;
+  /** Absent on reads that do not select it. */
+  opening_window_ends_at?: Date | null;
   asset_class: Market['assetClass'];
   schedule: Market['schedule'];
   paper: boolean;
@@ -92,6 +94,7 @@ export function toMarket(row: MarketRow): Market {
     takerBps: Number(row.taker_bps),
     listedAt: row.listed_at,
     delistsAt: row.delists_at ?? null,
+    openingWindowEndsAt: row.opening_window_ends_at ?? null,
     assetClass: row.asset_class,
     schedule: row.schedule,
     paper: row.paper === true,

@@ -3,7 +3,7 @@ import type { ZodType } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { studioCopy } from './studio-copy';
 
 /** How many saved strategies a list reads at once. A page size of these screens, not a product limit. */

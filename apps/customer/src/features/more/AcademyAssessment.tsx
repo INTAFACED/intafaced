@@ -10,7 +10,7 @@ import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyCodeOf, academyRefusalKey, readAttempts, readQuiz, type Attempt } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatMoment } from './academy-lms';

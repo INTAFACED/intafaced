@@ -16,7 +16,7 @@ import {
   statusSubscriptionUpdateInputSchema,
   type StatusChallenge,
 } from '@intafaced/contracts/status-subscriptions';
-import { readStatusFeed, type StatusFeed } from '../developers/developers-api';
+import { readStatusFeed, type StatusFeed } from '../../shared/notify-reads';
 import { maintenanceOf, upcomingMaintenanceSchema, type MaintenanceWindowSoon } from '../../shared/market-maintenance';
 import { contractProcedure, readContract, type ContractData } from '../../shared/contract-call';
 

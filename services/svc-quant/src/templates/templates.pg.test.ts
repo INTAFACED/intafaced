@@ -46,10 +46,12 @@ describe('starter templates on Postgres', () => {
   beforeAll(async () => {
     await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
     await sql.unsafe(`CREATE SCHEMA "${SCHEMA}"`);
-    const migration = readFileSync(join(SERVICE, 'drizzle/0004_quant_templates.sql'), 'utf8')
-      .replaceAll('"quant"', `"${SCHEMA}"`)
-      .replaceAll("'quant'", `'${SCHEMA}'`);
-    await sql.unsafe(migration);
+    for (const file of ['0004_quant_templates.sql', '20261115090000_quant_template_listing.sql']) {
+      const migration = readFileSync(join(SERVICE, 'drizzle', file), 'utf8')
+        .replaceAll('"quant"', `"${SCHEMA}"`)
+        .replaceAll("'quant'", `'${SCHEMA}'`);
+      await sql.unsafe(migration);
+    }
   });
 
   afterAll(async () => {
@@ -96,5 +98,27 @@ describe('starter templates on Postgres', () => {
         [OPERATOR],
       ),
     ).rejects.toThrow(/templates_numbers_blank_ck/);
+  });
+
+  it('withdraws and restores a template, keeping its versions; replays a key under a race; rows are append-only', async () => {
+    await repo.publish({ ...publish, id: 'listing', idempotencyKey: 'template.publish:listing:v1' });
+    await repo.publish({ ...publish, id: 'listing', releaseNote: 'Second.', idempotencyKey: 'template.publish:listing:v2' });
+    const withdraw = { id: 'listing', listed: false, reason: 'LOCAL TEST', setBy: OPERATOR, idempotencyKey: 'tl:listing:1' };
+    const [off, again] = await Promise.all([repo.setListed(withdraw), repo.setListed(withdraw)]);
+    expect(again).toEqual(off);
+    expect(off).toMatchObject({ id: 'listing', listed: false });
+    expect(await repo.get('listing')).toBeNull();
+    const all = async () => (await repo.list({ limit: 50 })).templates.map((row) => row.id);
+    expect(await all()).not.toContain('listing');
+    await expect(repo.setListed({ ...withdraw, listed: true })).rejects.toThrow(/quant\.idempotency_conflict/);
+    await expect(repo.setListed({ ...withdraw, id: 'nothing-here', idempotencyKey: 'tl:none' })).rejects.toThrow(
+      /quant\.template_not_found/,
+    );
+
+    await repo.setListed({ ...withdraw, listed: true, idempotencyKey: 'tl:listing:2' });
+    expect(await all()).toContain('listing');
+    expect((await repo.get('listing'))?.map((row) => row.version)).toEqual([2, 1]);
+    await expect(sql.unsafe(`UPDATE "${SCHEMA}".template_listing SET listed = false`)).rejects.toThrow(/quant\.template_immutable/);
+    await expect(sql.unsafe(`DELETE FROM "${SCHEMA}".template_listing`)).rejects.toThrow(/quant\.template_immutable/);
   });
 });

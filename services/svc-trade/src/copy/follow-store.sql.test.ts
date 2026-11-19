@@ -145,6 +145,22 @@ describe('SqlCopyFollowStore fee-share claim-before-post', () => {
     expect(loaded?.followId).toBe(FOLLOW_A);
   });
 
+  it('one live follow per follower and leader: a stopped or left one keeps its row and frees the leader', async () => {
+    const store = new SqlCopyFollowStore(db!.sql);
+    await store.saveFollow(follow(FOLLOW_A, LEADER));
+    await expect(store.saveFollow(follow(FOLLOW_B, LEADER))).rejects.toMatchObject({ code: 'trade.copy_already_following' });
+    await store.saveFollow({ ...follow(FOLLOW_A, LEADER), relationshipState: 'PAUSED' });
+    await expect(store.saveFollow(follow(FOLLOW_B, LEADER))).rejects.toMatchObject({ code: 'trade.copy_already_following' });
+    await store.saveFollow({ ...follow(FOLLOW_A, LEADER), relationshipState: 'CLOSE_ONLY' });
+    await store.saveFollow(follow(FOLLOW_B, LEADER));
+    expect((await store.getFollow(FOLLOW_A))?.relationshipState).toBe('CLOSE_ONLY');
+    expect((await store.getFollow(FOLLOW_B))?.relationshipState ?? 'ACTIVE').toBe('ACTIVE');
+    // The stopped one can never come back alongside the live one.
+    await expect(store.saveFollow({ ...follow(FOLLOW_A, LEADER), relationshipState: 'ACTIVE' })).rejects.toMatchObject({
+      code: 'trade.copy_already_following',
+    });
+  });
+
   it('permitted_markets is stored as a JSON array and reads back, so the follow can mirror its markets', async () => {
     const store = new SqlCopyFollowStore(db!.sql);
     const base = follow(FOLLOW_A, LEADER);
@@ -159,6 +175,58 @@ describe('SqlCopyFollowStore fee-share claim-before-post', () => {
     // The upsert path rewrites the column too; it must stay an array.
     await store.saveFollow({ ...base, envelope: { ...base.envelope, permittedMarkets: ['SOL-USDT'] } });
     expect((await store.getFollow(FOLLOW_A))?.envelope.permittedMarkets).toEqual(['SOL-USDT']);
+  });
+
+  it('copy_rules round-trips the sizing mode, smart sync readings and caps; copied buys sum by market and by day', async () => {
+    const store = new SqlCopyFollowStore(db!.sql);
+    const base = follow(FOLLOW_A, LEADER);
+    await store.saveFollow({
+      ...base,
+      envelope: {
+        ...base.envelope,
+        sizingMode: 'smart_sync',
+        smartSync: { followerTotal: parseAmount('300'), leaderEquity: parseAmount('3000') },
+        maxPerMarket: parseAmount('25'),
+        maxPerDay: parseAmount('100'),
+      },
+    });
+    const loaded = await store.getFollow(FOLLOW_A);
+    expect(loaded?.envelope).toMatchObject({
+      sizingMode: 'smart_sync',
+      smartSync: { followerTotal: parseAmount('300'), leaderEquity: parseAmount('3000') },
+      maxPerMarket: parseAmount('25'),
+      maxPerDay: parseAmount('100'),
+    });
+    // A follow saved without rules reads as fixed amount with no caps (the column's default).
+    await store.saveFollow(follow(FOLLOW_B, LEADER_B));
+    const plain = await store.getFollow(FOLLOW_B);
+    expect(plain?.envelope.sizingMode).toBeUndefined();
+    expect(plain?.envelope.maxPerMarket).toBeUndefined();
+
+    const claim = (fillId: string, marketId: string, side: 'buy' | 'sell', notional: string, at: string) =>
+      store.claimMirrorFill({
+        followId: FOLLOW_A,
+        fillId,
+        maxAggregate: parseAmount('1000'),
+        at: new Date(at),
+        plan: {
+          fillId,
+          followId: FOLLOW_A,
+          followerId: FOLLOWER,
+          leaderId: LEADER,
+          marketId,
+          side,
+          qty: parseAmount('0.001'),
+          notional: parseAmount(notional),
+        },
+      });
+    await claim('f-rules-1', 'BTC-USDT', 'buy', '20', '2026-11-12T23:00:00.000Z');
+    await claim('f-rules-2', 'ETH-USDT', 'buy', '15', '2026-11-13T01:00:00.000Z');
+    await claim('f-rules-3', 'BTC-USDT', 'sell', '20', '2026-11-13T02:00:00.000Z');
+    expect(await store.sumCopiedBuys(FOLLOW_A, { marketId: 'BTC-USDT' })).toBe(parseAmount('20'));
+    expect(await store.sumCopiedBuys(FOLLOW_A, { since: new Date('2026-11-13T00:00:00.000Z') })).toBe(parseAmount('15'));
+    expect(await store.sumCopiedBuys(FOLLOW_A, {})).toBe(parseAmount('35'));
+    expect(await store.sumCopiedBuys(FOLLOW_B, {})).toBe(0n);
   });
 
   it('INSERT unique fill_id is visible before run() — crash window cannot miss the row', async () => {

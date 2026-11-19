@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
-import { discoverWallets, firstAddress, parseChainId, type Eip1193Provider } from '../protocol/wallet/eip1193';
+import { discoverWallets, firstAddress, parseChainId, type Eip1193Provider } from '../../shared/eip1193';
 
 // hand-declared-ok: svc-identity's wallet challenge answer has no browser-safe schema in packages/contracts yet
 /** The message a wallet signs to link it or to sign in with it (svc-identity, EIP-4361). */

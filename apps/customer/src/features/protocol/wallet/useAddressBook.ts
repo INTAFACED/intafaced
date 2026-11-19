@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import { ADDRESS_BOOK_LABEL_MAX, WALLET_GROUP_NAME_MAX } from '@intafaced/contracts/protocol-address-book';
 import type { ApiResult } from '../../../shared/api';
 import { useApi } from '../../session/session';
-import { REGION_BLOCKED_CODE } from '../region';
+import { isRegionBlocked } from '../region';
 import { createAddressBookApi, forgetWalletSession, walletSession, type AddressBookApi, type SessionResult } from './address-book-api';
 import type { walletCopy } from './copy';
 import { useWallet } from './WalletProvider';
@@ -67,7 +67,7 @@ export function bookMessage(t: T, failure: BookFailure): string {
   if (failure.kind === 'wallet') return failure.reason === 'chain_mismatch' ? t('signWrongNetwork') : t('bookFailed');
   const code = failure.code;
   if (code === undefined) return t('bookFailed');
-  if (code === REGION_BLOCKED_CODE) return t('permitRefused_region');
+  if (isRegionBlocked(code)) return t('permitRefused_region');
   if (code === 'protocol.wallet_session_unset') return t('bookUnset');
   if (code === 'protocol.wallet_session_origin_unlisted') return t('bookOriginUnlisted');
   if (code === 'protocol.wallet_signature_not_owner') return t('bookSignatureNotOwner');

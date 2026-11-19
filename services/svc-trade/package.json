@@ -24,15 +24,16 @@
     "@intafaced/exchange-contract": "workspace:*",
     "@intafaced/greeks-adapter": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
+    "@intafaced/service-kit": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
     "@intafaced/venue-adapter": "workspace:*",
     "@intafaced/venue-contracts": "workspace:*",
     "@opentelemetry/api": "^1.10.0",
-    "@trpc/server": "^11.25.0",
+    "@trpc/server": "^11.28.0",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.8",
     "postgres": "^3.4.5",
-    "viem": "^2.57.16",
+    "viem": "^2.57.18",
     "zod": "^4.6.7"
   },
   "devDependencies": {

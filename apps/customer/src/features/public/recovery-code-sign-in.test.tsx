@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { AuthForm } from './AuthForm';
 
 // The second step by recovery code on /login (I-signin-sessions-12, J-identity-05 #1): "Use a recovery code" turns the

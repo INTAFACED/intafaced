@@ -1048,7 +1048,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-ord-02"], "noSlice": false },
       { "n": 2, "slices": ["BK-acct-01"], "noSlice": false },
@@ -1248,7 +1248,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-cissue-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cissue-02"], "noSlice": false },
@@ -1266,7 +1266,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-cctl-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cctl-02"], "noSlice": false },
@@ -1502,7 +1502,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-ccrypto-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-ccrypto-01"], "noSlice": false },
@@ -1883,7 +1883,7 @@
     "steps": [
       { "n": 1, "slices": ["I-kyc-compliance-06"], "noSlice": false },
       { "n": 2, "slices": ["SP-order-entry-01"], "noSlice": false },
-      { "n": 3, "slices": ["I-kyc-compliance-08", "I-kyc-compliance-02"], "noSlice": false },
+      { "n": 3, "slices": ["I-kyc-compliance-19", "I-kyc-compliance-02"], "noSlice": false },
       { "n": 4, "slices": ["W-deposit-05", "D-venue-11"], "noSlice": false },
       { "n": 5, "slices": ["SP-order-01", "SP-markets-data-01", "SP-developer-status-01"], "noSlice": false },
       { "n": 6, "slices": ["SP-order-entry-03", "SP-order-entry-04", "SP-fees-vip-02"], "noSlice": false },
@@ -2657,7 +2657,8 @@
       { "n": 3, "slices": ["CB-copy-pro-share-02"], "noSlice": false },
       { "n": 4, "slices": ["CB-copy-pro-share-02"], "noSlice": false },
       { "n": 5, "slices": ["CB-copy-pro-share-03"], "noSlice": false },
-      { "n": 6, "slices": ["CB-copy-23"], "noSlice": false }
+      { "n": 6, "slices": ["CB-copy-23"], "noSlice": false },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -2729,8 +2730,9 @@
       { "n": 3, "slices": ["CB-ops-01"], "noSlice": false },
       { "n": 4, "slices": ["CB-ops-01", "CB-copy-12"], "noSlice": false },
       { "n": 5, "slices": ["CB-ops-01"], "noSlice": false },
-      { "n": 6, "slices": ["CB-copy-pro-share-11", "CB-copy-pro-share-06"], "noSlice": false },
-      { "n": 7, "slices": ["CB-copy-pro-share-09", "CB-copy-pro-share-03"], "noSlice": false }
+      { "n": 6, "slices": ["CB-copy-pro-share-11", "CB-copy-pro-share-06"], "noSlice": false, "later": "custody" },
+      { "n": 7, "slices": ["CB-copy-pro-share-03"], "noSlice": false },
+      { "n": 8, "slices": ["CB-copy-pro-share-09"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -2926,7 +2928,8 @@
       { "n": 3, "slices": ["CB-bots-api-signal-06"], "noSlice": false },
       { "n": 4, "slices": ["CB-bots-api-signal-06"], "noSlice": false },
       { "n": 5, "slices": ["CB-bots-api-signal-06"], "noSlice": false },
-      { "n": 6, "slices": ["CB-bots-api-signal-07"], "noSlice": false }
+      { "n": 6, "slices": ["CB-bots-api-signal-07"], "noSlice": false },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -4720,6 +4723,22 @@
     ]
   },
   {
+    "id": "J-home-ia-12",
+    "title": "I cut my exposure from one risk screen",
+    "module": "home-ia",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 2, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 3, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 4, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 5, "slices": ["RC-home-ia-03"], "noSlice": false },
+      { "n": 6, "slices": ["RC-home-ia-03"], "noSlice": false }
+    ]
+  },
+  {
     "id": "J-identity-01",
     "title": "I sign up with my email or phone and get into the app",
     "module": "identity",
@@ -4846,7 +4865,7 @@
     "module": "identity",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["I-kyc-compliance-04", "I-kyc-compliance-05"], "noSlice": false },
       { "n": 2, "slices": ["I-kyc-compliance-08"], "noSlice": false },
@@ -5784,6 +5803,37 @@
     "parkedUntil": "after launch (OWNER 183 (2): white-label platforms)"
   },
   {
+    "id": "J-merchant-43",
+    "title": "See every movement on my business balance, newest first",
+    "module": "merchant",
+    "persona": "merchant",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["M-money-out-01"], "noSlice": false },
+      { "n": 2, "slices": ["M-money-out-01"], "noSlice": false },
+      { "n": 3, "slices": ["M-money-out-01"], "noSlice": false },
+      { "n": 4, "slices": ["M-money-out-01"], "noSlice": false, "later": "custody" },
+      { "n": 5, "slices": ["M-money-out-01"], "noSlice": false, "later": "custody" },
+      { "n": 6, "slices": ["M-money-out-01"], "noSlice": false, "later": "custody" }
+    ]
+  },
+  {
+    "id": "J-merchant-44",
+    "title": "See what needs my business in its notifications",
+    "module": "merchant",
+    "persona": "merchant",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 2, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 3, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 4, "slices": ["M-plat-org-11"], "noSlice": false },
+      { "n": 5, "slices": ["M-plat-org-11"], "noSlice": false }
+    ]
+  },
+  {
     "id": "J-more-catalogue-01",
     "title": "Find my way around the six More rooms",
     "module": "more-catalogue",
@@ -6017,7 +6067,7 @@
       { "n": 4, "slices": ["MC-launch-03"], "noSlice": false },
       { "n": 5, "slices": ["RC-more-catalogue-22"], "noSlice": false },
       { "n": 6, "slices": ["RC-more-catalogue-23"], "noSlice": false },
-      { "n": 7, "slices": ["RC-more-catalogue-24"], "noSlice": false },
+      { "n": 7, "slices": ["RC-more-catalogue-24"], "noSlice": false, "deferred": true },
       { "n": 8, "slices": ["MC-launch-01"], "noSlice": false }
     ]
   },
@@ -6212,7 +6262,8 @@
       { "n": 9, "slices": ["OPS-accounts-desk-02"], "noSlice": false, "deferred": true },
       { "n": 10, "slices": ["OPS-accounts-desk-02"], "noSlice": false },
       { "n": 11, "slices": ["OPS-accounts-desk-03"], "noSlice": false },
-      { "n": 12, "slices": ["OPS-accounts-desk-03"], "noSlice": false }
+      { "n": 12, "slices": ["OPS-accounts-desk-03"], "noSlice": false },
+      { "n": 13, "slices": [], "noSlice": true, "deferred": true }
     ]
   },
   {
@@ -6291,7 +6342,8 @@
       { "n": 4, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
       { "n": 5, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
       { "n": 6, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
-      { "n": 7, "slices": ["OPS-ledger-desk-05"], "noSlice": false }
+      { "n": 7, "slices": ["OPS-ledger-desk-05"], "noSlice": false },
+      { "n": 8, "slices": ["OPS-ledger-desk-05"], "noSlice": false, "deferred": true }
     ]
   },
   {
@@ -7987,7 +8039,8 @@
       { "n": 5, "slices": [], "noSlice": true },
       { "n": 6, "slices": [], "noSlice": true },
       { "n": 7, "slices": ["RC-support-public-07", "RC-support-public-06"], "noSlice": false },
-      { "n": 8, "slices": ["SP-tickets-04"], "noSlice": false }
+      { "n": 8, "slices": ["SP-tickets-04"], "noSlice": false },
+      { "n": 9, "slices": ["RC-support-public-07", "RC-support-public-06"], "noSlice": false, "later": "custody" }
     ]
   },
   {
@@ -8383,21 +8436,6 @@
       { "n": 6, "slices": [], "noSlice": true },
       { "n": 7, "slices": [], "noSlice": true },
       { "n": 8, "slices": ["D-venue-09"], "noSlice": false }
-    ]
-  },
-  {
-    "id": "J-wallet-23",
-    "title": "I approve a trading key once per session, so I do not sign every order with my wallet",
-    "module": "wallet",
-    "persona": "pro-trader",
-    "tier": "core",
-    "order": 2,
-    "steps": [
-      { "n": 1, "slices": [], "noSlice": true },
-      { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true },
-      { "n": 5, "slices": [], "noSlice": true }
     ]
   }
 ]

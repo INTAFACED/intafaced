@@ -1,3 +1,4 @@
+// Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).
 // Proves the shared-world scan on the real journey files and on planted faults. Run: node --test tooling/scripts/journey-world.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';

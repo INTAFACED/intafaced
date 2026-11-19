@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { toFunctionSelector } from 'viem';
 import {
@@ -257,7 +258,7 @@ export class NavigatorOnchainStore {
    * What the Navigator's orders under one grant hold of its cap, in wei: every person's orders on that account and grant,
    * since the cap is the account's, not one person's.
    */
-  async heldWei(chainId: number, account: string, specHash: string, tx: Sql = this.sql): Promise<bigint> {
+  async heldWei(chainId: number, account: string, specHash: string, tx: Queryable = this.sql): Promise<bigint> {
     const rows = await tx<Array<{ n: string }>>`
       SELECT coalesce(sum(amount_in_wei), 0)::text AS n FROM agents.navigator_orders
        WHERE chain_id = ${chainId} AND account = ${account.toLowerCase()}
@@ -293,8 +294,7 @@ export class NavigatorOnchainStore {
     const specHash = input.specHash.toLowerCase();
     // One lock per account and grant, across every person: the cap is the account's.
     const lock = `agents:navigator:cap:${input.chainId}:${account}:${specHash}`;
-    return this.sql.begin(async (raw) => {
-      const tx = raw as unknown as Sql;
+    return this.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${lock}, 0))`;
       const found = await tx<OrderRow[]>`
         SELECT ${this.orderColumns()} FROM agents.navigator_orders WHERE user_id = ${input.userId} AND order_key = ${input.orderKey}

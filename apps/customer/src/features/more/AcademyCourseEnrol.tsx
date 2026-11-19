@@ -103,7 +103,16 @@ export function AcademyCourseEnrol({
         <AcademyRefusal failure={terms.resource.failure} retry={terms.reload} />
       </>
     );
-  return <CourseEnrolView terms={terms.resource.data} sending={sending} refusal={refusal} onEnrol={enrol} onLeave={leave} />;
+  return (
+    <CourseEnrolView
+      terms={terms.resource.data}
+      sending={sending}
+      refusal={refusal}
+      onEnrol={enrol}
+      onLeave={leave}
+      selectClosed={authored}
+    />
+  );
 }
 
 /** The enrol block as data says it. Pure: state arrives as props. */
@@ -113,12 +122,19 @@ export function CourseEnrolView({
   refusal,
   onEnrol,
   onLeave,
+  selectClosed = false,
 }: {
   terms: AcademyAuthoredCourseEnrolment;
   sending: boolean;
   refusal: { kind: 'enrol' | 'leave'; failure: Failure } | null;
   onEnrol: (track: AcademyEnrolmentTrack) => void;
   onLeave: (enrolledAt: string) => void;
+  /**
+   * A course staff made (J-academy-07 #1): a track closed only because no price is set can still be chosen, and Enrol
+   * then refuses with "price not set" beside it, so the refusal is seen where the person presses. A track closed for
+   * any other reason (payments switched off, J-academy-11 #10) stays disabled with its reason.
+   */
+  selectClosed?: boolean;
 }) {
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
@@ -126,15 +142,19 @@ export function CourseEnrolView({
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [picked, setPicked] = useState<AcademyEnrolmentTrack | null>(null);
   // A track that has closed since it was picked is no longer the choice; the first open one is.
-  const chosen = openTracks.find((row) => row.track === picked)?.track ?? openTracks[0]?.track ?? null;
+  const choosable = (row: { closed: string | null }) => row.closed === null || (selectClosed && row.closed === 'no_price');
+  const pickedClosed = selectClosed ? (terms.tracks.find((row) => row.track === picked && row.closed === 'no_price') ?? null) : null;
+  const chosen = pickedClosed?.track ?? openTracks.find((row) => row.track === picked)?.track ?? openTracks[0]?.track ?? null;
   const enrolled = terms.enrolment;
   const reason = terms.closed
     ? closedReasonText(t, terms.closed)
     : chosen === null
       ? t('enrolChooseTrack')
-      : sending
-        ? t('enrolSending')
-        : null;
+      : pickedClosed
+        ? t('enrolRefusedNoPrice')
+        : sending
+          ? t('enrolSending')
+          : null;
   return (
     <div className="academy-lms-stack" data-academy-enrol={terms.slug}>
       <dl className="academy-enrol-terms">
@@ -217,7 +237,7 @@ export function CourseEnrolView({
                       name={`academy-enrol-${terms.slug}`}
                       value={row.track}
                       checked={chosen === row.track}
-                      disabled={row.closed !== null || terms.closed !== null}
+                      disabled={!choosable(row) || terms.closed !== null}
                       aria-describedby={row.closed ? `${id}-closed` : undefined}
                       onChange={() => setPicked(row.track)}
                     />{' '}

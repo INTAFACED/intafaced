@@ -22,15 +22,13 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
 const ROOT = resolve(import.meta.dirname, '../../..');
 
 function notifyServiceBlock(source: string): string {
-  // (?![\s\S]) is the end of the string. In JavaScript \Z is a literal Z.
-  const match = source.match(/^  svc-notify:\n(?:.*(?:\n|$))*?(?=^  [a-z]|(?![\s\S]))/m);
-  if (!match) throw new Error('svc-notify service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-notify');
 }
 
 const LINE = /^\s+NOTIFY_MAX_DELIVERY_ATTEMPTS:\s*\$\{NOTIFY_MAX_DELIVERY_ATTEMPTS:-\}\s*$/gm;
@@ -83,11 +81,11 @@ describe('notifyServiceBlock fixtures', () => {
     }
   });
 
-  it('does not end the block on a line whose first character is Z', () => {
+  it('does not end the block on a key that starts with Z', () => {
     const source = [
       '  svc-notify:',
       '    SERVICE_NAME: svc-notify',
-      'Z_STILL_IN_BLOCK: kept',
+      '    Z_STILL_IN_BLOCK: kept',
       attemptsLine,
       '  svc-support:',
       '    SERVICE_NAME: svc-support',

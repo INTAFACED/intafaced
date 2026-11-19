@@ -9,13 +9,13 @@ import { useState } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { preservePaperHref } from '../more/trade-context';
-import { useApi } from '../session/session';
+import { Read, Select, preservePaperHref } from '../more';
+import { useApi } from '../session';
 import { QuantRooms } from './QuantRooms';
 import { strategiesCopy } from './strategies-copy';
 import { MorePages, useStrategyPages } from './strategy-pages';
 import { QuotaAwareFailure } from './quota-refusal';
+import { PlanTiers } from './PlanTiers';
 import { UsagePanel } from './UsagePanel';
 import './algo.css';
 
@@ -76,6 +76,7 @@ export function StrategiesRoom({ paper }: { paper: boolean }) {
         </div>
       </Panel>
       <UsagePanel revision={revision} />
+      <PlanTiers revision={revision} />
     </>
   );
 }

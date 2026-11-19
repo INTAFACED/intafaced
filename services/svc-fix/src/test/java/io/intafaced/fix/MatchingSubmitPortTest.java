@@ -27,6 +27,54 @@ class MatchingSubmitPortTest {
             "GTC");
 
     @Test
+    void gatewayOffRefusesEveryNewOrderBeforePost() {
+        MatchingSubmitPort port = new MatchingSubmitPort(
+                "http://matching.example", OWNER_MAP, SECRET, null, (url, json, headers) -> {
+                    throw new AssertionError("must not POST while FIX order entry is off");
+                }, false);
+        MatchingSubmitResult result = port.submit(limit);
+        assertFalse(result.ok);
+        assertFalse(result.httpSent);
+        assertEquals("fix_gateway_off", result.errorCode);
+    }
+
+    @Test
+    void gatewayOffFromEnvRefusesBeforeAnyOtherCheck() {
+        MatchingSubmitPort port = MatchingSubmitPort.fromEnv(Map.of(
+                MatchingSubmitPort.GATEWAY_ENABLED_ENV, "off",
+                MatchingSubmitPort.BASE_URL_ENV, "http://127.0.0.1:1",
+                MatchingSubmitPort.COMPID_ACCOUNT_JSON_ENV, OWNER_MAP,
+                MatchingSubmitPort.SERVICE_SECRET_ENV, SECRET));
+        MatchingSubmitResult result = port.submit(limit);
+        assertEquals("fix_gateway_off", result.errorCode);
+        assertFalse(result.httpSent);
+    }
+
+    @Test
+    void gatewaySwitchReadsUnsetAsOnAndOnlyTheOffWordsAsOff() {
+        assertTrue(MatchingSubmitPort.gatewayEnabled(null));
+        assertTrue(MatchingSubmitPort.gatewayEnabled(""));
+        assertTrue(MatchingSubmitPort.gatewayEnabled("on"));
+        assertTrue(MatchingSubmitPort.gatewayEnabled("true"));
+        for (String off : new String[] {"0", "false", "off", "no", " OFF ", "False"}) {
+            assertFalse(MatchingSubmitPort.gatewayEnabled(off), off);
+        }
+    }
+
+    @Test
+    void gatewayOnStillPosts() {
+        AtomicReference<String> posted = new AtomicReference<>();
+        MatchingSubmitPort port = new MatchingSubmitPort(
+                "http://matching.example", OWNER_MAP, SECRET, null, (url, json, headers) -> {
+                    posted.set(json);
+                    return new MatchingSubmitPort.Transport.Response(200, "{\"accepted\":true,\"sequence\":1}");
+                }, true);
+        MatchingSubmitResult result = port.submit(limit);
+        assertTrue(result.ok, result.errorMessage);
+        assertTrue(result.httpSent);
+    }
+
+    @Test
     void unmappedCompIdRefusesBeforePost() {
         AtomicReference<String> posted = new AtomicReference<>();
         MatchingSubmitPort port = new MatchingSubmitPort(

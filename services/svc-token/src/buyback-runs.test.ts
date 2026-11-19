@@ -6,7 +6,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { MemoryEventBus } from '@intafaced/events';
-import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
+import { MemoryLedger } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buybackJobSet } from './buyback-job.js';
 import { BUYBACK_PLACE_PUBLISHED } from './buyback-trade-client.js';

@@ -27,7 +27,10 @@
  *     afterAllDue: true on the other records of a file that declares afterAll hooks, so the map can tell when that
  *     record never came (a worker's last file has no next test): it reads such a file as incomplete;
  *   - incomplete: reason codes (INCOMPLETE) for what this record can't see whole. The map treats an incomplete journey
- *     as reaching every source.
+ *     as reaching every source;
+ *   - bus: true when the event bus this checkout runs writes a line for each message it delivers (busLogs), so a
+ *     service whose handler ran while the file ran is in `active`. The map narrows a subscribing service only when
+ *     every record it is built from says so (intafaced #8657).
  *
  * The position maps: the stack's customer build writes Vite's hidden source maps, and reduceMaps turns each into
  * `<script>.positions.json` (repository source paths and generated-to-source line positions, no source text) and deletes
@@ -36,6 +39,7 @@
  */
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { STACK_PORTS } from './local-test-facts.mjs';
 
 export const REACH_ATTACHMENT = 'journey-reach';
 export const REACH_VERSION = 2;
@@ -303,6 +307,19 @@ export function mergeRanges(ranges) {
   return out;
 }
 
+/**
+ * Whether the event bus at `root` writes a line for each message it delivers (packages/events jetstream-bus.ts,
+ * announceDelivered), read from its source, so a record says so only when the stack it ran against did.
+ */
+export function busLogs(root) {
+  try {
+    const t = readFileSync(path.join(root, 'packages/events/src/jetstream-bus.ts'), 'utf8');
+    return /export const BUS_DELIVERED = 'bus\.delivered'/.test(t) && /\n\s*announceDelivered\(def\.subject/.test(t);
+  } catch {
+    return false;
+  }
+}
+
 // ---- The stack's own logs ----
 
 /**
@@ -398,7 +415,13 @@ export function makeLogReader(logsDir) {
  * every script that ran is then `otherDist`). `take(file)` returns what this worker has
  * not attached for that journey file yet, as one record.
  */
-export function makeRecorder({ root, customerPort = '3210', distDir, routes = routeTable(root) }) {
+export function makeRecorder({
+  root,
+  customerPort = String(STACK_PORTS.customer),
+  distDir,
+  routes = routeTable(root),
+  bus = busLogs(root),
+}) {
   const scripts = new Map();
   const tabled = new Set();
   const noMapSeen = new Set();
@@ -555,6 +578,7 @@ export function makeRecorder({ root, customerPort = '3210', distDir, routes = ro
         incomplete: [...p.incomplete].sort(),
         ...(p.after ? { afterAll: true } : {}),
         ...(withAfterAll.has(file) && !p.after ? { afterAllDue: true } : {}),
+        ...(bus ? { bus: true } : {}),
       };
       const empty =
         !record.http.length &&

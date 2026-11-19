@@ -17,7 +17,6 @@ import {
   limitsOf,
   limitsUnchanged,
   limitValueProblem,
-  loosensCard,
   sameSettings,
   type ChannelKey,
   type LimitKey,

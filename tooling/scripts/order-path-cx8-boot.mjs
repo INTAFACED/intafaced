@@ -367,19 +367,19 @@ async function main() {
       IDENTITY_URL: 'http://127.0.0.1:4002',
       TRADE_URL: 'http://127.0.0.1:4004',
       DATABASE_POOL_MAX: '5',
-      // The custody switch as svc-bank reads it, on as this rig's ledger runs it (OWNER 226 keeps the custodial layer built).
+      // The custody switch as svc-bank reads it: on, as this rig's svc-ledger runs it, so the two services agree (OWNER 226
+      // keeps the custodial layer built). One key only: a second one would silently win over this one.
       LEDGER_CUSTODY_LAYER: 'on',
       // SMOKE RIG ONLY — owner integers and ids that boot refuses without; not production values
       ...profileEnvFor('bank', common.APP_ENV),
       INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
-      // The custody switch as this rig's svc-ledger runs it (on), so the two services agree (OWNER 226).
-      LEDGER_CUSTODY_LAYER: 'on',
     });
 
   // Tax, for the profit and loss journey: it reads the caller's fills from the ledger (no database of its own). The jurisdiction map,
   // history window and data lake stay unset; the lot book needs none of them.
   if (WITH_PAY)
-    start('tax', 'node', ['services/svc-tax/dist/index.js'], {
+    // svc-tax is the Rust binary the workflow builds (`cargo build --release -p svc-tax`).
+    start('tax', process.env.SVC_TAX_BIN ?? 'target/release/svc-tax', [], {
       ...common,
       SERVICE_NAME: 'svc-tax',
       HTTP_HOST: '127.0.0.1',

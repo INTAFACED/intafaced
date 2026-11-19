@@ -12,7 +12,7 @@
  * row and leaves every learner read here; a deleted post takes its replies with it. No money moves here.
  */
 import { createHash } from 'node:crypto';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import {
   ACADEMY_DISCUSSION_GENERAL_TOPIC,
   ACADEMY_DISCUSSION_IMAGE_TYPES,
@@ -30,11 +30,9 @@ import {
   type AcademySaveDiscussionTopicInput,
   type AcademyStaffDiscussionThread,
 } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { AcademyError } from '../errors.js';
 import { FILE_SIGNATURES, signatureMatches } from './media.js';
-
-type Db = Sql | TransactionSql;
 
 export type DiscussionLimits = { postMaxChars: number | null; imageMaxBytes: number | null };
 
@@ -134,14 +132,14 @@ export class CourseDiscussion {
   ) {}
 
   /** The published course at that address, or `academy.course_not_found`. */
-  private async course(db: Db, slug: string): Promise<CourseRow> {
+  private async course(db: Queryable, slug: string): Promise<CourseRow> {
     const [row] = await db<CourseRow[]>`SELECT id, slug, title FROM academy.courses WHERE slug = ${slug} AND state = 'published'`;
     if (!row) throw new AcademyError(`academy.course_not_found slug=${slug}`, 'academy.course_not_found');
     return row;
   }
 
   /** Refuses `academy.enrolment_required` unless the reader holds an open enrolment in the course. */
-  private async assertEnrolled(db: Db, courseId: string, userId: string): Promise<void> {
+  private async assertEnrolled(db: Queryable, courseId: string, userId: string): Promise<void> {
     const [row] = await db<{ enrolled: boolean }[]>`
       SELECT EXISTS (SELECT 1 FROM academy.course_enrolments
         WHERE course_id = ${courseId} AND user_id = ${userId} AND left_at IS NULL) AS enrolled
@@ -150,20 +148,20 @@ export class CourseDiscussion {
       throw new AcademyError('academy.enrolment_required enrol in this course to join its discussion', 'academy.enrolment_required');
   }
 
-  private async enrolledCourse(db: Db, slug: string, userId: string): Promise<CourseRow> {
+  private async enrolledCourse(db: Queryable, slug: string, userId: string): Promise<CourseRow> {
     const course = await this.course(db, slug);
     await this.assertEnrolled(db, course.id, userId);
     return course;
   }
 
-  private async assertTopic(db: Db, courseId: string, topicSlug: string): Promise<void> {
+  private async assertTopic(db: Queryable, courseId: string, topicSlug: string): Promise<void> {
     if (topicSlug === ACADEMY_DISCUSSION_GENERAL_TOPIC) return;
     const [row] = await db`SELECT 1 FROM academy.discussion_topics WHERE course_id = ${courseId} AND slug = ${topicSlug}`;
     if (!row) throw new AcademyError(`academy.topic_not_found topic=${topicSlug}`, 'academy.topic_not_found');
   }
 
   private rows(
-    db: Db,
+    db: Queryable,
     readerId: string,
     where: {
       id?: string;
@@ -196,7 +194,7 @@ export class CourseDiscussion {
   }
 
   /** The post or reply with that id in a course the reader is enrolled in, or `academy.post_not_found`. */
-  private async entry(db: Db, postId: string, readerId: string): Promise<PostRow> {
+  private async entry(db: Queryable, postId: string, readerId: string): Promise<PostRow> {
     const [row] = await this.rows(db, readerId, { id: postId });
     if (!row) throw new AcademyError(`academy.post_not_found post=${postId}`, 'academy.post_not_found');
     if (row.parent_id !== null) {

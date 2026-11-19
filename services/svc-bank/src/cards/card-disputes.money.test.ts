@@ -397,4 +397,129 @@ describe('card disputes (J-bank-27, PG-hard)', () => {
     expect(() => parseDisputeCap('nope')).toThrow(/not JSON/);
     expect(parseDisputeCap('{"USDC":"100.00"}')?.get('USDC')).toBe('100.00');
   });
+
+  describe('the cardholder disputes their own charge (J-bank-15)', () => {
+    const RULES: CardPartnerTerms = { ...SILENT, disputeRules: { windowDays: 120, evidenceAfterSubmission: false } };
+    const mine = (clock?: () => Date) =>
+      new CardDisputeService(sql, { issuer, partnerTerms: () => terms, simulated: () => true, cap: CAP, ...(clock ? { clock } : {}) });
+
+    it('names where a charge stands under the partner rules, and refuses by name when the partner reported none', async () => {
+      const p = await captured('25');
+      terms = SILENT;
+      expect(await mine().cardholderForm(p.cardId, p.ref)).toMatchObject({ rules: null, standing: 'rules_unset', deadline: null });
+      expect(
+        await code(mine().cardholderOpen({ userId: p.userId, cardId: p.cardId, authorizationRef: p.ref, amount: '10', reason: 'TEST' })),
+      ).toBe('bank.card_dispute_rules_unset');
+
+      terms = RULES;
+      const form = await mine().cardholderForm(p.cardId, p.ref);
+      expect(form).toMatchObject({
+        test: true,
+        rules: { windowDays: 120, evidenceAfterSubmission: false },
+        charge: { authorizationRef: p.ref, assetId: 'USDT', captured: '25', disputable: '25' },
+        standing: 'disputable',
+        disputeId: null,
+      });
+      expect(new Date(form.deadline!).getTime() - new Date(form.charge.settledAt!).getTime()).toBe(120 * 86_400_000);
+
+      // Past the window: named, and filing refuses.
+      const late = () => new Date(new Date(form.deadline!).getTime() + 1000);
+      expect((await mine(late).cardholderForm(p.cardId, p.ref)).standing).toBe('window_closed');
+      expect(
+        await code(
+          mine(late).cardholderOpen({ userId: p.userId, cardId: p.cardId, authorizationRef: p.ref, amount: '10', reason: 'TEST' }),
+        ),
+      ).toBe('bank.card_dispute_not_disputable');
+
+      // A declined payment, and one authorised but not captured, are named and refused.
+      const declined = `auth-${randomUUID()}`;
+      await cards.authorize({ cardId: p.cardId, authorizationRef: declined, amount: amt('600') });
+      expect((await mine().cardholderForm(p.cardId, declined)).standing).toBe('declined');
+      const pending = `auth-${randomUUID()}`;
+      await cards.authorize({ cardId: p.cardId, authorizationRef: pending, amount: amt('5') });
+      expect((await mine().cardholderForm(p.cardId, pending)).standing).toBe('not_settled');
+      expect(
+        await code(mine().cardholderOpen({ userId: p.userId, cardId: p.cardId, authorizationRef: pending, amount: '5', reason: 'TEST' })),
+      ).toBe('bank.card_dispute_not_disputable');
+      expect(await code(mine().cardholderForm(p.cardId, `auth-${randomUUID()}`))).toBe('bank.card_dispute_not_found');
+    });
+
+    it('files a partial dispute once: a retry is the same case, other figures or more than was charged refuse, and nothing posts', async () => {
+      terms = RULES;
+      const p = await captured('25');
+      const entries = ledger.journal().length;
+      const input = { userId: p.userId, cardId: p.cardId, authorizationRef: p.ref, amount: '10', reason: 'TEST: charged twice' };
+      expect(await code(mine().cardholderOpen({ ...input, amount: '25.01' }))).toBe('bank.card_dispute_not_disputable');
+      const c = await mine().cardholderOpen(input);
+      expect(c).toMatchObject({ state: 'opened', amount: '10', reason: 'TEST: charged twice', userId: p.userId });
+      expect(c.events).toEqual([expect.objectContaining({ kind: 'opened', actor: p.userId })]);
+      expect((await mine().cardholderOpen(input)).id).toBe(c.id);
+      expect(await code(mine().cardholderOpen({ ...input, amount: '11' }))).toBe('bank.card_dispute_invalid');
+      expect(await mine().cardholderForm(p.cardId, p.ref)).toMatchObject({ standing: 'already_disputed', disputeId: c.id });
+      expect(await mine().cardholderList(p.userId, p.cardId)).toEqual([expect.objectContaining({ id: c.id })]);
+      expect(await mine().cardholderList(randomUUID(), p.cardId)).toEqual([]);
+      expect(await code(mine().cardholderGet(randomUUID(), c.id))).toBe('bank.card_dispute_not_found');
+      expect(ledger.journal().length).toBe(entries);
+    });
+
+    it('takes evidence while open; after the representment only where the partner rules say', async () => {
+      terms = RULES;
+      const p = await captured('25');
+      const c = await mine().cardholderOpen({ userId: p.userId, cardId: p.cardId, authorizationRef: p.ref, amount: '10', reason: 'TEST' });
+      const ev = { userId: p.userId, disputeId: c.id, description: 'TEST: my bank statement' };
+      const one = await mine().cardholderEvidence(ev);
+      // The same words are the same step.
+      expect((await mine().cardholderEvidence(ev)).events.filter((e) => e.kind === 'evidence')).toHaveLength(1);
+      expect(one.events.at(-1)).toMatchObject({ kind: 'evidence', actor: p.userId, afterSubmission: false });
+      expect(await code(mine().cardholderEvidence({ ...ev, userId: randomUUID() }))).toBe('bank.card_dispute_not_found');
+      await mine().submitRepresentment({ disputeId: c.id, stepKey: `rep-${randomUUID()}`, description: 'TEST', actor: OPERATOR });
+      expect(await code(mine().cardholderEvidence({ ...ev, description: 'TEST: later' }))).toBe('bank.card_dispute_evidence_closed');
+      terms = { ...RULES, disputeRules: { windowDays: 120, evidenceAfterSubmission: true } };
+      const later = await mine().cardholderEvidence({ ...ev, description: 'TEST: later' });
+      expect(later.events.at(-1)).toMatchObject({ kind: 'evidence', afterSubmission: true });
+    });
+
+    it('a decision carries its reason; withdrawing reverses the partner credit once, as the partner reports, and posts nothing', async () => {
+      terms = RULES;
+      const p = await captured('25');
+      const entries = ledger.journal().length;
+      const before = await issuer.cardholderBalances!({ userId: p.userId });
+      const c = await mine().cardholderOpen({ userId: p.userId, cardId: p.cardId, authorizationRef: p.ref, amount: '10', reason: 'TEST' });
+      await mine().grantProvisionalCredit({ disputeId: c.id, actor: OPERATOR });
+      expect(await issuer.cardholderBalances!({ userId: p.userId })).toEqual({ USDT: '40' });
+      expect(await code(mine().cardholderWithdraw({ userId: randomUUID(), disputeId: c.id, reason: 'TEST' }))).toBe(
+        'bank.card_dispute_not_found',
+      );
+      const w = await mine().cardholderWithdraw({ userId: p.userId, disputeId: c.id, reason: 'TEST: the merchant paid me back' });
+      expect(w).toMatchObject({
+        state: 'closed',
+        decision: {
+          outcome: 'withdrawn',
+          reason: 'TEST: the merchant paid me back',
+          creditSettlement: 'reversed',
+          lossStatus: 'not_known',
+        },
+      });
+      expect(await issuer.cardholderBalances!({ userId: p.userId })).toEqual(before);
+      expect((await mine().cardholderWithdraw({ userId: p.userId, disputeId: c.id, reason: 'TEST: again' })).decision?.reason).toBe(
+        'TEST: the merchant paid me back',
+      );
+      expect(await code(mine().cardholderEvidence({ userId: p.userId, disputeId: c.id, description: 'TEST' }))).toBe(
+        'bank.card_dispute_state',
+      );
+      expect(ledger.journal().length).toBe(entries);
+
+      const q = await captured('25');
+      const afterQ = ledger.journal().length;
+      const d = await mine().cardholderOpen({ userId: q.userId, cardId: q.cardId, authorizationRef: q.ref, amount: '25', reason: 'TEST' });
+      const won = await mine().decide({
+        disputeId: d.id,
+        outcome: 'merchant',
+        actor: OPERATOR,
+        reason: 'TEST: the merchant showed delivery',
+      });
+      expect(won.decision).toMatchObject({ outcome: 'merchant', reason: 'TEST: the merchant showed delivery', creditSettlement: null });
+      expect(ledger.journal().length).toBe(afterQ);
+    });
+  });
 });

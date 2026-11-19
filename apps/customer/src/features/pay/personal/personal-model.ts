@@ -3,6 +3,7 @@
  * and the receipt text. No React, no network. Money is a decimal string and a scaled bigint, never a number.
  */
 import { dec } from '../../../data/decimal';
+import { isRecord } from '@intafaced/contracts/guards';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HANDLE = /^[a-zA-Z0-9_]{3,32}$/;
@@ -128,7 +129,6 @@ export const browserStorage = (): MemoryStorage | null => {
 };
 
 const LIMIT = 100;
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown, max = 200): string | null =>
   typeof value === 'string' && value.length > 0 && value.length <= max ? value : null;
 

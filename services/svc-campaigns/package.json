@@ -21,8 +21,9 @@
     "@intafaced/db": "workspace:*",
     "@intafaced/events": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
+    "@intafaced/service-kit": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
-    "@trpc/server": "^11.25.0",
+    "@trpc/server": "^11.28.0",
     "fastify": "^5.12.8",
     "postgres": "^3.4.5",
     "zod": "^4.6.7"

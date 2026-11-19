@@ -18,6 +18,7 @@ import { UserSpendStore } from '../spend/store.js';
 import { createFixtureSupportDesk } from '../support-agent/desk-port.js';
 import { assistantEngine, draftAgent, testEngineDraft } from './assistant.js';
 import { OwnIdentityStore, tokenLifetime } from './identity.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 import { OWN_RUN_TASK } from './routes.js';
 
 /**
@@ -150,6 +151,9 @@ if (!available) {
     });
     const supportDesk = createFixtureSupportDesk({ accounts });
     const router = createAgentsRouter({
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+
       runtime,
       gateway,
       meter,
@@ -285,9 +289,16 @@ if (!available) {
       const { person } = build();
       const agent = await starterAgent(person);
       const issuedAt = new Date('2026-11-04T10:00:00.000Z');
-      const { secret } = await new OwnIdentityStore(sql, () => issuedAt).issue(USER, agent.id, agent.tools, 1, activeOwner);
+      const { secret } = await new OwnIdentityStore(sql, () => issuedAt).issue(
+        USER,
+        agent.id,
+        agent.tools,
+        1,
+        activeOwner,
+        new MemorySelfFreezeRead(),
+      );
       const later = new OwnIdentityStore(sql, () => new Date(issuedAt.getTime() + 60_000));
-      await expect(later.call(secret, null)).rejects.toMatchObject({ code: 'agents.identity.token_expired' });
+      await expect(later.call(secret, null, null)).rejects.toMatchObject({ code: 'agents.identity.token_expired' });
       expect(await later.latest(USER, agent.id)).toMatchObject({ state: 'expired' });
     });
 

@@ -68,7 +68,8 @@ export function CardRefundsPanel({ card }: { card: CardRecord }) {
                 {refunded.map(({ row, refund }) => {
                   const facts = {
                     amount: displayAmount(refund.amount),
-                    asset: card.assetId,
+                    // A pay-from payment (J-bank-29 #7): the partner credits the asset it held from, and the refund is in that asset.
+                    asset: row.payFrom?.assetId ?? card.assetId,
                     ref: row.authorizationRef,
                     date: dateOf(refund.at),
                   };

@@ -12,6 +12,7 @@ import { NavigatorOnchainStore } from './onchain.js';
 import type { LinkedWallets } from '@intafaced/contracts';
 import type { LinkedWalletsPort } from '../own/payment-method.js';
 import { NavigatorSignerRefused, type LiveGrant, type NavigatorChain, type NavigatorSender } from './onchain-trade.js';
+import { MemorySelfFreezeRead } from '../own/self-freeze.js';
 
 const URL = process.env.TEST_DATABASE_URL_AGENTS ?? 'postgres://svc_agents:svc_agents@localhost:5433/intafaced_test';
 const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle');
@@ -150,6 +151,7 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
     chain,
     linkedWallets,
     session: async (id) => sessions[id] ?? null,
+    selfFreeze: new MemorySelfFreezeRead(),
     ...over,
   });
   const as = (userId: string, over: Partial<NavigatorOnchainDeps> = {}, extra: { kid?: string } = {}) =>
@@ -579,6 +581,38 @@ function ctxOf(userId: string, scopes: string[], extra: { kid?: string } = {}) {
         kind: 'none',
       });
       expect(await count('navigator_orders')).toBe(0);
+    });
+
+    it('while the owner froze their own account, a new binding and a trade are refused with the freeze code; unreadable refuses too (J-wallet-13 #2)', async () => {
+      await as(USER).onchain.bind(liveGrantBound);
+      const frozen = new MemorySelfFreezeRead();
+      frozen.frozenSince.set(USER, '2026-11-18T01:00:00.000Z');
+      const down = new MemorySelfFreezeRead();
+      down.down = true;
+      for (const [selfFreeze, code] of [
+        [frozen, 'agents.identity.owner_frozen_self'],
+        [down, 'agents.identity.owner_freeze_unread'],
+        [null, 'agents.identity.owner_freeze_unread'],
+      ] as const) {
+        await expect(as(USER, { selfFreeze }).onchain.bind({ ...grant, specHash: HASH_B })).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+          message: code,
+        });
+        await expect(as(USER, { selfFreeze }).ask({ sessionId: SESSION, requestId: 'r-frozen', text: TRADE })).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+          message: code,
+        });
+      }
+      // Nothing was signed, sent or stored, and the binding is the one made before.
+      expect(sent).toHaveLength(0);
+      expect(await count('navigator_orders')).toBe(0);
+      expect((await as(USER).onchain.binding({ chainId: 84532, account: ACCOUNT })).binding).toMatchObject({
+        specHash: liveGrantBound.specHash,
+      });
+      // A revoke only narrows, so it still goes through while frozen.
+      await expect(as(USER, { selfFreeze: frozen }).onchain.revoke({ chainId: 84532, account: ACCOUNT })).resolves.toMatchObject({
+        revokeRequestedAt: expect.any(String),
+      });
     });
 
     it("refuses another person's session, another agent's session and a closed one", async () => {

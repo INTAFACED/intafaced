@@ -7,13 +7,11 @@
  * `academy.programme_limit_unset`. This module stores programmes and decides nothing about a learner; AcademyService
  * counts courses and issues the programme certificate. No money moves here.
  */
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import { ACADEMY_PROGRAMME_RESERVED_SLUGS, type AcademyProgrammeRecord, type AcademySaveProgrammeInput } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { AcademyError } from '../errors.js';
 import type { CurriculumPath } from './catalog.js';
-
-type Db = Sql | TransactionSql;
 
 type ProgrammeRow = {
   slug: string;
@@ -61,7 +59,7 @@ export class ProgrammeRecords {
   ) {}
 
   private select(
-    db: Db,
+    db: Queryable,
     where: { slug?: string; course?: string; limit?: number; mine?: { earned: readonly string[]; courses: readonly string[] } },
   ) {
     return db<ProgrammeRow[]>`
@@ -88,7 +86,7 @@ export class ProgrammeRecords {
   }
 
   /** One programme, or null when there is none at that address. */
-  async get(slug: string, db: Db = this.sql): Promise<AcademyProgrammeRecord | null> {
+  async get(slug: string, db: Queryable = this.sql): Promise<AcademyProgrammeRecord | null> {
     const rows = await this.select(db, { slug });
     return rows[0] ? recordOf(rows[0]) : null;
   }

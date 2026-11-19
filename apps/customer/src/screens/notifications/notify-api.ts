@@ -3,6 +3,7 @@
  * are the real router's (`services/svc-notify/src/router.ts`): list({limit, cursor?, unreadOnly?}), unreadCount, markRead({ids}),
  * markAllRead, channels, mutePrefs, setMute. `limit` is always sent: the service refuses a list without one.
  */
+import { NOTIFY_INBOX_POLICY } from '@intafaced/contracts/notify-inbox-policy';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 
@@ -49,6 +50,13 @@ export function listNotifications(api: ApiClient, args: ListArgs, signal?: Abort
 export async function unreadCount(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<number>> {
   const result = await api.query('notify', 'notify.unreadCount', undefined, countSchema, { signal });
   return result.ok ? { ok: true, data: result.data.count } : result;
+}
+
+/** The owner's inbox settings: the page size `notify.list` is asked for and the bell's "<cap>+" ceiling; null while unset. */
+export type InboxPolicy = { pageSize: number | null; unreadCap: number | null };
+export async function inboxPolicy(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<InboxPolicy>> {
+  const result = await api.call(NOTIFY_INBOX_POLICY, undefined, { signal });
+  return result.ok ? { ok: true, data: { pageSize: result.data.pageSize, unreadCap: result.data.unreadCap } } : result;
 }
 
 export function markRead(api: ApiClient, ids: readonly string[]): Promise<ApiResult<{ marked: number }>> {
@@ -227,6 +235,13 @@ export const priceAlertSchema = z.object({
   stopReason: z.enum(['burst']).nullable().optional(),
   // The price it watches. A service that does not send it watches the mark.
   source: z.enum(ALERT_SOURCES).optional(),
+  // Added by C-alerts-scan-04: the out-of-app channels chosen for this alert (null: the notification settings decide) and the
+  // person's own webhook. A service that does not send them shows neither.
+  channels: z
+    .array(z.enum(['email', 'push']))
+    .nullable()
+    .optional(),
+  webhookUrl: z.string().max(2048).nullable().optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
 export type AlertFrequency = 'once' | 'every_crossing';
@@ -263,7 +278,15 @@ export interface AlertIntent {
   frequency?: AlertFrequency;
   /** Left out, the alert watches the mark. */
   source?: AlertSource;
+  /** The out-of-app channels for this alert; in-app is always written. Left out, the notification settings decide. */
+  channels?: AlertChannel[];
+  /** The person's own https endpoint, posted to each time the alert fires. */
+  webhookUrl?: string;
 }
+
+/** Out-of-app channels an alert may use. */
+export const ALERT_CHANNELS = ['email', 'push'] as const;
+export type AlertChannel = (typeof ALERT_CHANNELS)[number];
 
 export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
 
@@ -281,7 +304,9 @@ const levelOfDirection = (direction: AlertDirection): AlertCondition => (directi
  */
 export function isIntent(
   row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'> &
-    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras' | 'frequency' | 'source'>>,
+    Partial<
+      Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras' | 'frequency' | 'source' | 'channels' | 'webhookUrl'>
+    >,
   intent: AlertIntent,
 ): boolean {
   const wanted = intent.condition ?? levelOfDirection(intent.direction);
@@ -293,11 +318,26 @@ export function isIntent(
     canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
     (row.frequency ?? 'once') === (intent.frequency ?? 'once') &&
     (row.source ?? 'mark') === (intent.source ?? 'mark') &&
+    (intent.channels === undefined || sameChannels(row.channels ?? null, intent.channels)) &&
+    (intent.webhookUrl === undefined || row.webhookUrl === normalisedUrl(intent.webhookUrl)) &&
     (intent.name === undefined || (row.name ?? '') === intent.name) &&
     (intent.message === undefined || (row.message ?? '') === intent.message) &&
     (intent.expiresAt === undefined || (row.expiresAt != null && Date.parse(row.expiresAt) === Date.parse(intent.expiresAt))) &&
     sameExtras(row.extras ?? [], intent.extras ?? [])
   );
+}
+
+function sameChannels(stored: readonly string[] | null, wanted: readonly string[]): boolean {
+  return stored !== null && stored.length === wanted.length && wanted.every((c) => stored.includes(c));
+}
+
+/** A URL as the service stores it (`https://Host/` becomes `https://host/`); a string that is not one is compared as typed. */
+function normalisedUrl(raw: string): string {
+  try {
+    return new URL(raw.trim()).toString();
+  } catch {
+    return raw.trim();
+  }
 }
 
 /** Added conditions match one for one, in order. An alert with some is never the same alert as one without. */
@@ -337,6 +377,8 @@ export function createPriceAlert(
       ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
       ...(intent.frequency && intent.frequency !== 'once' ? { frequency: intent.frequency } : {}),
       ...(intent.source && intent.source !== 'mark' ? { source: intent.source } : {}),
+      ...(intent.channels ? { channels: intent.channels } : {}),
+      ...(intent.webhookUrl ? { webhookUrl: intent.webhookUrl } : {}),
     },
     z.object({
       alert: priceAlertSchema.refine(
@@ -426,6 +468,26 @@ export function setPriceAlertActive(
 export const deletePriceAlert = (api: ApiClient, id: string): Promise<ApiResult<{ deleted: boolean }>> =>
   api.mutate('notify', 'notify.deleteAlert', { id }, z.object({ deleted: z.boolean() }));
 
+export const WEBHOOK_CAUSES = [
+  'ok',
+  'redirect',
+  'refused',
+  'unavailable',
+  'gateway_timeout',
+  'timeout',
+  'unreachable',
+  'private_address',
+] as const;
+export type WebhookCause = (typeof WEBHOOK_CAUSES)[number];
+const webhookAttemptSchema = z.object({
+  n: z.number().int().min(1),
+  at: date,
+  status: z.number().int().nullable(),
+  cause: z.enum(WEBHOOK_CAUSES),
+  durationMs: z.number().int().min(0),
+});
+export type WebhookAttempt = z.infer<typeof webhookAttemptSchema>;
+
 export const alertTriggerSchema = z.object({
   /** Which trigger of the alert this is, from 1; a repeating alert has one row for each. A service that sends none means 1. */
   seq: z.number().int().min(1).optional(),
@@ -436,8 +498,29 @@ export const alertTriggerSchema = z.object({
   markPrice: z.string().min(1).max(64),
   firedAt: date,
   notificationId: z.string().nullable(),
+  // Added by C-alerts-scan-04: what happened to this firing on each channel, and on its webhook. A service that does not send
+  // them shows no delivery lines.
+  deliveries: z.array(deliverySchema).max(8).optional(),
+  webhook: z
+    .object({
+      status: z.enum(['pending', 'delivered', 'failed']),
+      attempts: z.array(webhookAttemptSchema).max(50),
+      nextAttemptAt: date.nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type AlertTrigger = z.infer<typeof alertTriggerSchema>;
+
+/** The owner's webhook policy: the ports a webhook may use (null: none can be saved) and the resend delays (null: none). */
+const webhookPolicySchema = z.object({
+  ports: z.array(z.number().int().min(1).max(65535)).max(32).nullable(),
+  retrySeconds: z.array(z.number().int().min(1)).max(32).nullable(),
+  timeoutMs: z.number().int().min(1),
+});
+export type WebhookPolicy = z.infer<typeof webhookPolicySchema>;
+export const readWebhookPolicy = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<WebhookPolicy>> =>
+  api.query('notify', 'notify.alertWebhookPolicy', undefined, webhookPolicySchema, { signal });
 const alertTriggersSchema = z.object({ retentionDays: z.number().int().min(1), items: z.array(alertTriggerSchema).max(200) });
 export type AlertTriggerPage = z.infer<typeof alertTriggersSchema>;
 

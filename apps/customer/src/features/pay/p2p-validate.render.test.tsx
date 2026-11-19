@@ -72,11 +72,7 @@ const confirm = () => [...host.querySelectorAll('button')].find((b) => b.textCon
 describe('Check the payment with the bank (J-p2p-02 #4)', () => {
   it('stays off and names the switched-off rail, the uncovered method, or an unread order', async () => {
     await render(
-      <ValidatePayment
-        trade={trade('rail.bank')}
-        pay={{ releaseStepUpWindow: noWindow } as unknown as PersonalPayApi}
-        onChecked={() => {}}
-      />,
+      <ValidatePayment trade={trade('rail.bank')} pay={{ releaseStepUpWindow: noWindow } as PersonalPayApi} onChecked={() => {}} />,
     );
     expect(button().disabled).toBe(true);
     expect(host.textContent).toContain('Payment validation needs a bank rail. It is switched off in this build');
@@ -84,7 +80,7 @@ describe('Check the payment with the bank (J-p2p-02 #4)', () => {
     await render(
       <ValidatePayment
         trade={trade('p2p.method_not_rail_validated')}
-        pay={{ releaseStepUpWindow: noWindow } as unknown as PersonalPayApi}
+        pay={{ releaseStepUpWindow: noWindow } as PersonalPayApi}
         onChecked={() => {}}
       />,
     );
@@ -93,7 +89,7 @@ describe('Check the payment with the bank (J-p2p-02 #4)', () => {
     await render(
       <ValidatePayment
         trade={{ ...trade(), paymentValidation: undefined }}
-        pay={{ releaseStepUpWindow: noWindow } as unknown as PersonalPayApi}
+        pay={{ releaseStepUpWindow: noWindow } as PersonalPayApi}
         onChecked={() => {}}
       />,
     );

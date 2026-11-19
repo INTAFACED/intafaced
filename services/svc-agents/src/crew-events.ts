@@ -15,8 +15,8 @@
  * Unlike the svc-academy half, this one is a two-line mount away: `index.ts`
  * already has the bus. It is left undone deliberately — ADR D-S-13 puts BOTH
  * named consumers on the owner, and half a close is how the description gets
- * quietly rewritten to match whichever half shipped. See
- * `CLASS_B_AWAITING_A_DECISION` in tooling/ci/event-wiring.mjs.
+ * quietly rewritten to match whichever half shipped. It is recorded as Class B
+ * in `WIRING_SOCKETS` (packages/events/src/catalog.ts).
  */
 
 import { MemorySeenStore, idempotent, type EventBus, type SeenStore, type Subscription } from '@intafaced/events';

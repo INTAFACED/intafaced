@@ -1,0 +1,50 @@
+import { defineCopy } from '../../shared/i18n';
+
+// English source only. J-cex-spot-10 #2 #6: every rate is the venue's, read now, and our builder fee is named apart; a
+// figure the venue or the owner leaves blank reads "not set" or "not reported", never a made-up one.
+export const venueFeesCopy = defineCopy('venue-fees', {
+  venueTitle: 'On the venue: what each trade pays',
+  venueLead:
+    'Your orders are placed on the venue. It charges its own maker or taker fee on each fill, and our builder fee is added on top, as its own line. A spot buy carries no builder fee; a spot sell and both sides of a perpetual do.',
+  venueName: 'Venue: {name}',
+  loading: 'Reading the venue’s fees…',
+  unread: 'The venue’s fees could not be read just now, so none is shown.',
+  tiersTitle: 'The venue’s fee tiers',
+  tiersCaption: 'The venue places your account in a tier by the volume it counted over {days} days, in {asset}.',
+  tiersNotSet: 'The venue’s fee tiers: not set. The venue publishes none.',
+  colTier: 'Tier',
+  colFrom: 'From volume ({asset})',
+  colSpotMaker: 'Spot maker',
+  colSpotTaker: 'Spot taker',
+  colPerpMaker: 'Perpetual maker',
+  colPerpTaker: 'Perpetual taker',
+  marketsTitle: 'Each market: the venue’s fee and our builder fee',
+  capLine: 'Our builder fee is never above the venue’s own cap on it: {spot} on spot, {perp} on perpetuals.',
+  colMarket: 'Market',
+  colVenueMaker: 'Venue maker fee',
+  colVenueTaker: 'Venue taker fee',
+  colBuilder: 'Our builder fee',
+  colCap: 'Venue’s cap on a builder fee',
+  onSell: 'on a sell',
+  notSet: 'not set',
+  zeroFee: 'Zero fee',
+  venueRebate: 'Venue rebate {pct}%',
+  pct: '{pct}%',
+  yours: 'yours',
+  maker: 'maker',
+  taker: 'taker',
+  tierTitle: 'Your tier on the venue',
+  tierLead:
+    'Read from the venue for your connected wallet: the tier it placed your venue account in, the volume it counted, and the rates it charges you.',
+  yourTier: 'Your venue tier',
+  volumeCounted: 'Volume the venue counted ({days} days)',
+  updatedAt: 'The venue last placed you',
+  yourSpotRates: 'Your spot rates on the venue',
+  eachMarket: 'each market’s own published rates (the base tier)',
+  nextThreshold: 'Next threshold',
+  nextLine: '{name} from {from} {asset}',
+  topTier: 'You are in the venue’s top tier',
+  notReported: 'not reported by the venue',
+  updateRule:
+    'The venue moves your tier at its own next update, with the figures it reports then; trading past a threshold does not change it before that.',
+});

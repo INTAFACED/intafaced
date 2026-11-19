@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
-import { Amount, Button, Skeleton, StateBlock, Switch, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
+import { Amount, Button, Skeleton, StateBlock, Switch, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy } from './deps';
 import { MissingCost, basisRefusalWords } from './MissingCost';
 import {
   LOT_METHODS,

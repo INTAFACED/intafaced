@@ -59,7 +59,8 @@ export class FundsUnreadError extends Error {
  * chosen for that agent is the one read. A plain `Amount` is a ledger reading.
  */
 export interface FundsPort {
-  available(userId: string, assetId: string, agentId?: string): Promise<Amount | FundsReading>;
+  /** `sessionId` lets a team session be covered by its business's payment method (J-agents-11). */
+  available(userId: string, assetId: string, agentId?: string, sessionId?: string): Promise<Amount | FundsReading>;
 }
 
 export type FundsOutcome =

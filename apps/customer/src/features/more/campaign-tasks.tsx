@@ -123,6 +123,26 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
               ),
             },
             { label: t('verification'), value: <span data-testid="task-gate">{t(`gate_${tasks.kycGate}`)}</span> },
+            ...(p
+              ? [
+                  {
+                    label: t('budget'),
+                    value: p.budget ? (
+                      <span
+                        data-testid="task-budget"
+                        data-limit={p.budget.limit}
+                        data-reserved={p.budget.reserved}
+                        data-spent={p.budget.spent}
+                        data-left={p.budget.left}
+                      >
+                        {t('budgetValue', { ...p.budget })}
+                      </span>
+                    ) : (
+                      <span data-testid="task-budget">{t('budgetUnset')}</span>
+                    ),
+                  },
+                ]
+              : []),
           ]}
         />
         {progress.resource.status === 'loading' ? (
@@ -194,9 +214,40 @@ function Steps({ progress: p }: { progress: TaskProgress }) {
           </li>
         ))}
       </ol>
+      {p.deposit ? <DepositRead deposit={p.deposit} /> : null}
     </>
   );
 }
+
+/** How a deposit step was read from the venue just now: read with its as-of time, unread, or no wallet to read. */
+function DepositRead({ deposit }: { deposit: NonNullable<TaskProgress['deposit']> }) {
+  const { t } = campaignTasksCopy.useCopy();
+  const { when } = useFormat();
+  return (
+    <p data-testid="task-deposit-source" data-source={deposit.source} data-as-of={deposit.asOf ?? undefined}>
+      {deposit.source === 'read' && deposit.asOf
+        ? t('depositRead', { when: when(deposit.asOf) })
+        : deposit.source === 'no_wallet'
+          ? t('depositNoWallet')
+          : t('depositUnread')}
+      {deposit.source === 'no_wallet' ? (
+        <>
+          {' '}
+          <a className="text-link" href="/wallet/venue">
+            {t('connectWallet')}
+          </a>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
+/** Why a reward INTAFACED owes is not in the wallet yet, from its typed reason. */
+const WHY: Record<string, 'why_no_wallet' | 'why_wallet_short' | 'why_frozen'> = {
+  'campaigns.no_connected_wallet': 'why_no_wallet',
+  'campaigns.reward_wallet_short': 'why_wallet_short',
+  'ledger.frozen': 'why_frozen',
+};
 
 /** A streak's run: alive until the zone midnight, or reset after a missed day. Times are the platform zone's. */
 function StreakState({ streak }: { streak: NonNullable<TaskProgress['steps'][number]['streak']> }) {
@@ -238,7 +289,10 @@ function Reward({
         <strong data-testid="task-reward-amount">{t('rewardAmount', { amount: r.amount, asset: r.asset })}</strong>:{' '}
         <span data-testid="task-reward-state">{t(`state_${r.state}`)}</span>
       </p>
-      {r.state === 'held' && r.holdUntil ? (
+      {/* An owed reward on its review hold is paid after the hold; a held one (custodial) likewise. */}
+      {(r.state === 'held' || (r.state === 'owed' && (!r.reason || r.reason === 'campaigns.reward_payout_unavailable'))) &&
+      r.holdUntil &&
+      Date.parse(r.holdUntil) > Date.now() ? (
         <p data-testid="task-reward-held-until" data-until={r.holdUntil}>
           {t('rewardHeldUntil', { when: when(r.holdUntil) })}
         </p>
@@ -248,7 +302,46 @@ function Reward({
           {t('rewardLockedUntil', { when: when(r.lock.until) })}
         </p>
       ) : null}
-      {r.ledgerTxId ? (
+      {r.state === 'owed' ? (
+        <p data-testid="task-reward-why" data-reason={r.reason ?? undefined}>
+          {t(r.reason && WHY[r.reason] ? WHY[r.reason]! : 'why_waiting')}
+          {r.reason === 'campaigns.no_connected_wallet' ? (
+            <>
+              {' '}
+              <a className="text-link" href="/wallet/venue">
+                {t('connectWallet')}
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+      {r.payout ? (
+        <>
+          <p data-testid="task-reward-paid-to" data-wallet={r.payout.toWallet}>
+            {t('paidTo', { wallet: r.payout.toWallet, when: when(r.payout.at) })}{' '}
+            {/* The chain's own record of the payment, in the app's explorer. */}
+            <a
+              className="text-link"
+              data-testid="task-reward-chain-tx"
+              data-tx={r.payout.chainTx}
+              href={`/chain/tx/${encodeURIComponent(r.payout.chainTx)}`}
+            >
+              {t('chainTx', { tx: r.payout.chainTx })}
+            </a>
+          </p>
+          <p
+            data-testid="task-reward-network-fee"
+            data-asset={r.payout.networkFee?.asset}
+            data-amount={r.payout.networkFee?.amount}
+            data-paid-by="intafaced"
+          >
+            {r.payout.networkFee
+              ? t('networkFee', { amount: r.payout.networkFee.amount, asset: r.payout.networkFee.asset })
+              : t('networkFeeUnread')}
+          </p>
+        </>
+      ) : null}
+      {r.ledgerTxId && r.state === 'posted' ? (
         <p>
           <span data-testid="task-reward-tx" data-tx={r.ledgerTxId}>
             {t('rewardTx', { tx: r.ledgerTxId })}
@@ -259,7 +352,7 @@ function Reward({
         </p>
       ) : null}
       <h3>{t('logTitle')}</h3>
-      <DataTable label={t('logLabel')} headers={[t('logWhen'), t('logOutcome'), t('logReason')]}>
+      <DataTable label={t('logLabel')} headers={[t('logWhen'), t('logOutcome'), t('logReason'), t('logChain')]}>
         {r.attempts.map((a, i) => (
           <tr key={`${a.at}-${i}`} data-testid="redemption-attempt" data-outcome={a.outcome}>
             <td>{when(a.at)}</td>
@@ -267,18 +360,43 @@ function Reward({
             <td data-testid="redemption-reason">
               <code>{a.reason ?? t('reasonNone')}</code>
             </td>
+            {/* The chain reference once paid: the payment line names the transaction that paid it. */}
+            <td data-testid="redemption-chain-tx" data-tx={a.outcome === 'paid' && r.payout ? r.payout.chainTx : undefined}>
+              {a.outcome === 'paid' && r.payout ? <code>{r.payout.chainTx}</code> : t('chainNone')}
+            </td>
           </tr>
         ))}
       </DataTable>
-      <p data-testid="task-rollback" data-code={r.rollback.blocker}>
+      <p
+        data-testid="task-rollback"
+        data-code={r.rollback.blocker}
+        data-closes-on={r.rollback.closesOn}
+        data-closes-at={r.rollback.closesAt ?? undefined}
+        data-open={rollbackOpen(r) ? 'true' : 'false'}
+      >
         <strong>{t('rollbackWindow')}</strong>:{' '}
         {window === null
           ? t('rollbackUnset')
-          : r.rollback.closesAt
-            ? t('rollbackValue', { duration: duration(window), when: when(r.rollback.closesAt) })
-            : t('rollbackPending', { duration: duration(window) })}
+          : r.rollback.closesOn === 'payment'
+            ? r.payout && r.rollback.closesAt === r.payout.at
+              ? t('rollbackClosedPaid', { when: when(r.rollback.closesAt) })
+              : r.rollback.closesAt && !rollbackOpen(r)
+                ? t('rollbackClosedOwed', { when: when(r.rollback.closesAt) })
+                : r.rollback.closesAt
+                  ? t('rollbackOpenUntilPaid', { duration: duration(window), when: when(r.rollback.closesAt) })
+                  : t('rollbackPending', { duration: duration(window) })
+            : r.rollback.closesAt
+              ? t('rollbackValue', { duration: duration(window), when: when(r.rollback.closesAt) })
+              : t('rollbackPending', { duration: duration(window) })}
         . {t('rollbackBlocked')}
       </p>
     </div>
   );
+}
+
+/** Whether the rollback window is still open now: a paid reward's closed at its payment, any other's at its end. */
+function rollbackOpen(r: RewardRecord): boolean {
+  if (r.rollback.windowSeconds === null) return false;
+  if (r.rollback.closesOn === 'payment' && r.payout) return false;
+  return r.rollback.closesAt === null || Date.parse(r.rollback.closesAt) > Date.now();
 }

@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 
 /**
  * The operator's agent action log (AG-audit-01, AG-audit-02): one customer's agent actions as the service recorded them,
@@ -108,7 +108,7 @@ const RETRY_WINDOW_MINUTES = 5;
  * customer's reads, and a read that lost every retry was refused with the bare 40001. The audit row stays one per request
  * by its unique business key, and each read's count still includes its own row.
  */
-const readTransaction = <T>(sql: Sql, fn: (tx: Sql) => Promise<T>): Promise<T> =>
+const readTransaction = <T>(sql: Sql, fn: (tx: TransactionSql) => Promise<T>): Promise<T> =>
   transaction(sql, fn, { isolation: 'read committed', maxAttempts: 5 });
 
 /**
@@ -118,7 +118,7 @@ const readTransaction = <T>(sql: Sql, fn: (tx: Sql) => Promise<T>): Promise<T> =
  * row.
  */
 async function recordRead(
-  tx: Sql,
+  tx: Queryable,
   read: {
     kind: ReadKind;
     operatorId: string;
@@ -169,7 +169,7 @@ interface ActionRow {
 const toolOf = (row: Pick<ActionRow, 'tool' | 'task'>): string => row.tool ?? row.task ?? '';
 
 async function readActions(
-  tx: Sql,
+  tx: Queryable,
   userId: string,
   filter: { outcome?: Outcome | undefined; tool?: string | undefined },
   limit: number,

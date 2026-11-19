@@ -7,6 +7,8 @@ import {
   campaignTransitionInputSchema,
   campaignUpdateInputSchema,
   campaignVoucherSchema,
+  earningEvaluateInputSchema,
+  earningEvaluationSchema,
   ruleLibraryEntrySchema,
   ruleLibrarySaveInputSchema,
   ruleTestInputSchema,
@@ -17,9 +19,16 @@ import {
   type CampaignAction,
   type CampaignDefinitionInput,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type Part,
+  type PartLabels,
+  explainRefusal,
+} from '@/lib/desk';
 import type { CampaignDeskReply, CampaignDetailView, CampaignsDeskView } from './builder-model';
 
 /**
@@ -107,7 +116,7 @@ function reply(result: FounderCallResult<Campaign | null>, what: string): { stat
 
 export type CheckedInput<T> = { ok: true; input: T } | { ok: false; why: string };
 
-const check =
+export const check =
   <T>(schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, why: string) =>
   (input: unknown): CheckedInput<T> => {
     const parsed = schema.safeParse(input);
@@ -153,7 +162,7 @@ export type RuleReply<T> =
   | { readonly ok: false; readonly title: string; readonly body: string; readonly next: string; readonly code: string | null };
 
 /** A rule door's answer: the data, or the service's own sentence and code. */
-function ruleReply<T>(result: FounderCallResult<T>): { status: number; reply: RuleReply<T> } {
+export function ruleReply<T>(result: FounderCallResult<T>): { status: number; reply: RuleReply<T> } {
   if (result.kind === 'ok') return { status: 200, reply: { ok: true, data: result.data } };
   const code = result.kind === 'refused' || result.kind === 'forbidden' ? (result.refusal.code ?? null) : null;
   const status = result.kind === 'refused' ? result.refusal.status : result.kind === 'forbidden' ? 403 : 502;
@@ -192,4 +201,18 @@ export async function listVouchers(ctx: FounderCallContext, input: unknown) {
 
 export async function issueVoucher(ctx: FounderCallContext, input: unknown) {
   return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.vouchers.issue', 'POST', input, readVoucher));
+}
+
+// ── Earning rules evaluated on a TEST event (CM-rewards-hub-05, J-campaigns-15 #5) ─────────────────────────────────
+
+const readEvaluation = parseWith(earningEvaluationSchema);
+
+export const checkEarningEvaluate = check(
+  earningEvaluateInputSchema,
+  "Which campaign, which trigger, and the TEST event's amounts as decimal numbers?",
+);
+
+/** Each earning rule's answer to one TEST event; svc-campaigns writes nothing for it. */
+export async function evaluateEarning(ctx: FounderCallContext, input: unknown) {
+  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.earning.evaluate', 'GET', input, readEvaluation));
 }

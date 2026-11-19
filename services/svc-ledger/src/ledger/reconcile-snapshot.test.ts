@@ -340,7 +340,7 @@ describe('reconciliation snapshot runner — real book', () => {
     await runSnapshotReconciliation(connect(), {
       custodyLayer: 'on',
       async prove(tx) {
-        seen.push((await probe(tx as unknown as Sql))[0]!.statement_timeout);
+        seen.push((await probe(tx as Sql))[0]!.statement_timeout);
         return greenReport();
       },
     });
@@ -348,7 +348,7 @@ describe('reconciliation snapshot runner — real book', () => {
       custodyLayer: 'on',
       statementTimeoutMs: 2_000,
       async prove(tx) {
-        seen.push((await probe(tx as unknown as Sql))[0]!.statement_timeout);
+        seen.push((await probe(tx as Sql))[0]!.statement_timeout);
         return greenReport();
       },
     });

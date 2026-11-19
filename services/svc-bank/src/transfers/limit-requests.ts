@@ -63,6 +63,9 @@ function toRequest(row: Row): LimitRequest {
   };
 }
 
+/** The one-open-request-per-customer-asset-kind key (drizzle/0048_limit_increase_requests.sql). */
+const OPEN_UNIQUE_INDEX = 'limit_increase_requests_open_uq';
+
 const COLUMNS =
   'id, user_id, asset_id, kind, requested::text, reason, status, granted::text, decided_by, decision_note, created_at, decided_at';
 
@@ -110,10 +113,15 @@ export class LimitRequestService {
         RETURNING ${this.sql.unsafe(COLUMNS)}
       `;
     } catch (err) {
-      if ((err as { code?: string }).code === '23505') {
+      const pg = err as { code?: string; constraint_name?: string };
+      if (pg.code !== '23505' || pg.constraint_name !== OPEN_UNIQUE_INDEX) throw err;
+      // ON CONFLICT (id) absorbs only the id key. A retry racing its own first call loses on the open key instead:
+      // the winner committed before Postgres raised, so a row under this id means replay, none means another id holds the slot.
+      const won = await this.sql`SELECT 1 FROM bank.limit_increase_requests WHERE id = ${input.requestId}`;
+      if (won.length === 0) {
         throw new BankError(`A ${input.kind} limit request for ${input.assetId} is already open`, 'bank.limit_request_open');
       }
-      throw err;
+      inserted = [];
     }
     if (inserted[0]) return { ...toRequest(inserted[0]), replayed: false };
     const prior = (

@@ -3,10 +3,27 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
-/** The Postgres client and server binaries the local test stack uses: LOCAL_STACK_PG_BIN, else Homebrew, else Debian's 16. */
-export function localPgBin(env = process.env) {
+const listDir = (dir) => {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The Postgres client and server binaries the local test stack uses: LOCAL_STACK_PG_BIN, else Homebrew's (macOS), else
+ * the newest major Debian and Ubuntu install under /usr/lib/postgresql (Linux), else Debian's 16 (so the error names it).
+ */
+export function localPgBin(env = process.env, { exists = fs.existsSync, list = listDir } = {}) {
   if (env.LOCAL_STACK_PG_BIN) return env.LOCAL_STACK_PG_BIN;
-  return fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin';
+  if (exists('/opt/homebrew/bin/pg_ctl')) return '/opt/homebrew/bin';
+  const debian = list('/usr/lib/postgresql')
+    .filter((major) => /^\d+$/.test(major))
+    .sort((a, b) => Number(b) - Number(a))
+    .map((major) => `/usr/lib/postgresql/${major}/bin`)
+    .find((bin) => exists(`${bin}/pg_ctl`));
+  return debian ?? '/usr/lib/postgresql/16/bin';
 }
 
 /** As root (a cloud container's default user) the database runs as this OS user: initdb and postgres refuse root. */
@@ -19,7 +36,8 @@ import { localStackState } from './local-test-facts.mjs';
 
 export { localStackState };
 
-const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
+/** The services the journey helpers require running (assertActiveLocalStack); a first `start --only` must name them. */
+export const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
 
 /**
  * The custody switch (OWNER 226, OWNER 288) the stack's running svc-ledger was started with: `on` or `off`. The stack

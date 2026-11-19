@@ -8,38 +8,19 @@
  */
 
 import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import { FIX_DROP_COPY_FILL } from '@intafaced/contracts/fix-procedures';
+import { callHttpRecord } from '@intafaced/contracts/procedure-http';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import { HOUSE_MM_API_KEY_ID } from './auth-attribution.js';
-
-export const DROP_COPY_INGEST_PATH = '/internal/drop-copy/fills';
 
 export const DROP_COPY_SOURCE_REST = 'rest' as const;
 export const DROP_COPY_SOURCE_RFQ = 'rfq' as const;
 export const DROP_COPY_SOURCE_LIQUIDATION = 'liquidation' as const;
 
-const HITCHABLE_SOURCES = new Set<string>([DROP_COPY_SOURCE_REST, DROP_COPY_SOURCE_RFQ, DROP_COPY_SOURCE_LIQUIDATION]);
-
-const FORBIDDEN_SOURCES = new Set(['ui', 'ws', 'fix', 'algo', 'broker']);
-
-/** Same decimal-string law as svc-fix DropCopyFill.parse. */
-const DECIMAL = /^\d+(\.\d{1,18})?$/;
-
 export type DropCopyHitchSource = typeof DROP_COPY_SOURCE_REST | typeof DROP_COPY_SOURCE_RFQ | typeof DROP_COPY_SOURCE_LIQUIDATION;
 
-export type DropCopyFillWire = {
-  readonly fillId: string;
-  readonly orderId: string;
-  readonly userId: string;
-  readonly marketId: string;
-  readonly side: string;
-  readonly price: string;
-  readonly qty: string;
-  readonly quoteAmount: string;
-  readonly feeAsset: string;
-  readonly feeAmount: string;
-  readonly sequence?: number;
-  readonly ts: string;
-  readonly source: DropCopyHitchSource;
-};
+/** One fill as svc-fix's drop-copy record takes it: decimal-string money, a proveable source. */
+export type DropCopyFillWire = ProcedureInput<typeof FIX_DROP_COPY_FILL>;
 
 export interface DropCopyIngestPort {
   postFill(fill: DropCopyFillWire): Promise<void>;
@@ -68,41 +49,6 @@ function readNonEmpty(raw: string | null | undefined): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
-function moneyString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  return DECIMAL.test(value) ? value : null;
-}
-
-/** Raw JSON bytes for HMAC body-bind. Null → do not POST (wrong source or IEEE money). */
-export function encodeDropCopyFillJson(fill: DropCopyFillWire): string | null {
-  if (FORBIDDEN_SOURCES.has(fill.source) || !HITCHABLE_SOURCES.has(fill.source)) return null;
-  const price = moneyString(fill.price);
-  const qty = moneyString(fill.qty);
-  const quoteAmount = moneyString(fill.quoteAmount);
-  const feeAmount = moneyString(fill.feeAmount);
-  if (price === null || qty === null || quoteAmount === null || feeAmount === null) return null;
-  if (typeof fill.feeAsset !== 'string' || fill.feeAsset.length < 1) return null;
-  const body: Record<string, string | number> = {
-    fillId: fill.fillId,
-    orderId: fill.orderId,
-    userId: fill.userId,
-    marketId: fill.marketId,
-    side: fill.side,
-    price,
-    qty,
-    quoteAmount,
-    feeAsset: fill.feeAsset,
-    feeAmount,
-    ts: fill.ts,
-    source: fill.source,
-  };
-  if (fill.sequence !== undefined) {
-    if (!Number.isInteger(fill.sequence)) return null;
-    body.sequence = fill.sequence;
-  }
-  return JSON.stringify(body);
-}
-
 /** Awaited after ledger settle; never throws. */
 export async function fireDropCopyFill(port: DropCopyIngestPort, fill: DropCopyFillWire): Promise<void> {
   try {
@@ -124,25 +70,19 @@ export function createDropCopyIngestClient(
 ): DropCopyIngestPort {
   const base = ingestUrl.trim().replace(/\/$/, '');
   if (base.length === 0) return new NoopDropCopyIngest();
-  const url = `${base}${DROP_COPY_INGEST_PATH}`;
-  const authHeaders = serviceCallSigner({ service: 'svc-trade', audience: 'svc-fix', legacySecret: internalSecret, s2s });
+  const sign = serviceCallSigner({ service: 'svc-trade', audience: 'svc-fix', legacySecret: internalSecret, s2s });
 
   return {
     async postFill(fill) {
-      const body = encodeDropCopyFillJson(fill);
-      if (body === null) return;
-      const headers = {
-        'content-type': 'application/json',
-        ...authHeaders(body, { method: 'POST', url: new URL(url), contentType: 'application/json' }),
-      };
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body,
-        signal: AbortSignal.timeout(FETCH_MS),
+      // A fill the record refuses (IEEE money, a source it cannot prove) is never posted.
+      if (!FIX_DROP_COPY_FILL.input.safeParse(fill).success) return;
+      await callHttpRecord(FIX_DROP_COPY_FILL, {
+        baseUrl: base,
+        input: fill,
+        sign,
+        fetcher: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(FETCH_MS) }),
+        errorOf: (_path, status) => new Error(`drop-copy ingest refused (${status})`),
       });
-      if (response.ok) return;
-      throw new Error(`drop-copy ingest refused (${response.status})`);
     },
   };
 }

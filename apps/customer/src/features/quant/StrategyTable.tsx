@@ -2,7 +2,7 @@ import { quantStrategyHeadSchema, quantStrategyListOutputSchema, type QuantStrat
 import type { ReactNode } from 'react';
 import { z } from 'zod';
 import { DataTable } from '../../shared/ui';
-import { Read } from '../more/common';
+import { Read } from '../more';
 import { MorePages, useStrategyPages } from './strategy-pages';
 import { studioCopy } from './studio-copy';
 

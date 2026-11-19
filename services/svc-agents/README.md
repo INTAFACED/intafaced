@@ -4,7 +4,7 @@
 
 Owns four things: a provider-agnostic model gateway, a per-task routing table, exact per-user metering billed through the ledger, and the `agent_actions` audit trail that makes an agent accountable.
 
-**What this service is:** the fleet runtime **and** the five Stage-1 product factories (navigator / support / scanner / merchant / copy-intel). Boot upserts their guardrails into `agent_definitions`; each mounts a metered `*.runSession`. `riskCompliance`, `coach`, and `growth` are refuse/proposal doors (not fleet `runSession` factories). Portfolio / launch remain doctrine names only until product law. An ungrounded coach is a typed refuse, not a chatbot. Growth proposes and never publishes; a dark warehouse is not a funnel.
+**What this service is:** the fleet runtime **and** the five Stage-1 product factories (navigator / support / scanner / merchant / copy-intel). Boot upserts their guardrails into `agent_definitions`; each mounts a metered `*.runSession`. `riskCompliance`, `coach`, and `growth` are refuse/proposal doors (not fleet `runSession` factories). Launch remains a doctrine name only until product law; the Portfolio planner's rebalance of a person's own agent's venue sub-account runs in svc-trade (`src/venue/own-agent-rebalance.ts`, J-agents-18 #1 #2), and `portfolio.plan` here stays the ledger-only planner behind its kill switch. An ungrounded coach is a typed refuse, not a chatbot. Growth proposes and never publishes; a dark warehouse is not a funnel.
 
 It also holds no balances and prices nothing it does not have a rate for. Metered usage moves value exactly once, through `feeCharge`, into svc-ledger.
 
@@ -34,22 +34,26 @@ The alternative was to hardcode a hostname and a model id and add this service t
 
 Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an audit trail one user can query for another is a privacy incident wearing a feature's clothes.
 
-| Procedure             | Scope            | Input                                      | Output                                                      |
-| --------------------- | ---------------- | ------------------------------------------ | ----------------------------------------------------------- |
-| `health`              | —                | —                                          | `{ ok, service }`                                           |
-| `routes.list`         | `agents:read`    | —                                          | tasks, output ceilings, and the **rate each is billed at**  |
-| `agent.get`           | `agents:read`    | `{ agentId }`                              | the guardrail, its permission mode and each tool’s refusals |
-| `session.open`        | `agents:execute` | `{ agentId }`                              | session, with the guardrail bound to it                     |
-| `session.close`       | `agents:execute` | `{ sessionId }`                            | settles open windows, then closes                           |
-| `session.log`         | `agents:read`    | `{ sessionId }`                            | every action, i18n-keyed                                    |
-| `session.detail`      | `agents:read`    | `{ sessionId }`                            | the caller's own session and each usage window, exact       |
-| `session.selected`    | `agents:read`    | —                                          | the session the person last selected, or null               |
-| `session.select`      | `agents:read`    | `{ sessionId }`                            | keeps that choice; the person only, never a key or service  |
-| `run.complete`        | `agents:execute` | `{ sessionId, requestId, task, messages }` | text, token counts, cost, the audit row                     |
-| `usage.current`       | `agents:read`    | `{ sessionId }`                            | what the open window would cost. Bills nothing              |
-| `usage.settle`        | `admin:write`    | `{ sessionId, windowId }`                  | posts the charge. Idempotent                                |
-| `usage.settleSession` | `admin:write`    | `{ sessionId }`                            | settles every open / sealed-unbilled window. Idempotent     |
-| `log.mine`            | `agents:read`    | `{ limit }`                                | **the user-visible log** (§8.2)                             |
+| Procedure             | Scope            | Input                                                                     | Output                                                                                                                |
+| --------------------- | ---------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `health`              | —                | —                                                                         | `{ ok, service }`                                                                                                     |
+| `routes.list`         | `agents:read`    | —                                                                         | tasks, output ceilings, and the **rate each is billed at**                                                            |
+| `routes.desk`         | `admin:read`     | —                                                                         | founders' table: provider and model alias (configuration), ceiling, rates or null, pending change, last change, audit |
+| `routes.propose`      | `admin:write`    | `{ task, maxOutputTokens, inputPerMillion, outputPerMillion, requestId }` | one founder's change, pending; the table does not move                                                                |
+| `routes.withdraw`     | `admin:write`    | `{ changeId }`                                                            | the proposer takes their pending change back                                                                          |
+| `routes.confirm`      | `admin:write`    | `{ changeId }`                                                            | a second founder applies it once, with an audit row naming both                                                       |
+| `agent.get`           | `agents:read`    | `{ agentId }`                                                             | the guardrail, its permission mode and each tool’s refusals                                                           |
+| `session.open`        | `agents:execute` | `{ agentId }`                                                             | session, with the guardrail bound to it                                                                               |
+| `session.close`       | `agents:execute` | `{ sessionId }`                                                           | settles open windows, then closes                                                                                     |
+| `session.log`         | `agents:read`    | `{ sessionId }`                                                           | every action, i18n-keyed                                                                                              |
+| `session.detail`      | `agents:read`    | `{ sessionId }`                                                           | the caller's own session and each usage window, exact                                                                 |
+| `session.selected`    | `agents:read`    | —                                                                         | the session the person last selected, or null                                                                         |
+| `session.select`      | `agents:read`    | `{ sessionId }`                                                           | keeps that choice; the person only, never a key or service                                                            |
+| `run.complete`        | `agents:execute` | `{ sessionId, requestId, task, messages }`                                | text, token counts, cost, the audit row                                                                               |
+| `usage.current`       | `agents:read`    | `{ sessionId }`                                                           | what the open window would cost. Bills nothing                                                                        |
+| `usage.settle`        | `admin:write`    | `{ sessionId, windowId }`                                                 | posts the charge. Idempotent                                                                                          |
+| `usage.settleSession` | `admin:write`    | `{ sessionId }`                                                           | settles every open / sealed-unbilled window. Idempotent                                                               |
+| `log.mine`            | `agents:read`    | `{ limit }`                                                               | **the user-visible log** (§8.2)                                                                                       |
 
 ### Agents a person builds (AG-builder-01)
 
@@ -62,6 +66,30 @@ Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an 
 | `own.list`      | `agents:read`, person | `{ limit }`                                        | the caller's own agents, newest first                                                                      |
 
 "Person" is the signed-in session itself (`identity:write`, no `kid` or `sub_account`), as for spend limits. A draft's tools come only from `src/own/catalog.ts`; a tool that moves money is offered so it can be refused (`agents.own.money_tool`) and is never stored; each read tool declares its input and output shapes and the refusals its route returns (AG-tools-01), and one with no declared shape is refused (`agents.tool_shape_missing`) and never granted to a session; and a blank per-session cap stays blank (`agents.spend.cap_unset` blocks publishing). Building an agent moves no value. Table: `own_agents` (migration `0005`).
+
+### Schedules and event triggers of own agents (AG-sessions-02, J-agents-07 #1 to #4)
+
+| Procedure              | Scope                    | Input                                                        | Output                                                            |
+| ---------------------- | ------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `own.schedules.list`   | `agents:read`, person    | `{ id }`                                                     | the owner's cadence values and each schedule with its occurrences |
+| `own.schedules.create` | `agents:execute`, person | `{ id, createKey, repeat, intervalMinutes, perRunCap, ask }` | the schedule; the same create key is the same schedule            |
+| `own.schedules.cancel` | `agents:execute`, person | `{ id, scheduleId }`                                         | the schedule, cancelled: no next occurrence                       |
+| `own.triggers.list`    | `agents:read`, person    | `{ id }`                                                     | each trigger with its deliveries and runs                         |
+| `own.triggers.create`  | `agents:execute`, person | `{ id, createKey, subject, perRunCap, ask }`                 | the trigger                                                       |
+
+A schedule is due at once and then every interval the person set, never below the owner's minimum
+(`AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES`); with that or the daily limit (`AGENTS_SCHEDULE_DAILY_LIMIT`) blank, a new
+schedule refuses `agents.schedule_cadence_unset`, and a repeating one with its interval blank refuses
+`agents.schedule.min_interval_unset`. The due-run workers (`AGENTS_SCHEDULE_WORKERS`, waking every
+`AGENTS_SCHEDULE_TICK_MS`; blank leaves them off) each read what is due before any claims; a claim is made under the
+schedule's row lock and writes one `own_agent_auto_runs` row keyed `agents:schedule:<schedule>:<ordinal>`, so two workers
+make one run and the other only counts its wake. A trigger's event writes one row keyed `agents:trigger:<trigger>:<event id>`.
+Each run is the agent's own run on a session of its own, admitted on the agent's switch, the cap per run (the session's
+ceiling), the person's caps for the agent and the daily limit: anything blank skips it `agents.schedule_blocked` with
+the reason, and nothing runs. A crash leaves the row `claimed`; after its lease a tick resumes it under the same key, so
+the meter's request id stops a second engine call. Cancelling a schedule does not stop a run already running. No value
+moves here: the run's window is charged like any run's. Tables: `own_agent_schedules`, `own_agent_triggers`,
+`own_agent_auto_runs`, `own_agent_trigger_deliveries` (migration `20261113210533`).
 
 ### The Navigator on-chain (RC-agents-01, J-agents-19)
 
@@ -143,7 +171,9 @@ The thin useful path on the gateway itself is `runUsefulPath` in `src/useful-pat
 
 No payload carries a prompt, an answer, or a model identifier. §10 keeps user content out of general stores and a durable event stream is one; §0.7 keeps vendor names out of anything shipped. Consumers get counts and codes — anything more detailed is a query against `agent_actions` under the caller's own authorisation.
 
-**Consumes** — nothing yet. Compliance screening of refusals (§8.8) consumes `action.rejected` when svc-core-ops lands.
+**Consumes** — `trade.fill.settled` (durable `agents-own-trigger-fill-settled`, mounted from `index.ts`), for the triggers of a person's own agents (AG-sessions-02): the person's own fill runs each of their active triggers on that subject once per fill id; the run row's business key in Postgres is the seen-set, so a redelivery or a restart never runs it twice. Compliance screening of refusals (§8.8) consumes `action.rejected` when svc-core-ops lands.
+
+**Consumes** — `identity.self_freeze.frozen` (`selfFreezeApplied`, durable `agents-identity-self-freeze-frozen`, mounted from `index.ts`; J-wallet-13 #1), the owner's own freeze: in one transaction keyed by the freeze id (`agents.self_freezes_applied`), every agent permission kept for the person is revoked — own-agent tokens, tool-class consents, sub-account access, Navigator session-key bindings (marked revoking; the person signs the on-chain revoke) — and their scheduled agent runs stop: schedules and triggers cancelled, claimed occurrences skipped, session background runs paused, background test runs stopped. A second delivery changes nothing, and nothing is restored at the lift: the person grants again. Every agent action and every change that gives an agent more (token issue and use, consent and access grants, an allow rule, rules not required, a new schedule or trigger, a session, a run, a tool call, an approval, a Navigator binding or trade, a background run start or resume) also reads the freeze from identity (`GET /internal/self-freeze/:userId`) and refuses FORBIDDEN `agents.identity.owner_frozen_self`; an unreadable or unwired freeze refuses `agents.identity.owner_freeze_unread` (`src/own/self-freeze.ts`).
 
 ---
 
@@ -250,6 +280,12 @@ Two properties worth stating:
 
 ---
 
+## Alerts and this environment's policy overrides (`opsAlerts.*`, AG-analytics-02, AG-guardrails-02)
+
+An operator (`admin:write`) stores alert rules: a measure over every recorded agent action (refusal rate or failure rate in percent of the window's actions, or cost in the fee asset), a threshold, a window in minutes, and optionally one agent id. A blank threshold refuses `agents.alert_threshold_required` and stores nothing; `0` is a value. The evaluator runs once a minute and on `opsAlerts.evaluate`, over each rule's current and previous window aligned to the epoch. A window with no actions has no rate and fires nothing. A window above its threshold writes one `agent_alerts` row, unique by rule and window start, so a second evaluation writes nothing. Every alert is kept. While alert notifications are on (`agent_alert_settings`; no row is on), svc-agents hands each one to svc-notify by `agentAlertFired`, once per rule and window on its business key, and marks it `handed_off`; svc-notify writes the inbox row for the operator who stored the rule and sends it by email and push where those vendors are set. An operator takes notifications down with `opsAlerts.setNotifications`: alerts are still kept and stay `pending` until they are back, when every pending one is handed over.
+
+`opsAlerts.policy` shows the owner's managed baseline (`AGENTS_POLICY_BASELINE`) per tool class, with this environment's override (`agent_policy_overrides`). `opsAlerts.setOverride` refuses an override looser than the baseline with `agents.baseline_loosen_refused` and stores nothing. Every own-agent tool gate and dry run meets the stricter of the baseline and the override. `opsAlerts.checkRule` checks a person's standing rule against both and stores nothing. The founder console's desk is `/more-ops/agents/alerts`.
+
 ## Database constraints as a backstop
 
 The service checks these; the database enforces them regardless.
@@ -349,3 +385,7 @@ The ledger client signs with svc-agents' own key when `S2S_AUTH_MODE`, `S2S_SIGN
 ## Service keys: outgoing calls
 
 Beyond the ledger, svc-agents' other hand-signed calls sign with its own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`S2S_KEYRING` too for the inbound door): affiliate accrue and payout and the account and session reads go to svc-identity, the curriculum read to svc-academy, merchant watch metrics to svc-pay and copy leader fixtures to svc-trade. `dual` also sends the shared secret, `keypair` the key only. Unset, they are signed with the shared secret exactly as before.
+
+## Changing the routing table (J-agents-20)
+
+Provider and model alias come only from `AGENTS_ROUTING_TABLE`: swapping a provider is a configuration change and a restart, never a code change. Founders change a route's output ceiling and rates on the console's More modules page, two of them: `routes.propose` stores the change as pending (`route_change_requests`, one pending per task), and a different founder's `routes.confirm` writes `route_overrides` and its `route_change_audit` row in one transaction; the proposer is refused (`agents.route_change_same_founder`), and a second confirm changes nothing. The overrides are laid over the configured table at boot, after each confirm and every 30 s (`src/gateway/route-changes.ts`). A rate change takes effect at the start of the next usage window; until then the open window keeps the rate in force at confirm. Blank rates leave the route unpriced, so its runs refuse `agents.price_unset`. Open sessions keep the guardrail they copied; nothing here touches a session. Migration `20261116090000_route_changes`.

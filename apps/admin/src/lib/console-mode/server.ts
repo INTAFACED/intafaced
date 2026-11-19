@@ -1,10 +1,6 @@
 import 'server-only';
 import { consoleModeSetOutputSchema } from '@intafaced/contracts/ops-console-mode';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import { type ExecuteFn, type ExecuteReply, explainRefusal, failureRefusal, founderCall, type FounderCallContext } from '@/lib/desk';
 export { loadConsoleMode, type ConsoleModeRead } from './read';
 
 const WRONG_STATE: ExecuteReply = { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };

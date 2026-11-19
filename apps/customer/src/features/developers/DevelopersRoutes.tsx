@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent, type JSX } from 'react';
 import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { developersCopy } from './developers-copy';
 import { liveCopy } from './developers-live-copy';
 import { hostsView, readDeveloperHosts, readRegionalRule, regionalRuleView } from './developers-values';
@@ -15,6 +15,7 @@ import {
   QuickstartPage,
   ReferencePage,
   RestPage,
+  WebSocketPage,
 } from './DocsPages';
 import {
   AUDIENCES,
@@ -38,7 +39,8 @@ import { ExplorerPage } from './explorer/ExplorerPage';
 import { BotPolicyPage } from './trading/BotPolicyPage';
 import { OrderTypesPage } from './trading/OrderTypesPage';
 import { IdempotencyPage } from './idempotency/IdempotencyPage';
-import '../public/public-pages.css';
+import { QuantApiPage } from './quant/QuantApiPage';
+import '../../shared/public-pages.css';
 
 const key = (id: string) => id.replace(/-/g, '_');
 type SectionKey = Extract<Parameters<ReturnType<typeof developersCopy.useCopy>['t']>[0], `section_${string}`>;
@@ -62,6 +64,8 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   'order-types': OrderTypesPage,
   'bot-policy': BotPolicyPage,
   idempotency: IdempotencyPage,
+  quant: QuantApiPage,
+  websocket: WebSocketPage,
 };
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */

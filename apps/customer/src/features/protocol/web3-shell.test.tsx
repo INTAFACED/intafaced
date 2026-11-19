@@ -9,7 +9,7 @@ const answers: { chain: unknown; indexer?: unknown; keyed: Record<string, unknow
 vi.mock('../session/session', async (original) => {
   const real = await original<typeof import('../session/session')>();
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
-  return { ...real, useApi: () => api as never, useSession: () => ({ session: null, restoring: false }) as never };
+  return { ...real, useApi: () => api as never, useSession: () => ({ session: null }) as never };
 });
 vi.mock('../../shared/resource', () => ({
   // Only the chain status is answered; every other source stays loading, so the rooms show their own checking state.
@@ -56,6 +56,17 @@ describe('Web3 shell', () => {
     expect(page('/dex')).toContain('Checking network…');
     answers.chain = { status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'x', code: 'edge.upstream_unavailable' } };
     expect(page('/dex')).toContain('Network unreachable · The Protocol service did not answer');
+  });
+  it('treats a region svc-protocol does not serve (denied.region_blocked) as a blocked region too', () => {
+    answers.chain = { status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: 'denied.region_blocked' } };
+    const html = renderToStaticMarkup(
+      <Web3Shell path="/wallet">
+        <PermitForm />
+      </Web3Shell>,
+    );
+    expect(html).toContain('data-notice="region" data-code="denied.region_blocked"');
+    expect(html).toContain('This service is not available in your region.');
+    expect(html).not.toContain('Review and sign');
   });
   it('names a blocked region in words and offers no signing action while the edge refuses it', () => {
     answers.chain = { status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: 'edge.geo_blocked' } };

@@ -1,0 +1,736 @@
+{
+  "about": "Every INSERT … ON CONFLICT (<target>) on main when tooling/ci/conflict-keys.mjs landed (18 Nov 2026) that leaves another unique key of its table unabsorbed, one entry per insert and key, with its verdict: safe and why, or a race with its bug issue. Read from the code by four reviewers and spot-checked; races are not yet reproduced. The list only shrinks: fix a race, then remove its entry. New code takes the fix the check prints, never a new entry here.",
+  "entries": [
+    {
+      "file": "services/svc-academy/src/academy-service.ts",
+      "table": "cert_grants",
+      "target": "(user_id, cert_id)",
+      "constraint": "cert_grants_idempotency_uq",
+      "verdict": "race",
+      "issue": 8907,
+      "why": "idempotency_key is certIdempotencyKey(user,cert) = `cert:<user>:<cert>` (certs/progress.ts:83), the same inputs as the target, and insertCertGrant takes no lock. Two concurrent grants/programme reads for the same learner+cert (the race the comment at academy-service.ts:3601 and :3214 says it absorbs) both insert; the loser raises 23505 cert_grants_idempotency_uq instead of DO NOTHING."
+    },
+    {
+      "file": "services/svc-academy/src/academy-service.ts",
+      "table": "cert_grants",
+      "target": "(user_id, cert_id)",
+      "constraint": "cert_grants_public_id_uq",
+      "verdict": "safe",
+      "why": "public_id is randomPublicId() (certs/public-id.ts:12, random bytes) generated fresh in the VALUES at academy-service.ts:3229, so a duplicate of this row never shares it."
+    },
+    {
+      "file": "services/svc-academy/src/curriculum/courses.ts",
+      "table": "course_items",
+      "target": "(id)",
+      "constraint": "course_items_position_uq",
+      "verdict": "safe",
+      "why": "Same course-row FOR UPDATE lock (courses.ts:406/:629) serialises outline saves; the other course_items writer, lessons.ts:319 duplicate(), takes lockItem `FOR UPDATE OF c, i` on the same course row (lessons.ts:504) and shifts positions through negatives first. Positions written here are distinct per section."
+    },
+    {
+      "file": "services/svc-academy/src/curriculum/courses.ts",
+      "table": "course_sections",
+      "target": "(id)",
+      "constraint": "course_sections_position_uq",
+      "verdict": "safe",
+      "why": "writeOutline runs only inside saveOutline after this.lock() takes `SELECT ... FROM academy.courses ... FOR UPDATE OF c` (courses.ts:406, :629); positions are first moved to negatives (courses.ts:493-494) and new ones are 0..n distinct. The only other section writer is the copy at courses.ts:205 (new course, also under lock)."
+    },
+    {
+      "file": "services/svc-academy/src/learning/customer-store.ts",
+      "table": "cert_enrollments",
+      "target": "(user_id, path_slug) WHERE left_atisnull",
+      "constraint": "cert_enrollments_leave_request_uq",
+      "verdict": "safe",
+      "why": "This insert writes no leave_request_id (customer-store.ts:248-250), so it is NULL and outside the partial index WHERE leave_request_id IS NOT NULL."
+    },
+    {
+      "file": "services/svc-academy/src/purchases/course-purchases.ts",
+      "table": "access_grant_events",
+      "target": "(key)",
+      "constraint": "access_grant_events_pkey",
+      "verdict": "safe",
+      "why": "n is MAX(n)+1 computed after the INSERT ... ON CONFLICT DO UPDATE on access_grants (course-purchases.ts:473-478), which row-locks that grant for the transaction; every other access_grant_events writer locks the same grant row first (learner-desk.ts:88 FOR UPDATE, :506 FOR UPDATE, grantAccess upsert). A duplicate of the purchase is also stopped by the `WHERE state='confirmed'` UPDATE guard at :460-464."
+    },
+    {
+      "file": "services/svc-academy/src/purchases/course-purchases.ts",
+      "table": "access_grant_events",
+      "target": "(key)",
+      "constraint": "access_grant_events_pkey",
+      "verdict": "safe",
+      "why": "revoke() first runs `UPDATE academy.access_grants ... RETURNING id` (course-purchases.ts:557-561), row-locking the grant before MAX(n)+1; all other writers of access_grant_events lock that grant row too (see learner-desk.ts:88, :506), and the `WHERE state='refunding'` guard at :547-551 stops a duplicate refund."
+    },
+    {
+      "file": "services/svc-agents/src/coach/coach-run.ts",
+      "table": "coach_runs",
+      "target": "(user_id, request_id)",
+      "constraint": "coach_runs_run_key_key",
+      "verdict": "safe",
+      "why": "run_key = coachRunKey(session.id, requestId) (coach-run.ts:210) and session.id comes from openSession -> INSERT agents.agent_sessions with id DEFAULT gen_random_uuid() (runtime.ts:351, drizzle/0000_agents_init.sql:67), new on every call (coach-run.ts:478). Two attempts of one request carry different run_keys."
+    },
+    {
+      "file": "services/svc-agents/src/own/guardrails.ts",
+      "table": "own_agent_consents",
+      "target": "(owner_id, agent_id, data_class)",
+      "constraint": "own_agent_consents_key_uq",
+      "verdict": "race",
+      "issue": 8908,
+      "why": "consent_key is `agents:consent:<owner>:<agent>:<class>` (guardrails.ts:194), the same inputs as the target, and grant() runs with no lock (called from own/routes.ts:835). Two Grant presses at once for a class not yet granted both insert; the loser raises 23505 own_agent_consents_key_uq instead of taking the DO UPDATE."
+    },
+    {
+      "file": "services/svc-agents/src/runs/store.ts",
+      "table": "agent_runs",
+      "target": "(run_key)",
+      "constraint": "agent_runs_session_id_request_id_key",
+      "verdict": "race",
+      "issue": 8909,
+      "why": "run_key = runKeyOf(sessionId, requestId) (runs/store.ts:121) is derived from the other key's own columns, with no lock before the insert. A client retry of the same request id on a session that overlaps the first (the 'repeat returns the stored run' case the docstring at :110-113 promises) both insert; the loser raises 23505 agent_runs_session_id_request_id_key instead of DO NOTHING."
+    },
+    {
+      "file": "services/svc-agents/src/team/store.ts",
+      "table": "team_pools",
+      "target": "(business_id)",
+      "constraint": "team_pools_idempotency_key_key",
+      "verdict": "safe",
+      "why": "Same pg_advisory_xact_lock('agents.team:<business>') (team/store.ts:338) serialises all team_pools writers and the stored key is checked before the insert; the key `agents:pool:<business>:<n>` embeds the business, so it cannot sit on another row."
+    },
+    {
+      "file": "services/svc-agents/src/team/store.ts",
+      "table": "team_role_grants",
+      "target": "(business_id, member_user_id, role)",
+      "constraint": "team_role_grants_idempotency_key_key",
+      "verdict": "safe",
+      "why": "Every writer of team_role_grants takes lockBusiness = pg_advisory_xact_lock('agents.team:<business>') first (team/store.ts:277, :115-116) and re-reads the row by idempotency_key before inserting; the key embeds business, member and role, so it can only belong to this target row."
+    },
+    {
+      "file": "services/svc-bank/src/business/business-cards.ts",
+      "table": "business_reimbursements",
+      "target": "(id)",
+      "constraint": "business_reimbursements_partner_key_key",
+      "verdict": "safe",
+      "why": "partner_key = reimbursementKey(claimId) (business-cards.ts:54) does match on a duplicate, but the same transaction first upserts the receipt with ON CONFLICT (id) DO UPDATE (insertReceipt, business-cards.ts:676). A retry carries the same receiptId, so it waits on the first transaction's receipt row until that commits. Its claim insert then finds the committed id and is absorbed. A retry with a different receiptId is a terms conflict that refuses either way."
+    },
+    {
+      "file": "services/svc-bank/src/cards/card-service.ts",
+      "table": "cards",
+      "target": "(issuer, issuer_ref)",
+      "constraint": "cards_pkey",
+      "verdict": "safe",
+      "why": "Every order insert first takes pg_advisory_xact_lock('card-count:'+userId) (card-service.ts:1118), so duplicates of one order are serialised. The issuer ref is deterministic in the card id (issuer.ts:372, card-sim:<cardId>), so the second insert matches the arbiter. A cardId clash across users is a different real conflict. Caveat: a future live issuer that returns a new issuer_ref on re-issue would make a retry raise on cards_pkey."
+    },
+    {
+      "file": "services/svc-bank/src/cash-out/cash-out.ts",
+      "table": "cash_out_requests",
+      "target": "(id)",
+      "constraint": "cash_out_requests_partner_move_idx",
+      "verdict": "safe",
+      "why": "partner_move_id is not written by this insert (cash-out.ts:265), so it is NULL, and the partial index is WHERE partner_move_id IS NOT NULL."
+    },
+    {
+      "file": "services/svc-bank/src/cash-out/cash-out.ts",
+      "table": "cash_out_requests",
+      "target": "(id)",
+      "constraint": "cash_out_requests_payout_ref_idx",
+      "verdict": "safe",
+      "why": "payout_ref is not written by this insert (cash-out.ts:265), so it is NULL, and the partial index is WHERE payout_ref IS NOT NULL."
+    },
+    {
+      "file": "services/svc-bank/src/loans/loan-adjustments.ts",
+      "table": "loan_adjustments",
+      "target": "(id)",
+      "constraint": "loan_adjustments_approval_idx",
+      "verdict": "safe",
+      "why": "writeCorrection, the only writer, takes SELECT … FROM bank.loans WHERE id FOR UPDATE and re-reads by id before inserting (loan-adjustments.ts:186-190). Duplicates of one correction are serialised and replay. A reused approvalId under a new correction id is a different real conflict that must refuse."
+    },
+    {
+      "file": "services/svc-bank/src/loans/loan-service.ts",
+      "table": "loan_collateral_events",
+      "target": "(id)",
+      "constraint": "loan_collateral_events_seq_idx",
+      "verdict": "safe",
+      "why": "releaseNamedCollateral takes loans FOR UPDATE, re-reads by id, and computes MAX(sequence)+1 inside that lock (loan-service.ts:1577-1652), so duplicates of one eventId replay. lockCollateral takes the same lock and computes its sequence inside it (#8899). Only releaseCollateral's unnamed closing path writes a sequence without this lock; lockCollateral's insert names no target and takes the next sequence on that clash."
+    },
+    {
+      "file": "services/svc-bank/src/loans/loan-service.ts",
+      "table": "loan_repayments",
+      "target": "(id)",
+      "constraint": "loan_repayments_seq_idx",
+      "verdict": "safe",
+      "why": "repay is the only writer of loan_repayments. It holds withRepayLock plus loans FOR UPDATE, re-reads by id, and computes the sequence inside the lock (loan-service.ts:1914-2003). Duplicates find the prior row."
+    },
+    {
+      "file": "services/svc-bank/src/pay-yourself/pay-yourself-service.ts",
+      "table": "pay_yourself_moves",
+      "target": "(move_key)",
+      "constraint": "pay_yourself_moves_pkey",
+      "verdict": "safe",
+      "why": "id is randomUUID() made fresh on every call (pay-yourself-service.ts:296)."
+    },
+    {
+      "file": "services/svc-bank/src/pay-yourself/pay-yourself-service.ts",
+      "table": "pay_yourself_rules",
+      "target": "(user_id)",
+      "constraint": "pay_yourself_rules_pkey",
+      "verdict": "safe",
+      "why": "id is randomUUID() made fresh on every call (pay-yourself-service.ts:259)."
+    },
+    {
+      "file": "services/svc-bank/src/personal-pay/global.ts",
+      "table": "global_sends",
+      "target": "(user_id, idempotency_key)",
+      "constraint": "global_sends_return_ref_uq",
+      "verdict": "safe",
+      "why": "return_ref is not written on insert (global.ts:1176), so it is NULL, and the partial index is WHERE return_ref IS NOT NULL. Only the later return UPDATE sets it (global.ts:807)."
+    },
+    {
+      "file": "services/svc-bank/src/ramps/ramp-service.ts",
+      "table": "ramp_offramps",
+      "target": "(user_id, client_ref)",
+      "constraint": "ramp_offramps_pkey",
+      "verdict": "safe",
+      "why": "A same-id duplicate either waits on the arbiter, or, if both pass it, clashes on ramp_offramps_pkey. The loser's serializable transaction (transaction() default, packages/db/src/connection.ts:113) had already read that id (SELECT … WHERE id FOR UPDATE, ramp-service.ts:900), so Postgres reports 40001 and transaction() retries and returns the row. Caveat: the 23505 catch at ramp-service.ts:925 queries inside an aborted transaction and would raise 25P02 if a raw 23505 ever reached it."
+    },
+    {
+      "file": "services/svc-bank/src/spaces/bills-pot.ts",
+      "table": "bills_pots",
+      "target": "(user_id, asset_id)",
+      "constraint": "bills_pots_space_uq",
+      "verdict": "safe",
+      "why": "The upsert runs under the space's row lock (ownPotForUpdate: SELECT … FOR UPDATE, space-service.ts:762). A space has exactly one user and one asset, so a clash on space_id implies the same (user_id, asset_id), which the DO UPDATE target absorbs."
+    },
+    {
+      "file": "services/svc-bank/src/transfers/personal-pay.ts",
+      "table": "personal_request_reminds",
+      "target": "(request_id, idempotency_key)",
+      "constraint": "personal_request_reminds_seq_uq",
+      "verdict": "safe",
+      "why": "The only writer takes personal_requests FOR UPDATE, re-reads by (request_id, idempotency_key), and computes MAX(sequence)+1 inside that lock (personal-pay.ts:1197-1212)."
+    },
+    {
+      "file": "services/svc-bank/src/withdraw-destination.ts",
+      "table": "user_withdraw_destinations",
+      "target": "(user_id, kind) WHERE origin='legacy'",
+      "constraint": "user_withdraw_destinations_book_idx",
+      "verdict": "safe",
+      "why": "This insert always writes origin='legacy' (withdraw-destination.ts:514), and the book index is WHERE origin='customer', so its rows never enter that index."
+    },
+    {
+      "file": "services/svc-blueprint/src/blueprint-service.ts",
+      "table": "crew_members",
+      "target": "(crew_id, user_id)",
+      "constraint": "crew_members_user_idx",
+      "verdict": "safe",
+      "why": "insertMembership locks the crew row `FOR UPDATE` and re-checks the (crew,user) membership before inserting (blueprint-service.ts:490-505), so a duplicate of this row returns early. All callers run SERIALIZABLE with maxAttempts 5 retrying 40001 (blueprint-service.ts:259, :589; packages/db/src/connection.ts) after reading crew_members by user_id, so a concurrent placement of the same user elsewhere surfaces as a retried serialization failure; a user already in another crew via joinCrew is a different, real conflict (note: that 23505 is not mapped to a typed error)."
+    },
+    {
+      "file": "services/svc-blueprint/src/blueprint-service.ts",
+      "table": "crews",
+      "target": "(id)",
+      "constraint": "crews_name_season_idx",
+      "verdict": "safe",
+      "why": "crewId is deterministic, but name is checked (`SELECT ... WHERE name=$base AND season`, blueprint-service.ts:534-537) inside a SERIALIZABLE transaction retried on 40001 (:259, :589); two concurrent crews deriving one name turn into a serialization failure (the key was read first) and the retry picks the suffixed name. A duplicate of the same crewId writes the same name and is retried the same way."
+    },
+    {
+      "file": "services/svc-campaigns/src/campaigns.ts",
+      "table": "participations",
+      "target": "(participation_key)",
+      "constraint": "participations_one_per_account",
+      "verdict": "race",
+      "issue": 8905,
+      "why": "participation_key is `campaign:join:<campaignId>:<accountId>` (campaigns.ts:613), so it is 1:1 with (campaign_id, account_id). For non-competition campaigns only `FOR SHARE` on the campaign row is held (campaigns.ts:1750), which does not serialise; two Join presses at once both pass the existence checks (1744, 1753) and the loser can raise 23505 participations_one_per_account instead of getting the winner's row. Competition joins are safe (advisory lock at 1776 plus re-check)."
+    },
+    {
+      "file": "services/svc-campaigns/src/campaigns.ts",
+      "table": "vouchers",
+      "target": "(issue_key)",
+      "constraint": "vouchers_code_hash_uq",
+      "verdict": "race",
+      "issue": 8904,
+      "why": "Same-issue duplicates are serialised by pg_advisory_xact_lock on the code hash (campaigns.ts:1510), but the loser then finds the winner's row by code_hash (campaigns.ts:1512) and throws campaigns.voucher_code_taken instead of returning it, though the docstring (campaigns.ts:1499) promises the same issue returns the stored voucher; the ON CONFLICT (issue_key) never fires. Also the batch writer (watch.ts:593) inserts code_hash without that lock, so an issue racing a batch on the same code gets raw 23505 vouchers_code_hash_uq (nothing maps it)."
+    },
+    {
+      "file": "services/svc-campaigns/src/reward-payer.ts",
+      "table": "reward_payments",
+      "target": "(reward_key)",
+      "constraint": "reward_payments_chain_tx_key",
+      "verdict": "safe",
+      "why": "chain_tx is not in the insert's column list (reward-payer.ts:201), so it is NULL and NULLs never clash on reward_payments_chain_tx_key; also serialised by FOR UPDATE on reward_intents (reward-payer.ts:197)."
+    },
+    {
+      "file": "services/svc-campaigns/src/watch.ts",
+      "table": "vouchers",
+      "target": "(code_hash)",
+      "constraint": "vouchers_code_uq",
+      "verdict": "safe",
+      "why": "Batch rows set code to NULL (watch.ts:578) and vouchers_code_uq is a plain UNIQUE (20261029140018_vouchers.sql:19), so NULLs never clash."
+    },
+    {
+      "file": "services/svc-campaigns/src/watch.ts",
+      "table": "vouchers",
+      "target": "(code_hash)",
+      "constraint": "vouchers_issue_key_key",
+      "verdict": "safe",
+      "why": "issue_key is `voucher:batch:<batchId>:<n>` with batchId fresh `cbt_${randomUUID()}` (watch.ts:569, 580); a repeat of the same batch reference returns early under the advisory lock (watch.ts:564-567)."
+    },
+    {
+      "file": "services/svc-campaigns/src/watch.ts",
+      "table": "vouchers",
+      "target": "(code_hash)",
+      "constraint": "vouchers_pkey",
+      "verdict": "safe",
+      "why": "id is fresh `vch_${randomUUID()}` per row (watch.ts:576); a repeat batch is stopped before insert by the advisory lock on the batch reference and the re-read (watch.ts:564-567)."
+    },
+    {
+      "file": "services/svc-identity/src/account/phone-change.ts",
+      "table": "user_phones",
+      "target": "(user_id)",
+      "constraint": "user_phones_phone_idx",
+      "verdict": "safe",
+      "why": "Same-user writers are serialised by `SELECT … FROM users WHERE id = … FOR UPDATE` (phone-change.ts:83); a phone clash is a different user holding that number, and the caller catches 23505 and maps it to invalidCode (phone-change.ts:114-120)."
+    },
+    {
+      "file": "services/svc-identity/src/auth/auth-key-ring.ts",
+      "table": "auth_signing_keys",
+      "target": "(key_id)",
+      "constraint": "auth_signing_keys_one_active_idx",
+      "verdict": "safe",
+      "why": "This insert writes state 'verify_only' (auth-key-ring.ts:173), so the partial index WHERE state='active' never applies; all writers also hold pg_advisory_xact_lock('identity.auth_signing_keys') (auth-key-ring.ts:167)."
+    },
+    {
+      "file": "services/svc-identity/src/auth/signin-methods.ts",
+      "table": "signin_phones",
+      "target": "(user_id)",
+      "constraint": "signin_phones_phone_key",
+      "verdict": "safe",
+      "why": "No duplicate-absorption race: same-user calls are serialised by `users … FOR UPDATE` (signin-methods.ts:115 via readUser at 378). A phone clash means two different users linking one number at once; both pass the pre-check (signin-methods.ts:383) and the loser gets raw 23505 signin_phones_phone_key, which nothing maps to identity.method_taken (signin-methods-router.ts:65-97): a correct refusal with the wrong error shape, worth a catch-by-name fix but not a lost duplicate."
+    },
+    {
+      "file": "services/svc-indexer/src/projection/postgres-store.ts",
+      "table": "blocks",
+      "target": "(chain_id, hash)",
+      "constraint": "blocks_canonical_height_idx",
+      "verdict": "safe",
+      "why": "applyBlock takes pg_advisory_xact_lock(schema:indexer.projection:<chain>) before any read (postgres-store.ts:617), and the unwind paths take the same lock (:787, :807), so all writers of blocks are serialised. A second canonical block at a height is a real competing-block conflict the comment at :699-702 intends the index to refuse."
+    },
+    {
+      "file": "services/svc-mining-pool/src/window-store.ts",
+      "table": "windows",
+      "target": "(window_id)",
+      "constraint": "windows_epoch_asset_uidx",
+      "verdict": "race",
+      "issue": 8910,
+      "why": "window_id and epoch are both caller-supplied in the share batch body (submit-share.ts:268-270, :333-350); persistShares inserts with no lock before it (window-store.ts:83-93). Two share batches for the same new window with an epoch (concurrent miners, or a client retry) both insert; the loser raises 23505 windows_epoch_asset_uidx, not caught anywhere in src (no 23505 handling), instead of the DO UPDATE path."
+    },
+    {
+      "file": "services/svc-notify/src/gateway/relay.ts",
+      "table": "mailbox_relay_receipts",
+      "target": "(key_hash)",
+      "constraint": "mailbox_relay_receipts_gateway_id_key",
+      "verdict": "safe",
+      "why": "gateway_id is randomUUID() generated per request at relay.ts:138, so a duplicate of this row never shares it."
+    },
+    {
+      "file": "services/svc-notify/src/status-page/postmortems.pg.ts",
+      "table": "status_postmortems",
+      "target": "(incident_id)",
+      "constraint": "status_postmortems_approval_id_key",
+      "verdict": "safe",
+      "why": "This insert writes no approval_id (postmortems.pg.ts:43-45), so it is NULL; the column is a plain UNIQUE (drizzle/0031_notify_status_postmortems.sql:14), which allows many NULLs."
+    },
+    {
+      "file": "services/svc-ops/src/compliance/store.ts",
+      "table": "compliance_inboxes",
+      "target": "(name, version)",
+      "constraint": "compliance_inboxes_pkey",
+      "verdict": "race",
+      "issue": 8911,
+      "why": "id = inboxId(name, version) (compliance/router.ts:168), derived from the target columns. The `SELECT ... FOR UPDATE` at store.ts:271 locks nothing when the row does not exist yet, so two concurrent defines of the same name+version both insert; the loser raises 23505 compliance_inboxes_pkey instead of reaching the 'racing define' branch the comment at store.ts:281 expects."
+    },
+    {
+      "file": "services/svc-ops/src/outreach/crm.ts",
+      "table": "crm_source_mappings",
+      "target": "(id)",
+      "constraint": "crm_source_mappings_source_key_key",
+      "verdict": "safe",
+      "why": "upsertSourceMapping takes a single global pg_advisory_xact_lock('ops.crm.source-mapping-writes') (crm.ts:706) and checks source_key collisions with another id (crm.ts:714-715) before inserting; it is the only writer of crm_source_mappings."
+    },
+    {
+      "file": "services/svc-ops/src/outreach/restore-privacy.ts",
+      "table": "crm_erasure_intents",
+      "target": "(id)",
+      "constraint": "crm_erasure_cluster",
+      "verdict": "safe",
+      "why": "Same exclusive 'ops.crm.privacy' lock and pre-read by canonical_contact_id (restore-privacy.ts:173, :187-205): any other row on this contact throws restore_tombstone_conflict before the insert."
+    },
+    {
+      "file": "services/svc-ops/src/outreach/restore-privacy.ts",
+      "table": "crm_erasure_intents",
+      "target": "(id)",
+      "constraint": "crm_erasure_intents_request_id_key",
+      "verdict": "safe",
+      "why": "applyErasureArchive holds the exclusive pg_advisory_xact_lock('ops.crm.privacy') (restore-privacy.ts:173), which excludes the normal writers' shared lock (privacy.ts:33), and pre-reads rows by id OR canonical_contact_id OR request_id, throwing restore_tombstone_conflict on any mismatch (restore-privacy.ts:187-205). A clash then is a corrupted archive, refused by name."
+    },
+    {
+      "file": "services/svc-ops/src/outreach/restore-privacy.ts",
+      "table": "crm_erasure_notifications",
+      "target": "(intent_id, submission_id)",
+      "constraint": "crm_erasure_notifications_request_id_key",
+      "verdict": "safe",
+      "why": "Under the exclusive 'ops.crm.privacy' lock (restore-privacy.ts:173); notification request_ids are randomUUID() per row at creation (privacy.ts:330), so a restored value belongs only to its own (intent, submission), which is pre-read at :220-222."
+    },
+    {
+      "file": "services/svc-ops/src/restore/run-store.ts",
+      "table": "restore_runs",
+      "target": "(restore_no)",
+      "constraint": "restore_runs_idempotency_key_key",
+      "verdict": "race",
+      "issue": 8912,
+      "why": "idempotency_key is the client's key (restore/desk.ts:191), repeated on retry. start() checks `WHERE idempotency_key` then inserts with no lock (run-store.ts:144-153); two overlapping retries both pass the check and both insert, and the loser raises 23505 restore_runs_idempotency_key_key (it is a non-arbiter index, so this happens whether or not restore_no also clashes) instead of returning the stored run."
+    },
+    {
+      "file": "services/svc-ops/src/restore/run-store.ts",
+      "table": "restore_steps",
+      "target": "(restore_no, step)",
+      "constraint": "restore_steps_idempotency_key_key",
+      "verdict": "race",
+      "issue": 8913,
+      "why": "Same pattern: the client's idempotency key (desk.ts:232, :280) is checked then inserted with no lock (run-store.ts:177-186); two overlapping retries of one step both insert and the loser raises 23505 restore_steps_idempotency_key_key instead of returning the stored step."
+    },
+    {
+      "file": "services/svc-p2p/src/p2p-service.ts",
+      "table": "offer_share_links",
+      "target": "(id)",
+      "constraint": "offer_share_links_token_hash_key",
+      "verdict": "safe",
+      "why": "token_hash is the hash of a fresh randomBytes(24) token (p2p-service.ts:2879-2882), so it differs on every call, retry included."
+    },
+    {
+      "file": "services/svc-p2p/src/p2p-service.ts",
+      "table": "p2p_trades",
+      "target": "(id)",
+      "constraint": "p2p_trades_contract_deal_uq",
+      "verdict": "safe",
+      "why": "contract_deal_id is not in the insert's column list (p2p-service.ts:3526-3542), so it is NULL and the partial index WHERE contract_deal_id IS NOT NULL never applies; it is set later by UPDATE (p2p-service.ts:3804)."
+    },
+    {
+      "file": "services/svc-pay/src/custody/service.ts",
+      "table": "custody_wallets",
+      "target": "(vault_id, network_id, asset_code)",
+      "constraint": "custody_wallets_address_uq",
+      "verdict": "safe",
+      "why": "address is not written (custody/service.ts:266-267), so it is NULL and custody_wallets_address_uq (WHERE address IS NOT NULL, 0104_pay_custody_accounts.sql:63) never applies."
+    },
+    {
+      "file": "services/svc-pay/src/fraud/review-queue-store.ts",
+      "table": "fraud_review_cases",
+      "target": "(id)",
+      "constraint": "fraud_review_cases_source_payment_ref_uidx",
+      "verdict": "safe",
+      "why": "A clash on (source, payment_ref) is caught: the 23505 handler re-reads by source and ref and returns the winner (review-queue-store.ts:245-249); the id is also derived from the same ref (heldCaseId, review-queue-store.ts:254)."
+    },
+    {
+      "file": "services/svc-pay/src/fraud/review-queue-store.ts",
+      "table": "fraud_review_cases",
+      "target": "(id)",
+      "constraint": "fraud_review_cases_source_payment_ref_uidx",
+      "verdict": "safe",
+      "why": "Two enqueues with the same payment ref clash on (source, payment_ref); the 23505 handler adopts the winner's case by ref, or re-reads by id (review-queue-store.ts:356-363)."
+    },
+    {
+      "file": "services/svc-pay/src/merchant-payout-destination.ts",
+      "table": "merchant_payout_destinations",
+      "target": "(merchant_id, rail_id)",
+      "constraint": "merchant_payout_destinations_one_default_idx",
+      "verdict": "safe",
+      "why": "is_default is not in the insert (defaults false, 0088_pay_destination_default_invoice_lines.sql:19) and the DO UPDATE does not set it (merchant-payout-destination.ts:359-370), so the partial index WHERE is_default never applies."
+    },
+    {
+      "file": "services/svc-pay/src/merchant-payout-destination.ts",
+      "table": "merchant_payout_destinations",
+      "target": "(merchant_id, rail_id)",
+      "constraint": "merchant_payout_destinations_one_default_idx",
+      "verdict": "safe",
+      "why": "is_default is not in the insert (defaults false) and the DO UPDATE does not set it (merchant-payout-destination.ts:385-396), so the partial index WHERE is_default never applies."
+    },
+    {
+      "file": "services/svc-pay/src/merchant-webhooks.ts",
+      "table": "merchant_webhook_deliveries",
+      "target": "(endpoint_id, event_id)",
+      "constraint": "merchant_webhook_deliveries_pkey",
+      "verdict": "safe",
+      "why": "id is fresh newId() from randomBytes(16) on every call (merchant-webhooks.ts:249-251, 955)."
+    },
+    {
+      "file": "services/svc-pay/src/screening/store.ts",
+      "table": "screening_cases",
+      "target": "(subject_kind, subject_key)",
+      "constraint": "screening_cases_spent_for_uq",
+      "verdict": "safe",
+      "why": "release_spent_for is not in the insert or the DO UPDATE SET (screening/store.ts:91-99), so the partial index WHERE release_spent_for IS NOT NULL never applies to rows this writes."
+    },
+    {
+      "file": "services/svc-pay/src/subscriptions/subscription-service.ts",
+      "table": "subscription_executions",
+      "target": "(subscription_id, occurrence)",
+      "constraint": "subscription_executions_idempotency_key_idx",
+      "verdict": "safe",
+      "why": "idempotency_key is derived from (subscriptionId, occurrence) (charge-cycle.ts:118), the same as the target, but the only insert into this table (subscription-service.ts:1245) runs after `SELECT … FROM pay.subscriptions WHERE id = … FOR UPDATE` (subscription-service.ts:1225-1231), which serialises every writer for that subscription."
+    },
+    {
+      "file": "services/svc-pay/src/subscriptions/subscription-service.ts",
+      "table": "subscription_executions",
+      "target": "(subscription_id, occurrence)",
+      "constraint": "subscription_executions_ledger_tx_id_uq",
+      "verdict": "safe",
+      "why": "ledger_tx_id is not in the insert's column list (subscription-service.ts:1245-1251), so it is NULL and the partial index never applies."
+    },
+    {
+      "file": "services/svc-pay/src/subscriptions/subscription-service.ts",
+      "table": "subscription_executions",
+      "target": "(subscription_id, occurrence)",
+      "constraint": "subscription_executions_payment_id_uq",
+      "verdict": "safe",
+      "why": "payment_id is not in the insert's column list (subscription-service.ts:1245-1251), so it is NULL and the partial index never applies."
+    },
+    {
+      "file": "services/svc-pay/src/user-money-service.ts",
+      "table": "withdrawals",
+      "target": "(user_id, client_ref)",
+      "constraint": "withdrawals_quote_ref_idx",
+      "verdict": "safe",
+      "why": "quote_ref is non-null only on a first claim that goes through acceptQuoteForSend, which locks the quote row FOR UPDATE (send-out/door.ts:166-171) and refuses a second client_ref on it with withdrawal_quote.already_used (door.ts:191-195). A same-client_ref retry gets 'mine' and is absorbed by the target."
+    },
+    {
+      "file": "services/svc-pay/src/withdrawals/returns/service.ts",
+      "table": "withdrawal_returns",
+      "target": "(withdrawal_id)",
+      "constraint": "withdrawal_returns_ref_uq",
+      "verdict": "safe",
+      "why": "Same-withdrawal duplicates are serialised by `SELECT … FROM pay.withdrawals WHERE id = … FOR UPDATE` (returns/service.ts:84). A return_ref clash is two different withdrawals given one rail ref at once; the loser gets raw 23505 withdrawal_returns_ref_uq instead of withdrawal_return.ref_differs (the pre-check at 101-105 is not under a lock covering both): a correct refusal with the wrong error shape, not a lost duplicate."
+    },
+    {
+      "file": "services/svc-protocol/src/embedded-wallet/embedded.pg.ts",
+      "table": "embedded_wallets",
+      "target": "(idempotency_key)",
+      "constraint": "embedded_wallets_user_idx",
+      "verdict": "race",
+      "issue": 8906,
+      "why": "The PK idempotency_key is forced equal to 'wallet:embedded:'||user_id (20261109084145_protocol_embedded_wallets.sql:23), so it is 1:1 with embedded_wallets_user_idx. createEmbeddedWallet takes no lock (embedded.ts:112-146); two first presses at once both miss find(), the idempotent provider returns the same wallet, and the loser raises 23505 on user_idx (raw) or on provider_wallet_idx, which embedded.pg.ts:56 wrongly turns into 'a wallet already recorded for someone else'. Either way the loser does not get the winner's row."
+    },
+    {
+      "file": "services/svc-quant/src/library/postgres-repository.ts",
+      "table": "library_disputes",
+      "target": "(listing_id, seq)",
+      "constraint": "library_disputes_pkey",
+      "verdict": "safe",
+      "why": "id is randomUUID() generated in the call (library/postgres-repository.ts:296), new on every insert."
+    },
+    {
+      "file": "services/svc-quant/src/library/postgres-repository.ts",
+      "table": "library_listings",
+      "target": "(owner_id, write_key)",
+      "constraint": "library_listings_pkey",
+      "verdict": "safe",
+      "why": "id is randomUUID() generated in the call (library/postgres-repository.ts:172), new on every insert."
+    },
+    {
+      "file": "services/svc-quant/src/notify/postgres-repository.ts",
+      "table": "strategy_alerts",
+      "target": "(account_id, write_key)",
+      "constraint": "strategy_alerts_pkey",
+      "verdict": "safe",
+      "why": "id is randomUUID() generated in the call (notify/postgres-repository.ts:79), new on every insert."
+    },
+    {
+      "file": "services/svc-quant/src/team/postgres-repository.ts",
+      "table": "support_grants",
+      "target": "(owner_id, write_key)",
+      "constraint": "support_grants_pkey",
+      "verdict": "safe",
+      "why": "id is randomUUID() generated in the call (team/postgres-repository.ts:199), new on every insert."
+    },
+    {
+      "file": "services/svc-support/src/chat.ts",
+      "table": "chat_sessions",
+      "target": "(client_key)",
+      "constraint": "chat_sessions_ticket_uq",
+      "verdict": "safe",
+      "why": "This insert writes no ticket_id (chat.ts:513-517), so it is NULL; chat_sessions_ticket_uq is a plain UNIQUE (drizzle/20261107080000_support_chat.sql:38) that allows many NULLs."
+    },
+    {
+      "file": "services/svc-support/src/survey-settings.ts",
+      "table": "surveys",
+      "target": "(survey_id)",
+      "constraint": "surveys_one_active_idx",
+      "verdict": "safe",
+      "why": "configure() takes pg_advisory_xact_lock(hashtext('svc-support'), hashtext('surveys')) (survey-settings.ts:175), the only writer of surveys, and deactivates every other active survey (:210) before inserting active=true."
+    },
+    {
+      "file": "services/svc-trade/src/convert/quote-store.ts",
+      "table": "convert_quotes",
+      "target": "(quote_id)",
+      "constraint": "convert_quotes_user_client_idx",
+      "verdict": "safe",
+      "why": "The upsert never writes client_convert_id (column list at convert/quote-store.ts:236-243), so the new row is NULL and outside the partial index (WHERE client_convert_id IS NOT NULL). That column is set only later by an UPDATE (convert/convert-history.ts:343)."
+    },
+    {
+      "file": "services/svc-trade/src/copy/follow-store.ts",
+      "table": "copy_follow_reserves",
+      "target": "(reserve_key)",
+      "constraint": "copy_follow_reserves_follow_id_key",
+      "verdict": "safe",
+      "why": "reserve_key is copy.reserve:<followId> (copy/follows.ts:59), a one-to-one function of follow_id. An equal follow_id always means an equal reserve_key, which the arbiter absorbs. A different follow_id never clashes on follow_id."
+    },
+    {
+      "file": "services/svc-trade/src/copy/follow-store.ts",
+      "table": "copy_follows",
+      "target": "(follow_id)",
+      "constraint": "copy_follows_follower_leader_live_idx",
+      "verdict": "race",
+      "issue": 8875,
+      "why": "Narrow path: startVenueFollow (copy/copy-service.ts:791; bind at 818) builds followId from (user, leader, clientRequestId), so a double-submit carries equal follow_id and equal (follower_id, leader_id). Its beforeSave takes no lock. The only serialiser is admitNewFollow's SELECT … FOR UPDATE on the leader's listing row (copy/leader-directory.ts:289, 669), which locks nothing when the leader id has no listing row. The loser then gets 23505 on the live index, which rethrowCopyFollowUnique (copy/follow-store.ts:27) maps to 'Already following' instead of returning the follow that the doc promises. The startFollow path is serialised by lockReserves' pg_advisory_xact_lock (follow-store.ts:1183) in the same transaction."
+    },
+    {
+      "file": "services/svc-trade/src/futures/conditional-orders/service.ts",
+      "table": "futures_conditional_orders",
+      "target": "ON CONSTRAINT futures_conditional_orders_user_client_uq",
+      "constraint": "futures_conditional_orders_pkey",
+      "verdict": "safe",
+      "why": "id is a fresh randomUUID() on every call, inline in the INSERT … SELECT (futures/conditional-orders/service.ts:1588)."
+    },
+    {
+      "file": "services/svc-trade/src/futures/conditional-orders/service.ts",
+      "table": "futures_conditional_orders",
+      "target": "ON CONSTRAINT futures_conditional_orders_user_client_uq",
+      "constraint": "futures_conditional_orders_trigger_key_uq",
+      "verdict": "safe",
+      "why": "id is a fresh randomUUID() (futures/conditional-orders/service.ts:1509) and trigger_key is book:<id> (service.ts:247-248), so trigger_key is unique on every call."
+    },
+    {
+      "file": "services/svc-trade/src/futures/conditional-orders/service.ts",
+      "table": "futures_conditional_orders",
+      "target": "ON CONSTRAINT futures_conditional_orders_user_client_uq",
+      "constraint": "futures_conditional_orders_trigger_key_uq",
+      "verdict": "safe",
+      "why": "trigger_key is not in the column list (service.ts:1572-1574), so it is NULL, and NULLs do not clash in a plain unique index. syncRiskStop writes armed rows only."
+    },
+    {
+      "file": "services/svc-trade/src/futures/matched-orders.ts",
+      "table": "futures_orders",
+      "target": "(user_id, market_id, client_order_id)",
+      "constraint": "futures_orders_liquidation_rung_uniq",
+      "verdict": "safe",
+      "why": "liquidation_rung_id is not written by this reduce-only insert (matched-orders.ts:1505-1509), so it is NULL."
+    },
+    {
+      "file": "services/svc-trade/src/futures/matched-orders.ts",
+      "table": "futures_orders",
+      "target": "(user_id, market_id, client_order_id)",
+      "constraint": "futures_orders_pkey",
+      "verdict": "safe",
+      "why": "Runs in the transaction that first takes SELECT … FOR UPDATE on the open position row (matched-orders.ts:1411-1415), so two retries of one reduce serialise, and the second sees the committed row in the arbiter pre-check."
+    },
+    {
+      "file": "services/svc-trade/src/index.ts",
+      "table": "orders",
+      "target": "(id)",
+      "constraint": "orders_client_id_idx",
+      "verdict": "safe",
+      "why": "The MM seed row writes no client_order_id (index.ts:1230 column list), so it is NULL. orders_client_id_idx is a plain unique index (drizzle/0000_trade_init.sql:145) where NULLs never clash."
+    },
+    {
+      "file": "services/svc-trade/src/market-lifecycle.ts",
+      "table": "market_lifecycle_evidence",
+      "target": "(evidence_id)",
+      "constraint": "market_lifecycle_evidence_genesis_unique",
+      "verdict": "safe",
+      "why": "evidence_kind is 'TRANSITION' (market-lifecycle.ts:797), and the partial index covers only evidence_kind = 'AUTHORITY_DOSSIER' (drizzle/0035_market_lifecycle_publications.sql:26-28)."
+    },
+    {
+      "file": "services/svc-trade/src/market-lifecycle.ts",
+      "table": "market_lifecycle_evidence",
+      "target": "(evidence_id)",
+      "constraint": "market_lifecycle_evidence_genesis_unique",
+      "verdict": "safe",
+      "why": "evidence_kind is 'CORRECTION' and market_id is NULL (market-lifecycle.ts:810), outside the AUTHORITY_DOSSIER partial index."
+    },
+    {
+      "file": "services/svc-trade/src/market-lifecycle.ts",
+      "table": "market_lifecycle_evidence",
+      "target": "(evidence_id)",
+      "constraint": "market_lifecycle_evidence_predecessor_unique",
+      "verdict": "safe",
+      "why": "evidence_kind is 'TRANSITION' (market-lifecycle.ts:797), and the partial index covers only 'AUTHORITY_DOSSIER' (drizzle/0035:29-31)."
+    },
+    {
+      "file": "services/svc-trade/src/market-lifecycle.ts",
+      "table": "market_lifecycle_evidence",
+      "target": "(evidence_id)",
+      "constraint": "market_lifecycle_evidence_predecessor_unique",
+      "verdict": "safe",
+      "why": "evidence_kind is 'CORRECTION' (market-lifecycle.ts:810), outside the AUTHORITY_DOSSIER partial index."
+    },
+    {
+      "file": "services/svc-trade/src/market-lifecycle.ts",
+      "table": "market_lifecycle_evidence",
+      "target": "(evidence_id)",
+      "constraint": "market_lifecycle_evidence_reconciliation_idx",
+      "verdict": "safe",
+      "why": "reconciliation_key is non-NULL only for OUTCOME_UNKNOWN/PARTIAL (market-lifecycle.ts:789-792). The only production caller, admin/market-mode.ts:206-209, always writes outcome APPLIED, so the key is NULL."
+    },
+    {
+      "file": "services/svc-trade/src/market-lifecycle.ts",
+      "table": "market_lifecycle_evidence",
+      "target": "(evidence_id)",
+      "constraint": "market_lifecycle_evidence_reconciliation_idx",
+      "verdict": "safe",
+      "why": "appendCorrection writes reconciliation_key NULL (market-lifecycle.ts:810)."
+    },
+    {
+      "file": "services/svc-trade/src/otc/quote-store.ts",
+      "table": "otc_desk_quotes",
+      "target": "(quote_id)",
+      "constraint": "otc_desk_quotes_one_accept_per_rfq_ux",
+      "verdict": "safe",
+      "why": "Rows inserted as open/expired never enter the partial index (lifecycle IN ('bound','settled')). saveBound/saveSettled reach it only via DO UPDATE on the existing quote row, so a retry of the same quote updates its own row. A 23505 there comes only from a different sibling quote of the same RFQ, which is a real second accept that must refuse, and saveBound maps it with refuseSecondAccept (otc/quote-store.ts:271-277)."
+    },
+    {
+      "file": "services/svc-trade/src/spot/trade-service/fills.ts",
+      "table": "fills",
+      "target": "(id)",
+      "constraint": "fills_market_sequence_role_idx",
+      "verdict": "safe",
+      "why": "fills.ts:340-354 catches 23505 around this insert and then reads by (market_id, sequence, liquidity) and compares the money columns (fills.ts:363-375). A redelivery is absorbed; a sequence reuse by a different match is refused, which is the mapped real conflict."
+    },
+    {
+      "file": "services/svc-trade/src/spot/trade-service/fills.ts",
+      "table": "orders",
+      "target": "(id)",
+      "constraint": "orders_client_id_idx",
+      "verdict": "safe",
+      "why": "The house MM stub row writes no client_order_id (fills.ts:524-532), so it is NULL, and NULLs never clash in the plain index (0000_trade_init.sql:145)."
+    },
+    {
+      "file": "services/svc-trade/src/venue/agent-desk-store.ts",
+      "table": "user_venue_agent_desk_audit",
+      "target": "(key_id) WHERE action='quarantine'",
+      "constraint": "user_venue_agent_desk_audit_pkey",
+      "verdict": "safe",
+      "why": "id is a fresh randomUUID() per call (venue/agent-desk.ts:185)."
+    },
+    {
+      "file": "services/svc-trade/src/venue/protection-store.ts",
+      "table": "user_venue_engine_protections",
+      "target": "(user_id, client_key)",
+      "constraint": "user_venue_engine_protections_pkey",
+      "verdict": "safe",
+      "why": "id is a fresh randomUUID() per call (venue/protections.ts:352), the only createOnce caller."
+    },
+    {
+      "file": "services/svc-trade/src/venue/spot-conditional-store.ts",
+      "table": "user_venue_spot_conditionals",
+      "target": "(user_id, owner, client_key)",
+      "constraint": "user_venue_spot_conditionals_pkey",
+      "verdict": "safe",
+      "why": "id is a fresh randomUUID() per call (venue/spot-conditionals.ts:497), the only createOnce caller."
+    }
+  ]
+}

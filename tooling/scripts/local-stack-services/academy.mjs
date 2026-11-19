@@ -1,3 +1,4 @@
+import { ACADEMY_REFUND_SIGNER_URL, ACADEMY_TEST_RECEIVER, TEST_CHAIN_ID } from '../local-test-chain.mjs';
 import { VIDEO_STORE_ACCESS_KEY, VIDEO_STORE_BUCKET, VIDEO_STORE_REGION } from '../local-video-store.mjs';
 
 // LOCAL TEST video storage: the stack's own TEST video store (local-video-store.mjs) plays one TEST video behind signed,
@@ -54,6 +55,10 @@ const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off
 // leaves it blank, so the "report limit not set" refusal can be seen too.
 const reportRows = () => (process.env.LOCAL_STACK_ACADEMY_REPORT_ROWS === 'off' ? {} : { ACADEMY_GRADE_REPORT_ROWS: '500' });
 
+// LOCAL TEST issued certificate list and export size (a TEST owner value): 500 rows (J-academy-17 #4).
+// `LOCAL_STACK_ACADEMY_CERT_ISSUED_ROWS=off` leaves it blank, so the "limit not set" refusal can be seen too.
+const certIssuedRows = () => (process.env.LOCAL_STACK_ACADEMY_CERT_ISSUED_ROWS === 'off' ? {} : { ACADEMY_CERT_ISSUED_ROWS: '500' });
+
 // LOCAL TEST quiz curve file size (a TEST owner value): 64 KiB (J-academy-13 #5). `LOCAL_STACK_ACADEMY_BULK_LIMIT=off`
 // leaves it blank, so the "limit not set" refusal can be seen too.
 const bulkLimit = () => (process.env.LOCAL_STACK_ACADEMY_BULK_LIMIT === 'off' ? {} : { ACADEMY_BULK_FILE_MAX_BYTES: '65536' });
@@ -90,11 +95,61 @@ const postLimits = () =>
     ? {}
     : { ACADEMY_POST_MAX_CHARS: '4000', ACADEMY_POST_IMAGE_MAX_BYTES: '262144', ACADEMY_MESSAGE_MAX_CHARS: '4000' };
 
+/**
+ * LOCAL TEST course payments (J-academy-07): with the stack's LOCAL TEST chain (tooling/scripts/local-test-chain.mjs,
+ * chain id 84532), its gate as the payment node, the seeded TEST USD token (6 decimals, services/svc-protocol/scripts/
+ * seed-test-chain.ts) as the payment token under the ledger asset USDC, INTAFACED's TEST receiving address, two
+ * confirmations (a payment in the newest block is not counted yet, so J-academy-07 #4 sees it wait), and the chain's TEST refund signer. TEST values only, never a real chain, token or key. With no chain,
+ * or `LOCAL_STACK_ACADEMY_PAYMENTS=off`, all stay blank, as in production until the owner sets them: the paid track
+ * stays closed `payments_off` and nothing is sold.
+ */
+const coursePayments = (testChain) => {
+  const chain = testChain?.();
+  if (process.env.LOCAL_STACK_ACADEMY_PAYMENTS === 'off' || !chain?.usdToken) return {};
+  return {
+    ACADEMY_PAYMENT_RPC_URL: chain.rpcUrl,
+    ACADEMY_PAYMENT_CHAIN_ID: String(TEST_CHAIN_ID),
+    ACADEMY_PAYMENT_TOKEN_ADDRESS: chain.usdToken,
+    ACADEMY_PAYMENT_TOKEN_DECIMALS: '6',
+    ACADEMY_PAYMENT_ASSET: 'USDC',
+    ACADEMY_PAYMENT_RECEIVER: ACADEMY_TEST_RECEIVER,
+    ACADEMY_PAYMENT_CONFIRMATIONS: '2',
+    ACADEMY_PURCHASE_RECONCILE_SECONDS: '2',
+    ...(process.env.LOCAL_STACK_ACADEMY_REFUND_SIGNER === 'off' ? {} : { ACADEMY_REFUND_SIGNER_URL }),
+  };
+};
+
+// LOCAL TEST room size ceiling (a TEST owner value): a host may open a room of up to 500 seats, so a host can open the
+// specialist rooms J-academy-19 #4 reads. `LOCAL_STACK_ACADEMY_ROOM_CAPACITY=off` leaves it blank (createRoom refuses).
+const roomCapacity = () => (process.env.LOCAL_STACK_ACADEMY_ROOM_CAPACITY === 'off' ? {} : { ACADEMY_MAX_ROOM_CAPACITY: '500' });
+
+// LOCAL TEST learner summaries page size and report task list size (TEST owner values): 50 each (J-academy-16 #2, #3).
+// `LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES=off` leaves the summaries' page size blank, so its refusal can be seen too.
+const analyticsPages = () => ({
+  ...(process.env.LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES === 'off' ? {} : { ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE: '50' }),
+  ACADEMY_REPORT_TASKS_PAGE_SIZE: '50',
+});
+
+// LOCAL TEST reports centre (TEST owner values): the report sweep runs every 30 seconds, so a requested report waits and
+// then runs for one sweep each (long enough to see and abort it) and is done on the next (J-academy-16 #3, #4); a file is
+// kept 1440 minutes (24 hours). A report shares the learner export's row limit above (ACADEMY_LEARNER_EXPORT_ROWS).
+// `LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION=off` leaves the retention blank, so a request refuses by name; a whole
+// number of minutes there keeps a file that long instead, so a journey can watch one expire (J-academy-16 #4).
+const centreRetention = () => {
+  const v = process.env.LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION;
+  if (v === 'off') return {};
+  return { ACADEMY_REPORT_CENTRE_RETENTION_MINUTES: v && /^[1-9][0-9]*$/.test(v) ? v : '1440' };
+};
+const reportsCentre = () => ({
+  ACADEMY_REPORT_SWEEP_SECONDS: '30',
+  ...centreRetention(),
+});
+
 // LOCAL TEST custom role limit (a TEST owner value): 50 custom roles, room for the journey's one role per run on a kept
 // stack (J-academy-18 #6). `LOCAL_STACK_ACADEMY_ROLE_LIMIT=off` leaves it blank, so the "limit not set" refusal can be seen.
 const roleLimit = () => (process.env.LOCAL_STACK_ACADEMY_ROLE_LIMIT === 'off' ? {} : { ACADEMY_CUSTOM_ROLE_LIMIT: '50' });
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
+export default ({ c, secrets, dbUrl, urlOf, PORTS, testChain }) => ({
   name: 'academy',
   env: () => ({
     ...c('svc-academy', PORTS.academy),
@@ -102,6 +157,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     TOKEN_URL: urlOf('token'),
     IDENTITY_URL: urlOf('identity'),
     TRADE_URL: urlOf('trade'),
+    // The ledger door for the two Academy posts (J-academy-07: academyPurchase, academyPurchaseRefund), signed with the
+    // stack's shared service secret from c(). Both record INTAFACED's own money only.
+    LEDGER_URL: urlOf('ledger'),
+    ...coursePayments(testChain),
     ACADEMY_STREAM_PROVIDER: 'none', // no LiveKit: live classes stay unconnected
     ACADEMY_PLANNER_TODO_LIMIT: '50', // TEST: the owner sets the real cap; the stack needs one so the planner journey can add
     ...videoStorage({ secrets, urlOf }),
@@ -112,12 +171,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...grantAuditPage(),
     ...graderLease(),
     ...reportRows(),
+    ...certIssuedRows(),
     ...bulkLimit(),
     ...staffLimits(),
     ...certSweep(),
     ...programmeMax(),
     ...postLimits(),
     ...verifyRate(),
+    ...roomCapacity(),
+    ...analyticsPages(),
+    ...reportsCentre(),
     ...roleLimit(),
   }),
 });

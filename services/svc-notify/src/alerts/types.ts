@@ -16,6 +16,8 @@
  * `number`. The portfolio refuse arm carries zero money fields.
  */
 
+import type { AlertPlan } from './owner-values.js';
+
 /** Watches evaluated against an injected mark source. */
 export type SourcedAlertKind = 'price' | 'funding' | 'liquidation_proximity' | 'whale';
 
@@ -185,7 +187,18 @@ export type PriceAlert = {
   readonly updatedAt: Date;
   /** Which price the alert is evaluated against. `mark` for every alert made before the person could choose. */
   readonly source: AlertPriceSource;
+  /**
+   * The out-of-app channels the person chose for this alert (J-charts-desk-10). The in-app row is always written. `null` for an
+   * alert made before the choice existed: it follows the person's notification settings, as every alert did then.
+   */
+  readonly channels: readonly AlertOutChannel[] | null;
+  /** The person's own endpoint that receives one HTTP POST each time the alert fires. Null: no webhook. */
+  readonly webhookUrl: string | null;
 };
+
+/** Out-of-app channels an alert may ask for. SMS is not offered for alerts. */
+export const ALERT_OUT_CHANNELS = ['email', 'push'] as const;
+export type AlertOutChannel = (typeof ALERT_OUT_CHANNELS)[number];
 
 /** An added condition: a level only (crossing needs a remembered side, which an added condition does not have). */
 export const EXTRA_CONDITIONS = ['greater_than', 'less_than'] as const;
@@ -224,11 +237,17 @@ export type CreatePriceAlertInput = {
   readonly frequency?: AlertFrequency;
   /** Omitted: `mark`. */
   readonly source?: AlertPriceSource;
+  /** Omitted: `null`, the person's notification settings decide. */
+  readonly channels?: readonly AlertOutChannel[] | null;
+  /** Checked by the service before it reaches the store (`alerts/webhook.ts`). */
+  readonly webhookUrl?: string | null;
   /**
    * The most open (active or paused) alerts of this kind the person may hold, counting this one. The store checks it in the
    * same step that writes the alert, so two creates racing cannot both pass. Left out, no cap is checked.
    */
   readonly maxOpen?: number;
+  /** The person's account plan id, where one is known: picks the founder's price-alert quota. Left out: the default plan. */
+  readonly plan?: AlertPlan;
 };
 
 /**

@@ -1,4 +1,4 @@
-// World: book, freeze, gates, stack
+// World: book, freeze, gates, restart, stack
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import {
@@ -14,15 +14,18 @@ import {
   signUp,
   verify,
 } from './desk.mjs';
-import { api, fromUnits, fund, signOutBrowser, toUnits, tool } from './stack.mjs';
+import { readFileSync, existsSync } from 'node:fs';
+import { api, fromUnits, fund, restartService, signOutBrowser, stackFile, startService, stopService, toUnits, tool } from './stack.mjs';
 import { METHOD, p2p, readyTaker, testInstrument, testPasskey } from './p2p.mjs';
 
 // J-home-ia-05, in the running app (docs/roadmap/journeys.json): I read my notifications and allow them on this device.
 // Tests titled "J-home-ia-05 #<n>" prove a whole step. One TEST person who is verified, bought 0.001 and then 0.002 BTC at
 // market (a notice for each fill of each buy, and the book an earlier journey left can split a buy into several; two buys
-// mean a notice opening "on that trade" always picks one of several) and cancelled a resting order (a cancelled-order notice). Every count is read from this account's own fills, never from a fixed book. The stack's
-// inbox page size (20), popover size (8) and unread cap (99) are LOCAL TEST values; production has none until the owner
-// sets them.
+// mean a notice opening "on that trade" always picks one of several) and cancelled a resting order (a cancelled-order notice). Every count is read from this account's own fills, never from a fixed book.
+// Two more TEST people: one whose inbox holds more unread notices than the owner's cap (LOCAL TEST old-style escrow notices,
+// `seed-notice --count`), for the cap and loading more, and one with a short inbox, for the count's re-reads and a refused
+// read. The inbox page size and unread cap are the owner's (svc-notify `notify.inboxPolicy`; LOCAL TEST values on the stack,
+// none in production until the owner sets them); the popover's size (8) is the app's own.
 const J = 'J-home-ia-05';
 
 test.describe.configure({ mode: 'serial' });
@@ -32,16 +35,21 @@ const popup = (page) => page.getByTestId('nf-pop');
 const uuidText = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const rawKey = /notify\.[a-z_.]+/;
 
-// POPOVER_ITEMS and PAGE in src/screens/notifications/BellPopover.tsx and NotificationsPage.tsx; the badge caps at 99+.
+// POPOVER_ITEMS in src/screens/notifications/BellPopover.tsx.
 const POPOVER_ITEMS = 8;
-const PAGE_ITEMS = 20;
-const badge = (count) => (count > 99 ? '99+' : String(count));
+/** The owner's inbox settings, as svc-notify publishes them: the page size and the unread cap (set in beforeAll). */
+let PAGE_ITEMS;
+let CAP;
+const badge = (count) => (count > CAP ? `${CAP}+` : String(count));
+/** More unread notices than the cap and than five pages, for the person with a full inbox. */
+const FULL = 105;
 const TITLES = {
   'trade.fill': 'Order filled',
   'trade.order.terminal': 'Order cancelled',
   'identity.kyc.approved': 'Verification approved',
   'ledger.freeze.set': 'Postings paused',
   'ledger.freeze.cleared': 'Postings resumed',
+  'p2p.escrow.locked': 'Escrow locked',
 };
 // svc-notify's audience-all notices (services/svc-notify/src/freeze-notice.ts, venue-delisting-notice.ts): every account
 // holds them, so a journey that set the platform posting freeze, or scheduled a venue market's delisting (J-cex-spot-16),
@@ -51,6 +59,10 @@ const PLATFORM_KINDS = ['ledger.freeze.set', 'ledger.freeze.cleared', 'trade.ven
 const titleOf = (item) => (item.kind === 'trade.venue_delisting' ? `${item.params?.symbol} is being delisted` : TITLES[item.kind]);
 
 let who;
+/** A TEST person whose inbox holds more than the owner's cap of unread notices. */
+let full;
+/** A TEST person with a short inbox, for the re-reads and the refused read. */
+let fresh;
 let cancelled;
 /** This account's own fills of its two market buys, from svc-trade: one fill notice each. */
 let fills;
@@ -76,6 +88,20 @@ async function told(session) {
     .map((item) => item.kind)
     .sort();
   return { items, read, unread: count.body.result.data.count };
+}
+
+/** Every notice the person holds, newest first, read page by page by svc-notify's own cursor. */
+async function everyNotice(session) {
+  const items = [];
+  let cursor;
+  do {
+    const input = encodeURIComponent(JSON.stringify({ limit: 100, ...(cursor ? { cursor } : {}) }));
+    const page = (await session.get(`/api/notify/trpc/notify.list?input=${input}`)).body?.result?.data;
+    expect(page?.items, 'notify.list answered').toBeInstanceOf(Array);
+    items.push(...page.items);
+    cursor = page.nextCursor;
+  } while (cursor);
+  return items;
 }
 
 /** A real P2P trade, escrowed: a TEST seller's sell ad, taken for 10 USDT by a TEST buyer (as J-p2p-02 #1 does). */
@@ -107,21 +133,41 @@ async function escrowedTrade(page) {
   const b = await readyTaker(buyerSession, buyer, await testPasskey(buyerSession));
   const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '10', method: METHOD });
   expect(trade).toMatchObject({ status: 'escrowed', amount: '10' });
-  // svc-notify's own (current) notice of the lock lands first, so the stored old one is the newest.
+  // svc-notify's own (current) notice of the lock lands first, so the stored old one is the newest. The buyer's own
+  // verification and passkey notices must have landed too: one arriving after Mark all as read went in above the escrow
+  // row as the row was clicked, so the press began on one row, ended on another and opened nothing (#8329).
   await expect
-    .poll(async () => (await told(buyerSession)).items.some((item) => item.kind === 'p2p.escrow.locked'), { timeout: 20_000 })
-    .toBe(true);
+    .poll(
+      async () => {
+        const kinds = new Set((await told(buyerSession)).items.map((item) => item.kind));
+        return ['identity.kyc.approved', 'identity.security.passkey_added', 'p2p.escrow.locked'].filter((kind) => !kinds.has(kind));
+      },
+      { timeout: 20_000 },
+    )
+    .toEqual([]);
   return { buyer, tradeId: trade.id };
 }
 test.beforeAll(async ({ browser }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const page = await browser.newPage();
+  fresh = await signUp(page, 'hmnr');
+  await verify(page, fresh);
+  await signOutBrowser(page.context());
+  const policy = (await (await api(fresh)).get('/api/notify/trpc/notify.inboxPolicy')).body?.result?.data;
+  expect(policy, 'notify.inboxPolicy answered').toMatchObject({ pageSize: expect.any(Number), unreadCap: expect.any(Number) });
+  PAGE_ITEMS = policy.pageSize;
+  CAP = policy.unreadCap;
+  expect(FULL).toBeGreaterThan(Math.max(CAP, 5 * PAGE_ITEMS));
+  full = await signUp(page, 'hmnf');
+  await verify(page, full);
+  tool('local-test-stack.mjs', 'seed-notice', full.email, `${J}-full-${full.handle}`, '--count', String(FULL));
+  await signOutBrowser(page.context());
   who = await fundedTrader(page, 'hmn', '1000');
   await openDesk(page, who);
   for (const amount of ['0.001', '0.002']) {
     await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
-    await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).first().fill(amount));
-    await page.getByRole('button', { name: 'Buy BTC' }).click();
+    await previewed(page, () => page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill(amount));
+    await page.getByRole('button', { name: 'Buy BTC', exact: true }).click();
     await expect(reviewSheet(page)).toBeVisible();
     await confirm(page, 'buy');
   }
@@ -187,6 +233,71 @@ test(`${J} #1 the bell shows the unread count and a popover of recent notices in
   const words = await popup(page).innerText();
   expect(words).not.toMatch(uuidText);
   expect(words).not.toMatch(rawKey);
+});
+
+test(`${J} #1 the count stops at the owner's cap, is read again on a page change and every 60 seconds, and a refused read shows plain words`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  // Above the owner's cap the badge says "<cap>+", never the exact count.
+  const fullInbox = await told(await api(full));
+  expect(fullInbox.unread).toBeGreaterThan(CAP);
+  expect(fullInbox.unread).toBe((await everyNotice(await api(full))).filter((item) => item.readAt === null).length);
+  await signIn(page, full);
+  await page.goto('/');
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText(`${CAP}+`);
+  await expect(bell(page)).toHaveAttribute('aria-label', `Notifications, ${CAP}+ unread`);
+  await signOutBrowser(page.context());
+
+  // A short inbox: a notice stored after the page loaded shows on the bell at the next page change, at once.
+  const session = await api(fresh);
+  const start = (await told(session)).unread;
+  await signIn(page, fresh);
+  await page.goto('/');
+  await expect(bell(page)).toHaveAttribute('aria-label', start ? `Notifications, ${badge(start)} unread` : 'Notifications');
+  const loaded = Date.now();
+  tool('local-test-stack.mjs', 'seed-notice', fresh.email, `${J}-nav-${fresh.handle}`);
+  expect((await told(session)).unread).toBe(start + 1);
+  // A page change inside the app (no reload: the marker survives), well inside the poll's 50 to 60 seconds.
+  await page.evaluate(() => (window.__sameDocument = true));
+  const here = new URL(page.url()).pathname;
+  const tab = page.locator(`a[data-testid="tb-tab"]:not([href="${here}"])`).first();
+  const target = new URL(await tab.getAttribute('href'), page.url()).pathname;
+  await tab.click();
+  await expect(page).toHaveURL((url) => url.pathname === target);
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText(badge(start + 1), { timeout: 10_000 });
+  expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
+  expect(Date.now() - loaded, 'seen before any 50-second poll could have read it').toBeLessThan(45_000);
+
+  // With no page change, the count is read again within a minute.
+  const before = Date.now();
+  tool('local-test-stack.mjs', 'seed-notice', fresh.email, `${J}-poll-${fresh.handle}`);
+  expect((await told(session)).unread).toBe(start + 2);
+  await expect(bell(page).getByTestId('tb-badge')).toHaveText(badge(start + 2), { timeout: 75_000 });
+  expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
+  expect(Date.now() - before, 'read again by the minute poll').toBeLessThanOrEqual(65_000);
+
+  // The inbox read refused (svc-notify stopped): the popover says so in plain words, with no code, key or id, and the
+  // bell claims no count it could not read.
+  try {
+    await stopService('notify');
+    await page.reload();
+    await expect(page.getByTestId('tb-bell')).toBeVisible();
+    await bell(page).click();
+    await expect(popup(page)).toContainText('Couldn’t load your notifications.');
+    await expect(popup(page).getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
+    await expect(bell(page).getByTestId('tb-badge')).toHaveCount(0);
+    const refused = await popup(page).innerText();
+    expect(refused).not.toMatch(rawKey);
+    expect(refused).not.toMatch(uuidText);
+    expect(refused).not.toMatch(/\b(notify|edge|trpc)\.[a-z_]+|\b[45]\d\d\b|INTERNAL|UNAVAILABLE|BAD_GATEWAY/i);
+  } finally {
+    await startService('notify');
+  }
+  await expect(async () => {
+    await page.reload();
+    await expect(bell(page).getByTestId('tb-badge')).toHaveText(badge(start + 2), { timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
 });
 
 test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a cancelled order opens Orders`, async ({ page }) => {
@@ -277,6 +388,8 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   tool('local-test-stack.mjs', 'seed-notice', buyer.email, tradeId);
   const escrow = (await told(buyerSession)).items.filter((item) => item.kind === 'p2p.escrow.locked');
   expect(escrow.filter((item) => item.readAt === null)).toEqual([expect.objectContaining({ href: `/p2p/trades/${tradeId}` })]);
+  // That old notice is the only unread one, so nothing else is still arriving to move the rows under the click.
+  expect((await told(buyerSession)).unread).toBe(1);
   await signOutBrowser(page.context());
   await signIn(page, buyer);
   await page.goto('/');
@@ -300,7 +413,7 @@ test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots an
   const pageRows = Math.min(total, PAGE_ITEMS);
   await expect(page.getByTestId('nf-row')).toHaveCount(pageRows);
   // Unread: the fills #2 did not open, and the verification.
-  await page.getByRole('tab', { name: 'Unread' }).click();
+  await page.getByRole('tab', { name: 'Unread', exact: true }).click();
   await expect(page.getByTestId('nf-row')).toHaveCount(Math.min(total - 2, PAGE_ITEMS));
   const unread = kinds.map((kind, i) => [kind, titles[i]]).filter(([kind]) => kind !== 'trade.order.terminal');
   unread.splice(
@@ -308,15 +421,52 @@ test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots an
     1,
   );
   await expect(page.getByTestId('nf-title')).toHaveText(unread.slice(0, PAGE_ITEMS).map(([, title]) => title));
-  await page.getByRole('button', { name: 'Mark all as read' }).click();
-  await expect(page.getByText("You're all caught up.")).toBeVisible();
+  await page.getByRole('button', { name: 'Mark all as read', exact: true }).click();
+  await expect(page.getByText("You're all caught up.", { exact: true })).toBeVisible();
   await expect(bell(page).getByTestId('tb-badge')).toHaveCount(0);
-  await page.getByRole('tab', { name: 'All' }).click();
+  await page.getByRole('tab', { name: 'All', exact: true }).click();
   await expect(page.getByTestId('nf-row')).toHaveCount(pageRows);
   await expect(page.locator('[data-testid="nf-row"][data-unread]')).toHaveCount(0);
   // Load more only when the account holds more notices than one page.
-  await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(total > PAGE_ITEMS ? 1 : 0);
+  await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(total > PAGE_ITEMS ? 1 : 0);
   expect(await page.locator('main').innerText()).not.toMatch(uuidText);
+});
+
+test(`${J} #3 a full inbox lists in the owner's page size, and Load more takes the next page by its cursor until none is left`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const items = await everyNotice(await api(full));
+  expect(items.length).toBeGreaterThan(5 * PAGE_ITEMS);
+  expect(new Set(items.map((item) => item.id)).size).toBe(items.length);
+  await signIn(page, full);
+  const lists = [];
+  page.on('request', (req) => {
+    if (!req.url().includes('/api/notify/trpc/notify.list')) return;
+    const input = new URL(req.url()).searchParams.get('input');
+    lists.push(input ? JSON.parse(input) : null);
+  });
+  await page.goto('/notifications');
+  await expect(page.getByTestId('nf-row')).toHaveCount(PAGE_ITEMS);
+  // The first page is asked for in the owner's page size, with no cursor.
+  expect(lists.at(-1)).toMatchObject({ limit: PAGE_ITEMS });
+  expect(lists.at(-1).cursor).toBeUndefined();
+  let shown = PAGE_ITEMS;
+  while (shown < items.length) {
+    const asked = lists.length;
+    await page.getByRole('button', { name: 'Load more', exact: true }).click();
+    shown = Math.min(shown + PAGE_ITEMS, items.length);
+    await expect(page.getByTestId('nf-row')).toHaveCount(shown);
+    // Each next page is asked for by the cursor of the last one, in the same page size.
+    const next = lists.slice(asked).find((input) => input?.cursor);
+    expect(next, 'Load more asked for the next page by its cursor').toMatchObject({
+      limit: PAGE_ITEMS,
+      cursor: expect.stringMatching(uuidText),
+    });
+  }
+  // Every notice, once each, newest first, and nothing more to load.
+  await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('nf-title')).toHaveText(items.map((item) => titleOf(item) ?? /\S/));
 });
 
 /** Counts the browser's permission prompts on this page, from before the app loads. */
@@ -343,12 +493,12 @@ test(`${J} #4 Allow notifications on this device asks the browser only on the pr
   await signIn(page, who);
   await page.goto('/notifications?view=settings');
   const card = pushCard(page);
-  await expect(card.getByRole('button', { name: 'Allow notifications on this device' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Allow notifications on this device', exact: true })).toBeVisible();
   // Nothing is asked, and no state is claimed, on load.
   expect(await prompts()).toBe(0);
   await expect(card.getByTestId('nf-push__state')).toHaveCount(0);
   // This browser answers the prompt with a block (no grant was given to the context).
-  await card.getByRole('button', { name: 'Allow notifications on this device' }).click();
+  await card.getByRole('button', { name: 'Allow notifications on this device', exact: true }).click();
   await expect(card.getByTestId('nf-push__state')).toHaveText('Blocked on this device.');
   expect(await prompts()).toBe(1);
   await expect(card).toContainText('No alert reaches this device while notifications are blocked; your in-app inbox still works.');
@@ -357,7 +507,90 @@ test(`${J} #4 Allow notifications on this device asks the browser only on the pr
   const stored = await (await api(who)).get('/api/notify/trpc/notify.targets');
   expect(stored.body.result.data.filter((row) => row.channel === 'push')).toEqual([]);
   await context.close();
+
+  // Granted, with the push key set: the TEST push stand-in takes the gateway's place (notify restarted with it), and this
+  // browser's push service is a TEST stand-in too (headless Chromium has none). One device row is registered for this
+  // device's address and its confirmation is sent there; pressing again keeps that one row.
+  const person = await registerDevice(browser);
+  expect(person.rows).toHaveLength(1);
 });
+
+const pushOutbox = () => {
+  const file = stackFile('notify-push-outbox.log');
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.startsWith('LOCAL-TEST '))
+    .map((line) => JSON.parse(line.slice('LOCAL-TEST '.length)));
+};
+
+/** A TEST browser push service: the subscription a real one would make, with a TEST endpoint, kept across presses. */
+function testPushService() {
+  let held = null;
+  const wrap = (h) => ({
+    endpoint: h.endpoint,
+    options: { applicationServerKey: h.key },
+    toJSON: () => ({ endpoint: h.endpoint, keys: { p256dh: 'TEST-p256dh', auth: 'TEST-auth' } }),
+    unsubscribe: async () => {
+      held = null;
+      return true;
+    },
+  });
+  PushManager.prototype.subscribe = async function (options) {
+    const raw = options.applicationServerKey;
+    const key = raw instanceof ArrayBuffer ? raw : raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+    held = { endpoint: `https://push.local-test.invalid/TEST-${crypto.randomUUID()}`, key };
+    window.__pushSubscribes = (window.__pushSubscribes ?? 0) + 1;
+    return wrap(held);
+  };
+  PushManager.prototype.getSubscription = async function () {
+    return held ? wrap(held) : null;
+  };
+}
+
+async function registerDevice(browser) {
+  const context = await browser.newContext();
+  await context.grantPermissions(['notifications']);
+  await context.addInitScript(testPushService);
+  const page = await context.newPage();
+  const prompts = await countPrompts(page);
+  const person = await signUp(page, 'hmnp');
+  const session = await api(person);
+  const pushRows = async () =>
+    (await session.get('/api/notify/trpc/notify.targets')).body.result.data.filter((row) => row.channel === 'push');
+  await restartService('notify', { LOCAL_STACK_NOTIFY_PUSH: 'on' });
+  try {
+    expect((await session.get('/api/notify/trpc/notify.pushKey')).body?.result?.data).toMatchObject({
+      publicKey: expect.any(String),
+      unsetCode: null,
+    });
+    await page.goto('/notifications?view=settings');
+    const card = pushCard(page);
+    await card.getByRole('button', { name: 'Allow notifications on this device', exact: true }).click();
+    await expect(card.getByTestId('nf-push__state')).toHaveText('Allowed on this device.');
+    await expect(card).toContainText('We asked for a code to be sent to this device. Type it below to confirm it.');
+    // Already allowed: the browser is not asked again.
+    expect(await prompts()).toBe(0);
+    const rows = await pushRows();
+    expect(rows).toHaveLength(1);
+    const { endpoint } = JSON.parse(rows[0].address);
+    expect(endpoint).toMatch(/^https:\/\/push\.local-test\.invalid\/TEST-/);
+    expect(rows[0].verifiedAt).toBeNull();
+    // Its confirmation went to this very device, labelled TEST, through the stand-in.
+    const sent = () => pushOutbox().filter((line) => line.kind === 'notify.channel.verify' && line.to === rows[0].address);
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0].title).toMatch(/^TEST · /);
+    // Pressed again: the same device address, still one row.
+    await card.getByRole('button', { name: 'Allow notifications on this device', exact: true }).click();
+    await expect(card.getByTestId('nf-push__state')).toHaveText('Allowed on this device.');
+    await expect.poll(async () => (await pushRows()).map((row) => row.address)).toEqual([rows[0].address]);
+    expect(await page.evaluate(() => window.__pushSubscribes)).toBe(1);
+    return { rows: await pushRows() };
+  } finally {
+    await restartService('notify', { LOCAL_STACK_NOTIFY_PUSH: null });
+    await context.close();
+  }
+}
 
 test(`${J} #5 allowed while the push gateway is not configured: the service-off sentence with vendor.push, nothing registered, and an empty inbox stays an empty state`, async ({
   browser,
@@ -369,7 +602,7 @@ test(`${J} #5 allowed while the push gateway is not configured: the service-off 
   await signIn(page, who);
   await page.goto('/notifications?view=settings');
   const card = pushCard(page);
-  await card.getByRole('button', { name: 'Allow notifications on this device' }).click();
+  await card.getByRole('button', { name: 'Allow notifications on this device', exact: true }).click();
   await expect(card.getByTestId('nf-push__state')).toHaveText('Allowed on this device, not registered.');
   // Already allowed: the browser is not asked again.
   expect(await prompts()).toBe(0);
@@ -379,8 +612,8 @@ test(`${J} #5 allowed while the push gateway is not configured: the service-off 
   expect(stored.body.result.data.filter((row) => row.channel === 'push')).toEqual([]);
   // The inbox (all read since #3) shows its empty Unread state, never the service-off notice.
   await page.goto('/notifications');
-  await page.getByRole('tab', { name: 'Unread' }).click();
-  await expect(page.getByText("You're all caught up.")).toBeVisible();
+  await page.getByRole('tab', { name: 'Unread', exact: true }).click();
+  await expect(page.getByText("You're all caught up.", { exact: true })).toBeVisible();
   await expect(page.locator('[data-not-connected]')).toHaveCount(0);
   await context.close();
 });

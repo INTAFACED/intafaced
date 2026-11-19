@@ -32,6 +32,8 @@ import {
   router,
   scopedProcedure,
   supportAccountGroundingSchema,
+  supportChartsLookupInputSchema,
+  supportChartsLookupSchema,
   supportAttachmentDownloadSchema,
   supportBulkInputSchema,
   supportBulkPolicySchema,
@@ -91,6 +93,7 @@ import { SupportError, SupportService, kbViewerOf, requireSupportOps } from './s
 import type { TicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { ticketOrderReadSchema } from './ticket-order.js';
 import { userCopy } from './user-copy.js';
+import { SLA_POLICY_STALE, SLA_TARGETS_UNSET } from './response-targets.js';
 
 const queueEntrySchema = z.object({
   ticketId: z.string().guid(),
@@ -103,6 +106,20 @@ const queueEntrySchema = z.object({
   createdAt: z.string().datetime(),
   timingKind: z.literal('score_not_promise'),
   sla: z.literal(false),
+  responseDue: z.object({ dueAt: z.string().datetime(), targetMinutes: z.number().int().positive() }).nullable(),
+});
+
+/** The caller a scoped procedure has already checked; a missing one is refused, never assumed. */
+function principalOf<P>(principal: P | null | undefined): P {
+  if (!principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: userCopy('scope.denied') });
+  return principal;
+}
+
+const responseTargetPolicySchema = z.object({
+  firstReplyMinutes: z.number().int().positive().nullable(),
+  active: z.boolean(),
+  revision: z.number().int().nonnegative(),
+  updatedAt: z.string().datetime().nullable(),
 });
 
 const queueResultSchema = z.discriminatedUnion('status', [
@@ -226,6 +243,8 @@ export function mapError(err: unknown): never {
     ) {
       throw new TRPCError({ code: 'CONFLICT', message });
     }
+    // The lookup's trail row did not land, so nothing was read (J-charts-desk-19 #1).
+    if (err.code === 'support.charts_lookup_unaudited') throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message });
     if (err.code === 'support.release.not_found' || err.code === 'support.assign.not_found' || err.code === 'support.group_unknown') {
       throw new TRPCError({ code: 'NOT_FOUND', message });
     }
@@ -667,6 +686,25 @@ export function createSupportRouter(
         }
       }),
 
+    /**
+     * A customer's price alerts, their trigger history and saved desk layouts, for a ticket the agent can see
+     * (C-ops-03 (a), J-charts-desk-19 #1). Read-only. The customer comes off the ticket: the input is `.strict()`, so a
+     * `userId` is refused rather than silently dropped, as on `accountState`. One `charts_lookup` trail row is written
+     * before anything is read; when it does not land the lookup is refused.
+     */
+    ticketChartsLookup: scopedProcedure('support:ops')
+      .input(supportChartsLookupInputSchema)
+      .output(supportChartsLookupSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          const principal = principalOf(ctx.principal);
+          requireSupportOps(principal);
+          return await support.readChartsLookup({ operatorId: principal.userId, ticketId: input.ticketId });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /** Escalate with a case file. Refuses when nothing was read. No money. */
     escalate: scopedProcedure('support:ops')
       .input(escalateTicketInputSchema)
@@ -879,6 +917,41 @@ export function createSupportRouter(
           if (q.status === 'empty') return q;
           return { status: 'ok' as const, entries: [...q.entries] };
         } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The desk's response targets (SP-sla-01): the first-reply target in minutes, or null, and whether it is on. */
+    responseTargets: scopedProcedure('support:ops')
+      .output(responseTargetPolicySchema)
+      .query(async ({ ctx }) => {
+        requireSupportOps(principalOf(ctx.principal));
+        return support.responseTargets();
+      }),
+
+    /** A lead sets the first-reply target or turns it on or off, from the revision they read, with a reason. */
+    responseTargetsSave: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          firstReplyMinutes: z.number().int().min(1).max(525_600).nullable().optional(),
+          active: z.boolean().optional(),
+          expectedRevision: z.number().int().nonnegative(),
+          reason: z.string().trim().min(1).max(500),
+        }),
+      )
+      .output(responseTargetPolicySchema)
+      .mutation(async ({ ctx, input }) => {
+        const principal = principalOf(ctx.principal);
+        requireSupportOps(principal);
+        try {
+          return await support.saveResponseTargets({ actorId: principal.userId, ...input });
+        } catch (err) {
+          if (err instanceof SupportError && err.code === 'support.not_lead')
+            throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('support.not_lead') });
+          if (err instanceof SupportError && err.code === SLA_POLICY_STALE)
+            throw new TRPCError({ code: 'CONFLICT', message: SLA_POLICY_STALE });
+          if (err instanceof SupportError && err.code === SLA_TARGETS_UNSET)
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: SLA_TARGETS_UNSET });
           mapError(err);
         }
       }),

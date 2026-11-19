@@ -1,4 +1,5 @@
 import { REASON_MAX, REASON_MIN, UUID } from '@/lib/desk/approval-packet';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * A founder's step on a deposit held for the inbound travel rule (W-deposit-07, J-wallet-03 #2-#3), as this console asks for it.
@@ -15,10 +16,6 @@ export interface TravelRuleRequest {
   readonly action: TravelRuleAction;
   readonly depositId: string;
   readonly reason: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 /** Strict reader. The reason is trimmed the way svc-pay keeps it; anything off-shape is null. */

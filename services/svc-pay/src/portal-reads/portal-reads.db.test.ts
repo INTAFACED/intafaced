@@ -19,6 +19,7 @@ import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { RailRegistry } from '../rails/registry.js';
 import { createPayRouter } from '../router.js';
 import { UserMoneyService } from '../user-money-service.js';
+import { sleep as pause } from '@intafaced/contracts/sleep';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
@@ -80,10 +81,6 @@ function coveringRange(): { from: string; to: string } {
 const statementFail: PayFail = (message, code) => {
   throw new PayError(message, code);
 };
-
-function pause(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function refused(run: Promise<unknown>) {
   try {

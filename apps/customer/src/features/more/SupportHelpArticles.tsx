@@ -3,14 +3,13 @@ import { z } from 'zod';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field } from '../../shared/ui';
 import { isHiddenPath } from '../../app/feature-registry';
-import { useApi, useSession } from '../session/session';
-import { helpHref } from '../public/help-guards';
+import { useApi, useSession } from '../session';
+import { helpHref, kbArticleText } from '../public';
 import { t as legacyText } from './copy';
 import { Details, Read, type useAction } from './common';
 import { deskCopy } from './support-desk-copy';
 import { HIDDEN_FEATURE_ARTICLES, KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from './support-desk';
 import { kbSchema, type KbArticle } from './support-schemas';
-import { kbArticleText } from '../public/kb-text';
 import { readRelated, sendArticleFeedback } from './support-calls';
 
 const CATEGORY_KEY = {

@@ -1,12 +1,30 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ADDRESS_LABEL_KINDS, type ProtocolComplianceReport } from '@intafaced/contracts/protocol-address-risk';
+import {
+  ADDRESS_LABEL_KINDS,
+  HUMAN_TOKEN_TIERS,
+  type ProtocolComplianceReport,
+  type ProtocolNameTagRequest,
+  type ProtocolOnboardingChecklist,
+  type ProtocolTokenTiersOutput,
+} from '@intafaced/contracts/protocol-address-risk';
 import type { ProtocolAuditProducts } from '@intafaced/contracts/protocol-blockers';
 import type { TokensList } from '@intafaced/contracts/protocol-tokens';
 import { formatAsOf } from '@/lib/as-of';
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import { TRUST_TABS, TRUST_TAB_WAITS, pendingReview, publishedWords, reportWords, type TrustTab } from '@/lib/protocol-trust/model';
+import {
+  TRUST_TABS,
+  TRUST_TAB_WAITS,
+  missingItemWords,
+  nameTagWords,
+  pendingReview,
+  publishedWords,
+  reportWords,
+  tierDay,
+  tierWords,
+  type TrustTab,
+} from '@/lib/protocol-trust/model';
 import './desk.css';
 
 type Part<T> = { ok: true; data: T } | { ok: false; message: string };
@@ -15,11 +33,14 @@ interface TrustRead {
   reports: Part<{ asOf: string; chainId: number; reports: ProtocolComplianceReport[] }>;
   tokens: Part<TokensList>;
   audit: Part<ProtocolAuditProducts>;
+  tiers: Part<ProtocolTokenTiersOutput>;
+  onboarding: Part<{ asOf: string; chainId: number; checklists: ProtocolOnboardingChecklist[] }>;
+  nameTags: Part<{ asOf: string; chainId: number; requests: ProtocolNameTagRequest[] }>;
 }
 
 const tabId = (tab: TrustTab) => `trust-tab-${tab.toLowerCase().replace(/[^a-z]+/g, '-')}`;
 
-async function post(body: Record<string, string>): Promise<{ ok: boolean; message?: string }> {
+async function post(body: Record<string, string | null>): Promise<{ ok: boolean; message?: string }> {
   let headers: Record<string, string>;
   try {
     headers = await founderMutationHeaders();
@@ -196,6 +217,435 @@ function ScamReports({ read, reload }: { read: TrustRead['reports']; reload: () 
   );
 }
 
+/** Sends one desk write; on success clears the problem and reloads, otherwise keeps the refusal's words. */
+function useSend(reload: () => void) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const send = async (body: Record<string, string | null>): Promise<boolean> => {
+    if (busy) return false;
+    setBusy(true);
+    const result = await post(body);
+    setBusy(false);
+    if (result.ok) {
+      setProblem(null);
+      reload();
+      return true;
+    }
+    setProblem(result.message ?? 'svc-protocol refused this.');
+    return false;
+  };
+  return { busy, problem, setProblem, send };
+}
+
+function Problem({ problem }: { problem: string | null }) {
+  return problem ? (
+    <p role="alert" className="dk-muted">
+      {problem}
+    </p>
+  ) : null;
+}
+
+/**
+ * Token tiers (D-launch-listing-02, J-dex-protocol-30 #4): a human tier is asked by one person and approved by another,
+ * then shown with its day and reason. Removing it returns the token to its prior tier, and every step is an audit row.
+ */
+function TokenTiers({ tokens, read, reload }: { tokens: TrustRead['tokens']; read: TrustRead['tiers']; reload: () => void }) {
+  const { busy, problem, setProblem, send } = useSend(reload);
+  const [setting, setSetting] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [tier, setTier] = useState<string>('verified');
+  const [reason, setReason] = useState('');
+  if (!tokens.ok) return <Failed message={tokens.message} />;
+  if (!read.ok) return <Failed message={read.message} />;
+  const byToken = new Map(read.data.tiers.map((t) => [t.token.toLowerCase(), t]));
+  const nameOf = new Map(tokens.data.tokens.map((r) => [r.token.address.toLowerCase(), `${r.token.name} (${r.token.symbol})`]));
+  const subject = setting ?? removing;
+  return (
+    <div className="dk-stack">
+      <p className="dk-muted">
+        A human tier is a recorded review, not an audit and not an endorsement. One person asks; a different person approves, and only then
+        is it shown. Read {formatAsOf(read.data.asOf)}.
+      </p>
+      {tokens.data.tokens.length === 0 ? (
+        <p role="status">No token is traded in the factory’s pools on this network.</p>
+      ) : (
+        <table className="adm-table" aria-label="Tokens">
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Address</th>
+              <th>Tier</th>
+              <th>Why</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tokens.data.tokens.map((row) => {
+              const t = byToken.get(row.token.address.toLowerCase()) ?? null;
+              return (
+                <tr key={row.token.address}>
+                  <td>
+                    {row.token.name} ({row.token.symbol})
+                  </td>
+                  <td>
+                    <code>{row.token.address}</code>
+                  </td>
+                  <td data-testid="tier">{tierWords(t)}</td>
+                  <td data-testid="tier-reason">
+                    {t?.tier ? t.reason : <span className="dk-muted">No human tier</span>}
+                    {t?.pending && (
+                      <div className="dk-muted">
+                        Pending: {t.pending.reason}, asked by <code>{t.pending.requesterId}</code>
+                      </div>
+                    )}
+                  </td>
+                  <td className="dk-row">
+                    {t?.pending ? (
+                      <button
+                        type="button"
+                        className="adm-btn"
+                        disabled={busy}
+                        onClick={() => void send({ op: 'tier-approve', requestId: t.pending!.id })}
+                      >
+                        Approve tier
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="adm-btn"
+                        onClick={() => {
+                          setSetting(row.token.address);
+                          setRemoving(null);
+                          setProblem(null);
+                        }}
+                      >
+                        Set tier
+                      </button>
+                    )}
+                    {t?.tier && (
+                      <button
+                        type="button"
+                        className="adm-btn"
+                        onClick={() => {
+                          setRemoving(row.token.address);
+                          setSetting(null);
+                          setProblem(null);
+                        }}
+                      >
+                        Remove tier
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      {subject && (
+        <form
+          className="dk-stack"
+          aria-label={setting ? 'Second approval request' : 'Removal request'}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void send(setting ? { op: 'tier-ask', token: setting, tier, reason } : { op: 'tier-remove', token: removing, reason }).then(
+              (ok) => {
+                if (ok) {
+                  setSetting(null);
+                  setRemoving(null);
+                  setReason('');
+                }
+              },
+            );
+          }}
+        >
+          <p>
+            {setting ? 'Tier for ' : 'Remove the human tier of '}
+            <code>{subject}</code>.{' '}
+            {setting ? 'You ask; a second approver approves.' : 'It returns to the tier it had before, with an audit row.'}
+          </p>
+          {setting && (
+            <div className="adm-field">
+              <label htmlFor="trust-tier">Tier</label>
+              <select id="trust-tier" className="adm-input" value={tier} onChange={(e) => setTier(e.target.value)}>
+                {HUMAN_TOKEN_TIERS.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="adm-field">
+            <label htmlFor="trust-tier-reason">Reason (what was checked)</label>
+            <textarea
+              id="trust-tier-reason"
+              className="adm-textarea"
+              rows={2}
+              maxLength={500}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="adm-btn" disabled={busy || reason.trim().length === 0}>
+            {setting ? 'Ask a second approver' : 'Remove the tier'}
+          </button>
+        </form>
+      )}
+      <Problem problem={problem} />
+      {read.data.audit.length === 0 ? (
+        <p className="dk-muted">No tier has been asked for, approved or removed on this network.</p>
+      ) : (
+        <table className="adm-table" aria-label="Audit">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Token</th>
+              <th>What</th>
+              <th>Why</th>
+              <th>By</th>
+            </tr>
+          </thead>
+          <tbody>
+            {read.data.audit.map((a) => (
+              <tr key={a.id}>
+                <td>{formatAsOf(a.at)}</td>
+                <td>{nameOf.get(a.token.toLowerCase()) ?? <code>{a.token}</code>}</td>
+                <td>
+                  {a.action === 'asked'
+                    ? `Asked for ${a.tier}`
+                    : a.action === 'approved'
+                      ? `Approved ${a.tier} on ${tierDay(a.at)}`
+                      : `Removed ${a.tier}, back to ${a.returnedTo ?? 'unknown'}`}
+                </td>
+                <td>{a.reason}</td>
+                <td>
+                  <code>{a.actorId}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+const CHECKLIST_FIELDS = [
+  ['pool', 'Pool name'],
+  ['legalEntity', 'Legal entity'],
+  ['tokenContract', 'Token contract'],
+  ['checkerAddress', 'Checker address'],
+  ['wrapperAddress', 'Wrapper address'],
+  ['routingRegistration', 'Routing registration'],
+] as const;
+type ChecklistField = (typeof CHECKLIST_FIELDS)[number][0];
+
+/**
+ * Permissioned pool onboarding (D-liquidity-07, J-dex-protocol-30 #9): a checklist with any item blank cannot be approved,
+ * and the person who opened it cannot approve it. svc-protocol refuses both, and the desk shows its refusal.
+ */
+function PermissionedPools({ read, reload }: { read: TrustRead['onboarding']; reload: () => void }) {
+  const { busy, problem, send } = useSend(reload);
+  const blank = Object.fromEntries(CHECKLIST_FIELDS.map(([k]) => [k, ''])) as Record<ChecklistField, string>;
+  const [fields, setFields] = useState(blank);
+  const [reason, setReason] = useState('');
+  if (!read.ok) return <Failed message={read.message} />;
+  return (
+    <div className="dk-stack">
+      <form
+        className="dk-stack"
+        aria-label="New onboarding checklist"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const body: Record<string, string | null> = { op: 'onboarding-open' };
+          for (const [k] of CHECKLIST_FIELDS) body[k] = fields[k].trim() === '' ? null : fields[k].trim();
+          void send(body).then((ok) => ok && setFields(blank));
+        }}
+      >
+        <p className="dk-muted">
+          An issuer’s permissioned pool is onboarded with this checklist. A blank item stays blank and the checklist cannot be approved.
+        </p>
+        {CHECKLIST_FIELDS.map(([k, label]) => (
+          <div className="adm-field" key={k}>
+            <label htmlFor={`trust-onboarding-${k}`}>{label}</label>
+            <input
+              id={`trust-onboarding-${k}`}
+              className="adm-input"
+              value={fields[k]}
+              onChange={(e) => setFields({ ...fields, [k]: e.target.value })}
+            />
+          </div>
+        ))}
+        <button type="submit" className="adm-btn" disabled={busy || fields.pool.trim() === ''}>
+          Open the checklist
+        </button>
+      </form>
+      <div className="adm-field">
+        <label htmlFor="trust-onboarding-reason">Approval reason</label>
+        <input
+          id="trust-onboarding-reason"
+          className="adm-input"
+          maxLength={500}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </div>
+      <Problem problem={problem} />
+      {read.data.checklists.length === 0 ? (
+        <p role="status">No permissioned pool checklist has been opened on this network.</p>
+      ) : (
+        <table className="adm-table" aria-label="Onboarding">
+          <thead>
+            <tr>
+              <th>Pool</th>
+              <th>Checker address</th>
+              <th>State</th>
+              <th>Opened by</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {read.data.checklists.map((c) => (
+              <tr key={c.id}>
+                <td>{c.pool}</td>
+                <td>{c.checkerAddress ? <code>{c.checkerAddress}</code> : <span className="dk-muted">blank</span>}</td>
+                <td>
+                  {c.status === 'approved'
+                    ? `Approved by ${c.approvedBy}: ${c.approvalReason}`
+                    : c.missing.length > 0
+                      ? missingItemWords(c.missing).join(' · ')
+                      : 'Complete · waiting for a second person'}
+                </td>
+                <td>
+                  <code>{c.openedBy}</code>
+                </td>
+                <td>
+                  {c.status === 'open' && (
+                    <button
+                      type="button"
+                      className="adm-btn"
+                      disabled={busy || reason.trim() === ''}
+                      onClick={() => void send({ op: 'onboarding-approve', checklistId: c.id, reason })}
+                    >
+                      Approve
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Public name tags (D-launch-listing-01, J-dex-protocol-30 #7): a tag says who an address belongs to. svc-protocol refuses
+ * to approve one with no ownership proof on file (the address's on-chain owner signed a one-time challenge), and makes it
+ * public only after two different people approved it.
+ */
+function NameTags({ read, reload }: { read: TrustRead['nameTags']; reload: () => void }) {
+  const { busy, problem, send } = useSend(reload);
+  const [address, setAddress] = useState('');
+  const [tag, setTag] = useState('');
+  const [reason, setReason] = useState('');
+  if (!read.ok) return <Failed message={read.message} />;
+  return (
+    <div className="dk-stack">
+      <form
+        className="dk-stack"
+        aria-label="New name tag"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send({ op: 'nametag-request', address: address.trim(), tag: tag.trim(), reason: reason.trim() }).then(
+            (ok) => ok && (setAddress(''), setTag(''), setReason('')),
+          );
+        }}
+      >
+        <p className="dk-muted">
+          A name tag is public only with a proof of ownership on file, where the address’s owner signed a one-time challenge, and after two
+          different people approve it. Read {formatAsOf(read.data.asOf)}.
+        </p>
+        <div className="adm-field">
+          <label htmlFor="trust-nametag-address">Address</label>
+          <input id="trust-nametag-address" className="adm-input" value={address} onChange={(e) => setAddress(e.target.value)} />
+        </div>
+        <div className="adm-field">
+          <label htmlFor="trust-nametag-tag">Name tag</label>
+          <input id="trust-nametag-tag" className="adm-input" maxLength={60} value={tag} onChange={(e) => setTag(e.target.value)} />
+        </div>
+        <div className="adm-field">
+          <label htmlFor="trust-nametag-reason">Why</label>
+          <input
+            id="trust-nametag-reason"
+            className="adm-input"
+            maxLength={500}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
+        <button type="submit" className="adm-btn" disabled={busy || address.trim() === '' || tag.trim() === '' || reason.trim() === ''}>
+          Request the name tag
+        </button>
+      </form>
+      <Problem problem={problem} />
+      {read.data.requests.length === 0 ? (
+        <p role="status">No name tag has been requested on this network.</p>
+      ) : (
+        <table className="adm-table" aria-label="Requests">
+          <thead>
+            <tr>
+              <th>Name tag</th>
+              <th>Address</th>
+              <th>State</th>
+              <th>Why</th>
+              <th>Approved by</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {read.data.requests.map((r) => (
+              <tr key={r.id}>
+                <td>{r.tag}</td>
+                <td>
+                  <code>{r.address}</code>
+                </td>
+                <td data-testid="name-tag-state">{nameTagWords(r)}</td>
+                <td>{r.reason}</td>
+                <td>
+                  {r.approvals.length === 0 ? (
+                    <span className="dk-muted">Nobody yet</span>
+                  ) : (
+                    r.approvals.map((a) => (
+                      <div key={a.approverId}>
+                        <code>{a.approverId}</code>
+                      </div>
+                    ))
+                  )}
+                </td>
+                <td>
+                  {r.status === 'pending' && (
+                    <button
+                      type="button"
+                      className="adm-btn"
+                      disabled={busy}
+                      onClick={() => void send({ op: 'nametag-approve', requestId: r.id })}
+                    >
+                      Approve
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function TrustCriteria({ read }: { read: TrustRead['tokens'] }) {
   return (
     <div className="dk-stack">
@@ -289,7 +739,7 @@ function AuditRoom({ read }: { read: TrustRead['audit'] }) {
 
 /**
  * The Protocol trust desk (J-dex-protocol-30): scam reports and their two-reviewer labels, the trust criteria, and the
- * audit and disclosure room, read from svc-protocol as the signed-in founder. The other tabs name what they wait for.
+ * audit and disclosure room, token tiers, name tags and permissioned pool onboarding, read from svc-protocol as the signed-in founder. The other tabs name what they wait for.
  */
 export function ProtocolTrust() {
   const [tab, setTab] = useState<TrustTab>('Scam reports');
@@ -342,6 +792,12 @@ export function ProtocolTrust() {
           <p role="status">{lost ? 'Nothing is shown rather than a guess.' : 'Reading…'}</p>
         ) : tab === 'Scam reports' ? (
           <ScamReports read={read.reports} reload={() => void reload()} />
+        ) : tab === 'Token tiers' ? (
+          <TokenTiers tokens={read.tokens} read={read.tiers} reload={() => void reload()} />
+        ) : tab === 'Permissioned pools' ? (
+          <PermissionedPools read={read.onboarding} reload={() => void reload()} />
+        ) : tab === 'Name tags' ? (
+          <NameTags read={read.nameTags} reload={() => void reload()} />
         ) : tab === 'Trust criteria' ? (
           <TrustCriteria read={read.tokens} />
         ) : (

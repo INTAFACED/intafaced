@@ -19,6 +19,7 @@ import { mc } from './copy';
 import { amountFor, hasHiddenDigits, roundedDecimal } from './model';
 import { ReserveCard } from './Reserve';
 import { AllBalances } from './AllBalances';
+import { OutsideFunds } from './OutsideFunds';
 import { statementCard, statementColumns } from './Statement';
 import { pictureCount, usePayoutPicture, type PayoutPicture } from './payout-picture';
 import { defaultStatementRange, payoutRowState } from './model';
@@ -44,6 +45,8 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
   const partner = useResource((s) => portal.partnerTerms(merchantId, s), `money:partner-terms:${merchantId}`);
   // The same read Settlements and Payouts use, so "ready" and "waiting" are the same figures on every page.
   const picture = usePayoutPicture(portal, merchantId);
+  // Launch money model (J-merchant-04): what customers paid into the business's own wallet or to the partner, as they report it.
+  const outside = useResource((s) => portal.outsideFunds(s), `money:outside-funds:${merchantId}`);
   const reload = () => {
     snapshot.reload();
     reserve.reload();
@@ -51,6 +54,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
     enabled.reload();
     partner.reload();
     picture.reload();
+    outside.reload();
   };
   return (
     <div className="stack mn-page">
@@ -60,6 +64,7 @@ export function MerchantMoney({ portal, merchantId }: { portal: PortalApi; merch
       <div className="pp-actions">
         <LinkButton href="/pay/money/top-up">{t('actTopUp')}</LinkButton>
       </div>
+      <OutsideFunds funds={outside.resource} retry={outside.reload} test={test} />
       <Gate resource={snapshot.resource} retry={reload} rows={4}>
         {(data) => {
           const assets = data.balances.map((b) => b.assetCode);

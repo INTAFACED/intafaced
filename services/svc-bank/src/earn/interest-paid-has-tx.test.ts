@@ -11,7 +11,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
+import { createTestDatabase, postgresAvailable, type TestDatabase, resolveTestDatabaseUrl } from '@intafaced/db';
 import { afterAll, describe, expect, it } from 'vitest';
 
 const FORWARD = '0017_interest_accrual_paid_has_tx.sql';
@@ -28,7 +28,7 @@ const prior = forwardFiles.filter((file) => file !== FORWARD).map((file) => read
 const forwardPath = join(drizzle, FORWARD);
 const forward = forwardFiles.includes(FORWARD) ? readFileSync(forwardPath, 'utf8') : null;
 
-const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+const databaseUrl = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 const available = await postgresAvailable(databaseUrl);
 if (!available) {
   throw new Error(`Postgres test database is not available at ${databaseUrl}`);

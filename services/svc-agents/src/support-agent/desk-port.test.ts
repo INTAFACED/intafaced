@@ -42,7 +42,7 @@ describe('createHttpSupportDeskPort', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const desk = createHttpSupportDeskPort({
       supportUrl: 'http://support.test',
@@ -56,7 +56,7 @@ describe('createHttpSupportDeskPort', () => {
   });
 
   it('searchKb omit limit refuses named and does not fetch — never a 400-as-unreachable', async () => {
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const fetchImpl = vi.fn() as typeof fetch;
     const desk = createHttpSupportDeskPort({
       supportUrl: 'http://support.test',
       internalSecret: 'a'.repeat(32),
@@ -73,7 +73,7 @@ describe('createHttpSupportDeskPort', () => {
   it('searchKb transport failure is unreachable, not invented hits', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('down');
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     const desk = createHttpSupportDeskPort({
       supportUrl: 'http://support.test',
       internalSecret: 'a'.repeat(32),
@@ -86,7 +86,7 @@ describe('createHttpSupportDeskPort', () => {
     const desk = createHttpSupportDeskPort({
       supportUrl: 'http://support.test',
       internalSecret: 'a'.repeat(32),
-      fetchImpl: vi.fn() as unknown as typeof fetch,
+      fetchImpl: vi.fn() as typeof fetch,
     });
     expect(await desk.readAccount('11111111-1111-4111-8111-111111111111')).toEqual({ status: 'unread' });
   });
@@ -99,7 +99,7 @@ describe('createHttpSupportDeskPort', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const desk = createHttpSupportDeskPort({
       supportUrl: 'http://support.test',
@@ -135,7 +135,7 @@ describe('createHttpSupportDeskPort', () => {
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const desk = createHttpSupportDeskPort({
       supportUrl: 'http://support.test',
@@ -167,7 +167,7 @@ describe('createHttpSupportDeskPort', () => {
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
 
     const desk = createHttpSupportDeskPort({
       supportUrl: 'http://support.test',

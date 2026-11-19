@@ -999,6 +999,32 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         reference: '0xtest',
       }),
     },
+    // A move with its costs from the outside record: one cost (either kind), or both.
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest-one-cost',
+        costs: [{ kind: 'venue-withdrawal-fee', paidTo: 'test-venue-sim', amount: AMT }],
+      }),
+    },
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest-two-costs',
+        costs: [
+          { kind: 'venue-withdrawal-fee', paidTo: 'test-venue-sim', amount: AMT },
+          { kind: 'network-fee', paidTo: 'test-chain', amount: AMT },
+        ],
+      }),
+    },
     {
       name: 'campaignBudgetFund',
       post: recipes.campaignBudgetFund({ campaignId: 'test-campaign', decisionId: 'approval-test', assetId: 'USDC', amount: AMT }),
@@ -1024,6 +1050,16 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         from: { kind: 'treasury-wallet', walletId: 'test' },
         toWallet: '0x00000000000000000000000000000000000000c1',
         chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'rewardReclaim',
+      post: recipes.rewardReclaim({
+        campaignId: 'test-campaign',
+        rewardId: `campaign:test-campaign:${U}:test`,
+        caseId: 'risk-test',
         assetId: 'USDC',
         amount: AMT,
       }),
@@ -1075,11 +1111,72 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'academyPurchase',
+      post: recipes.academyPurchase({
+        course: 'test-course',
+        userId: U,
+        n: 1n,
+        assetId: 'USDC',
+        amount: AMT,
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        paymentId: `0x${'a'.repeat(64)}`,
+      }),
+    },
+    {
+      name: 'academyPurchaseRefund',
+      post: recipes.academyPurchaseRefund({
+        course: 'test-course',
+        userId: U,
+        n: 1n,
+        assetId: 'USDC',
+        amount: AMT,
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        paymentId: `0x${'b'.repeat(64)}`,
+      }),
+    },
+    {
+      // Collected by the person's partner into our own money at that partner (svc-agents meter.ts, J-agents-01).
+      name: 'chargeCollect',
+      post: recipes.chargeCollect({
+        module: 'agents',
+        userId: U,
+        to: { kind: 'partner-reserve', partnerId: 'test' },
+        paymentId: 'partner-payment-test',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'partnerFeeEarn',
       // Shape sample only, never posted: a TEST rate, because the owner's rate is unset and Earn refuses without one.
       post: recipes.partnerFeeEarn({
         partnerId: 'test-partner',
         module: 'merchant',
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
+      name: 'partnerFeeEarn',
+      // The same recipe as svc-pay posts it at capture (J-merchant-04): our fee on a hosted-checkout payment the partner
+      // took, under module pay. Shape sample only, never posted.
+      post: recipes.partnerFeeEarn({
+        partnerId: 'test-partner',
+        module: 'pay',
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
+      name: 'merchantFeeEarn',
+      // Shape sample only, never posted: a TEST fee, because a blank fee refuses.
+      post: recipes.merchantFeeEarn({
+        module: 'pay',
+        merchantId: U,
         paymentId: 'pay-test',
         assetId: 'USDC',
         grossAmount: AMT,

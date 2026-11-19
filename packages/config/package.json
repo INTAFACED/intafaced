@@ -57,6 +57,10 @@
     "./marketing-language": {
       "types": "./dist/marketing-language.d.ts",
       "default": "./dist/marketing-language.js"
+    },
+    "./compose": {
+      "types": "./dist/compose.d.ts",
+      "default": "./dist/compose.js"
     }
   },
   "scripts": {

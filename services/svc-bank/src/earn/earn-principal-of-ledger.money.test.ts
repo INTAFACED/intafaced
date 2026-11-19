@@ -19,7 +19,7 @@ function sqlReturning(active: Array<{ id: string; user_id: string; asset_id: str
     if (q.includes('FROM bank.earn_positions')) return Promise.resolve(active);
     throw new Error(`unexpected query: ${q}`);
   };
-  return Object.assign(fn, { json: (v: unknown) => v }) as unknown as Sql;
+  return Object.assign(fn, { json: (v: unknown) => v }) as Sql;
 }
 
 async function fundedService(active: Array<{ id: string; user_id: string; asset_id: string; principal: string }>) {

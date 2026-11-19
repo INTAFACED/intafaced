@@ -1,9 +1,11 @@
-import { keccak256, toHex } from 'viem';
+import { createPublicClient, erc20Abi, http, keccak256, toHex } from 'viem';
+import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
-import { restartWithSetting, toUnits } from './stack.mjs';
+import { restartWithSetting, stackUrl, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 
 // What the venue journeys (J-derivatives-01-venue; J-cex-spot-01 had one until its own file covered its venue steps) share: svc-trade's user-venue door switched on
 // for one file and off after it, the stack's LOCAL TEST venue simulator (tooling/scripts/local-test-venue.mjs) reached
@@ -11,7 +13,7 @@ import { installTestWallet } from './test-wallet.mjs';
 // Every figure the TEST venue reports is TEST.
 
 /** The stack's TEST venue (local-test-stack.mjs PORTS['test-venue']). */
-export const TEST_VENUE = 'http://127.0.0.1:14560';
+export const TEST_VENUE = stackUrl('test-venue');
 /** The setting that points svc-trade's door at it (tooling/scripts/local-stack-services/trade.mjs). */
 const SWITCH = 'LOCAL_STACK_USER_VENUE';
 
@@ -68,7 +70,7 @@ async function venueFetch(url, init) {
 }
 
 /** The stack's second TEST venue (local-test-stack.mjs PORTS['test-venue-b']), on with LOCAL_STACK_USER_VENUE=two. */
-export const TEST_VENUE_B = 'http://127.0.0.1:14562';
+export const TEST_VENUE_B = stackUrl('test-venue-b');
 
 /** One call to either TEST venue by its base URL. */
 export async function testVenueAt(base, path, body) {
@@ -92,13 +94,14 @@ export const venueAccount = async (owner) => ({ venueId: (await venueInfo()).id,
 
 /**
  * The venue's own record for `owner`, read directly (what the desk must equal). `base` is the TEST venue read: the
- * first by default, or TEST_VENUE_B for a journey that routes across both.
+ * first by default, or TEST_VENUE_B for a journey that routes across both. `subAccount` reads one of the owner's
+ * sub-accounts instead of the main account.
  */
-export async function venueRecord(owner, path, extra = {}, base = TEST_VENUE) {
+export async function venueRecord(owner, path, extra = {}, base = TEST_VENUE, subAccount = null) {
   const at = await testVenueAt(base, '/venue');
   expect(at.status, JSON.stringify(at.body)).toBe(200);
   expect(at.body.label).toBe('TEST');
-  const account = { venueId: at.body.venue.id, owner: owner.toLowerCase(), subAccount: null };
+  const account = { venueId: at.body.venue.id, owner: owner.toLowerCase(), subAccount };
   const { status, body } = await testVenueAt(base, path, { account, ...extra });
   expect(status, JSON.stringify(body)).toBe(200);
   return body;
@@ -163,6 +166,21 @@ export async function openVenueDesk(page, who, path, privateKey) {
   return wallet;
 }
 
+/**
+ * Signs in, installs the browser TEST wallet with this key on the venue's chain, opens a venue page that is not a desk
+ * (an order, the order history) and connects the wallet when the page asks. Returns the wallet.
+ */
+export async function openVenuePage(page, who, path, privateKey) {
+  const { chainId } = await venueInfo();
+  const wallet = await installTestWallet(page, { chainId, privateKey });
+  await signIn(page, who);
+  await page.goto(path);
+  const address = page.getByTestId('venue-wallet-address');
+  await connectWhenAsked(page, address);
+  await expect(address).toHaveText(wallet.address.toLowerCase());
+  return wallet;
+}
+
 /** A balance row of the desk's venue balances: free, used and total as the desk shows them. */
 export async function shownBalance(page, asset) {
   const row = page.getByTestId('venue-balances').locator(`tr[data-asset="${asset}"]`);
@@ -181,4 +199,42 @@ export function sameDecimal(a, b) {
 export async function venueBalance(owner, asset, base = TEST_VENUE) {
   const body = await venueRecord(owner, '/balances', {}, base);
   return body.value.find((b) => b.asset === asset) ?? { asset, free: '0', locked: '0', total: '0' };
+}
+
+// cacheTime 0: viem otherwise answers a read from a 4 s cache, so a figure at a later block could repeat an earlier one.
+const testChainClient = createPublicClient({ transport: http(GATE_URL), cacheTime: 0 });
+
+/**
+ * A wallet's token balance as the stack's TEST chain itself reports it (read straight through the chain's gate, never
+ * through our door or our ledger), at `blockNumber` when given. The outside record for a step whose figure the chain
+ * reports, as `venueBalance` is for a step whose figure the TEST venue reports. Raw token units, as a bigint.
+ */
+export async function chainBalance(token, owner, blockNumber) {
+  return testChainClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [owner],
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  });
+}
+
+/**
+ * A venue journey's run state: the account and wallet its #1 made, with the wallet's address as `owner`. A later step
+ * that finds none fails naming #1, never acting as someone else.
+ */
+export function venueRunState(run, journey) {
+  const s = run.read();
+  if (!s.account || !s.walletKey) throw new Error(`${journey} #1 made no account and wallet, so this step has no one to act as`);
+  return { ...s, owner: privateKeyToAccount(s.walletKey).address.toLowerCase() };
+}
+
+/** Every signing write the page sends to the door (prepare, submit), so a step can show nothing was sent. */
+export function venueWrites(page) {
+  const sent = [];
+  page.on('request', (r) => {
+    const p = new URL(r.url()).pathname;
+    if (r.method() === 'POST' && (p === '/api/v1/venue/prepare' || p === '/api/v1/venue/submit')) sent.push(p);
+  });
+  return sent;
 }

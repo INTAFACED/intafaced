@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { P2pError, type OfferRecord } from './p2p-service.js';
@@ -70,7 +71,7 @@ interface PresenceRow {
 }
 
 /** Reads a person's presence; no row is online. */
-export async function readPresence(sql: Sql, userId: string): Promise<Presence> {
+export async function readPresence(sql: Queryable, userId: string): Promise<Presence> {
   const [row] = await sql<PresenceRow[]>`
     SELECT mp.mode, mp.timezone, mp.windows, mp.updated_at,
            p2p.maker_on_board(mp.user_id, now()) AS on_board,

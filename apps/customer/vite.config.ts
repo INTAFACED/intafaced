@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, loadEnv, runnerImport, type Plugin } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { homeBoot } from './src/app/boot';
 
@@ -58,11 +59,54 @@ export function hostDispatchReceipt(file = new URL('./deployment/host-dispatch.j
   };
 }
 
+const DEVELOPER_FILES = fileURLToPath(new URL('./src/features/developers/developers-files.ts', import.meta.url));
+const DEVELOPER_FILE = /^\/developers\/([a-z0-9-]+\.(?:md|txt|json))$/;
+const DEVELOPER_TYPE: Record<string, string> = { md: 'text/markdown', txt: 'text/plain', json: 'application/json' };
+
+type DeveloperFilesModule = typeof import('./src/features/developers/developers-files');
+
+/**
+ * The developer docs' static files (`/developers/<page>.md`, `llms.txt`, `openapi.json`, `collection.json`), generated
+ * from the portal's own copy and route tables (`developers-files.ts`) instead of committed: a build writes them into
+ * `dist/developers/`, where nginx serves them, and `vite dev` answers them from the source as it is now. A name the
+ * generator does not make falls through, so nginx and the dev server both answer it 404 or with the app as before.
+ */
+export function developerDocs(): Plugin {
+  return {
+    name: 'intafaced-developer-docs',
+    async generateBundle() {
+      const { module } = await runnerImport<DeveloperFilesModule>(DEVELOPER_FILES, {
+        configFile: false,
+        root: fileURLToPath(new URL('.', import.meta.url)),
+        logLevel: 'error',
+      });
+      for (const [name, source] of Object.entries(module.developerFiles())) {
+        this.emitFile({ type: 'asset', fileName: `developers/${name}`, source });
+      }
+    },
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const name = DEVELOPER_FILE.exec((req.url ?? '').split('?')[0]!)?.[1];
+        if (!name) return next();
+        try {
+          const { developerFiles } = (await server.ssrLoadModule(DEVELOPER_FILES)) as DeveloperFilesModule;
+          const body = developerFiles()[name];
+          if (body === undefined) return next();
+          res.setHeader('content-type', `${DEVELOPER_TYPE[name.split('.').pop()!]}; charset=utf-8`);
+          res.end(body);
+        } catch (error) {
+          next(error);
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   assertLocalTestBuildAllowed(mode, { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env });
   return {
     esbuild: { jsx: 'automatic' },
-    plugins: [tailwindcss(), homeBoot(), hostDispatchReceipt()],
+    plugins: [tailwindcss(), homeBoot(), hostDispatchReceipt(), developerDocs()],
     server: {
       proxy: {
         '/api': { target: process.env.CUSTOMER_EDGE_URL ?? 'http://127.0.0.1:4000', changeOrigin: false },

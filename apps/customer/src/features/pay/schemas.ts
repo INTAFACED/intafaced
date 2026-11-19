@@ -1,4 +1,6 @@
 import { P2P_CANCEL_REASONS, P2P_CANCELLED_BY } from '@intafaced/contracts/p2p-cancel';
+import { P2P_CONTACTS_LIST, P2P_MODERATION } from '@intafaced/contracts/p2p-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
@@ -14,16 +16,6 @@ export const id = z.string().guid();
 export const asset = z.string().min(1).max(16);
 export const amount = decimalSchema.refine((v) => /^\d+(\.\d{1,18})?$/.test(v));
 export const positiveAmount = amount.refine((v) => /[1-9]/.test(v), 'Enter an amount greater than zero');
-export const spaceSchema = z.object({
-  id: z.string(),
-  assetId: asset,
-  kind: z.enum(['primary', 'named']),
-  name: z.string(),
-  goalTarget: amount.nullable(),
-  lockedUntil: z.string().nullable(),
-  balance: amount,
-  ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: asset, kind: z.string() }),
-});
 export const sendInput = z.object({
   transferId: z.string().min(8).max(64),
   fromSpaceId: id,
@@ -142,6 +134,22 @@ export const tradeSchema = z.object({
   escrowedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
+  /** RC-p2p-02: who holds the coins: the ledger, or the escrow contract (no ledger entry). Fixed at take. */
+  escrowKind: z.enum(['ledger', 'contract']).optional(),
+  /** RC-p2p-02: the contract deal's terms (fixed at take) and, once the seller attached it, the deal. Null on a ledger order. */
+  contract: z
+    .object({
+      chainId: z.number().int().positive(),
+      token: z.string(),
+      units: z.string().regex(/^[1-9][0-9]*$/),
+      buyerWallet: z.string(),
+      disputeWindowSeconds: z.number().int().positive(),
+      timeout: z.literal('refund_seller'),
+      dealId: z.string().nullable(),
+      sellerWallet: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
   /** `trades.get` only: the ad's terms when the order was placed (later ad edits never change them); null when the order predates the copy. */
   terms: z.string().nullable().optional(),
   /** `trades.get` only: the readable status the order list shows. */
@@ -276,8 +284,6 @@ export const chatSentSchema = chatMessageSchema.extend({
   }),
 });
 export const chatUnreadSchema = z.object({ tradeId: id, unread: z.number().int().nonnegative() });
-/** `contacts.list` and every contacts mutation answer with the caller's whole lists of account ids. */
-export const contactsSchema = z.object({ following: z.array(z.string()), blocking: z.array(z.string()) });
 export const instrumentSchema = z.object({
   id,
   methodId: z.string(),
@@ -319,7 +325,6 @@ export const methodSchema = z.object({
     .optional(),
   cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number().int() }).nullable().optional(),
 });
-export const fiatSchema = z.object({ code: z.string(), name: z.string(), symbol: z.string(), minorUnits: z.number().int() });
 export const tradeDestinationSchema = z.object({
   tradeId: id,
   methodId: z.string(),
@@ -332,21 +337,6 @@ export const tradeDestinationSchema = z.object({
   attachedAt: z.string(),
   /** The seller changed or removed this destination after the order was placed; the order still pays the details above. */
   payeeChange: z.object({ kind: z.enum(['changed', 'removed']) }).nullable(),
-});
-export const moderationSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('absent'), code: z.literal('p2p.moderation_unreachable') }),
-  z.object({ status: z.literal('configured'), code: z.literal('p2p.moderation_unprobed') }),
-]);
-export const p2pHealthSchema = z.object({
-  ok: z.literal(true),
-  service: z.literal('svc-p2p'),
-  moderationConfigured: z.boolean(),
-  moderation: moderationSchema,
-  offerLimitsConfigured: z.boolean(),
-  offerLimitsPosture: z.enum(['unset', 'unlimited', 'configured']),
-  instrumentKmsConfigured: z.literal(false),
-  /** `local-test` is the test stack's seal; anything else refuses new ads until the owner's key service is wired. */
-  instrumentKeyProvider: z.enum(['none', 'local-test']).optional(),
 });
 export const disputeSchema = z.object({
   id,
@@ -377,7 +367,7 @@ export const disputeOpenedSchema = z.object({
   deadlineAt: z.string(),
   ifNobodyRules: z.literal('escalated_and_held'),
   moderationConfigured: z.boolean(),
-  moderation: moderationSchema,
+  moderation: P2P_MODERATION,
 });
 export const reputationSchema = z
   .object({
@@ -441,32 +431,11 @@ export const p2pStandingSchema = z.object({
   appliedAt: z.string(),
   decidedAt: z.string().nullable(),
 });
-/** `access.eligibility`: each check before a take, in the service's order. `fix` is an app path or null. */
-export const p2pEligibilitySchema = z.object({
-  checks: z.array(
-    z.object({
-      id: z.enum(['verification', 'contact', 'jurisdiction', 'deposit']),
-      state: z.enum(['met', 'not_met', 'unknown']),
-      reason: z.string(),
-      fix: z.string().nullable(),
-    }),
-  ),
-  canTake: z.boolean(),
-});
-export type P2PEligibility = z.infer<typeof p2pEligibilitySchema>;
 /** A versioned acceptance: the owner-published version and when this person accepted it (advertiser terms). */
 export const p2pRiskNoticeSchema = z.object({ version: z.string(), acceptedAt: z.string().nullable() });
 export type P2PRiskNotice = z.infer<typeof p2pRiskNoticeSchema>;
 /** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
 export const p2pSellBalanceSchema = z.object({ asset: z.string(), available: amount });
-/** P-ads-merchant-02 (`limits.verification`): the per-order band the caller's verification level allows, in one fiat. */
-export const p2pLevelLimitsSchema = z.object({
-  tier: z.enum(['none', 'basic', 'full', 'institutional']),
-  currency: z.string(),
-  orderMin: amount,
-  orderMax: amount,
-});
-export type P2PLevelLimits = z.infer<typeof p2pLevelLimitsSchema>;
 /** P-ads-merchant-12: the posting checklist for one fiat, every check with the person's value and the target. */
 export const p2pPostingEligibilitySchema = z.object({
   fiatCurrency: z.string(),
@@ -744,7 +713,7 @@ export const webhookDeliverySchema = z.object({
   merchantId: id,
   eventId: z.string(),
   eventType: z.string(),
-  status: z.enum(['pending', 'delivered', 'failed', 'dead']),
+  status: z.enum(['pending', 'delivered', 'failed', 'dead', 'unknown']),
   attempts: z.number().int(),
   nextAttemptAt: z.string(),
   lastStatusCode: z.number().nullable(),
@@ -783,7 +752,8 @@ export type OrderReceipt = z.infer<typeof orderReceiptSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ChatPage = z.infer<typeof chatPageSchema>;
 export type ChatSent = z.infer<typeof chatSentSchema>;
-export type Contacts = z.infer<typeof contactsSchema>;
+/** `contacts.list` and every contacts change answer with the caller's whole lists of account ids. */
+export type Contacts = ProcedureOutput<typeof P2P_CONTACTS_LIST>;
 export type TakeQuote = z.infer<typeof takeQuoteSchema>;
 export type Reputation = z.infer<typeof reputationSchema>;
 /** P-trade-orders-21: the person's one completion appeal (`reputation.myAppeal`, `reputation.appeal`). */
@@ -883,3 +853,17 @@ export const shareLinkSchema = z.object({
   revokedAt: z.string().datetime().nullable(),
 });
 export type ShareLink = z.infer<typeof shareLinkSchema>;
+
+/** RC-p2p-02 `trades.contractEscrow`: the contract escrow for one asset, offered or refused with its blocker. */
+export const contractEscrowOfferSchema = z.object({
+  available: z.boolean(),
+  blocker: z.string().nullable(),
+  reason: z.string().nullable(),
+  network: z.object({ chainId: z.number().int().positive(), label: z.string(), escrow: z.string() }).nullable(),
+  token: z.object({ address: z.string(), decimals: z.number().int() }).nullable(),
+  disputeWindowSeconds: z.number().int().positive().nullable(),
+  timeout: z.literal('refund_seller'),
+  mainnet: z.object({ available: z.literal(false), blocker: z.literal('audit.external') }),
+  audited: z.literal(false),
+});
+export type ContractEscrowOffer = z.infer<typeof contractEscrowOfferSchema>;

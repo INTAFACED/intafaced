@@ -2,7 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import * as workflow from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   crmActivitySchema,
   crmAssignmentInputSchema,
@@ -112,7 +112,7 @@ export class OutreachCrm {
     return { sql: this.sql, config: parsed.data };
   }
   private async write<T>(
-    fn: (tx: Sql, config: OutreachConfig) => Promise<T>,
+    fn: (tx: Queryable, config: OutreachConfig) => Promise<T>,
     isolation: 'read committed' | 'repeatable read' = 'read committed',
   ): Promise<T> {
     const { sql, config } = this.configured();
@@ -135,7 +135,7 @@ export class OutreachCrm {
     const attempts = await this.write(async (tx) => this.rate(tx, abuseKey));
     if (attempts > 30) throw new OutreachError('ops.crm.rate_limited');
   }
-  private async rate(tx: Sql, abuseKey: string): Promise<number> {
+  private async rate(tx: Queryable, abuseKey: string): Promise<number> {
     if (!abuseKey) throw new OutreachError('ops.crm.abuse_context_unavailable');
     const key = hash(abuseKey);
     const window = new Date(Math.floor(this.now().getTime() / 60000) * 60000);
@@ -143,13 +143,13 @@ export class OutreachCrm {
       ON CONFLICT(key_hash,window_start) DO UPDATE SET attempts=ops.crm_rate_windows.attempts+1 RETURNING attempts`;
     return Number(rows[0]?.attempts);
   }
-  private async lockRequest(tx: Sql, id: string, prospect = false): Promise<void> {
+  private async lockRequest(tx: Queryable, id: string, prospect = false): Promise<void> {
     await tx`SELECT pg_advisory_xact_lock(hashtext('ops.crm.request:' || ${id}))`;
     await assertRequestNotErased(tx, id, prospect);
     if ((await tx`SELECT 1 FROM ops.crm_privacy_requests WHERE request_id=${id}`).length)
       throw new OutreachError('ops.crm.idempotency_conflict');
   }
-  private async replay(tx: Sql, requestId: string, actor: string, operation: string, input: unknown): Promise<unknown | null> {
+  private async replay(tx: Queryable, requestId: string, actor: string, operation: string, input: unknown): Promise<unknown | null> {
     const rows = await tx`SELECT actor_key,operation,fingerprint,result FROM ops.crm_requests WHERE request_id=${requestId}`;
     const row = rows[0];
     if (!row) return null;
@@ -158,7 +158,7 @@ export class OutreachCrm {
     return row.result;
   }
   private async remember(
-    tx: Sql,
+    tx: Queryable,
     requestId: string,
     actor: string,
     operation: string,
@@ -169,7 +169,7 @@ export class OutreachCrm {
     await tx`INSERT INTO ops.crm_requests(request_id,actor_key,operation,fingerprint,result,submission_id)
       VALUES (${requestId},${actor},${operation},${fingerprint(input)},${tx.json(JSON.parse(JSON.stringify(result)))},${submissionId})`;
   }
-  private async authenticate(tx: Sql, input: OutreachContinuationInput): Promise<SubmissionRow> {
+  private async authenticate(tx: Queryable, input: OutreachContinuationInput): Promise<SubmissionRow> {
     await assertSubmissionWritable(tx, input.submissionId);
     const rows = await tx<SubmissionRow[]>`SELECT * FROM ops.crm_submissions WHERE id=${input.submissionId} FOR UPDATE`;
     const row = rows[0];
@@ -470,7 +470,7 @@ export class OutreachCrm {
     actorUserId: string,
     input: { requestId: string; opportunityId: string },
     operation: string,
-    fn: (tx: Sql, opportunity: CrmOpportunity, config: OutreachConfig) => Promise<T>,
+    fn: (tx: Queryable, opportunity: CrmOpportunity, config: OutreachConfig) => Promise<T>,
   ): Promise<T> {
     actorUserId = uuidSchema.parse(actorUserId).toLowerCase();
     return this.write(async (tx, config) => {
@@ -569,14 +569,14 @@ export class OutreachCrm {
       this.activity(tx, row.id, { kind: 'operator', userId: actorUserId }, 'note', input.note, input.requestId),
     );
   }
-  private json(tx: Sql, value: unknown) {
+  private json(tx: Queryable, value: unknown) {
     return tx.json(JSON.parse(JSON.stringify(value)));
   }
   private async staffMutation<T>(
     actor: string,
     input: { requestId: string },
     operation: string,
-    fn: (tx: Sql, config: OutreachConfig) => Promise<T>,
+    fn: (tx: Queryable, config: OutreachConfig) => Promise<T>,
   ): Promise<T> {
     actor = uuidSchema.parse(actor).toLowerCase();
     return this.write(async (tx, config) => {
@@ -595,7 +595,7 @@ export class OutreachCrm {
     });
   }
   private async audit(
-    tx: Sql,
+    tx: Queryable,
     actor: string,
     requestId: string,
     subjectType: z.infer<typeof workflow.crmWorkflowAuditSchema>['subjectType'],
@@ -651,7 +651,7 @@ export class OutreachCrm {
       capturedAt: value.capturedAt ?? capturedAt,
     });
   }
-  private async captureAttribution(tx: Sql, sourceKey: string | undefined, capturedAt: string) {
+  private async captureAttribution(tx: Queryable, sourceKey: string | undefined, capturedAt: string) {
     const rows = sourceKey
       ? await tx`SELECT m.record AS mapping,c.record AS campaign FROM ops.crm_source_mappings m JOIN ops.crm_campaigns c ON c.id=m.campaign_id WHERE m.source_key=${sourceKey} AND m.status='active' FOR SHARE OF m,c`
       : [];
@@ -976,7 +976,7 @@ export class OutreachCrm {
       createdAt: row.created_at === null ? null : new Date(String(row.created_at)).toISOString(),
     });
   }
-  private async reviewedInvestor(tx: Sql, opportunity: CrmOpportunity) {
+  private async reviewedInvestor(tx: Queryable, opportunity: CrmOpportunity) {
     if (opportunity.audience !== 'investor') return;
     const rows = await tx`SELECT record FROM ops.crm_submissions WHERE id=${opportunity.submissionId}`;
     const submission = crmSubmissionSchema.parse(rows[0]?.record);
@@ -1186,12 +1186,16 @@ export class OutreachCrm {
     }, 'repeatable read');
   }
 
-  private async saveOpportunity(tx: Sql, raw: unknown): Promise<CrmOpportunity> {
+  private async saveOpportunity(tx: Queryable, raw: unknown): Promise<CrmOpportunity> {
     const row = crmOpportunitySchema.parse(raw);
     await tx`UPDATE ops.crm_opportunities SET contact_id=${row.contactId},stage=${row.stage},owner_user_id=${row.ownerUserId},revision=${row.revision},record=${tx.json(row)} WHERE id=${row.id}`;
     return row;
   }
-  private async task(tx: Sql, opportunity: CrmOpportunity, audit?: { actor: string; requestId: string; reason: string }): Promise<void> {
+  private async task(
+    tx: Queryable,
+    opportunity: CrmOpportunity,
+    audit?: { actor: string; requestId: string; reason: string },
+  ): Promise<void> {
     const previous =
       await tx`SELECT id,record,kind FROM ops.crm_tasks WHERE opportunity_id=${opportunity.id} AND (kind='next_action' OR ${opportunity.stage === 'closed'}) FOR UPDATE`;
     for (const p of previous) {
@@ -1226,7 +1230,7 @@ export class OutreachCrm {
     }
   }
   private async activity(
-    tx: Sql,
+    tx: Queryable,
     opportunityId: string,
     actor: CrmActivity['actor'],
     kind: CrmActivity['kind'],

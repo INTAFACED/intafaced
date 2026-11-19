@@ -19,13 +19,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
 function academyServiceBlock(source: string): string {
-  const match = source.match(/^  svc-academy:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-academy service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-academy');
 }
 
 const IFC_PAY_LAW = /^\s+ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON:\s*\$\{ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON:-\}\s*$/gm;

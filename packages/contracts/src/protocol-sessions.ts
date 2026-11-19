@@ -41,13 +41,3 @@ export const protocolSessionsListSchema = z.object({
 });
 export type ProtocolSessionKey = z.infer<typeof protocolSessionKeySchema>;
 export type ProtocolSessionsList = z.infer<typeof protocolSessionsListSchema>;
-
-/** `buildSessionGrant`'s answer: the unsigned owner call, the scope's commitment and its expiry (unix seconds). */
-export const protocolSessionGrantCallSchema = z.object({
-  to: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
-  data: z.string().regex(/^0x([0-9a-fA-F]{2})*$/),
-  value: z.string(),
-  summary: z.string(),
-  specHash: z.string(),
-  validUntil: z.number(),
-});

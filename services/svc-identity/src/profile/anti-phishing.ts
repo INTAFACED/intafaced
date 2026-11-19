@@ -21,7 +21,7 @@ import {
   type AntiPhishingSetResult,
 } from '@intafaced/contracts';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { ActionApprovalError } from '../auth/action-approval-service.js';
 import { verifyPassword } from '../auth/passwords.js';
@@ -178,7 +178,7 @@ export class AntiPhishingService {
    * The session must still be live: its own row unrevoked and unexpired, the same rule the edge applies. A rotated,
    * signed-out or revoked session is refused, whatever its access token still says.
    */
-  private async requireLive(q: Sql, actor: Actor): Promise<void> {
+  private async requireLive(q: Queryable, actor: Actor): Promise<void> {
     const rows = await q<Array<{ live: boolean }>>`
       SELECT EXISTS (
         SELECT 1 FROM sessions

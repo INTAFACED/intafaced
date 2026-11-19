@@ -3,7 +3,7 @@ import { Button, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useApi } from '../../session/session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
-import { REGION_BLOCKED_CODE, useRegionBlocked } from '../region';
+import { isRegionBlocked, useRegionBlocked } from '../region';
 import { RepresentationPanel } from './RepresentationPanel';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, type TypedDataDocument } from './eip1193';
@@ -63,12 +63,11 @@ export function PermitForm() {
     // region, an unpublished representation or a service that does not answer all stop here, before any read or sheet.
     const representation = await api.representationStatus(wallet.address);
     if (!representation.ok) {
-      const code =
-        representation.code === REGION_BLOCKED_CODE
-          ? 'region'
-          : representation.code === 'compliance.representation_unset'
-            ? 'representation_unset'
-            : 'representation_unavailable';
+      const code = isRegionBlocked(representation.code)
+        ? 'region'
+        : representation.code === 'compliance.representation_unset'
+          ? 'representation_unset'
+          : 'representation_unavailable';
       return setOutcome({ kind: 'refused', code });
     }
     if (!representation.data.accepted) return setOutcome({ kind: 'representation', address: wallet.address, status: representation.data });

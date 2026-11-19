@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { accountFields, createViewSync, type ViewSync, type ViewSyncStatus } from '../../shared/view-sync';
 import { createLanguageSync, type LanguageSync } from '../../shared/language-sync';
 import { currentPreferences, savePreferences, usePreferences } from '../../shared/preferences';

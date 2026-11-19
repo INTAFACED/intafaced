@@ -1,4 +1,5 @@
 import type { PoolCandle } from './pools-api';
+import { chartValue } from '../../../shared/chart-value';
 import type { PoolsTranslate } from './copy';
 
 const W = 600;
@@ -10,12 +11,12 @@ const H = 200;
  */
 export function candleGeometry(candles: readonly PoolCandle[], window: { start: number; seconds: number; width: number }) {
   if (candles.length === 0) return null;
-  const highs = candles.map((c) => Number(c.high));
-  const lows = candles.map((c) => Number(c.low));
+  const highs = candles.map((c) => chartValue(c.high));
+  const lows = candles.map((c) => chartValue(c.low));
   const top = Math.max(...highs);
   const bottom = Math.min(...lows);
   const span = top - bottom || Math.abs(top) || 1;
-  const y = (price: string) => H - ((Number(price) - bottom) / span) * H;
+  const y = (price: string) => H - ((chartValue(price) - bottom) / span) * H;
   // Each candle sits at its own time across the day, so a quiet stretch shows as a gap and not as steady movement.
   const step = (W * window.width) / window.seconds;
   const body = Math.max(step * 0.6, 1);
@@ -28,7 +29,7 @@ export function candleGeometry(candles: readonly PoolCandle[], window: { start: 
       x,
       wick: { y1: y(c.high), y2: y(c.low) },
       body: { x: x - body / 2, y: Math.min(open, close), width: body, height: Math.max(Math.abs(open - close), 1) },
-      rising: Number(c.close) >= Number(c.open),
+      rising: chartValue(c.close) >= chartValue(c.open),
     };
   });
 }

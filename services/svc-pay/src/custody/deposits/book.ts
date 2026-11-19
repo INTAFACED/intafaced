@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, POST_IN_FLIGHT_BOUND_SECONDS, type Amount } from '@intafaced/ledger-client';
 import {
@@ -673,13 +674,13 @@ export class CustodyDepositBook {
    * release is recorded and the deposit goes back to be judged; then it is credited once under its usual key if it is due. A
    * credit the ledger did not answer stays started and `settleOpen` finishes it.
    */
-  async releaseTravelRule<T>(depositId: string, record: (tx: Sql) => Promise<T>): Promise<{ recorded: T; credited: boolean }> {
+  async releaseTravelRule<T>(depositId: string, record: (tx: Queryable) => Promise<T>): Promise<{ recorded: T; credited: boolean }> {
     const { recorded, row } = await this.deps.sql.begin(async (tx) => {
-      const recorded = await record(tx as unknown as Sql);
-      const rows = await (tx as unknown as Sql)<Row[]>`
+      const recorded = await record(tx);
+      const rows = await tx<Row[]>`
         UPDATE pay.custody_deposits
            SET status = CASE WHEN confirmations > 0 THEN 'confirming' ELSE 'detected' END, reason = NULL, updated_at = now()
-         WHERE id = ${depositId} AND status = 'held_travel_rule' RETURNING ${(tx as unknown as Sql).unsafe(COLUMNS)}`;
+         WHERE id = ${depositId} AND status = 'held_travel_rule' RETURNING ${tx.unsafe(COLUMNS)}`;
       // The release checked the deposit under its lock; a row no longer held here rolls the release back, so a record never
       // says released for a deposit that was not.
       if (!rows[0]) throw new Error('pay.deposit_travel_rule_not_held');
@@ -697,7 +698,7 @@ export class CustodyDepositBook {
   }
 
   /** The record's state as the deposit's reason. Used when a record moves while the deposit stays held. */
-  async markTravelRuleReason(tx: Sql, depositId: string, state: string): Promise<void> {
+  async markTravelRuleReason(tx: Queryable, depositId: string, state: string): Promise<void> {
     const reason = TRAVEL_RULE_REASON[state];
     if (!reason) return;
     await tx`UPDATE pay.custody_deposits SET reason = ${reason}, updated_at = now() WHERE id = ${depositId} AND status = 'held_travel_rule'`;
@@ -727,7 +728,7 @@ export class CustodyDepositBook {
         await tx`
           INSERT INTO pay.custody_deposit_travel_rule_events (deposit_id, state, source, actor, reason)
           VALUES (${deposit_id}, 'blocking_time_expired', 'system', 'svc-pay', 'the counterparty wait ran out; still held')`;
-        await this.markTravelRuleReason(tx as unknown as Sql, deposit_id, 'blocking_time_expired');
+        await this.markTravelRuleReason(tx, deposit_id, 'blocking_time_expired');
         expired += 1;
       }
       return expired;
@@ -820,11 +821,11 @@ export class CustodyDepositBook {
   async release<T>(
     networkId: string,
     address: string,
-    lift: (tx: Sql) => Promise<T>,
+    lift: (tx: Queryable) => Promise<T>,
   ): Promise<{ lifted: T; released: number; credited: number }> {
     const { lifted, rows } = await this.deps.sql.begin(async (tx) => {
-      const lifted = await lift(tx as unknown as Sql);
-      const rows = await this.unhold(tx as unknown as Sql, tx`network_id = ${networkId} AND lower(address) = ${address.toLowerCase()}`);
+      const lifted = await lift(tx);
+      const rows = await this.unhold(tx, tx`network_id = ${networkId} AND lower(address) = ${address.toLowerCase()}`);
       return { lifted, rows };
     });
     let credited = 0;
@@ -842,7 +843,7 @@ export class CustodyDepositBook {
   }
 
   /** Put held rows matching `where` whose address has no open freeze back to `confirming` (or `detected`). */
-  private async unhold(sql: Sql, where: ReturnType<Sql>): Promise<Row[]> {
+  private async unhold(sql: Queryable, where: ReturnType<Sql>): Promise<Row[]> {
     return sql<Row[]>`
       UPDATE pay.custody_deposits d
          SET status = CASE WHEN d.confirmations > 0 THEN 'confirming' ELSE 'detected' END, reason = NULL, updated_at = now()

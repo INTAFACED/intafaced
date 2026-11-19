@@ -15,7 +15,8 @@
     "@intafaced/contracts": "workspace:*",
     "@intafaced/db": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
-    "@trpc/server": "^11.25.0",
+    "@intafaced/telemetry": "workspace:*",
+    "@trpc/server": "^11.28.0",
     "postgres": "^3.4.5",
     "zod": "^4.6.7"
   },

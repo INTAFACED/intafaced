@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { MARKET_OPS_SCOPE, VendorService } from './vendor-service.js';
-import { createStakeSource, type SlotEntitlementSource, type VendorEntitlement } from './stake-source.js';
+import { LISTED_CANDIDATE_FACTOR, MARKET_OPS_SCOPE, VendorService } from './vendor-service.js';
+import { createStakeSource, STAKE_READ_TIMEOUT_MS, type SlotEntitlementSource, type VendorEntitlement } from './stake-source.js';
 
 /**
  * PUBLIC LIST ELIGIBILITY AGAINST A REAL POSTGRES (§8.7, `market.vendors`
@@ -323,10 +323,12 @@ describe('svc-market listing eligibility', () => {
       await expect(service.listedVendors({ limit: 20 })).resolves.toMatchObject([{ id: second }]);
     });
 
-    it('checks only the requested candidate window in parallel during a stake outage', async () => {
-      await listedVendor(VENDOR_USER, 1);
-      await listedVendor(OTHER_USER, 1);
-      await listedVendor(LATER_USER, 1);
+    it('checks at most LISTED_CANDIDATE_FACTOR × limit candidates, a window at a time in parallel, during a stake outage', async () => {
+      // #4529 replaced "one window, no refill" with a bounded refill: a total outage now costs
+      // exactly the page's candidate budget in stake reads, and never the candidate past it.
+      const extra = [5, 6, 7, 8].map((n) => `bbbbbbbb-0000-4000-8000-${String(n).padStart(12, '0')}`);
+      const users = [VENDOR_USER, OTHER_USER, LATER_USER, ...extra];
+      for (const u of users) await listedVendor(u, 1);
       const called: string[] = [];
       let active = 0;
       let peak = 0;
@@ -346,8 +348,12 @@ describe('svc-market listing eligibility', () => {
           throw new Error('stake outage');
         },
       });
-      await expect(reading.listedVendors({ limit: 2 })).resolves.toEqual([]);
-      expect([...called].sort()).toEqual([VENDOR_USER, OTHER_USER].sort());
+      const page = await reading.listedVendorsPage({ limit: 2 });
+      expect(page.vendors).toEqual([]);
+      expect(called).toHaveLength(2 * LISTED_CANDIDATE_FACTOR);
+      expect([...called].sort()).toEqual(users.slice(0, 2 * LISTED_CANDIDATE_FACTOR).sort());
+      // The seventh candidate was never read, so the empty page does not claim to be the end.
+      expect(page.nextCursor).not.toBeNull();
       expect(peak).toBe(2);
     });
 
@@ -387,6 +393,162 @@ describe('svc-market listing eligibility', () => {
         },
       });
       await expect(reading.listedVendors({ limit: 3 })).resolves.toMatchObject([{ id: eligible }]);
+    });
+  });
+
+  /**
+   * #4529: older ineligible vendors must not starve newer eligible ones, the
+   * stake reads per page stay bounded, and an abandoned request ends its reads.
+   */
+  describe('bounded, non-starving discovery', () => {
+    const user = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+    /** A delayed stake source: `ineligible` users hold no tier; every read takes a few ms and is recorded. */
+    function delayedStakes(ineligible: Set<string>) {
+      const calls: string[] = [];
+      let active = 0;
+      let peak = 0;
+      const source: SlotEntitlementSource = {
+        async entitlementOf(userId: string): Promise<VendorEntitlement> {
+          calls.push(userId);
+          active += 1;
+          peak = Math.max(peak, active);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          active -= 1;
+          return { tierName: ineligible.has(userId) ? 'Base' : 'Operator', vendorSlots: ineligible.has(userId) ? 0 : 1 };
+        },
+      };
+      return { source, calls, peak: () => peak };
+    }
+
+    it('reaches newer eligible vendors behind older ineligible ones, with bounded reads and stable pages', async () => {
+      // Five older vendors who have unstaked, then two newer eligible ones.
+      const older = [] as string[];
+      for (let i = 1; i <= 5; i += 1) older.push(await listedVendor(user(i), 1));
+      const newer = [await listedVendor(user(6), 1), await listedVendor(user(7), 1)];
+      const stake = delayedStakes(new Set([1, 2, 3, 4, 5].map(user)));
+      const reading = new VendorService(sql, stake.source);
+
+      // limit 2 may check at most 2 × LISTED_CANDIDATE_FACTOR = 6 candidates.
+      const first = await reading.listedVendorsPage({ limit: 2 });
+      expect(first.vendors.map((v) => v.id)).toEqual([newer[0]]);
+      expect([...stake.calls].sort()).toEqual([1, 2, 3, 4, 5, 6].map(user));
+      expect(stake.calls.length).toBeLessThanOrEqual(2 * LISTED_CANDIDATE_FACTOR);
+      // Short page, but NOT complete: the cursor says there may be more.
+      expect(first.nextCursor).toBe(newer[0]);
+
+      const second = await reading.listedVendorsPage({ limit: 2, cursor: first.nextCursor! });
+      expect(second.vendors.map((v) => v.id)).toEqual([newer[1]]);
+      expect(second.nextCursor).toBeNull();
+      expect(stake.calls.slice(6)).toEqual([user(7)]);
+
+      // Stable: the same request gives the same page, in registration order.
+      const again = await reading.listedVendorsPage({ limit: 2 });
+      expect(again).toEqual(first);
+      // The old array read keeps working and is the first page.
+      await expect(reading.listedVendors({ limit: 2 })).resolves.toEqual(first.vendors);
+      expect(older).toHaveLength(5);
+    });
+
+    it('fills a page from later candidates and still checks each window in parallel', async () => {
+      for (let i = 1; i <= 2; i += 1) await listedVendor(user(i), 1);
+      const eligible = [await listedVendor(user(3), 1), await listedVendor(user(4), 1)];
+      const stake = delayedStakes(new Set([user(1), user(2)]));
+      const reading = new VendorService(sql, stake.source);
+      const page = await reading.listedVendorsPage({ limit: 2 });
+      expect(page.vendors.map((v) => v.id)).toEqual(eligible);
+      // The page is full, so it cannot know it is the end: it hands a cursor.
+      expect(page.nextCursor).toBe(eligible[1]);
+      await expect(reading.listedVendorsPage({ limit: 2, cursor: page.nextCursor! })).resolves.toEqual({ vendors: [], nextCursor: null });
+      expect(stake.peak()).toBe(2);
+    });
+
+    it('honours a status change that lands during a refill round', async () => {
+      await listedVendor(user(1), 1);
+      const late = await listedVendor(user(2), 1);
+      const kept = await listedVendor(user(3), 1);
+      const reading = new VendorService(sql, {
+        async entitlementOf(userId: string): Promise<VendorEntitlement> {
+          if (userId === user(2)) await sql`UPDATE market.vendors SET status = 'suspended' WHERE id = ${late}`;
+          return { tierName: userId === user(1) ? 'Base' : 'Operator', vendorSlots: userId === user(1) ? 0 : 1 };
+        },
+      });
+      const page = await reading.listedVendorsPage({ limit: 1 });
+      // limit 1: candidates 1 (unstaked), 2 (suspended mid-read), 3 (eligible) — exactly the budget.
+      expect(page.vendors.map((v) => v.id)).toEqual([kept]);
+    });
+
+    it('refuses a cursor it never issued instead of claiming the directory ended', async () => {
+      await listedVendor(user(1), 1);
+      await expect(service.listedVendorsPage({ limit: 2, cursor: UNKNOWN_VENDOR })).rejects.toMatchObject({
+        code: 'market.vendor_not_found',
+      });
+    });
+
+    it('ends every pending stake read and starts no new round when the caller cancels', async () => {
+      for (let i = 1; i <= 4; i += 1) await listedVendor(user(i), 1);
+      const calls: string[] = [];
+      const aborted: string[] = [];
+      let bothStarted: () => void = () => {};
+      const started = new Promise<void>((resolve) => (bothStarted = resolve));
+      const reading = new VendorService(sql, {
+        entitlementOf(userId: string, signal?: AbortSignal): Promise<VendorEntitlement> {
+          calls.push(userId);
+          if (calls.length === 2) bothStarted();
+          // Never answers on its own: only the caller's signal ends it.
+          return new Promise((_, reject) => {
+            signal?.addEventListener('abort', () => {
+              aborted.push(userId);
+              reject(signal.reason);
+            });
+          });
+        },
+      });
+      const controller = new AbortController();
+      const read = reading.listedVendorsPage({ limit: 2, signal: controller.signal });
+      await started;
+      controller.abort(new Error('client went away'));
+      await expect(read).rejects.toThrow('client went away');
+      expect([...aborted].sort()).toEqual([user(1), user(2)]);
+      // No refill round after the abort.
+      expect([...calls].sort()).toEqual([user(1), user(2)]);
+    });
+
+    it('closes the real outbound stake request when the caller cancels, and times out a hung svc-token', async () => {
+      await listedVendor(user(1), 1);
+      const closed: string[] = [];
+      let arrived: () => void = () => {};
+      const reached = new Promise<void>((resolve) => (arrived = resolve));
+      const hung = createServer((req) => {
+        // Never respond; record when the client tears the socket down.
+        req.socket.on('close', () => closed.push(req.url ?? ''));
+        arrived();
+      });
+      await new Promise<void>((resolve) => hung.listen(0, '127.0.0.1', resolve));
+      try {
+        const address = hung.address();
+        if (typeof address === 'string' || address === null) throw new Error('no port');
+        const url = `http://127.0.0.1:${address.port}`;
+
+        const controller = new AbortController();
+        const reading = new VendorService(sql, createStakeSource(url, 'a-market-listing-test-secret-long-enough'));
+        const read = reading.listedVendorsPage({ limit: 1, signal: controller.signal });
+        await reached;
+        controller.abort(new Error('client went away'));
+        await expect(read).rejects.toThrow('client went away');
+        await expect.poll(() => closed).toEqual([`/internal/stake/${user(1)}`]);
+
+        // With nobody cancelling, the read's own lifetime ends it: fail closed, vendor dropped.
+        const bounded = new VendorService(sql, createStakeSource(url, 'a-market-listing-test-secret-long-enough', undefined, 50));
+        const started = Date.now();
+        await expect(bounded.listedVendorsPage({ limit: 1 })).resolves.toEqual({ vendors: [], nextCursor: null });
+        expect(Date.now() - started).toBeLessThan(STAKE_READ_TIMEOUT_MS);
+        const [vendorId] = await sql<Array<{ id: string }>>`SELECT id FROM market.vendors`;
+        await expect(bounded.publicProfile(vendorId!.id)).rejects.toMatchObject({ code: 'market.stake_unavailable' });
+      } finally {
+        hung.closeAllConnections();
+        await new Promise<void>((resolve) => hung.close(() => resolve()));
+      }
     });
   });
 

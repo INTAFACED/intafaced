@@ -7,7 +7,7 @@
  * only. Every change is one transaction with its history row. No balance, no ledger, no KYC shortcut.
  */
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { OrgError, requireActorId, requireMemberId, requireOrgId, requireOrgRole, type OrgRole } from './org-service.js';
 
 export type OrgSummary = { readonly id: string; readonly name: string; readonly role: OrgRole; readonly createdAt: string };
@@ -72,7 +72,7 @@ export async function getOrg(sql: Sql, actorUserId: string | null | undefined, o
 }
 
 /** Locks the organisation row and returns the actor's seat, or the not-found / not-a-member refusals. */
-async function lockedSeat(tx: Sql, actor: string, org: string): Promise<{ name: string; role: OrgRole }> {
+async function lockedSeat(tx: Queryable, actor: string, org: string): Promise<{ name: string; role: OrgRole }> {
   const [row] = await tx<Array<{ name: string }>>`SELECT name FROM organizations WHERE id = ${org} FOR UPDATE`;
   if (!row) throw new OrgError('Organization not found', 'org.not_found');
   const [seat] = await tx<Array<{ role: string }>>`SELECT role FROM organization_members WHERE org_id = ${org} AND user_id = ${actor}`;

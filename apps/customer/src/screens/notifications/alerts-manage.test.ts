@@ -27,7 +27,7 @@ const trpc = (data: unknown, status = 200) => new Response(JSON.stringify({ resu
 const trpcError = (status: number, message: string, code: string) =>
   new Response(JSON.stringify({ error: { message, code: -32600, data: { code } } }), { status });
 const client = (fetch: typeof globalThis.fetch) => createApiClient({ fetch, token: () => 'tok' });
-const body = (fetch: ReturnType<typeof vi.fn>) => JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+const body = (fetch: ReturnType<typeof vi.fn>) => JSON.parse(String((fetch.mock.calls[0] as [string, RequestInit])[1].body));
 
 describe('what an edit changes', () => {
   it('sends only the fields the person changed, and never a price spelled differently', () => {
@@ -190,5 +190,5 @@ describe('trigger history', () => {
 });
 
 function url(fetch: ReturnType<typeof vi.fn>): string {
-  return (fetch.mock.calls[0] as unknown as [string])[0];
+  return (fetch.mock.calls[0] as [string])[0];
 }

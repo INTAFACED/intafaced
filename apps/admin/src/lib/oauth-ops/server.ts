@@ -1,7 +1,6 @@
 import 'server-only';
 import { oauthAppSchema, oauthReviewQueueRowSchema } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, type FounderCallResult, partFrom, type Part, type PartLabels } from '@/lib/desk';
 import { OAUTH_OPS_FORBIDDEN } from './refusal';
 import { QUEUE_PAGE, type OAuthQueueApp, type OAuthReviewRequest, type OAuthReviewStatus } from './model';
 

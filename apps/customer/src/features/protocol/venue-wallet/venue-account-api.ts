@@ -60,8 +60,24 @@ export const venueWithdrawalSchema = z.object({
   status: z.enum(['pending', 'done', 'failed']),
   fee: maybeKnown,
   networkFee: maybeKnown,
+  // The chain transaction that paid a done withdrawal, where the venue reports it (J-bank-31 #4).
+  txHash: z.string().optional(),
+  // When the venue took the signed withdrawal, where it reports it.
+  requestedAt: z.string().optional(),
 });
 export type VenueWithdrawal = z.infer<typeof venueWithdrawalSchema>;
+/** The venue's published withdrawal terms for an asset (J-bank-31 #3): its fee, the network fee and the arrival time. */
+export const venueWithdrawalTermsSchema = z.object({
+  venueId: z.string(),
+  asOf: z.string(),
+  value: z.object({
+    asset: z.string(),
+    fee: maybeKnown,
+    networkFee: maybeKnown,
+    arrivalSeconds: z.number().int().positive().nullable(),
+  }),
+});
+export type VenueWithdrawalTerms = z.infer<typeof venueWithdrawalTermsSchema>['value'];
 export const venueWithdrawalReadSchema = z.object({ venueId: z.string(), asOf: z.string(), value: venueWithdrawalSchema.nullable() });
 
 /** One on-chain deposit as the venue reports it (J-dex-protocol-05 #2): confirming, credited, or not credited and why. */
@@ -141,6 +157,8 @@ export function createVenueAccountApi(api: ApiClient) {
     deposits: (owner: string, signal?: AbortSignal) => api.rest('/venue/deposits', venueDepositsSchema, { query: { owner }, signal }),
     withdrawal: (owner: string, nonce: string, signal?: AbortSignal) =>
       api.rest(`/venue/withdrawals/${encodeURIComponent(nonce)}`, venueWithdrawalReadSchema, { query: { owner }, signal }),
+    withdrawalTerms: (owner: string, asset: string, signal?: AbortSignal) =>
+      api.rest('/venue/withdrawal-terms', venueWithdrawalTermsSchema, { query: { owner, asset }, signal }),
     prepareWithdrawal: (input: {
       owner: string;
       asset: string;

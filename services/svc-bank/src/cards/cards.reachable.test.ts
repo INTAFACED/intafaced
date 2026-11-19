@@ -72,6 +72,12 @@ const MIGRATIONS = [
   '20261108231000_card_partner_held.sql',
   // The issuer's `recurring` flag (J-bank-14 #6), which every card read selects.
   '20261110040000_card_recurring.sql',
+  // Cashback on partner-held spend (J-bank-13 #7): `paid_by`, which every cashback read and retry selects.
+  '20261115090000_card_cashback_to_wallet.sql',
+  // The card programme's rules, 3DS policy and decision traces (J-bank-26), which every authorisation reads and writes.
+  '20261117000000_card_programme_ops.sql',
+  // A payment by the pay-from order (J-bank-29): the order on the authorisation, and the partner's rate kind.
+  '20261117120000_card_pay_from_holds.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const EDGE_SECRET = 'a-bank-cards-reachability-edge-secret-long-enough';

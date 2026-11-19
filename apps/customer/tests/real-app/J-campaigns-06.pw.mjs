@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api, fund, journeyState, mailedCodes, nextMailedCode, restartWithSetting, signOutBrowser, tool } from './stack.mjs';
+import { actedAs, api, fund, journeyState, mailedCodes, nextMailedCode, restartWithSetting, signOutBrowser, tool } from './stack.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
@@ -112,6 +112,7 @@ async function invitationToken(page) {
 async function signUpFromInvitation(page, token) {
   const handle = `jc6f${Date.now().toString(36)}`;
   const who = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
+  actedAs(who);
   await page.goto(`/invite?token=${token}`);
   await page.getByRole('link', { name: 'Create account' }).click();
   await expect(page).toHaveURL(`/register?invite=${token}`);
@@ -120,6 +121,7 @@ async function signUpFromInvitation(page, token) {
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
   await page.getByLabel('Country you live in').selectOption('DE');
+  await page.getByRole('radio', { name: 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill('1990-05-01');
   await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();

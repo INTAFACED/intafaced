@@ -3,14 +3,15 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import {
+  api,
   DEVICE_KEY,
   EDGE,
-  api,
   fund,
   journeyState,
   mailedCodes,
   mailedConfirmLinks,
   nextMailedCode,
+  ORIGIN,
   restartWith,
   signOutBrowser,
   stackFile,
@@ -24,7 +25,6 @@ import { awayBid, deskPath, held, openOrders, previewed, reviewSheet, verify } f
 // TEST owner values: minimum age 18, sign-up closed for AQ, five wrong codes lock, a new code after 30 s, five
 // confirmation emails an hour.
 const J = 'J-identity-01';
-const ORIGIN = 'http://127.0.0.1:3210';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
@@ -35,30 +35,38 @@ function person() {
   return { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
 }
 
-async function details(page, who, { country = 'DE', dateOfBirth = '1990-05-01', password = who.password, accountType = 'Personal' } = {}) {
+async function details(
+  page,
+  who,
+  { country = 'DE', subdivision, usPerson = false, dateOfBirth = '1990-05-01', password = who.password, accountType = 'Personal' } = {},
+) {
   await page.goto('/register');
   // The person picks the account type and the channel, as the row says, rather than leaving the page's first choice.
   await page.getByRole('radio', { name: new RegExp(`^${accountType}\\b`) }).check();
-  await page.getByRole('radio', { name: 'Email' }).check();
-  await page.getByLabel('Email address').fill(who.email);
-  await page.getByLabel('Handle').fill(who.handle);
-  await page.getByLabel('Password').fill(password);
-  await page.getByLabel('Country you live in').selectOption(country);
-  await page.getByLabel('Date of birth').fill(dateOfBirth);
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByRole('radio', { name: 'Email', exact: true }).check();
+  await page.getByLabel('Email address', { exact: true }).fill(who.email);
+  await page.getByLabel('Handle', { exact: true }).fill(who.handle);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel(/^Country you live in/).selectOption(country);
+  if (subdivision) await page.getByLabel(/^Province or territory you live in/).selectOption(subdivision);
+  // `null` leaves the US-person question unanswered.
+  if (usPerson !== null) await page.getByRole('radio', { name: usPerson ? 'Yes, I am a US person' : 'No, I am not a US person' }).check();
+  await page.getByLabel('Date of birth', { exact: true }).fill(dateOfBirth);
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
 }
 
 /** The same details with the phone picked as the channel. */
 async function phoneDetails(page, who, phone) {
   await page.goto('/register');
   await page.getByRole('radio', { name: /^Personal\b/ }).check();
-  await page.getByRole('radio', { name: 'Phone' }).check();
-  await page.getByLabel('Phone number, international format (+…)').fill(phone);
-  await page.getByLabel('Handle').fill(who.handle);
-  await page.getByLabel('Password').fill(who.password);
-  await page.getByLabel('Country you live in').selectOption('DE');
-  await page.getByLabel('Date of birth').fill('1990-05-01');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByRole('radio', { name: 'Phone', exact: true }).check();
+  await page.getByLabel('Phone number, international format (+…)', { exact: true }).fill(phone);
+  await page.getByLabel('Handle', { exact: true }).fill(who.handle);
+  await page.getByLabel('Password', { exact: true }).fill(who.password);
+  await page.getByLabel(/^Country you live in/).selectOption('DE');
+  await page.getByRole('radio', { name: 'No, I am not a US person', exact: true }).check();
+  await page.getByLabel('Date of birth', { exact: true }).fill('1990-05-01');
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
 }
 
 /** The LOCAL-TEST outbox as it is now, and the whole lines it gained since `first` (other journeys mail meanwhile). */
@@ -91,6 +99,7 @@ async function signUpStart(who, fields = {}) {
       email: who.email,
       password: who.password,
       country: 'DE',
+      usPerson: false,
       dateOfBirth: '1990-05-01',
       accountType: 'individual',
       ...fields,
@@ -162,7 +171,7 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
   await details(page, who, { dateOfBirth: '2015-01-01' });
   await expect(notice(page)).toContainText('You are under the minimum age to open an account. Nothing was created.');
   await expect(notice(page).locator('small')).toHaveText('identity.underage');
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Check your email/i })).toHaveCount(0);
   expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
   await noAccount(who);
 
@@ -175,7 +184,7 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
   await details(page, who, { country: 'AQ' });
   await expect(notice(page)).toContainText('We cannot open accounts for this country right now. Nothing was created.');
   await expect(notice(page).locator('small')).toHaveText('identity.region_blocked');
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Check your email/i })).toHaveCount(0);
   expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
   await noAccount(who);
 
@@ -188,22 +197,23 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
   expect(unlisted.message).toBe('Choose the country you live in from the list.');
   await page.goto('/register');
   await page.getByRole('radio', { name: /^Personal\b/ }).check();
-  await page.getByRole('radio', { name: 'Email' }).check();
-  await page.getByLabel('Email address').fill(who.email);
-  await page.getByLabel('Handle').fill(who.handle);
-  await page.getByLabel('Password').fill(who.password);
-  await page.getByLabel('Country you live in').evaluate((select) => {
+  await page.getByRole('radio', { name: 'Email', exact: true }).check();
+  await page.getByLabel('Email address', { exact: true }).fill(who.email);
+  await page.getByLabel('Handle', { exact: true }).fill(who.handle);
+  await page.getByLabel('Password', { exact: true }).fill(who.password);
+  await page.getByLabel(/^Country you live in/).evaluate((select) => {
     const stale = document.createElement('option');
     stale.value = 'XQ';
     stale.textContent = 'XQ (a country no longer listed)';
     select.append(stale);
   });
-  await page.getByLabel('Country you live in').selectOption('XQ');
-  await page.getByLabel('Date of birth').fill('1990-05-01');
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await page.getByLabel(/^Country you live in/).selectOption('XQ');
+  await page.getByRole('radio', { name: 'No, I am not a US person', exact: true }).check();
+  await page.getByLabel('Date of birth', { exact: true }).fill('1990-05-01');
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
   await expect(notice(page)).toContainText('Choose the country you live in, and your nationality if you give one, from the list.');
   await expect(notice(page)).toContainText('identity.country_invalid');
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Check your email/i })).toHaveCount(0);
   await noAccount(who);
 
   // Phone sign-up needs a text-message provider, which this build does not connect: refused by name, nothing made, and
@@ -224,7 +234,7 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
     await details(page, who);
     await expect(notice(page)).toContainText('Sign-up is closed right now. Nothing was created.', { timeout: 15_000 });
     await expect(notice(page).locator('small')).toHaveText('identity.registration_closed');
-    await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: /Check your email/i })).toHaveCount(0);
     await noAccount(who);
   } finally {
     registration(true);
@@ -232,16 +242,16 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
 
   // A good record, with its account type picked, goes on to the code step; still no account until the code is entered.
   await details(page, who, { accountType: 'Personal' });
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toBeVisible();
   await noAccount(who);
 });
 
 test(`${J} #1 a Business account type signs up the same way and goes on to business verification after the code`, async ({ page }) => {
   const who = person();
   await details(page, who, { accountType: 'Business' });
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
-  await page.getByLabel('Code from the email').fill(await nextMailedCode(who.email));
-  await page.getByRole('button', { name: 'Confirm and open my account' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toBeVisible();
+  await page.getByLabel('Code from the email', { exact: true }).fill(await nextMailedCode(who.email));
+  await page.getByRole('button', { name: 'Confirm and open my account', exact: true }).click();
   await expect(page).toHaveURL(/\/identbusiness/);
 });
 
@@ -251,9 +261,9 @@ test(`${J} #2 a too-short or breached password is refused with the rule in words
   test.setTimeout(180_000);
   const who = person();
   await page.goto('/register');
-  await expect(page.getByText('At least 12 characters')).toBeVisible();
+  await expect(page.getByText(/At least 12 characters/)).toBeVisible();
   // The stack's TEST breach list is set, so the page says nothing about it being unset.
-  await expect(page.getByText('screening list is not set')).toHaveCount(0);
+  await expect(page.getByText(/screening list is not set/i)).toHaveCount(0);
   await details(page, who, { password: 'short9' });
   await expect(notice(page)).toContainText('at least 12 characters');
   expect(mailedCodes(who.email)).toHaveLength(0);
@@ -275,7 +285,7 @@ test(`${J} #2 a too-short or breached password is refused with the rule in words
     await expect(page.getByRole('status').filter({ hasText: 'screening list is not set' })).toHaveText(
       'The breached-password screening list is not set in this build, so a new password is not checked against known data breaches.',
     );
-    await expect(page.getByText('At least 12 characters')).toBeVisible();
+    await expect(page.getByText(/At least 12 characters/)).toBeVisible();
   } finally {
     restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', true);
   }
@@ -304,8 +314,8 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
   // The account made in #5 does not exist yet, so use a second TEST person who signs up fully first.
   const known = person();
   await details(page, known);
-  await page.getByLabel('Code from the email').fill(await nextMailedCode(known.email));
-  await page.getByRole('button', { name: 'Confirm and open my account' }).click();
+  await page.getByLabel('Code from the email', { exact: true }).fill(await nextMailedCode(known.email));
+  await page.getByRole('button', { name: 'Confirm and open my account', exact: true }).click();
   await page.waitForURL((url) => url.pathname !== '/register');
   await signOutBrowser(page.context());
 
@@ -315,7 +325,7 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
   const forNew = await page.getByRole('status').filter({ hasText: 'a 6-digit code is on its way' }).innerText();
   expect(forKnown.replace(known.email, 'X')).toBe(forNew.replace(who.email, 'X'));
 
-  await expect(page.getByRole('button', { name: 'Send a new code' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Send a new code', exact: true })).toBeDisabled();
   await expect(page.getByText(/You can ask for a new code in \d+ s\./)).toBeVisible();
 
   // A channel that fails is not switched for another by itself; the person picks another. Phone sign-up fails here (no
@@ -327,22 +337,23 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
   await phoneDetails(page, switcher, phone);
   await expect(notice(page)).toContainText('Phone sign-up needs a text-message provider, which is not connected in this build.');
   await expect(notice(page)).toContainText('Nothing was sent by any other channel');
-  await expect(page.getByRole('radio', { name: 'Phone' })).toBeChecked();
-  await expect(page.getByRole('radio', { name: 'Email' })).not.toBeChecked();
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: 'Phone', exact: true })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /Email/i })).not.toBeChecked();
+  await expect(page.getByRole('heading', { name: /Check your email/i })).toHaveCount(0);
   const gained = await gainedSince(page, first);
   expect(gained.filter((line) => line.includes(switcher.handle) || line.includes(phone.slice(1)))).toEqual([]);
   expect(mailedCodes(switcher.email)).toHaveLength(0);
   await noAccount(switcher);
-  await notice(page).getByRole('button', { name: 'Use email instead' }).click();
-  await expect(page.getByRole('radio', { name: 'Email' })).toBeChecked();
-  await page.getByLabel('Email address').fill(switcher.email);
-  await page.getByLabel('Handle').fill(switcher.handle);
-  await page.getByLabel('Password').fill(switcher.password);
-  await page.getByLabel('Country you live in').selectOption('DE');
-  await page.getByLabel('Date of birth').fill('1990-05-01');
-  await page.getByRole('button', { name: 'Create account' }).click();
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  await notice(page).getByRole('button', { name: 'Use email instead', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Email', exact: true })).toBeChecked();
+  await page.getByLabel('Email address', { exact: true }).fill(switcher.email);
+  await page.getByLabel('Handle', { exact: true }).fill(switcher.handle);
+  await page.getByLabel('Password', { exact: true }).fill(switcher.password);
+  await page.getByLabel(/^Country you live in/).selectOption('DE');
+  await page.getByRole('radio', { name: 'No, I am not a US person', exact: true }).check();
+  await page.getByLabel('Date of birth', { exact: true }).fill('1990-05-01');
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toBeVisible();
   await expect.poll(() => mailedCodes(switcher.email).length, { timeout: 20_000 }).toBe(1);
 
   // With email switched off, the notice names it and no code is mailed; Email stays picked, nothing goes by phone, and
@@ -355,11 +366,11 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
       timeout: 15_000,
     });
     await expect(notice(page)).toContainText('vendor.email');
-    await expect(page.getByRole('radio', { name: 'Email' })).toBeChecked();
+    await expect(page.getByRole('radio', { name: 'Email', exact: true })).toBeChecked();
     await expect(notice(page)).toContainText('Nothing was switched to another channel: pick one yourself.');
-    await expect(page.getByRole('radio', { name: 'Phone' })).toBeEnabled();
-    await expect(page.getByRole('radio', { name: 'Phone' })).not.toBeChecked();
-    await expect(page.getByLabel('Code from the email')).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: 'Phone', exact: true })).toBeEnabled();
+    await expect(page.getByRole('radio', { name: /Phone/i })).not.toBeChecked();
+    await expect(page.getByLabel(/Code from the email/i)).toHaveCount(0);
     expect(mailedCodes(offline.email)).toHaveLength(0);
     await noAccount(offline);
   } finally {
@@ -376,12 +387,12 @@ test(`${J} #5 enters the code and is signed in on Home; wrong codes lock with a 
   const otherCode = await nextMailedCode(other.email);
   const wrong = otherCode === '000000' ? '111111' : '000000';
   for (let i = 0; i < 5; i++) {
-    await page.getByLabel('Code from the email').fill(wrong);
-    await page.getByRole('button', { name: 'Confirm and open my account' }).click();
+    await page.getByLabel('Code from the email', { exact: true }).fill(wrong);
+    await page.getByRole('button', { name: 'Confirm and open my account', exact: true }).click();
     await expect(notice(page)).toContainText(i < 4 ? 'That code is not right' : /Too many tries\. Try again in \d+ min\./);
   }
-  await page.getByLabel('Code from the email').fill(otherCode);
-  await page.getByRole('button', { name: 'Confirm and open my account' }).click();
+  await page.getByLabel('Code from the email', { exact: true }).fill(otherCode);
+  await page.getByRole('button', { name: 'Confirm and open my account', exact: true }).click();
   await expect(notice(page)).toContainText('Too many tries');
 
   // The person's own sign-up: details, the newest mailed code, signed in on Home.
@@ -390,13 +401,13 @@ test(`${J} #5 enters the code and is signed in on Home; wrong codes lock with a 
   await details(page, who);
   const flowId = (await (await started).json()).result.data.flowId;
   const code = await nextMailedCode(who.email, seen);
-  await page.getByLabel('Code from the email').fill(code);
-  await page.getByRole('button', { name: 'Confirm and open my account' }).click();
+  await page.getByLabel('Code from the email', { exact: true }).fill(code);
+  await page.getByRole('button', { name: 'Confirm and open my account', exact: true }).click();
   await expect(page).toHaveURL(/\/home/);
   // Signed in: the top bar has the account menu and no sign-in link. Home's own cards may say "sign in" in their text
   // (the passkey card does), so only the top bar is read.
   const topBar = page.getByRole('banner');
-  await expect(topBar.getByRole('button', { name: 'Account menu' })).toBeVisible();
+  await expect(topBar.getByRole('button', { name: 'Account menu', exact: true })).toBeVisible();
   await expect(topBar.getByRole('link', { name: /sign in/i })).toHaveCount(0);
 
   // The same code a second time is refused, and makes no second session.
@@ -448,16 +459,16 @@ test(`${J} #7 Account shows "verify your email", sends a code and the person typ
   const who = await unprovedAccount();
   await signIn(page, who);
   await page.goto('/uc/account');
-  const banner = page.getByRole('region', { name: 'Verify your email address' });
+  const banner = page.getByRole('region', { name: /Verify your email address/i });
   await expect(banner).toBeVisible();
 
-  await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+  await banner.getByRole('button', { name: 'Send confirmation email', exact: true }).click();
   await expect(banner.getByRole('status')).toContainText('a confirmation code is on its way');
   const pin = await nextMailedCode(who.email, 0, 20_000, 'email-confirm');
   expect(pin).toMatch(/^\d{6}$/);
 
   // Asking again before the interval is refused with the seconds left, and nothing more is mailed.
-  await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+  await banner.getByRole('button', { name: 'Send confirmation email', exact: true }).click();
   const early = banner.getByRole('alert');
   await expect(early).toContainText(/You can ask for a new one in \d+ s\./);
   await expect(early).toContainText('auth.email_confirm_resend_too_soon');
@@ -468,18 +479,18 @@ test(`${J} #7 Account shows "verify your email", sends a code and the person typ
   expect(mailedCodes(who.email, 'email-confirm')).toHaveLength(1);
 
   // A wrong code is refused in words; the code from the mail proves the address.
-  await banner.getByLabel('Code from the email').fill(pin === '000000' ? '111111' : '000000');
-  await banner.getByRole('button', { name: 'Confirm code' }).click();
+  await banner.getByLabel('Code from the email', { exact: true }).fill(pin === '000000' ? '111111' : '000000');
+  await banner.getByRole('button', { name: 'Confirm code', exact: true }).click();
   await expect(banner.getByRole('alert')).toContainText('That code is not right.');
-  await banner.getByLabel('Code from the email').fill(pin);
-  await banner.getByRole('button', { name: 'Confirm code' }).click();
-  await expect(page.getByText('Your email address is verified.')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Verify your email address' })).toHaveCount(0);
+  await banner.getByLabel('Code from the email', { exact: true }).fill(pin);
+  await banner.getByRole('button', { name: 'Confirm code', exact: true }).click();
+  await expect(page.getByText('Your email address is verified.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: /Verify your email address/i })).toHaveCount(0);
 
   // Read again from the service: still verified, no banner.
   await page.reload();
-  await expect(page.getByText('Your email address is verified.')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Verify your email address' })).toHaveCount(0);
+  await expect(page.getByText('Your email address is verified.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: /Verify your email address/i })).toHaveCount(0);
 });
 
 test(`${J} #7 with email delivery switched off, sending the code from Account says so by name and nothing is sent`, async ({ page }) => {
@@ -489,13 +500,13 @@ test(`${J} #7 with email delivery switched off, sending the code from Account sa
   try {
     await signIn(page, who);
     await page.goto('/uc/account');
-    const banner = page.getByRole('region', { name: 'Verify your email address' });
+    const banner = page.getByRole('region', { name: /Verify your email address/i });
     await expect(banner).toBeVisible({ timeout: 15_000 });
-    await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+    await banner.getByRole('button', { name: 'Send confirmation email', exact: true }).click();
     const off = banner.getByRole('alert');
     await expect(off).toContainText('Email delivery is switched off in this build, so a confirmation code cannot be sent.');
     await expect(off).toContainText('vendor.email');
-    await expect(banner.getByLabel('Code from the email')).toHaveCount(0);
+    await expect(banner.getByLabel(/Code from the email/i)).toHaveCount(0);
     expect(mailedCodes(who.email, 'email-confirm')).toHaveLength(0);
   } finally {
     mail(true);
@@ -513,7 +524,7 @@ test(`${J} #6 an old link from a mail shows "link expired" and a used one "link 
     await expect(page.getByRole('heading', { name: heading })).toBeVisible();
     const alert = page.getByRole('alert');
     await expect(alert).toContainText('open Account and send a new one');
-    await expect(alert.getByRole('link', { name: 'Go to Account' })).toHaveAttribute('href', '/uc/account');
+    await expect(alert.getByRole('link', { name: 'Go to Account', exact: true })).toHaveAttribute('href', '/uc/account');
     await expect(page.locator('.pub-page')).not.toContainText(/auth\.|email_confirm|\b(400|404|409|410|500)\b/);
     await expect(page.locator('[lang="zxx"]')).toHaveCount(0);
     expect(await page.content()).not.toContain(token);
@@ -521,7 +532,10 @@ test(`${J} #6 an old link from a mail shows "link expired" and a used one "link 
 
   // An old link: mailed, then left until it ran out (the stack's TEST fixture moves its times back).
   await page.goto('/uc/account');
-  await page.getByRole('region', { name: 'Verify your email address' }).getByRole('button', { name: 'Send confirmation email' }).click();
+  await page
+    .getByRole('region', { name: 'Verify your email address', exact: true })
+    .getByRole('button', { name: 'Send confirmation email', exact: true })
+    .click();
   const old = await nextLink(who.email, 0);
   const oldToken = new URL(old, 'http://x').searchParams.get('token');
   expect(old).toMatch(/^\/confirm-email\?token=/);
@@ -530,7 +544,7 @@ test(`${J} #6 an old link from a mail shows "link expired" and a used one "link 
   // Opening the page spends nothing; the person presses Confirm. The token leaves the address bar.
   await expect(page).toHaveURL(/\/confirm-email$/);
   const expired = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.confirmEmail'));
-  await page.getByRole('button', { name: 'Confirm' }).click();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   const expiredBody = await (await expired).json();
   expect(expiredBody.error?.data?.intafacedCode ?? expiredBody.error?.data?.cause?.code).toBe('auth.email_confirm_expired');
   await deadPage('This link has expired', oldToken);
@@ -539,14 +553,17 @@ test(`${J} #6 an old link from a mail shows "link expired" and a used one "link 
   // A used link: a new one (after the interval), used once to verify, then opened again from the same mail.
   await page.waitForTimeout(CONFIRM_RESEND_SECONDS * 1000 + 500);
   await page.goto('/uc/account');
-  await page.getByRole('region', { name: 'Verify your email address' }).getByRole('button', { name: 'Send confirmation email' }).click();
+  await page
+    .getByRole('region', { name: 'Verify your email address', exact: true })
+    .getByRole('button', { name: 'Send confirmation email', exact: true })
+    .click();
   const fresh = await nextLink(who.email, 1);
   const freshToken = new URL(fresh, 'http://x').searchParams.get('token');
   await page.goto(fresh);
-  await page.getByRole('button', { name: 'Confirm' }).click();
-  await expect(page.getByRole('heading', { name: 'Your email address is verified' })).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your email address is verified', exact: true })).toBeVisible();
   await page.goto(fresh);
-  await page.getByRole('button', { name: 'Confirm' }).click();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   await deadPage('This link was already used', freshToken);
   await expect(page.getByRole('alert')).toContainText('works once');
 });
@@ -554,10 +571,10 @@ test(`${J} #6 an old link from a mail shows "link expired" and a used one "link 
 test(`${J} #6 a confirmation link with no token or a wrong one is a page with the next step, not an error code`, async ({ page }) => {
   // The dead-link page: its name, the next step (send a new one from Account, with the link there), and no code at all.
   const deadLinkPage = async () => {
-    await expect(page.getByRole('heading', { name: 'This link no longer works' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'This link no longer works', exact: true })).toBeVisible();
     const notice = page.getByRole('alert');
     await expect(notice).toContainText('Sign in, open Account and send a new one.');
-    await expect(notice.getByRole('link', { name: 'Go to Account' })).toHaveAttribute('href', '/uc/account');
+    await expect(notice.getByRole('link', { name: 'Go to Account', exact: true })).toHaveAttribute('href', '/uc/account');
     await expect(page.locator('.pub-page')).not.toContainText(/auth\.|email_confirm|\b(400|404|500)\b/);
     await expect(page.locator('[lang="zxx"]')).toHaveCount(0);
   };
@@ -565,7 +582,7 @@ test(`${J} #6 a confirmation link with no token or a wrong one is a page with th
   await deadLinkPage();
   await page.goto('/confirm-email?token=not-a-real-token');
   const answered = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/auth.confirmEmail'));
-  await page.getByRole('button', { name: 'Confirm' }).click();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
   // Identity refused the token by its typed code; the page turns that into words and the next step.
   const refused = await (await answered).json();
   expect(refused.error?.data?.intafacedCode ?? refused.error?.data?.cause?.code).toBe('auth.email_confirm_invalid');
@@ -580,17 +597,17 @@ test(`${J} #7b asking for more confirmation emails than the hour allows says how
   const who = await unprovedAccount();
   await signIn(page, who);
   await page.goto('/uc/account');
-  const banner = page.getByRole('region', { name: 'Verify your email address' });
+  const banner = page.getByRole('region', { name: /Verify your email address/i });
   for (let i = 0; i < 5; i++) {
     // Each ask waits out the interval between two mails, so only the hourly budget refuses the sixth.
     if (i > 0) await page.waitForTimeout(CONFIRM_RESEND_SECONDS * 1000 + 500);
-    await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+    await banner.getByRole('button', { name: 'Send confirmation email', exact: true }).click();
     await expect(banner.getByRole('status')).toContainText('on its way');
     await expect(banner.getByRole('alert')).toHaveCount(0);
   }
   await page.waitForTimeout(CONFIRM_RESEND_SECONDS * 1000 + 500);
   await expect.poll(() => mailedConfirmLinks(who.email).length).toBe(5);
-  await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+  await banner.getByRole('button', { name: 'Send confirmation email', exact: true }).click();
   await expect(banner.getByRole('alert')).toContainText(/You can ask again in \d+ min\./);
   await expect(banner.getByRole('alert')).toContainText('auth.email_confirm_rate_limited');
   expect(mailedConfirmLinks(who.email)).toHaveLength(5);
@@ -626,53 +643,159 @@ test(`${J} #8 a verified, funded account with an email never proved is stopped a
 
   // The room says it before the person tries, and links back to step 7.
   await page.goto(deskPath());
-  const notice = page.getByRole('region', { name: 'Confirm your email to place orders' });
+  const notice = page.getByRole('region', { name: 'Confirm your email to place orders', exact: true });
   await expect(notice).toBeVisible();
-  await expect(notice.getByRole('link', { name: 'Confirm email' })).toHaveAttribute('href', '/uc/account');
+  await expect(notice.getByRole('link', { name: 'Confirm email', exact: true })).toHaveAttribute('href', '/uc/account');
 
   // Trying anyway: the order is refused in plain words, nothing rests and nothing is held.
   const price = await awayBid();
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  await page.getByRole('textbox', { name: 'Price' }).nth(0).fill(price);
-  await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).nth(0).fill('0.01'));
-  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(0).fill(price);
+  await previewed(page, () => page.getByRole('textbox', { name: 'Amount', exact: true }).nth(0).fill('0.01'));
+  await page.getByRole('button', { name: 'Buy BTC', exact: true }).click();
   await expect(reviewSheet(page)).toBeVisible();
   const placed = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/orders' && r.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
   const answer = await placed;
   expect(answer.status()).toBe(403);
   expect(JSON.stringify(await answer.json())).toContain('trade.email_proof_required');
-  await expect(page.getByText('Confirm your email first').first()).toBeVisible();
+  await expect(page.getByText('Confirm your email first', { exact: true }).first()).toBeVisible();
   expect(await openOrders(who)).toHaveLength(0);
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
 
   // Security shows the same send-proof control as Account.
   await page.goto('/uc/safe');
-  await expect(page.getByRole('region', { name: 'Verify your email address' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Verify your email address', exact: true })).toBeVisible();
 
   // Step 7 from the link: send, open the mailed link, confirm.
   await page.goto(deskPath());
-  await page.getByRole('region', { name: 'Confirm your email to place orders' }).getByRole('link', { name: 'Confirm email' }).click();
+  await page
+    .getByRole('region', { name: 'Confirm your email to place orders', exact: true })
+    .getByRole('link', { name: 'Confirm email', exact: true })
+    .click();
   await expect(page).toHaveURL(/\/uc\/account$/);
-  const banner = page.getByRole('region', { name: 'Verify your email address' });
-  await banner.getByRole('button', { name: 'Send confirmation email' }).click();
+  const banner = page.getByRole('region', { name: /Verify your email address/i });
+  await banner.getByRole('button', { name: 'Send confirmation email', exact: true }).click();
   await page.goto(await nextLink(who.email, 0));
-  await page.getByRole('button', { name: 'Confirm' }).click();
-  await expect(page.getByRole('heading', { name: 'Your email address is verified' })).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your email address is verified', exact: true })).toBeVisible();
 
   // Proved: the notice is gone and the same order now rests.
   await page.goto(deskPath());
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Confirm your email to place orders' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Buy BTC', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: /Confirm your email to place orders/i })).toHaveCount(0);
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  await page.getByRole('textbox', { name: 'Price' }).nth(0).fill(price);
-  await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).nth(0).fill('0.01'));
-  await page.getByRole('button', { name: 'Buy BTC' }).click();
-  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(0).fill(price);
+  await previewed(page, () => page.getByRole('textbox', { name: 'Amount', exact: true }).nth(0).fill('0.01'));
+  await page.getByRole('button', { name: 'Buy BTC', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm buy', exact: true }).click();
   await expect(reviewSheet(page)).toHaveCount(0);
   await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(1);
   // Leave the book as it was: cancel the TEST order through the person's own API.
   const [open] = await openOrders(who);
   const gone = await (await api(who)).delete(`/api/v1/orders/${encodeURIComponent(open.id)}?symbol=${encodeURIComponent('BTC/USDT')}`);
   expect(gone.status).toBeLessThan(300);
+});
+
+/** Identity restarted with no blocked list at all (no list, no rows, fail-closed on), or back on the stack's own list. */
+function screeningList(set) {
+  const before = process.env.LOCAL_STACK_IDENTITY_SCREENING;
+  if (set) delete process.env.LOCAL_STACK_IDENTITY_SCREENING;
+  else process.env.LOCAL_STACK_IDENTITY_SCREENING = 'unset';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SCREENING;
+    else process.env.LOCAL_STACK_IDENTITY_SCREENING = before;
+  }
+}
+
+/** Refused at the door: the code step never opens, nothing is mailed for this person and no account exists. */
+async function nothingMade(page, who, first) {
+  await expect(page.getByRole('heading', { name: /Check your email/i })).toHaveCount(0);
+  expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
+  await noAccount(who);
+}
+
+test(`${J} #9 a blocked province is refused with its reason, a US person from their own answer, an unanswered question is refused, and a blank list says it is not set`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = person();
+
+  // Canada with no province: identity cannot tell Ontario from Quebec, so it asks; the page offers the provinces.
+  let first = outbox();
+  const bare = await signUpStart(who, { country: 'CA' });
+  expect(bare.code).toBe('identity.subdivision_required');
+  await page.goto('/register');
+  await page.getByLabel(/^Country you live in/).selectOption('CA');
+  await expect(page.getByLabel(/^Province or territory you live in/).locator('option', { hasText: 'Ontario' })).toHaveCount(1);
+  await expect(page.getByLabel(/^Province or territory you live in/).locator('option', { hasText: 'Quebec' })).toHaveCount(1);
+  await details(page, who, { country: 'CA' });
+  await expect(notice(page)).toContainText('Choose the province or territory you live in from the list. Nothing was created.');
+  await expect(notice(page).locator('small')).toHaveText('identity.subdivision_required');
+  await nothingMade(page, who, first);
+
+  // A blocked province (Ontario, on the shipped launch list): refused identity.region_blocked with its reason in plain
+  // words, by identity itself and on the page, and nothing is made.
+  first = outbox();
+  const ontario = await signUpStart(who, { country: 'CA', subdivision: 'CA-ON' });
+  expect(ontario.status).toBe(403);
+  expect(ontario.code).toBe('identity.region_blocked');
+  expect(ontario.message).toBe('Ontario, Canada is not served at launch.');
+  await details(page, who, { country: 'CA', subdivision: 'CA-ON' });
+  await expect(notice(page)).toContainText(
+    'We cannot open an account where you live. Ontario, Canada is not served at launch. Nothing was created.',
+  );
+  await expect(notice(page).locator('small')).toHaveText('identity.region_blocked');
+  await nothingMade(page, who, first);
+
+  // A US person living in Germany, where the owner's list blocks US persons: refused from their own answer.
+  first = outbox();
+  const american = await signUpStart(who, { usPerson: true });
+  expect(american.status).toBe(403);
+  expect(american.code).toBe('identity.us_person_blocked');
+  expect(american.message).toContain('US citizens, green-card holders and US residents, wherever they live');
+  await details(page, who, { usPerson: true });
+  await expect(notice(page)).toContainText(
+    'We cannot open accounts for US persons (US citizens, green-card holders and US residents, wherever they live). This is from your own answer. Nothing was created.',
+  );
+  await expect(notice(page).locator('small')).toHaveText('identity.us_person_blocked');
+  await nothingMade(page, who, first);
+
+  // The question left unanswered: refused, never taken as no, by identity and on the page.
+  first = outbox();
+  const unanswered = await signUpStart(who, { usPerson: undefined });
+  expect(unanswered.status).toBe(400);
+  expect(unanswered.code).toBe('identity.us_person_unanswered');
+  await details(page, who, { usPerson: null });
+  await expect(page.getByRole('radio', { name: /Yes, I am a US person/i })).not.toBeChecked();
+  await expect(page.getByRole('radio', { name: /No, I am not a US person/i })).not.toBeChecked();
+  await expect(notice(page)).toContainText('Answer whether you are a US person. We never take a blank answer as no. Nothing was created.');
+  await expect(notice(page).locator('small')).toHaveText('identity.us_person_unanswered');
+  await nothingMade(page, who, first);
+
+  // With the owner's blocked list blank, sign-up refuses and says the list is not set; nothing is made.
+  screeningList(false);
+  try {
+    first = outbox();
+    await details(page, who);
+    await expect(notice(page)).toContainText('Sign-up is paused: the blocked-countries list is not set. Nothing was created.', {
+      timeout: 15_000,
+    });
+    await expect(notice(page).locator('small')).toHaveText('identity.screening_unset');
+    // No code step and nothing mailed. Sign-in is refused too while the list is blank (J-identity-22 #1), so whether an
+    // account exists is asked once the list is back.
+    await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toHaveCount(0);
+    expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
+  } finally {
+    screeningList(true);
+  }
+  await noAccount(who);
+
+  // A province that is served (Quebec), answered "not a US person", goes on to the code step: the blocks are the
+  // blocked regions only.
+  await details(page, who, { country: 'CA', subdivision: 'CA-QC', usPerson: false });
+  await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toBeVisible({ timeout: 15_000 });
+  await noAccount(who);
 });
