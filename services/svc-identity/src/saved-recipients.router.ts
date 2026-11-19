@@ -1,66 +1,35 @@
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import { SavedRecipientError, SavedRecipientService } from './saved-recipients.js';
+import { TRPCError, type Context } from '@intafaced/contracts';
+import { IDENTITY_RECIPIENTS_PROCEDURES } from '@intafaced/contracts/identity-recipients-procedures';
+import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { RECIPIENT_CONFLICT, SavedRecipientError, SavedRecipientService } from './saved-recipients.js';
 
-/**
- * `recipients.list` / `add` / `remove`. Names on the wire are handles.
- * A session without `identity:read` or `identity:write` is refused before SQL.
- */
-const saved = z.object({
-  handle: z.string(),
-  label: z.string(),
-  addedAt: z.string().datetime(),
-});
+/** A `SavedRecipientError` leaves as CONFLICT for a reused key on other terms, else BAD_REQUEST, with its own message. */
+const recipientRefusal: RefusalOf = (err) =>
+  err instanceof SavedRecipientError
+    ? {
+        code: err.code,
+        error: new TRPCError({ code: err.code === RECIPIENT_CONFLICT ? 'CONFLICT' : 'BAD_REQUEST', message: err.message, cause: err }),
+      }
+    : undefined;
 
-function mapErr(err: unknown): never {
-  if (err instanceof SavedRecipientError) {
-    const code = err.code === 'identity.recipient_conflict' ? 'CONFLICT' : 'BAD_REQUEST';
-    throw new TRPCError({ code, message: err.message, cause: err });
-  }
-  throw err;
+/** The signed-in owner; the record's scope guard has already refused a call without one. */
+function ownerOf(ctx: Context): string {
+  if (ctx.principal === null || ctx.principal === undefined) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Sign in first' });
+  return ctx.principal.userId;
 }
 
+/**
+ * `recipients.list` / `add` / `remove`, mounted from their records (`@intafaced/contracts/identity-recipients-procedures`).
+ * A session without `identity:read` or `identity:write` is refused before SQL.
+ */
 export function createSavedRecipientsRouter(service: SavedRecipientService) {
-  return router({
-    recipients: router({
-      list: scopedProcedure('identity:read', { module: 'identity' })
-        .input(z.object({ limit: z.number().int().min(1).max(100).optional() }))
-        .output(z.array(saved))
-        .query(async ({ ctx, input }) => {
-          try {
-            return await service.list(ctx.principal.userId, input.limit);
-          } catch (err) {
-            mapErr(err);
-          }
-        }),
-
-      add: scopedProcedure('identity:write', { module: 'identity' })
-        .input(
-          z.object({
-            handle: z.string().min(1).max(64),
-            label: z.string().min(1).max(40),
-            idempotencyKey: z.string().min(8).max(64),
-          }),
-        )
-        .output(saved)
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await service.add(ctx.principal.userId, input.handle, input.label, input.idempotencyKey);
-          } catch (err) {
-            mapErr(err);
-          }
-        }),
-
-      remove: scopedProcedure('identity:write', { module: 'identity' })
-        .input(z.object({ handle: z.string().min(1).max(64), idempotencyKey: z.string().min(8).max(64) }))
-        .output(z.object({ removed: z.boolean(), handle: z.string() }))
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await service.remove(ctx.principal.userId, input.handle, input.idempotencyKey);
-          } catch (err) {
-            mapErr(err);
-          }
-        }),
-    }),
-  });
+  return mountRecords(
+    IDENTITY_RECIPIENTS_PROCEDURES,
+    {
+      'identity.recipients.list': ({ ctx, input }) => service.list(ownerOf(ctx), input.limit),
+      'identity.recipients.add': ({ ctx, input }) => service.add(ownerOf(ctx), input.handle, input.label, input.idempotencyKey),
+      'identity.recipients.remove': ({ ctx, input }) => service.remove(ownerOf(ctx), input.handle, input.idempotencyKey),
+    },
+    recipientRefusal,
+  );
 }

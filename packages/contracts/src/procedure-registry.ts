@@ -16,6 +16,7 @@ import {
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
 import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
+import { IDENTITY_RECIPIENTS_LIST, IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_REMOVE } from './identity-recipients-procedures.js';
 import {
   TAX_HEALTH,
   TAX_LOT_BOOK,
@@ -50,6 +51,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BLUEPRINT_ERASE,
   FIX_ADAPTER_STATUS,
   FIX_DROP_COPY_FILL,
+  IDENTITY_RECIPIENTS_LIST,
+  IDENTITY_RECIPIENTS_ADD,
+  IDENTITY_RECIPIENTS_REMOVE,
   TAX_HEALTH,
   TAX_LOT_BOOK,
   TAX_PNL_OVER_TIME,
