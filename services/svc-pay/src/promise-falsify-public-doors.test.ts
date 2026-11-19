@@ -24,7 +24,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import type { Principal } from '@intafaced/auth';
@@ -36,7 +37,7 @@ import { createSubscriptionRouter } from './subscription-router.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { PayError, type PayService } from './payment-service.js';
 import { SubMerchantError, type SubMerchantService } from './submerchants.js';
-import type { SubscriptionService } from './subscriptions/subscription-service.js';
+import type { MandateRecord, SubscriptionRecord, SubscriptionService } from './subscriptions/subscription-service.js';
 import { registerSubscriptionCycleRoutes } from './subscriptions/internal-cycle-routes.js';
 import type { UserMoneyService } from './user-money-service.js';
 import { RailRegistry } from './rails/registry.js';
@@ -85,7 +86,7 @@ type WireBody = {
   error?: { message?: string; data?: { code?: string } };
 };
 
-function mandateRecord(overrides: Record<string, unknown> = {}) {
+function mandateRecord(overrides: Partial<MandateRecord> = {}): MandateRecord {
   return {
     id: MANDATE,
     merchantId: MERCHANT,
@@ -105,7 +106,7 @@ function mandateRecord(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function subRecord(overrides: Record<string, unknown> = {}) {
+function subRecord(overrides: Partial<SubscriptionRecord> = {}): SubscriptionRecord {
   return {
     id: SUB,
     mandateId: MANDATE,
@@ -122,25 +123,26 @@ function subRecord(overrides: Record<string, unknown> = {}) {
     resumedAt: null,
     stalledAt: null,
     stallReason: null,
+    priceId: null,
     ...overrides,
   };
 }
 
 interface PayStubs {
-  settleWindow?: ReturnType<typeof vi.fn>;
-  getSettlement?: ReturnType<typeof vi.fn>;
-  getMerchant?: ReturnType<typeof vi.fn>;
-  getMerchantByUserId?: ReturnType<typeof vi.fn>;
-  openCheckoutSession?: ReturnType<typeof vi.fn>;
+  settleWindow?: Mock<PayService['settleWindow']>;
+  getSettlement?: Mock<PayService['getSettlement']>;
+  getMerchant?: Mock<PayService['getMerchant']>;
+  getMerchantByUserId?: Mock<PayService['getMerchantByUserId']>;
+  openCheckoutSession?: Mock<PayService['openCheckoutSession']>;
 }
 
 interface SubStubs {
-  createMandate?: ReturnType<typeof vi.fn>;
-  getMandate?: ReturnType<typeof vi.fn>;
-  createSubscription?: ReturnType<typeof vi.fn>;
-  getSubscription?: ReturnType<typeof vi.fn>;
-  grantPermission?: ReturnType<typeof vi.fn>;
-  runDueSubscriptions?: ReturnType<typeof vi.fn>;
+  createMandate?: Mock<SubscriptionService['createMandate']>;
+  getMandate?: Mock<SubscriptionService['getMandate']>;
+  createSubscription?: Mock<SubscriptionService['createSubscription']>;
+  getSubscription?: Mock<SubscriptionService['getSubscription']>;
+  grantPermission?: Mock<SubMerchantService['grantPermission']>;
+  runDueSubscriptions?: Mock<SubscriptionService['runDueSubscriptions']>;
 }
 
 /**
@@ -151,29 +153,30 @@ interface SubStubs {
 async function mountDoors(opts: { pay?: PayStubs; subs?: SubStubs; trees?: SubMerchantService | null } = {}) {
   const settleWindow =
     opts.pay?.settleWindow ??
-    vi.fn(async (_input: { merchantId: string; window: string; assetId: string }) => {
+    vi.fn<PayService['settleWindow']>(async (_input: { merchantId: string; window: string; assetId: string }) => {
       throw new PayError('PAY_DEFAULT_FEE_BPS is unset — refusing rather than settling at 0 bps', 'pay.fee_bps_unset');
     });
   const getSettlement =
     opts.pay?.getSettlement ??
-    vi.fn(async (_settlementId: string) => {
+    vi.fn<PayService['getSettlement']>(async (_settlementId: string) => {
       throw new PayError(`Settlement ${SETTLEMENT} not found`, 'pay.settlement_not_found');
     });
   const getMerchant =
     opts.pay?.getMerchant ??
-    vi.fn(async (id: string) => {
+    vi.fn<PayService['getMerchant']>(async (id: string) => {
       if (id !== MERCHANT) throw new PayError('nf', 'pay.merchant_not_found');
       return { id: MERCHANT, userId: USER, status: 'active', pricing: {} } as never;
     });
   const getMerchantByUserId =
-    opts.pay?.getMerchantByUserId ?? vi.fn(async (userId: string) => (userId === USER ? ({ id: MERCHANT } as never) : null));
+    opts.pay?.getMerchantByUserId ??
+    vi.fn<PayService['getMerchantByUserId']>(async (userId: string) => (userId === USER ? ({ id: MERCHANT } as never) : null));
   const openCheckoutSession =
     opts.pay?.openCheckoutSession ??
-    vi.fn(async () => {
+    vi.fn<PayService['openCheckoutSession']>(async () => {
       throw new PayError('checkout not exercised in this test', 'pay.checkout_session_not_found');
     });
 
-  const pay = {
+  const pay = partial<PayService>({
     settleWindow,
     getSettlement,
     getMerchant,
@@ -189,34 +192,34 @@ async function mountDoors(opts: { pay?: PayStubs; subs?: SubStubs; trees?: SubMe
     payoutSettlement: async () => {
       throw new PayError('no payout', 'pay.rail_failed');
     },
-  } as unknown as PayService;
+  });
 
-  const money = {
+  const money = partial<UserMoneyService>({
     listWithdrawals: async () => [],
     availableBalance: async () => 0n,
-  } as unknown as UserMoneyService;
+  });
 
   const createMandate =
     opts.subs?.createMandate ??
-    vi.fn(async () => {
+    vi.fn<SubscriptionService['createMandate']>(async () => {
       throw new PayError('Mandate inactive', 'pay.mandate_inactive');
     });
-  const getMandate = opts.subs?.getMandate ?? vi.fn(async () => mandateRecord());
+  const getMandate = opts.subs?.getMandate ?? vi.fn<SubscriptionService['getMandate']>(async () => mandateRecord());
   const createSubscription =
     opts.subs?.createSubscription ??
-    vi.fn(async () => {
+    vi.fn<SubscriptionService['createSubscription']>(async () => {
       throw new PayError('Mandate inactive', 'pay.mandate_inactive');
     });
-  const getSubscription = opts.subs?.getSubscription ?? vi.fn(async () => subRecord());
+  const getSubscription = opts.subs?.getSubscription ?? vi.fn<SubscriptionService['getSubscription']>(async () => subRecord());
 
-  const subscriptions = {
+  const subscriptions = partial<SubscriptionService>({
     createMandate,
     getMandate,
-    listMandates: async () => [],
+    listMandates: async () => ({ items: [], nextCursor: null }),
     cancelMandate: async () => mandateRecord({ status: 'cancelled' }),
     createSubscription,
     getSubscription,
-    listSubscriptions: async () => [],
+    listSubscriptions: async () => ({ items: [], nextCursor: null }),
     listExecutions: async () => [],
     cancelSubscription: async () => subRecord({ status: 'cancelled' }),
     pauseSubscription: async () => subRecord({ status: 'paused', stallReason: 'operator_pause' }),
@@ -227,18 +230,18 @@ async function mountDoors(opts: { pay?: PayStubs; subs?: SubStubs; trees?: SubMe
     listCycles: async () => [],
     runDueSubscriptions:
       opts.subs?.runDueSubscriptions ??
-      vi.fn(async () => ({
+      vi.fn<SubscriptionService['runDueSubscriptions']>(async () => ({
         examined: 1,
         fired: 0,
         retried: 0,
         stalled: 0,
-        outcomes: [{ outcome: 'rejected', rejectionCode: 'pay.mandate_rail_absent' }],
+        outcomes: [{ subscriptionId: SUB, occurrence: 1, outcome: 'rejected' as const, rejectionCode: 'pay.mandate_rail_absent' }],
       })),
-  } as unknown as SubscriptionService;
+  });
 
   const grantPermission =
     opts.subs?.grantPermission ??
-    vi.fn(async () => {
+    vi.fn<SubMerchantService['grantPermission']>(async () => {
       throw new SubMerchantError(
         'A merchant already holds every area over its own node; a grant to itself would be a row that can be revoked without taking anything away.',
         'pay.submerchant_grant_self',
@@ -247,7 +250,7 @@ async function mountDoors(opts: { pay?: PayStubs; subs?: SubStubs; trees?: SubMe
 
   const trees =
     opts.trees ??
-    ({
+    partial<SubMerchantService>({
       grantPermission,
       revokePermission: async () => {
         throw new Error('not exercised');
@@ -261,8 +264,7 @@ async function mountDoors(opts: { pay?: PayStubs; subs?: SubStubs; trees?: SubMe
       getSubMerchant: async () => {
         throw new Error('not exercised');
       },
-      hasPermission: async () => true,
-    } as unknown as SubMerchantService);
+    });
 
   const router = mergeRouters(
     createPayRouter(pay, rails, money, null),
@@ -342,7 +344,7 @@ describe('D26-P2-01b public doors — settle refuse invent fees', () => {
   });
 
   it('anonymous settlement.run never reaches settleWindow', async () => {
-    const settleWindow = vi.fn();
+    const settleWindow = vi.fn<PayService['settleWindow']>();
     const { app } = await mountDoors({ pay: { settleWindow } });
 
     const { statusCode } = await post(
@@ -358,7 +360,7 @@ describe('D26-P2-01b public doors — settle refuse invent fees', () => {
   });
 
   it('a stranger cannot settle another merchant — ownership gate before invent', async () => {
-    const settleWindow = vi.fn();
+    const settleWindow = vi.fn<PayService['settleWindow']>();
     const { app } = await mountDoors({ pay: { settleWindow } });
 
     const { statusCode } = await post(
@@ -374,7 +376,7 @@ describe('D26-P2-01b public doors — settle refuse invent fees', () => {
   });
 
   it('settlement.run that would consume the whole window refuses fee_exceeds_gross on the door', async () => {
-    const settleWindow = vi.fn(async () => {
+    const settleWindow = vi.fn<PayService['settleWindow']>(async () => {
       throw new PayError('Fee consumes the whole window', 'pay.fee_exceeds_gross');
     });
     const { app } = await mountDoors({ pay: { settleWindow } });
@@ -393,7 +395,7 @@ describe('D26-P2-01b public doors — settle refuse invent fees', () => {
 
 describe('D26-P2-01b public doors — mandate refuse invent rails / rates', () => {
   it('mandate.create refuses inactive mandate state over the wire', async () => {
-    const createMandate = vi.fn(async () => {
+    const createMandate = vi.fn<SubscriptionService['createMandate']>(async () => {
       throw new PayError('Mandate is cancelled', 'pay.mandate_inactive');
     });
     const { app } = await mountDoors({ subs: { createMandate } });
@@ -415,12 +417,12 @@ describe('D26-P2-01b public doors — mandate refuse invent rails / rates', () =
   });
 
   it('subscription.create on an inactive mandate refuses over the wire', async () => {
-    const createSubscription = vi.fn(async () => {
+    const createSubscription = vi.fn<SubscriptionService['createSubscription']>(async () => {
       throw new PayError(`Mandate ${MANDATE} is cancelled`, 'pay.mandate_inactive');
     });
     const { app } = await mountDoors({
       subs: {
-        getMandate: vi.fn(async () => mandateRecord({ status: 'cancelled' })),
+        getMandate: vi.fn<SubscriptionService['getMandate']>(async () => mandateRecord({ status: 'cancelled' })),
         createSubscription,
       },
     });
@@ -439,28 +441,28 @@ describe('D26-P2-01b public doors — mandate refuse invent rails / rates', () =
     const resumeSubscription = vi.fn(async () => {
       throw new PayError('would run past the mandate window', 'pay.subscription_resume_exceeds_mandate');
     });
-    const pay = {
+    const pay = partial<PayService>({
       getMerchant: async (id: string) => {
         if (id !== MERCHANT) throw new PayError('nf', 'pay.merchant_not_found');
         return { id: MERCHANT, userId: USER } as never;
       },
       getMerchantByUserId: async (userId: string) => (userId === USER ? ({ id: MERCHANT } as never) : null),
-    } as unknown as PayService;
-    const subscriptions = {
+    });
+    const subscriptions = partial<SubscriptionService>({
       getSubscription: async () => subRecord({ status: 'paused', stallReason: 'operator_pause' }),
       resumeSubscription,
       createMandate: async () => mandateRecord(),
       getMandate: async () => mandateRecord(),
-      listMandates: async () => [],
+      listMandates: async () => ({ items: [], nextCursor: null }),
       cancelMandate: async () => mandateRecord({ status: 'cancelled' }),
       createSubscription: async () => subRecord(),
-      listSubscriptions: async () => [],
+      listSubscriptions: async () => ({ items: [], nextCursor: null }),
       listExecutions: async () => [],
       cancelSubscription: async () => subRecord({ status: 'cancelled' }),
       pauseSubscription: async () => subRecord({ status: 'paused' }),
       listCycles: async () => [],
       runDueSubscriptions: async () => ({ examined: 0, fired: 0, retried: 0, stalled: 0, outcomes: [] }),
-    } as unknown as SubscriptionService;
+    });
 
     const router = mergeRouters(createSubscriptionRouter(subscriptions, pay, null));
     const app = Fastify({ logger: false });
@@ -484,22 +486,22 @@ describe('D26-P2-01b public doors — mandate refuse invent rails / rates', () =
     const pauseSubscription = vi.fn(async () => {
       throw new PayError('no rate published', 'pay.subscription_fee_unpublished');
     });
-    const pay = {
+    const pay = partial<PayService>({
       getMerchant: async (id: string) => {
         if (id !== MERCHANT) throw new PayError('nf', 'pay.merchant_not_found');
         return { id: MERCHANT, userId: USER } as never;
       },
       getMerchantByUserId: async (userId: string) => (userId === USER ? ({ id: MERCHANT } as never) : null),
-    } as unknown as PayService;
-    const subscriptions = {
+    });
+    const subscriptions = partial<SubscriptionService>({
       getSubscription: async () => subRecord(),
       pauseSubscription,
       createMandate: async () => mandateRecord(),
       getMandate: async () => mandateRecord(),
-      listMandates: async () => [],
+      listMandates: async () => ({ items: [], nextCursor: null }),
       cancelMandate: async () => mandateRecord({ status: 'cancelled' }),
       createSubscription: async () => subRecord(),
-      listSubscriptions: async () => [],
+      listSubscriptions: async () => ({ items: [], nextCursor: null }),
       listExecutions: async () => [],
       cancelSubscription: async () => subRecord({ status: 'cancelled' }),
       resumeSubscription: async () => ({
@@ -508,7 +510,7 @@ describe('D26-P2-01b public doors — mandate refuse invent rails / rates', () =
       }),
       listCycles: async () => [],
       runDueSubscriptions: async () => ({ examined: 0, fired: 0, retried: 0, stalled: 0, outcomes: [] }),
-    } as unknown as SubscriptionService;
+    });
 
     const router = mergeRouters(createSubscriptionRouter(subscriptions, pay, null));
     const app = Fastify({ logger: false });
@@ -528,12 +530,12 @@ describe('D26-P2-01b public doors — mandate refuse invent rails / rates', () =
   });
 
   it('cycle runner reports pay.mandate_rail_absent — no invent card-mandate rail', async () => {
-    const runDueSubscriptions = vi.fn(async () => ({
+    const runDueSubscriptions = vi.fn<SubscriptionService['runDueSubscriptions']>(async () => ({
       examined: 1,
       fired: 0,
       retried: 0,
       stalled: 0,
-      outcomes: [{ outcome: 'rejected' as const, rejectionCode: 'pay.mandate_rail_absent' }],
+      outcomes: [{ subscriptionId: SUB, occurrence: 1, outcome: 'rejected' as const, rejectionCode: 'pay.mandate_rail_absent' }],
     }));
     const { app, runDue } = await mountDoors({ subs: { runDueSubscriptions } });
 
@@ -607,7 +609,7 @@ describe('D26-P2-01b public doors — dispute refuse invent reverse-money', () =
 
 describe('D26-P2-01b public doors — grant refuse invent authority', () => {
   it('submerchantPermission.grant stays closed until the named account consents', async () => {
-    const grantPermission = vi.fn(async (input: { actorMerchantId: string }) => {
+    const grantPermission = vi.fn<SubMerchantService['grantPermission']>(async (input: { actorMerchantId: string }) => {
       void input;
       throw new SubMerchantError('A merchant already holds every area over its own node', 'pay.submerchant_grant_self');
     });
@@ -627,7 +629,7 @@ describe('D26-P2-01b public doors — grant refuse invent authority', () => {
   });
 
   it('submerchantPermission.grant does not reach a lateral journal write', async () => {
-    const grantPermission = vi.fn(async () => {
+    const grantPermission = vi.fn<SubMerchantService['grantPermission']>(async () => {
       throw new SubMerchantError('Authority does not flow sideways between siblings', 'pay.submerchant_grant_lateral');
     });
     const { app } = await mountDoors({ subs: { grantPermission } });
@@ -646,7 +648,7 @@ describe('D26-P2-01b public doors — grant refuse invent authority', () => {
   });
 
   it('unknown permission area is refused at the schema before the service invents one', async () => {
-    const grantPermission = vi.fn();
+    const grantPermission = vi.fn<SubMerchantService['grantPermission']>();
     const { app } = await mountDoors({ subs: { grantPermission } });
 
     const { statusCode } = await post(app, 'submerchantPermission.grant', {
@@ -662,7 +664,7 @@ describe('D26-P2-01b public doors — grant refuse invent authority', () => {
   });
 
   it('forged principal cannot invent a grant — unsigned header never reaches grantPermission', async () => {
-    const grantPermission = vi.fn();
+    const grantPermission = vi.fn<SubMerchantService['grantPermission']>();
     const { app } = await mountDoors({ subs: { grantPermission } });
     const raw = encodePrincipal(principal({ scopes: ['pay:write', 'admin:treasury'] }));
 
@@ -686,7 +688,7 @@ describe('D26-P2-01b public doors — grant refuse invent authority', () => {
 
 describe('D28 public doors — live-only KYB money gate on checkout.open', () => {
   it('checkout.open refuses pay.kyb_required over the wire (no invent hosted session)', async () => {
-    const openCheckoutSession = vi.fn(async () => {
+    const openCheckoutSession = vi.fn<PayService['openCheckoutSession']>(async () => {
       throw new PayError(`Merchant ${MERCHANT} KYB is none; live acquiring requires approved KYB`, 'pay.kyb_required');
     });
     const { app } = await mountDoors({ pay: { openCheckoutSession } });
