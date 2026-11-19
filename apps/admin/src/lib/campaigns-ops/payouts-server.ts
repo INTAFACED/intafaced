@@ -6,7 +6,7 @@ import {
   payoutBoardInputSchema,
   payoutBoardSchema,
 } from '@intafaced/contracts/campaigns-payout-board';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
+import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk';
 import { check, ruleReply } from './builder-server';
 
 /**

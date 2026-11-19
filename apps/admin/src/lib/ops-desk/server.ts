@@ -1,8 +1,7 @@
 import 'server-only';
 import { replyAccepted, type ProcedureRecord } from '@intafaced/contracts/procedure';
 import { CONTRACT_PROCEDURES } from '@intafaced/contracts/procedure-registry';
-import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom } from '@/lib/desk/part';
+import { founderCall, type FounderCallContext, type FounderCallResult, partFrom } from '@/lib/desk';
 import {
   BANK_CUSTOMER_BALANCES,
   BANK_CUSTOMER_ENTRIES,

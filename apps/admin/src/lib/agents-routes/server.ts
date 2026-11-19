@@ -1,6 +1,6 @@
 import 'server-only';
 import { routeChangeSchema, routeDeskSchema, type RouteDesk } from '@intafaced/contracts/agents-routes';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
+import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk';
 import { refusalOf } from '@/lib/agents-log/server';
 import { handlesFor } from '@/lib/agents-fleet/server';
 import type { RoutesAction } from './model';
