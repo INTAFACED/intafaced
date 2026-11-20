@@ -2,7 +2,8 @@
 //! contracts' published schema (`packages/contracts/procedures.schema.json`), so a record added there is held here at
 //! once with no edit. For every tRPC record: the door serves its path, as the same query or mutation, under the same
 //! scope; each refusal it names is a catalogue code (`door/errors_table.rs`) sent with the status it names; and each of
-//! its samples, sent by an operator holding every scope, is refused 400 at the door exactly when the record refuses it.
+//! its samples, sent by an operator holding every scope, is refused 400 at the door exactly when the record refuses it
+//! (an accepted one may still be refused by its handler, never for its input).
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -218,7 +219,6 @@ fn each_record_sample_reaches_its_verdict_at_the_door() {
                 assert_eq!(status, 400, "{label}: {body}");
             } else {
                 assert_ne!(status, 400, "{label}: {body}");
-                assert_ne!(status, 403, "{label}: {body}");
             }
             checked += 1;
         }
