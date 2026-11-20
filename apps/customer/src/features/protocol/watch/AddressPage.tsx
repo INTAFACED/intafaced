@@ -3,7 +3,7 @@ import { upsertAddressWatch, WATCH_NOTE_MAX, WATCH_TAG_MAX, type AddressWatch } 
 import { navigate } from '../../../app/location';
 import { Button, Dialog, EmptyState, Page, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
 import { AddressActivity, AddressHoldings, AddressSummary, PastBalance } from '../explorer/AddressDetails';
