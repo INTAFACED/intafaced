@@ -21,7 +21,7 @@ export const defaultAccent: Accent = 'blue';
 
 /**
  * `data-direction` on the root: a whole look direction drawn over the lit roles (its own material, type and spark),
- * for the owner's first choice between real directions (intafaced #9227). Off by default; only `?direction=` sets it,
+ * for the owner's first choice between real directions. Off by default; only `?direction=` sets it,
  * and only with the look on.
  */
 export const directions = ['volt'] as const;

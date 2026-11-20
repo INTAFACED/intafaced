@@ -68,7 +68,7 @@ export function resolveAccent(search: string): LookAccent | null {
 }
 
 /**
- * The look directions' preview switch (intafaced #9227): `?direction=volt` draws a whole direction over the lit look
+ * The look directions' preview switch: `?direction=volt` draws a whole direction over the lit look
  * (its own material, type, spark, Home, money object and tab bar), `?direction=off` forgets it. Remembered like the
  * look and off by default; it sets `data-direction` on the root only while the look is on, so nobody sees a direction
  * without asking for it. Everything a direction changes is scoped to `[data-direction='<id>']`.

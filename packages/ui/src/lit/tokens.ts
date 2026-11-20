@@ -337,7 +337,7 @@ export const accentTextLight: Record<Accent, string> = {
 };
 
 /**
- * A look direction drawn over the lit roles (intafaced #9227): its own material, type and spark, dark and light.
+ * A look direction drawn over the lit roles: its own material, type and spark, dark and light.
  * `today` re-points today's `--if-*` names for rooms not yet on a template (values are role references only), and
  * `type` re-values the type roles.
  */

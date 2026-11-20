@@ -1,5 +1,5 @@
 /*
- * The Volt direction's shell (intafaced #9227): only under data-direction="volt", which look.ts sets only with the look
+ * The Volt direction's shell: only under data-direction="volt", which look.ts sets only with the look
  * on; nothing here applies by default. Matte black and stone, a floating pill tab bar on phone, Archivo for type and
  * its widest cut for figures. Role tokens only (--lit-*); colour lives in packages/ui/src/lit/tokens.ts.
  */

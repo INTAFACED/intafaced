@@ -310,7 +310,7 @@ function HomeSimple() {
   const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
   const home = useHomeLayout();
-  // The Volt direction (intafaced #9227) draws its card stack where the lit sphere and the holdings rows stand.
+  // The Volt direction draws its card stack where the lit sphere and the holdings rows stand.
   const volt = isDirectionOn('volt');
   const main = shownTiles(home.layout, 'simple', 'main');
   const side = shownTiles(home.layout, 'simple', 'side');

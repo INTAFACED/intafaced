@@ -23,7 +23,7 @@ export const DIRECTIONS = [
   { id: 'lit-glass', query: 'look=lit&accent=blue&direction=off', solid: false },
   { id: 'ember', query: 'look=lit&accent=ember&direction=off', solid: false },
   { id: 'emerald-solid', query: 'look=lit&accent=emerald&direction=off', solid: true },
-  // The real directions (intafaced #9227): each its own folder, named `<screen>--<size>--<scheme>.png`.
+  // The real directions: each its own folder, named `<screen>--<size>--<scheme>.png`.
   { id: 'volt', query: 'look=lit&accent=off&direction=volt', solid: false, screens: ['home', 'money', 'buy'], own: true },
 ];
 export const SCREENS = [

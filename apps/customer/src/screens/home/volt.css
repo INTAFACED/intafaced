@@ -1,5 +1,5 @@
 /*
- * The Volt direction on Home (intafaced #9227): only under data-direction="volt"; nothing here applies by default.
+ * The Volt direction on Home: only under data-direction="volt"; nothing here applies by default.
  * The balance comes first and largest, in the wide grotesk with its decimals quieter; the money object (VoltStack) is a
  * matte black card in front of a citron one, the screen's one spark; the inbox and the getting-started list follow.
  * Role tokens only. Unlayered on purpose: Home's own sheet is in `@layer components`, which this must override.

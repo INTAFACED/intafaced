@@ -1,5 +1,5 @@
 /*
- * The Volt direction on the simple buy (intafaced #9227): only under data-direction="volt"; nothing here applies by
+ * The Volt direction on the simple buy: only under data-direction="volt"; nothing here applies by
  * default. The card is a heavy stone slab, the amount is set in the wide grotesk, and the one primary action (the buy
  * itself) carries the screen's one spark (app/volt.css). Role tokens only; unlayered so it overrides buy.css.
  */
