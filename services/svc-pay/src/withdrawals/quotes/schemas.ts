@@ -1,24 +1,21 @@
 import { z } from 'zod';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
+import type { PAY_WITHDRAWAL_QUOTE } from '@intafaced/contracts/pay-withdrawal-procedures';
 
 /**
  * Wire shapes for withdrawal fee quotes (W-withdraw-04). Every input object is `.strict()`. Amounts are decimal strings,
  * never numbers. A blank fee mode or lifetime is not a parse default: it is the absence of a policy row.
  */
-const amount = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
 const assetId = z.string().regex(/^[A-Za-z0-9._-]{1,32}$/);
-const networkId = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
 /** The caller's own business key for one quote, kept across a retry so a retry reads the same quote. */
 const quoteRef = z.string().regex(/^[A-Za-z0-9:_.-]{1,64}$/);
 const clientRef = z.string().min(1).max(64);
-/** The quote reference and network id a send names (J-wallet-05 #6), the same shapes a quote is stored under. */
-export const sendQuoteRefSchema = quoteRef;
-export const sendNetworkIdSchema = networkId;
 
 export const FEE_MODES = ['on_top', 'deducted'] as const;
 export type FeeMode = (typeof FEE_MODES)[number];
 
-export const quoteInputSchema = z.object({ quoteRef, assetId, networkId, amount }).strict();
-export type QuoteInput = z.infer<typeof quoteInputSchema>;
+/** What a customer quotes with: the input of `withdrawal.quote`'s record. */
+export type QuoteInput = ProcedureInput<typeof PAY_WITHDRAWAL_QUOTE>;
 
 export const acceptInputSchema = z.object({ quoteRef, clientRef }).strict();
 export type AcceptInput = z.infer<typeof acceptInputSchema>;
