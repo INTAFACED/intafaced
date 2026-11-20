@@ -19,8 +19,8 @@ import {
   copyActionSchema,
   otcSettledSchema,
   adlDisclosureSchema,
-  executionSpineSchema,
 } from '@intafaced/contracts/trade-tools';
+import { EXECUTION_SPINE } from '@intafaced/contracts/execution-procedures';
 import type { ApiClient } from '../../shared/api';
 
 /** The trading tools' reply schemas live once in contracts; this file keeps the calls. */
@@ -73,7 +73,7 @@ export function createToolApi(api: ApiClient) {
       }),
     positionHistory: (signal?: AbortSignal) => api.rest('/positions/closed', z.array(positionSchema), { query: { limit: 100 }, signal }),
     disclosure: (signal?: AbortSignal) => api.rest('/futures/adl-disclosure', adlDisclosureSchema, { signal }),
-    executionSpine: (signal?: AbortSignal) => api.query('execution', 'execution.spine', undefined, executionSpineSchema, { signal }),
+    executionSpine: (signal?: AbortSignal) => api.call(EXECUTION_SPINE, undefined, { signal }),
   };
 }
 export type ToolApi = ReturnType<typeof createToolApi>;

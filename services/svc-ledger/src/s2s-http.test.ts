@@ -261,9 +261,16 @@ describe('s2s-http (graph W1-C money surface)', () => {
       {
         url: 'http://indexer.test',
         fetch: async () =>
-          new Response(JSON.stringify({ result: { data: [{ market: 'IFC-USD', size: '2', entryPrice: '11' }] } }), {
-            headers: { 'content-type': 'application/json' },
-          }),
+          new Response(
+            JSON.stringify({
+              result: {
+                data: [{ market: 'IFC-USD', account: chainAccount, size: '2', entryPrice: '11', blockHeight: 3, blockHash: '0xab' }],
+              },
+            }),
+            {
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
       },
     );
     expect(out.indexer).toEqual({

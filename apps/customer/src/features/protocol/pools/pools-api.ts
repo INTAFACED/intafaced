@@ -1,10 +1,16 @@
 import { PROTOCOL_AMM_POOL_FEES, PROTOCOL_AMM_REQUEST_PROTOCOL_FEE } from '@intafaced/contracts/protocol-amm-procedures';
-import { poolDaySchema, poolsPageSchema, poolSwapsPageSchema, type PoolCursor } from '@intafaced/contracts/indexer-pools';
+import {
+  INDEXER_EXPLORER_POOLS_GET,
+  INDEXER_EXPLORER_POOLS_LIST,
+  INDEXER_EXPLORER_POOLS_SWAPS,
+  type IndexerCandleInterval,
+  type PoolCursor,
+} from '@intafaced/contracts/indexer-procedures';
 import type { ProtocolPoolFees } from '@intafaced/contracts/protocol-fees';
 import type { ApiClient } from '../../../shared/api';
 
-export * from '@intafaced/contracts/indexer-pools';
-export type CandleInterval = '5m' | '1h';
+export type { Pool, PoolCandle, PoolCursor, PoolDay, PoolListRow, PoolSwapsPage, PoolToken } from '@intafaced/contracts/indexer-procedures';
+export type CandleInterval = IndexerCandleInterval;
 
 /**
  * An address the owner's factory did not create, as the indexer names it. Only the indexer's own code counts: any other
@@ -29,13 +35,13 @@ export function createPoolsApi(api: ApiClient) {
     requestProtocolFee: (pool: string) => api.call(PROTOCOL_AMM_REQUEST_PROTOCOL_FEE, { pool }),
     /** The owner factory's pools, newest first, in pages of the owner's list limit. A blank factory refuses by name. */
     list: (chainId: number, signal?: AbortSignal, cursor?: PoolCursor) =>
-      api.query('indexer', 'explorer.pools.list', { chainId, ...(cursor ? { cursor } : {}) }, poolsPageSchema, { signal }),
+      api.call(INDEXER_EXPLORER_POOLS_LIST, { chainId, ...(cursor ? { cursor } : {}) }, { signal }),
     /** One pool's facts, its last day's volume and swaps, and that day's candles at the asked width. */
     day: (chainId: number, address: string, interval: CandleInterval, signal?: AbortSignal) =>
-      api.query('indexer', 'explorer.pools.get', { chainId, address, interval }, poolDaySchema, { signal }),
+      api.call(INDEXER_EXPLORER_POOLS_GET, { chainId, address, interval }, { signal }),
     /** The pool's swaps, newest first, each a buy or sell from the first token's side. */
     swaps: (chainId: number, address: string, signal?: AbortSignal, cursor?: PoolCursor) =>
-      api.query('indexer', 'explorer.pools.swaps', { chainId, address, ...(cursor ? { cursor } : {}) }, poolSwapsPageSchema, { signal }),
+      api.call(INDEXER_EXPLORER_POOLS_SWAPS, { chainId, address, ...(cursor ? { cursor } : {}) }, { signal }),
   };
 }
 export type PoolsApi = ReturnType<typeof createPoolsApi>;
