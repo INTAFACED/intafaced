@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
 import { UI_ACTIVE_PROFILE_PATTERN, UI_DISPLAY_CURRENCIES } from '@intafaced/contracts/ui-view-preferences';
 import { canonicalUiLocale } from './locale';
+import { resolvePreviewScheme } from '../app/look';
 
 const fields = z.object({
   theme: z.enum(['dark', 'light', 'system']).default('dark'),
@@ -182,8 +183,9 @@ export function currentPreferences() {
 
 /**
  * The theme the app draws. Light is out of scope, so every stored value (`light`, `system`, or an old `light` from an
- * earlier build) still renders dark; the stored value is kept untouched, ready for the day light ships.
+ * earlier build) still renders dark; the stored value is kept untouched, ready for the day light ships. The one way to
+ * see light is the look's preview switch (`?scheme=light`, look.ts), asked for on this device.
  */
 export function useResolvedTheme(_theme: Preferences['theme']): 'light' | 'dark' {
-  return 'dark';
+  return resolvePreviewScheme();
 }
