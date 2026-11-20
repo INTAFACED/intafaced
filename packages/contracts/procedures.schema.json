@@ -5728,6 +5728,337 @@
         }
       ]
     },
+    "p2p.chat.messages.list": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "chat.messages.list",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.trade_not_found": "NOT_FOUND",
+        "p2p.chat_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["tradeId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "tradeId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "senderId": {
+                  "type": "string"
+                },
+                "clientId": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "tradeId", "senderId", "clientId", "text", "createdAt"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          },
+          "unread": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["messages", "nextCursor", "unread"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "limit": 100
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "p2p.chat.messages.send": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "chat.messages.send",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.trade_not_found": "NOT_FOUND",
+        "p2p.chat_attachment_unwired": "PRECONDITION_FAILED",
+        "p2p.blocked": "FORBIDDEN",
+        "p2p.chat_text_required": "BAD_REQUEST",
+        "p2p.idempotency_conflict": "CONFLICT",
+        "p2p.idempotency_in_progress": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "attachment": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {}
+              },
+              {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {}
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["tradeId", "text", "clientId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "senderId": {
+            "type": "string"
+          },
+          "clientId": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "notify": {
+            "type": "object",
+            "properties": {
+              "delivered": {
+                "type": "boolean"
+              },
+              "code": {
+                "type": "string",
+                "enum": ["p2p.chat_notify_delivered", "p2p.chat_notify_unwired", "p2p.chat_notify_failed"]
+              }
+            },
+            "required": ["delivered", "code"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "tradeId", "senderId", "clientId", "text", "createdAt", "created", "notify"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "text": "hello",
+            "clientId": "client-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "text": "",
+            "clientId": "client-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "text": "hello"
+          }
+        }
+      ]
+    },
+    "p2p.chat.unread": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "chat.unread",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.trade_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["tradeId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "unread": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["tradeId", "unread"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "not-an-id"
+          }
+        }
+      ]
+    },
     "p2p.contacts.block": {
       "service": "svc-p2p",
       "module": "p2p",
@@ -6387,6 +6718,1413 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.reputation.appeal": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "reputation.appeal",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.trade_not_found": "NOT_FOUND",
+        "p2p.config_unset": "PRECONDITION_FAILED",
+        "p2p.reason_required": "BAD_REQUEST",
+        "p2p.appeal_used": "CONFLICT",
+        "p2p.appeal_not_eligible": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": ["tradeId", "reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["submitted", "accepted", "rejected"]
+          },
+          "submittedAt": {
+            "type": "string"
+          },
+          "reviewDueAt": {
+            "type": "string"
+          },
+          "decidedBy": {
+            "type": ["string", "null"]
+          },
+          "decidedAt": {
+            "type": ["string", "null"]
+          },
+          "decisionReason": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "tradeId",
+          "reason",
+          "status",
+          "submittedAt",
+          "reviewDueAt",
+          "decidedBy",
+          "decidedAt",
+          "decisionReason"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "reason": "The buyer never answered"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444"
+          }
+        }
+      ]
+    },
+    "p2p.reputation.decideAppeal": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "reputation.decideAppeal",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.reason_required": "BAD_REQUEST",
+        "p2p.appeal_not_found": "NOT_FOUND",
+        "p2p.appeal_self_decision": "FORBIDDEN",
+        "p2p.appeal_decided": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "appealId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["accepted", "rejected"]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": ["appealId", "decision", "reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["submitted", "accepted", "rejected"]
+          },
+          "submittedAt": {
+            "type": "string"
+          },
+          "reviewDueAt": {
+            "type": "string"
+          },
+          "decidedBy": {
+            "type": ["string", "null"]
+          },
+          "decidedAt": {
+            "type": ["string", "null"]
+          },
+          "decisionReason": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "tradeId",
+          "reason",
+          "status",
+          "submittedAt",
+          "reviewDueAt",
+          "decidedBy",
+          "decidedAt",
+          "decisionReason"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "appealId": "44444444-4444-4444-8444-444444444444",
+            "decision": "accepted",
+            "reason": "The order was the buyer’s fault"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "appealId": "44444444-4444-4444-8444-444444444444",
+            "decision": "maybe",
+            "reason": "x"
+          }
+        }
+      ]
+    },
+    "p2p.reputation.get": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "reputation.get",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.blocked": "FORBIDDEN",
+        "p2p.user_not_found": "NOT_FOUND",
+        "p2p.public_profile_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["userId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradesTotal": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cancelled": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "disputed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "disputesLost": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "completionRate": {
+            "type": "number"
+          },
+          "avgReleaseSecs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "badges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "handle": {
+            "type": ["string", "null"]
+          },
+          "memberSince": {
+            "type": ["string", "null"]
+          },
+          "profile": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["unwired", "found", "absent"]
+              },
+              "code": {
+                "type": "string",
+                "enum": ["p2p.public_profile_unwired", "p2p.public_profile_found", "p2p.public_profile_absent"]
+              }
+            },
+            "required": ["status", "code"],
+            "additionalProperties": false
+          },
+          "trades30d": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "completionRate30d": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{1,3}\\.\\d{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completionRateTotal": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{1,3}\\.\\d{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completionDefinition": {
+            "type": "object",
+            "properties": {
+              "numerator": {
+                "type": "string"
+              },
+              "denominator": {
+                "type": "string"
+              },
+              "window30d": {
+                "type": "string"
+              },
+              "noHistory": {
+                "type": "string"
+              }
+            },
+            "required": ["numerator", "denominator", "window30d", "noHistory"],
+            "additionalProperties": false
+          },
+          "avgPaySecs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "good": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "bad": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["good", "bad"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verification": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["level"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "merchant": {
+            "type": ["boolean", "null"]
+          }
+        },
+        "required": [
+          "tradesTotal",
+          "completed",
+          "cancelled",
+          "disputed",
+          "disputesLost",
+          "completionRate",
+          "avgReleaseSecs",
+          "badges",
+          "handle",
+          "memberSince",
+          "profile",
+          "trades30d",
+          "completionRate30d",
+          "completionRateTotal",
+          "completionDefinition",
+          "avgPaySecs",
+          "rating",
+          "verification",
+          "merchant"
+        ],
+        "additionalProperties": false
+      },
+      "accept": {
+        "counts": "every count is a non-negative 32-bit integer and the completion rate is a fraction from 0 to 1",
+        "consistent": "completed plus cancelled is at most the trades total, and disputes lost are at most the disputes"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "p2p.reputation.myAppeal": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "reputation.myAppeal",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "userId": {
+                "type": "string"
+              },
+              "tradeId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["submitted", "accepted", "rejected"]
+              },
+              "submittedAt": {
+                "type": "string"
+              },
+              "reviewDueAt": {
+                "type": "string"
+              },
+              "decidedBy": {
+                "type": ["string", "null"]
+              },
+              "decidedAt": {
+                "type": ["string", "null"]
+              },
+              "decisionReason": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": [
+              "id",
+              "userId",
+              "tradeId",
+              "reason",
+              "status",
+              "submittedAt",
+              "reviewDueAt",
+              "decidedBy",
+              "decidedAt",
+              "decisionReason"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.reviews.edit": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "reviews.edit",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.config_unset": "PRECONDITION_FAILED",
+        "p2p.review_not_eligible": "BAD_REQUEST",
+        "p2p.explanation_required": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "rating": {
+            "type": "string",
+            "enum": ["good", "bad"]
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "explanation": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": ["tradeId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tradeId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "authorId": {
+            "type": ["string", "null"]
+          },
+          "subjectId": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "string",
+            "enum": ["good", "bad"]
+          },
+          "comment": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": ["string", "null"]
+          },
+          "reply": {
+            "type": ["string", "null"]
+          },
+          "repliedAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "hiddenReason": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "tradeId",
+          "authorId",
+          "subjectId",
+          "rating",
+          "comment",
+          "explanation",
+          "reply",
+          "repliedAt",
+          "createdAt",
+          "updatedAt",
+          "hidden",
+          "hiddenReason"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "comment": "Paid on time"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "rating": "fine"
+          }
+        }
+      ]
+    },
+    "p2p.reviews.forTrade": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "reviews.forTrade",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.trade_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["tradeId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mine": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "tradeId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "authorId": {
+                    "type": ["string", "null"]
+                  },
+                  "subjectId": {
+                    "type": "string"
+                  },
+                  "rating": {
+                    "type": "string",
+                    "enum": ["good", "bad"]
+                  },
+                  "comment": {
+                    "type": "string"
+                  },
+                  "explanation": {
+                    "type": ["string", "null"]
+                  },
+                  "reply": {
+                    "type": ["string", "null"]
+                  },
+                  "repliedAt": {
+                    "type": ["string", "null"]
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string"
+                  },
+                  "hidden": {
+                    "type": "boolean"
+                  },
+                  "hiddenReason": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": [
+                  "id",
+                  "tradeId",
+                  "authorId",
+                  "subjectId",
+                  "rating",
+                  "comment",
+                  "explanation",
+                  "reply",
+                  "repliedAt",
+                  "createdAt",
+                  "updatedAt",
+                  "hidden",
+                  "hiddenReason"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "theirs": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "tradeId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "authorId": {
+                    "type": ["string", "null"]
+                  },
+                  "subjectId": {
+                    "type": "string"
+                  },
+                  "rating": {
+                    "type": "string",
+                    "enum": ["good", "bad"]
+                  },
+                  "comment": {
+                    "type": "string"
+                  },
+                  "explanation": {
+                    "type": ["string", "null"]
+                  },
+                  "reply": {
+                    "type": ["string", "null"]
+                  },
+                  "repliedAt": {
+                    "type": ["string", "null"]
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string"
+                  },
+                  "hidden": {
+                    "type": "boolean"
+                  },
+                  "hiddenReason": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": [
+                  "id",
+                  "tradeId",
+                  "authorId",
+                  "subjectId",
+                  "rating",
+                  "comment",
+                  "explanation",
+                  "reply",
+                  "repliedAt",
+                  "createdAt",
+                  "updatedAt",
+                  "hidden",
+                  "hiddenReason"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["mine", "theirs"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "p2p.reviews.leave": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "reviews.leave",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.trade_not_found": "NOT_FOUND",
+        "p2p.review_not_eligible": "BAD_REQUEST",
+        "p2p.explanation_required": "BAD_REQUEST",
+        "p2p.idempotency_in_progress": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "rating": {
+            "type": "string",
+            "enum": ["good", "bad"]
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "explanation": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": ["tradeId", "rating"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tradeId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "authorId": {
+            "type": ["string", "null"]
+          },
+          "subjectId": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "string",
+            "enum": ["good", "bad"]
+          },
+          "comment": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": ["string", "null"]
+          },
+          "reply": {
+            "type": ["string", "null"]
+          },
+          "repliedAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "hiddenReason": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "tradeId",
+          "authorId",
+          "subjectId",
+          "rating",
+          "comment",
+          "explanation",
+          "reply",
+          "repliedAt",
+          "createdAt",
+          "updatedAt",
+          "hidden",
+          "hiddenReason"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "rating": "good",
+            "comment": "Paid on time"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "rating": "fine"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444"
+          }
+        }
+      ]
+    },
+    "p2p.reviews.list": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "reviews.list",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.blocked": "FORBIDDEN",
+        "p2p.review_list_limit_unset": "PRECONDITION_FAILED",
+        "p2p.cursor_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["userId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "reviews": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "tradeId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "authorId": {
+                  "type": ["string", "null"]
+                },
+                "subjectId": {
+                  "type": "string"
+                },
+                "rating": {
+                  "type": "string",
+                  "enum": ["good", "bad"]
+                },
+                "comment": {
+                  "type": "string"
+                },
+                "explanation": {
+                  "type": ["string", "null"]
+                },
+                "reply": {
+                  "type": ["string", "null"]
+                },
+                "repliedAt": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                },
+                "hidden": {
+                  "type": "boolean"
+                },
+                "hiddenReason": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [
+                "id",
+                "tradeId",
+                "authorId",
+                "subjectId",
+                "rating",
+                "comment",
+                "explanation",
+                "reply",
+                "repliedAt",
+                "createdAt",
+                "updatedAt",
+                "hidden",
+                "hiddenReason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["reviews", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "limit": 500
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "not-an-id",
+            "limit": 20
+          }
+        }
+      ]
+    },
+    "p2p.reviews.moderate": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "reviews.moderate",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.not_a_moderator": "FORBIDDEN",
+        "p2p.moderation_unreachable": "PRECONDITION_FAILED",
+        "p2p.ruling_not_attributed": "BAD_REQUEST",
+        "p2p.reason_required": "BAD_REQUEST",
+        "p2p.review_not_eligible": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "reviewId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": ["reviewId", "reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tradeId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "authorId": {
+            "type": ["string", "null"]
+          },
+          "subjectId": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "string",
+            "enum": ["good", "bad"]
+          },
+          "comment": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": ["string", "null"]
+          },
+          "reply": {
+            "type": ["string", "null"]
+          },
+          "repliedAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "hiddenReason": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "tradeId",
+          "authorId",
+          "subjectId",
+          "rating",
+          "comment",
+          "explanation",
+          "reply",
+          "repliedAt",
+          "createdAt",
+          "updatedAt",
+          "hidden",
+          "hiddenReason"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "reviewId": "44444444-4444-4444-8444-444444444444",
+            "reason": "Abusive words"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "reviewId": "44444444-4444-4444-8444-444444444444",
+            "reason": ""
+          }
+        }
+      ]
+    },
+    "p2p.reviews.reply": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "reviews.reply",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.reason_required": "BAD_REQUEST",
+        "p2p.review_not_eligible": "BAD_REQUEST",
+        "p2p.review_exists": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": ["tradeId", "text"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tradeId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "authorId": {
+            "type": ["string", "null"]
+          },
+          "subjectId": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "string",
+            "enum": ["good", "bad"]
+          },
+          "comment": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": ["string", "null"]
+          },
+          "reply": {
+            "type": ["string", "null"]
+          },
+          "repliedAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "hiddenReason": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "tradeId",
+          "authorId",
+          "subjectId",
+          "rating",
+          "comment",
+          "explanation",
+          "reply",
+          "repliedAt",
+          "createdAt",
+          "updatedAt",
+          "hidden",
+          "hiddenReason"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444",
+            "text": "Thank you"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tradeId": "44444444-4444-4444-8444-444444444444"
+          }
         }
       ]
     },
