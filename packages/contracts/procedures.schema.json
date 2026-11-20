@@ -73931,6 +73931,150 @@
         }
       ]
     },
+    "trade.bots.grid.setExits": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "bots.grid.setExits",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.grid_not_found": "NOT_FOUND",
+        "trade.grid_not_running": "CONFLICT",
+        "trade.grid_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.bots_grid_rsi_source_not_set": "BAD_REQUEST",
+        "trade.bots_grid_exit_price_invalid": "BAD_REQUEST",
+        "trade.bots_verification_insufficient": "FORBIDDEN",
+        "trade.bots_verification_level_not_set": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "botId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "stopBelow": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopAbove": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rsiBelow": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rsiAbove": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["botId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "stopBelow": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopAbove": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rsi": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "null"
+              }
+            },
+            "required": ["source"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["stopBelow", "stopAbove", "rsi"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "botId": "0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b",
+            "stopBelow": "58000",
+            "stopAbove": null
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "botId": "0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b",
+            "rsiBelow": "30"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "botId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
     "trade.bots.grid.submitPermission": {
       "service": "svc-trade",
       "module": "trade",

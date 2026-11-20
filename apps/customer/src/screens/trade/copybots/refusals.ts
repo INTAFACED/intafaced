@@ -592,6 +592,14 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'Trailing isn’t built',
     body: 'Your settings passed every check, but a grid can’t trail the price. It keeps its range. Nothing was changed.',
   },
+  'trade.bots_grid_rsi_source_not_set': {
+    title: 'An RSI exit can’t be saved',
+    body: 'No RSI source is connected, so the bot can’t read RSI. Nothing was saved.',
+  },
+  'trade.bots_grid_exit_price_invalid': {
+    title: 'Check the exit prices',
+    body: 'Each exit is a price above zero, and the falls-to price must be below the rises-to price. Nothing was saved.',
+  },
   'trade.grid_unavailable': {
     title: 'Grid bots aren’t available right now',
     body: 'The grid service isn’t switched on here. Nothing was created.',

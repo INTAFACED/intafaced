@@ -10,7 +10,7 @@ import { listLeader } from './copy.mjs';
 // the person's own grid door (svc-trade's grid, services/svc-trade/src/grid). Every bot, level and order is read back
 // from that service, and what the account holds from the ledger.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3: no price or RSI exit; #4: no settling stop (a stop keeps what the bot bought); #5: no idle-fund yield switch;
+// - #4: no settling stop (a stop keeps what the bot bought); #5: no idle-fund yield switch;
 //   #6: no bonus-margin voucher; #7: no copying of a lead's grid; #8: no lead futures liquidation feeding a follow.
 const J = 'J-copy-bots-otc-15';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -189,18 +189,46 @@ test(`${J} #2 turns on trailing with the shift limit blank: refused naming it; a
 test(`${J} #3 sets a price exit and an RSI exit with no RSI source: the price exit stops once; RSI reads "Not set" and can't be saved`, async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   const trader = state('trader');
+  const botId = state('botId');
   await signIn(page, trader);
-  const detail = await openBot(page, state('botId'));
-  await detail.getByRole('button', { name: 'Exits' }).click();
-  await expect(detail.getByLabel('RSI exit')).toBeDisabled();
-  await expect(detail.getByText(/RSI\s*Not set/)).toBeVisible();
-  // A price exit right at the book: it fires on the next tick.
-  const { bid } = await bestPrices();
-  await detail.getByLabel('Stop when the price falls to').fill(bid);
-  await detail.getByRole('button', { name: 'Save exits' }).click();
-  await expect.poll(async () => (await getBot(trader, state('botId'))).stopReason, { timeout: 60_000 }).toBe('price_exit');
-  await expect(detail).toContainText('Price exit');
+  const detail = await openBot(page, botId);
+  await detail.getByRole('button', { name: 'Exits', exact: true }).click();
+  const exits = detail.getByRole('region', { name: 'Exits', exact: true });
+  // The RSI exit: no RSI source is connected, so the field reads "Not set" and can't be filled in.
+  const rsi = exits.getByLabel('RSI exit', { exact: true });
+  await expect(rsi).toBeDisabled();
+  await expect(rsi).toHaveValue('Not set');
+  // Nor can it be saved by any other route: the service refuses an RSI value by name and saves nothing.
+  const sent = await (await api(trader)).post(`${GRID}.setExits`, { botId, stopBelow: '1', rsiBelow: '30' });
+  expect(sent.status).toBe(400);
+  expect(codeOf(sent.body)).toBe('trade.bots_grid_rsi_source_not_set');
+  expect((await getBot(trader, botId)).exits).toEqual({ stopBelow: null, stopAbove: null, rsi: { source: null } });
+
+  // A price exit at the ask: the best bid is already at or under it, so the next tick reaches it.
+  const { ask } = await bestPrices();
+  await exits.getByLabel('Stop when the price falls to', { exact: true }).fill(ask);
+  const saved = page.waitForResponse(
+    (res) => new URL(res.url()).pathname.endsWith('/bots.grid.setExits') && res.request().method() === 'POST',
+  );
+  await exits.getByRole('button', { name: 'Save exits', exact: true }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(exits.getByRole('status')).toContainText('Exits saved.');
+  // The price exit stops the bot, with the reason "Price exit", and the stop cancels every level it rested.
+  await expect.poll(async () => (await getBot(trader, botId)).statusReason, { timeout: 60_000 }).toBe('price_exit');
+  await expect(detail.getByTestId('grid-status')).toHaveText('Stopped', { timeout: 20_000 });
+  await expect(detail).toContainText(/Stopped by\s*Price exit/);
+  await expect
+    .poll(async () => (await getBot(trader, botId)).orders.filter((o) => o.status === 'open').length, { timeout: 30_000 })
+    .toBe(0);
+  // Once: read for the next few ticks at the same book, the one stop and its reason stand and no level is placed again.
+  const stopped = await getBot(trader, botId);
+  for (const until = Date.now() + 5_000; Date.now() < until;) {
+    const later = await getBot(trader, botId);
+    expect(later).toMatchObject({ status: 'stopped', statusReason: 'price_exit' });
+    expect(later.orders).toEqual(stopped.orders);
+  }
 });
 
 test(`${J} #4 stops with settlement of base and quote: one sell job per level; a stop during a partial cancel refused`, async ({
@@ -249,11 +277,11 @@ test(`${J} #7 copies a lead's grid bot: the same range and a snapshot id; later 
   const trader = state('trader');
   await signIn(page, trader);
   await page.goto(`/trade/copy/${leadRef}`);
-  await page.getByRole('button', { name: 'Copy this grid' }).click(UNBUILT);
+  await page.getByRole('button', { name: 'Copy this grid', exact: true }).click(UNBUILT);
   const leadBot = await makeGrid(lead, `${J}-7-lead-${state('tag')}`);
-  await page.getByRole('dialog').getByLabel('Investment (USDT)').fill('300');
+  await page.getByRole('dialog').getByLabel('Investment (USDT)', { exact: true }).fill('300');
   const answer = page.waitForResponse((res) => res.url().includes('bots.copyGrid'));
-  await page.getByRole('dialog').getByRole('button', { name: 'Copy grid' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Copy grid', exact: true }).click();
   const copied = (await (await answer).json()).result.data;
   expect([copied.lowerPrice, copied.upperPrice]).toEqual([leadBot.lowerPrice, leadBot.upperPrice]);
   expect(copied.snapshotId).toMatch(/^[\w:.-]{8,}$/);
@@ -272,6 +300,6 @@ test(`${J} #8 a lead's futures liquidation on a copied pair: the follower positi
 }) => {
   await signIn(page, state('trader'));
   await page.goto('/trade/copy?tab=follows');
-  const grid = page.getByRole('grid', { name: 'My follows' });
-  await expect(grid.getByText('Not applicable (spot)').first()).toBeVisible(UNBUILT);
+  const grid = page.getByRole('grid', { name: 'My follows', exact: true });
+  await expect(grid.getByText('Not applicable (spot)', { exact: true }).first()).toBeVisible(UNBUILT);
 });

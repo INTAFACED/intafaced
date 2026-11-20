@@ -127,3 +127,50 @@ export const GRID_SUBMIT_PERMISSION = defineProcedure({
     { verdict: 'refuse', input: {} },
   ],
 });
+
+/**
+ * A grid's exits as saved (svc-trade grid-service.ts `GridExitsView`; CB-bots-03). `rsi.source` is null: no RSI source
+ * is connected, so the RSI exit reads Not set and can't be saved.
+ */
+export const gridExitsSchema = z.object({
+  stopBelow: decimal.nullable(),
+  stopAbove: decimal.nullable(),
+  rsi: z.object({ source: z.null() }),
+});
+
+const exitPrice = z.string().max(64).optional().nullable();
+
+/**
+ * Save a running grid's exits (J-copy-bots-otc-15 #3): stop once the best bid falls to `stopBelow` or the best ask rises
+ * to `stopAbove`; a blank price clears it. Any RSI value is refused: no RSI source is connected.
+ */
+export const GRID_SET_EXITS = defineProcedure({
+  ...base,
+  name: 'trade.bots.grid.setExits',
+  kind: 'mutation',
+  path: 'bots.grid.setExits',
+  access: WRITE,
+  refusals: refuse({
+    'trade.grid_not_found': 'NOT_FOUND',
+    'trade.grid_not_running': 'CONFLICT',
+    'trade.grid_unavailable': 'SERVICE_UNAVAILABLE',
+    'trade.bots_grid_rsi_source_not_set': 'BAD_REQUEST',
+    'trade.bots_grid_exit_price_invalid': 'BAD_REQUEST',
+    'trade.bots_verification_insufficient': 'FORBIDDEN',
+    'trade.bots_verification_level_not_set': 'FORBIDDEN',
+  }),
+  input: z.object({
+    botId: z.string().min(1).max(64),
+    stopBelow: exitPrice,
+    stopAbove: exitPrice,
+    rsiBelow: exitPrice,
+    rsiAbove: exitPrice,
+  }),
+  output: gridExitsSchema,
+  samples: [
+    { verdict: 'accept', input: { botId: '0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b', stopBelow: '58000', stopAbove: null } },
+    { verdict: 'accept', input: { botId: '0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b', rsiBelow: '30' } },
+    { verdict: 'refuse', input: { botId: '' } },
+    { verdict: 'refuse', input: {} },
+  ],
+});

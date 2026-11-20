@@ -9,7 +9,7 @@
 import { z } from 'zod';
 import { router, scopedProcedure, StepUpCheckError, TRPCError } from '@intafaced/contracts';
 import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
-import { GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
+import { GRID_SET_EXITS, GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
 import { TradeError } from '../spot/types.js';
 import { TradingControlError } from '../controls/trading-controls.js';
 import { GRID_CONFLICT_CODES, GRID_NOT_FOUND_CODES, GridError } from './errors.js';
@@ -140,6 +140,7 @@ export function gridRouter(grid?: GridService, venueGrid?: VenueGrid | null) {
         }),
       )
       .mutation(({ ctx, input }) => call((g) => g.modify(ctx.principal, input))),
+    setExits: mountRecord(GRID_SET_EXITS, ({ ctx, input }) => call((g) => g.setExits(ctx.principal, input)), gridRefusalOf),
     stop: scopedProcedure('trade:write', { module: 'trade' })
       .input(z.object({ botId: z.string().min(1).max(64) }))
       .mutation(({ ctx, input }) =>
