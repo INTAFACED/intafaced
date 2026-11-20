@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { serviceHealthSchema } from './service-health';
+import { serviceHealthSchema } from './service-health.js';
 
 describe('serviceHealthSchema', () => {
   it('accepts a live answer and refuses anything else', () => {
