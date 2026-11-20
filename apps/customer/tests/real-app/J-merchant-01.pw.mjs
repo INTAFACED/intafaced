@@ -195,6 +195,13 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   await expect(volume.getByRole('heading', { name: 'No captured payments in this period' })).toBeVisible();
   await expect(volume.getByRole('img')).toHaveCount(0);
   await asOfSays(volume, series.freshness);
+  // The picture, before More insights opens and folds the volume chart away: from the top with nothing focused, so the
+  // header and the skip link draw over no figure.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture();
 
   // More insights holds one explanation with its link, not a wall of zero tiles.
   await page.getByRole('button', { name: 'More payment insights' }).click();
@@ -202,12 +209,6 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   await expect(insights.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
   await expect(insights.getByRole('link', { name: 'Create a payment link' })).toHaveAttribute('href', '/pay/links');
   await expect(insights.getByRole('group')).toHaveCount(0);
-  // The picture from the top with nothing focused, so the header and the skip link draw over no figure.
-  await page.evaluate(() => {
-    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    window.scrollTo(0, 0);
-  });
-  await stepPicture();
   expect(refused).toEqual([]);
 });
 
