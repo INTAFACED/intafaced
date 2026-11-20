@@ -149,6 +149,12 @@ pub struct Ctx<'a> {
     pub store: &'a Store,
     pub ports: &'a Ports,
     pub settings: &'a Settings,
+    /// The TCP peer the server read the request from (Fastify's `req.ip`), trimmed by the handler; blank when unknown.
+    pub client_address: &'a str,
+    /// The process's certificate state: `certVerify`'s window and the clock.
+    pub certs: &'a crate::certs::State,
+    /// `ctx.quizClientAddress`: the edge's client address, believed only from a trusted proxy (`index.ts`).
+    pub quiz_client_address: Option<String>,
 }
 
 impl Ctx<'_> {
@@ -187,6 +193,9 @@ pub struct AcademyDoor {
     now: fn() -> Instant,
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
+    certs: crate::certs::State,
+    /// `createQuizAddressResolver(ACADEMY_TRUSTED_PROXY_CIDRS)`: built before the listener opens.
+    quiz_proxies: Vec<String>,
 }
 
 /// The system clock.
@@ -206,7 +215,12 @@ impl AcademyDoor {
                  Without it the principal header is caller-controlled and every scope check is decorative (§9)."
             ));
         }
+        // A malformed proxy range stops the service instead of reading no address.
+        let quiz_proxies = crate::assessment::quizzes::proxy_rules(
+            crate::assessment::setting_str(&config.settings, "ACADEMY_TRUSTED_PROXY_CIDRS"),
+        )?;
         Ok(AcademyDoor {
+            quiz_proxies,
             secret: config.edge_secret,
             jurisdiction: Jurisdiction::from_env(&config.env)?,
             dev: config.env.get("NODE_ENV").map(String::as_str) != Some("production"),
@@ -216,6 +230,7 @@ impl AcademyDoor {
             now: config.now,
             requests: RequestIds::new(),
             edge_key: None,
+            certs: crate::certs::State::new(config.now),
         })
     }
 
@@ -274,6 +289,16 @@ impl AcademyDoor {
 
     /// Answers one request under the id the server already gave it.
     pub fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
+        self.handle_from(req, request_id, "")
+    }
+
+    /// One issue sweep (`academy.issueDueCertificates()`): the delayed certificates due now.
+    pub fn sweep_certs(&self) -> Result<i64, Refusal> {
+        crate::certs::sweep(&self.store, &self.ports, &self.settings.0, self.now)
+    }
+
+    /// Answers one request from the TCP peer `peer` (its address, blank when unknown).
+    pub fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
         // The coach's S2S door, beside `/trpc` (`registerInternalCurriculumRoute`).
         if let Some(res) = crate::curriculum::internal::route(&self.ports.services, req) {
             return res;
@@ -281,7 +306,7 @@ impl AcademyDoor {
         let Some((path, query)) = trpc::route(req.url) else {
             return trpc::route_not_found(req);
         };
-        match self.answer(req, &path, query) {
+        match self.answer(req, &path, query, peer) {
             Ok(data) => trpc::ok(data),
             Err(e) => trpc::render(&e, &path, request_id, "svc-academy", self.dev),
         }
@@ -292,6 +317,7 @@ impl AcademyDoor {
         req: &Request<'_>,
         path: &str,
         query: &str,
+        peer: &str,
     ) -> Result<Option<Json>, TrpcError> {
         if trpc::query_param(query, "batch").is_some() {
             return Err(TrpcError::plain(
@@ -354,6 +380,13 @@ impl AcademyDoor {
             store: &self.store,
             ports: &self.ports,
             settings: &self.settings,
+            client_address: peer,
+            certs: &self.certs,
+            quiz_client_address: crate::assessment::quizzes::resolve_address(
+                &self.quiz_proxies,
+                trpc::header(req, service_kit::server::SOCKET_PEER).as_deref(),
+                trpc::header(req, "x-intafaced-client-ip").as_deref(),
+            ),
         };
         slices::handle(&ctx).map_err(refuse)
     }
@@ -367,5 +400,9 @@ impl Door for AcademyDoor {
 
     fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
         AcademyDoor::handle_as(self, req, request_id)
+    }
+
+    fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
+        AcademyDoor::handle_from(self, req, request_id, peer)
     }
 }

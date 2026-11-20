@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 3201",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node ../../tooling/scripts/tsc.mjs --noEmit",
     "preview": "vite preview --host 127.0.0.1 --port 3201",
     "test": "node src/vendored/assets/js/outreach-draft-storage.golden.js && node src/vendored/assets/js/outreach-intake.golden.js && node src/vendored/assets/js/outreach-review.golden.js"
   },
