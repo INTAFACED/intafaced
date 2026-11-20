@@ -298,10 +298,11 @@ export const quantBacktestInputSchema = z.object({
   simulatedAccount: z.object({ leverage: z.string() }).optional(),
   /**
    * A verdict and a variant count are computed by the service, never taken from the caller (ENGINE MT-6, MT-7). A request
-   * that still sends them is accepted, the values are ignored, and the result lists them under `ignoredInputs`.
+   * that still sends them is accepted, the values are ignored, and the result lists them under `ignoredInputs`. Any JSON
+   * scalar is taken, so the published schema says what is accepted (a record's input never accepts an unshaped value).
    */
-  outOfSampleStatus: z.unknown().optional(),
-  strategyVariantCount: z.unknown().optional(),
+  outOfSampleStatus: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+  strategyVariantCount: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
 });
 export type QuantBacktestInput = z.infer<typeof quantBacktestInputSchema>;
 

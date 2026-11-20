@@ -20,16 +20,19 @@ import {
 import {
   QUANT_RUN_LABEL_MAX,
   publicJurisdictionProcedure,
-  quantAccountRulesSchema,
-  quantBacktestFeeSchema,
   quantBacktestHistorySchema,
-  quantBacktestInputSchema,
   quantBacktestResultSchema,
   quantMonteCarloInputSchema,
   quantMonteCarloSchema,
   router,
 } from '@intafaced/contracts';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import {
+  QUANT_BACKTEST_ACCOUNT_RULES,
+  QUANT_BACKTEST_FEE,
+  QUANT_BACKTEST_RUN,
+  QUANT_BACKTEST_START,
+} from '@intafaced/contracts/quant-backtest-procedures';
 import { QUANT_BACKTEST_REPORT } from '@intafaced/contracts/quant-result-share-procedures';
 import { type QuantContext, claimKeyIdempotency } from '../key-api/key-api.js';
 import { type RunResultBody } from '../runs/types.js';
@@ -42,19 +45,9 @@ import { trackRun } from '../runs/track.js';
 import { verdictCriteriaOf } from '../lifecycle/gate.js';
 import { withQuantSpan } from '../tracing.js';
 import { z } from 'zod';
-import {
-  environmentInput,
-  quantRefusal,
-  toTrpc,
-  costEvidence,
-  runDetailOutput,
-  backtestOutput,
-  accountField,
-  writeKeyField,
-  missingStrategy,
-  type QuantCore,
-} from './core.js';
+import { quantRefusal, toTrpc, runDetailOutput, accountField, missingStrategy, type QuantCore } from './core.js';
 
+/** `run`, `start`, `fee` and `accountRules` are mounted from their records (`@intafaced/contracts/quant-backtest-procedures`). */
 export function backtestRoutes(core: QuantCore) {
   const {
     deps,
@@ -73,39 +66,9 @@ export function backtestRoutes(core: QuantCore) {
     ownedBar,
   } = core;
   return router({
-    run: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            strategyId: z.string(),
-            strategyVersion: z.number().int().positive().optional().nullable(),
-            symbol: z.string(),
-            walkForward: z
-              .object({
-                inSampleFrom: z.string().optional(),
-                inSampleTo: z.string().optional(),
-                outOfSampleFrom: z.string().optional(),
-                outOfSampleTo: z.string().optional(),
-              })
-              .optional()
-              .nullable(),
-            outOfSampleStatus: z.enum(['passed', 'failed', 'inconclusive']).optional().nullable(),
-            costModel: z
-              .object({
-                fees: costEvidence.optional().nullable(),
-                slippage: costEvidence.optional().nullable(),
-                latency: costEvidence.optional().nullable(),
-              })
-              .optional()
-              .nullable(),
-            strategyVariantCount: z.number().int().optional(),
-            ...accountField,
-            ...writeKeyField,
-          })
-          .merge(environmentInput),
-      )
-      .output(backtestOutput)
-      .mutation(async ({ input, ctx }) =>
+    run: mountRecord(
+      QUANT_BACKTEST_RUN,
+      async ({ input, ctx }) =>
         withQuantSpan('quant.backtest.run', { language: 'fills' }, async () => {
           try {
             const accountId = accountOf(ctx, input.accountId);
@@ -166,7 +129,8 @@ export function backtestRoutes(core: QuantCore) {
             toTrpc(err);
           }
         }),
-      ),
+      quantRefusal,
+    ),
 
     get: publicJurisdictionProcedure('quant', 'fiat')
       .input(z.object({ runId: z.string().min(1), ...accountField }))
@@ -206,10 +170,9 @@ export function backtestRoutes(core: QuantCore) {
       }),
 
     /** The published rate a bar backtest of this symbol charges, with the schedule version. Read only. */
-    fee: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ symbol: z.string().min(1).max(32) }))
-      .output(quantBacktestFeeSchema)
-      .query(async ({ input }) => {
+    fee: mountRecord(
+      QUANT_BACKTEST_FEE,
+      async ({ input }) => {
         try {
           const symbol = input.symbol.trim();
           const fee = await fees.fee(symbol);
@@ -217,22 +180,21 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /** The simulated account's published margin rules (ENGINE RK-5), read only; a blank one reads null. */
-    accountRules: publicJurisdictionProcedure('quant', 'fiat')
-      .output(quantAccountRulesSchema)
-      .query(() => judgement.account),
+    accountRules: mountRecord(QUANT_BACKTEST_ACCOUNT_RULES, () => judgement.account, quantRefusal),
 
     /**
      * Runs a saved signal-rules version on the exchange's own closed bars (AL-backtest-01, AL-backtest-02). The run key
      * is derived from everything that decides the result, so the same inputs read back the same stored run and a lost
      * reply is answered by pressing Run again. A refusal before the engine stores no row.
      */
-    start: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantBacktestInputSchema.extend(accountField))
-      .output(quantBacktestResultSchema)
-      .mutation(async ({ input, ctx }) =>
+    start: mountRecord(
+      QUANT_BACKTEST_START,
+      async ({ input, ctx }) =>
         withQuantSpan('quant.backtest.start', { language: 'rules' }, async () => {
           try {
             const accountId = accountOf(ctx, input.accountId);
@@ -311,7 +273,8 @@ export function backtestRoutes(core: QuantCore) {
             toTrpc(err);
           }
         }),
-      ),
+      quantRefusal,
+    ),
 
     /** A stored bar backtest of the caller's own. Another account's run reads as not found. */
     result: publicJurisdictionProcedure('quant', 'fiat')
