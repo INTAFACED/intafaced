@@ -242,7 +242,7 @@ export function gridBotIdFor(userId: string, clientRequestId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
-export function positiveAmount(raw: string | null | undefined, code: GridError['code'], label: string): Amount {
+function positiveAmount(raw: string | null | undefined, code: GridError['code'], label: string): Amount {
   const value = typeof raw === 'string' ? raw.trim() : '';
   if (value === '') throw new GridError(`${label} is required`, code, { field: label });
   let amount: Amount;

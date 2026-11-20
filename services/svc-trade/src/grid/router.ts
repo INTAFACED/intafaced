@@ -46,7 +46,7 @@ export function gridTrpcError(error: unknown): unknown {
 }
 
 /** svc-trade's grid refusals in their wire form, read once for every grid record (procedure-mount.ts). */
-export const gridRefusalOf: RefusalOf = (err) => {
+const gridRefusalOf: RefusalOf = (err) => {
   const wire = gridTrpcError(err);
   if (!(wire instanceof TRPCError)) return undefined;
   const cause: unknown = wire.cause;

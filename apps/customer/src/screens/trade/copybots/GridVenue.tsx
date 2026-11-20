@@ -41,7 +41,7 @@ function useSigner() {
 }
 
 /** The grid agent permission a signing bot asks for: the wallet signs it, and the bot sends it once and starts. */
-export async function signPermission(
+async function signPermission(
   api: RoomApi,
   sign: (typed: Typed) => Promise<Signed>,
   bot: GridBot,

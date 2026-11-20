@@ -51,7 +51,7 @@ import type { VenueGridBot, VenueGridOrder, VenueGridStatus, VenueGridStore } fr
  * bytes. Everything rests or fills on the person's own account, which their wallet controls; a stop cancels what is open.
  */
 
-export const GRID_AGENT_NAME = 'grid-bots';
+const GRID_AGENT_NAME = 'grid-bots';
 /** The grid agent permission's business key on one venue account. */
 export const gridAgentKey = (owner: string, agentAddress: string) => `grid-agent:${owner.toLowerCase()}:${agentAddress.toLowerCase()}`;
 
