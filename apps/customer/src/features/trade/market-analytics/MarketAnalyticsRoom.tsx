@@ -5,6 +5,7 @@ import type { RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
 import { marketAnalyticsCopy } from './market-analytics-copy';
+import { marketAnalyticsSchema } from '@intafaced/contracts/trade-market-analytics';
 
 /**
  * Market analytics, /trade/analytics/:pair (SP-markets-data-03 b; J-cex-spot-14 #9), on the monitor template. The
@@ -13,23 +14,7 @@ import { marketAnalyticsCopy } from './market-analytics-copy';
  * A blank window is refused by the service; the room always names one, and a person picks another.
  */
 
-// hand-declared-ok: the analytics read is svc-trade REST with no shared schema yet (services/svc-trade/src/spot/market-analytics.ts)
-const analyticsSchema = z.object({
-  symbol: z.string(),
-  window: z.enum(['5m', '1h', '24h']),
-  from: z.string(),
-  to: z.string(),
-  trades: z.number(),
-  buyTrades: z.number(),
-  sellTrades: z.number(),
-  buyVolume: z.string(),
-  sellVolume: z.string(),
-  aggressorDifferential: z.string(),
-  high: z.string().nullable(),
-  low: z.string().nullable(),
-  complete: z.boolean(),
-  coveredFrom: z.string().nullable(),
-});
+const analyticsSchema = marketAnalyticsSchema;
 
 const WINDOWS = ['5m', '1h', '24h'] as const;
 type Window = (typeof WINDOWS)[number];

@@ -1,35 +1,50 @@
 import { tradeError, tradeRefusal, tradeCopy as copy } from './copy';
 import { z } from 'zod';
 import {
-  orderSchema as contractOrderSchema,
   orderBookSchema,
   tickerSchema,
   ohlcvSchema,
   tradeSchema,
-  balancesSchema,
   positionSchema,
   TIMEFRAMES,
   type Market,
   type Trade,
 } from '@intafaced/exchange-contract/schemas';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
+import { parseAmount, formatAmount } from '../../shared/money';
 import { dailyHistoryWindow, deriveUtc8Daily, DailyHistoryError } from './daily-history';
-import { listingSchema, positive } from './listing';
+import { listingSchema } from './listing';
 import { planZonedDaily, deriveZonedDaily, ZonedDailyError } from './zoned-daily-history';
 
+import {
+  orderSchema,
+  type Order,
+  cancelAllAfterSchema,
+  type CancelAllAfter,
+  ledgerPageSchema,
+  type LedgerPage,
+  statementJobSchema,
+  type StatementJob,
+  statementFileSchema,
+  type StatementFile,
+  batchCancelSchema,
+  type BatchCancel,
+  previewSchema,
+  type Preview,
+  queuePositionSchema,
+  type QueuePosition,
+  orderChangesSchema,
+  type OrderChange,
+  amendmentSchema,
+  replacementSchema,
+  accountBalancesSchema,
+} from '@intafaced/exchange-contract/customer-reads';
+import { draftSchema, type Draft, previewBody, placeBody } from './order-draft';
+
 export { listingSchema, type Listing } from './listing';
-export const orderSchema = contractOrderSchema.extend({
-  amount: positive,
-  filled: decimalSchema,
-  remaining: decimalSchema,
-  price: positive.nullable(),
-  cost: decimalSchema.nullable(),
-  recoveryRequired: z.boolean(),
-  recoveryReason: z.string().nullable(),
-  reconciliationKey: z.string().nullable(),
-});
-export type Order = z.infer<typeof orderSchema>;
+/** svc-trade's spot answers live once in exchange-contract, and the order draft in its own file; this file keeps the calls. */
+export * from '@intafaced/exchange-contract/customer-reads';
+export * from './order-draft';
 export type ReviewedOrder = Pick<Order, 'id' | 'symbol'>;
 /** The order-history filters as the service reads them; each is sent only when set. */
 export interface HistoryQuery {
@@ -43,318 +58,14 @@ export interface HistoryQuery {
 }
 /** The most fills one order's detail reads (the service's own ceiling for a fills read). */
 export const ORDER_TRADES_LIMIT = 500;
-/**
- * The dead-man switch (cancel-all-after): the caller's countdown and the timeouts the venue publishes, in whole seconds.
- * `timeouts` is null while none are published, and the switch cannot be armed.
- */
-export const cancelAllAfterSchema = z.object({
-  armed: z.boolean(),
-  timeout: z.number().int().nonnegative(),
-  triggerTime: z.string().datetime({ offset: true }).nullable(),
-  timeouts: z.array(z.number().int().nonnegative()).nullable().optional(),
-});
-export type CancelAllAfter = z.infer<typeof cancelAllAfterSchema>;
-
-/** One balance change on the person's own account, as the ledger booked it: `referenceId` is the ledger transaction. */
-export const ledgerEntrySchema = z.object({
-  id: z.string().regex(/^\d{1,19}$/),
-  referenceId: z.string().min(1),
-  timestamp: z.number().int(),
-  datetime: z.string().datetime({ offset: true }),
-  currency: z.string().min(1),
-  direction: z.enum(['in', 'out']),
-  amount: decimalSchema,
-  type: z.string(),
-  module: z.string(),
-  orderId: z.string().nullable(),
-});
-export type LedgerEntry = z.infer<typeof ledgerEntrySchema>;
-export const ledgerPageSchema = z.object({ entries: z.array(ledgerEntrySchema), nextCursor: z.string().nullable() });
-export type LedgerPage = z.infer<typeof ledgerPageSchema>;
 /** The most lines one ledger page answers (the ledger's own page cap). */
 export const LEDGER_PAGE_LIMIT = 200;
 
-/** A statement export job: one per request key, built once; `rows` and `sha256` once it is finished. */
-export const statementJobSchema = z.object({
-  id: z.string().guid(),
-  requestKey: z.string(),
-  from: z.string().datetime({ offset: true }),
-  to: z.string().datetime({ offset: true }),
-  status: z.enum(['pending', 'finished', 'failed']),
-  rows: z.object({ orders: z.number().int(), trades: z.number().int(), ledger: z.number().int() }).nullable(),
-  sha256: z
-    .string()
-    .regex(/^[0-9a-f]{64}$/)
-    .nullable(),
-  error: z.string().nullable(),
-  createdAt: z.string().datetime({ offset: true }),
-  finishedAt: z.string().datetime({ offset: true }).nullable(),
-});
-export type StatementJob = z.infer<typeof statementJobSchema>;
-export const statementFileSchema = z.object({ filename: z.string().min(1), sha256: z.string().regex(/^[0-9a-f]{64}$/), csv: z.string() });
-export type StatementFile = z.infer<typeof statementFileSchema>;
-
-/** One answer per id of a batch cancel, in the order sent: cancelled, refused with the service's reason, or unknown. */
-export const batchCancelSchema = z.object({
-  atomic: z.literal(false),
-  results: z.array(
-    z.object({
-      index: z.number().int().nonnegative(),
-      orderId: z.string().nullable(),
-      status: z.enum(['success', 'refused', 'unknown']),
-      order: orderSchema.optional(),
-      error: z
-        .object({ code: z.string().optional(), message: z.string().optional(), intafacedCode: z.string().optional() })
-        .passthrough()
-        .optional(),
-    }),
-  ),
-});
-export type BatchCancel = z.infer<typeof batchCancelSchema>;
 /** The most ids svc-trade takes in one batch cancel (its MAX_BATCH_ORDERS). */
 export const BATCH_CANCEL_MAX = 100;
 export function isTerminalOrder(order: Order) {
   return !order.recoveryRequired && ['closed', 'canceled', 'expired', 'rejected'].includes(order.status);
 }
-const exitLegFeeSchema = z.object({
-  price: positive,
-  feeRole: z.enum(['maker', 'taker']),
-  feeBps: z.number().int().nonnegative(),
-  estimatedFee: decimalSchema,
-  feeAsset: z.string(),
-});
-export const previewSchema = z.object({
-  symbol: z.string(),
-  side: z.enum(['buy', 'sell']),
-  type: z.enum(['market', 'limit', 'stop_limit', 'stop']),
-  amount: positive,
-  price: positive.nullable(),
-  stopPrice: positive.nullable().optional(),
-  timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO', 'GTD']),
-  holdAsset: z.string().nullable(),
-  holdAmount: decimalSchema.nullable(),
-  protectionPrice: positive.nullable(),
-  estimatedFee: decimalSchema.nullable(),
-  feeAsset: z.string().nullable(),
-  feeBps: z.number().int().nonnegative().nullable(),
-  feeRole: z.enum(['maker', 'taker']).nullable(),
-  /** The maker rebate this market publishes if the order rests (0 = none); absent on older wires. Never a negative fee. */
-  makerRebateBps: z.number().int().nonnegative().nullable().optional(),
-  orderable: z.boolean(),
-  refusals: z.array(
-    z.object({ code: z.string(), field: z.string(), message: z.string(), data: z.record(z.string(), z.string()).optional() }),
-  ),
-  /** The fee each linked exit leg would post if it filled. Absent or null when the draft has no exit legs. */
-  exitFees: z
-    .object({
-      side: z.enum(['buy', 'sell']),
-      takeProfit: exitLegFeeSchema,
-      stopLoss: exitLegFeeSchema,
-    })
-    .nullable()
-    .optional(),
-});
-export type Preview = z.infer<typeof previewSchema>;
-/** A stop-limit or a stop-market: both wait off the book for their trigger. */
-export const isStopType = (type: string): type is 'stop_limit' | 'stop' => type === 'stop_limit' || type === 'stop';
-
-export const draftSchema = z
-  .object({
-    symbol: z.string().min(3),
-    side: z.enum(['buy', 'sell']),
-    /** `stop` is a stop-market: a trigger and no price; the service places it at its protection price. */
-    type: z.enum(['market', 'limit', 'stop_limit', 'stop']),
-    amount: positive,
-    price: positive.optional(),
-    stopPrice: positive.optional(),
-    timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO', 'GTD']),
-    postOnly: z.boolean(),
-    /** The instant a good-till-date order ends, as a UTC ISO string. Only a GTD order carries one. */
-    expireAt: z.string().datetime().optional(),
-    clientOrderId: z.string().min(1).max(64),
-    /**
-     * What happens if the order meets one of the person's own resting orders. The engine has one way: the resting order
-     * is cancelled and this one carries on. The other modes are listed on the desk, disabled, and the service refuses them.
-     */
-    stpMode: z.literal('cancel_maker').optional(),
-    /** The person's own label for the order (1 to 16 characters). Shown on the order; never part of its identity. */
-    tag: z.string().min(1).max(16).optional(),
-    /** The platform token to pay this order's fees in, on a plain limit or market order. Absent: the asset it receives. */
-    feeCurrency: z.string().min(1).max(32).optional(),
-    /**
-     * An OCO or a buy bracket. A bracket: the order above is its entry. A sell OCO: the order above is its take-profit leg.
-     * A buy OCO: the order above is a limit buy at the stop-loss limit (where its one hold is sized); `stopLoss` is the trigger.
-     */
-    exit: z
-      .object({ kind: z.enum(['oco', 'bracket']), takeProfit: positive, stopLoss: positive, stopLossLimit: positive.optional() })
-      .optional(),
-    /**
-     * An OTO: the order above is a limit buy, and once it has finished filling the service places one sell limit at this
-     * price for the base it received. Never with `exit`.
-     */
-    close: positive.optional(),
-    /**
-     * A listed lead's lead switch (J-copy-bots-otc-04 #5): true makes the order a lead trade that followers copy, false
-     * marks it as the lead's own order that is never copied. Absent on everyone else's orders.
-     */
-    lead: z.boolean().optional(),
-  })
-  .superRefine((draft, ctx) => {
-    if (draft.exit) {
-      const { kind, takeProfit, stopLoss, stopLossLimit } = draft.exit;
-      const bad = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: ['exit', path], message });
-      const buyOco = kind === 'oco' && draft.side === 'buy';
-      if (kind === 'oco' && (draft.type !== 'limit' || draft.timeInForce !== 'GTC' || draft.postOnly))
-        bad('kind', copy.t('enterALimitPrice'));
-      if (buyOco) {
-        // The engine's order for a buy OCO: take-profit < stop trigger <= stop-loss limit, and the hold is sized at the limit.
-        if (stopLossLimit === undefined) bad('stopLossLimit', copy.t('enterALimitPrice'));
-        else {
-          if (parseAmount(takeProfit) >= parseAmount(stopLoss) || parseAmount(stopLossLimit) < parseAmount(stopLoss))
-            bad('takeProfit', copy.t('enterALimitPrice'));
-          if (draft.price !== undefined && parseAmount(draft.price) !== parseAmount(stopLossLimit))
-            bad('price', copy.t('enterALimitPrice'));
-        }
-      } else {
-        if (parseAmount(takeProfit) <= parseAmount(stopLoss)) bad('takeProfit', copy.t('enterALimitPrice'));
-        if (stopLossLimit !== undefined) bad('stopLossLimit', copy.t('enterALimitPrice'));
-        if (kind === 'oco' && draft.price !== undefined && parseAmount(draft.price) !== parseAmount(takeProfit))
-          bad('price', copy.t('enterALimitPrice'));
-      }
-      if (kind === 'bracket' && (draft.side !== 'buy' || isStopType(draft.type) || draft.postOnly || draft.timeInForce === 'PO'))
-        bad('kind', copy.t('enterALimitPrice'));
-    }
-    if (draft.close !== undefined) {
-      const ok =
-        !draft.exit &&
-        draft.side === 'buy' &&
-        draft.type === 'limit' &&
-        !draft.postOnly &&
-        ['GTC', 'IOC', 'FOK'].includes(draft.timeInForce) &&
-        draft.price !== undefined &&
-        parseAmount(draft.close) > parseAmount(draft.price);
-      if (!ok) ctx.addIssue({ code: 'custom', path: ['close'], message: copy.t('enterALimitPrice') });
-    }
-    if (isStopType(draft.type) && !draft.stopPrice)
-      ctx.addIssue({ code: 'custom', path: ['stopPrice'], message: copy.t('enterALimitPrice') });
-    if (!isStopType(draft.type) && draft.stopPrice !== undefined)
-      ctx.addIssue({ code: 'custom', path: ['stopPrice'], message: copy.t('enterALimitPrice') });
-    if (draft.type !== 'market' && draft.type !== 'stop' && !draft.price)
-      ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('enterALimitPrice') });
-    if ((draft.type === 'market' || draft.type === 'stop') && draft.price !== undefined)
-      ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('aMarketOrderCannotCarryALimitPrice') });
-    if (draft.timeInForce === 'GTD' && (draft.type !== 'limit' || !draft.expireAt || draft.exit))
-      ctx.addIssue({ code: 'custom', path: ['expireAt'], message: copy.t('aGoodTillDateLimitOrderNeedsAnExpiry') });
-    if (draft.timeInForce !== 'GTD' && draft.expireAt !== undefined)
-      ctx.addIssue({ code: 'custom', path: ['expireAt'], message: copy.t('aGoodTillDateLimitOrderNeedsAnExpiry') });
-    if (draft.postOnly && (draft.type === 'market' || !['GTC', 'PO'].includes(draft.timeInForce)))
-      ctx.addIssue({ code: 'custom', path: ['postOnly'], message: copy.t('postOnlyRequiresALimitOrderWithGtc') });
-  });
-export type Draft = z.infer<typeof draftSchema>;
-
-/**
- * The advisory preview: the order itself, plus its exit legs so the service can price their fees. The service
- * names a bracket's exit `bracket_exit`; the prices ride as the decimal strings the person entered.
- */
-export function previewBody(
-  draft: Draft,
-): Omit<Draft, 'exit' | 'stpMode' | 'tag' | 'close' | 'feeCurrency' | 'lead'> & { exit?: Record<string, string> } {
-  // The preview takes only what prices the order: a self-trade mode, a tag and the fee currency change none of it (the
-  // rate is the same; the token conversion happens at the fill), and it refuses unknown fields. The lead switch is
-  // decided when the order is placed, not priced, so it is not sent either.
-  // An OTO's close is not placed until the buy fills, so the preview prices the buy alone.
-  const { exit, stpMode: _stpMode, tag: _tag, close: _close, feeCurrency: _feeCurrency, lead: _lead, ...order } = draft;
-  if (!exit) return order;
-  const { kind, takeProfit, stopLoss, stopLossLimit } = exit;
-  return {
-    ...order,
-    exit: { kind: kind === 'bracket' ? 'bracket_exit' : 'oco', takeProfit, stopLoss, ...(stopLossLimit ? { stopLossLimit } : {}) },
-  };
-}
-
-/**
- * The create-order body: the order, plus `oco` or `bracket` with both exit prices as decimal strings, or `oto` with its
- * close price. A bracket's exit and an OTO's close are placed by the service after the entry fills, for the base
- * actually received.
- */
-export function placeBody(draft: Draft): Record<string, unknown> {
-  const { exit, close, ...order } = draft;
-  if (close !== undefined) return { ...order, oto: true, close: { price: close } };
-  if (!exit) return order;
-  // A buy OCO's stop-loss leg is a stop-limit: its limit price rides beside its trigger.
-  const legs = {
-    takeProfit: { stopPrice: exit.takeProfit },
-    stopLoss: { stopPrice: exit.stopLoss, ...(exit.stopLossLimit ? { price: exit.stopLossLimit } : {}) },
-  };
-  return exit.kind === 'oco' ? { ...order, oco: true, ...legs } : { ...order, bracket: true, ...legs };
-}
-/**
- * My place in the queue for one of my own resting orders (GET /orders/:id/queue, svc-trade spot/queue-position.ts): the
- * orders and size ahead of it at its price in the native matching queue, and an estimated chance of a fill only when the
- * owner has set the window. With the window blank there is no `fillProbability`, only the reason.
- */
-export const queuePositionSchema = z.object({
-  orderId: z.string(),
-  marketId: z.string(),
-  symbol: z.string(),
-  side: z.enum(['buy', 'sell']),
-  price: decimalSchema,
-  ordersAhead: z.number().int().nonnegative(),
-  sizeAhead: decimalSchema,
-  remaining: decimalSchema,
-  asOfSequence: z.number().int().nonnegative(),
-  source: z.literal('native_l3'),
-  fillProbability: decimalSchema.optional(),
-  fillProbabilityBasis: z
-    .object({
-      method: z.literal('traded_through_window'),
-      windowSeconds: z.number().int().positive(),
-      tradedThrough: decimalSchema,
-      sizeToFill: decimalSchema,
-    })
-    .optional(),
-  fillProbabilityRefused: z.object({ code: z.string(), message: z.string() }).optional(),
-});
-export type QueuePosition = z.infer<typeof queuePositionSchema>;
-
-/** One amend or replace of an order, as GET /orders/:id/amendments lists it (oldest first). */
-export const orderChangeSchema = z.object({
-  kind: z.enum(['amend', 'replace']),
-  at: z.string(),
-  quantity: decimalSchema.nullable(),
-  price: decimalSchema.nullable(),
-  version: z.string().nullable(),
-  relatedOrderId: z.string().nullable(),
-  direction: z.enum(['replaced_by', 'replaces']).nullable(),
-});
-export const orderChangesSchema = z.object({ orderId: z.string(), amendments: z.array(orderChangeSchema) });
-export type OrderChange = z.infer<typeof orderChangeSchema>;
-
-export const amendmentSchema = z.object({
-  accepted: z.boolean(),
-  idempotent: z.boolean(),
-  code: z.string(),
-  reasonCode: z.string().nullable(),
-  reconciliationRequired: z.boolean(),
-  path: z.string(),
-  priority: z.enum(['retained', 'lost']).nullable(),
-  orderId: z.string(),
-  order: orderSchema,
-});
-export const replacementSchema = z.object({
-  accepted: z.boolean(),
-  idempotent: z.boolean(),
-  code: z.string(),
-  reasonCode: z.string().nullable(),
-  reconciliationRequired: z.boolean(),
-  path: z.literal('CANCEL_REPLACE'),
-  originalOrderId: z.string(),
-  originalState: z.string(),
-  replacementOrderId: z.string().nullable(),
-  replacementState: z.string().nullable(),
-  original: orderSchema,
-  replacement: orderSchema.nullable(),
-});
 type ChangedReview = { ok: false; reason: 'changed'; message: string; preview: Preview };
 const historySchema = z.array(ohlcvSchema).superRefine((rows, ctx) => {
   const timestamps = new Set<number>();
@@ -478,14 +189,7 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
         ? tradeRefusal('thePublicTradesBelongToAnotherMarket', { reason: 'invalid_response' })
         : result;
     },
-    balances: (signal?: AbortSignal) =>
-      api.rest(
-        '/account/balance',
-        balancesSchema.extend({
-          balances: z.record(z.string(), z.object({ free: decimalSchema, used: decimalSchema, total: decimalSchema })),
-        }),
-        { signal },
-      ),
+    balances: (signal?: AbortSignal) => api.rest('/account/balance', accountBalancesSchema, { signal }),
     orders: (kind: 'open' | 'closed', symbol?: string, limit = 100, signal?: AbortSignal, since?: number) =>
       api.rest(`/orders/${kind}`, z.array(orderSchema), { query: { symbol, limit, since }, signal }),
     /**

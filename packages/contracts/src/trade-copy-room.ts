@@ -413,3 +413,24 @@ export const venueFollowCheckSchemaOf = <F extends z.ZodTypeAny>(follow: F) =>
     z.object({ followId: z.string(), follow }),
     z.object({ followId: z.string(), follow: z.null(), quoteAsset: z.string(), maxAggregateExposure: unsignedAmountSchema }),
   ]);
+
+/** `copy.myLeadApplication` (null: none yet) and `copy.applyToLead`: the person's own application to lead (J-copy-bots-otc-04). */
+export const leadApplicationSchema = z.object({
+  applicationId: z.string(),
+  state: z.enum(['submitted', 'under_review', 'approved', 'disapproved']),
+  displayName: z.string(),
+  submittedAt: z.string(),
+  reason: z.string().nullable(),
+  reapplyAfter: z.string().nullable().default(null),
+});
+
+const leadDecimal = z.string().regex(/^\d+(\.\d+)?$/);
+/** `copy.leadEligibility`: what applying to lead is measured by (J-copy-bots-otc-04 #1). */
+export const leadEligibilitySchema = z.object({
+  following: z.object({ leaderRef: z.string().nullable(), displayName: z.string() }).nullable(),
+  threshold: leadDecimal.nullable(),
+  venue: z.discriminatedUnion('state', [
+    z.object({ state: z.enum(['off', 'none', 'unreadable']) }),
+    z.object({ state: z.literal('read'), owner: z.string(), test: z.boolean(), usdc: leadDecimal, asOf: z.string() }),
+  ]),
+});

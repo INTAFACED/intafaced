@@ -140,6 +140,29 @@ export const updateAlertReplySchema = z.object({ alert: priceAlertSchema });
 export const setAlertActiveReplySchema = z.object({ changed: z.boolean(), alert: priceAlertSchema });
 /** `notify.deleteAlert`'s answer. `deleted: false` means it was already gone. */
 export const deleteAlertReplySchema = z.object({ deleted: z.boolean() });
+/** `notify.evaluateAlert`'s answer: the watch (null when not found or not active), whether it holds, fires or is refused by name, and whether any watch can fire. */
+export const evaluateAlertReplySchema = z.object({
+  alert: priceAlertSchema.nullable(),
+  evaluation: alertEvaluationSchema,
+  outcome: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('hold'), markPrice: z.string().min(1) }),
+    z.object({ kind: z.literal('fire'), markPrice: z.string().min(1) }),
+    z.object({
+      kind: z.literal('refuse'),
+      code: z.enum([
+        'alert.price_unavailable',
+        'alert.not_active',
+        'alert.invalid_price',
+        'alert.portfolio_view_unpublished',
+        'alert.kind_unpublished',
+        'alerts.whale_mark_dark',
+        'channel.not_configured',
+        'channel.disabled',
+      ]),
+      detail: z.string(),
+    }),
+  ]),
+});
 
 export const WEBHOOK_CAUSES = [
   'ok',
