@@ -14,7 +14,7 @@ import {
 } from '@intafaced/contracts/identity-api-version-procedures';
 import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 
-export class ApiVersionError extends Error {
+class ApiVersionError extends Error {
   constructor(
     message: string,
     readonly code: typeof API_VERSION_UNKNOWN | typeof API_VERSION_SESSION_ONLY,
