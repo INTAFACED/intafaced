@@ -13,6 +13,11 @@
  *     kept in the clone's common git directory (`<git common dir>/intafaced-tsc-seed/`). The build-info records paths
  *     relative to itself and a hash of each file's text, so one made in another worktree is valid here: a file whose
  *     text differs is checked again, as after an edit.
+ *   - the same answer as a full check: an error is printed only from checking its file in this run (the files that
+ *     failed last time are checked again), and on the one path where TypeScript 7.0 leaves dependents unchecked (a
+ *     changed file that declares globals, skippedDependents below) every file is checked again. On 20 Nov 2026 a check
+ *     made before the workspace packages were built kept 4 errors in two unchanged files of apps/customer after the
+ *     build, and the pre-push hook refused a push the real compiler passed (INTAFACED/intafaced#9253).
  * Anything else (a build, a watch, files named on the command line, `--version`) runs tsc unchanged.
  *
  * Failure it prevents (INTAFACED/project-state#3374): builders ran bare `npx tsc` 527 times in four days, with no
@@ -144,24 +149,108 @@ function copyWhole(from, to) {
   renameSync(tmp, to);
 }
 
+const readJson = (file) => {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Rewrites the build-info so the next check re-checks files instead of repeating their stored answer: the files that
+ * had errors (a stored error is never printed again, only a fresh one), or with `every`, all files. A bare file id in
+ * `semanticDiagnosticsPerFile` is TypeScript's own "not checked yet".
+ */
+export function forgetAnswers(buildInfo, info, { every = false } = {}) {
+  const ids = every
+    ? info.fileNames.map((_, i) => i + 1)
+    : (info.semanticDiagnosticsPerFile ?? []).map((e) => (Array.isArray(e) ? e[0] : e));
+  const tmp = `${buildInfo}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ ...info, semanticDiagnosticsPerFile: ids }));
+  renameSync(tmp, buildInfo);
+}
+
+/**
+ * Did this check take TypeScript 7.0's path that leaves dependents unchecked? When a file that declares globals is
+ * itself changed (its text, or what its imports resolve to) and its declarations change, TypeScript marks "every file
+ * affected" and then re-checks only the changed files; every other file keeps its stored answer, stale errors and
+ * stale passes alike (typescript-go v7.0.2, internal/execute/incremental/affectedfileshandler.go, getFilesAffectedBy
+ * and handleDtsMayChangeOfAffectedFile). Read from the build-info before and after the check.
+ */
+export function skippedDependents(before, after) {
+  const sig = (fi) => (typeof fi === 'string' ? fi : fi.noSignature ? '' : fi.signature || fi.version);
+  const refsOf = (b) => {
+    const m = new Map();
+    for (const [file, list] of b.referencedMap ?? [])
+      m.set(
+        b.fileNames[file - 1],
+        b.fileIdsList[list - 1]
+          .map((i) => b.fileNames[i - 1])
+          .sort()
+          .join('\n'),
+      );
+    return m;
+  };
+  const old = new Map(before.fileNames.map((n, i) => [n, before.fileInfos[i]]));
+  let oldRefs, newRefs;
+  return after.fileNames.some((name, i) => {
+    const now = after.fileInfos[i];
+    if (typeof now === 'string' || !now.affectsGlobalScope) return false;
+    const was = old.get(name);
+    if (was === undefined) return true;
+    if (sig(was) === sig(now)) return false;
+    if ((typeof was === 'string' ? was : was.version) !== now.version) return true;
+    oldRefs ??= refsOf(before);
+    newRefs ??= refsOf(after);
+    return oldRefs.get(name) !== newRefs.get(name);
+  });
+}
+
+/** Runs the compiler; resolves to its exit code, and with `capture` to `{ code, out, err }` (its output held back). */
+function tsc(args, cwd, { capture = false } = {}) {
+  const child = spawn(process.execPath, [TSC, ...args], { cwd, stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit' });
+  const out = [];
+  const err = [];
+  child.stdout?.on('data', (d) => out.push(d));
+  child.stderr?.on('data', (d) => err.push(d));
+  const forward = (sig) => child.kill(sig);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, forward);
+  return new Promise((r) => {
+    child.on('error', () => r(1));
+    child.on('close', (c, sig) => r(c ?? (sig ? 1 : 0)));
+  }).then((code) => {
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.off(sig, forward);
+    return capture ? { code, out: Buffer.concat(out), err: Buffer.concat(err) } : code;
+  });
+}
+
 /** Runs tsc for these arguments; resolves to its exit code. */
-export async function run(argv, { cwd = process.cwd(), stdio = 'inherit' } = {}) {
+export async function run(argv, { cwd = process.cwd() } = {}) {
   const plan = planOf(argv, cwd);
-  const release = plan.buildInfo ? await lock(plan.buildInfo, plan.project) : () => {};
-  const seed = plan.buildInfo ? seedOf(plan.project) : null;
+  if (!plan.buildInfo) return tsc(plan.args, cwd);
+  // The output is held until it is known to be the answer to keep; a terminal still gets tsc's colours.
+  const args = process.stdout.isTTY && !argv.some((a) => a.startsWith('--pretty')) ? [...plan.args, '--pretty'] : plan.args;
+  const release = await lock(plan.buildInfo, plan.project);
+  const seed = seedOf(plan.project);
   try {
     if (seed && !existsSync(plan.buildInfo) && existsSync(seed)) {
       copyWhole(seed, plan.buildInfo);
       console.error('typecheck: started from the last passing check of this project on this machine');
     }
-    const child = spawn(process.execPath, [TSC, ...plan.args], { cwd, stdio });
-    const forward = (sig) => child.kill(sig);
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, forward);
-    const code = await new Promise((r) => {
-      child.on('error', () => r(1));
-      child.on('close', (c, sig) => r(c ?? (sig ? 1 : 0)));
-    });
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.off(sig, forward);
+    // Every error printed comes from checking the file now: the files that failed last time are checked again.
+    const before = existsSync(plan.buildInfo) ? readJson(plan.buildInfo) : null;
+    if (before?.semanticDiagnosticsPerFile?.some(Array.isArray)) forgetAnswers(plan.buildInfo, before);
+    let result = await tsc(args, cwd, { capture: true });
+    const after = before && readJson(plan.buildInfo);
+    if (after && skippedDependents(before, after)) {
+      console.error('typecheck: a file that declares globals changed, which TypeScript 7.0 does not follow; checking every file again');
+      forgetAnswers(plan.buildInfo, after, { every: true });
+      result = await tsc(args, cwd, { capture: true });
+    }
+    process.stdout.write(result.out);
+    process.stderr.write(result.err);
+    const code = result.code;
     if (code === 0 && seed && existsSync(plan.buildInfo)) {
       try {
         copyWhole(plan.buildInfo, seed);
@@ -193,5 +282,6 @@ export function installShims(root = REPO) {
   return n;
 }
 
+// exitCode, not exit(): a held-back report written to a pipe is flushed before the process ends.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
-  process.exit(await run(process.argv.slice(2)));
+  process.exitCode = await run(process.argv.slice(2));

@@ -117,6 +117,97 @@ test('a second check of the same project waits while the first holds it, and a d
   );
 });
 
+/**
+ * A git repo holding pkg/ as apps/customer is on 20 Nov 2026 in small: a dependency whose declarations are built into
+ * dist/, a file that declares globals and imports it (Chart.tsx), a file that re-exports it (trade-api.ts), and an
+ * unchanged file that imports from that one (execution/fixtures.ts).
+ */
+function depRepo() {
+  const root = repo();
+  const pkg = join(root, 'pkg');
+  rmSync(join(pkg, 'src'), { recursive: true });
+  mkdirSync(join(pkg, 'src'));
+  // isolatedModules as tsconfig.base.json sets it; without it TypeScript reaches the same skip only by thread timing.
+  writeFileSync(
+    join(pkg, 'tsconfig.json'),
+    JSON.stringify({ compilerOptions: { strict: true, target: 'es2022', module: 'nodenext', isolatedModules: true }, include: ['src'] }),
+  );
+  writeFileSync(
+    join(pkg, 'src', 'global.ts'),
+    "import type { Order } from 'dep';\ndeclare global {\n  var lastOrder: Order | undefined;\n}\nexport type Last = Order;\n",
+  );
+  writeFileSync(join(pkg, 'src', 'api.ts'), "export * from 'dep';\n");
+  writeFileSync(join(pkg, 'src', 'use.ts'), "import type { Order } from './api.js';\nexport const o: Order = { id: 'x' };\n");
+  writeFileSync(join(pkg, 'package.json'), '{"name":"pkg","type":"module"}');
+  mkdirSync(join(pkg, 'node_modules', 'dep'), { recursive: true });
+  writeFileSync(
+    join(pkg, 'node_modules', 'dep', 'package.json'),
+    '{"name":"dep","type":"module","exports":{".":{"types":"./dist/index.d.ts"}}}',
+  );
+  return pkg;
+}
+const build = (pkg) => {
+  mkdirSync(join(pkg, 'node_modules', 'dep', 'dist'), { recursive: true });
+  writeFileSync(join(pkg, 'node_modules', 'dep', 'dist', 'index.d.ts'), 'export interface Order {\n  id: string;\n}\n');
+};
+const unbuild = (pkg) => rmSync(join(pkg, 'node_modules', 'dep', 'dist'), { recursive: true, force: true });
+/** The real compiler, no build-info: what every answer must equal. */
+const real = (cwd) =>
+  spawnSync(process.execPath, [join(REPO, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', 'tsconfig.json', '--noEmit'], {
+    cwd,
+    encoding: 'utf8',
+  });
+const sameAsReal = (pkg, label) => {
+  const [got, want] = [check(pkg), real(pkg)];
+  assert.equal(got.stdout, want.stdout, `${label}: the same errors as the real compiler`);
+  assert.equal(got.status, want.status, label);
+  return got;
+};
+
+test('a check made before a dependency is built answers like the real compiler once it is built (20 Nov, #9253)', () => {
+  const pkg = depRepo();
+  const first = sameAsReal(pkg, 'dependency not built');
+  assert.match(first.stdout, /src\/use\.ts\(1,15\): error TS2305/, 'the unchanged importer fails while the dependency is missing');
+  build(pkg);
+  const after = sameAsReal(pkg, 'dependency built');
+  assert.equal(after.status, 0, after.stdout);
+});
+
+test('a dependency that goes away is seen in unchanged importers, and a plain edit is still one incremental check', () => {
+  const pkg = depRepo();
+  build(pkg);
+  sameAsReal(pkg, 'built');
+  unbuild(pkg);
+  const gone = sameAsReal(pkg, 'dependency gone');
+  assert.match(gone.stdout, /src\/use\.ts\(1,15\): error TS2305/, 'the importer that did not change is checked too');
+  build(pkg);
+  sameAsReal(pkg, 'built again');
+
+  writeFileSync(join(pkg, 'src', 'use.ts'), "import type { Order } from './api.js';\nexport const o: Order = { id: 'y' };\n");
+  const edit = sameAsReal(pkg, 'a one-file edit');
+  assert.doesNotMatch(edit.stderr, /checking every file again/, 'an edit to an ordinary file checks once');
+  writeFileSync(join(pkg, 'src', 'global.ts'), readFileSync(join(pkg, 'src', 'global.ts'), 'utf8') + 'const unused = 1;\n');
+  const globalBody = sameAsReal(pkg, 'an edit inside the globals file that leaves its declarations alone');
+  assert.doesNotMatch(globalBody.stderr, /checking every file again/);
+});
+
+test('an error stored by an earlier check is printed only when checking its file now finds it', () => {
+  const pkg = depRepo();
+  const read = () => JSON.parse(readFileSync(buildInfo(pkg), 'utf8'));
+  const entryOf = (b, file) => b.semanticDiagnosticsPerFile.find((e) => Array.isArray(e) && b.fileNames[e[0] - 1].endsWith(file));
+  sameAsReal(pkg, 'dependency not built');
+  const stored = entryOf(read(), 'src/use.ts');
+  assert.ok(stored, 'the failing check stored the error of src/use.ts');
+  build(pkg);
+  sameAsReal(pkg, 'built');
+  // Whatever left a stale answer behind (here: written in by hand), it is never repeated.
+  const passing = read();
+  const id = passing.fileNames.findIndex((n) => n.endsWith('src/use.ts')) + 1;
+  writeFileSync(buildInfo(pkg), JSON.stringify({ ...passing, semanticDiagnosticsPerFile: [[id, stored[1]]] }));
+  const again = sameAsReal(pkg, 'a stale stored error');
+  assert.equal(again.status, 0, again.stdout);
+});
+
 /** A typecheck script that runs tsc itself rather than the one command; the message names the fix. */
 export function bareTsc(script) {
   return /(^|[\s&|;(])(npx |pnpm exec )?tsc(\s|$)/.test(script) && !script.includes('tooling/scripts/tsc.mjs');
