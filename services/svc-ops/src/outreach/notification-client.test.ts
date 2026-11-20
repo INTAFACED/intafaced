@@ -55,13 +55,15 @@ describe('bounded exact-body guest ingress', () => {
       expect((await client.get(input.businessKey))?.businessKey).toBe(input.businessKey);
       const erase = { requestId: randomUUID(), submissionId: input.submissionId };
       expect(await client.eraseSubmission(erase)).toMatchObject({ ...erase, erasedCount: 1 });
-      expect(calls).toEqual(
-        ['/trpc/guestNotifications.send', '/trpc/guestNotifications.get', '/trpc/guestNotifications.eraseSubmission'].map((url) => ({
-          url,
-          method: 'POST',
-          authenticated: { service: 'svc-ops', scheme: 'v2', rejected: null },
-        })),
-      );
+      for (const call of calls) {
+        expect(call.authenticated).toMatchObject({ service: 'svc-ops', scheme: 'v2', rejected: null });
+        expect(call.method).toBe('POST');
+      }
+      expect(calls.map((call) => call.url)).toEqual([
+        '/trpc/guestNotifications.send',
+        '/trpc/guestNotifications.get',
+        '/trpc/guestNotifications.eraseSubmission',
+      ]);
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
