@@ -5,6 +5,7 @@
  * `p2p.config_unset` rather than inventing a range or a quota. Only CSV is
  * built; XLSX and PDF need a generator dependency and are refused by name.
  */
+import { EXPORT_FORMATS } from '@intafaced/contracts/p2p-procedures';
 
 export interface ExportPolicy {
   /** Longest export range in whole days. */
@@ -29,7 +30,6 @@ export const RECEIPT_QUOTA_LOCK_CLASS = 8_140_714;
 /** Class half of the lock serialising one user's exports, so two parallel clicks cannot both take the last export. */
 export const EXPORT_QUOTA_LOCK_CLASS = 8_140_715;
 
-export const EXPORT_FORMATS = ['csv', 'xlsx', 'pdf'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 export type ExportPolicyCode =

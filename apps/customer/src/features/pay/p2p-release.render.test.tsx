@@ -42,6 +42,10 @@ const released = (extra: Partial<Trade>): Trade => ({
   escrowedAt: '2026-10-24T05:00:01.000Z',
   resolvedAt: '2026-10-24T05:10:00.000Z',
   settledAt: '2026-10-24T05:10:01.000Z',
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   ...extra,
 });
 
