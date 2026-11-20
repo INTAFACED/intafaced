@@ -7,7 +7,7 @@ import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { openFounderDesk } from './agents.mjs';
 import { api, EDGE, fromUnits, journeyState, ORIGIN, stackUrl, tool, toUnits } from './stack.mjs';
-import { signedHeaders } from './developer.mjs';
+import { VERSION_PIN, signedHeaders } from './developer.mjs';
 import { browserHoldsPasskey, confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
@@ -611,6 +611,7 @@ async function asAssistant(method, route, body, which = 'first') {
     headers: {
       origin: ORIGIN,
       authorization: `Bearer ${agentKey}`,
+      ...VERSION_PIN,
       ...(raw ? { 'content-type': 'application/json' } : {}),
       ...(agentSecret ? signedHeaders(agentSecret, { method, path: route, body: raw ?? '' }) : {}),
     },
@@ -1286,6 +1287,7 @@ test(`${J} #19 Connects the assistant with an expiry longer than the venue allow
         origin: ORIGIN,
         authorization: `Bearer ${valid.key}`,
         'content-type': 'application/json',
+        ...VERSION_PIN,
         ...(valid.signingSecret ? signedHeaders(valid.signingSecret, { method: 'POST', path: route, body: raw }) : {}),
       },
       body: raw,

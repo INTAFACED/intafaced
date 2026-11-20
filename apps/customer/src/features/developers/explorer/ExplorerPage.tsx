@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { API_VERSION_HEADER, LATEST_API_VERSION } from '@intafaced/contracts/api-versions';
 import { Button, Field } from '../../../shared/ui';
 import { useSession } from '../../session';
 import { readSandboxes } from '../sandbox/sandbox-api';
@@ -67,7 +68,12 @@ export function ExplorerPage({ title }: { title: string }) {
         if (!read.data.baseUrl) return setAnswer({ kind: 'said', key: 'sandboxUnset' });
         origin = read.data.baseUrl.replace(/\/$/, '');
       }
-      const headers: Record<string, string> = { authorization: `Bearer ${key.trim()}`, [EXPLORER_HEADER]: '1' };
+      // The explorer pins the newest version, as every key client we ship does (api-versions.ts).
+      const headers: Record<string, string> = {
+        authorization: `Bearer ${key.trim()}`,
+        [EXPLORER_HEADER]: '1',
+        [API_VERSION_HEADER]: LATEST_API_VERSION,
+      };
       if (raw !== undefined) {
         headers['content-type'] = 'application/json';
         headers['idempotency-key'] = await businessKey(route, raw);

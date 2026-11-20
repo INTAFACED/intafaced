@@ -1,4 +1,5 @@
 import { findRoom, roomDescription, roomTitle } from '../../app/navigation';
+import { BreakingChangesNotice } from '../developers';
 import { useSession } from '../session';
 import { supportMailto, useSupportContact } from '../more';
 import { ContactSupport } from './ContactSupport';
@@ -99,6 +100,7 @@ export function NoticePage({ detail = false, id = null }: { detail?: boolean; id
         <h1>{copy.t('noticeTitle')}</h1>
       </header>
       {detail ? <NoticeDetail id={id} /> : <NoticeFeed />}
+      {detail ? null : <BreakingChangesNotice />}
       {detail && (
         <a className="text-link" href="/notice">
           ← {copy.t('noticeBack')}

@@ -238,3 +238,29 @@ export function venueWrites(page) {
   });
   return sent;
 }
+
+/** A reply our door accepted: its body, or the step fails with what it said. */
+export function doorOk(res) {
+  expect(res.status, JSON.stringify(res.body).slice(0, 600)).toBe(200);
+  return res.body;
+}
+
+/** A prepared venue action signed by a wallet key, in the shape our door's submit takes. */
+export async function signPrepared(key, prepared) {
+  const t = prepared.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  return { digest: prepared.digest, signature, signedBy: key.address.toLowerCase() };
+}
+
+/** One action the person's own wallet signs, through our door: prepared, signed, sent, and accepted by the venue. */
+export async function walletDoorAct(session, key, { subAccount = null, intent, actionKey = null }) {
+  const owner = key.address.toLowerCase();
+  const prepared = doorOk(
+    await session.post('/api/v1/venue/prepare', { owner, subAccount, signer: { role: 'owner', address: owner }, intent, actionKey }),
+  );
+  const sent = doorOk(
+    await session.post('/api/v1/venue/submit', { actionKey: prepared.actionKey, signature: await signPrepared(key, prepared.prepared) }),
+  );
+  expect(sent.outcome, JSON.stringify(sent.outcome).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+  return sent;
+}

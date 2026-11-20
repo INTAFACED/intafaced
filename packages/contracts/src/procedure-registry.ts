@@ -28,6 +28,7 @@ import {
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
 import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
+import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from './identity-api-version-procedures.js';
 import { IDENTITY_RECIPIENTS_LIST, IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_REMOVE } from './identity-recipients-procedures.js';
 import {
   MINING_WORKERS_MINE,
@@ -175,6 +176,7 @@ import {
   TOKEN_BUYBACK_RUNS,
   TOKEN_BURNED_SUPPLY,
 } from './token-procedures.js';
+import { COPY_MY_COPY_FEES } from './trade-copy-procedures.js';
 import { GRID_SUBMIT_PERMISSION } from './trade-grid-procedures.js';
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 import type { ProcedureRecord } from './procedure.js';
@@ -207,6 +209,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BLUEPRINT_ERASE,
   FIX_ADAPTER_STATUS,
   FIX_DROP_COPY_FILL,
+  IDENTITY_API_VERSION_GET,
+  IDENTITY_API_VERSION_SET,
   IDENTITY_RECIPIENTS_LIST,
   IDENTITY_RECIPIENTS_ADD,
   IDENTITY_RECIPIENTS_REMOVE,
@@ -344,6 +348,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   TOKEN_TREASURY,
   TOKEN_BUYBACK_RUNS,
   TOKEN_BURNED_SUPPLY,
+  COPY_MY_COPY_FEES,
   GRID_SUBMIT_PERMISSION,
   WS_SBE_CONSUMERS,
 ];
