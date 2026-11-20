@@ -39487,6 +39487,1383 @@
         }
       ]
     },
+    "pay.withdrawal.cancel": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "withdrawal.cancel",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "ledger"
+      },
+      "refusals": {
+        "pay.withdrawal_not_found": "NOT_FOUND",
+        "pay.withdrawal_not_cancellable": "CONFLICT",
+        "pay.ledger_outcome_unknown": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "withdrawalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["withdrawalId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "rail": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              }
+            },
+            "required": ["kind", "ref"],
+            "additionalProperties": false
+          },
+          "clientRef": {
+            "type": "string"
+          },
+          "railRef": {
+            "type": ["string", "null"]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "failureCode": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "held", "sent", "failed"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "customerStatus": {
+            "type": "string",
+            "const": "canceled"
+          },
+          "cancellable": {
+            "type": "boolean"
+          },
+          "networkId": {
+            "type": ["string", "null"]
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "holdReleased": {
+            "type": ["boolean", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "assetId",
+          "amount",
+          "rail",
+          "destination",
+          "clientRef",
+          "railRef",
+          "attempts",
+          "failureCode",
+          "status",
+          "createdAt",
+          "customerStatus",
+          "holdReleased"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "withdrawalId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "withdrawalId": "not-a-uuid"
+          }
+        }
+      ]
+    },
+    "pay.withdrawal.create": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "withdrawal.create",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:withdraw",
+        "module": "ledger"
+      },
+      "refusals": {
+        "pay.invalid_amount": "BAD_REQUEST",
+        "pay.wallet_withdraw_unavailable": "BAD_REQUEST",
+        "pay.withdraw_confirmations_unset": "BAD_REQUEST",
+        "pay.withdrawal_destination_not_saved": "BAD_REQUEST",
+        "pay.withdrawal_destination_network_mismatch": "BAD_REQUEST",
+        "pay.withdrawal_destination_blocked": "BAD_REQUEST",
+        "pay.withdrawal_destination_unapproved": "PRECONDITION_FAILED",
+        "pay.withdrawal_destination_cooling": "PRECONDITION_FAILED",
+        "pay.withdrawal_destination_cooling_unset": "PRECONDITION_FAILED",
+        "pay.withdrawal_destination_unavailable": "PRECONDITION_FAILED",
+        "pay.withdrawal_destination_locked": "FORBIDDEN",
+        "pay.withdrawal_fee_unbound": "PRECONDITION_FAILED",
+        "pay.withdrawal_tag_not_taken": "BAD_REQUEST",
+        "pay.withdrawal_tag_unsupported": "PRECONDITION_FAILED",
+        "pay.withdrawal_self_send": "BAD_REQUEST",
+        "pay.withdrawal_platform_address": "BAD_REQUEST",
+        "pay.withdrawal_amount_held": "CONFLICT",
+        "pay.withdrawal_conflict": "CONFLICT",
+        "pay.withdrawal_canceled": "CONFLICT",
+        "pay.internal_asset_unsupported": "BAD_REQUEST",
+        "pay.internal_destination_external": "BAD_REQUEST",
+        "pay.internal_destination_unavailable": "BAD_REQUEST",
+        "pay.internal_settlement_refused": "BAD_REQUEST",
+        "pay.internal_settlement_unwired": "PRECONDITION_FAILED",
+        "pay.rail_failed": "BAD_REQUEST",
+        "pay.rail_amount_mismatch": "BAD_REQUEST",
+        "pay.rail_outcome_unknown": "PRECONDITION_FAILED",
+        "pay.ledger_outcome_unknown": "PRECONDITION_FAILED",
+        "pay.guard_unavailable": "SERVICE_UNAVAILABLE",
+        "pay.guard_halted": "SERVICE_UNAVAILABLE",
+        "pay.guard_halt_store_unavailable": "SERVICE_UNAVAILABLE",
+        "pay.guard_screening_refuse": "FORBIDDEN",
+        "pay.guard_screening_review": "SERVICE_UNAVAILABLE",
+        "pay.guard_screening_unavailable": "SERVICE_UNAVAILABLE",
+        "pay.guard_destination_not_allowlisted": "FORBIDDEN",
+        "pay.guard_withdrawal_approval_required": "FORBIDDEN",
+        "pay.guard_withdrawal_approval_terms": "FORBIDDEN",
+        "pay.guard_withdrawal_limit_exceeded": "FORBIDDEN",
+        "pay.guard_withdrawal_limit_unset": "FORBIDDEN",
+        "pay.guard_withdrawal_limits_off": "SERVICE_UNAVAILABLE",
+        "pay.guard_withdrawal_limits_unwired": "SERVICE_UNAVAILABLE",
+        "pay.guard_withdrawal_tier_unwired": "SERVICE_UNAVAILABLE",
+        "withdrawal_approval.required": "PRECONDITION_FAILED",
+        "withdrawal_approval.amount_invalid": "BAD_REQUEST",
+        "withdrawal_quote.not_found": "NOT_FOUND",
+        "withdrawal_quote.expired": "PRECONDITION_FAILED",
+        "withdrawal_quote.already_used": "CONFLICT",
+        "withdrawal_quote.client_ref_taken": "CONFLICT",
+        "withdrawal_quote.required": "BAD_REQUEST",
+        "withdrawal_quote.terms_differ": "CONFLICT",
+        "withdrawal_quote.fee_mode_unsupported": "PRECONDITION_FAILED",
+        "withdrawal_network_rules.unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "railId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tag": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": ["kind", "ref"],
+            "additionalProperties": false
+          },
+          "clientRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "networkId": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "quoteRef": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_.-]{1,64}$"
+          }
+        },
+        "required": ["assetId", "amount", "railId", "destination", "clientRef"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "rail": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              }
+            },
+            "required": ["kind", "ref"],
+            "additionalProperties": false
+          },
+          "clientRef": {
+            "type": "string"
+          },
+          "railRef": {
+            "type": ["string", "null"]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "failureCode": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "held", "sent", "failed"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "customerStatus": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "pending_review",
+              "approved",
+              "held",
+              "dispatching",
+              "broadcast",
+              "confirming",
+              "settled",
+              "rejected",
+              "canceled",
+              "failed",
+              "needs_review"
+            ]
+          },
+          "cancellable": {
+            "type": "boolean"
+          },
+          "networkId": {
+            "type": ["string", "null"]
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "assetId",
+          "amount",
+          "rail",
+          "destination",
+          "clientRef",
+          "railRef",
+          "attempts",
+          "failureCode",
+          "status",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "amount": "25.5",
+            "railId": "crypto-native",
+            "destination": {
+              "kind": "crypto",
+              "ref": "0x1111111111111111111111111111111111111111"
+            },
+            "clientRef": "w-1",
+            "networkId": "ethereum",
+            "quoteRef": "q:1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": "USDC",
+            "amount": "25.5",
+            "railId": "crypto-native",
+            "destination": {
+              "kind": "crypto",
+              "ref": "0x1111111111111111111111111111111111111111"
+            }
+          }
+        }
+      ]
+    },
+    "pay.withdrawal.destination": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "withdrawal.destination",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "destination": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": ["kind", "ref"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["destination"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["internal", "self", "external"]
+              }
+            },
+            "required": ["kind"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "unavailable"
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["expired", "unavailable"]
+              }
+            },
+            "required": ["kind", "reason"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "destination": {
+              "kind": "crypto",
+              "ref": "0x1111111111111111111111111111111111111111"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "destination": {
+              "kind": "crypto",
+              "ref": ""
+            }
+          }
+        }
+      ]
+    },
+    "pay.withdrawal.get": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "withdrawal.get",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {
+        "pay.withdrawal_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "withdrawalId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["withdrawalId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "rail": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              }
+            },
+            "required": ["kind", "ref"],
+            "additionalProperties": false
+          },
+          "clientRef": {
+            "type": "string"
+          },
+          "railRef": {
+            "type": ["string", "null"]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "failureCode": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "held", "sent", "failed"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "customerStatus": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "pending_review",
+              "approved",
+              "held",
+              "dispatching",
+              "broadcast",
+              "confirming",
+              "settled",
+              "rejected",
+              "canceled",
+              "failed",
+              "needs_review"
+            ]
+          },
+          "cancellable": {
+            "type": "boolean"
+          },
+          "networkId": {
+            "type": ["string", "null"]
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "assetId",
+          "amount",
+          "rail",
+          "destination",
+          "clientRef",
+          "railRef",
+          "attempts",
+          "failureCode",
+          "status",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "withdrawalId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "withdrawalId": "not-a-uuid"
+          }
+        }
+      ]
+    },
+    "pay.withdrawal.history": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "withdrawal.history",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {
+        "pay.withdrawal_list_limit_unset": "PRECONDITION_FAILED",
+        "pay.withdrawal_cursor_invalid": "BAD_REQUEST",
+        "pay.withdrawal_history_unwired": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "pending_review",
+              "approved",
+              "held",
+              "dispatching",
+              "broadcast",
+              "confirming",
+              "settled",
+              "rejected",
+              "canceled",
+              "failed",
+              "needs_review"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "after": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "assetId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+                },
+                "rail": {
+                  "type": "string"
+                },
+                "destination": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "ref": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["kind", "ref"],
+                  "additionalProperties": false
+                },
+                "clientRef": {
+                  "type": "string"
+                },
+                "railRef": {
+                  "type": ["string", "null"]
+                },
+                "attempts": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "requested",
+                    "pending_review",
+                    "approved",
+                    "held",
+                    "dispatching",
+                    "broadcast",
+                    "confirming",
+                    "settled",
+                    "rejected",
+                    "canceled",
+                    "failed",
+                    "needs_review"
+                  ]
+                },
+                "failure": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "known": {
+                          "type": "boolean"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "known", "message"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "returned": {
+                  "type": "boolean"
+                },
+                "returnedFunds": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+                        },
+                        "reasonCode": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["destination_rejected", "network_returned", "other"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "credited": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["amount", "reasonCode", "credited"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": [
+                "id",
+                "userId",
+                "assetId",
+                "amount",
+                "rail",
+                "destination",
+                "clientRef",
+                "railRef",
+                "attempts",
+                "status",
+                "failure",
+                "returned",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["items", "next"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 50,
+            "userId": "33333333-3333-4333-8333-333333333333"
+          }
+        }
+      ]
+    },
+    "pay.withdrawal.limits": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "withdrawal.limits",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {
+        "pay.guard_unavailable": "SERVICE_UNAVAILABLE",
+        "pay.guard_withdrawal_limit_unset": "FORBIDDEN",
+        "pay.guard_withdrawal_limits_off": "SERVICE_UNAVAILABLE",
+        "pay.guard_withdrawal_limits_unwired": "SERVICE_UNAVAILABLE",
+        "pay.guard_withdrawal_tier_unwired": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          }
+        },
+        "required": ["assetId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tier": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "base": {
+            "type": "object",
+            "properties": {
+              "perTx": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "rolling24h": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["perTx", "rolling24h"],
+            "additionalProperties": false
+          },
+          "override": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "perTx": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "rolling24h": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["perTx", "rolling24h", "expiresAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "perTx": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "rolling24h": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "used24h": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "remaining": {
+            "type": "object",
+            "properties": {
+              "perTx": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "rolling24h": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["perTx", "rolling24h"],
+            "additionalProperties": false
+          },
+          "maxNow": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["tier", "assetId", "base", "override", "perTx", "rolling24h", "used24h", "remaining", "maxNow"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": ""
+          }
+        }
+      ]
+    },
+    "pay.withdrawal.networkRules": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "withdrawal.networkRules",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {
+        "withdrawal_network_rules.unset": "PRECONDITION_FAILED",
+        "withdrawal_network_rules.unwired": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "networkId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,32}$"
+          }
+        },
+        "required": ["assetId", "networkId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "networkId": {
+            "type": "string"
+          },
+          "minimum": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "maximum": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "step": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "tag": {
+            "type": "string",
+            "enum": ["none", "required"]
+          }
+        },
+        "required": ["assetId", "networkId", "minimum", "maximum", "step", "tag"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "ethereum"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "not a network"
+          }
+        }
+      ]
+    },
+    "pay.withdrawal.quote": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "withdrawal.quote",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "ledger"
+      },
+      "refusals": {
+        "withdrawal_quote.unwired": "SERVICE_UNAVAILABLE",
+        "withdrawal_quote.policy_unset": "PRECONDITION_FAILED",
+        "withdrawal_quote.amount_invalid": "BAD_REQUEST",
+        "withdrawal_quote.fee_source_unwired": "PRECONDITION_FAILED",
+        "withdrawal_quote.network_unknown": "BAD_REQUEST",
+        "withdrawal_quote.network_disabled": "PRECONDITION_FAILED",
+        "withdrawal_quote.asset_not_on_network": "BAD_REQUEST",
+        "pay.fee_unset": "PRECONDITION_FAILED",
+        "withdrawal_quote.tag_required": "PRECONDITION_FAILED",
+        "withdrawal_quote.below_minimum": "BAD_REQUEST",
+        "withdrawal_quote.above_maximum": "BAD_REQUEST",
+        "withdrawal_quote.off_step": "BAD_REQUEST",
+        "withdrawal_quote.fee_exceeds_amount": "BAD_REQUEST",
+        "withdrawal_quote.quote_differs": "CONFLICT",
+        "withdrawal_network_rules.unset": "PRECONDITION_FAILED",
+        "withdrawal_network_rules.unwired": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "quoteRef": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9:_.-]{1,64}$"
+          },
+          "assetId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,32}$"
+          },
+          "networkId": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["quoteRef", "assetId", "networkId", "amount"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "quoteRef": {
+            "type": "string"
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "networkId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "feeMode": {
+            "type": "string",
+            "enum": ["on_top", "deducted"]
+          },
+          "fees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": ["network"]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["kind", "amount"],
+              "additionalProperties": false
+            }
+          },
+          "feeTotal": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "netAmount": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "totalDebit": {
+            "type": "string",
+            "pattern": "^0*\\d{1,20}(\\.\\d{1,18})?$"
+          },
+          "feeSource": {
+            "type": "string"
+          },
+          "quotedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "expired": {
+            "type": "boolean"
+          },
+          "acceptedBy": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "quoteRef",
+          "assetId",
+          "networkId",
+          "amount",
+          "feeMode",
+          "fees",
+          "feeTotal",
+          "netAmount",
+          "totalDebit",
+          "feeSource",
+          "quotedAt",
+          "expiresAt",
+          "expired",
+          "acceptedBy"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "quoteRef": "q:1",
+            "assetId": "USDC",
+            "networkId": "ethereum",
+            "amount": "25.5"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "quoteRef": "q:1",
+            "assetId": "USDC",
+            "networkId": "ethereum",
+            "amount": 25.5
+          }
+        }
+      ]
+    },
+    "pay.withdrawal.tierLimits": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "withdrawal.tierLimits",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read"
+      },
+      "refusals": {
+        "pay.guard_unavailable": "SERVICE_UNAVAILABLE",
+        "pay.guard_withdrawal_limit_unset": "FORBIDDEN",
+        "pay.guard_withdrawal_limits_off": "SERVICE_UNAVAILABLE",
+        "pay.guard_withdrawal_limits_unwired": "SERVICE_UNAVAILABLE",
+        "pay.guard_withdrawal_tier_unwired": "SERVICE_UNAVAILABLE"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "enforced": {
+            "type": "boolean"
+          },
+          "limits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tier": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32
+                },
+                "assetId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16
+                },
+                "perTx": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "rolling24h": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["tier", "assetId", "perTx", "rolling24h"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["enforced", "limits"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tier": "full"
+          }
+        }
+      ]
+    },
     "protocol.addressBook.addContact": {
       "service": "svc-protocol",
       "module": "protocol",
