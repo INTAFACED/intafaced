@@ -347,7 +347,9 @@ impl Refunds for FakeRefunds {
     fn send(&self, input: &RefundSend) -> Result<Option<String>, Refusal> {
         let mut s = self.state.lock().unwrap();
         s.sends.push(input.clone());
-        while s.hold {
+        // Only the first send is held in flight: a second sender (a broken claim) answers at once, so the test fails
+        // on the count instead of hanging.
+        while s.hold && s.sends.len() == 1 {
             s = self.released.wait(s).unwrap();
         }
         Ok(s.answer_hash.then(refund_tx))
@@ -1191,8 +1193,10 @@ fn a_refund_is_sent_by_one_caller_at_a_time_a_staff_read_a_view_and_the_reconcil
             inner.spawn(|| p.staff_read(&key()).unwrap());
             inner.spawn(|| p.view(L, "perps-101").unwrap());
         });
-        assert_eq!(w.refunds.sends().len(), 1);
+        // Counted before the hold is released, and asserted after: a failure never leaves the first send held.
+        let mid_send = w.refunds.sends().len();
         w.refunds.hold(false);
+        assert_eq!(mid_send, 1, "a caller arriving mid-send sent again");
         let first = first.join().unwrap();
         assert_eq!(s(&first, "state").as_deref(), Some("refunding"));
         assert_eq!(s(&first, "refund.txHash"), Some(refund_tx()));
