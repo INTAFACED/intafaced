@@ -1357,10 +1357,10 @@ export const FEATURES = [
     owner: 'Phantom-X-007',
     dependsOn: ['identity.rank'],
     requires: [
-      'services/svc-academy/src/lobbies/mount-vs-tracker.ts',
-      'services/svc-academy/src/lobbies/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/access/room-access.ts',
-      'services/svc-academy/src/stream/provider.ts',
+      'crates/svc-academy/src/lobbies/mod.rs',
+      'crates/svc-academy/src/lobbies/seat.rs',
+      'crates/svc-academy/src/lobbies/stream.rs',
+      'crates/svc-academy/tests/lobbies_units.rs',
     ],
     note:
       'DONE: decideSeat capacity tiers (free/staked/invite); host bypass; NullStreamProvider refuses SFU creds. ' +
@@ -1372,7 +1372,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['academy.lobbies'],
-    requires: ['services/svc-academy/src/spatial/canvas.ts'],
+    requires: ['crates/svc-academy/src/lobbies/scene.rs'],
     note:
       'Done 2026-08-23: navigable shell is Canvas.vue on /academy (hub sessionIdFromHub, host click updateScene, empty session empty). ' +
       'sceneIsNavigableProductShell true. VR client residual (`socket.vr-client`) — do not invent VR.',
@@ -1384,10 +1384,9 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     requires: [
-      'services/svc-academy/src/curriculum/mount-vs-tracker.ts',
-      'services/svc-academy/src/curriculum/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/curriculum/import-pipeline.ts',
-      'services/svc-academy/src/curriculum/import-pipeline.test.ts',
+      'crates/svc-academy/src/curriculum/spine.rs',
+      'crates/svc-academy/src/curriculum/substance.rs',
+      'crates/svc-academy/tests/curriculum_spine.rs',
     ],
     note:
       '**D26-P1-C5 Done-bar sealed 2026-08-12 (#1738):** import substance bar (not char-count theater); ' +
@@ -1400,12 +1399,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['academy.curriculum', 'identity.rank'],
-    requires: [
-      'services/svc-academy/src/certs/mount-vs-tracker.ts',
-      'services/svc-academy/src/certs/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/certs/perk-plane.ts',
-      'services/svc-academy/src/certs/grant-ledger.test.ts',
-    ],
+    requires: ['crates/svc-academy/src/certs/perks.rs', 'crates/svc-academy/src/certs/xp.rs', 'crates/svc-academy/tests/certs_rules.rs'],
     note:
       '**D26-P1-C1 Done 2026-08-21:** cert→XP→identity perks or refuse invent (`mount-vs-tracker.ts`). ' +
       'grantCert + certPerkPlane + certPerkIntent refuse-closed. ' +
@@ -1418,10 +1412,9 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     requires: [
-      'services/svc-academy/src/ambassadors/mount-vs-tracker.ts',
-      'services/svc-academy/src/ambassadors/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/ambassadors/ifc-pay-rate-law.ts',
-      'services/svc-academy/src/ambassadors/ifc-pay.ts',
+      'crates/svc-academy/src/programme/ambassadors/rate_law.rs',
+      'crates/svc-academy/src/programme/ambassadors/ifc_pay.rs',
+      'crates/svc-academy/tests/programme_ambassadors.rs',
     ],
     note:
       '**D26-P1-C2 Done-bar sealed 2026-08-12 (#1725):** IFC pay under owner rate law — refuse invent rates. ' +
@@ -1434,11 +1427,10 @@ export const FEATURES = [
     owner: 'Phantom-X-007',
     status: 'done',
     requires: [
-      'services/svc-academy/src/tournaments/mount-vs-tracker.ts',
-      'services/svc-academy/src/tournaments/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/tournaments/tournament-policy.ts',
-      'services/svc-academy/src/tournaments/prize-refuse.test.ts',
-      'services/svc-academy/src/tournaments/season-lifecycle.test.ts',
+      'crates/svc-academy/src/programme/tournaments/policy.rs',
+      'crates/svc-academy/src/programme/tournaments/prize.rs',
+      'crates/svc-academy/src/programme/tournaments/lifecycle.rs',
+      'crates/svc-academy/tests/programme_tournaments_wire.rs',
     ],
     note:
       '**D26-P1-C3 Done 2026-08-21:** Stage-1 ladder + season lifecycle (`mount-vs-tracker.ts`); prize pools refuse `academy.prize_pool_unset`. ' +
@@ -1452,10 +1444,10 @@ export const FEATURES = [
     owner: 'Phantom-X-007',
     dependsOn: ['trade.spot'],
     requires: [
-      'services/svc-academy/src/paper/mount-vs-tracker.ts',
-      'services/svc-academy/src/paper/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/paper/workbook-loop.ts',
-      'services/svc-academy/src/paper/ops-gate.ts',
+      'crates/svc-academy/src/programme/paper/workbook.rs',
+      'crates/svc-academy/src/programme/paper/ops.rs',
+      'crates/svc-academy/src/programme/paper/ban.rs',
+      'crates/svc-academy/tests/programme_paper.rs',
       'services/svc-trade/drizzle/0006_paper_markets.sql',
     ],
     note:
@@ -2041,11 +2033,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['academy.curriculum'],
-    requires: [
-      'services/svc-academy/src/video/mount-vs-tracker.ts',
-      'services/svc-academy/src/video/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/video/library.ts',
-    ],
+    requires: ['crates/svc-academy/src/authoring/video.rs', 'crates/svc-academy/tests/authoring_video.rs'],
     note:
       '**Done 2026-08-23:** stored VOD mounted (`videos` + `videoPlayback`); MinIO compose default off. ' +
       'Unconfigured → `academy.video_storage_unconfigured`. Signed expiring GET + tier/stake gate. ' +
@@ -2460,11 +2448,7 @@ export const FEATURES = [
     phase: '5',
     status: 'done',
     dependsOn: ['academy.lobbies'],
-    requires: [
-      'docker-compose.apps.yml',
-      'services/svc-academy/src/stream/provider.ts',
-      'services/svc-academy/src/stream/livekit-compose-pin.test.ts',
-    ],
+    requires: ['docker-compose.apps.yml', 'crates/svc-academy/src/lobbies/stream.rs', 'crates/svc-academy/tests/boot.rs'],
     note: 'Done 2026-08-23: docker-compose.apps.yml provides livekit/livekit-server:v1.9.0 on the internal compose network, while StreamProvider remains refuse-closed when LIVEKIT_URL or provider configuration is blank. The compose pin and NullStreamProvider tests preserve the unavailable state honestly until operator credentials are supplied.',
   }),
   // Found 2026-08-03 while separating the screening authority from the

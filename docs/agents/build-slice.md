@@ -14,7 +14,7 @@ Before you start and at each checkpoint, read the factory switch: `gh api -H 'Ac
 
 ## Build: the bar
 
-Fast on what is cheap to change later, right first time on what is expensive. Cheap, left for Polish: looks, copy, layout, performance, tidiness inside a module, docs prose.
+Fast on what is cheap to change later, right first time on what is expensive. Cheap, left for Polish: copy, performance, tidiness inside a module, docs prose. A room takes the kit's look from its first slice (`.claude/rules/design.md`).
 
 1. **Money.** Value moves only through `packages/ledger-client` recipes; business idempotency keys; an invariant test; every failure branch tested. Ask where funds are stranded if it crashes at each step.
 2. **Data shape.** New tables: stable ids, scoped to the owning user or org, money as `numeric` with 18 decimal places, matching the service's existing columns (decimal strings on the wire, scaled bigint in memory), created and updated timestamps. Migrations are the hardest thing to undo. Name a new one for the UTC time you write it, `$(date -u +%Y%m%d%H%M%S)_<what>.sql` plus its `.down.sql`, never main's next four-digit number, so no other open PR can claim the same name (`tooling/ci/migration-check.mjs`).

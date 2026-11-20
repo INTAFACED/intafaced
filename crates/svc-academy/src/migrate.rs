@@ -1,5 +1,5 @@
 //! `svc-academy migrate [--down]` (the TypeScript service's `scripts/migrate.ts`): applies every `*.sql` in
-//! `crates/svc-academy/migrations` (the same files, by the same names, as `services/svc-academy/drizzle`) in name
+//! `crates/svc-academy/migrations` (the same files, by the same names, the TypeScript service's `drizzle` folder held) in name
 //! order, tracked in `academy.__migrations`, each file once; `--down` reverses them. The `academy` schema comes from
 //! the database bootstrap. The files are built into the binary; the runner is the kit's (`service_kit::migrate`).
 
@@ -503,23 +503,6 @@ mod tests {
         assert_eq!(
             built, on_disk,
             "a migration on disk is not in FILES (or the reverse)"
-        );
-    }
-
-    /// Until the switch, the TypeScript service runs the same migrations from its own folder: the two stay the same
-    /// files, byte for byte.
-    #[test]
-    fn the_files_are_the_typescript_services() {
-        let ts = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../services/svc-academy/drizzle");
-        if !ts.exists() {
-            return;
-        }
-        let ours = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
-        assert_eq!(
-            sql_files(&ours),
-            sql_files(&ts),
-            "crates/svc-academy/migrations differs from services/svc-academy/drizzle"
         );
     }
 }

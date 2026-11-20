@@ -3,7 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, restartService, tool, toUnits } from './stack.mjs';
+import { mailbox } from './test-mail.mjs';
 import { fundedTrader, openOrders, signIn } from './desk.mjs';
 import { confirmStepUp, refusalCode, restorePasskey, testPasskey } from './p2p.mjs';
 import { TEST_VENUE, testDeposit, testVenue, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
@@ -869,29 +870,135 @@ test(`${J} #5 opens the skip log: one row per skipped mirror with the reason in 
   expect((await myFills(follower)).map((f) => f.id).sort()).toEqual(fillsAtRewind);
 });
 
-test(`${J} #6 receives an in-app notice for a skipped or stopped follow: the reason and next step, no raw code`, async ({ page }) => {
+/** One svc-notify read as the follower. */
+async function notifyRead(who, procedure, input) {
+  const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await (await api(who)).get(`/api/notify/trpc/${procedure}${query}`);
+  expect(res.status, `${procedure}: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(200);
+  return res.body.result.data;
+}
+
+/** The stop notices svc-notify holds for one follow. */
+const stopNotices = async (who, followId) =>
+  (await notifyRead(who, 'notify.list', { limit: 100 })).items.filter(
+    (n) => n.kind === 'trade.copy.stopped' && n.params.followId === followId,
+  );
+
+const CLOSE_ONLY_WORDS = 'You stopped this follow. Only the leader’s closes of what you hold are still copied.';
+const CLOSE_ONLY_NEXT = 'You can leave the leader any time.';
+
+test(`${J} #6 receives an in-app notice for a skipped or stopped follow: the reason and the next step, no raw code; one email when the vendor is set, otherwise the vendor text only`, async ({
+  page,
+}) => {
+  test.setTimeout(480_000);
   const follower = state('follower');
   const followId = state('followId');
   // svc-notify holds exactly one stop notice for #2's close-only stop of this follow, however often it was announced.
-  const listed = await (
-    await api(follower)
-  ).get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
-  expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
-  const inbox = listed.body.result.data;
-  const stops = inbox.items.filter((n) => n.kind === 'trade.copy.stopped' && n.params.followId === followId);
+  const stops = await stopNotices(follower, followId);
   expect(
     stops.map((n) => n.bodyKey),
     'B5 copy notices: no stop notice for this follow in svc-notify',
   ).toEqual(['notify.trade.copy_stopped.body.follower_close_only']);
-  // The inbox shows it: the reason (the person stopped it, closes still copied) and the next step, in words, no raw code.
+  // The inbox shows it: the reason (the person stopped it, closes still copied) and the next step, each in words, no raw code.
   await signIn(page, follower);
   await page.goto('/notifications');
   const notice = page.getByTestId('nf-row').filter({ hasText: /stopped copying/ });
   await expect(notice).toHaveCount(1);
   await expect(notice).toContainText('Your follow stopped copying');
-  await expect(notice).toContainText('You stopped this follow. Only the leader’s closes of what you hold are still copied.');
-  await expect(notice).toContainText(/You can /);
+  await expect(notice).toContainText(CLOSE_ONLY_WORDS);
+  await expect(notice).toContainText(CLOSE_ONLY_NEXT);
   await expect(notice).not.toContainText(/trade\.[a-z_]+|notify\.[a-z_]+/);
+
+  // No email sender is set on the stack, as in this build: the platform says email is not set up, no address can be
+  // confirmed, and so no email copy of the notice exists. Its delivery record names the outside service it waits on.
+  const channels = await notifyRead(follower, 'notify.channels');
+  expect(channels.find((c) => c.channel === 'email')).toMatchObject({ configured: false });
+  const before = await notifyRead(follower, 'notify.deliveries', { notificationId: stops[0].id });
+  expect(before.filter((d) => d.channel === 'email')).toEqual([]);
+  expect(mailbox().filter((m) => m.to === follower.email)).toEqual([]);
+  await page.goto('/notifications?view=delivery');
+  // One record per update: the list item that holds the update's title (its channel rows are list items inside it).
+  const record = page.getByRole('listitem').filter({ hasText: 'Your follow stopped copying' });
+  await expect(record).toHaveCount(1);
+  await record.getByRole('button', { name: 'Show delivery', exact: true }).click();
+  await expect(record.locator('[data-not-connected="vendor.email"]')).toHaveText(
+    'An email copy of this update needs an email sender. It is switched off in this build. vendor.email',
+  );
+
+  // With the TEST email stand-in set (the stack's LOCAL TEST sender, which writes each email to a file), the person
+  // confirms their address, and the next stop notice goes out as one email.
+  await restartService('notify', { LOCAL_STACK_NOTIFY_EMAIL: 'on' });
+  try {
+    await page.goto('/notifications?view=settings');
+    const card = page.locator('[data-testid="nf-channelcard"][data-channel="email"]');
+    await card.getByRole('button', { name: 'Add address', exact: true }).click();
+    await card.getByRole('textbox', { name: /^Email address/ }).fill(follower.email);
+    const seen = mailbox().length;
+    await card.getByRole('button', { name: 'Save and send a code', exact: true }).click();
+    let code;
+    await expect
+      .poll(
+        () => {
+          const line = mailbox()
+            .slice(seen)
+            .find((m) => m.to === follower.email && m.kind === 'notify.channel.verify');
+          code = line ? /Your confirmation code is (\d{6})\b/.exec(line.text)?.[1] : undefined;
+          return code;
+        },
+        { timeout: 30_000 },
+      )
+      .toMatch(/^\d{6}$/);
+    await card.getByRole('textbox', { name: /^Six-digit code/ }).fill(code);
+    await card.getByRole('button', { name: 'Confirm address', exact: true }).click();
+    await expect(card).toContainText('Address confirmed.');
+
+    // A follow of its own for this stop (#4's close-all detached the venue follow, and #2's follow is already stopped):
+    // a fresh TEST leader, followed through the app's own follow steps, then stopped close-only.
+    const eLeader = await fundedTrader(page, 'jcl3e', '10');
+    const eLeaderRef = await listLeader(eLeader, `Journey Email ${state('tag')}`);
+    const eFollowId = await followOnScreen(page, follower, eLeaderRef, { perOrder: '50', total: '100', fixed: '20' });
+    expect(await stopNotices(follower, eFollowId), 'the new follow had no stop notice before').toEqual([]);
+    const session = await api(follower);
+    const stop = await session.post('/api/trade/trpc/copy.stop', { followId: eFollowId, closeOnly: true });
+    expect(stop.status, JSON.stringify(stop.body).slice(0, 300)).toBe(200);
+    const stopMail = () => mailbox().filter((m) => m.to === follower.email && m.kind === 'trade.copy.stopped');
+    await expect.poll(() => stopMail().length, { timeout: 60_000, message: 'no email copy of the stop notice' }).toBe(1);
+    const [mail] = stopMail();
+    expect(mail.subject).toMatch(/^TEST · /);
+    expect(mail.subject).toContain('Your follow stopped copying');
+    expect(mail.text).toMatch(/^TEST — written by the LOCAL TEST email stand-in, not sent\./);
+    expect(mail.text).toContain(CLOSE_ONLY_WORDS);
+    expect(mail.text).toContain(CLOSE_ONLY_NEXT);
+    expect(mail.text).not.toMatch(/trade\.[a-z_]+|notify\.[a-z_]+/);
+    // One notice and one email: the record holds one accepted email row, and the same stop again sends no second.
+    const [vStop] = await stopNotices(follower, eFollowId);
+    expect(vStop.bodyKey).toBe('notify.trade.copy_stopped.body.follower_close_only');
+    await expect
+      .poll(
+        async () =>
+          (await notifyRead(follower, 'notify.deliveries', { notificationId: vStop.id }))
+            .filter((d) => d.channel === 'email')
+            .map((d) => d.status),
+        { timeout: 30_000 },
+      )
+      .toEqual(['accepted']);
+    // The same stop sent again (answered or refused): no second notice and no second email.
+    await session.post('/api/trade/trpc/copy.stop', { followId: eFollowId, closeOnly: true });
+    expect(await stopNotices(follower, eFollowId)).toHaveLength(1);
+    expect(stopMail(), 'still one email for the one stop').toHaveLength(1);
+    // The delivery record now shows the email copy, and no vendor text. (Making the new leader used this page, so the
+    // follower signs in again.)
+    await signIn(page, follower);
+    await page.goto('/notifications?view=delivery');
+    const sent = page.getByRole('listitem').filter({ hasText: 'Your follow stopped copying' }).first();
+    await sent.getByRole('button', { name: 'Show delivery', exact: true }).click();
+    const emailRow = sent.getByRole('listitem').filter({ has: page.getByText('Email', { exact: true }) });
+    await expect(emailRow).toHaveCount(1);
+    await expect(emailRow).toContainText('Handed off for delivery');
+    await expect(sent.locator('[data-not-connected="vendor.email"]')).toHaveCount(0);
+  } finally {
+    await restartService('notify', { LOCAL_STACK_NOTIFY_EMAIL: null });
+  }
 });
 
 test(`${J} #7 leaves the leader: the follow is left and the positions stay the person's own; leaving again is refused`, async ({

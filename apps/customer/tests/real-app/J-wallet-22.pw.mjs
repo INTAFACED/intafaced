@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api, journeyState, restartWith, signOutBrowser, stackUrl, tool } from './stack.mjs';
+import { api, journeyState, restartService, signOutBrowser, stackUrl, startService, stopService } from './stack.mjs';
 import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
 import { venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
@@ -113,7 +113,7 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
   // The provider setting blank: Create my wallet is refused by its code and no passkey or wallet is made.
   const blankPage = await page.context().newPage();
   try {
-    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET', false);
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'off' });
     const blankDevice = await device(blankPage);
     await openRoom(blankPage, who);
     await expect(panel(blankPage).locator('[data-embedded-provider]')).toHaveCount(0);
@@ -125,14 +125,14 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
     expect(await recorded(who)).toEqual({ provider: null, wallet: null });
   } finally {
     await blankPage.close();
-    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET', true);
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: undefined });
   }
 
   // A visitor from a blocked region is refused with its reason, before the provider is asked anything.
   const regionPage = await page.context().newPage();
   try {
-    restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', false);
-    restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+    await restartService('protocol', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+    await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
     const regionDevice = await device(regionPage);
     await openRoom(regionPage, who);
     await expect(regionPage.getByText('Not available in your region', { exact: true })).toBeVisible({ timeout: 20_000 });
@@ -144,9 +144,9 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
   } finally {
     await regionPage.close();
     try {
-      restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+      await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
     } finally {
-      restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+      await restartService('protocol', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
     }
   }
   expect((await recorded(who)).wallet).toBeNull();
@@ -384,14 +384,14 @@ test(`${J} #7 asks for a signature while the provider is down: refused with the 
   await expect(panel(page).locator('[data-embedded-address]')).toHaveText(address);
   // The provider goes down on the stack: its process (local-test-stack.mjs `test-wallet-provider`) is stopped, so the
   // page's provider path finds nothing behind it. It is started again after, with its state file (the wallet) kept.
-  tool('local-test-stack.mjs', 'stop', 'test-wallet-provider');
+  await stopService('test-wallet-provider');
   try {
     await page.getByRole('button', { name: 'Connect to the venue' }).click();
     await expect(page.getByText('Your wallet provider is not answering', { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(`${PROVIDER} is not answering. Nothing was made, signed or sent. Try again in a moment.`)).toBeVisible();
     await expect(page.getByText('wallet.embedded_provider_down')).toBeVisible();
   } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'test-wallet-provider');
+    await startService('test-wallet-provider');
   }
   // It stopped at the provider's first call, which found the provider gone: nothing was signed, and no connection was
   // asked for.

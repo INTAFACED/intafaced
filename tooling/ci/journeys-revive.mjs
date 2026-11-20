@@ -410,8 +410,12 @@ export async function heldTick({ repo, now, io }) {
   return out;
 }
 
-/** The labels the pull holds a pull request with (project-state tooling/pull/next.mjs): the held pass leaves those. */
-export const HELD_LABELS = ['blocked', 'parked', 'design', 'factory-fix'];
+/**
+ * The labels the pull holds a pull request with (project-state tooling/pull/next.mjs): the held pass leaves those. A
+ * `design` pull request is not one: it merges like any other since the owner's 20 Nov decision (project-state decision
+ * PR #3428; the pull's hold on it went in project-state #3444).
+ */
+export const HELD_LABELS = ['blocked', 'parked', 'factory-fix'];
 
 /** Why GitHub did not update a branch, from its answer: a 422 says a conflict or a head that moved. */
 export function notUpdated(r) {
