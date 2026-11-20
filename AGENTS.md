@@ -23,7 +23,7 @@ Within the floor, these win over any agent's or reviewer's preference.
 - **One automatic review per PR, the CI review, and proof in CI** (2026-11-09, the owner's "go"): no `/code-review` of the author's own and no council, and no review round before opening (How work flows 5, 2026-11-14); journeys prove in CI on the PR's head, never a local run (How work flows 4, 2026-11-15). The CI review's own rules change through a normal PR.
 - **The front end is React** (`apps/customer` with Vite, `apps/admin` with Next.js).
 - **Nothing is hidden.** Parked means visible with its real blocker named. No "coming soon": every room gets its full layout and every control, with an honest empty or refusal state. `/chain`, `/dex` and `/protocol` stay visible with honest labels. Never call Base INTACHAIN mainnet, and never set `audited: true` (the audit is external).
-- **The look is chosen by the owner at three moments** (2026-11-20, replacing 2026-10-24 to 2026-11-09): the direction, from 2–3 rendered options of real screens built from the owner's references; the kit, once; the beta, walked on a live link. Between those the kit and its checks decide, and nothing asks the owner. Customer rooms take their look only from `packages/ui` role tokens (`.claude/rules/design.md`; `tooling/ci/look-drift.mjs`; 2026-10-26).
+- **The look is chosen by the owner at three moments** (2026-11-20, replacing 2026-10-24 to 2026-11-09): the direction, from 2–3 rendered options of real screens built from the owner's references (project-state `design/new-look`), each shown in light and dark; the kit, once; the beta, walked on a live link. Between those the kit and its checks decide, and nothing asks the owner. Customer rooms take their look only from `packages/ui` role tokens (`.claude/rules/design.md`; `tooling/ci/look-drift.mjs`; 2026-10-26).
 
 ## How work flows
 
@@ -61,7 +61,7 @@ Where each kind of thing lives across the factory, this repo included, is one ma
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the generated `docs/SERVICES.md`: apps, services, packages, ports, env, the money flow and how to run.
 - [`docs/agents/shape.md`](docs/agents/shape.md): the one way to add a call, a feature, a piece of state, a UI part, a service's wiring or a list. Read it before adding any of them.
 - [`docs/agents/build-slice.md`](docs/agents/build-slice.md): how to build a journey and prove it. [`CONTRIBUTING.md`](CONTRIBUTING.md): setup, worktrees, commits and the CI check names.
-- [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations. [`docs/refs/`](docs/refs/): measured front-end references.
+- [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations. [`docs/refs/`](docs/refs/): front-end references measured on 2026-08-02, older than the owner's (project-state `design/new-look`).
 - [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape. [`apps/customer/README.md`](apps/customer/README.md): where customer screens and rooms go.
 - Rust lives in `crates/` (one Cargo workspace, toolchain pinned in `rust-toolchain.toml`): `pnpm rust:check` runs what CI's Rust job runs (format, clippy with warnings as errors, tests); `pnpm rust:fmt` formats.
 - Each service's `README.md`: read it before you edit that service. Find code with `rg`.
