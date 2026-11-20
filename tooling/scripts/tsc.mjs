@@ -34,6 +34,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -93,7 +94,6 @@ export function seedOf(project) {
   return join(common, 'intafaced-tsc-seed', `${key}.tsbuildinfo`);
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => {
   try {
     process.kill(pid, 0);
