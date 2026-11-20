@@ -333,6 +333,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // Collect (J-derivatives-17, J-campaigns-03): every 2 seconds the TEST venue's own claim record is read and each
           // claim posts once; a claim exists only once a journey asks the TEST venue for one (`/test/builder-claim`).
           TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: '2000',
+          // J-ops-console-28: our builder address's mode at each TEST venue is checked every 2 seconds (and on each read of the
+          // console's view), and an alert out of the required mode goes to the labelled TEST contact.
+          TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: '2000',
+          TRADE_BUILDER_MODE_ALERT_CONTACT: testValue('TRADE_BUILDER_MODE_ALERT_CONTACT'),
           // Move own funds (OWNER 288 Q4; J-campaigns-03): the labelled TEST float, schedule, rewards wallet and builder key
           // seed, so what the TEST builder account holds above the float is swept to the TEST rewards wallet.
           TRADE_OWN_FUNDS_FLOAT: testValue('TRADE_OWN_FUNDS_FLOAT'),

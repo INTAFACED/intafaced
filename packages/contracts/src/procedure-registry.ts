@@ -213,6 +213,7 @@ import {
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
 } from './tax-procedures.js';
+import { TRADE_BUILDER_ACCOUNT_MODE } from './trade-builder-mode-procedures.js';
 import { COPY_MY_COPY_FEES } from './trade-copy-procedures.js';
 import { GRID_SUBMIT_PERMISSION } from './trade-grid-procedures.js';
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
@@ -420,6 +421,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   TAX_SET_INCLUDE_TRANSFERS,
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
+  TRADE_BUILDER_ACCOUNT_MODE,
   COPY_MY_COPY_FEES,
   GRID_SUBMIT_PERMISSION,
   WS_SBE_CONSUMERS,
