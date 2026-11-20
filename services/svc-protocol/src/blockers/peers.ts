@@ -1,19 +1,12 @@
-import type { ZodType } from 'zod';
+import { DEX_HEALTH, type DexHealth } from '@intafaced/contracts/dex-procedures';
 import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
-import {
-  dexHealthSchema,
-  indexerStatusSchema,
-  unwrapTrpcData,
-  type BlockerSource,
-  type DexHealth,
-  type IndexerStatus,
-} from '@intafaced/contracts';
+import { indexerStatusSchema, type BlockerSource, type IndexerStatus } from '@intafaced/contracts';
 
 /**
  * Where `protocol.blockers` learns what the indexer and the DEX say about themselves.
  *
- * Both are read through their public tRPC procedures (`indexer.status` by its record, `dex.health`), never their tables. Neither read
+ * Both are read through their public tRPC procedures by their records (`indexer.status`, `dex.health`), never their tables. Neither read
  * carries a credential, and the caller's region is forwarded so a screened region stays screened at the peer.
  *
  * A peer with no URL or no timeout is "not connected in this environment" (the gateway's own word for it). Nothing here
@@ -45,14 +38,6 @@ interface PeerCall<T> {
   readonly reply: (body: unknown) => T | null;
 }
 
-const byName = <T>(procedure: string, schema: ZodType<T>): PeerCall<T> => ({
-  url: (base) => `${base.replace(/\/+$/, '')}/trpc/${procedure}`,
-  reply: (body) => {
-    const parsed = schema.safeParse(unwrapTrpcData(body));
-    return parsed.success ? parsed.data : null;
-  },
-});
-
 /**
  * The indexer's status read by its record, then cut to the facts `protocol.blockers` publishes (`indexerStatusSchema`):
  * the probe's RPC address and the rest stay in svc-indexer's answer and never reach a blockers reader.
@@ -63,6 +48,12 @@ const INDEXER_STATUS_CALL: PeerCall<IndexerStatus> = {
     const status = trpcRecordReply(INDEXER_STATUS, body);
     return status === null ? null : indexerStatusSchema.parse(status);
   },
+};
+
+/** svc-dex's health read by its record. */
+const DEX_HEALTH_CALL: PeerCall<DexHealth> = {
+  url: (base) => trpcRecordRequest(DEX_HEALTH, base, undefined).url,
+  reply: (body) => trpcRecordReply(DEX_HEALTH, body),
 };
 
 async function read<T>(config: PeerConfig, call: PeerCall<T>, region: string | undefined): Promise<BlockerSource<T>> {
@@ -95,7 +86,7 @@ async function read<T>(config: PeerConfig, call: PeerCall<T>, region: string | u
 export function createPeers(config: { indexer: PeerConfig; dex: PeerConfig }): Peers {
   return {
     indexer: (region) => read(config.indexer, INDEXER_STATUS_CALL, region),
-    dex: (region) => read(config.dex, byName('health', dexHealthSchema), region),
+    dex: (region) => read(config.dex, DEX_HEALTH_CALL, region),
   };
 }
 

@@ -663,6 +663,18 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.accountSummary(a);
     },
+    // J-derivatives-29 #1 #9 #11: the account's mode, its spot and perps balances in standard mode, and the day's action
+    // count, as the venue reports them; a venue that reads none refuses not_offered, and the app says "not known".
+    '/api/v1/venue/account-mode': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.accountMode)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} does not report the account mode`,
+        });
+      return venue.accountMode(a);
+    },
     // J-derivatives-07 #1 #3: the position's liquidation state on one market and the venue's price and fee rules, in its
     // own words; a venue that reads none refuses not_offered.
     '/api/v1/venue/liquidation': async (d, q, a) => {
@@ -781,6 +793,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/leverage-change',
     '/api/v1/venue/isolated-margin',
     '/api/v1/venue/account-summary',
+    '/api/v1/venue/account-mode',
     '/api/v1/venue/liquidation',
     '/api/v1/venue/liquidations',
     '/api/v1/venue/deleverages',

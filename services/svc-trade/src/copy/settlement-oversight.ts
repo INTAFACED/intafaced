@@ -25,7 +25,7 @@ import { venueFeeShareFundKey, venueFeeShareOweKey } from './venue-fee-share.js'
  * set-aside of the claim that funds it (`fee-share:budget-fund:<venue>:<claim>`) and the share owed to the lead
  * (`fee-share:builder-fee:<venue>:<account>:<fill>:lead-trader:<lead>`), which carries the stored amount; its venue fee is
  * the builder fee the poster recorded for that very fill. Until the claim is set aside and the share owed it is held as
- * `settle_unfinished`, with the owe key.
+ * `ledger_post_missing`, with the owe key.
  */
 
 /** The reconcile windows finance chooses from. There is no default: a blank window refuses. */
@@ -153,13 +153,16 @@ export function judgeSettlement(
   }
 
   const reasons: SettlementHeldReason[] = [];
-  if (!share.settled) reasons.push('settle_unfinished');
   if (share.venue) {
-    // The set-aside funds many shares at once, so only the owed post carries this share's amount.
-    if (share.settled && (ledger.payout === null || ledger.sweep === null)) reasons.push('ledger_post_missing');
-    else if (ledger.payout !== null && payoutAmount !== share.owed) reasons.push('ledger_amount_differs');
-  } else if (ledger.payout === null || ledger.sweep === null) reasons.push('ledger_post_missing');
-  else if (payoutAmount !== share.owed || sweepAmount !== share.owed) reasons.push('ledger_amount_differs');
+    // Not owed yet (waiting for the venue to pay us the fee) is a missing post, not an unfinished settle. The set-aside
+    // funds many shares at once, so only the owed post carries this share's amount.
+    if (ledger.payout === null || (share.settled && ledger.sweep === null)) reasons.push('ledger_post_missing');
+    else if (payoutAmount !== share.owed) reasons.push('ledger_amount_differs');
+  } else {
+    if (!share.settled) reasons.push('settle_unfinished');
+    if (ledger.payout === null || ledger.sweep === null) reasons.push('ledger_post_missing');
+    else if (payoutAmount !== share.owed || sweepAmount !== share.owed) reasons.push('ledger_amount_differs');
+  }
   if (!venueReported) reasons.push('venue_not_reported');
   else if (venue.some((v) => v.assetId !== share.assetId) || venueSum !== share.protocolFee) reasons.push('venue_fee_differs');
 

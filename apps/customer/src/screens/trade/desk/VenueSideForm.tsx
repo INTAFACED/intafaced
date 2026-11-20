@@ -51,6 +51,7 @@ import {
 import type { Access } from './venue-access';
 import { VenueReviewRows } from './VenueReviewRows';
 import { VerifyNote } from './VenueVerifyDesk';
+import { SpotShortOffer, useAccountMode } from '../../../features/trade';
 
 /** What a ticket is asked to hold by the DOM, the chart or one-click close (J-charts-desk-14). */
 export interface TicketPick {
@@ -214,9 +215,16 @@ export function VenueSideForm({
 
   const verb = side === 'buy' ? d('Buy asset', { asset: market.baseAsset }) : d('Sell asset', { asset: market.baseAsset });
   // The venue's own figures: what this order locks against what the venue account has free (J-cex-spot-02 #6).
-  const balances = account.balances.data?.value ?? null;
+  // In standard mode a spot order pays from the spot balance, apart from perps (J-derivatives-29 #2): the shortfall is
+  // judged against spot, as the venue reports it.
+  const accountMode = useAccountMode(market.kind === 'spot' ? owner : null);
+  const spotRows =
+    market.kind === 'spot' && accountMode.state === 'known' && accountMode.read.mode === 'standard' ? (accountMode.read.spot ?? []) : null;
+  const balances = spotRows ?? account.balances.data?.value ?? null;
   const short = live?.state === 'ok' && live.signature === signature && balances ? lockShortfall(live.preview.value, balances) : null;
   const refusedNow = live?.state === 'refused' && live.signature === signature;
+  // A buy that spot can't pay in standard mode, or in a mode not known: the move from perps is offered, or refused.
+  const spotOffer = side === 'buy' && market.kind === 'spot' && (spotRows !== null || accountMode.state === 'unknown');
   const tagBad = tagProblem(tag);
   const canSend =
     access === 'verified' &&
@@ -545,10 +553,19 @@ export function VenueSideForm({
           <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-refused" data-code={live.code ?? ''}>
             {live.code === BUILDER_FEE_BLANK ? v('Builder fee owner blank') : t('Not placeable', { detail: live.message })}
           </p>
-        ) : short ? (
+        ) : short && !spotOffer ? (
           <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-short">
             {t('Not enough free', { asset: short.asset, lock: displayAmount(short.lock), free: displayAmount(short.free) })}
           </p>
+        ) : null}
+        {spotOffer && owner ? (
+          <SpotShortOffer
+            owner={owner}
+            venueName={status.venue.displayName}
+            mode={accountMode}
+            lock={short && short.asset === 'USDC' ? short.lock : null}
+            onLanded={accountMode.reload}
+          />
         ) : null}
         {busy ? <p className="dk-note">{t('Waiting wallet')}</p> : null}
         {problem ? (

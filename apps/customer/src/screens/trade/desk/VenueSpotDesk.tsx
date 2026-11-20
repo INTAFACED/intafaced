@@ -1,3 +1,4 @@
+import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import { useResource } from '../../../shared/resource';
 import { usePreferences } from '../../../shared/preferences';
@@ -266,6 +267,7 @@ export function VenueSpotDesk({
   return (
     <div data-testid="if-desk" className="if-desk" data-market={market.symbol} data-venue="on">
       <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
+      <ActionLimitWarning venueName={status.venue.displayName} />
       {/* The desk's two columns: the market, chart, DOM and ticket in the centre; the account and the rules beside. */}
       <div className="dk-venue-grid">
         <div className="dk-venue-col" data-testid="venue-centre">

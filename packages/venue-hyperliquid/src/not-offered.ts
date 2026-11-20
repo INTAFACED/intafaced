@@ -25,6 +25,9 @@ export const NOT_OFFERED: Readonly<Record<Exclude<VenueIntent['kind'], BuiltInte
   // Hyperliquid has one (`updateIsolatedMargin`); this adapter does not build it or read its limit yet.
   update_isolated_margin: "changing an isolated position's margin is not offered by this adapter yet",
   place_orders: 'orders signed together are not offered by this adapter yet: sign each order on its own',
+  // Hyperliquid has both (`usdClassTransfer`, and the account abstraction setting); this adapter builds neither yet.
+  spot_perps_transfer: 'a move between spot and perps is not offered by this adapter yet',
+  set_account_mode: 'changing the account mode is not offered by this adapter yet',
 };
 
 export function isBuiltIntent(intent: VenueIntent): intent is BuiltIntent {
