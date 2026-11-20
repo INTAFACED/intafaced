@@ -1,14 +1,8 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import {
-  tokenAccessViewSchema,
-  tokenBurnedSupplySchema,
-  tokenProposalClosedSchema,
-  tokenProposalViewSchema,
-  tokenStakeViewSchema,
-  tokenTallySchema,
-} from '@intafaced/contracts/token-governance';
+import { tokenProposalClosedSchema, tokenProposalViewSchema, tokenTallySchema } from '@intafaced/contracts/token-governance';
+import { TOKEN_ACCESS_OF, TOKEN_BURNED_SUPPLY, TOKEN_LIST_STAKES } from '@intafaced/contracts/token-procedures';
 import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
@@ -44,7 +38,8 @@ import {
   type VoteChoice,
 } from './token-ballot';
 import './token-governance.css';
-const stakeSchema = tokenStakeViewSchema.extend({ amount: decimalSchema });
+/** The stake statuses `listStakes` filters by. */
+const STAKE_STATUSES = ['all', 'active', 'pending', 'closed'] as const;
 const proposalSchema = tokenProposalViewSchema.extend({ id: proposalIdSchema });
 const tally = tokenTallySchema.extend({
   forWeight: decimalSchema,
@@ -195,26 +190,19 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
     [status, setStatus] = useState('all'),
     [limit, setLimit] = useState(50);
   const access = useResource(
-      (signal) => api.query('token', 'accessOf', undefined, tokenAccessViewSchema.extend({ staked: decimalSchema }), { signal }),
+      (signal) => api.call(TOKEN_ACCESS_OF, undefined, { signal, accept: (access) => decimalSchema.safeParse(access.staked).success }),
       `token-access:${userId}`,
     ),
     stakes = useResource(
       (signal) =>
-        api.query(
-          'token',
-          'listStakes',
-          { status, limit },
-          z
-            .array(stakeSchema)
-            .refine((rows) => rows.every((row) => row.userId === userId), copyText('token.stake.ownership.does.not.match.this.account')),
-          { signal },
+        api.call(
+          TOKEN_LIST_STAKES,
+          { status: STAKE_STATUSES.find((s) => s === status) ?? 'all', limit },
+          { signal, accept: (rows) => rows.every((row) => row.userId === userId) },
         ),
       `token-stakes:${userId}:${status}:${limit}`,
     ),
-    burned = useResource(
-      (signal) => api.query('token', 'burnedSupply', undefined, tokenBurnedSupplySchema.extend({ burned: decimalSchema }), { signal }),
-      `token-burn:${userId}`,
-    );
+    burned = useResource((signal) => api.call(TOKEN_BURNED_SUPPLY, undefined, { signal }), `token-burn:${userId}`);
   return (
     <div className="more-grid">
       <Tabs

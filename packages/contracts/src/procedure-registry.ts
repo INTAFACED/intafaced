@@ -166,6 +166,15 @@ import {
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
 } from './tax-procedures.js';
+import {
+  TOKEN_ACCESS_OF,
+  TOKEN_LIST_STAKES,
+  TOKEN_EMISSION_SCHEDULE,
+  TOKEN_REVENUE_SHARE_HISTORY,
+  TOKEN_TREASURY,
+  TOKEN_BUYBACK_RUNS,
+  TOKEN_BURNED_SUPPLY,
+} from './token-procedures.js';
 import { GRID_SUBMIT_PERMISSION } from './trade-grid-procedures.js';
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 import type { ProcedureRecord } from './procedure.js';
@@ -328,6 +337,13 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   TAX_SET_INCLUDE_TRANSFERS,
   TAX_EXPORT_PREVIEW,
   TAX_EXPORT_PACK,
+  TOKEN_ACCESS_OF,
+  TOKEN_LIST_STAKES,
+  TOKEN_EMISSION_SCHEDULE,
+  TOKEN_REVENUE_SHARE_HISTORY,
+  TOKEN_TREASURY,
+  TOKEN_BUYBACK_RUNS,
+  TOKEN_BURNED_SUPPLY,
   GRID_SUBMIT_PERMISSION,
   WS_SBE_CONSUMERS,
 ];
