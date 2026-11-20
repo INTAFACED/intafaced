@@ -191,6 +191,9 @@ jobs:
           CHANGED: ${{ github.event.pull_request.changed_files }}
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
+          # A clean-up change's codemod reruns on the merge base of these two (journey-touch.mjs, cleanup-replay.mjs).
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           # Main always runs the full suite (main's full run is the backstop, never narrowed): a push, a scheduled run or
           # a manual run on main, whatever its journeys input, decides nothing here and keeps an empty target.

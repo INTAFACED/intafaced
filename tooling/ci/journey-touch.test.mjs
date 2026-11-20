@@ -28,6 +28,7 @@ import {
   namedJourneyIds,
   pathKind,
   stackImporters,
+  withSiblings,
 } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, JOURNEY_TEST, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 import { reachSelect } from './journey-reach-map.mjs';
@@ -1781,4 +1782,46 @@ test('replay, the seal: each of the 4 named pull requests no longer seals on a r
     // The same run on a head that touched nothing else would have sealed: the named rule's own lines are clean.
     for (const s of Object.keys(states)) assert.match(out.lines.join('\n'), new RegExp(`${s}: passed`), `#${c.number}: ${s}`);
   }
+});
+
+// A clean-up change (project-state#3360; the owner's decision of 20 Nov 2026, part 2: "A cleanup change passes on types,
+// build, start-up check, unit tests, the before/after comparison and only the journeys its area reaches; it never falls
+// back to running all"). Two customer paths from the named-reach fixture's map: Promotions.tsx, which the map narrows,
+// and token-ballot.ts, which no run recorded and nothing at the head is known to load (the reason #9148, a clean-up of
+// 9 files, ran the full suite on 20 Nov 2026).
+test('a clean-up change (its diff is a codemod’s output) runs the map’s journeys and the CANARY, never full; a hand edit beside it is full', () => {
+  const c = REPLAY.cases[0];
+  const { reach } = replayInputs(c);
+  const narrows = 'apps/customer/src/features/account/Promotions.tsx';
+  const unknown = 'apps/customer/src/features/more/token-ballot.ts';
+  const paths = [narrows, unknown, 'apps/customer/src/features/more/token-ballot.test.ts'];
+  const heads = new Set([...reach.journeyFiles, ...CANARY]);
+  const r = { ...reach, journeyFiles: heads };
+  // Today's rule: the map can't speak for token-ballot.ts, so the change is full.
+  assert.equal(journeyTouch(paths, () => true, r, null).mode, 'full');
+  const cleanup = { ok: true, name: 'example', paths: new Set([narrows, unknown]) };
+  const t = journeyTouch(paths, () => true, r, null, cleanup);
+  assert.equal(t.mode, 'files', JSON.stringify(t.full));
+  const sel = reachSelect({ map: REPLAY.map, paths: [narrows], behind: 0, atHead: heads, mode: 'reach' });
+  assert.equal(sel.mode, 'files');
+  for (const f of [...sel.files, ...CANARY]) assert.ok(t.files.includes(f), f);
+  assert.ok(t.files.length < heads.size, 'fewer than every journey');
+  assert.match(t.reach[0], /a clean-up change: its 2 product path\(s\) are exactly codemod example's output/);
+  assert.ok(
+    t.reach.some((l) => l.startsWith(`${unknown}: the map can't speak for it`)),
+    JSON.stringify(t.reach),
+  );
+  // A hand edit beside the codemod's output (a product path it did not write): today's rule, full.
+  const hand = { ...cleanup, paths: new Set([narrows]) };
+  assert.equal(journeyTouch(paths, () => true, r, null, hand).mode, 'full');
+  // A replay that failed: today's rule.
+  assert.equal(journeyTouch(paths, () => true, r, null, { ok: false, why: 'x' }).mode, 'full');
+  // Any other full path beside it keeps today's rule (a root build file).
+  assert.equal(journeyTouch([...paths, 'package.json'], () => true, r, null, cleanup).mode, 'full');
+  // A map that can't be used selects nothing, and the CANARY still boots the stack: never the full run.
+  const off = journeyTouch(paths, () => true, { ...r, mode: 'off' }, null, cleanup);
+  assert.deepEqual([off.mode, off.files], ['files', withSiblings(new Set(CANARY), heads)]);
+  assert.equal(journeyTouch(paths, () => true, null, null, cleanup).mode, 'files');
+  // The scripts themselves run no journeys.
+  assert.equal(pathKind('tooling/codemods/example.mjs').kind, 'none');
 });

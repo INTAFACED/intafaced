@@ -46,6 +46,11 @@
  *     tooling/scripts/local-test-stack.mjs, which every shard boots) runs the named journeys plus the CANARY journeys
  *     (the lead's call). Without a name, or when the journey files can't be read, each stays full, and the rest of
  *     SHARED_SETUP always is;
+ *   - clean-up (the owner's decision of 20 Nov 2026, project-state#3360): a pull request whose product diff is exactly
+ *     the output of the codemod its body names (`Codemod: <name>`, tooling/codemods/<name>.mjs at its merge base, rerun
+ *     there by cleanup-replay.mjs) runs the journeys the map gives for those paths, its always-run list and the CANARY
+ *     journeys (the start-up check: they boot the stack and the app), and never the full run: a path or a map that can't
+ *     speak adds nothing, and main's full run after the merge judges it. Any other full path keeps the rules above;
  *   - files: a journey test file (`apps/customer/tests/real-app/J-<id>[-part].pw.mjs`, JOURNEY_TEST) touches the
  *     journeys in that file only. (Another run file there, a look sweep, holds no journey steps, so no report lists it:
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
@@ -79,7 +84,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
-import { subscribesVia, builtMap, headWanted, loadMap, newerMap, reachSelect, readHead, runsBehind } from './journey-reach-map.mjs';
+import { codemodOf, replayCodemod } from './cleanup-replay.mjs';
+import {
+  subscribesVia,
+  builtMap,
+  cleanupSelect,
+  headWanted,
+  loadMap,
+  newerMap,
+  reachSelect,
+  readHead,
+  runsBehind,
+} from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -102,6 +118,8 @@ export const JOURNEY_CI = [
   // The touched-journeys map and what reads it: they decide which journeys a product change runs.
   'tooling/ci/journey-reach-map.mjs',
   'tooling/ci/journey-reach-map.json',
+  // Whether a pull request is a clean-up change: its codemod, rerun on the merge base, wrote its product diff.
+  'tooling/ci/cleanup-replay.mjs',
   'tooling/ci/post-merge-trust.mjs',
   'tooling/ci/review-marker.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
@@ -233,6 +251,9 @@ const NONE_RULES = [
   // (packages/sdk-ts/src/drift.test.ts) and the generator (tooling/scripts/sdk-from-openapi.ts) are their judges.
   // (#8321 ran all 32 shards for sdks/python/openapi/payments.openapi.json, a path no rule placed, 14 Nov 2026.)
   (p) => p.startsWith('sdks/'),
+  // The clean-up scripts (cleanup-replay.mjs): only that replay runs one, on a merge base in its own worktree; no
+  // journey, stack script or service imports or reads them, and their output is judged as the code it writes.
+  (p) => p.startsWith('tooling/codemods/'),
 ];
 
 const PRODUCT = 'product code, and no map recorded from real runs says which journeys reach it yet';
@@ -454,7 +475,7 @@ function kindOf(p) {
  * it, a service's own stack file adds the journeys that use it, when nothing else is full (`stack` lists those paths,
  * `importers` those journeys); otherwise it is full like any other.
  */
-export function journeyTouch(paths, atHead = () => true, reach = null, named = null) {
+export function journeyTouch(paths, atHead = () => true, reach = null, named = null, cleanup = null) {
   const full = [];
   const product = [];
   const stack = [];
@@ -468,7 +489,27 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
   }
   let because;
   let byName;
-  if (product.length && named && !reach) {
+  if (product.length && !full.length && cleanup?.ok && product.every((p) => cleanup.paths?.has(p))) {
+    // A clean-up change (cleanup-replay.mjs): the map's journeys for its paths and the CANARY journeys, which boot the
+    // stack and the app (the start-up check); never the full run. Any other full path keeps today's rule.
+    const heads = reach?.journeyFiles ?? named?.journeyFiles ?? null;
+    const sel = cleanupSelect({
+      map: reach ? reach.map : undefined,
+      paths: product,
+      behind: reach?.behind,
+      atHead: heads,
+      subscribes: reach?.subscribes,
+      head: reach?.head ?? null,
+      ...(reach?.mode ? { mode: reach.mode } : {}),
+    });
+    for (const f of sel.files) files.add(f);
+    for (const f of CANARY) if (!(heads instanceof Set) || heads.has(f)) files.add(f);
+    if (named) for (const f of named.files) files.add(f);
+    because = [
+      `a clean-up change: its ${product.length} product path(s) are exactly codemod ${cleanup.name}'s output, rerun on its merge base; it runs the map's journeys for them and the ${CANARY.length} CANARY journeys (the start-up check), never the full run`,
+      ...sel.because,
+    ].map(printable);
+  } else if (product.length && named && !reach) {
     // Judged on the journeys it names (theo-01 part 1); another full path still makes the whole change full.
     if (full.length) for (const p of product) full.push({ path: printable(p), why: PRODUCT });
     else {
@@ -891,7 +932,25 @@ async function main() {
     journeyFiles: checkoutJourneyFiles(),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
-  const t = journeyTouch(paths, atHead, reach, named);
+  // A clean-up change (cleanup-replay.mjs): the body's `Codemod: <name>` script, rerun on the merge base of the pull
+  // request's base and head (HEAD_SHA, BASE_SHA; the touch job's), must have written exactly its product diff.
+  let cleanup = null;
+  const codemod = args.includes('--reach') ? codemodOf(process.env.BODY) : null;
+  if (codemod) {
+    let base = null;
+    try {
+      base = JSON.parse(
+        ghApi(
+          `repos/${process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced'}/compare/${process.env.BASE_SHA}...${process.env.HEAD_SHA}?per_page=1`,
+        ),
+      )?.merge_base_commit?.sha;
+    } catch {}
+    cleanup = replayCodemod({ base, head: process.env.HEAD_SHA, name: codemod, paths, isProduct: (p) => Boolean(pathKind(p).product) });
+    console.error(
+      `journey-touch: codemod ${codemod}: ${cleanup.ok ? `its output is this pull request's ${cleanup.paths.size} path(s)` : printable(cleanup.why)}`,
+    );
+  }
+  const t = journeyTouch(paths, atHead, reach, named, cleanup);
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));
   if (t.mode === 'full') {

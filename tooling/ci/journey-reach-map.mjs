@@ -1119,6 +1119,40 @@ export function reachSelect({ map, paths, behind, atHead, subscribes = () => fal
   return { mode: 'files', files, because };
 }
 
+/**
+ * reachSelect for a clean-up change (cleanup-replay.mjs: its product diff is exactly a codemod's output): the journeys
+ * the map gives for each path it can speak for, and its always-run list, and never the full run. A path the map can't
+ * speak for, or a map that can't be used, adds nothing and says so; main's full run after the merge judges it (the
+ * owner's decision of 20 Nov 2026: "it never falls back to running all"). `atHead`: as reachSelect's, or null when the
+ * journey files can't be listed (then only the reached files the map names). Returns { files, because }.
+ */
+export function cleanupSelect({ map, paths, behind, atHead, subscribes = () => false, head = null, mode = REACH_MAP_MODE }) {
+  const problem = map === undefined ? 'no touched-journeys map was read' : mapProblem(map, behind, mode);
+  if (problem) return { files: [], because: [`${problem}, so no journey is selected by it; main's full run judges the change`] };
+  const picked = new Set();
+  const because = [];
+  for (const p of paths) {
+    let r;
+    try {
+      r = pathReach(map, p, subscribes(p), head);
+    } catch (e) {
+      r = { full: `its reach couldn't be worked out (${e.message})` };
+    }
+    if (r.full) {
+      because.push(`${p}: the map can't speak for it (${r.full}); main's full run judges it`);
+      continue;
+    }
+    for (const i of r.journeys) picked.add(map.journeys[i]);
+    because.push(`${p}: ${r.journeys.length} journey file(s) reach it`);
+  }
+  const known = new Set(map.journeys);
+  const always = [...Object.keys(map.full ?? {}), ...(atHead instanceof Set ? [...atHead].filter((f) => !known.has(f)) : [])];
+  for (const f of always) picked.add(f);
+  if (always.length) because.push(`${always.length} journey file(s) the map can't speak for run with every change`);
+  const files = [...picked].filter((f) => !(atHead instanceof Set) || atHead.has(f)).sort();
+  return { files, because };
+}
+
 // ---- The builder's I/O ----
 
 const gh = (args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });

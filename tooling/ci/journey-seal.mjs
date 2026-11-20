@@ -79,6 +79,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
+import { codemodOf, replayCodemod } from './cleanup-replay.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
 import { subscribesVia, builtMap, headWanted, loadMap, newerMap, readHead, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
@@ -694,6 +695,8 @@ export function makeIo(repo, token) {
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
+    // A clean-up change's codemod, rerun on the merge base in this checkout (the default branch's; cleanup-replay.mjs).
+    replay: (args) => replayCodemod({ root: process.cwd(), ...args }),
     // The map the touch job used (journey-touch.mjs): the newest build main's map workflow verified no later than `before`,
     // else the committed copy beside this script.
     reachMap: async (before) =>
@@ -1322,6 +1325,22 @@ async function runMap(io, head) {
 }
 
 /**
+ * Whether the pull request is a clean-up change, as its journeys run judged it (journey-touch.mjs main): the codemod its
+ * body names (`Codemod: <name>`), rerun on the merge base, wrote exactly its product diff (cleanup-replay.mjs). Null when
+ * it names none or the seal can't replay it; then today's rules decide, which never ask fewer journeys.
+ */
+export async function cleanupInputs({ io, pull, paths, head }) {
+  const name = codemodOf(pull?.body);
+  if (!name || !io.replay || !io.mergeBase) return null;
+  try {
+    const base = await io.mergeBase(pull.base?.sha, head);
+    return await io.replay({ base, head, name, paths, isProduct: (p) => Boolean(pathKind(p).product) });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * What a pull request that names a journey runs (journey-touch.mjs namedInputs, theo-01 part 1), as its journeys run
  * worked it out: the journeys its title or branch names, with a file at the head. Null when it names none, or when the head's journey files can't be read (then the other rules decide,
  * which never ask fewer journeys).
@@ -1477,7 +1496,13 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     ? { mode: 'none', full: [], files: [] }
     : auto?.ok
       ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
-      : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, base: pull.base?.sha, text }), named);
+      : journeyTouch(
+          paths,
+          (f) => atHead.get(f) ?? true,
+          await reachInputs({ io, paths, head, base: pull.base?.sha, text }),
+          named,
+          await cleanupInputs({ io, pull, paths, head }),
+        );
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
   const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
