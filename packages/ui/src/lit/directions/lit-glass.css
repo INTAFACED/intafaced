@@ -1,0 +1,134 @@
+/*
+ * Direction: Lit glass (intafaced issue 9227). Cold blue-black, one blue spark, and glass you can see: frosted,
+ * layered surfaces on the floating tab bar, the top bar, sheets and the money object, over a dark atmosphere with
+ * depth. Applies only with `data-direction='lit-glass'` on the root, which look.ts sets only under `data-look='lit'`
+ * (`?look=lit-glass`); off by default, so nobody sees it without asking.
+ *
+ * Values come only from the kit's roles (lit.css), mixed here; this sheet adds no role. The direction's own mixes are
+ * `--lg-*` custom properties, declared on the root under the direction and used only in this sheet and the room
+ * sheets of the same direction. Static: nothing here animates on its own; motion is the kit's transitions only.
+ * Glass (backdrop blur) sits on the navigation layer (top bar, tab bar), sheets and the money object; content
+ * panels stay solid, only tinted and rimmed like glass, inside the GPU budget. Solid surfaces (`data-surfaces`,
+ * lit.css) turn the blur off through the roles it reads.
+ */
+:root[data-direction='lit-glass'] {
+  /* the deep end of the blue pulled into the page: blue-black, never flat black */
+  --lg-page: color-mix(in srgb, var(--lit-accent-deep) 34%, var(--lit-page));
+  --lg-air:
+    radial-gradient(70rem 34rem at 50% -14rem, color-mix(in srgb, var(--lit-accent) 30%, transparent), transparent 70%),
+    radial-gradient(40rem 30rem at 110% 30%, color-mix(in srgb, var(--lit-accent-deep) 70%, transparent), transparent 70%),
+    radial-gradient(46rem 36rem at -20% 85%, color-mix(in srgb, var(--lit-accent-deep) 60%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--lg-page), var(--lit-page) 70%);
+  /* glass: a frosted body, a bright edge where the light hits, a dim one away from it */
+  --lg-glass: color-mix(in srgb, var(--lit-solid-bg-raised) 46%, transparent);
+  --lg-glass-strong: color-mix(in srgb, var(--lit-solid-bg-raised) 64%, transparent);
+  --lg-frost: blur(1.75rem) saturate(170%);
+  --lg-edge: var(--lit-glass-rim);
+  --lg-edge-dim: var(--lit-glass-rim-dim);
+  --lg-sheen: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--lit-glass-rim) 34%, transparent),
+    color-mix(in srgb, var(--lit-glass-rim) 6%, transparent) 38%,
+    transparent 60%
+  );
+  --lg-panel: color-mix(in srgb, var(--lit-solid-bg) 84%, transparent);
+  --lg-lift: 0 1.5rem 3rem -1.5rem var(--lit-scrim), 0 0.25rem 0.75rem -0.25rem var(--lit-scrim);
+  --lg-spark: var(--lit-accent);
+  --lg-spark-glow: 0 0 1.25rem color-mix(in srgb, var(--lit-accent) 55%, transparent);
+  background: var(--lg-page);
+}
+:root[data-direction='lit-glass'][data-theme='light'] {
+  --lg-page: color-mix(in srgb, var(--lit-accent) 6%, var(--lit-page));
+  --lg-air:
+    radial-gradient(70rem 34rem at 50% -14rem, color-mix(in srgb, var(--lit-accent) 22%, transparent), transparent 70%),
+    radial-gradient(40rem 30rem at 110% 30%, color-mix(in srgb, var(--lit-accent) 10%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--lg-page), var(--lit-page) 70%);
+  --lg-glass: color-mix(in srgb, var(--lit-solid-bg) 58%, transparent);
+  --lg-glass-strong: color-mix(in srgb, var(--lit-solid-bg) 74%, transparent);
+  --lg-panel: color-mix(in srgb, var(--lit-solid-bg) 82%, transparent);
+  --lg-lift: 0 1.5rem 3rem -1.75rem color-mix(in srgb, var(--lit-accent-deep) 45%, transparent), 0 0.25rem 0.75rem -0.5rem var(--lit-scrim);
+  --lg-spark-glow: 0 0 1rem color-mix(in srgb, var(--lit-accent) 35%, transparent);
+}
+/* Solid surfaces: no frost, no see-through */
+:root[data-direction='lit-glass'][data-surfaces='solid'] {
+  --lg-glass: var(--lit-solid-bg-raised);
+  --lg-glass-strong: var(--lit-solid-bg-raised);
+  --lg-frost: none;
+  --lg-panel: var(--lit-solid-bg);
+}
+
+/* The atmosphere: one fixed layer of light behind everything, painted once (no motion) */
+[data-direction='lit-glass'] body {
+  background: var(--lg-page);
+}
+[data-direction='lit-glass'] .if-app {
+  position: relative;
+  isolation: isolate;
+  background: none;
+  --tb-bg: transparent;
+  --tb-line: var(--lg-edge-dim);
+}
+[data-direction='lit-glass'] .if-app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--lg-air);
+}
+
+/* Top bar: a frosted strip the page slides under */
+[data-direction='lit-glass'] .tb {
+  background: var(--lg-glass);
+  -webkit-backdrop-filter: var(--lg-frost);
+  backdrop-filter: var(--lg-frost);
+  border-block-end: 1px solid var(--lg-edge-dim);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--lg-edge) 20%, transparent);
+}
+
+/* Content panels: solid enough for money, tinted and rimmed like the glass around them */
+[data-direction='lit-glass'] :is(.home-section, .home-inbox, .home-started-slot > *, .home-side > *) {
+  border-radius: var(--lit-radius-panel);
+}
+
+/* The phone tab bar: a floating frosted pill, the current door the one spark */
+@media (max-width: 767px) {
+  [data-direction='lit-glass'] .if-app {
+    padding-block-end: calc(var(--lit-dock-h) + var(--if-space-6));
+  }
+  [data-direction='lit-glass'] .mobile-doors {
+    inset-inline: var(--if-space-4);
+    inset-block-end: max(var(--if-space-4), env(safe-area-inset-bottom));
+    padding: var(--if-space-1-5);
+    gap: var(--if-space-1);
+    border: 0;
+    border-radius: 999px;
+    background: var(--lg-sheen), var(--lg-glass-strong);
+    -webkit-backdrop-filter: var(--lg-frost);
+    backdrop-filter: var(--lg-frost);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--lg-edge) 70%, transparent),
+      inset 0 0 0 1px var(--lg-edge-dim),
+      var(--lg-lift);
+  }
+  [data-direction='lit-glass'] .mobile-doors a {
+    min-block-size: 3.25rem;
+    border-radius: 999px;
+    color: var(--lit-text-2);
+    font-size: var(--lit-type-micro-size);
+    letter-spacing: 0.01em;
+    transition:
+      background var(--lit-t-base) var(--lit-ease),
+      color var(--lit-t-base) var(--lit-ease);
+  }
+  [data-direction='lit-glass'] .mobile-doors a[aria-current='page'] {
+    position: relative;
+    color: var(--lit-text-1);
+    background: color-mix(in srgb, var(--lit-text-1) 9%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lg-edge) 50%, transparent);
+  }
+  [data-direction='lit-glass'] .mobile-doors a[aria-current='page'] svg {
+    color: var(--lit-accent-text);
+    filter: drop-shadow(0 0 0.375rem color-mix(in srgb, var(--lit-accent) 70%, transparent));
+  }
+}

@@ -10,3 +10,5 @@ import '@intafaced/ui/lit/fonts.css';
 import '@intafaced/ui/lit/components.css';
 import '@intafaced/ui/a11y/a11y.css';
 import '@intafaced/ui/lit/templates.css';
+// the look directions the owner chooses from (look.ts), each scoped to its own data-direction
+import '@intafaced/ui/lit/directions/lit-glass.css';

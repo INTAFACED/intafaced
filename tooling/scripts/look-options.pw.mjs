@@ -19,7 +19,10 @@ const out = process.env.LOOK_OPTIONS_OUT;
  */
 export const DIRECTIONS = [
   { id: 'today', query: 'look=off&accent=off', solid: false, schemes: ['dark'] },
-  { id: 'lit-glass', query: 'look=lit&accent=blue', solid: false },
+  { id: 'lit-blue', query: 'look=lit&accent=blue', solid: false },
+  // The real directions (intafaced #9227): `look=<direction>`, their own screens, each picture named
+  // `<screen>--<size>--<scheme>.png` in that direction's own folder (LOOK_OPTIONS_DIRECTIONS=<id> LOOK_OPTIONS_OUT=<its folder>)
+  { id: 'lit-glass', query: 'look=lit-glass&accent=off', solid: false, screens: ['home', 'money', 'buy'], own: true },
   { id: 'ember', query: 'look=lit&accent=ember', solid: false },
   { id: 'emerald-solid', query: 'look=lit&accent=emerald', solid: true },
 ];
@@ -27,12 +30,17 @@ export const SCREENS = [
   { id: 'home', path: '/home' },
   { id: 'desk', path: deskPath('BTC/USDT') },
   { id: 'money', path: '/money' },
+  // a simple buy, as Home's Buy opens it, with an amount typed so the quote shows
+  { id: 'buy', path: '/trade/buy', amount: '100' },
 ];
 export const SIZES = [
   { id: 'phone', width: 390, height: 844 },
   { id: 'computer', width: 1440, height: 900 },
 ];
 export const SCHEMES = ['dark', 'light'];
+
+/** The other directions' screens (every screen but the buy, as before #9227) unless a direction names its own. */
+const screensOf = (d) => (d.screens ? SCREENS.filter((s) => d.screens.includes(s.id)) : SCREENS.filter((s) => s.id !== 'buy'));
 
 const only = (name, list) => {
   const asked = process.env[name]?.split(',').filter(Boolean);
@@ -54,13 +62,18 @@ test('look options', async ({ page }) => {
       }, d.solid);
       for (const size of only('LOOK_OPTIONS_SIZES', SIZES)) {
         await page.setViewportSize({ width: size.width, height: size.height });
-        for (const s of only('LOOK_OPTIONS_SCREENS', SCREENS)) {
+        for (const s of only('LOOK_OPTIONS_SCREENS', screensOf(d))) {
           const res = await page.goto(s.path);
           expect(res?.status() ?? 0, `${s.path} answered`).toBeLessThan(400);
           await page.waitForLoadState('networkidle').catch(() => {});
+          if (s.amount) {
+            const field = page.getByRole('textbox', { name: /^Amount in/ });
+            await field.fill(s.amount);
+            await expect(page.getByTestId('approx')).not.toHaveText('');
+          }
           await page.evaluate(() => document.fonts.ready);
           const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
-          const file = `${d.id}--${s.id}--${size.id}--${scheme}.png`;
+          const file = d.own ? `${s.id}--${size.id}--${scheme}.png` : `${d.id}--${s.id}--${size.id}--${scheme}.png`;
           await page.screenshot({ path: path.join(out, file), animations: 'disabled' });
           shots.push({ file, direction: d.id, screen: s.id, size: size.id, scheme, url: page.url(), root });
         }

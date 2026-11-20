@@ -1,0 +1,199 @@
+/*
+ * The Lit glass direction on Home (intafaced issue 9227): the hero (total, money object, actions) and the money object
+ * itself. Only under `data-direction='lit-glass'` (look.ts); the direction's mixes (`--lg-*`) and roles come from
+ * @intafaced/ui/lit/directions/lit-glass.css. Static: nothing moves on its own.
+ */
+[data-direction='lit-glass'] .lg-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--if-space-3);
+  margin-block-end: var(--lit-gap-section);
+}
+[data-direction='lit-glass'] .lg-hero .home-label {
+  color: var(--lit-text-2);
+}
+
+/* The total: big, light weight, tight; the decimals and the point step back */
+[data-direction='lit-glass'] .lg-hero .home-total {
+  block-size: auto;
+  margin-block-start: 0;
+}
+[data-direction='lit-glass'] .lg-hero .home-total .if-num {
+  font-family: var(--lit-font-figure);
+  font-size: clamp(3rem, 13vw, 4.5rem);
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  color: var(--lit-text-1);
+}
+[data-direction='lit-glass'] .lg-hero .home-total number-flow-react::part(fraction),
+[data-direction='lit-glass'] .lg-hero .home-total number-flow-react::part(decimal) {
+  color: var(--lit-text-3);
+  font-size: 0.55em;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+/* The money object: two frosted cards, crypto behind and cash in front, lit from behind by the one blue light */
+[data-direction='lit-glass'] .lg-stack {
+  position: relative;
+  block-size: 13.5rem;
+  margin-block: var(--if-space-2) var(--if-space-2);
+  isolation: isolate;
+}
+[data-direction='lit-glass'] .lg-stack__light {
+  position: absolute;
+  inset-block-start: 8%;
+  inset-inline-start: 18%;
+  inline-size: 64%;
+  block-size: 84%;
+  z-index: -1;
+  border-radius: 50%;
+  background:
+    radial-gradient(closest-side, color-mix(in srgb, var(--lit-accent-hot) 55%, transparent), transparent 55%),
+    radial-gradient(closest-side, var(--lit-accent), color-mix(in srgb, var(--lit-accent) 40%, transparent) 55%, transparent);
+  opacity: 0.75;
+}
+[data-theme='light'][data-direction='lit-glass'] .lg-stack__light {
+  opacity: 0.45;
+}
+[data-direction='lit-glass'] .lg-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  inline-size: min(100%, 21rem);
+  block-size: 11.5rem;
+  padding: var(--lit-pad-panel);
+  border-radius: 1.375rem;
+  color: var(--lit-text-1);
+  text-decoration: none;
+  background: var(--lg-sheen), var(--lg-glass);
+  -webkit-backdrop-filter: var(--lg-frost);
+  backdrop-filter: var(--lg-frost);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--lg-edge) 80%, transparent),
+    inset 0 0 0 1px var(--lg-edge-dim),
+    var(--lg-lift);
+  transition: translate var(--lit-t-base) var(--lit-ease);
+}
+/* the rim brighter toward the light, top-start */
+[data-direction='lit-glass'] .lg-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(150deg, var(--lg-edge), var(--lg-edge-dim) 45%, transparent 70%, var(--lg-edge-dim));
+  -webkit-mask:
+    linear-gradient(var(--lit-page) 0 0) content-box,
+    linear-gradient(var(--lit-page) 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+[data-direction='lit-glass'] .lg-card--back {
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  transform: rotate(4deg);
+  opacity: 0.9;
+}
+[data-direction='lit-glass'] .lg-card--front {
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  transform: rotate(-3deg);
+}
+[data-direction='lit-glass'] .lg-card:hover {
+  translate: 0 -0.25rem;
+}
+[data-direction='lit-glass'] .lg-card:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 3px;
+}
+[data-direction='lit-glass'] .lg-card--waiting {
+  opacity: 0.6;
+}
+[data-direction='lit-glass'] .lg-card__top,
+[data-direction='lit-glass'] .lg-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--if-space-2);
+}
+[data-direction='lit-glass'] .lg-card__label {
+  font-size: var(--lit-type-label-size);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--lit-text-2);
+}
+/* the mark: a small etched ring, the look's coin edge */
+[data-direction='lit-glass'] .lg-card__mark {
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lg-edge) 80%, transparent),
+    inset 0 0 0 0.4rem color-mix(in srgb, var(--lit-text-1) 6%, transparent);
+}
+[data-direction='lit-glass'] .lg-card__value {
+  font-family: var(--lit-font-figure);
+  font-size: var(--lit-type-figure-size);
+  line-height: var(--lit-type-figure-line);
+  font-weight: 500;
+  letter-spacing: var(--lit-type-figure-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The actions: metal for the one main action, glass keys for the rest */
+[data-direction='lit-glass'] .lg-hero .home-actions {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  gap: var(--if-space-2);
+}
+[data-direction='lit-glass'] .lg-hero .home-actions::before {
+  content: none;
+}
+[data-direction='lit-glass'] .lg-hero .home-actions > :not(:first-child) {
+  color: var(--lit-text-1);
+  background: var(--lg-glass);
+  -webkit-backdrop-filter: var(--lg-frost);
+  backdrop-filter: var(--lg-frost);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--lg-edge) 60%, transparent),
+    inset 0 0 0 1px var(--lg-edge-dim);
+}
+
+/* Computer: the total and actions on the start side, the money object on the end side */
+@media (min-width: 768px) {
+  [data-direction='lit-glass'] .lg-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 26rem);
+    grid-template-areas:
+      'label stack'
+      'total stack'
+      'note stack'
+      'actions stack';
+    align-content: center;
+    column-gap: var(--if-space-12);
+    row-gap: var(--if-space-3);
+    padding: var(--if-space-6) 0;
+  }
+  [data-direction='lit-glass'] .lg-hero .home-label {
+    grid-area: label;
+  }
+  [data-direction='lit-glass'] .lg-hero .home-total {
+    grid-area: total;
+  }
+  [data-direction='lit-glass'] .lg-hero .lg-stack {
+    grid-area: stack;
+    align-self: center;
+  }
+  [data-direction='lit-glass'] .lg-hero .home-actions {
+    grid-area: actions;
+  }
+  [data-direction='lit-glass'] .lg-hero .home-total .if-num {
+    font-size: 5.5rem;
+  }
+}
