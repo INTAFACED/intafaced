@@ -86,6 +86,7 @@ export const SERVED_ROUTES: readonly string[] = [
   'GET /api/v1/tickers public trade:read',
   'GET /api/v1/time public trade:read',
   'GET /api/v1/trades/:symbol public trade:read',
+  'GET /api/v1/venue/account-mode private trade:read',
   'GET /api/v1/venue/account-summary private trade:read',
   'GET /api/v1/venue/adl-disclosure private trade:read',
   'GET /api/v1/venue/agent-accounts private trade:read',
