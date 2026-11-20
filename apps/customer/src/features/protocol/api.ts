@@ -1,3 +1,4 @@
+import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import type { ProtocolVenueBuildInput } from '@intafaced/contracts/protocol-venue-funds';
 import {
   PROTOCOL_AMM_ALLOWANCES,
@@ -42,7 +43,7 @@ import type { ProtocolAddressReportInput } from '@intafaced/contracts/protocol-a
 import { PROTOCOL_ADDRESS_REPORTS_SUBMIT, PROTOCOL_ADDRESS_RISK_READ } from '@intafaced/contracts/protocol-wallet-procedures';
 import {
   dexHealthSchema,
-  indexerStatusSchema,
+  type IndexerStatus,
   type ProtocolAuditStatus,
   type ProtocolChainStatus,
   type ProtocolServiceHealth,
@@ -86,11 +87,11 @@ export type SessionGrantSpec = {
   targets: string[];
   selectors: string[];
 };
-export { dexHealthSchema, dexQuoteSchema, indexerStatusSchema };
+export { dexHealthSchema, dexQuoteSchema };
 export type ChainStatus = ProtocolChainStatus;
 export type AuditStatus = ProtocolAuditStatus;
 export type ProtocolHealth = ProtocolServiceHealth;
-export type IndexerStatus = z.infer<typeof indexerStatusSchema>;
+export type { IndexerStatus };
 export type DexHealth = z.infer<typeof dexHealthSchema>;
 export type DexQuote = z.infer<typeof dexQuoteSchema>;
 export type NetworksList = ProtocolNetworksListOutput;
@@ -123,7 +124,7 @@ export function createProtocolApi(api: ApiClient) {
     /** The audit room's per-product rows: an owner-recorded external report per product, or none (D-developer-compliance-02). */
     auditProducts: (signal?: AbortSignal) => api.call(PROTOCOL_AUDIT_PRODUCTS, undefined, { signal }),
     health: (signal?: AbortSignal) => api.call(PROTOCOL_HEALTH, undefined, { signal }),
-    indexerStatus: (signal?: AbortSignal) => api.query('indexer', 'status', undefined, indexerStatusSchema, { signal }),
+    indexerStatus: (signal?: AbortSignal) => api.call(INDEXER_STATUS, undefined, { signal }),
     dexHealth: (signal?: AbortSignal) => api.query('dex', 'health', undefined, dexHealthSchema, { signal }),
     /** A contract's source status, its proxy and the interface its Read and Write tabs use (D-explorer-06). */
     contractInspect: (address: string, signal?: AbortSignal) => api.call(PROTOCOL_CONTRACT_INSPECT, { address }, { signal }),

@@ -8,6 +8,8 @@
  * fetch returns decimal strings. Anything else is `indexer.portfolio_positions_unwired`.
  * Empty present list is empty, not zero money.
  */
+import { INDEXER_POSITIONS } from '@intafaced/contracts/indexer-procedures';
+import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
 import { z } from 'zod';
 import { formatAmount, parseAmount, type Balance, type OwnerType } from '@intafaced/ledger-client';
 
@@ -140,8 +142,8 @@ function positionsFromWire(raw: unknown): IndexerPosition[] | null {
 }
 
 /**
- * HTTP/tRPC to svc-indexer `positions`. Never invents an address. Never coerces
- * a JSON number into a size. Unreachable / malformed / unset → named unwired.
+ * HTTP/tRPC to svc-indexer `positions`, by its record (`INDEXER_POSITIONS`). Never invents an address. Never coerces
+ * a JSON number into a size. Unreachable / refused / not the record's shape / unset → named unwired.
  */
 export async function resolveIndexerHalf(input: ResolveIndexerHalfInput): Promise<IndexerHalf> {
   const url = indexerUrlOf(input.url);
@@ -150,7 +152,7 @@ export async function resolveIndexerHalf(input: ResolveIndexerHalfInput): Promis
 
   const doFetch = input.fetch ?? globalThis.fetch;
   const timeoutMs = input.timeoutMs ?? 3_000;
-  const target = `${url}/trpc/positions?input=${encodeURIComponent(JSON.stringify({ account }))}`;
+  const target = trpcRecordRequest(INDEXER_POSITIONS, url, { account }).url;
 
   try {
     const response = await doFetch(target, {
@@ -158,11 +160,9 @@ export async function resolveIndexerHalf(input: ResolveIndexerHalfInput): Promis
       headers: { accept: 'application/json' },
     });
     if (!response.ok) return INDEXER_ABSENT;
-    const body: unknown = await response.json();
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) return INDEXER_ABSENT;
-    const envelope = body as { error?: unknown; result?: { data?: unknown } };
-    if (envelope.error !== undefined && envelope.error !== null) return INDEXER_ABSENT;
-    const positions = positionsFromWire(envelope.result?.data);
+    const reply = trpcRecordReply(INDEXER_POSITIONS, await response.json());
+    if (reply === null) return INDEXER_ABSENT;
+    const positions = positionsFromWire(reply);
     if (positions === null) return INDEXER_ABSENT;
     return { status: 'present', positions };
   } catch {
