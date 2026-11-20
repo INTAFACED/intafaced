@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { supportEventsCopy } from './support-events-copy';

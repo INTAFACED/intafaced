@@ -9,7 +9,7 @@ import {
   BLUEPRINT_SET_VISIBILITY,
 } from '@intafaced/contracts/blueprint-procedures';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Read, Select, useAction } from './common';

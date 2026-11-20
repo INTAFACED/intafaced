@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Button, Dialog, Field, Panel } from '../../shared/ui';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { navigate } from '../../app/location';

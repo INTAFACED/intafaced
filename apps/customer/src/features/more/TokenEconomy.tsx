@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Tabs } from '../../shared/ui';
 import { Read } from './common';

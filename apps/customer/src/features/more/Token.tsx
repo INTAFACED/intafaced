@@ -9,7 +9,7 @@ import {
   tokenStakeViewSchema,
   tokenTallySchema,
 } from '@intafaced/contracts/token-governance';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';

@@ -1,6 +1,6 @@
 // hand-declared-ok: svc-token's buybackRuns output is declared in its router; packages/contracts has no token schemas yet
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
