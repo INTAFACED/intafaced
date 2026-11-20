@@ -63,7 +63,7 @@ export async function readWalletFunds(read: ChainRead, route: VenueDepositRoute,
 }
 
 /** The transfer to the venue's bridge, as the chain is asked to run it: the token contract, called with `transfer`. */
-export function depositCall(route: VenueDepositRoute, owner: string, units: bigint) {
+function depositCall(route: VenueDepositRoute, owner: string, units: bigint) {
   return { from: owner, to: route.token, data: transferCalldata(route.address, units), value: '0x0' };
 }
 

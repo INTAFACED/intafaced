@@ -36,7 +36,7 @@ export const TEST_WALLET_PROVIDER_LABEL = 'TEST wallet provider';
 export const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const ACTIONS = new Set(['sign', 'signtyped', 'sendtx', 'export', 'recovery']);
 /** The chain reads the page may make through the provider's connection: none of them signs or sends. */
-export const RPC_READS = new Set([
+const RPC_READS = new Set([
   'eth_chainId',
   'eth_blockNumber',
   'eth_getBlockByNumber',
@@ -356,7 +356,7 @@ async function readJson(req) {
 
 /** The provider behind loopback HTTP. Nothing it answers or logs carries a key, except `export` to the person. */
 /** One JSON-RPC call to the TEST chain at `url`: the result, or a throw with the node's error. */
-export function chainRpc(url) {
+function chainRpc(url) {
   let id = 0;
   return async (method, params) => {
     id += 1;
