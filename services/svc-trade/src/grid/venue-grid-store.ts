@@ -245,6 +245,7 @@ export class SqlVenueGridStore implements VenueGridStore {
       qty: formatAmount(l.qty),
       hold: formatAmount(l.hold),
     }));
+    // bot_id is derived from (user_id, client_request_id) (gridBotIdFor), so both keys name the same row: no target.
     const inserted = await this.sql`
       INSERT INTO trade.venue_grid_bots (bot_id, user_id, client_request_id, request_hash, venue_id, owner, agent_address, region,
         symbol, base_asset, quote_asset, lower_price, upper_price, grid_count, investment, levels, status, status_reason,
@@ -253,7 +254,7 @@ export class SqlVenueGridStore implements VenueGridStore {
         ${b.region}, ${b.symbol}, ${b.baseAsset}, ${b.quoteAsset}, ${formatAmount(b.lowerPrice)}, ${formatAmount(b.upperPrice)},
         ${b.gridCount}, ${formatAmount(b.investment)}, ${this.sql.json(levels)}, ${b.status}, ${b.statusReason}, ${b.createdAt},
         ${b.updatedAt})
-      ON CONFLICT (bot_id) DO NOTHING
+      ON CONFLICT DO NOTHING
       RETURNING bot_id`;
     const stored = await this.find(b.botId);
     if (!stored) throw new Error(`venue grid ${b.botId} was not stored`);
@@ -298,13 +299,14 @@ export class SqlVenueGridStore implements VenueGridStore {
   }
 
   async insertOrder(o: VenueGridOrder) {
+    // order_key is derived from (bot_id, level_index, side, cycle) (gridClientOrderId), so both keys name the same row.
     await this.sql`
       INSERT INTO trade.venue_grid_orders (order_key, bot_id, level_index, side, cycle, price, qty, status, filled, venue_fee,
         builder_fee, fee_asset, pair_profit, placed_at, closed_at)
       VALUES (${o.orderKey}, ${o.botId}, ${o.levelIndex}, ${o.side}, ${o.cycle}, ${formatAmount(o.price)}, ${formatAmount(o.qty)},
         ${o.status}, ${formatAmount(o.filled)}, ${formatAmount(o.venueFee)}, ${formatAmount(o.builderFee)}, ${o.feeAsset},
         ${o.pairProfit === null ? null : formatAmount(o.pairProfit)}, ${o.placedAt}, ${o.closedAt})
-      ON CONFLICT (order_key) DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
     const [row] = OrderRow.array().parse(
       await this.sql`SELECT ${this.sql.unsafe(ORDER_COLUMNS)} FROM trade.venue_grid_orders WHERE order_key = ${o.orderKey}`,
     );
