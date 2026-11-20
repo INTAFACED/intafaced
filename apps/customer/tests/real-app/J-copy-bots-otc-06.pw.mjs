@@ -242,7 +242,7 @@ async function venueStart(page) {
   // The maker's ask holds exactly the two buys.
   // An assistant's order is judged against the book's mid, so the book holds both sides: a small bid under the ask.
   await makerOrder(symbol, 'sell', '0.6');
-  await makerOrder(symbol, 'buy', '0.01', '99');
+  await makerOrder(symbol, 'buy', '0.02', '99');
   await venueLeadOrder(vLeader, leaderKey, symbol, 'buy', '0.3', 1);
   await expect
     .poll(async () => (await copiedPositions(follower, vFollowId)).filter((p) => toUnits(p.open) > 0n).length, {
@@ -254,7 +254,7 @@ async function venueStart(page) {
   const before = await onVenue('/balances', owner, view.subAccount);
   await makerOrder(symbol, 'buy', '1');
   // The two buys took the whole ask; a small ask over the bid gives the copied sell a mid to be judged by.
-  await makerOrder(symbol, 'sell', '0.01', '101');
+  await makerOrder(symbol, 'sell', '0.02', '101');
   await venueLeadOrder(vLeader, leaderKey, symbol, 'sell', '0.2', 2);
   const copiedSell = async () => (await myCopyFees(follower)).rows.find((r) => r.followId === vFollowId && r.side === 'sell');
   let sell;
