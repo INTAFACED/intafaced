@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { P2P_REPUTATION_GET } from '@intafaced/contracts/p2p-procedures';
 
 const ROOT = resolve(import.meta.dirname);
 
@@ -21,8 +22,14 @@ describe('p2p.merchants product pin', () => {
     expect(router).toMatch(/offerLimits:\s*merchantApiProcedure\('p2p:read'/);
     expect(router).toMatch(/myOfferCeiling:\s*merchantApiProcedure\('p2p:read'/);
     expect(router).toMatch(/apiAccess:\s*scopedProcedure\('p2p:read'/);
-    expect(router).toMatch(/merchant:\s*z\.boolean\(\)\.nullable\(\)/);
     expect(router).toMatch(/keyPlane:\s*'identity'/);
+  });
+
+  it('the reputation card carries the merchant badge as approved, not, or programme off', () => {
+    const merchant = P2P_REPUTATION_GET.output.shape.merchant;
+    for (const value of [true, false, null]) expect(merchant.safeParse(value).success).toBe(true);
+    expect(merchant.safeParse(undefined).success).toBe(false);
+    expect(merchant.safeParse('approved').success).toBe(false);
   });
 
   it('wires the programme into the live router (not a stub)', () => {

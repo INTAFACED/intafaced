@@ -141,6 +141,36 @@
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
+<section data-testid="api-version" class="api-keys__version security__card" aria-labelledby="api-version-title">
+<h2 id="api-version-title">API version</h2>
+<p class="muted">A program names the API version it was written for in the intafaced-version header. A key call without the header uses this account default. With neither, the call is refused, never answered as the newest version.</p>
+<div data-testid="failure" class="failure" role="status">
+<h3>
+<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
+</h3>
+<p>No services run in the look gate.</p>
+<button type="button" class="button button--secondary ">
+<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
+</button>
+</div>
+<h3>Published versions</h3>
+<ul data-testid="api-version__versions">
+<li>
+<code>2026-11-20</code> · newest</li>
+</ul>
+<form class="api-keys__version-form">
+<label>Version to use by default <select>
+<option value="2026-11-20">2026-11-20</option>
+</select>
+</label> <button type="submit" class="button button--primary " disabled="">Set as default</button>
+</form>
+<h3>Deprecated fields</h3>
+<ul data-testid="api-version__deprecations">
+<li>
+<code>POST /api/v1/orders stopPx</code> · Use instead: <code>stopPrice</code> · Deprecated in 2026-11-20 · Removal date: removal date not set</li>
+</ul>
+<p class="muted">A reply to a request that sends a deprecated field carries the Deprecation header and an intafaced-advisories entry.</p>
+</section>
 <div data-testid="failure" class="failure" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>

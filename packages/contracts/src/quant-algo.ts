@@ -914,11 +914,6 @@ export const quantNotifySettingsSchema = z.object({
 });
 export type QuantNotifySettings = z.infer<typeof quantNotifySettingsSchema>;
 
-export const quantNotifySetInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  channels: z.array(z.string().max(20)).max(8),
-});
-
 /**
  * A strategy's risk screen (AL-risk-01). Every cap is the developer's own and starts blank; a blank cap stays blank and is
  * never assumed. The trading switch is off by default, turns on only with every cap set (a refusal names each blank one,
@@ -956,17 +951,6 @@ export const quantRiskScreenSchema = z.object({
   updatedAt: z.string().nullable(),
 });
 export type QuantRiskScreen = z.infer<typeof quantRiskScreenSchema>;
-export const quantRiskSetInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  caps: z.object({
-    depositPercent: z.string().max(40),
-    maxPositionNotional: z.string().max(40),
-    maxDailyLoss: z.string().max(40),
-    equityFloor: z.string().max(40),
-  }),
-  floorPolicy: z.string().max(20),
-});
-export const quantRiskTradingInputSchema = z.object({ strategyId: z.string().min(1).max(128), on: z.boolean() });
 
 /**
  * A fill alert (AL-alerts-01): one strategy version, the fill event, and a message template. The template may name only
@@ -1077,11 +1061,6 @@ export type QuantLifecycle = z.infer<typeof quantLifecycleSchema>;
  * `lifecycle.promote`. Keyed `quant.stage:<strategyId>:v<version>:paper:candidate:<seq>`, where `seq` is the number of
  * gate decisions of this version the screen read: a second press with the same reading replays the first answer.
  */
-export const quantPromoteInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-  seq: z.number().int().nonnegative(),
-});
 export const quantPromoteOutputSchema = z.object({
   decision: quantGateDecisionSchema,
   stage: quantStageRowSchema.nullable(),

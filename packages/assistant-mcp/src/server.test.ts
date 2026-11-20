@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_ORDERS_ROUTE,
+  API_VERSION,
   PLACE_ORDER_TOOL,
   configFromEnv,
   createAssistantServer,
@@ -77,6 +78,8 @@ describe('the assistant MCP server', () => {
     expect(seen[0]!.init.method).toBe('POST');
     const headers = seen[0]!.init.headers as Record<string, string>;
     expect(headers.authorization).toBe('Bearer ifc_agent_TEST');
+    // The release-time API version pin (J-developer-16 #5): our API refuses a key call with no version.
+    expect(headers['intafaced-version']).toBe(API_VERSION);
     // No Origin: the assistant is an outside client, not a page.
     expect(headers.origin).toBeUndefined();
     const body = String(seen[0]!.init.body);
@@ -96,7 +99,7 @@ describe('the assistant MCP server', () => {
   it('sends no signature for a key made without a signing secret', async () => {
     const seen: Seen[] = [];
     await createAssistantServer({ ...CONFIG, signingSecret: null }, fakeApi(200, {}, seen))(call(ORDER));
-    expect(Object.keys(seen[0]!.init.headers as object)).toEqual(['authorization', 'content-type']);
+    expect(Object.keys(seen[0]!.init.headers as object)).toEqual(['authorization', 'content-type', 'intafaced-version']);
   });
 
   it('hands back our typed refusal as the tool error, words and code as our API said them', async () => {

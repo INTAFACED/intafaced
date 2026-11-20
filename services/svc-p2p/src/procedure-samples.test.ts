@@ -3,7 +3,7 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import type { ProcedureSample } from '@intafaced/contracts/procedure';
+import type { ProcedureRecord, ProcedureSample } from '@intafaced/contracts/procedure';
 import { P2P_PROCEDURES } from '@intafaced/contracts/p2p-procedures';
 import type { InstrumentService } from './instrument-service.js';
 import type { P2pService } from './p2p-service.js';
@@ -21,12 +21,14 @@ const SECRET = 'a-p2p-samples-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-p2p' });
 
-function signedIn(): Record<string, string> {
+/** Signed in with the p2p scopes and whatever other scope the record admits (support's `admin:compliance`). */
+function signedIn(record: ProcedureRecord): Record<string, string> {
+  const admits = record.access.caller === 'scope' ? [record.access.scope] : [];
   const principal = {
     sub: USER,
     userId: USER,
     sid: '33333333-3333-4333-8333-333333333333',
-    scopes: ['p2p:read', 'p2p:write'],
+    scopes: [...new Set(['p2p:read', 'p2p:write', ...admits])],
     tier: 'basic',
     mfa: false,
     expiresAt: new Date('2099-01-01T00:00:00Z'),
@@ -74,11 +76,11 @@ describe("svc-p2p's mounted routes reach each record sample's verdict", () => {
     const url = `/trpc/${record.path}${record.kind === 'query' && input !== undefined ? `?input=${encodeURIComponent(JSON.stringify(input))}` : ''}`;
     const res =
       record.kind === 'query'
-        ? await app.inject({ method: 'GET', url, headers: signedIn() })
+        ? await app.inject({ method: 'GET', url, headers: signedIn(record) })
         : await app.inject({
             method: 'POST',
             url,
-            headers: { ...signedIn(), 'content-type': 'application/json' },
+            headers: { ...signedIn(record), 'content-type': 'application/json' },
             payload: input === undefined ? '' : JSON.stringify(input),
           });
     if (sample.verdict === 'refuse') expect(res.statusCode, res.body).toBe(400);
