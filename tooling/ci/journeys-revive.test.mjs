@@ -684,8 +684,8 @@ test("planted: a red main never had, whose test main didn't change, or whose rea
   assert.deepEqual(still.calls.updated, []);
 });
 
-test('a pull request the pull holds (blocked, parked, design, factory-fix) is left as it is, as #8157 (parked) should have been', async () => {
-  for (const name of ['blocked', 'parked', 'design', 'factory-fix']) {
+test('a pull request the pull holds (blocked, parked, factory-fix) is left as it is, as #8157 (parked) should have been', async () => {
+  for (const name of ['blocked', 'parked', 'factory-fix']) {
     const { io, calls } = heldIo({
       main: [RED_MAIN, GREEN_MAIN],
       prs: [{ pr: heldPull({ labels: [{ name }] }), run: heldPrRun(), rows: CAMPAIGN_ROWS }],
@@ -694,6 +694,16 @@ test('a pull request the pull holds (blocked, parked, design, factory-fix) is le
     assert.deepEqual(calls.updated, []);
     assert.equal(lines[0], `#8165: labelled ${name}, left as it is`);
   }
+});
+
+test('a design pull request held only by main is brought onto main like any other (decision project-state#3428)', async () => {
+  const { io, calls } = heldIo({
+    main: [RED_MAIN, GREEN_MAIN],
+    prs: [{ pr: heldPull({ labels: [{ name: 'design' }] }), run: heldPrRun(), rows: CAMPAIGN_ROWS }],
+  });
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.equal(calls.updated.length, 1);
+  assert.match(lines[0], /branch updated from main, a fresh head/);
 });
 
 test('a pull request that conflicts with main is not sent to GitHub, and a 422 says why', async () => {
