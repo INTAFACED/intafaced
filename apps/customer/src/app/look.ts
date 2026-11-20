@@ -3,8 +3,6 @@
  * back off. Off by default, so every journey on main sees today's app. It only sets `data-look` on the root element;
  * everything the look changes is scoped to `[data-look='lit']`.
  */
-import { remembered, resolvePreviewScheme } from '../shared/preferences';
-
 /** Where the choice is remembered; boot.ts reads it too, to set the look before the first paint. */
 export const LOOK_KEY = 'intafaced.look';
 export type LookId = 'lit';
@@ -44,15 +42,29 @@ export function resolveLook(search: string): LookId | null {
  * The look's preview switches, for rendering the direction options the owner chooses from (intafaced issue 9188): `?accent=`
  * picks the Lit accent (`blue`, `ember`, `violet`, `emerald`; `?accent=off` forgets it) and `?scheme=light` draws the
  * light values (`?scheme=dark` forgets it). Both are remembered like the look and off by default, so nobody sees light
- * or another accent without asking for it; light stays unshipped (preferences.ts draws dark for every stored theme).
+ * or another accent without asking for it; light stays unshipped. The scheme lives in preferences.ts, which reads it
+ * itself: this file imports nothing, because vite.config.ts loads it through boot.ts.
  */
 const ACCENT_KEY = 'intafaced.look.accent';
 /** Held equal to `accents` in `@intafaced/ui/lit` by look.test.ts. */
 export const LOOK_ACCENTS = ['blue', 'ember', 'violet', 'emerald'] as const;
 export type LookAccent = (typeof LOOK_ACCENTS)[number];
 
+const isAccent = (v: string | null): v is LookAccent => v !== null && (LOOK_ACCENTS as readonly string[]).includes(v);
+
 export function resolveAccent(search: string): LookAccent | null {
-  return remembered(search, 'accent', ACCENT_KEY, LOOK_ACCENTS, 'off');
+  const asked = new URLSearchParams(search).get('accent');
+  try {
+    if (isAccent(asked)) localStorage.setItem(ACCENT_KEY, asked);
+    else if (asked === 'off') localStorage.removeItem(ACCENT_KEY);
+    else {
+      const kept = localStorage.getItem(ACCENT_KEY);
+      return isAccent(kept) ? kept : null;
+    }
+  } catch {
+    // private mode or blocked storage: the switch lasts for this page only
+  }
+  return isAccent(asked) ? asked : null;
 }
 
 /** Called once before the first render. */
@@ -63,7 +75,6 @@ export function applyLook(root: HTMLElement = document.documentElement, search: 
   const accent = resolveAccent(search);
   if (accent) root.dataset.accent = accent;
   else delete root.dataset.accent;
-  resolvePreviewScheme(search);
   return look;
 }
 

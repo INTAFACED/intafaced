@@ -182,8 +182,8 @@ export function currentPreferences() {
 
 const SCHEME_KEY = 'intafaced.look.scheme';
 
-/** A query switch remembered on this device (`?<param>=<value>`; `?<param>=<off>` forgets it); look.ts uses it too. */
-export function remembered<T extends string>(search: string, param: string, key: string, values: readonly T[], off: string): T | null {
+/** A query switch remembered on this device (`?<param>=<value>`; `?<param>=<off>` forgets it). */
+function remembered<T extends string>(search: string, param: string, key: string, values: readonly T[], off: string): T | null {
   const asked = new URLSearchParams(search).get(param);
   try {
     if (asked !== null && (values as readonly string[]).includes(asked)) {
