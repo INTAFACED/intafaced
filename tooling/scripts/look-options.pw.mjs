@@ -1,6 +1,6 @@
 // World: none
-// The look directions' pictures for the owner's first choice (intafaced #9188): the same three real screens (Home, the
-// spot desk, Money) as one new TEST person, verified and funded with TEST USDT through the real ledger, at phone
+// The look directions' pictures for the owner's first choice (intafaced #9188, #9227): the same real screens (Home, the
+// spot desk, Money; the real directions show Home, Money and Buy) as one new TEST person, verified and funded with TEST USDT through the real ledger, at phone
 // (390×844) and computer (1440×900), dark and light, in each direction. Every picture is the running app: a direction
 // is only the look's own switches (look.ts: `?look=`, `?accent=`, `?scheme=`; Solid surfaces from its setting).
 // Run on this checkout's own stack (`pnpm local:stack verify launch` first):
@@ -20,10 +20,9 @@ const out = process.env.LOOK_OPTIONS_OUT;
 export const DIRECTIONS = [
   { id: 'today', query: 'look=off&accent=off', solid: false, schemes: ['dark'] },
   { id: 'lit-blue', query: 'look=lit&accent=blue', solid: false },
-  // The real directions (intafaced #9227): `look=<direction>`, their own screens, each picture named
-  // `<screen>--<size>--<scheme>.png` in that direction's own folder (LOOK_OPTIONS_DIRECTIONS=<id> LOOK_OPTIONS_OUT=<its folder>)
-  { id: 'lit-glass', query: 'look=lit-glass&accent=off', solid: false, screens: ['home', 'money', 'buy'], own: true },
-  { id: 'ember', query: 'look=lit&accent=ember', solid: false },
+  // the real directions (intafaced #9227): each its own Home, money object, tab bar and material, and the Buy flow
+  { id: 'lit-glass', query: 'look=lit&accent=off&direction=lit-glass', solid: false, screens: ['home', 'money', 'buy'] },
+  { id: 'ember', query: 'look=lit&accent=off&direction=ember', solid: false, screens: ['home', 'money', 'buy'] },
   { id: 'emerald-solid', query: 'look=lit&accent=emerald', solid: true },
 ];
 export const SCREENS = [
@@ -38,9 +37,6 @@ export const SIZES = [
   { id: 'computer', width: 1440, height: 900 },
 ];
 export const SCHEMES = ['dark', 'light'];
-
-/** The other directions' screens (every screen but the buy, as before #9227) unless a direction names its own. */
-const screensOf = (d) => (d.screens ? SCREENS.filter((s) => d.screens.includes(s.id)) : SCREENS.filter((s) => s.id !== 'buy'));
 
 const only = (name, list) => {
   const asked = process.env[name]?.split(',').filter(Boolean);
@@ -60,14 +56,15 @@ test('look options', async ({ page }) => {
   const shots = [];
   for (const d of only('LOOK_OPTIONS_DIRECTIONS', DIRECTIONS)) {
     for (const scheme of only('LOOK_OPTIONS_SCHEMES', d.schemes ?? SCHEMES)) {
-      await page.goto(`/home?${d.query}&scheme=${scheme}`);
+      // a direction without its own switch forgets any other direction this browser remembers
+      await page.goto(`/home?${d.query}${d.query.includes('direction=') ? '' : '&direction=off'}&scheme=${scheme}`);
       await page.evaluate((solid) => {
         if (solid) localStorage.setItem('intafaced.surfaces', 'solid');
         else localStorage.removeItem('intafaced.surfaces');
       }, d.solid);
       for (const size of only('LOOK_OPTIONS_SIZES', SIZES)) {
         await page.setViewportSize({ width: size.width, height: size.height });
-        for (const s of only('LOOK_OPTIONS_SCREENS', screensOf(d))) {
+        for (const s of only('LOOK_OPTIONS_SCREENS', SCREENS).filter((x) => (d.screens ?? ['home', 'desk', 'money']).includes(x.id))) {
           const res = await page.goto(s.path);
           expect(res?.status() ?? 0, `${s.path} answered`).toBeLessThan(400);
           await page.waitForLoadState('networkidle').catch(() => {});
@@ -80,7 +77,9 @@ test('look options', async ({ page }) => {
           await page.evaluate(() => document.fonts.ready);
           const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
           if (!d.solid) expect(root.surfaces, `${s.path} draws glass`).toBe('glass');
-          const file = d.own ? `${s.id}--${size.id}--${scheme}.png` : `${d.id}--${s.id}--${size.id}--${scheme}.png`;
+          // one direction asked for: its own folder, so the names drop the direction (`<screen>--<size>--<scheme>.png`)
+          const one = only('LOOK_OPTIONS_DIRECTIONS', DIRECTIONS).length === 1;
+          const file = `${one ? '' : `${d.id}--`}${s.id}--${size.id}--${scheme}.png`;
           await page.screenshot({ path: path.join(out, file), animations: 'disabled' });
           shots.push({ file, direction: d.id, screen: s.id, size: size.id, scheme, url: page.url(), root });
         }

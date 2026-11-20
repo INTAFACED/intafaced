@@ -7,32 +7,6 @@
 export const LOOK_KEY = 'intafaced.look';
 export type LookId = 'lit';
 
-/**
- * The real look directions the owner chooses from (intafaced issue 9227): `?look=<direction>` turns the Lit look on with
- * that direction's own Home, money object, tab bar and material, scoped to `[data-direction='<id>']`; `?look=lit` or
- * `?look=off` forgets it. Remembered like the look, off by default. One entry per direction.
- */
-const DIRECTION_KEY = 'intafaced.look.direction';
-const LOOK_DIRECTIONS = ['lit-glass'] as const;
-export type LookDirection = (typeof LOOK_DIRECTIONS)[number];
-const isDirection = (v: string | null): v is LookDirection => v !== null && (LOOK_DIRECTIONS as readonly string[]).includes(v);
-
-/** Reads `?look=<direction>` (and remembers it) or the remembered direction; `?look=lit` and `?look=off` forget it. */
-function resolveDirection(search: string): LookDirection | null {
-  const asked = new URLSearchParams(search).get('look');
-  try {
-    if (isDirection(asked)) localStorage.setItem(DIRECTION_KEY, asked);
-    else if (asked === 'lit' || asked === 'off') localStorage.removeItem(DIRECTION_KEY);
-    else {
-      const kept = localStorage.getItem(DIRECTION_KEY);
-      return isDirection(kept) ? kept : null;
-    }
-  } catch {
-    // private mode or blocked storage: the switch lasts for this page only
-  }
-  return isDirection(asked) ? asked : null;
-}
-
 function stored(): string | null {
   try {
     return localStorage.getItem(LOOK_KEY);
@@ -53,8 +27,7 @@ function store(value: LookId | null): void {
 /** Reads `?look=` (and remembers it) or the remembered choice. Pure apart from storage, for tests. */
 export function resolveLook(search: string): LookId | null {
   const asked = new URLSearchParams(search).get('look');
-  // a direction is the Lit look with its own scope on top
-  if (asked === 'lit' || isDirection(asked)) {
+  if (asked === 'lit') {
     store('lit');
     return 'lit';
   }
@@ -94,24 +67,53 @@ export function resolveAccent(search: string): LookAccent | null {
   return isAccent(asked) ? asked : null;
 }
 
+/**
+ * The look directions the owner chooses between (intafaced issue 9227): `?direction=<id>` draws that direction's own
+ * material, type and layout over the look (`data-direction` on the root), `?direction=off` forgets it. Remembered like
+ * the accent and off by default, so nobody sees a direction without asking for it.
+ */
+const DIRECTION_KEY = 'intafaced.look.direction';
+/** Held equal to `directions` in `@intafaced/ui/lit` by look.test.ts. */
+export const LOOK_DIRECTIONS = ['ember', 'lit-glass'] as const;
+export type LookDirection = (typeof LOOK_DIRECTIONS)[number];
+
+const isDirection = (v: string | null | undefined): v is LookDirection => v != null && (LOOK_DIRECTIONS as readonly string[]).includes(v);
+
+export function resolveDirection(search: string): LookDirection | null {
+  const asked = new URLSearchParams(search).get('direction');
+  try {
+    if (isDirection(asked)) localStorage.setItem(DIRECTION_KEY, asked);
+    else if (asked === 'off') localStorage.removeItem(DIRECTION_KEY);
+    else {
+      const kept = localStorage.getItem(DIRECTION_KEY);
+      return isDirection(kept) ? kept : null;
+    }
+  } catch {
+    // private mode or blocked storage: the switch lasts for this page only
+  }
+  return isDirection(asked) ? asked : null;
+}
+
+/** The direction drawn now: only while the look is on. */
+export function lookDirection(root: HTMLElement = document.documentElement): LookDirection | null {
+  const d = root.dataset.direction;
+  return root.dataset.look === 'lit' && isDirection(d) ? d : null;
+}
+
 /** Called once before the first render. */
 export function applyLook(root: HTMLElement = document.documentElement, search: string = location.search): LookId | null {
   const look = resolveLook(search);
   if (look) root.dataset.look = look;
   else delete root.dataset.look;
-  const direction = look ? resolveDirection(search) : null;
-  if (direction) root.dataset.direction = direction;
-  else delete root.dataset.direction;
   const accent = resolveAccent(search);
   if (accent) root.dataset.accent = accent;
   else delete root.dataset.accent;
+  const direction = resolveDirection(search);
+  if (direction) root.dataset.direction = direction;
+  else delete root.dataset.direction;
   return look;
 }
 
 export function isLook(look: LookId, root: HTMLElement = document.documentElement): boolean {
   return root.dataset.look === look;
-}
-
-export function isDirectionOn(direction: LookDirection, root: HTMLElement = document.documentElement): boolean {
-  return root.dataset.look === 'lit' && root.dataset.direction === direction;
 }

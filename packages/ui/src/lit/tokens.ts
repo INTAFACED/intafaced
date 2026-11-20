@@ -17,7 +17,7 @@
  * and blur are only on the nav and sheet layers, and text roles meet 4.5:1 on every solid surface.
  */
 import { cssValue } from '../theme/tokens.js';
-import { accents, LIT_LOOK, roleNames, roleVar, type Accent, type Role, type TypeRole } from './contracts.js';
+import { accents, directions, LIT_LOOK, roleNames, roleVar, type Accent, type Direction, type Role, type TypeRole } from './contracts.js';
 
 type RoleMap = Record<Role, string>;
 
@@ -317,6 +317,141 @@ export const accentSets: Record<Accent, Partial<RoleMap>> = {
   },
 };
 
+/**
+ * The look directions (intafaced issue 9227): each sets its own material and type over the look's roles, dark and light.
+ * The dark set applies only while the light preview is off, so the light set is never mixed with dark values; `both`
+ * (type faces, radii) and the type sizes apply in either scheme.
+ *
+ * Ember: warm black with orange light coming from the edges, never flat orange fills. The orange is redder than
+ * Bitcoin's (#F7931A) and far from the warning amber (`warn-text` stays #FFC452), so a warning never reads as the brand
+ * and the brand never reads as a coin. Figures are set in Bricolage Grotesque (self-hosted, OFL-1.1), heavy and tight.
+ */
+export const directionSets: Record<
+  Direction,
+  { dark: Partial<RoleMap>; both: Partial<RoleMap>; light: Partial<RoleMap>; type: Partial<typeof litType> }
+> = {
+  ember: {
+    dark: {
+      page: '#0B0806',
+      'page-2': '#110C09',
+      field:
+        'radial-gradient(60% 38% at 100% 0%, color-mix(in srgb, var(--lit-accent) 20%, transparent), transparent 72%), radial-gradient(70% 34% at 0% 100%, color-mix(in srgb, var(--lit-accent-deep) 80%, transparent), transparent 78%)',
+      'text-1': '#F7F0E9',
+      'text-2': '#BCAFA4',
+      'text-3': '#9A8C81',
+      'text-disabled': '#564B43',
+      line: 'rgba(255, 232, 214, 0.07)',
+      'line-strong': 'rgba(255, 232, 214, 0.14)',
+      accent: '#FF5A1F',
+      'accent-hot': '#FFB37A',
+      'accent-deep': '#4A1405',
+      'accent-pair': '#FFD7B5',
+      'accent-text': '#FF7C47',
+      'accent-fill': '#C2410C',
+      'accent-fill-2': '#8A2C06',
+      'on-accent': '#FFFFFF',
+      'solid-bg': '#16100C',
+      'solid-bg-raised': '#1F1712',
+      'solid-bg-sunken': '#090605',
+      'solid-lip': 'inset 0 1px 0 rgba(255, 220, 190, 0.08)',
+      'solid-rim': 'rgba(255, 206, 170, 0.24)',
+      'solid-rim-dim': 'rgba(255, 220, 190, 0.05)',
+      'solid-wall': '#0C0806',
+      sheen: 'linear-gradient(180deg, rgba(255, 236, 220, 0.05), rgba(255, 236, 220, 0.012) 70%)',
+      'corner-glow': 'color-mix(in srgb, var(--lit-accent) 26%, transparent)',
+      'glass-bg': 'linear-gradient(180deg, rgba(255, 236, 220, 0.06), rgba(255, 236, 220, 0.015) 70%), rgba(22, 16, 12, 0.78)',
+      'glass-rim': 'rgba(255, 206, 170, 0.22)',
+      'glass-rim-dim': 'rgba(255, 220, 190, 0.05)',
+      'glass-shadow':
+        'inset 0 1px 0 rgba(255, 220, 190, 0.08), 0 3px 0 0 #0C0806, 0 4px 0 0 rgba(0, 0, 0, 0.5), 0 24px 48px -20px rgba(0, 0, 0, 0.9)',
+      scrim: 'rgba(6, 4, 3, 0.74)',
+      veil: 'rgba(11, 8, 6, 0.62)',
+      'primary-bg': 'linear-gradient(180deg, #FFF8F1 0%, #F1E4D6 55%, #DCCAB8 100%)',
+      'primary-fg': '#140D09',
+      'primary-shadow':
+        'inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(60, 30, 10, 0.35), 0 10px 28px -14px rgba(255, 106, 40, 0.45)',
+      'secondary-bg': 'linear-gradient(180deg, #1D1612, #110C09)',
+      'secondary-fg': '#F7F0E9',
+      'key-bg': 'linear-gradient(180deg, rgba(255, 236, 220, 0.06), rgba(255, 236, 220, 0.015) 70%), #16100C',
+      'control-bg': '#0F0B08',
+      'control-rim': 'rgba(255, 232, 214, 0.4)',
+      'control-rim-active': 'rgba(255, 232, 214, 0.58)',
+      'legal-bg': '#1A1512',
+      'refusal-bg': '#15110E',
+      'test-tag-bg': 'rgba(255, 232, 214, 0.08)',
+      'test-tag-fg': '#BCAFA4',
+      'status-unknown': '#BCAFA4',
+    },
+    both: {
+      'font-figure': "'Bricolage Grotesque Variable', 'Geist Variable', ui-sans-serif, system-ui, sans-serif",
+      'radius-panel': '28px',
+      'radius-tile': '22px',
+      'radius-key': '20px',
+      'radius-control': '16px',
+    },
+    light: {
+      page: '#F3EDE6',
+      'page-2': '#EAE2D8',
+      field:
+        'radial-gradient(60% 38% at 100% 0%, color-mix(in srgb, var(--lit-accent) 13%, transparent), transparent 72%), radial-gradient(70% 34% at 0% 100%, color-mix(in srgb, var(--lit-accent-hot) 22%, transparent), transparent 78%)',
+      'text-1': '#17100B',
+      'text-2': '#4A3E35',
+      'text-3': '#5F5248',
+      'text-disabled': '#A39488',
+      line: 'rgba(48, 26, 10, 0.08)',
+      'line-strong': 'rgba(48, 26, 10, 0.16)',
+      accent: '#FF5A1F',
+      'accent-hot': '#FFB37A',
+      'accent-deep': '#4A1405',
+      'accent-text': '#AF3A0B',
+      'accent-fill': '#C2410C',
+      'accent-fill-2': '#8A2C06',
+      'solid-bg': '#FFFCF8',
+      'solid-bg-raised': '#F8F2EB',
+      'solid-bg-sunken': '#ECE3D8',
+      'solid-wall': '#DED1C3',
+      'solid-rim-dim': 'rgba(48, 26, 10, 0.1)',
+      'solid-shadow': '0 3px 0 0 var(--lit-solid-wall), 0 22px 40px -24px rgba(70, 36, 10, 0.35)',
+      'glass-bg': 'linear-gradient(180deg, rgba(255, 252, 248, 0.82), rgba(255, 252, 248, 0.66) 70%), rgba(243, 237, 230, 0.72)',
+      'glass-rim-dim': 'rgba(48, 26, 10, 0.12)',
+      'glass-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #DED1C3, 0 18px 36px -20px rgba(70, 36, 10, 0.35)',
+      scrim: 'rgba(23, 16, 11, 0.42)',
+      veil: 'rgba(243, 237, 230, 0.72)',
+      'primary-bg': 'linear-gradient(180deg, #2B211B 0%, #140D09 100%)',
+      'primary-fg': '#FFF6EE',
+      'primary-shadow': 'inset 0 1px 0 rgba(255, 220, 190, 0.18), 0 1px 0 rgba(0, 0, 0, 0.3), 0 8px 18px -12px rgba(23, 16, 11, 0.5)',
+      'secondary-bg': 'linear-gradient(180deg, #FFFFFF, #F4ECE3)',
+      'secondary-fg': '#17100B',
+      'key-bg': 'linear-gradient(180deg, #FFFFFF, #F5EEE6)',
+      'control-bg': '#FFFFFF',
+      'control-rim': 'rgba(48, 26, 10, 0.48)',
+      'control-rim-active': 'rgba(48, 26, 10, 0.7)',
+      focus: '#17100B',
+      'legal-bg': '#FFFFFF',
+      'legal-fg': '#17100B',
+      'legal-border': '#4A3E35',
+      'refusal-bg': '#F8F2EB',
+      'refusal-fg': '#17100B',
+      'test-tag-bg': 'rgba(48, 26, 10, 0.07)',
+      'test-tag-fg': '#4A3E35',
+      'status-unknown': '#4A3E35',
+    },
+    type: {
+      hero: { size: '56px', line: '58px', weight: '600', tracking: '-0.045em' },
+      figure: { size: '26px', line: '30px', weight: '600', tracking: '-0.03em' },
+      title: { size: '30px', line: '34px', weight: '600', tracking: '-0.03em' },
+    },
+  },
+  // Lit glass: the look's own roles, with its one blue spark held whatever accent is asked; its glass is drawn by
+  // lit/directions/lit-glass.css from those roles.
+  'lit-glass': {
+    dark: { accent: lit.accent, 'accent-text': lit['accent-text'], 'accent-fill': lit['accent-fill'] },
+    both: {},
+    light: { 'accent-text': litLight['accent-text'] },
+    type: {},
+  },
+};
+
 /** Light-scheme accent text per accent (4.5:1 on white). */
 export const accentTextLight: Record<Accent, string> = {
   blue: '#1F56D6',
@@ -460,6 +595,28 @@ export function renderLitCss(): string {
         `${L.replace('])', `][data-theme='light'][data-accent='${a}'])`)} {\n${decl({ '--lit-accent-text': accentTextLight[a] })}\n}\n`,
     )
     .join('\n');
+  const D = (d: Direction, light: boolean) =>
+    L.replace('])', light ? `][data-direction='${d}'][data-theme='light'])` : `][data-direction='${d}']:not([data-theme='light']))`);
+  const directionType = (d: Direction) => {
+    const out: Record<string, string> = {};
+    for (const [k, t] of Object.entries(directionSets[d].type)) {
+      if (!t) continue;
+      out[`--lit-type-${k}-size`] = t.size;
+      out[`--lit-type-${k}-line`] = t.line;
+      out[`--lit-type-${k}-weight`] = t.weight;
+      out[`--lit-type-${k}-tracking`] = t.tracking;
+    }
+    return out;
+  };
+  const directionBlocks = directions
+    .map(
+      (d) =>
+        `/* Direction ${d}: dark (only while the light preview is off), its faces, radii and type, then light. */\n` +
+        `${D(d, false)} {\n${decl(roleVars(directionSets[d].dark))}\n}\n\n` +
+        `${L.replace('])', `][data-direction='${d}'])`)} {\n${decl({ ...roleVars(directionSets[d].both), ...directionType(d) })}\n}\n\n` +
+        `${D(d, true)} {\n${decl(roleVars(directionSets[d].light))}\n}\n`,
+    )
+    .join('\n');
   return `/**
  * Lit glass role tokens (--lit-*). GENERATED from src/lit/tokens.ts by src/lit/generate.ts.
  * Do not edit by hand: lit/lit.test.ts fails if the two drift. Names and meanings: src/lit/contracts.ts.
@@ -482,6 +639,7 @@ ${decl(roleVars(litLight))}
 }
 
 ${lightAccentBlocks}
+${directionBlocks}
 /* Solid surfaces: the in-app switch, and automatically for more contrast, forced colours or reduced transparency. */
 ${L.replace('])', "][data-surfaces='solid'])")} {
 ${decl(roleVars(solid))}

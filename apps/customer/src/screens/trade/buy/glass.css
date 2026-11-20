@@ -3,7 +3,7 @@
  * light. Only under `data-direction='lit-glass'` (look.ts); the direction's mixes (`--lg-*`) come from
  * @intafaced/ui/lit/directions/lit-glass.css. Static.
  */
-[data-direction='lit-glass'] .buy-card {
+[data-look='lit'][data-direction='lit-glass'] .buy-card {
   position: relative;
   isolation: isolate;
   border: 0;
@@ -17,12 +17,12 @@
     var(--lg-lift);
 }
 /* the light the sheet floats over: behind the card, so the frost has something to bend */
-[data-direction='lit-glass'] .buy-grid,
-[data-direction='lit-glass'] .if-buy {
+[data-look='lit'][data-direction='lit-glass'] .buy-grid,
+[data-look='lit'][data-direction='lit-glass'] .if-buy {
   position: relative;
   isolation: isolate;
 }
-[data-direction='lit-glass'] .if-buy::before {
+[data-look='lit'][data-direction='lit-glass'] .if-buy::before {
   content: '';
   position: absolute;
   z-index: -1;
@@ -36,21 +36,21 @@
   opacity: 0.8;
 }
 @media (min-width: 768px) {
-  [data-direction='lit-glass'] .if-buy::before {
+  [data-look='lit'][data-direction='lit-glass'] .if-buy::before {
     inset-block-start: 2rem;
     inset-inline-end: 6rem;
     inline-size: 30rem;
   }
 }
-[data-theme='light'][data-direction='lit-glass'] .if-buy::before {
+[data-theme='light'][data-look='lit'][data-direction='lit-glass'] .if-buy::before {
   opacity: 0.5;
 }
 
 /* Buy is pearl (ink in light), as every main action in this direction: green stays the colour of gains, blue the spark */
-[data-direction='lit-glass'] .buy-card :is(.bg-up, .bg-down) {
+[data-look='lit'][data-direction='lit-glass'] .buy-card :is(.bg-up, .bg-down) {
   background: var(--if-lime);
   color: var(--if-on-lime);
 }
-[data-direction='lit-glass'] .buy-card :is(.data-pressed\:text-on-up, .data-pressed\:text-on-down)[data-pressed] {
+[data-look='lit'][data-direction='lit-glass'] .buy-card :is(.data-pressed\:text-on-up, .data-pressed\:text-on-down)[data-pressed] {
   color: var(--if-on-lime);
 }

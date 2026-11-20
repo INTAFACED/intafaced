@@ -46,6 +46,8 @@ import { useStartedTile } from './started-data';
 import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
 import { LitSphere } from './LitSphere';
+import { EmberMoney } from './EmberMoney';
+import { lookDirection } from '../../app/look';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
@@ -53,7 +55,6 @@ import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { TestBuildTag } from './TestBuildTag';
 import { GlassStack } from './GlassStack';
-import { isDirectionOn } from '../../app/look';
 import './glass-stack.css';
 import { useSession } from '../../features/session/session';
 
@@ -316,10 +317,13 @@ function HomeSimple() {
   const started = useStartedTile(portfolio, side.includes('started'));
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
+  // The Ember direction (look preview only, intafaced issue 9227): the balance and the money object come first, the
+  // inbox after the actions, and the cards stand in for the holdings rows and the sphere.
+  const ember = lookDirection() === 'ember';
 
-  // The total, its label and the actions. The Lit glass direction draws them first, above the notices, with its
-  // money object between the total and the actions (intafaced issue 9227); everyone else sees them where they were.
-  const glass = isDirectionOn('lit-glass');
+  // The total, its label and the actions. The Lit glass direction draws them first, above the notices; it and Ember put
+  // their money object between the total and the actions (intafaced issue 9227); everyone else sees them where they were.
+  const glass = lookDirection() === 'lit-glass';
   const hero = (
     <>
       <div data-testid="home-label" className="home-label">
@@ -344,6 +348,7 @@ function HomeSimple() {
 
       {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
       {glass && !launch ? <GlassStack portfolio={portfolio} hidden={hideBalances} /> : null}
+      {ember && !launch ? <EmberMoney portfolio={portfolio} hidden={hideBalances} /> : null}
       <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
     </>
   );
@@ -353,18 +358,19 @@ function HomeSimple() {
       <h1 className="if-sr">{t('Home')}</h1>
       {glass ? <div className="lg-hero">{hero}</div> : null}
       <HomeNotices />
-      <HomeInbox needsYou={needsYou} />
+      {ember ? null : <HomeInbox needsYou={needsYou} />}
       <div className="home-grid">
         <div data-testid="home-main" className="home-main">
           {glass ? null : hero}
+          {ember ? <HomeInbox needsYou={needsYou} /> : null}
           {main.map((id) => {
             switch (id) {
               case 'work':
                 return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
               case 'holdings':
                 // On the launch model the holdings are the parts of the total above, each read from its own source. The
-                // Lit glass direction draws them as its money object, in the hero.
-                return launch || glass ? null : portfolio.status === 'loading' ? (
+                // Lit glass and Ember directions draw them as their money object, in the hero.
+                return launch || glass || ember ? null : portfolio.status === 'loading' ? (
                   // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
                   // arrive late and push the rows below it down
                   <Fragment key={id}>

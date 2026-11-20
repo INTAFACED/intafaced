@@ -3,7 +3,7 @@
  * itself. Only under `data-direction='lit-glass'` (look.ts); the direction's mixes (`--lg-*`) and roles come from
  * @intafaced/ui/lit/directions/lit-glass.css. Static: nothing moves on its own.
  */
-[data-direction='lit-glass'] .lg-hero {
+[data-look='lit'][data-direction='lit-glass'] .lg-hero {
   /* the cards are thinner glass than the bars, so the light shows through them */
   --lg-card-glass: color-mix(in srgb, var(--lit-solid-bg-raised) 28%, transparent);
   display: flex;
@@ -11,21 +11,21 @@
   gap: var(--if-space-3);
   margin-block-end: var(--lit-gap-section);
 }
-[data-direction='lit-glass'] .lg-hero .home-label {
+[data-look='lit'][data-direction='lit-glass'] .lg-hero .home-label {
   flex-wrap: wrap;
   row-gap: var(--if-space-1);
   color: var(--lit-text-2);
 }
-[data-direction='lit-glass'] .lg-hero .home-label > * {
+[data-look='lit'][data-direction='lit-glass'] .lg-hero .home-label > * {
   white-space: nowrap;
 }
 
 /* The total: big, light weight, tight; the decimals and the point step back */
-[data-direction='lit-glass'] .lg-hero .home-total {
+[data-look='lit'][data-direction='lit-glass'] .lg-hero .home-total {
   block-size: auto;
   margin-block-start: 0;
 }
-[data-direction='lit-glass'] .lg-hero .home-total .if-num {
+[data-look='lit'][data-direction='lit-glass'] .lg-hero .home-total .if-num {
   font-family: var(--lit-font-figure);
   font-size: clamp(3rem, 13vw, 4.5rem);
   line-height: 1;
@@ -33,8 +33,8 @@
   letter-spacing: -0.045em;
   color: var(--lit-text-1);
 }
-[data-direction='lit-glass'] .lg-hero .home-total number-flow-react::part(fraction),
-[data-direction='lit-glass'] .lg-hero .home-total number-flow-react::part(decimal) {
+[data-look='lit'][data-direction='lit-glass'] .lg-hero .home-total number-flow-react::part(fraction),
+[data-look='lit'][data-direction='lit-glass'] .lg-hero .home-total number-flow-react::part(decimal) {
   color: var(--lit-text-3);
   font-size: 0.55em;
   font-weight: 400;
@@ -42,13 +42,13 @@
 }
 
 /* The money object: two frosted cards, crypto behind and cash in front, lit from behind by the one blue light */
-[data-direction='lit-glass'] .lg-stack {
+[data-look='lit'][data-direction='lit-glass'] .lg-stack {
   position: relative;
   block-size: 13.5rem;
   margin-block: var(--if-space-2) var(--if-space-2);
   isolation: isolate;
 }
-[data-direction='lit-glass'] .lg-stack__light {
+[data-look='lit'][data-direction='lit-glass'] .lg-stack__light {
   position: absolute;
   inset-block-start: 4%;
   inset-inline-start: 30%;
@@ -61,16 +61,16 @@
     radial-gradient(closest-side, var(--lit-accent), color-mix(in srgb, var(--lit-accent) 50%, transparent) 50%, transparent);
   opacity: 0.9;
 }
-[data-theme='light'][data-direction='lit-glass'] .lg-hero {
+[data-theme='light'][data-look='lit'][data-direction='lit-glass'] .lg-hero {
   --lg-card-glass: color-mix(in srgb, var(--lit-solid-bg) 42%, transparent);
 }
-[data-direction='lit-glass'][data-surfaces='solid'] .lg-hero {
+[data-look='lit'][data-direction='lit-glass'][data-surfaces='solid'] .lg-hero {
   --lg-card-glass: var(--lit-solid-bg-raised);
 }
-[data-theme='light'][data-direction='lit-glass'] .lg-stack__light {
+[data-theme='light'][data-look='lit'][data-direction='lit-glass'] .lg-stack__light {
   opacity: 0.6;
 }
-[data-direction='lit-glass'] .lg-card {
+[data-look='lit'][data-direction='lit-glass'] .lg-card {
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -91,7 +91,7 @@
   transition: translate var(--lit-t-base) var(--lit-ease);
 }
 /* the rim brighter toward the light, top-start */
-[data-direction='lit-glass'] .lg-card::before {
+[data-look='lit'][data-direction='lit-glass'] .lg-card::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -105,35 +105,35 @@
   -webkit-mask-composite: xor;
   mask-composite: exclude;
 }
-[data-direction='lit-glass'] .lg-card--back {
+[data-look='lit'][data-direction='lit-glass'] .lg-card--back {
   inset-block-start: 0;
   inset-inline-end: 0;
   transform: rotate(4deg);
   opacity: 0.9;
 }
-[data-direction='lit-glass'] .lg-card--front {
+[data-look='lit'][data-direction='lit-glass'] .lg-card--front {
   inset-block-end: 0;
   inset-inline-start: 0;
   transform: rotate(-3deg);
 }
-[data-direction='lit-glass'] .lg-card:hover {
+[data-look='lit'][data-direction='lit-glass'] .lg-card:hover {
   translate: 0 -0.25rem;
 }
-[data-direction='lit-glass'] .lg-card:focus-visible {
+[data-look='lit'][data-direction='lit-glass'] .lg-card:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.1875rem;
 }
-[data-direction='lit-glass'] .lg-card--waiting {
+[data-look='lit'][data-direction='lit-glass'] .lg-card--waiting {
   opacity: 0.6;
 }
-[data-direction='lit-glass'] .lg-card__top,
-[data-direction='lit-glass'] .lg-card__foot {
+[data-look='lit'][data-direction='lit-glass'] .lg-card__top,
+[data-look='lit'][data-direction='lit-glass'] .lg-card__foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--if-space-2);
 }
-[data-direction='lit-glass'] .lg-card__label {
+[data-look='lit'][data-direction='lit-glass'] .lg-card__label {
   font-size: var(--lit-type-label-size);
   font-weight: 500;
   letter-spacing: 0.04em;
@@ -141,7 +141,7 @@
   color: var(--lit-text-2);
 }
 /* the mark: a small etched ring, the look's coin edge */
-[data-direction='lit-glass'] .lg-card__mark {
+[data-look='lit'][data-direction='lit-glass'] .lg-card__mark {
   inline-size: 1.75rem;
   block-size: 1.75rem;
   border-radius: 50%;
@@ -149,7 +149,7 @@
     inset 0 0 0 1px color-mix(in srgb, var(--lg-edge) 80%, transparent),
     inset 0 0 0 0.4rem color-mix(in srgb, var(--lit-text-1) 6%, transparent);
 }
-[data-direction='lit-glass'] .lg-card__value {
+[data-look='lit'][data-direction='lit-glass'] .lg-card__value {
   font-family: var(--lit-font-figure);
   font-size: var(--lit-type-figure-size);
   line-height: var(--lit-type-figure-line);
@@ -159,16 +159,16 @@
 }
 
 /* The actions: metal for the one main action, glass keys for the rest */
-[data-direction='lit-glass'] .lg-hero .home-actions {
+[data-look='lit'][data-direction='lit-glass'] .lg-hero .home-actions {
   padding: 0;
   background: none;
   box-shadow: none;
   gap: var(--if-space-2);
 }
-[data-direction='lit-glass'] .lg-hero .home-actions::before {
+[data-look='lit'][data-direction='lit-glass'] .lg-hero .home-actions::before {
   content: none;
 }
-[data-direction='lit-glass'] .lg-hero .home-actions > :not(:first-child) {
+[data-look='lit'][data-direction='lit-glass'] .lg-hero .home-actions > :not(:first-child) {
   color: var(--lit-text-1);
   background: var(--lg-glass);
   -webkit-backdrop-filter: var(--lg-frost);
@@ -180,7 +180,7 @@
 
 /* Computer: the total and actions on the start side, the money object on the end side, larger */
 @media (min-width: 768px) {
-  [data-direction='lit-glass'] .lg-hero {
+  [data-look='lit'][data-direction='lit-glass'] .lg-hero {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 30rem);
     grid-template-rows: repeat(5, auto) 1fr;
@@ -188,23 +188,23 @@
     row-gap: var(--if-space-3);
     padding-block: var(--if-space-8) var(--if-space-4);
   }
-  [data-direction='lit-glass'] .lg-hero > * {
+  [data-look='lit'][data-direction='lit-glass'] .lg-hero > * {
     grid-column: 1;
   }
-  [data-direction='lit-glass'] .lg-hero > .lg-stack {
+  [data-look='lit'][data-direction='lit-glass'] .lg-hero > .lg-stack {
     grid-column: 2;
     grid-row: 1 / -1;
     align-self: center;
     block-size: 16rem;
   }
-  [data-direction='lit-glass'] .lg-hero .lg-card {
+  [data-look='lit'][data-direction='lit-glass'] .lg-hero .lg-card {
     inline-size: 23rem;
     block-size: 13.5rem;
   }
-  [data-direction='lit-glass'] .lg-hero .home-actions {
+  [data-look='lit'][data-direction='lit-glass'] .lg-hero .home-actions {
     margin-block-start: var(--if-space-4);
   }
-  [data-direction='lit-glass'] .lg-hero .home-total .if-num {
+  [data-look='lit'][data-direction='lit-glass'] .lg-hero .home-total .if-num {
     font-size: 5.5rem;
   }
 }

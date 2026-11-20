@@ -1,67 +1,32 @@
-// hand-declared-ok: svc-pay's allowlist view schemas live in the service, not in a browser-safe @intafaced/contracts export yet; moving them there is a contracts follow-up.
 import { z } from 'zod';
+import {
+  payAllowlistChangeSchema as changeSchema,
+  payAllowlistEntrySchema as entrySchema,
+  payAllowlistModeSchema as modeSchema,
+  payAllowlistPolicySchema as policySchema,
+  payAllowlistSetModeResultSchema as setModeResultSchema,
+} from '@intafaced/contracts/pay-money-room';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
-import { decimalSchema } from '../../shared/money';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
 
-// Published svc-pay `allowlist.*` views. The list says where money MAY go; it is not a balance and moves nothing.
-const id = z.string().guid();
-const stamp = z.string().datetime({ offset: true });
-
-export const entrySchema = z.object({
-  id,
-  userId: id,
-  group: z.enum(['internal_wallet', 'external_wallet', 'contract']),
-  assetId: z.string().min(1).max(32),
-  address: z.string().min(1),
-  label: z.string().min(1),
-  state: z.enum(['active', 'suspended', 'removed']),
-  createdBy: z.string(),
-  suspendedReason: z.string().nullable(),
-  createdAt: stamp,
-  lastUsedAt: stamp.nullable(),
-});
+// Published svc-pay `allowlist.*` views, from `@intafaced/contracts/pay-money-room`. The list says where money MAY go; it is
+// not a balance and moves nothing.
+export {
+  PAY_ALLOWLIST_CHANGE_STATUSES as CHANGE_STATUSES,
+  payAllowlistChangeSchema as changeSchema,
+  payAllowlistEntrySchema as entrySchema,
+  payAllowlistModeSchema as modeSchema,
+  payAllowlistPolicySchema as policySchema,
+  payAllowlistSetModeResultSchema as setModeResultSchema,
+} from '@intafaced/contracts/pay-money-room';
 export type AllowlistEntry = z.infer<typeof entrySchema>;
-
-export const CHANGE_STATUSES = ['waiting', 'approved', 'cancelled', 'rejected', 'failed'] as const;
-export const changeSchema = z.object({
-  id,
-  userId: id,
-  op: z.enum(['add', 'delete', 'mode_off', 'onetime_policy']),
-  entryId: id.nullable(),
-  subject: z.record(z.string(), z.unknown()),
-  requestHash: z.string().regex(/^[0-9a-f]{64}$/),
-  teamAccountId: id,
-  requiredApprovals: z.number().int().min(1),
-  approvalCount: z.number().int().min(0),
-  approvedByMe: z.boolean(),
-  status: z.enum(CHANGE_STATUSES),
-  failureCode: z.string().nullable(),
-  createdAt: stamp,
-  decidedAt: stamp.nullable(),
-});
 export type AllowlistChange = z.infer<typeof changeSchema>;
-
-export const modeSchema = z.object({ userId: id, enabled: z.boolean(), setAt: stamp.nullable() });
 export type AllowlistMode = z.infer<typeof modeSchema>;
-
-export const policySchema = z.object({
-  userId: id,
-  enabled: z.boolean(),
-  assetId: z.string().nullable(),
-  maxAmount: z
-    .string()
-    .regex(/^\d+(\.\d{1,18})?$/)
-    .pipe(decimalSchema)
-    .nullable(),
-  setAt: stamp.nullable(),
-});
 export type AllowlistPolicy = z.infer<typeof policySchema>;
-
-export const setModeResultSchema = z.object({ mode: modeSchema, change: changeSchema.nullable() });
 export type AllowlistSetModeResult = z.infer<typeof setModeResultSchema>;
 export type AllowlistGroup = z.infer<typeof entrySchema>['group'];
 
+const id = z.string().guid();
 const changeIdSchema = id.transform((value) => value.toLowerCase());
 const limitSchema = z.number().int().min(1).max(200);
 
