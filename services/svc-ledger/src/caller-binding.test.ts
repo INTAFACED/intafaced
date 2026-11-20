@@ -153,8 +153,10 @@ describe('ledger post allowlist cites real callers', () => {
       for (const [recipe, grant] of Object.entries(grants)) {
         const cite = grant.cite;
         const text = readFileSync(join(ROOT, cite), 'utf8');
-        // Built in the caller (`recipes.<name>(`), or named on the postRecipe door (`postRecipe({ recipe: '<name>'`).
-        expect(text, cite).toMatch(new RegExp('recipes\\.' + recipe + "\\(|postRecipe\\(\\{\\s*recipe:\\s*'" + recipe + "'"));
+        // Built in the caller (`recipes.<name>(`), or named on the postRecipe door (`postRecipe({ recipe: '<name>'`), or in
+        // a Rust service (crates/svc-academy) named as `"<name>"` in the file that sends it through its `post_recipe(` client.
+        const rust = cite.endsWith('.rs') && text.includes('post_recipe(') && text.includes(`"${recipe}"`);
+        if (!rust) expect(text, cite).toMatch(new RegExp('recipes\\.' + recipe + "\\(|postRecipe\\(\\{\\s*recipe:\\s*'" + recipe + "'"));
       }
     }
   });
@@ -179,6 +181,19 @@ describe('ledger post allowlist cites real callers', () => {
         }
       }
     }
+    // A Rust service (`crates/svc-<x>`) sends a recipe through its client's `.post_recipe(`: in a file that calls it, each
+    // string literal naming a recipe is a pair. Its tests (the `#[cfg(test)]` module, and `tests/`) are not production.
+    const cratesDir = join(ROOT, 'crates');
+    for (const service of existsSync(cratesDir) ? readdirSync(cratesDir) : []) {
+      const src = join(cratesDir, service, 'src');
+      if (!service.startsWith('svc-') || !existsSync(src)) continue;
+      for (const file of rustSources(src)) {
+        const text = readFileSync(file, 'utf8').split('#[cfg(test)]')[0] ?? '';
+        if (!/\.post_recipe\(/.test(text)) continue;
+        for (const [, name] of text.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g))
+          if (name !== undefined && Object.hasOwn(recipes, name)) pairs.add(`${service} ${name}`);
+      }
+    }
 
     const allowlist = new Set<string>();
     for (const [service, grants] of Object.entries(LEDGER_POST_ALLOWLIST)) {
@@ -189,6 +204,14 @@ describe('ledger post allowlist cites real callers', () => {
     expect({ missing, stray }).toEqual({ missing: [], stray: [] });
   });
 });
+
+function rustSources(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return rustSources(path);
+    return entry.name.endsWith('.rs') ? [path] : [];
+  });
+}
 
 function productionSources(dir: string): string[] {
   const out: string[] = [];

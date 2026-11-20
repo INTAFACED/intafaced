@@ -30,14 +30,14 @@ export interface RecipeGrant {
 
 type Grants = Partial<Record<RecipeName, RecipeGrant>>;
 
-/** File that calls `recipes.<name>(`. */
+/** File that calls `recipes.<name>(` (or, in a Rust service, names `"<name>"` to its `post_recipe(` client). */
 const g = (module: string, cite: string): RecipeGrant => ({ module, cite });
 
 export const LEDGER_POST_ALLOWLIST = {
   'svc-academy': {
     // A paid course bought from the buyer's own wallet, and its staff refund (J-academy-07): both legs are our own.
-    academyPurchase: g('academy', 'services/svc-academy/src/purchases/purchase-ledger.ts'),
-    academyPurchaseRefund: g('academy', 'services/svc-academy/src/purchases/purchase-ledger.ts'),
+    academyPurchase: g('academy', 'crates/svc-academy/src/learner/purchases/mod.rs'),
+    academyPurchaseRefund: g('academy', 'crates/svc-academy/src/learner/purchases/mod.rs'),
   },
   'svc-agents': {
     feeCharge: g('agents', 'services/svc-agents/src/metering/meter.ts'),

@@ -309,7 +309,7 @@ const SESSION_SCOPE_LIST = [
   //
   // What it deliberately does NOT decide is who may HOST. That is §4.1's
   // `rank_thresholds.perks.lobbyHostRights`, read from svc-identity at
-  // `createRoom` (services/svc-academy/src/host-rights.ts). Had hosting ridden
+  // `createRoom` (crates/svc-academy/src/lobbies/clients.rs). Had hosting ridden
   // on this scope, issuing it here would have handed room creation to every
   // account on the platform in the same commit — and §XIII's model is
   // ambassadors and operators running rooms, not anyone with a login.
