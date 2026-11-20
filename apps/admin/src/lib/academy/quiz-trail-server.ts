@@ -1,27 +1,16 @@
 import 'server-only';
+import { ACADEMY_CURVE_FILE_MAX_CHARS } from '@intafaced/contracts/academy-course-quizzes';
 import {
-  ACADEMY_CURVE_FILE_MAX_CHARS,
-  academyAdminCourseQuizSchema,
-  academyCourseQuizAnalyticsSchema,
-  academyCourseQuizAnswersSchema,
-  academyCourseQuizInputSchema,
-  academyCurveCourseQuizInputSchema,
-  academyCurveCourseQuizResultSchema,
-  academyCourseQuizAttemptsSchema,
-  academyFixCourseQuizKeyInputSchema,
-  academyOverrideCourseQuizScoreInputSchema,
-  academyRescoreCourseQuizInputSchema,
-  academyRescoreCourseQuizResultSchema,
-} from '@intafaced/contracts/academy-course-quizzes';
-import {
-  founderCall,
-  parseWith,
-  type FounderCallContext,
-  type FounderCallResult,
-  partFrom,
-  type PartLabels,
-  explainRefusal,
-} from '@/lib/desk';
+  ACADEMY_ADMIN_COURSE_QUIZ,
+  ACADEMY_ADMIN_COURSE_QUIZ_ANALYTICS,
+  ACADEMY_ADMIN_COURSE_QUIZ_ANSWERS,
+  ACADEMY_ADMIN_COURSE_QUIZ_ATTEMPTS,
+  ACADEMY_ADMIN_CURVE_COURSE_QUIZ,
+  ACADEMY_ADMIN_FIX_COURSE_QUIZ_KEY,
+  ACADEMY_ADMIN_OVERRIDE_COURSE_QUIZ_SCORE,
+  ACADEMY_ADMIN_RESCORE_COURSE_QUIZ,
+} from '@intafaced/contracts/academy-admin-procedures';
+import { founderRecordCall, type FounderCallContext, type FounderCallResult, partFrom, type PartLabels, explainRefusal } from '@/lib/desk';
 import type { QuizTrailReply, QuizTrailView } from './quiz-trail-model';
 
 /**
@@ -37,18 +26,11 @@ const ACADEMY: PartLabels = {
   refusedMessage: (code) => (code ? explainRefusal(code, 409).body : null),
 };
 
-const readQuiz = parseWith(academyAdminCourseQuizSchema);
-const readAttempts = parseWith(academyCourseQuizAttemptsSchema);
-const readRescore = parseWith(academyRescoreCourseQuizResultSchema);
-const readAnalytics = parseWith(academyCourseQuizAnalyticsSchema);
-const readCurve = parseWith(academyCurveCourseQuizResultSchema);
-const readAnswers = parseWith(academyCourseQuizAnswersSchema);
-
 export async function loadQuizTrail(ctx: FounderCallContext, itemId: string): Promise<QuizTrailView> {
   const [quiz, attempts, analytics] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.courseQuiz', 'GET', { itemId }, readQuiz),
-    founderCall(ctx, 'academy', 'admin.courseQuizAttempts', 'GET', { itemId }, readAttempts),
-    founderCall(ctx, 'academy', 'admin.courseQuizAnalytics', 'GET', { itemId }, readAnalytics),
+    founderRecordCall(ctx, ACADEMY_ADMIN_COURSE_QUIZ, { itemId }),
+    founderRecordCall(ctx, ACADEMY_ADMIN_COURSE_QUIZ_ATTEMPTS, { itemId }),
+    founderRecordCall(ctx, ACADEMY_ADMIN_COURSE_QUIZ_ANALYTICS, { itemId }),
   ]);
   return {
     quiz: partFrom(quiz, (d) => d, ACADEMY),
@@ -82,32 +64,27 @@ function refused(result: FounderCallResult<unknown>): { status: number; reply: Q
 /** What the founder sent, checked as svc-academy checks it, so a form mistake is named before anything is sent. */
 const OPS = {
   fixKey: {
-    schema: academyFixCourseQuizKeyInputSchema,
-    procedure: 'admin.fixCourseQuizKey',
+    record: ACADEMY_ADMIN_FIX_COURSE_QUIZ_KEY,
     what: 'key fixed as a new revision; attempts keep their score until you rescore',
     why: 'A key fix sends every question as it is with only its key changed, the revision you read, and a reason up to 500 characters.',
   },
   rescore: {
-    schema: academyRescoreCourseQuizInputSchema,
-    procedure: 'admin.rescoreCourseQuiz',
+    record: ACADEMY_ADMIN_RESCORE_COURSE_QUIZ,
     what: 'attempts rescored',
     why: 'Say why you rescore, in up to 500 characters.',
   },
   override: {
-    schema: academyOverrideCourseQuizScoreInputSchema,
-    procedure: 'admin.overrideCourseQuizScore',
+    record: ACADEMY_ADMIN_OVERRIDE_COURSE_QUIZ_SCORE,
     what: 'score changed',
     why: 'Choose a question, whole points from 0 to its points, and a reason up to 500 characters; a comment runs to 2,000.',
   },
   curve: {
-    schema: academyCurveCourseQuizInputSchema,
-    procedure: 'admin.curveCourseQuiz',
+    record: ACADEMY_ADMIN_CURVE_COURSE_QUIZ,
     what: 'curve file read',
     why: `Choose a CSV curve file of up to ${ACADEMY_CURVE_FILE_MAX_CHARS} characters and say why, in up to 500 characters.`,
   },
   answers: {
-    schema: academyCourseQuizInputSchema,
-    procedure: 'admin.courseQuizAnswers',
+    record: ACADEMY_ADMIN_COURSE_QUIZ_ANSWERS,
     what: 'answers by learner read',
     why: 'Which quiz?',
   },
@@ -121,80 +98,90 @@ export async function changeQuizTrail(
   op: QuizTrailOp,
   body: Record<string, unknown>,
 ): Promise<{ status: number; reply: QuizTrailReply } | { why: string }> {
-  const spec = OPS[op];
   const { op: _op, ...input } = body;
-  const parsed = spec.schema.safeParse(input);
-  if (!parsed.success) return { why: spec.why };
-  const itemId = parsed.data.itemId;
-  if (op === 'curve' || op === 'answers') {
-    if (op === 'answers') {
-      const read = await founderCall(ctx, 'academy', spec.procedure, 'GET', parsed.data, readAnswers);
-      if (read.kind !== 'ok' || !read.data) return refused(read);
-      return { status: 200, reply: { ok: true, what: spec.what, view: await loadQuizTrail(ctx, itemId), answers: read.data } };
-    }
-    const result = await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readCurve);
-    if (result.kind !== 'ok' || !result.data) return refused(result);
-    const c = result.data;
-    const what = c.repeated
-      ? 'this curve file was applied before, so nothing changed'
-      : c.dryRun
-        ? `dry run: ${c.rows.length} would change, ${c.rejected.length} refused; nothing applied`
-        : `curve applied to ${c.rows.length} attempt${c.rows.length === 1 ? '' : 's'}`;
-    return { status: 200, reply: { ok: true, what, view: await loadQuizTrail(ctx, itemId), curve: c } };
-  }
+  const why = { why: OPS[op].why };
   // Each change answers with half the page; only the other half is read again.
-  const quizPart = async () =>
-    partFrom(await founderCall(ctx, 'academy', 'admin.courseQuiz', 'GET', { itemId }, readQuiz), (d) => d, ACADEMY);
-  const attemptsPart = async () =>
-    partFrom(await founderCall(ctx, 'academy', 'admin.courseQuizAttempts', 'GET', { itemId }, readAttempts), (d) => d, ACADEMY);
-  const analyticsPart = async () =>
-    partFrom(await founderCall(ctx, 'academy', 'admin.courseQuizAnalytics', 'GET', { itemId }, readAnalytics), (d) => d, ACADEMY);
+  const quizPart = async (itemId: string) =>
+    partFrom(await founderRecordCall(ctx, ACADEMY_ADMIN_COURSE_QUIZ, { itemId }), (d) => d, ACADEMY);
+  const attemptsPart = async (itemId: string) =>
+    partFrom(await founderRecordCall(ctx, ACADEMY_ADMIN_COURSE_QUIZ_ATTEMPTS, { itemId }), (d) => d, ACADEMY);
+  const analyticsPart = async (itemId: string) =>
+    partFrom(await founderRecordCall(ctx, ACADEMY_ADMIN_COURSE_QUIZ_ANALYTICS, { itemId }), (d) => d, ACADEMY);
   const asOf = () => new Date().toISOString();
-  if (op === 'rescore') {
-    const result = await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readRescore);
-    if (result.kind !== 'ok' || !result.data) return refused(result);
-    const n = result.data.rescored.length;
-    return {
-      status: 200,
-      reply: {
-        ok: true,
-        what: n === 0 ? 'rescore run: no attempt changed' : `${n} attempt${n === 1 ? '' : 's'} rescored`,
-        view: {
-          quiz: await quizPart(),
-          attempts: { kind: 'ok', data: result.data.attempts },
-          analytics: await analyticsPart(),
-          asOf: asOf(),
+  switch (op) {
+    case 'answers': {
+      const asked = OPS.answers.record.input.safeParse(input);
+      if (!asked.success) return why;
+      const read = await founderRecordCall(ctx, OPS.answers.record, asked.data);
+      if (read.kind !== 'ok') return refused(read);
+      return {
+        status: 200,
+        reply: { ok: true, what: OPS.answers.what, view: await loadQuizTrail(ctx, asked.data.itemId), answers: read.data },
+      };
+    }
+    case 'curve': {
+      const asked = OPS.curve.record.input.safeParse(input);
+      if (!asked.success) return why;
+      const result = await founderRecordCall(ctx, OPS.curve.record, asked.data);
+      if (result.kind !== 'ok') return refused(result);
+      const c = result.data;
+      const what = c.repeated
+        ? 'this curve file was applied before, so nothing changed'
+        : c.dryRun
+          ? `dry run: ${c.rows.length} would change, ${c.rejected.length} refused; nothing applied`
+          : `curve applied to ${c.rows.length} attempt${c.rows.length === 1 ? '' : 's'}`;
+      return { status: 200, reply: { ok: true, what, view: await loadQuizTrail(ctx, asked.data.itemId), curve: c } };
+    }
+    case 'rescore': {
+      const asked = OPS.rescore.record.input.safeParse(input);
+      if (!asked.success) return why;
+      const result = await founderRecordCall(ctx, OPS.rescore.record, asked.data);
+      if (result.kind !== 'ok') return refused(result);
+      const n = result.data.rescored.length;
+      return {
+        status: 200,
+        reply: {
+          ok: true,
+          what: n === 0 ? 'rescore run: no attempt changed' : `${n} attempt${n === 1 ? '' : 's'} rescored`,
+          view: {
+            quiz: await quizPart(asked.data.itemId),
+            attempts: { kind: 'ok', data: result.data.attempts },
+            analytics: await analyticsPart(asked.data.itemId),
+            asOf: asOf(),
+          },
+          rescored: result.data.rescored,
         },
-        rescored: result.data.rescored,
-      },
-    };
+      };
+    }
+    case 'fixKey': {
+      const asked = OPS.fixKey.record.input.safeParse(input);
+      if (!asked.success) return why;
+      const result = await founderRecordCall(ctx, OPS.fixKey.record, asked.data);
+      if (result.kind !== 'ok') return refused(result);
+      const [attempts, analytics] = await Promise.all([attemptsPart(asked.data.itemId), analyticsPart(asked.data.itemId)]);
+      return {
+        status: 200,
+        reply: {
+          ok: true,
+          what: OPS.fixKey.what,
+          view: { quiz: { kind: 'ok' as const, data: result.data }, attempts, analytics, asOf: asOf() },
+        },
+      };
+    }
+    case 'override': {
+      const asked = OPS.override.record.input.safeParse(input);
+      if (!asked.success) return why;
+      const result = await founderRecordCall(ctx, OPS.override.record, asked.data);
+      if (result.kind !== 'ok') return refused(result);
+      const [quiz, analytics] = await Promise.all([quizPart(asked.data.itemId), analyticsPart(asked.data.itemId)]);
+      return {
+        status: 200,
+        reply: {
+          ok: true,
+          what: OPS.override.what,
+          view: { quiz, attempts: { kind: 'ok' as const, data: result.data }, analytics, asOf: asOf() },
+        },
+      };
+    }
   }
-  if (op === 'fixKey') {
-    const result = await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readQuiz);
-    if (result.kind !== 'ok' || !result.data) return refused(result);
-    return {
-      status: 200,
-      reply: {
-        ok: true,
-        what: spec.what,
-        view: await (async () => {
-          const [attempts, analytics] = await Promise.all([attemptsPart(), analyticsPart()]);
-          return { quiz: { kind: 'ok' as const, data: result.data }, attempts, analytics, asOf: asOf() };
-        })(),
-      },
-    };
-  }
-  const result = await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readAttempts);
-  if (result.kind !== 'ok' || !result.data) return refused(result);
-  return {
-    status: 200,
-    reply: {
-      ok: true,
-      what: spec.what,
-      view: await (async () => {
-        const [quiz, analytics] = await Promise.all([quizPart(), analyticsPart()]);
-        return { quiz, attempts: { kind: 'ok' as const, data: result.data }, analytics, asOf: asOf() };
-      })(),
-    },
-  };
 }

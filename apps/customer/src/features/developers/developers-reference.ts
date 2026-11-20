@@ -1080,6 +1080,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'Your equity, free collateral, used margin, maintenance and margin ratio as the venue reports them',
   },
   {
+    name: 'venueAccountMode',
+    method: 'GET',
+    path: '/api/v1/venue/account-mode',
+    product: 'accounts',
+
+    summary: 'Your venue account’s mode, its spot and perps balances in standard mode, and today’s action count, as the venue reports them',
+  },
+  {
     name: 'venueLiquidation',
     method: 'GET',
     path: '/api/v1/venue/liquidation',

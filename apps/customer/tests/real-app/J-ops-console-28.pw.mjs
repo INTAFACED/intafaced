@@ -29,7 +29,9 @@ const both = async () => [await testVenueInfoAt(TEST_VENUE), await testVenueInfo
 /** The TEST venue's own record of our builder address's mode and the mode it requires (what the console must equal). */
 const venueMode = async (venue) => (await at(venue.base, '/builder-account-mode', { builder: BUILDER })).value;
 /** The TEST venue simulator's switches: our builder address's mode, its account down, the requirement unpublished. */
-const switchMode = (venue, accountMode) => at(venue.base, '/test/account-switches', { owner: BUILDER, accountMode });
+// The mode is our builder address's own account mode, moved by the switch J-derivatives-29 moves any account's mode by.
+const switchMode = (venue, mode) =>
+  at(venue.base, '/test/account-mode', { account: { venueId: venue.id, owner: BUILDER, subAccount: null }, mode });
 const switchDown = (venue, down) => at(venue.base, '/test/account-switches', { owner: BUILDER, down });
 const switchRequirement = (venue, unpublished) => at(venue.base, '/test/switches', { builderModeRequirementUnpublished: unpublished });
 const secondsOf = (text) => new Date(`${UTC_SECOND.exec(text.trim())[1].replace(' ', 'T')}Z`).getTime();
@@ -44,6 +46,10 @@ test.afterAll(async () => {
   }
 });
 venueForThisFile(test, 'two');
+// Starts: our builder address in standard mode at each TEST venue (a new account there starts in another mode).
+test.beforeAll(async () => {
+  for (const venue of await both()) await switchMode(venue, 'standard');
+});
 
 let founder;
 async function openView(browser) {

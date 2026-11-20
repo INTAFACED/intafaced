@@ -19,6 +19,7 @@ function world(opts: { contact?: string | null; venues?: number } = {}) {
     (_, i) =>
       new TestVenueSimulator({ id: `test-venue-${i}`, displayName: `TEST venue ${i}`, clock: () => clock, markets: TEST_VENUE_MARKETS }),
   );
+  for (const sim of sims) setMode(sim, 'standard');
   const store = new MemoryBuilderModeAlertStore();
   const opened: BuilderModeAlert[] = [];
   const cleared: BuilderModeAlert[] = [];
@@ -32,6 +33,10 @@ function world(opts: { contact?: string | null; venues?: number } = {}) {
     now: () => clock,
   };
   return { sims, store, opened, cleared, deps };
+}
+/** The TEST control J-derivatives-29 moves an account's mode by; our builder address is its main account. */
+function setMode(sim: TestVenueSimulator, mode: 'standard' | 'unified' | 'portfolio_margin'): void {
+  sim.testAccountMode({ venueId: sim.venue.id, owner: BUILDER, subAccount: null }, { mode });
 }
 const tick = (ms = 1000) => (clock = new Date(clock.getTime() + ms));
 
@@ -56,7 +61,7 @@ describe('checkBuilderModes', () => {
 
   it('out of the required mode: not_collected, and one alert to the contact however many checks see it', async () => {
     const { deps, sims, store, opened } = world();
-    sims[0]!.setAccountMode(BUILDER, 'unified');
+    setMode(sims[0]!, 'unified');
     for (let i = 0; i < 5; i++) {
       tick();
       const check = await checkBuilderModes(deps);
@@ -76,7 +81,7 @@ describe('checkBuilderModes', () => {
 
   it('concurrent checks open one alert', async () => {
     const { deps, sims, store, opened } = world();
-    sims[1]!.setAccountMode(BUILDER, 'portfolio_margin');
+    setMode(sims[1]!, 'portfolio_margin');
     await Promise.all(Array.from({ length: 8 }, () => checkBuilderModes(deps)));
     expect(store.rows.filter((r) => r.venueId === 'test-venue-1')).toHaveLength(1);
     expect(opened).toHaveLength(1);
@@ -84,9 +89,9 @@ describe('checkBuilderModes', () => {
 
   it('back in the required mode clears the alert with the time and mode, once; a new episode opens a new one', async () => {
     const { deps, sims, store, cleared } = world();
-    sims[0]!.setAccountMode(BUILDER, 'unified');
+    setMode(sims[0]!, 'unified');
     await checkBuilderModes(deps);
-    sims[0]!.setAccountMode(BUILDER, 'standard');
+    setMode(sims[0]!, 'standard');
     const at = tick(5000);
     await checkBuilderModes(deps);
     tick();
@@ -94,7 +99,7 @@ describe('checkBuilderModes', () => {
     expect(store.rows).toHaveLength(1);
     expect(store.rows[0]).toMatchObject({ clearedAt: at, clearedMode: 'standard' });
     expect(cleared).toHaveLength(1);
-    sims[0]!.setAccountMode(BUILDER, 'unified');
+    setMode(sims[0]!, 'unified');
     tick();
     await checkBuilderModes(deps);
     expect(store.rows).toHaveLength(2);
@@ -103,9 +108,9 @@ describe('checkBuilderModes', () => {
 
   it('a mode that cannot be read is unknown, never ok, and neither opens nor clears an alert', async () => {
     const { deps, sims, store } = world();
-    sims[0]!.setAccountMode(BUILDER, 'unified');
+    setMode(sims[0]!, 'unified');
     await checkBuilderModes(deps);
-    sims[0]!.setAccountMode(BUILDER, 'standard');
+    setMode(sims[0]!, 'standard');
     sims[0]!.switches.venueDown = true;
     const down = await checkBuilderModes(deps);
     expect(down.venues[0]).toMatchObject({
@@ -157,7 +162,7 @@ describe('checkBuilderModes', () => {
   it('a venue that publishes no required mode reads not_published and opens nothing', async () => {
     const { deps, sims, store } = world({ venues: 1 });
     sims[0]!.switches.builderModeRequirementUnpublished = true;
-    sims[0]!.setAccountMode(BUILDER, 'unified');
+    setMode(sims[0]!, 'unified');
     const check = await checkBuilderModes(deps);
     expect(check.venues[0]).toMatchObject({
       mode: { status: 'read', mode: 'unified' },
@@ -169,7 +174,7 @@ describe('checkBuilderModes', () => {
 
   it('a blank contact still shows the modes, refuses alerting by name, and records no alert', async () => {
     const { deps, sims, store, opened } = world({ contact: parseAlertContact('   ') });
-    sims[0]!.setAccountMode(BUILDER, 'unified');
+    setMode(sims[0]!, 'unified');
     const check = await checkBuilderModes(deps);
     expect(check.venues[0]!.verdict).toBe('not_collected');
     expect(check.alerting).toMatchObject({ status: 'refused', code: 'trade.builder_mode_alert_contact_unset' });
@@ -199,7 +204,7 @@ describe('checkBuilderModes over HTTP to the TEST venue server', () => {
         onCleared: () => {},
         now: () => new Date(),
       };
-      sim.setAccountMode(BUILDER, 'unified');
+      setMode(sim, 'unified');
       const out = await checkBuilderModes(deps);
       expect(out.venues[0]).toMatchObject({
         venueId: sim.venue.id,

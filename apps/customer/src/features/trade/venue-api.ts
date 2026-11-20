@@ -8,6 +8,7 @@ import {
   venueStatusSchema,
   type VenueTimeInForce,
   type VenueMarginMode,
+  type VenueAccountMode,
   venueMarketSchema,
   venueMarketMarginSchema,
   venueScheduledCancelSchema,
@@ -29,6 +30,7 @@ import {
   venueLeverageChangeSchema,
   venueIsolatedMarginSchema,
   venueAccountSummarySchema,
+  venueAccountModeSchema,
   venueLiquidationSchema,
   venueLiquidationStatusSchema,
   venueInsuranceFundSchema,
@@ -184,7 +186,11 @@ export type VenueIntent =
       moveKey: string;
     }
   // J-derivatives-06 #2 #3: margin added to or removed from an open isolated position, one signed venue change.
-  | { kind: 'update_isolated_margin'; symbol: string; direction: 'add' | 'remove'; amount: string; changeKey: string };
+  | { kind: 'update_isolated_margin'; symbol: string; direction: 'add' | 'remove'; amount: string; changeKey: string }
+  // J-derivatives-29: USDC moved between the account's own perps and spot balances, and the account's mode changed, each
+  // the person's own signed venue action.
+  | { kind: 'spot_perps_transfer'; direction: 'perps_to_spot' | 'spot_to_perps'; asset: string; amount: string; moveKey: string }
+  | { kind: 'set_account_mode'; mode: VenueAccountMode; changeKey: string };
 
 // ── Business keys ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -231,6 +237,11 @@ export const keys = {
     `margin:${part(owner)}:${part(symbol)}:${direction}:${draft}`,
   marketMargin: (owner: string, symbol: string, direction: 'into_market' | 'out_of_market', draft: string) =>
     `market-margin:${part(owner)}:${part(symbol)}:${direction === 'into_market' ? 'in' : 'out'}:${draft}`,
+  /** One reviewed move between perps and spot (J-derivatives-29 #3 #4): the same move sent again is the same key. */
+  spotPerpsMove: (owner: string, direction: 'perps_to_spot' | 'spot_to_perps', draft: string) =>
+    `class-move:${part(owner)}:${direction === 'perps_to_spot' ? 'to-spot' : 'to-perps'}:${draft}`,
+  /** One reviewed change of the account's mode (J-derivatives-29 #7 #8). */
+  accountMode: (owner: string, mode: VenueAccountMode, draft: string) => `account-mode:${part(owner)}:${part(mode)}:${draft}`,
 };
 
 // ── Figures ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -359,6 +370,9 @@ export function venueApi(api: ApiClient) {
     /** The account's equity, free, used margin, maintenance and margin ratio as the venue reports them (J-derivatives-06 #1). */
     accountSummary: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/account-summary', asOf(venueAccountSummarySchema), { owner, venueId }, signal),
+    /** The account's mode, its spot and perps balances in standard mode, and the day's action count (J-derivatives-29). */
+    accountMode: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/account-mode', asOf(venueAccountModeSchema), { owner, venueId }, signal),
     /** The position's liquidation state on one market and the venue's rules (J-derivatives-07 #1 #3). */
     liquidation: (owner: string, q: { symbol: string; venueId?: string }, signal?: AbortSignal) =>
       read('/liquidation', asOf(venueLiquidationStatusSchema), { owner, symbol: q.symbol, venueId: q.venueId }, signal),

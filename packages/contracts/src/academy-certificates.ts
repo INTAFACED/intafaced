@@ -35,7 +35,8 @@ export const academyCertIssueRuleSchema = z.object({
   mode: z.enum(ACADEMY_CERT_ISSUE_MODES),
   delayMinutes: z.number().int().positive().nullable(),
   revision: z.number().int().positive(),
-  updatedAt: z.coerce.date(),
+  /** When this revision was set, as the ISO instant svc-academy sends. */
+  updatedAt: z.string().datetime({ offset: true }),
 });
 export type AcademyCertIssueRule = z.infer<typeof academyCertIssueRuleSchema>;
 

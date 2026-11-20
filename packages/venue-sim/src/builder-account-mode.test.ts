@@ -4,8 +4,9 @@ import { TestVenueSimulator } from './simulator.js';
 import { TEST_VENUE_MARKETS, answerTestVenue } from './http-server.js';
 
 // J-ops-console-28: the TEST venue reports a builder address's account mode beside the mode it requires to accrue builder
-// fees (standard, as the venue it stands for publishes). The per-account switch moves one address out of standard mode
-// and back; the venue switch leaves the requirement unpublished; the account's `down` switch takes the read away.
+// fees (standard, as the venue it stands for publishes). The mode is the address's main account's own mode, the one
+// `/account-mode` reports and `/test/account-mode` moves (J-derivatives-29); the venue switch leaves the requirement
+// unpublished; the account's `down` switch takes the read away.
 
 const BUILDER = '0x00000000000000000000000000000000b0110001';
 const OTHER = '0x00000000000000000000000000000000b0110002';
@@ -17,8 +18,12 @@ async function call(sim: TestVenueSimulator, path: string, body: unknown) {
 }
 
 describe('the TEST venue builder account mode', () => {
-  it('a new address reads standard, required standard, at the venue time', async () => {
+  const mode = (sim: TestVenueSimulator, owner: string, set: Record<string, unknown>) =>
+    call(sim, '/test/account-mode', { account: { venueId: sim.venue.id, owner, subAccount: null }, ...set });
+
+  it("reads the address's own account mode, required standard, at the venue time", async () => {
     const sim = new TestVenueSimulator({ clock: () => AT, markets: TEST_VENUE_MARKETS });
+    expect((await mode(sim, BUILDER, { mode: 'standard' })).status).toBe(200);
     const { status, out } = await call(sim, '/builder-account-mode', { builder: BUILDER.toUpperCase().replace('0X', '0x') });
     expect(status).toBe(200);
     expect(out).toEqual({
@@ -29,33 +34,28 @@ describe('the TEST venue builder account mode', () => {
     });
   });
 
-  it('the account switch moves one address out of standard mode and back, and no other', async () => {
+  it('the account-mode switch moves one address out of standard mode and back, and the builder read follows it', async () => {
     const sim = new TestVenueSimulator({ clock: () => AT, markets: TEST_VENUE_MARKETS });
-    const moved = await call(sim, '/test/account-switches', { owner: BUILDER, accountMode: 'unified' });
-    expect(moved.out).toMatchObject({ owner: BUILDER, accountMode: 'unified', label: 'TEST' });
+    await mode(sim, BUILDER, { mode: 'standard' });
+    await mode(sim, OTHER, { mode: 'standard' });
+    await mode(sim, BUILDER, { mode: 'unified' });
     expect((await call(sim, '/builder-account-mode', { builder: BUILDER })).out.value).toMatchObject({
       mode: { known: true, value: 'unified' },
       required: { known: true, value: 'standard' },
     });
     expect((await call(sim, '/builder-account-mode', { builder: OTHER })).out.value).toMatchObject({ mode: { value: 'standard' } });
-    // Another switch on the same account leaves its mode as it is.
-    expect((await call(sim, '/test/account-switches', { owner: BUILDER, loseAnswers: 0 })).out).toMatchObject({ accountMode: 'unified' });
-    await call(sim, '/test/account-switches', { owner: BUILDER, accountMode: 'portfolio_margin' });
+    await mode(sim, BUILDER, { mode: 'portfolio_margin' });
     expect((await call(sim, '/builder-account-mode', { builder: BUILDER })).out.value).toMatchObject({
       mode: { value: 'portfolio_margin' },
     });
-    await call(sim, '/test/account-switches', { owner: BUILDER, accountMode: 'standard' });
+    await mode(sim, BUILDER, { mode: 'standard' });
     expect((await call(sim, '/builder-account-mode', { builder: BUILDER })).out.value).toMatchObject({ mode: { value: 'standard' } });
   });
 
-  it('refuses a mode outside the closed set', async () => {
+  it('a mode the venue withholds reads not known, never a mode', async () => {
     const sim = new TestVenueSimulator({ clock: () => AT, markets: TEST_VENUE_MARKETS });
-    for (const accountMode of ['Standard', 'cross', 1, null]) {
-      const { status, out } = await call(sim, '/test/account-switches', { owner: BUILDER, accountMode });
-      expect(status, JSON.stringify(accountMode)).toBe(400);
-      expect(String(out.error)).toContain('accountMode is one of');
-    }
-    expect((await call(sim, '/builder-account-mode', { builder: BUILDER })).out.value).toMatchObject({ mode: { value: 'standard' } });
+    await mode(sim, BUILDER, { unreported: true });
+    expect((await call(sim, '/builder-account-mode', { builder: BUILDER })).out.value).toMatchObject({ mode: { known: false } });
   });
 
   it('the venue switch leaves the requirement unpublished, and back', async () => {
