@@ -149,6 +149,8 @@ pub struct Ctx<'a> {
     pub store: &'a Store,
     pub ports: &'a Ports,
     pub settings: &'a Settings,
+    /// `ctx.quizClientAddress`: the edge's client address, believed only from a trusted proxy (`index.ts`).
+    pub quiz_client_address: Option<String>,
 }
 
 impl Ctx<'_> {
@@ -187,6 +189,8 @@ pub struct AcademyDoor {
     now: fn() -> Instant,
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
+    /// `createQuizAddressResolver(ACADEMY_TRUSTED_PROXY_CIDRS)`: built before the listener opens.
+    quiz_proxies: Vec<String>,
 }
 
 /// The system clock.
@@ -206,7 +210,12 @@ impl AcademyDoor {
                  Without it the principal header is caller-controlled and every scope check is decorative (§9)."
             ));
         }
+        // A malformed proxy range stops the service instead of reading no address.
+        let quiz_proxies = crate::assessment::quizzes::proxy_rules(
+            crate::assessment::setting_str(&config.settings, "ACADEMY_TRUSTED_PROXY_CIDRS"),
+        )?;
         Ok(AcademyDoor {
+            quiz_proxies,
             secret: config.edge_secret,
             jurisdiction: Jurisdiction::from_env(&config.env)?,
             dev: config.env.get("NODE_ENV").map(String::as_str) != Some("production"),
@@ -354,6 +363,11 @@ impl AcademyDoor {
             store: &self.store,
             ports: &self.ports,
             settings: &self.settings,
+            quiz_client_address: crate::assessment::quizzes::resolve_address(
+                &self.quiz_proxies,
+                trpc::header(req, service_kit::server::SOCKET_PEER).as_deref(),
+                trpc::header(req, "x-intafaced-client-ip").as_deref(),
+            ),
         };
         slices::handle(&ctx).map_err(refuse)
     }

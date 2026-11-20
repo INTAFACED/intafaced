@@ -11,6 +11,9 @@ use std::time::{Duration, Instant as Clock};
 use crate::json::Json;
 use crate::telemetry::{Logger, Started, Telemetry};
 
+/// The header the server sets to the request's TCP peer address (never the caller's own header of that name).
+pub const SOCKET_PEER: &str = "x-intafaced-socket-peer";
+
 /// One HTTP request as it reaches the service.
 pub struct Request<'a> {
     pub method: &'a str,
@@ -157,7 +160,7 @@ fn answer<D: Door>(mut req: tiny_http::Request, app: &App<D>, log: &Logger, tele
     let request_id = app.wire.next_request_id();
     let method = req.method().as_str().to_owned();
     let url = req.url().to_owned();
-    let headers: Vec<(String, String)> = req
+    let mut headers: Vec<(String, String)> = req
         .headers()
         .iter()
         .map(|h| {
@@ -166,11 +169,17 @@ fn answer<D: Door>(mut req: tiny_http::Request, app: &App<D>, log: &Logger, tele
                 h.value.as_str().to_owned(),
             )
         })
+        .filter(|(name, _)| name != SOCKET_PEER)
         .collect();
     let remote = req
         .remote_addr()
         .map(ToString::to_string)
         .unwrap_or_default();
+    // The TCP peer (`req.socket.remoteAddress`), for a door that believes a forwarded address only from a trusted
+    // proxy. Set here alone: a header of that name the caller sent was dropped above.
+    if let Some(peer) = req.remote_addr() {
+        headers.push((SOCKET_PEER.to_owned(), peer.ip().to_string()));
+    }
     log.info(
         vec![
             ("reqId", Json::str(request_id.clone())),

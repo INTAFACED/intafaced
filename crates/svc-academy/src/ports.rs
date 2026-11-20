@@ -379,6 +379,8 @@ pub struct Ports {
     pub chain: Option<Box<dyn Chain>>,
     pub refunds: Option<Box<dyn Refunds>>,
     pub objects: Box<dyn ObjectStore>,
+    /// The bytes of an assignment file sent to and read from a signed store address (`putOverHttp`, `getOverHttp`).
+    pub object_bytes: Box<dyn crate::assessment::storage::ObjectBytes>,
     pub bus: Box<dyn Bus>,
     /// How a service's call to the S2S door (`/internal/curriculum`) is judged: inbound, but an outside caller.
     pub services: crate::curriculum::internal::ServiceAuth,
@@ -400,6 +402,8 @@ impl Ports {
             chain: None,
             refunds: None,
             objects: Box::new(NoObjectStore),
+            // The TypeScript's default is the real wire; it is reached only once the store is configured.
+            object_bytes: Box::new(crate::assessment::storage::HttpObjectBytes::default()),
             bus: Box::new(NoBus),
             services: crate::curriculum::internal::ServiceAuth::unwired(),
         }
