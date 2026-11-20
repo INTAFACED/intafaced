@@ -109,7 +109,7 @@ export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode
 export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title: ReactNode; feeLine?: ReactNode }) {
   const { t } = venueCopy.useCopy();
   return (
-    <header className="dk-panel" data-testid="venue-header" aria-label={t('Venue')}>
+    <header className="dk-panel dk-venue-head" data-testid="venue-header" aria-label={t('Venue')}>
       <h1 className="dk-tab-title">
         {title} <TestMark test={status.test} />
       </h1>
