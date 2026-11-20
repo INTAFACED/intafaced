@@ -190,7 +190,7 @@
     background: var(--if-line);
   }
   /*
-   * The venue spot desk (VenueSpotDesk, #8928): the same desk in two columns, the market, chart, DOM and ticket in the
+   * The venue spot desk (VenueSpotDesk): the same desk in two columns, the market, chart, DOM and ticket in the
    * centre and the account, fees and rules beside it; the book and tape sit beside the chart as on today's desk.
    */
   .dk-venue-grid {
