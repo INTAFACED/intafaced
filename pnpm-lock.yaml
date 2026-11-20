@@ -632,6 +632,9 @@ importers:
 
   packages/portfolio-view:
     dependencies:
+      '@intafaced/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@intafaced/ledger-client':
         specifier: workspace:*
         version: link:../ledger-client

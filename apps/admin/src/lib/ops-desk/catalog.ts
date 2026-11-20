@@ -1,4 +1,5 @@
 import { DEX_HEALTH } from '@intafaced/contracts/dex-procedures';
+import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
@@ -2430,9 +2431,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.indexer',
         title: 'Indexer status',
         note: 'Live per request. A blank height means the indexer has none yet, not zero. "Blocks behind" is blank when the chain tip or the indexer cursor is unknown.',
-        module: 'indexer',
+        ...readOf(INDEXER_STATUS),
         plainName: 'indexer finality',
-        procedure: 'status',
         shape: 'record',
         columns: [
           int('chainId', 'Chain id'),

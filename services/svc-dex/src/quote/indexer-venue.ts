@@ -2,6 +2,8 @@ import type { Amount } from '@intafaced/ledger-client/money';
 import { MarketDataSource, type MarketDataSourceOptions } from './market-data-source.js';
 import type { TimestampedBook, VenueKind } from './venue.js';
 import { VenueUnavailableError } from './venue.js';
+import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
+import { INDEXER_BOOK, INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import { getJson, parseLevels, trimBaseUrl, type HttpVenueOptions } from './wire.js';
 
 /**
@@ -66,16 +68,11 @@ export interface IndexerVenueOptions extends HttpVenueOptions, MarketDataSourceO
   readonly region?: string;
 }
 
-interface TrpcEnvelope {
-  result?: { data?: unknown };
-}
-
-function unwrap(venueId: string, body: unknown, what: string): Record<string, unknown> {
-  const data = (body as TrpcEnvelope | null)?.result?.data;
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) {
-    throw new VenueUnavailableError(venueId, 'malformed', `svc-indexer ${what} response carried no result data`);
-  }
-  return data as Record<string, unknown>;
+/** A reply read by its record, or the refusal that says it is not the shape svc-indexer publishes. */
+function readReply<T>(venueId: string, reply: T | null, what: string): T {
+  if (reply === null)
+    throw new VenueUnavailableError(venueId, 'malformed', `svc-indexer ${what} reply is not the shape its record publishes`);
+  return reply;
 }
 
 export class IndexerQuoteVenue extends MarketDataSource {
@@ -98,39 +95,33 @@ export class IndexerQuoteVenue extends MarketDataSource {
   }
 
   protected async fetchDepth(symbol: string, limit: number): Promise<TimestampedBook> {
-    const input = encodeURIComponent(JSON.stringify({ market: symbol, depth: limit }));
-
     // Both in flight together. Sequential calls would make the book older than
     // the status that vouched for it by a whole round trip, against a ceiling
     // that is 2000ms by default.
     const [statusBody, bookBody] = await Promise.all([
-      getJson(this.id, `${this.#baseUrl}/trpc/status`, this.#http, this.#headers),
-      getJson(this.id, `${this.#baseUrl}/trpc/book?input=${input}`, this.#http, this.#headers),
+      getJson(this.id, trpcRecordRequest(INDEXER_STATUS, this.#baseUrl, undefined).url, this.#http, this.#headers),
+      getJson(this.id, trpcRecordRequest(INDEXER_BOOK, this.#baseUrl, { market: symbol, depth: limit }).url, this.#http, this.#headers),
     ]);
 
     // Stamped after both reads land, so it describes the older of the two.
     const observedAt = new Date();
 
-    const status = unwrap(this.id, statusBody, 'status');
-    if (status.halted !== null && status.halted !== undefined) {
-      const reason = (status.halted as { reason?: unknown }).reason;
+    const status = readReply(this.id, trpcRecordReply(INDEXER_STATUS, statusBody), 'status');
+    if (status.halted !== null) {
       throw new VenueUnavailableError(
         this.id,
         'not_ready',
-        `svc-indexer is halted (${typeof reason === 'string' ? reason : 'unknown reason'}) — its projection knows it is wrong`,
+        `svc-indexer is halted (${status.halted.reason}) — its projection knows it is wrong`,
       );
     }
 
-    const view = unwrap(this.id, bookBody, 'book');
-    if (view.asOfHeight === null || view.asOfHeight === undefined) {
+    const view = readReply(this.id, trpcRecordReply(INDEXER_BOOK, bookBody), 'book');
+    if (view.asOfHeight === null) {
       throw new VenueUnavailableError(
         this.id,
         'not_ready',
         'svc-indexer has projected no chain state — there is no on-chain book to quote (SOCKET §13 socket.evm-rpc)',
       );
-    }
-    if (typeof view.asOfHeight !== 'number' || !Number.isInteger(view.asOfHeight)) {
-      throw new VenueUnavailableError(this.id, 'malformed', 'svc-indexer book carried no integer asOfHeight');
     }
 
     // Inclusion is not finality (PTX-M22-R05). A book without a finalized
@@ -139,15 +130,15 @@ export class IndexerQuoteVenue extends MarketDataSource {
     // We do not invent a confirmation count here — we consume the indexer's
     // published finalizedHeight or refuse.
     const finalizedHeight = status.finalizedHeight;
-    if (finalizedHeight === null || finalizedHeight === undefined) {
+    if (finalizedHeight === null) {
       throw new VenueUnavailableError(
         this.id,
         'missing_finality',
         'svc-indexer published no finalizedHeight — inclusion is not settlement and this book cannot be an executable route',
       );
     }
-    if (typeof finalizedHeight !== 'number' || !Number.isInteger(finalizedHeight) || finalizedHeight < 0) {
-      throw new VenueUnavailableError(this.id, 'malformed', 'svc-indexer status carried no integer finalizedHeight');
+    if (finalizedHeight < 0) {
+      throw new VenueUnavailableError(this.id, 'malformed', 'svc-indexer status carried a negative finalizedHeight');
     }
     if (view.asOfHeight > finalizedHeight) {
       throw new VenueUnavailableError(

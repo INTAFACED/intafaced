@@ -1,5 +1,4 @@
 [
-  { "path": "accountFills", "type": "query", "caller": "jurisdiction" },
   { "path": "book", "type": "query", "caller": "jurisdiction" },
   { "path": "explorer.address.balanceAt", "type": "query", "caller": "jurisdiction" },
   { "path": "explorer.address.holdings", "type": "query", "caller": "jurisdiction" },
@@ -15,11 +14,6 @@
   { "path": "explorer.tx.get", "type": "query", "caller": "jurisdiction" },
   { "path": "explorer.tx.networks", "type": "query", "caller": "jurisdiction" },
   { "path": "explorer.txs.list", "type": "query", "caller": "jurisdiction" },
-  { "path": "fills", "type": "query", "caller": "jurisdiction" },
-  { "path": "health", "type": "query", "caller": "public" },
-  { "path": "markets", "type": "query", "caller": "jurisdiction" },
-  { "path": "position", "type": "query", "caller": "jurisdiction" },
   { "path": "positions", "type": "query", "caller": "jurisdiction" },
-  { "path": "status", "type": "query", "caller": "jurisdiction" },
-  { "path": "stream", "type": "query", "caller": "jurisdiction" }
+  { "path": "status", "type": "query", "caller": "jurisdiction" }
 ]
