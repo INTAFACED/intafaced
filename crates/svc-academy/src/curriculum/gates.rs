@@ -257,6 +257,19 @@ fn load(
     ))
 }
 
+/// `ReleaseAccess.itemRelease({ userId, itemSlug, now, courseStartsAt })`: the learner's decision for one item, its
+/// course's start given by the caller that read it once for every item.
+pub fn item_release(
+    pool: &Pool,
+    user_id: &str,
+    item_slug: &str,
+    now: i64,
+    course_starts_at: Option<i64>,
+) -> Result<Decision, Refusal> {
+    let slug = require_slug(item_slug)?;
+    db::with_client(pool, |c| load(c, user_id, slug, now, course_starts_at))
+}
+
 /// `ReleaseAccess.assertMayRead`, then the learner's access record for the item's course (`useAccessGate`): a lock
 /// refuses before a body is read.
 pub fn assert_may_read(
@@ -376,7 +389,7 @@ pub fn assert_access(pool: &Pool, user_id: &str, path: &str, now: i64) -> Result
 }
 
 /// `settleExpiries`: the expired event, once, for every record of the learner whose end has passed.
-fn settle_expiries(pool: &Pool, user_id: &str, now: i64) -> Result<(), Refusal> {
+pub fn settle_expiries(pool: &Pool, user_id: &str, now: i64) -> Result<(), Refusal> {
     let at = iso(now);
     serializable(pool, |tx| {
         let due = tx

@@ -260,6 +260,18 @@ impl AcademyDoor {
         self.store.end();
     }
 
+    /// One pass of the purchase reconciler (`reconcileCoursePurchases`): up to 100 open purchases and 100 set aside.
+    pub fn reconcile_course_purchases(
+        &self,
+        on_error: &mut dyn FnMut(&str, &Refusal),
+    ) -> Result<usize, Refusal> {
+        crate::learner::purchases::CoursePurchases {
+            pool: &self.store,
+            deps: crate::learner::purchases::Deps::of(&self.ports),
+        }
+        .reconcile(100, on_error)
+    }
+
     /// Answers one request under a fresh request id.
     pub fn handle(&self, req: &Request<'_>) -> Response {
         let id = self.requests.next();

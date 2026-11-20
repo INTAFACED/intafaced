@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use service_kit::edge::EdgeKey;
 use service_kit::http::{Fetch, UreqFetch};
@@ -21,10 +21,12 @@ use svc_academy::curriculum::{internal::ServiceAuth, spine};
 use svc_academy::db::Store;
 use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
 use svc_academy::env::{self, AcademyEnv};
+use svc_academy::learner::purchases::chain::RpcChain;
+use svc_academy::learner::purchases::clients::{IdentityWallets, LedgerHttp, RefundHttp};
 use svc_academy::lobbies::clients::{HttpHostRights, HttpStake};
 use svc_academy::lobbies::stream::stream_from_env;
 use svc_academy::migrate;
-use svc_academy::ports::{JetStreamBus, Ports};
+use svc_academy::ports::{JetStreamBus, PaymentSettings, Ports};
 use svc_academy::settings::Settings;
 use svc_academy::slices;
 
@@ -53,6 +55,20 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// The owner's course-payment values (`index.ts`): every one set, or none. The token and receiver are lowercased.
+fn payment_settings(env: &AcademyEnv) -> Option<PaymentSettings> {
+    let set = |k: &str| env.str(k).filter(|v| !v.is_empty());
+    set("ACADEMY_PAYMENT_RPC_URL")?;
+    Some(PaymentSettings {
+        chain_id: env.int("ACADEMY_PAYMENT_CHAIN_ID")?,
+        token: set("ACADEMY_PAYMENT_TOKEN_ADDRESS")?.to_lowercase(),
+        decimals: env.int("ACADEMY_PAYMENT_TOKEN_DECIMALS")?,
+        asset: set("ACADEMY_PAYMENT_ASSET")?.to_owned(),
+        receiver: set("ACADEMY_PAYMENT_RECEIVER")?.to_lowercase(),
+        confirmations: env.int("ACADEMY_PAYMENT_CONFIRMATIONS")?,
+    })
 }
 
 /// The door, built once from the environment. An outside port is its stand-in until its slice wires the real one.
@@ -97,6 +113,33 @@ fn door(
         env.int("LIVEKIT_TOKEN_TTL_SECONDS"),
         fetch.clone(),
     );
+    // Course purchases (`index.ts`): the chain reader while payments are set up, the ledger client while `LEDGER_URL`
+    // is set, the refund signer while its URL is set, and svc-identity's linked wallets always.
+    ports.payment_settings = payment_settings(env);
+    if ports.payment_settings.is_some() {
+        ports.chain = Some(Box::new(RpcChain::new(
+            &str_of("ACADEMY_PAYMENT_RPC_URL"),
+            fetch.clone(),
+        )));
+    }
+    if let Some(url) = env.str("LEDGER_URL").filter(|u| !u.is_empty()) {
+        ports.ledger = Some(Box::new(LedgerHttp::new(
+            url,
+            signer("svc-ledger"),
+            fetch.clone(),
+        )));
+    }
+    if let Some(url) = env
+        .str("ACADEMY_REFUND_SIGNER_URL")
+        .filter(|u| !u.is_empty())
+    {
+        ports.refunds = Some(Box::new(RefundHttp::new(url, fetch.clone())));
+    }
+    ports.wallets = Box::new(IdentityWallets::new(
+        &str_of("IDENTITY_URL"),
+        signer("svc-identity"),
+        fetch.clone(),
+    ));
     if let Some(bus) = bus {
         ports.bus = Box::new(bus);
     }
@@ -235,15 +278,21 @@ fn run() -> Result<(), String> {
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
     }
-    // AC-certificates-02: the issue sweep issues delayed certificates once due, one sweep at a time; blank interval, no
-    // sweep (and a delayed rule refuses `academy.cert_sweep_unset`). It finishes its sweep before the process stops.
-    let sweep_every = env
-        .int("ACADEMY_CERT_ISSUE_SWEEP_SECONDS")
-        .and_then(|s| u64::try_from(s).ok());
-    std::thread::scope(|s| {
-        if let Some(seconds) = sweep_every {
+    let sweep = env.int("ACADEMY_PURCHASE_RECONCILE_SECONDS");
+    std::thread::scope(|scope| {
+        if let Some(seconds) = sweep {
+            let (wire, stop, log) = (&app.wire, &stop, &log);
+            scope.spawn(move || reconcile_purchases(wire, seconds, stop, log));
+        }
+        // AC-certificates-02: the issue sweep issues delayed certificates once due, one sweep at a time; blank interval, no
+        // sweep (and a delayed rule refuses `academy.cert_sweep_unset`). It finishes its sweep before the process stops.
+        if let Some(seconds) = env
+            .int("ACADEMY_CERT_ISSUE_SWEEP_SECONDS")
+            .and_then(|s| u64::try_from(s).ok())
+        {
             let (app, log, stop) = (&app, &log, &stop);
-            s.spawn(move || cert_sweep(app, log, stop, std::time::Duration::from_secs(seconds)));
+            scope
+                .spawn(move || cert_sweep(app, log, stop, std::time::Duration::from_secs(seconds)));
         }
         server::serve(&server, &app, &log, &telemetry, &stop);
     });
@@ -257,6 +306,37 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+/// J-academy-07: the purchase reconciler, every `ACADEMY_PURCHASE_RECONCILE_SECONDS`, one pass at a time (a pass that
+/// runs past the next tick is not overlapped). A blank interval starts no sweep: only a read of a purchase reconciles it.
+fn reconcile_purchases(door: &AcademyDoor, seconds: i64, stop: &AtomicBool, log: &Logger) {
+    let tick = std::time::Duration::from_secs(u64::try_from(seconds).unwrap_or(1));
+    let step = std::time::Duration::from_millis(200);
+    loop {
+        let started = std::time::Instant::now();
+        while started.elapsed() < tick {
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            std::thread::sleep(step.min(tick.saturating_sub(started.elapsed())));
+        }
+        let mut one = |key: &str, err: &svc_academy::errors::Refusal| {
+            log.error(
+                vec![
+                    ("err", Json::str(format!("{err:?}"))),
+                    ("key", Json::str(key)),
+                ],
+                "purchase reconcile failed on one purchase; the next pass retries it",
+            );
+        };
+        if let Err(err) = door.reconcile_course_purchases(&mut one) {
+            log.error(
+                vec![("err", Json::str(format!("{err:?}")))],
+                "purchase reconcile failed; the next pass retries",
+            );
+        }
+    }
+}
+
 /// `setInterval(() => academy.issueDueCertificates(), seconds * 1000)`, never stacked: each sweep runs to its end, then
 /// the next waits its interval. A failed sweep is logged and the next one retries.
 fn cert_sweep(app: &App<AcademyDoor>, log: &Logger, stop: &AtomicBool, every: std::time::Duration) {
@@ -264,7 +344,7 @@ fn cert_sweep(app: &App<AcademyDoor>, log: &Logger, stop: &AtomicBool, every: st
     loop {
         let mut waited = std::time::Duration::ZERO;
         while waited < every {
-            if stop.load(std::sync::atomic::Ordering::SeqCst) {
+            if stop.load(Ordering::SeqCst) {
                 return;
             }
             std::thread::sleep(tick);

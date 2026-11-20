@@ -15,6 +15,7 @@ pub mod db;
 pub mod door;
 pub mod env;
 pub mod errors;
+pub mod learner;
 pub mod lobbies;
 pub mod migrate;
 pub mod ports;

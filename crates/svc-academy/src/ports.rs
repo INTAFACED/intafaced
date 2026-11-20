@@ -167,12 +167,19 @@ impl Approvals for StubApprovals {
 /// asked or read.
 pub trait LinkedWallets: Send + Sync {
     fn read(&self, user_id: &str) -> Option<Json>;
+    /// Whether identity is asked at all: without it nothing is sold (`CoursePurchaseDeps.wallets` null).
+    fn wired(&self) -> bool {
+        true
+    }
 }
 
 /// No identity: no wallet is known, so nothing is sold.
 pub struct NoLinkedWallets;
 
 impl LinkedWallets for NoLinkedWallets {
+    fn wired(&self) -> bool {
+        false
+    }
     fn read(&self, _user_id: &str) -> Option<Json> {
         None
     }
@@ -270,12 +277,19 @@ pub trait Refunds: Send + Sync {
 /// The video store's signed URLs (`VideoStorageConfig`).
 pub trait ObjectStore: Send + Sync {
     fn signed_url(&self, key: &str, expires_at: Instant) -> Result<String, Refusal>;
+    /// `isVideoStorageConfigured`: an endpoint, a bucket and keys are set.
+    fn configured(&self) -> bool {
+        true
+    }
 }
 
 /// No video store: `academy.video_storage_unconfigured`.
 pub struct NoObjectStore;
 
 impl ObjectStore for NoObjectStore {
+    fn configured(&self) -> bool {
+        false
+    }
     fn signed_url(&self, _key: &str, _expires_at: Instant) -> Result<String, Refusal> {
         Err(Refusal::Academy(AcademyError::new(
             "video storage is not configured",
