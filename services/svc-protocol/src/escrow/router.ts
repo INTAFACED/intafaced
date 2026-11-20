@@ -1,16 +1,7 @@
-import {
-  ESCROW_AUDIT_EXTERNAL,
-  ESCROW_DEAL_NOT_FOUND,
-  ESCROW_NOT_DEPLOYED,
-  protocolEscrowBuildInputSchema,
-  protocolEscrowBuildOutputSchema,
-  protocolEscrowDealInputSchema,
-  protocolEscrowDealOutputSchema,
-  protocolEscrowStatusOutputSchema,
-  publicJurisdictionProcedure,
-  router,
-  TRPCError,
-} from '@intafaced/contracts';
+import { ESCROW_AUDIT_EXTERNAL, ESCROW_DEAL_NOT_FOUND, ESCROW_NOT_DEPLOYED, router, TRPCError } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { PROTOCOL_ESCROW_BUILD, PROTOCOL_ESCROW_DEAL, PROTOCOL_ESCROW_STATUS } from '@intafaced/contracts/protocol-chain-procedures';
+import { protocolRefusal } from '../refusal.js';
 import { buildEscrowCall, EscrowRefusal, escrowStatus, readDeal, type EscrowChain, type EscrowSetting } from './sovereign.js';
 
 export interface EscrowRouterDeps {
@@ -40,16 +31,13 @@ export function createEscrowRouter(deps: EscrowRouterDeps) {
       throw deps.toTrpcError(err);
     }
   };
-  const procedure = publicJurisdictionProcedure('protocol', 'protocol');
   return router({
-    status: procedure.output(protocolEscrowStatusOutputSchema).query(() => guard(() => escrowStatus(deps.setting()))),
-    deal: procedure
-      .input(protocolEscrowDealInputSchema)
-      .output(protocolEscrowDealOutputSchema)
-      .query(({ input }) => guard(() => readDeal(deps.chain(), deps.setting(), input.dealId))),
-    build: procedure
-      .input(protocolEscrowBuildInputSchema)
-      .output(protocolEscrowBuildOutputSchema)
-      .query(({ input }) => guard(() => buildEscrowCall(deps.setting(), input))),
+    status: mountRecord(PROTOCOL_ESCROW_STATUS, () => guard(() => escrowStatus(deps.setting())), protocolRefusal),
+    deal: mountRecord(
+      PROTOCOL_ESCROW_DEAL,
+      ({ input }) => guard(() => readDeal(deps.chain(), deps.setting(), input.dealId)),
+      protocolRefusal,
+    ),
+    build: mountRecord(PROTOCOL_ESCROW_BUILD, ({ input }) => guard(() => buildEscrowCall(deps.setting(), input)), protocolRefusal),
   });
 }

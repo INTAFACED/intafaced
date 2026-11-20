@@ -16,12 +16,12 @@ import {
   PROTOCOL_COMPLIANCE_TIERS_REMOVE,
 } from '@intafaced/contracts/protocol-wallet-procedures';
 import { PROTOCOL_AUDIT_PRODUCTS } from '@intafaced/contracts/protocol-procedures';
-import { tokensListOutputSchema } from '@intafaced/contracts/protocol-tokens';
+import { PROTOCOL_TOKENS_LIST } from '@intafaced/contracts/protocol-chain-procedures';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { founderCall, founderRecordCall, parseWith, type FounderCallResult } from '@/lib/desk/founder-call';
+import { founderRecordCall, type FounderCallResult } from '@/lib/desk/founder-call';
 import { trustRefusalWords } from '@/lib/protocol-trust/model';
 
 /**
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
   if (session instanceof Response) return session;
   const [reports, tokens, audit, tiers, onboarding, nameTags] = await Promise.all([
     founderRecordCall(session, PROTOCOL_COMPLIANCE_REPORTS_LIST, undefined),
-    founderCall(session, 'protocol', 'tokens.list', 'GET', { window: '24h' }, parseWith(tokensListOutputSchema)),
+    founderRecordCall(session, PROTOCOL_TOKENS_LIST, { window: '24h' }),
     founderRecordCall(session, PROTOCOL_AUDIT_PRODUCTS, undefined),
     founderRecordCall(session, PROTOCOL_COMPLIANCE_TIERS_LIST, undefined),
     founderRecordCall(session, PROTOCOL_COMPLIANCE_ONBOARDING_LIST, undefined),
