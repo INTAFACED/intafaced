@@ -489,14 +489,31 @@ test(`${J} #8 a funding incident on this asset and network shows on Deposit with
   await expect(card).toHaveCount(0);
 });
 
-test(`${J} #2 chooses asset and network: an unsupported-case list shows with its checkbox before any address; a switched-off network shows the owner's banner and no address; an unpublished asset says so; an unverified person is sent to Verification`, async ({
+test(`${J} #2 chooses asset and network: no address until a network is picked; an unsupported-case list shows with its checkbox before any address; what the catalogue does not publish says so; an unverified person is sent to Verification; a switched-off network shows the owner's banner and no address`, async ({
   page,
 }) => {
   test.setTimeout(120_000);
   const { account: who } = state();
+  const client = await api(who);
+  // The catalogue the bank publishes for this person: the asset chooser offers exactly its coins, and nothing else.
+  const published = await client.get('/api/bank/trpc/deposits.assets');
+  expect(published.status).toBe(200);
+  const catalogue = published.body?.result?.data;
+  const coins = [...new Set([...(catalogue?.assets ?? []), ...(catalogue?.halted ?? [])].map((row) => row.assetId))].sort();
+  expect(coins).toEqual(['USDC', 'USDT']);
   await openDeposit(page, who);
+  await expect.poll(async () => (await assetPicker(page).locator('option').allTextContents()).sort()).toEqual(coins);
+
+  // An asset chosen, no network yet: the chooser asks for one, and there is no address and nothing to confirm.
   await assetPicker(page).selectOption('USDC');
   const network = page.getByRole('combobox', { name: 'Network', exact: true });
+  await expect(network).toHaveValue('');
+  await expect(network.locator('option:checked')).toHaveText('Choose a network');
+  await expect(page.getByText('Choose an asset and a network, then confirm below to see your address.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show my deposit address', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: /^I will send only USDC on / })).toHaveCount(0);
+  await expect(page.getByTestId('deposit-address')).toHaveCount(0);
+
   await network.selectOption({ label: 'TEST Base (switched off)' });
   const banner = page.getByTestId('deposit-halted');
   await expect(banner).toHaveAttribute('role', 'alert');
@@ -504,10 +521,9 @@ test(`${J} #2 chooses asset and network: an unsupported-case list shows with its
   await expect(banner).toContainText('TEST: switched off on this test stack so the notice can be seen.');
   // Money already on its way to an address the person kept is not lost: svc-pay credits it once the pair is back on.
   await expect(banner).toContainText('it waits, and is credited after deposits are switched back on.');
-  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show my deposit address', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('deposit-address')).toHaveCount(0);
   // Asked directly, the bank issues nothing for it either.
-  const client = await api(who);
   const asked = await client.post('/api/bank/trpc/deposits.address', { assetId: 'USDC', networkId: 'base' });
   expect(asked.status).toBe(412);
   expect(asked.body?.error?.data?.cause?.code ?? asked.body?.error?.data?.intafacedCode).toBe('bank.deposit_network_halted');
@@ -516,20 +532,40 @@ test(`${J} #2 chooses asset and network: an unsupported-case list shows with its
   await network.selectOption({ label: 'TEST Ethereum' });
   await expect(page.getByTestId('deposit-halted')).toHaveCount(0);
   const notes = page.getByTestId('deposit-notes');
-  await expect(notes.getByRole('heading', { name: 'Not supported on this network' })).toBeVisible();
+  await expect(notes.getByRole('heading', { name: 'Not supported on this network', exact: true })).toBeVisible();
   for (const item of TEST_UNSUPPORTED_DEPOSIT.cases) await expect(notes.getByRole('listitem').filter({ hasText: item })).toBeVisible();
-  const ack = page.getByRole('checkbox', { name: 'I will send only USDC on TEST Ethereum. I have read the notes above.' });
+  const ack = page.getByRole('checkbox', { name: 'I will send only USDC on TEST Ethereum. I have read the notes above.', exact: true });
   await expect(ack).not.toBeChecked();
-  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Show my deposit address', exact: true })).toBeDisabled();
   await expect(page.getByTestId('deposit-address')).toHaveCount(0);
   await ack.check();
-  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Show my deposit address', exact: true })).toBeEnabled();
 
-  // An asset custody does not publish, asked for by link: nothing is chosen and the page says why.
+  // An asset the catalogue does not publish, asked for by link: nothing is chosen, the page says why, and no address.
   await page.goto('/uc/recharge?asset=BTC');
   await expect(page.locator('[data-code="bank.deposit_asset_unpublished"]')).toContainText(
     'BTC is not an asset custody publishes for deposits, so nothing was chosen.',
   );
+  await expect(assetPicker(page)).not.toHaveValue('BTC');
+  await expect(page.getByTestId('deposit-address')).toHaveCount(0);
+  // A network the catalogue does not publish for a published coin: the coin is chosen, no network is, and the page says so.
+  await page.goto('/uc/recharge?asset=USDT&network=tron');
+  await expect(page.locator('[data-code="bank.deposit_network_unpublished"]')).toContainText(
+    'tron is not a published network for USDT, so no network was chosen.',
+  );
+  await expect(assetPicker(page)).toHaveValue('USDT');
+  await expect(page.getByRole('combobox', { name: 'Network', exact: true })).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Show my deposit address', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('deposit-address')).toHaveCount(0);
+  // The bank refuses an address for either, with its typed reason.
+  for (const pair of [
+    { assetId: 'BTC', networkId: 'bitcoin' },
+    { assetId: 'USDT', networkId: 'tron' },
+  ]) {
+    const refused = await client.post('/api/bank/trpc/deposits.address', pair);
+    expect(refused.status, JSON.stringify(pair)).toBe(412);
+    expect(refused.body?.error?.data?.cause?.code ?? refused.body?.error?.data?.intafacedCode).toBe('bank.deposit_asset_unpublished');
+  }
 
   // A person who has not finished verification: the room is whole, and its address panel sends them to Verification.
   await page.context().clearCookies();
@@ -538,8 +574,8 @@ test(`${J} #2 chooses asset and network: an unsupported-case list shows with its
   await page.mouse.move(0, 600);
   const verify = page.getByTestId('deposit-verify');
   await expect(verify).toContainText('Verify your identity first');
-  await expect(page.getByText('Crypto deposits open once your identity is verified.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toHaveCount(0);
+  await expect(page.getByText('Crypto deposits open once your identity is verified.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show my deposit address', exact: true })).toHaveCount(0);
   await verify.getByRole('link', { name: 'Verify now' }).click();
   await expect(page).toHaveURL(/\/verification$/);
 });
