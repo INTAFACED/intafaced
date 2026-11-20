@@ -7,7 +7,8 @@ import { parseAmount } from '@intafaced/ledger-client/money';
 import { SqlSpotConditionalStore, type SpotConditional } from './spot-conditional-store.js';
 
 // trade.user_venue_spot_conditionals (J-cex-spot-08): one order per client id, never deleted, its terms fixed except a
-// live stop's prices and an exit size set once, a final state final, and of two claims on one order only one wins.
+// live stop's prices and an exit size set once, a final state final, and of two claims on one order only one wins. A
+// good-till-date order (J-cex-spot-03 #7) keeps its expiry as a term and ends expired, final.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -44,6 +45,7 @@ const row = (id: string, clientKey: string, over: Partial<SpotConditional> = {})
   entryTif: null,
   closePrice: null,
   exitQuantity: null,
+  expireAt: null,
   agentAddress: '0x00000000000000000000000000000000000000a8',
   region: 'DE',
   status: 'placing',
@@ -114,5 +116,35 @@ describe('SqlSpotConditionalStore on Postgres (trade.user_venue_spot_conditional
     await expect(
       store.createOnce(row('aaaaaaaa-0000-4000-8000-0000000000c5', 'bad-1', { kind: 'stop_limit', takeProfitPrice: a('1') })),
     ).rejects.toThrow(/fields_ck/);
+  });
+
+  it('keeps a good-till-date order’s expiry as a term; it ends expired, final; an expiry fits only that kind', async () => {
+    const expireAt = new Date('2026-11-20T13:00:00Z');
+    const gtd = {
+      kind: 'gtd',
+      side: 'buy',
+      triggerPrice: null,
+      takeProfitPrice: null,
+      entryPrice: a('50'),
+      entryTif: 'GTC',
+      status: 'entry',
+    } as const;
+    const r = await store.createOnce(row('aaaaaaaa-0000-4000-8000-0000000000c6', 'gtd-1', { ...gtd, expireAt }));
+    expect(r).toMatchObject({ kind: 'gtd', expireAt, entryTif: 'GTC', status: 'entry' });
+    expect((await store.live()).map((x) => x.id)).toContain(r.id);
+    await expect(
+      db!.sql`UPDATE trade.user_venue_spot_conditionals SET expire_at = ${new Date('2026-11-21T00:00:00Z')} WHERE id = ${r.id}`,
+    ).rejects.toThrow(/only a live order changes/);
+    expect(await store.move(r.id, 'entry', 'cancelling', new Date(), { cancelReason: 'expired' })).toBe(true);
+    expect(await store.move(r.id, 'cancelling', 'expired', new Date())).toBe(true);
+    expect(await store.get(USER, r.id)).toMatchObject({ status: 'expired', cancelReason: 'expired' });
+    expect((await store.live()).map((x) => x.id)).not.toContain(r.id);
+    await expect(db!.sql`UPDATE trade.user_venue_spot_conditionals SET status = 'entry' WHERE id = ${r.id}`).rejects.toThrow(
+      /only a live order changes/,
+    );
+    await expect(store.createOnce(row('aaaaaaaa-0000-4000-8000-0000000000c7', 'gtd-2', { ...gtd, expireAt: null }))).rejects.toThrow(
+      /fields_ck/,
+    );
+    await expect(store.createOnce(row('aaaaaaaa-0000-4000-8000-0000000000c8', 'oco-9', { expireAt }))).rejects.toThrow(/fields_ck/);
   });
 });

@@ -482,4 +482,91 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
     });
     expect(store.rows.get(made.conditional.id)!.triggerPrice).toBe(a('96'));
   });
+
+  // J-cex-spot-03 #7: the venue offers no good-till-date; the owner chose that we build it.
+  describe('good-till-date (J-cex-spot-03 #7)', () => {
+    let clock = Date.now();
+    const timed = () =>
+      new VenueSpotConditionals({ door, store, keySeed: SEED, liveTier: async () => 'basic', freeze, now: () => new Date(clock) });
+    beforeEach(() => {
+      clock = Date.now();
+    });
+
+    it('needs an expiry in the future: a missing or past one is refused in words, and nothing is stored or prepared', async () => {
+      await approveAgent();
+      const g = timed();
+      expect(await refused(g.create(person, req({ kind: 'gtd', side: 'buy', entryPrice: '98' }), REGION))).toMatchObject({
+        code: 'trade.gtd_expiry_missing',
+        status: 400,
+      });
+      const past = req({ kind: 'gtd', side: 'buy', entryPrice: '98', expireAt: new Date(clock - 60_000).toISOString() });
+      const err = await refused(g.create(person, past, REGION));
+      expect(err).toMatchObject({ code: 'trade.gtd_expiry_past', status: 400 });
+      expect(err.message).toMatch(/pick a time in the future/);
+      expect(store.rows.size).toBe(0);
+      expect(await door.stored(person, spotKeys.leg({ owner, clientKey: past.clientOrderId as string }, 'entry'))).toBeNull();
+      expect(
+        await refused(
+          g.create(
+            person,
+            req({ kind: 'oto', side: 'buy', entryPrice: '98', closePrice: '105', expireAt: new Date(clock + 60_000).toISOString() }),
+            REGION,
+          ),
+        ),
+      ).toMatchObject({ code: 'trade.spot_conditional_field_unsupported' });
+    });
+
+    it('rests as the person’s own limit, locking on the venue; at the expiry our engine cancels it once and the lock is released', async () => {
+      await approveAgent();
+      const g = timed();
+      const before = await balance('USDC');
+      const expireAt = new Date(clock + 60_000).toISOString();
+      const made = await g.create(person, req({ kind: 'gtd', side: 'buy', entryPrice: '98', expireAt }), REGION);
+      if (made.restsOn !== 'engine' || !made.entry) throw new Error('expected the person’s own order to sign');
+      expect(made.conditional).toMatchObject({ kind: 'gtd', status: 'entry', expireAt, entryTif: 'GTC' });
+      // The person's own wallet signs it: a good-till-cancelled limit on the venue, its lock the venue's.
+      expect((await signAndSend(made.entry)).outcome).toMatchObject({ accepted: true });
+      const row = store.rows.get(made.conditional.id)!;
+      const key = spotKeys.leg(row, 'entry');
+      expect(await order(key)).toMatchObject({ side: 'buy', type: 'limit', timeInForce: 'GTC', status: 'open' });
+      expect((await balance('USDC')).locked - before.locked).toBe(a('98'));
+
+      // Before the expiry it waits.
+      await g.tick();
+      expect(store.rows.get(row.id)!.status).toBe('entry');
+      expect(await order(key)).toMatchObject({ status: 'open' });
+
+      // At the expiry two workers pass at once: one claims it, the venue cancels it once, and it ends expired.
+      clock += 61_000;
+      await Promise.all([g.tick(), timed().tick()]);
+      expect(store.rows.get(row.id)).toMatchObject({ status: 'expired', cancelReason: 'expired' });
+      expect(await order(key)).toMatchObject({ status: 'canceled', filled: a('0') });
+      expect((await balance('USDC')).locked).toBe(before.locked);
+      expect((await balance('USDC')).free).toBe(before.free);
+      const [listed] = (await g.list(person, owner)).filter((x) => x.id === row.id);
+      expect(listed).toMatchObject({ status: 'expired', expireAt });
+      expect(listed!.legs.map((l) => [l.role, l.status, l.signedBy])).toEqual([['entry', 'cancelled', 'wallet']]);
+      // A later pass changes nothing: the order is final.
+      await g.tick();
+      expect(store.rows.get(row.id)!.status).toBe('expired');
+    });
+
+    it('one the venue fills before its expiry ends filled, and nothing is cancelled', async () => {
+      await approveAgent();
+      const g = timed();
+      await outside(seller, { symbol: SYM, side: 'sell', type: 'limit', amount: a('1'), price: a('100'), timeInForce: 'GTC' });
+      const made = await g.create(
+        person,
+        req({ kind: 'gtd', side: 'buy', entryPrice: '100', expireAt: new Date(clock + 60_000).toISOString() }),
+        REGION,
+      );
+      if (made.restsOn !== 'engine' || !made.entry) throw new Error('expected the person’s own order to sign');
+      await signAndSend(made.entry);
+      await g.tick();
+      const row = store.rows.get(made.conditional.id)!;
+      expect(row.status).toBe('filled');
+      expect(await order(spotKeys.leg(row, 'entry'))).toMatchObject({ status: 'filled' });
+      expect(await door.stored(person, `cancel:${spotKeys.leg(row, 'entry')}`)).toBeNull();
+    });
+  });
 });
