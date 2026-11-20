@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useMemo, useReducer, useRef, useState } from 'react';
 import { useEventListener, useMounted } from '../../shared/outside';
 import { useResource, type Resource } from '../../shared/resource';
 import { Check, ClipboardPaste } from 'lucide-react';
@@ -392,23 +392,27 @@ function SendForm({
   // Pin the default choice, so that if it drops out later it is "gone", not quietly replaced by the next asset.
   const firstId = sources[0]?.id ?? '';
   if (sourceId === '' && firstId !== '') setSourceId(firstId);
-  // A payment link fills the form once per link. Everything it sets can be changed, and nothing is sent without Review.
-  const appliedLink = useRef('');
-  // oxlint-disable-next-line garden/no-effect-in-product -- a payment link arrives in the URL, not through an event of this form, and applying it starts a recipient lookup (network, abort and lookup-order refs) that must not run during render
-  useEffect(() => {
-    if (!prefill || prefillKey === '' || appliedLink.current === prefillKey) return;
-    appliedLink.current = prefillKey;
+  // A payment link fills the form once per link, as the form is drawn. Everything it sets can be changed, and nothing is
+  // sent without Review. The link is kept with the lookup it asks for (a pay code to read, or a handle to find), which
+  // starts once the filled form is on screen, below.
+  const [appliedLink, setAppliedLink] = useState<{ key: string; lookup: { kind: 'scan' | 'check'; value: string } | null }>({
+    key: '',
+    lookup: null,
+  });
+  if (prefill && prefillKey !== '' && appliedLink.key !== prefillKey) {
     // The warning is always shown first. The link's own words are quoted after it and never replace it.
     const notices: string[] = [personal.t('requestBannerPlain')];
     if (prefill.note) notices.push(personal.t('requestBanner', { note: prefill.note }));
+    // An answer still on its way for what was typed before is retired, so it cannot overwrite what the link names.
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;
+    let linkLookup: { kind: 'scan' | 'check'; value: string } | null = null;
     if (prefill.qr) {
-      void scan(prefill.qr);
+      linkLookup = { kind: 'scan', value: prefill.qr };
     } else if (prefill.kind === 'handle' && byHandle) {
       setTo(prefill.to);
-      void check(prefill.to);
+      linkLookup = { kind: 'check', value: prefill.to };
     } else if (prefill.kind === 'accountId') {
       if (prefill.to === userId.toLowerCase()) {
         setTo('');
@@ -422,6 +426,7 @@ function SendForm({
       setRecipient({ kind: 'idle' });
       setNote(payCopy.t('Handles not on'));
     }
+    setAppliedLink({ key: prefillKey, lookup: linkLookup });
     const applied = applyPrefill(prefill, sources);
     if (applied.sourceId) setSourceId(applied.sourceId);
     setAmount(applied.amount);
@@ -429,7 +434,14 @@ function SendForm({
     if (applied.problem === 'assetNotHeld') notices.push(personal.t('requestAssetMissing', { asset: prefill.asset ?? '' }));
     if (applied.problem === 'amountTooLarge') notices.push(personal.t('requestAmountTooLarge'));
     setLinkNotice(notices.join(' '));
-  }, [prefill, prefillKey]);
+  }
+  // The recipient lookup a link asks for is read once per applied link. It keeps its own order and abort with every
+  // other lookup (scan and check), so a keystroke or a contact picked meanwhile still wins.
+  useResource(() => {
+    const ask = appliedLink.lookup;
+    const read = ask === null ? Promise.resolve() : ask.kind === 'scan' ? scan(ask.value) : check(ask.value);
+    return read.then(() => ({ ok: true as const, data: null }));
+  }, `pay:send:link:${appliedLink.key}`);
   const amountCheck = checkAmount(amount, source);
   // The limits and fee are read for an amount the customer could send; the service applies the same ones again.
   const typedAmount = amountCheck.kind === 'ok' ? dec(amount) : null;

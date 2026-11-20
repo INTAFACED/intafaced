@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useMounted } from '../../../shared/outside';
 import { useResource } from '../../../shared/resource';
 import type { Position } from '@intafaced/exchange-contract/schemas';
@@ -807,15 +807,19 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
             .then((answer) => (answer.ok ? answer.data : null)),
     [api, position.symbol, position.contracts, position.leverage, to],
   );
-  // oxlint-disable-next-line garden/no-effect-in-product -- the reverse review is also re-priced by Reverse itself (setReview below) and keeps its last figures on screen while a new price loads; useResource would show loading on every size or leverage change and cannot take the re-price
-  useEffect(() => {
-    if (position.leverage === null) return;
-    const ask = new AbortController();
-    void priceOpen(ask.signal).then((data) => {
-      if (!ask.signal.aborted) setReview(data ? { status: 'ready', data } : { status: 'error' });
-    });
-    return () => ask.abort();
-  }, [priceOpen, position.leverage]);
+  // The open is priced for this size and leverage; a new size or leverage prices it again, and the last figures stay on
+  // screen until the new answer arrives. Reverse itself re-prices just before sending (setReview in run).
+  const { userId } = useSession();
+  const priced = useResource<PositionPreview | null>(
+    (signal) => priceOpen(signal).then((data) => ({ ok: true as const, data })),
+    `futures:reverse:price:${userId ?? ''}:${position.symbol}:${to}:${position.contracts}:${position.leverage ?? ''}`,
+  );
+  const [pricedSeen, setPricedSeen] = useState<typeof priced.resource | null>(null);
+  if (position.leverage !== null && priced.resource.status === 'ready' && priced.resource !== pricedSeen) {
+    setPricedSeen(priced.resource);
+    const data = priced.resource.data;
+    setReview(data ? { status: 'ready', data } : { status: 'error' });
+  }
 
   const preview = review.status === 'ready' ? review.data : null;
   const tier = preview?.riskTier ?? null;
