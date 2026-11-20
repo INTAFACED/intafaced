@@ -3,6 +3,10 @@ import {
   P2P_CHAT_MESSAGES_LIST,
   P2P_CHAT_MESSAGES_SEND,
   P2P_CONTACTS_LIST,
+  P2P_MERCHANTS_ADVERTISER_TERMS,
+  P2P_MERCHANTS_POSTING_ELIGIBILITY,
+  P2P_MERCHANTS_PRESENCE,
+  P2P_MERCHANTS_TODOS,
   P2P_MODERATION,
   P2P_REPUTATION_APPEAL,
   P2P_REPUTATION_GET,
@@ -357,34 +361,12 @@ export const takeQuoteSchema = z.object({
 export const lockedQuoteSchema = takeQuoteSchema
   .omit({ reservationExpiresAt: true, quoteId: true })
   .extend({ quoteId: id, expiresAt: z.string().datetime({ offset: true }), expiresInMs: z.number().int().nonnegative() });
-export const p2pStandingSchema = z.object({
-  userId: z.string(),
-  status: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']),
-  appliedCompletionRate: z.number(),
-  appliedTradesTotal: z.number().int(),
-  appliedAt: z.string(),
-  decidedAt: z.string().nullable(),
-});
 /** A versioned acceptance: the owner-published version and when this person accepted it (advertiser terms). */
-export const p2pRiskNoticeSchema = z.object({ version: z.string(), acceptedAt: z.string().nullable() });
-export type P2PRiskNotice = z.infer<typeof p2pRiskNoticeSchema>;
+export type P2PRiskNotice = ProcedureOutput<typeof P2P_MERCHANTS_ADVERTISER_TERMS>;
 /** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
 export const p2pSellBalanceSchema = z.object({ asset: z.string(), available: amount });
 /** P-ads-merchant-12: the posting checklist for one fiat, every check with the person's value and the target. */
-export const p2pPostingEligibilitySchema = z.object({
-  fiatCurrency: z.string(),
-  policy: z.enum(['thresholds', 'none', 'unset', 'invalid']),
-  checks: z.array(
-    z.object({
-      id: z.enum(['kyc_tier', 'completed_orders', 'completion_rate']),
-      state: z.enum(['met', 'not_met', 'unknown']),
-      current: z.string().nullable(),
-      required: z.string().nullable(),
-      reason: z.string(),
-    }),
-  ),
-});
-export type P2PPostingEligibility = z.infer<typeof p2pPostingEligibilitySchema>;
+export type P2PPostingEligibility = ProcedureOutput<typeof P2P_MERCHANTS_POSTING_ELIGIBILITY>;
 /** P-ads-merchant-01: what the post-an-ad form sends to `offers.create`, besides its key and the terms version. */
 export type PostOfferInput = {
   side: 'buy' | 'sell';
@@ -401,14 +383,6 @@ export type PostOfferInput = {
   /** The ad's own id, chosen once per form; the post's key names it too. */
   offerId?: string;
 };
-export const p2pApiAccessSchema = z.object({
-  eligible: z.boolean(),
-  credential: z.enum(['session', 'api_key']),
-  merchantStatus: p2pStandingSchema.shape.status.nullable(),
-  keyPlane: z.literal('identity'),
-  rateLimitPlane: z.literal('edge'),
-  disputeResolution: z.literal('interactive_human_only'),
-});
 export const merchantSchema = z.object({
   id,
   userId: id,
@@ -697,33 +671,10 @@ export const offerEditQuotaSchema = z.object({
 });
 
 /** P-ads-merchant-08: the person's presence. A scheduled week is a list of windows in their own time zone. */
-export const presenceWindowSchema = z.object({ day: z.number().int().min(1).max(7), start: z.string(), end: z.string() });
-export type PresenceWindow = z.infer<typeof presenceWindowSchema>;
-export const presenceSchema = z.object({
-  mode: z.enum(['online', 'offline', 'scheduled']),
-  timezone: z.string(),
-  windows: z.array(presenceWindowSchema),
-  onBoard: z.boolean(),
-  nextChangeAt: z.string().datetime().nullable(),
-  updatedAt: z.string().datetime().nullable(),
-});
-export type Presence = z.infer<typeof presenceSchema>;
-
+export type Presence = ProcedureOutput<typeof P2P_MERCHANTS_PRESENCE>;
+export type PresenceWindow = Presence['windows'][number];
 /** P-ads-merchant-08: one open order that waits on someone, with its deadline and where it is answered. */
-export const todoItemSchema = z.object({
-  kind: z.enum(['payment_required', 'release_required', 'counterparty_action', 'dispute_open']),
-  tradeId: z.string(),
-  role: z.enum(['buyer', 'seller']),
-  status: z.string(),
-  asset: z.string(),
-  amount: amount,
-  fiatCurrency: z.string(),
-  fiatAmount: amount,
-  deadlineAt: z.string().datetime().nullable(),
-  link: z.string().regex(/^\/uc\/order\?tradeId=[0-9a-f-]{36}$/),
-});
-export type TodoItem = z.infer<typeof todoItemSchema>;
-export const todosSchema = z.object({ items: z.array(todoItemSchema) });
+export type TodoItem = ProcedureOutput<typeof P2P_MERCHANTS_TODOS>['items'][number];
 
 /** P-ads-merchant-08: a bulk action's answer, one result per ad. */
 export const bulkOutcomeSchema = z.object({

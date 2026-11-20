@@ -13,6 +13,16 @@ import {
   P2P_FIAT_LIST,
   P2P_HEALTH,
   P2P_LIMITS_VERIFICATION,
+  P2P_MERCHANTS_ACCEPT_ADVERTISER_TERMS,
+  P2P_MERCHANTS_ADVERTISER_TERMS,
+  P2P_MERCHANTS_API_ACCESS,
+  P2P_MERCHANTS_ME,
+  P2P_MERCHANTS_POSTING_ELIGIBILITY,
+  P2P_MERCHANTS_PRESENCE,
+  P2P_MERCHANTS_SET_PRESENCE,
+  P2P_MERCHANTS_SUBMIT_APPLICATION,
+  P2P_MERCHANTS_TODOS,
+  P2P_MERCHANTS_WITHDRAW,
   P2P_REPUTATION_APPEAL,
   P2P_REPUTATION_GET,
   P2P_REPUTATION_MY_APPEAL,
@@ -692,13 +702,13 @@ export function createPersonalPayApi(
     advertiserTerms(signal?: AbortSignal) {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
-      return api.query('p2p', 'merchants.advertiserTerms', undefined, s.p2pRiskNoticeSchema, { signal });
+      return api.call(P2P_MERCHANTS_ADVERTISER_TERMS, undefined, { signal });
     },
     /** Accept exactly the advertiser terms version shown. Accepting again returns the first acceptance. */
     acceptAdvertiserTerms(version: string) {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
-      return api.mutate('p2p', 'merchants.acceptAdvertiserTerms', { version }, s.p2pRiskNoticeSchema.extend({ acceptedAt: z.string() }));
+      return api.call(P2P_MERCHANTS_ACCEPT_ADVERTISER_TERMS, { version });
     },
     /** P-ads-merchant-01: this person's free balance of a coin, which a new sell ad's total may not exceed. */
     sellBalance(asset: string, signal?: AbortSignal) {
@@ -716,7 +726,7 @@ export function createPersonalPayApi(
     postingEligibility(fiatCurrency: string, signal?: AbortSignal) {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
-      return api.query('p2p', 'merchants.postingEligibility', { fiatCurrency }, s.p2pPostingEligibilitySchema, { signal });
+      return api.call(P2P_MERCHANTS_POSTING_ELIGIBILITY, { fiatCurrency }, { signal });
     },
     /**
      * P-ads-merchant-01: post the reviewed ad. `idempotencyKey` is the form's business key, made once per form, so a
@@ -749,22 +759,12 @@ export function createPersonalPayApi(
         s.offerSchema.refine((offer) => offer.makerId === userId && offer.id === offerId.toLowerCase(), 'The edited ad is not this one'),
       );
     },
-    standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
-    apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
+    standing: (signal?: AbortSignal) => api.call(P2P_MERCHANTS_ME, undefined, { signal }),
+    apiAccess: (signal?: AbortSignal) => api.call(P2P_MERCHANTS_API_ACCESS, undefined, { signal }),
     applyProgramme: () =>
-      guard.run(
-        `${userId}:p2p-programme`,
-        () => api.mutate('p2p', 'merchants.submitApplication', {}, s.p2pStandingSchema),
-        undefined,
-        p2pCurrent,
-      ),
+      guard.run(`${userId}:p2p-programme`, () => api.call(P2P_MERCHANTS_SUBMIT_APPLICATION, undefined), undefined, p2pCurrent),
     withdrawProgramme: (reason: string) =>
-      guard.run(
-        `${userId}:p2p-programme`,
-        () => api.mutate('p2p', 'merchants.withdraw', { reason }, s.p2pStandingSchema),
-        undefined,
-        p2pCurrent,
-      ),
+      guard.run(`${userId}:p2p-programme`, () => api.call(P2P_MERCHANTS_WITHDRAW, { reason }), undefined, p2pCurrent),
     dispute: (tradeId: string, signal?: AbortSignal) => api.query('p2p', 'disputes.get', { tradeId }, s.disputeSchema, { signal }),
     async manageOffer(
       offerId: string,
@@ -1337,21 +1337,21 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.query('p2p', 'merchants.presence', undefined, s.presenceSchema, { signal });
+      return api.call(P2P_MERCHANTS_PRESENCE, undefined, { signal });
     },
     /** P-ads-merchant-08: sets online, offline or a schedule; a week that is not valid refuses `p2p.schedule_invalid`. */
     setPresence(input: { mode: s.Presence['mode']; timezone?: string; windows?: s.PresenceWindow[] }): Promise<ApiResult<s.Presence>> {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.mutate('p2p', 'merchants.setPresence', input, s.presenceSchema);
+      return api.call(P2P_MERCHANTS_SET_PRESENCE, input);
     },
     /** P-ads-merchant-08: the person's open orders that wait on someone, soonest deadline first. */
     async todos(signal?: AbortSignal): Promise<ApiResult<s.TodoItem[]>> {
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      const result = await api.query('p2p', 'merchants.todos', { limit: TODOS_SHOWN }, s.todosSchema, { signal });
+      const result = await api.call(P2P_MERCHANTS_TODOS, { limit: TODOS_SHOWN }, { signal });
       return result.ok ? { ok: true, data: result.data.items } : result;
     },
     /**

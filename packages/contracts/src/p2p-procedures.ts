@@ -689,6 +689,407 @@ export const P2P_REPUTATION_GET = defineProcedure({
   ],
 });
 
+/** P-ads-merchant-08: how a merchant is on the board: always, never, or in their weekly windows. */
+export const PRESENCE_MODES = ['online', 'offline', 'scheduled'] as const;
+/** The most weekly windows one schedule holds. */
+export const MAX_PRESENCE_WINDOWS = 28;
+/** What an open order waits on: the buyer's payment, the seller's release, the other side, or a dispute. */
+export const TODO_KINDS = ['payment_required', 'release_required', 'counterparty_action', 'dispute_open'] as const;
+/** P-ads-merchant-12: the checks posting an ad in one fiat makes, and their states. */
+export const POSTING_CHECK_IDS = ['kyc_tier', 'completed_orders', 'completion_rate'] as const;
+export const POSTING_CHECK_STATES = ['met', 'not_met', 'unknown'] as const;
+/** What compliance published for a fiat: thresholds, none at all, nothing yet, or a list that does not parse. */
+export const POSTING_POLICIES = ['thresholds', 'none', 'unset', 'invalid'] as const;
+const MERCHANT_STATUSES = ['applied', 'approved', 'rejected', 'suspended', 'withdrawn'] as const;
+
+/**
+ * The merchant programme's calls. When the deployment has no programme wired, each call that reads standing refuses
+ * PRECONDITION_FAILED with no code: not wired is not an empty programme.
+ */
+const ADMIN = { caller: 'scope', scope: 'admin:compliance', module: 'p2p' } as const;
+const APPROVAL_REFUSALS = {
+  'action_approval.identity_unwired': 'PRECONDITION_FAILED',
+  'action_approval.missing': 'PRECONDITION_FAILED',
+  'action_approval.consume_failed': 'PRECONDITION_FAILED',
+} as const;
+const TRANSITION_REFUSALS = {
+  'p2p.merchant_reason_required': 'BAD_REQUEST',
+  'p2p.merchant_not_found': 'NOT_FOUND',
+  'p2p.merchant_transition_invalid': 'CONFLICT',
+  'p2p.merchant_ineligible': 'BAD_REQUEST',
+} as const;
+
+/** A person's presence, as the console shows it. `nextChangeAt` is when a schedule next puts them on or off the board. */
+/** What every caller checks of a presence: its times are real ISO date-times. */
+const presenceTimes = z.object({
+  nextChangeAt: z.iso.datetime({ offset: true }).nullable(),
+  updatedAt: z.iso.datetime({ offset: true }).nullable(),
+});
+/** What every caller checks of a to-do: a real deadline, and a link to one order's page. */
+const todoLinks = z.object({
+  items: z.array(
+    z.object({
+      deadlineAt: z.iso.datetime({ offset: true }).nullable(),
+      link: z.string().regex(/^\/uc\/order\?tradeId=[0-9a-f-]{36}$/),
+    }),
+  ),
+});
+const presence = z.object({
+  mode: z.enum(PRESENCE_MODES),
+  timezone: z.string(),
+  windows: z.array(z.object({ day: z.number().int(), start: z.string(), end: z.string() })),
+  onBoard: z.boolean(),
+  nextChangeAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+});
+
+/** One person's standing in the merchant programme, with the reputation it was applied on. */
+export const P2P_MERCHANT = z.object({
+  userId: z.string(),
+  status: z.enum(MERCHANT_STATUSES),
+  appliedCompletionRate: z.number(),
+  appliedTradesTotal: z.number().int(),
+  appliedAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+
+/** Offline, or scheduled outside every window, takes the caller's ads off the board; open orders carry on. guard: merchantApi. */
+export const P2P_MERCHANTS_PRESENCE = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.presence',
+  kind: 'query',
+  path: 'merchants.presence',
+  access: READ,
+  refusals: refuse(),
+  input: NO_INPUT,
+  output: presence,
+  accept: {
+    times: {
+      says: 'nextChangeAt and updatedAt are ISO 8601 date-times, or null',
+      holds: (reply) => presenceTimes.safeParse(reply).success,
+    },
+  },
+  samples: [{ verdict: 'accept' }],
+});
+
+/** A schedule that is not a valid week refuses `p2p.schedule_invalid`. guard: merchantApi. */
+export const P2P_MERCHANTS_SET_PRESENCE = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.setPresence',
+  kind: 'mutation',
+  path: 'merchants.setPresence',
+  access: WRITE,
+  refusals: refuse({ 'p2p.schedule_invalid': 'BAD_REQUEST' }),
+  input: z.object({
+    mode: z.enum(PRESENCE_MODES),
+    timezone: z.string().min(1).max(64).optional(),
+    windows: z
+      .array(z.object({ day: z.number().int().min(1).max(7), start: z.string().max(5), end: z.string().max(5) }))
+      .max(MAX_PRESENCE_WINDOWS)
+      .optional(),
+  }),
+  output: presence,
+  accept: {
+    times: {
+      says: 'nextChangeAt and updatedAt are ISO 8601 date-times, or null',
+      holds: (reply) => presenceTimes.safeParse(reply).success,
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { mode: 'scheduled', timezone: 'Europe/Berlin', windows: [{ day: 1, start: '09:00', end: '17:00' }] } },
+    { verdict: 'refuse', input: { mode: 'away' } },
+    { verdict: 'refuse', input: { mode: 'scheduled', windows: [{ day: 8, start: '09:00', end: '17:00' }] } },
+  ],
+});
+
+/** The caller's open orders that wait on someone, soonest deadline first, each linking to its order. guard: merchantApi. */
+export const P2P_MERCHANTS_TODOS = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.todos',
+  kind: 'query',
+  path: 'merchants.todos',
+  access: READ,
+  refusals: refuse(),
+  input: z.object({ limit: z.number().int().min(1).max(200) }),
+  output: z.object({
+    items: z.array(
+      z.object({
+        kind: z.enum(TODO_KINDS),
+        tradeId: z.string(),
+        role: z.enum(['buyer', 'seller']),
+        status: z.string(),
+        asset: z.string(),
+        amount: amountString,
+        fiatCurrency: z.string(),
+        fiatAmount: amountString,
+        deadlineAt: z.string().nullable(),
+        link: z.string(),
+      }),
+    ),
+  }),
+  accept: {
+    orders: {
+      says: 'each deadline is an ISO 8601 date-time or null, and each link is the order page of one trade',
+      holds: (reply) => todoLinks.safeParse(reply).success,
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { limit: 20 } },
+    { verdict: 'refuse', input: { limit: 0 } },
+  ],
+});
+
+/**
+ * The caller's own P2P performance, merchant or not, recomputed from trades. Volume is decimal strings per asset and
+ * fiat. guard: merchantApi.
+ */
+export const P2P_MERCHANTS_STATS = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.stats',
+  kind: 'query',
+  path: 'merchants.stats',
+  access: READ,
+  refusals: refuse(),
+  input: NO_INPUT,
+  output: z.object({
+    ordersTotal: z.number().int().nonnegative(),
+    completed: z.number().int().nonnegative(),
+    cancelled: z.number().int().nonnegative(),
+    disputed: z.number().int().nonnegative(),
+    completionRate: z.number().min(0).max(1).nullable(),
+    cancelRate: z.number().min(0).max(1).nullable(),
+    avgReleaseSecs: z.number().int().nonnegative().nullable(),
+    avgPaySecs: z.number().int().nonnegative().nullable(),
+    volume: z.array(z.object({ asset: z.string(), fiatCurrency: z.string(), amount: amountString, fiatAmount: amountString })),
+  }),
+  samples: [{ verdict: 'accept' }],
+});
+
+/**
+ * Whether current standing unlocks the merchant API. It has no merchantApi guard, so a suspended key can learn why it
+ * was refused. Keys come from identity and throttling from the edge; disputes are only ever ruled by a person.
+ */
+export const P2P_MERCHANTS_API_ACCESS = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.apiAccess',
+  kind: 'query',
+  path: 'merchants.apiAccess',
+  access: READ,
+  refusals: refuse(),
+  input: NO_INPUT,
+  output: z.object({
+    eligible: z.boolean(),
+    credential: z.enum(['session', 'api_key']),
+    merchantStatus: z.enum(MERCHANT_STATUSES).nullable(),
+    keyPlane: z.literal('identity'),
+    rateLimitPlane: z.literal('edge'),
+    disputeResolution: z.literal('interactive_human_only'),
+  }),
+  samples: [{ verdict: 'accept' }],
+});
+
+/** The owner-published advertiser terms version and when the caller accepted it. A blank version refuses `p2p.config_unset`. guard: merchantApi. */
+export const P2P_MERCHANTS_ADVERTISER_TERMS = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.advertiserTerms',
+  kind: 'query',
+  path: 'merchants.advertiserTerms',
+  access: READ,
+  refusals: refuse({ 'p2p.config_unset': 'PRECONDITION_FAILED' }),
+  input: NO_INPUT,
+  output: z.object({ version: z.string(), acceptedAt: z.string().nullable() }),
+  samples: [{ verdict: 'accept' }],
+});
+
+/**
+ * Accepts exactly the version shown; another refuses `p2p.terms_version_stale`, and accepting again returns the first
+ * acceptance. A person's own act: an API key refuses (FORBIDDEN, no code), and so does a forwarded principal.
+ */
+export const P2P_MERCHANTS_ACCEPT_ADVERTISER_TERMS = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.acceptAdvertiserTerms',
+  kind: 'mutation',
+  path: 'merchants.acceptAdvertiserTerms',
+  access: { ...WRITE, person: true },
+  refusals: refuse({ 'p2p.config_unset': 'PRECONDITION_FAILED', 'p2p.terms_version_stale': 'CONFLICT' }),
+  input: z.object({ version: z.string().min(1).max(64) }),
+  output: z.object({ version: z.string(), acceptedAt: z.string() }),
+  samples: [
+    { verdict: 'accept', input: { version: 'TEST-2026-11' } },
+    { verdict: 'refuse', input: { version: '' } },
+  ],
+});
+
+/**
+ * The posting checklist for one fiat: the policy compliance published for it and every check, with the caller's value
+ * and the target as strings. Posting in that fiat refuses on the same checks. guard: merchantApi.
+ */
+export const P2P_MERCHANTS_POSTING_ELIGIBILITY = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.postingEligibility',
+  kind: 'query',
+  path: 'merchants.postingEligibility',
+  access: READ,
+  refusals: refuse(),
+  input: z.object({ fiatCurrency: z.string().length(3) }),
+  output: z.object({
+    fiatCurrency: z.string(),
+    policy: z.enum(POSTING_POLICIES),
+    checks: z.array(
+      z.object({
+        id: z.enum(POSTING_CHECK_IDS),
+        state: z.enum(POSTING_CHECK_STATES),
+        current: z.string().nullable(),
+        required: z.string().nullable(),
+        reason: z.string(),
+      }),
+    ),
+  }),
+  samples: [
+    { verdict: 'accept', input: { fiatCurrency: 'EUR' } },
+    { verdict: 'refuse', input: { fiatCurrency: 'EURO' } },
+  ],
+});
+
+/** The caller's own standing. Null means never applied, not rejected. guard: merchantApi. */
+export const P2P_MERCHANTS_ME = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.me',
+  kind: 'query',
+  path: 'merchants.me',
+  access: READ,
+  refusals: refuse(),
+  input: NO_INPUT,
+  output: P2P_MERCHANT.nullable(),
+  samples: [{ verdict: 'accept' }],
+});
+
+const limitMode = z.enum(['unset', 'unlimited', 'capped']);
+
+/**
+ * The deployment's offer ceilings: policy, not standing. A null max is no numeric cap; magnitudes are never invented.
+ * guard: merchantApi.
+ */
+export const P2P_MERCHANTS_OFFER_LIMITS = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.offerLimits',
+  kind: 'query',
+  path: 'merchants.offerLimits',
+  access: READ,
+  refusals: refuse(),
+  input: NO_INPUT,
+  output: z.object({
+    standardMax: z.string().nullable(),
+    merchantMax: z.string().nullable(),
+    configured: z.boolean(),
+    posture: z.enum(['unset', 'unlimited', 'configured']),
+    standardMode: limitMode,
+    merchantMode: limitMode,
+    /** The same sentence the boot log prints. */
+    summary: z.string(),
+  }),
+  samples: [{ verdict: 'accept' }],
+});
+
+/** The ceiling that binds the caller now: the standard band, or the merchant band once approved. guard: merchantApi. */
+export const P2P_MERCHANTS_MY_OFFER_CEILING = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.myOfferCeiling',
+  kind: 'query',
+  path: 'merchants.myOfferCeiling',
+  access: READ,
+  refusals: refuse(),
+  input: NO_INPUT,
+  output: z.object({
+    maxAmount: z.string().nullable(),
+    band: z.enum(['standard', 'merchant']),
+    limitMode,
+    merchantStatus: z.enum(MERCHANT_STATUSES).nullable(),
+  }),
+  samples: [{ verdict: 'accept' }],
+});
+
+/** Applies on the caller's own behalf: the account is the principal's, never the input's. guard: merchantApi. */
+export const P2P_MERCHANTS_SUBMIT_APPLICATION = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.submitApplication',
+  kind: 'mutation',
+  path: 'merchants.submitApplication',
+  access: WRITE,
+  refusals: refuse({ 'p2p.merchant_ineligible': 'BAD_REQUEST', 'p2p.merchant_exists': 'CONFLICT' }),
+  input: NO_INPUT,
+  output: P2P_MERCHANT,
+  samples: [{ verdict: 'accept' }],
+});
+
+/** Leaves the programme, for good: coming back is a new application. guard: merchantApi. */
+export const P2P_MERCHANTS_WITHDRAW = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.withdraw',
+  kind: 'mutation',
+  path: 'merchants.withdraw',
+  access: WRITE,
+  refusals: refuse(TRANSITION_REFUSALS),
+  input: z.object({ reason: z.string().min(1) }),
+  output: P2P_MERCHANT,
+  samples: [
+    { verdict: 'accept', input: { reason: 'Trading less' } },
+    { verdict: 'refuse', input: { reason: '' } },
+  ],
+});
+
+/**
+ * An operator approves, rejects or suspends a merchant, with MFA (UNAUTHORIZED `mfa.required` without it) and an
+ * approval identity consumed from a second person: a typed-in operator id is not a second person.
+ */
+export const P2P_MERCHANTS_DECIDE = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.decide',
+  kind: 'mutation',
+  path: 'merchants.decide',
+  access: ADMIN,
+  refusals: refuse({ ...TRANSITION_REFUSALS, ...APPROVAL_REFUSALS }),
+  input: z.object({
+    userId: z.string().guid(),
+    to: z.enum(['approved', 'rejected', 'suspended']),
+    reason: z.string().min(1),
+    confirmOperatorId: z.string().max(128).nullish(),
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
+  }),
+  output: P2P_MERCHANT.extend({ confirmOperatorId: z.string() }),
+  samples: [
+    { verdict: 'accept', input: { userId: PEER, to: 'suspended', reason: 'Lost a dispute', approvalId: 'appr-1', operationId: 'op-1' } },
+    { verdict: 'refuse', input: { userId: PEER, to: 'withdrawn', reason: 'x' } },
+  ],
+});
+
+/** Why a merchant stands where they do, newest first. A missing page size refuses `p2p.merchant_history_limit_unset`. */
+export const P2P_MERCHANTS_HISTORY = defineProcedure({
+  ...base,
+  name: 'p2p.merchants.history',
+  kind: 'query',
+  path: 'merchants.history',
+  access: ADMIN,
+  refusals: refuse({ 'p2p.merchant_history_limit_unset': 'PRECONDITION_FAILED' }),
+  input: z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }),
+  output: z.array(
+    z.object({
+      seq: z.string(),
+      fromStatus: z.string(),
+      toStatus: z.string(),
+      reason: z.string(),
+      actorId: z.string(),
+      actorScope: z.string(),
+      createdAt: z.string(),
+    }),
+  ),
+  samples: [
+    { verdict: 'accept', input: { userId: PEER, limit: 50 } },
+    { verdict: 'refuse', input: { userId: 'not-an-id', limit: 50 } },
+  ],
+});
+
 /** Every svc-p2p call mounted from a record. */
 export const P2P_PROCEDURES = [
   P2P_HEALTH,
@@ -716,4 +1117,19 @@ export const P2P_PROCEDURES = [
   P2P_REPUTATION_APPEAL,
   P2P_REPUTATION_DECIDE_APPEAL,
   P2P_REPUTATION_GET,
+  P2P_MERCHANTS_PRESENCE,
+  P2P_MERCHANTS_SET_PRESENCE,
+  P2P_MERCHANTS_TODOS,
+  P2P_MERCHANTS_STATS,
+  P2P_MERCHANTS_API_ACCESS,
+  P2P_MERCHANTS_ADVERTISER_TERMS,
+  P2P_MERCHANTS_ACCEPT_ADVERTISER_TERMS,
+  P2P_MERCHANTS_POSTING_ELIGIBILITY,
+  P2P_MERCHANTS_ME,
+  P2P_MERCHANTS_OFFER_LIMITS,
+  P2P_MERCHANTS_MY_OFFER_CEILING,
+  P2P_MERCHANTS_SUBMIT_APPLICATION,
+  P2P_MERCHANTS_WITHDRAW,
+  P2P_MERCHANTS_DECIDE,
+  P2P_MERCHANTS_HISTORY,
 ] as const satisfies readonly ProcedureRecord[];
