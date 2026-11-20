@@ -4,7 +4,7 @@ import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ROOT } from './stack.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { TEST_VENUE, TEST_VENUE_B, testVenueAt, venueForThisFile } from './venue.mjs';
+import { TEST_VENUE, TEST_VENUE_B, testVenueAt, testVenueInfoAt, venueForThisFile } from './venue.mjs';
 
 // J-ops-console-28, "Our builder fees keep coming in because our builder address stays in the venue's required mode", in
 // the founder console against the stack's two TEST venue simulators (LOCAL_STACK_USER_VENUE=two). One test per step,
@@ -25,12 +25,7 @@ async function at(base, p, body) {
   expect(status, JSON.stringify(out).slice(0, 300)).toBe(200);
   return out;
 }
-const info = async (base) => {
-  const v = await at(base, '/venue');
-  expect(v.label).toBe('TEST');
-  return { id: v.venue.id, displayName: v.venue.displayName, base };
-};
-const both = async () => [await info(TEST_VENUE), await info(TEST_VENUE_B)];
+const both = async () => [await testVenueInfoAt(TEST_VENUE), await testVenueInfoAt(TEST_VENUE_B)];
 /** The TEST venue's own record of our builder address's mode and the mode it requires (what the console must equal). */
 const venueMode = async (venue) => (await at(venue.base, '/builder-account-mode', { builder: BUILDER })).value;
 /** The TEST venue simulator's switches: our builder address's mode, its account down, the requirement unpublished. */
@@ -154,9 +149,8 @@ test(`${J} #2 with the account switched out of standard mode (TEST venue simulat
   await expect(cell(r, 'mode')).toHaveText('unifiedTEST');
   await expect(cell(r, 'required')).toHaveText('standard');
   await expect(cell(r, 'verdict')).toHaveText('Builder fees not collected in this mode');
-  // Several checks: the job's own (every 2 seconds on the stack) and one per read of the view.
-  for (let i = 0; i < 3; i += 1) {
-    await page.waitForTimeout(2_500);
+  // Several checks: each read of the view is one, beside the job's own every 2 seconds on the stack.
+  for (let i = 0; i < 4; i += 1) {
     await openView(browser);
     await expect(cell(row(page, a), 'verdict')).toHaveText('Builder fees not collected in this mode');
   }
