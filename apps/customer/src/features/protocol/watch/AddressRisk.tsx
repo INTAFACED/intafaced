@@ -10,7 +10,7 @@ import { safeReturnTo } from '../../../app/navigation';
 import { Button, Dialog, Failure, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi, useSession } from '../../session/session';
+import { useApi, useSession } from '../../session';
 import { createProtocolApi } from '../api';
 import { riskCopy } from './risk-copy';
 
