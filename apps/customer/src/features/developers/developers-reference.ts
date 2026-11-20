@@ -1080,6 +1080,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'Your equity, free collateral, used margin, maintenance and margin ratio as the venue reports them',
   },
   {
+    name: 'venueAccountMode',
+    method: 'GET',
+    path: '/api/v1/venue/account-mode',
+    product: 'accounts',
+
+    summary: 'Your venue account’s mode, its spot and perps balances in standard mode, and today’s action count, as the venue reports them',
+  },
+  {
     name: 'venueLiquidation',
     method: 'GET',
     path: '/api/v1/venue/liquidation',
@@ -1172,6 +1180,23 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     path: '/api/v1/venue/eligible-instruments',
     product: 'accounts',
     summary: 'The perpetuals your account is eligible for on the venue, each with its settle asset, or none with the reason',
+  },
+  {
+    name: 'venueOpenInterest',
+    method: 'GET',
+    path: '/api/v1/venue/open-interest',
+    product: 'accounts',
+
+    summary:
+      "A listed perpetual's open interest and the venue's count of accounts long and short, with their ratio, from the venue's own positions: a count the venue does not publish answers null with its reason",
+  },
+  {
+    name: 'venueRiskLimits',
+    method: 'GET',
+    path: '/api/v1/venue/risk-limits',
+    product: 'accounts',
+
+    summary: "A listed perpetual's risk-limit tiers as the venue publishes them, or null with ladder_unset while it publishes none",
   },
   {
     name: 'venuePriceHistory',

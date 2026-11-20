@@ -22,6 +22,9 @@ Transport = Callable[[str, str, dict[str, str], bytes | None], tuple[int, str]]
 
 _QUANT = "api/quant/trpc/"
 _LIVE = "api/v1/quant/live-runs"
+# The dated API version this release was written against, sent on every call (`intafaced-version`). A pin, not the
+# newest: a later API version does not change what this release sends.
+API_VERSION = "2026-11-20"
 
 
 class QuantApiError(Exception):
@@ -103,7 +106,11 @@ class QuantClient:
         if body is not None:
             _reject_float(body)
         url = urllib.parse.urljoin(self._base_url, path) + (f"?{query}" if query else "")
-        headers = {"accept": "application/json", "authorization": f"Bearer {self._api_key}"}
+        headers = {
+            "accept": "application/json",
+            "authorization": f"Bearer {self._api_key}",
+            "intafaced-version": API_VERSION,
+        }
         raw = None
         if body is not None:
             raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

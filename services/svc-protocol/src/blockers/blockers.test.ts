@@ -37,6 +37,13 @@ const indexer = {
   chain: null,
   clob: { live: true, kind: 'sovereign-venue' },
 };
+/** svc-indexer's `status` reply whole, as its record publishes it: what a peer read receives on the wire. */
+const indexerReply = {
+  ...indexer,
+  indexedHash: null,
+  earliestHeight: null,
+  clob: { live: true, kind: 'sovereign-venue', reserves: false },
+};
 const dex = { ammVenueWired: true, externalVenueWired: false, internalBook: { enabled: true } };
 
 function deps(overrides: Partial<Record<string, unknown>> = {}): ProtocolRouterDeps {
@@ -121,7 +128,7 @@ describe('peers', () => {
 
   it('is not connected without a URL or without a timeout, and never calls out', async () => {
     let called = false;
-    const fetch = (async () => ((called = true), envelope(indexer))) as typeof globalThis.fetch;
+    const fetch = (async () => ((called = true), envelope(indexerReply))) as typeof globalThis.fetch;
     for (const config of [
       { url: undefined, timeoutMs: 1000, fetch },
       { url: 'http://indexer.test', timeoutMs: undefined, fetch },
@@ -138,10 +145,13 @@ describe('peers', () => {
     let seen: { url: string; headers: Record<string, string>; redirect: RequestInit['redirect'] } | undefined;
     const fetch = (async (url: string, init: RequestInit) => {
       seen = { url, headers: init.headers as Record<string, string>, redirect: init.redirect };
-      return envelope(indexer);
+      return envelope(indexerReply);
     }) as typeof globalThis.fetch;
     const peers = createPeers({ indexer: { url: 'http://indexer.test/', timeoutMs: 500, fetch }, dex: { url: undefined, timeoutMs: 500 } });
-    expect(await peers.indexer('DE')).toMatchObject({ status: 'ok' });
+    const read = await peers.indexer('DE');
+    expect(read).toMatchObject({ status: 'ok' });
+    // Cut to what protocol.blockers publishes: the rest of svc-indexer's answer stays there.
+    expect(read.status === 'ok' && 'indexedHash' in read.data).toBe(false);
     expect(seen?.url).toBe('http://indexer.test/trpc/status');
     expect(seen?.headers).toEqual({ accept: 'application/json', 'x-intafaced-region': 'DE' });
     expect(seen?.redirect).toBe('error');

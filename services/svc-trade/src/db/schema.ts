@@ -210,6 +210,10 @@ export const markets = trade.table(
     delistsAt: tstz('delists_at'),
     /** When a new listing's opening window ends (J-cex-spot-14 #7): until then only limit orders are taken. */
     openingWindowEndsAt: tstz('opening_window_ends_at'),
+    /** The higher-risk zone (J-cex-spot-14 #7): `higher_risk`, or null outside it. */
+    zone: text('zone'),
+    /** A zone market's owner-set cap on one order's value, in the quote asset; null is unset and takes no order. */
+    zoneOrderCap: amount('zone_order_cap'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

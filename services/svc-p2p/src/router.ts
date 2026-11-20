@@ -3,7 +3,8 @@ import { contractEscrowOffer, contractTermsFor, type ContractEscrowSetting } fro
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { mergeRouters, router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
 import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
-import { P2P_MODERATION, P2P_PROCEDURES } from '@intafaced/contracts/p2p-procedures';
+import { P2P_MERCHANTS_PRESENCE, P2P_MODERATION, P2P_PROCEDURES, P2P_REVIEW } from '@intafaced/contracts/p2p-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { enabledFiat } from '@intafaced/config';
 import { formatAmount, mulBps, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
 import {
@@ -42,9 +43,8 @@ import {
   type MethodSettlement,
 } from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
-import { BULK_ACTIONS, MAX_BULK_OFFERS, MAX_PRESENCE_WINDOWS, PRESENCE_MODES, TODO_KINDS, type Presence } from './merchant-console.js';
+import { BULK_ACTIONS, MAX_BULK_OFFERS, type Presence } from './merchant-console.js';
 import { TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
-import { POSTING_CHECK_IDS, POSTING_CHECK_STATES, POSTING_POLICIES } from './posting-eligibility.js';
 import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
@@ -152,15 +152,7 @@ export type P2pRouterOptions = {
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18dp');
 
 /** P-ads-merchant-08: a person's presence, as the console shows it. */
-const presenceOutput = z.object({
-  mode: z.enum(PRESENCE_MODES),
-  timezone: z.string(),
-  windows: z.array(z.object({ day: z.number().int(), start: z.string(), end: z.string() })),
-  onBoard: z.boolean(),
-  nextChangeAt: z.string().nullable(),
-  updatedAt: z.string().nullable(),
-});
-const presentPresence = (presence: Presence): z.infer<typeof presenceOutput> => ({
+const presentPresence = (presence: Presence): ProcedureOutput<typeof P2P_MERCHANTS_PRESENCE> => ({
   ...presence,
   nextChangeAt: presence.nextChangeAt ? presence.nextChangeAt.toISOString() : null,
   updatedAt: presence.updatedAt ? presence.updatedAt.toISOString() : null,
@@ -472,93 +464,6 @@ const disputeOutput = z.object({
   fourEyes: z.boolean().nullable(),
   /** Null until a moderator has actually been served this row. */
   lastSeenByModeratorAt: z.string().nullable(),
-});
-
-const appealOutput = z.object({
-  id: z.string().guid(),
-  userId: z.string(),
-  tradeId: z.string().guid(),
-  reason: z.string(),
-  status: z.enum(['submitted', 'accepted', 'rejected']),
-  submittedAt: z.string(),
-  reviewDueAt: z.string(),
-  decidedBy: z.string().nullable(),
-  decidedAt: z.string().nullable(),
-  decisionReason: z.string().nullable(),
-});
-
-const ownStatsOutput = z.object({
-  ordersTotal: z.number().int().nonnegative(),
-  completed: z.number().int().nonnegative(),
-  cancelled: z.number().int().nonnegative(),
-  disputed: z.number().int().nonnegative(),
-  completionRate: z.number().min(0).max(1).nullable(),
-  cancelRate: z.number().min(0).max(1).nullable(),
-  avgReleaseSecs: z.number().int().nonnegative().nullable(),
-  avgPaySecs: z.number().int().nonnegative().nullable(),
-  volume: z.array(
-    z.object({
-      asset: z.string(),
-      fiatCurrency: z.string(),
-      amount: amountString,
-      fiatAmount: amountString,
-    }),
-  ),
-});
-
-const reputationOutput = z.object({
-  tradesTotal: z.number().int(),
-  completed: z.number().int(),
-  cancelled: z.number().int(),
-  disputed: z.number().int(),
-  disputesLost: z.number().int(),
-  completionRate: z.number(),
-  avgReleaseSecs: z.number().int(),
-  badges: z.array(z.string()),
-  /** Null when identity has not published a public profile to this service. */
-  handle: z.string().nullable(),
-  /** ISO timestamp from identity. Null when that read is unwired or absent. */
-  memberSince: z.string().nullable(),
-  profile: z.object({
-    status: z.enum(['unwired', 'found', 'absent']),
-    code: z.enum(['p2p.public_profile_unwired', 'p2p.public_profile_found', 'p2p.public_profile_absent']),
-  }),
-  /** Released trades this person was a party to in the last 30 days. Counted here, not invented. */
-  trades30d: z.number().int().nonnegative(),
-  /** P-trade-orders-21: decimal-string percents ("95.24"); null when nothing is counted. Definition in `completionDefinition`. */
-  completionRate30d: z
-    .string()
-    .regex(/^\d{1,3}\.\d{2}$/)
-    .nullable(),
-  completionRateTotal: z
-    .string()
-    .regex(/^\d{1,3}\.\d{2}$/)
-    .nullable(),
-  completionDefinition: z.object({ numerator: z.string(), denominator: z.string(), window30d: z.string(), noHistory: z.string() }),
-  /** Buyer side: average seconds from escrow lock to "marked paid". Null with no sample, never 0-as-fast. */
-  avgPaySecs: z.number().int().nonnegative().nullable(),
-  /**
-   * P-ads-merchant-21: visible good/bad counts about this person.
-   * Null when nothing is visible. A hidden review is not a zero.
-   */
-  rating: z
-    .object({
-      good: z.number().int().nonnegative(),
-      bad: z.number().int().nonnegative(),
-    })
-    .nullable(),
-  /** Identity verification level only (no documents). Null when identity has not published it. */
-  verification: z.object({ level: z.string().min(1) }).nullable(),
-  /**
-   * Merchant standing, as a counterparty may see it (TRK-p2p.merchants Stage 2).
-   *
-   * ONLY `true` for an APPROVED merchant. An application under review, a
-   * suspension and a withdrawal all read `false` — the badge is a claim made to
-   * a stranger about to send money, so "in progress" must never look like
-   * "vouched for". `null` means the programme is not enabled in this
-   * deployment, which is a different fact from "this trader is not a merchant".
-   */
-  merchant: z.boolean().nullable(),
 });
 
 type OfferOut = z.infer<typeof offerOutput>;
@@ -1004,44 +909,8 @@ const instrumentHeaderOutput = z.object({
 /** The values. Only ever produced by a call that wrote an access-log row. */
 const instrumentDetailsOutput = z.record(z.string(), z.string());
 
-const merchantOutput = z.object({
-  userId: z.string(),
-  status: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']),
-  /** Reputation as it stood at application — stored, so a decision stays explicable. */
-  appliedCompletionRate: z.number(),
-  appliedTradesTotal: z.number().int(),
-  appliedAt: z.string(),
-  decidedAt: z.string().nullable(),
-});
-
-const merchantEventOutput = z.object({
-  seq: z.string(),
-  fromStatus: z.string(),
-  toStatus: z.string(),
-  reason: z.string(),
-  actorId: z.string(),
-  actorScope: z.string(),
-  createdAt: z.string(),
-});
-
-const reviewOutput = z.object({
-  id: z.string().guid(),
-  tradeId: z.string().guid().nullable(),
-  authorId: z.string().nullable(),
-  subjectId: z.string(),
-  rating: z.enum(['good', 'bad']),
-  comment: z.string(),
-  explanation: z.string().nullable(),
-  reply: z.string().nullable(),
-  repliedAt: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  hidden: z.boolean(),
-  hiddenReason: z.string().nullable(),
-});
-
 /** One review on the wire. A viewer who is neither its author nor its subject gets no trade id, author or hide reason. */
-function toReviewOut(row: ReviewRecord, viewerId?: string): z.infer<typeof reviewOutput> {
+function toReviewOut(row: ReviewRecord, viewerId?: string): z.infer<typeof P2P_REVIEW> {
   const party = viewerId === undefined || viewerId === row.authorId || viewerId === row.subjectId;
   return {
     id: row.id,
@@ -1275,43 +1144,6 @@ export function createP2pRouter(
       }
       return next({ ctx });
     });
-
-  const offerLimitsOutput = z.object({
-    /** Largest ordinary maxAmt, or null when no numeric cap. Decimal string. */
-    standardMax: z.string().nullable(),
-    /** Largest approved-merchant maxAmt, or null when no numeric cap. Decimal string. */
-    merchantMax: z.string().nullable(),
-    /** True when at least one band is a number. */
-    configured: z.boolean(),
-    /** unset = env absent; unlimited = owner confirmed; configured = at least one number. */
-    posture: z.enum(['unset', 'unlimited', 'configured']),
-    standardMode: z.enum(['unset', 'unlimited', 'capped']),
-    merchantMode: z.enum(['unset', 'unlimited', 'capped']),
-    /** Same sentence the boot log prints — operator-readable posture. */
-    summary: z.string(),
-  });
-
-  const myOfferCeilingOutput = z.object({
-    /** Ceiling that binds this caller right now, or null when no numeric cap. */
-    maxAmount: z.string().nullable(),
-    /** Which policy slot applied — applicant/suspended stay on standard. */
-    band: z.enum(['standard', 'merchant']),
-    /** unset vs owner-confirmed unlimited vs capped for the binding band. */
-    limitMode: z.enum(['unset', 'unlimited', 'capped']),
-    merchantStatus: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']).nullable(),
-  });
-
-  const merchantApiAccessOutput = z.object({
-    /** Derived from current standing; never a second stored entitlement. */
-    eligible: z.boolean(),
-    credential: z.enum(['session', 'api_key']),
-    merchantStatus: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']).nullable(),
-    /** Existing shared planes consumed by this service, not rebuilt here. */
-    keyPlane: z.literal('identity'),
-    rateLimitPlane: z.literal('edge'),
-    /** D-S-08: no key, bot or timer may decide a disputed escrow. */
-    disputeResolution: z.literal('interactive_human_only'),
-  });
 
   /**
    * The owner's own instruments, mapped for the wire.
@@ -3422,700 +3254,6 @@ export function createP2pRouter(
           }),
         ),
     }),
-
-    chat: router({
-      messages: router({
-        list: merchantApiProcedure('p2p:read')
-          .input(
-            z.object({
-              tradeId: z.string().guid(),
-              cursor: z.string().guid().nullable().optional(),
-              limit: z.number().int().min(1).max(200).optional(),
-            }),
-          )
-          .output(
-            z.object({
-              messages: z.array(
-                z.object({
-                  id: z.string().guid(),
-                  tradeId: z.string().guid(),
-                  senderId: z.string(),
-                  clientId: z.string(),
-                  text: z.string(),
-                  createdAt: z.string(),
-                }),
-              ),
-              nextCursor: z.string().nullable(),
-              unread: z.number().int().nonnegative(),
-            }),
-          )
-          .query(async ({ ctx, input }) =>
-            guard(async () => {
-              const page = await p2p.listChatMessages({
-                tradeId: input.tradeId,
-                viewerId: ctx.principal.userId,
-                asModerator: isModerator(ctx.principal, moderatorUserIds),
-                cursor: input.cursor ?? null,
-                limit: input.limit,
-              });
-              return {
-                messages: page.messages.map((message) => ({
-                  id: message.id,
-                  tradeId: message.tradeId,
-                  senderId: message.senderId,
-                  clientId: message.clientId,
-                  text: message.text,
-                  createdAt: message.createdAt.toISOString(),
-                })),
-                nextCursor: page.nextCursor,
-                unread: page.unread,
-              };
-            }),
-          ),
-
-        send: merchantApiProcedure('p2p:read')
-          .input(
-            z.object({
-              tradeId: z.string().guid(),
-              text: z.string().min(1).max(2000),
-              clientId: z.string().min(1).max(128),
-              /** No object store is wired. Any attachment refuses before a row is written. */
-              attachment: z.unknown().optional(),
-            }),
-          )
-          .output(
-            z.object({
-              id: z.string().guid(),
-              tradeId: z.string().guid(),
-              senderId: z.string(),
-              clientId: z.string(),
-              text: z.string(),
-              createdAt: z.string(),
-              created: z.boolean(),
-              notify: z.object({
-                delivered: z.boolean(),
-                code: z.enum(['p2p.chat_notify_delivered', 'p2p.chat_notify_unwired', 'p2p.chat_notify_failed']),
-              }),
-            }),
-          )
-          .mutation(async ({ ctx, input }) =>
-            guard(async () => {
-              const moderator = isModerator(ctx.principal, moderatorUserIds);
-              if (!ctx.principal.scopes.includes('p2p:write')) {
-                const disputeOpen = moderator && (await p2p.disputeOpen(input.tradeId));
-                if (!disputeOpen) {
-                  throw new TRPCError({
-                    code: 'FORBIDDEN',
-                    message: 'Sending in a trade chat requires p2p:write.',
-                  });
-                }
-              }
-              const sent = await p2p.sendChatMessage({
-                tradeId: input.tradeId,
-                senderId: ctx.principal.userId,
-                clientId: input.clientId,
-                text: input.text,
-                asModerator: isModerator(ctx.principal, moderatorUserIds),
-                ...(input.attachment !== undefined ? { attachment: input.attachment } : {}),
-              });
-              let notify: { delivered: boolean; code: 'p2p.chat_notify_delivered' | 'p2p.chat_notify_unwired' | 'p2p.chat_notify_failed' } =
-                { delivered: false, code: 'p2p.chat_notify_unwired' };
-              if (!sent.created) {
-                notify = { delivered: false, code: 'p2p.chat_notify_unwired' };
-              } else if (!chatNotify) {
-                notify = { delivered: false, code: 'p2p.chat_notify_unwired' };
-              } else {
-                const trade = await p2p.getTrade(input.tradeId);
-                const recipientIds = [trade.buyerId, trade.sellerId].filter((id) => id !== ctx.principal.userId);
-                try {
-                  await chatNotify.messageSent({
-                    tradeId: input.tradeId,
-                    messageId: sent.message.id,
-                    senderId: ctx.principal.userId,
-                    recipientIds,
-                  });
-                  notify = { delivered: true, code: 'p2p.chat_notify_delivered' };
-                } catch {
-                  notify = { delivered: false, code: 'p2p.chat_notify_failed' };
-                }
-              }
-              return {
-                id: sent.message.id,
-                tradeId: sent.message.tradeId,
-                senderId: sent.message.senderId,
-                clientId: sent.message.clientId,
-                text: sent.message.text,
-                createdAt: sent.message.createdAt.toISOString(),
-                created: sent.created,
-                notify,
-              };
-            }),
-          ),
-      }),
-
-      unread: merchantApiProcedure('p2p:read')
-        .input(z.object({ tradeId: z.string().guid() }))
-        .output(z.object({ tradeId: z.string().guid(), unread: z.number().int().nonnegative() }))
-        .query(async ({ ctx, input }) =>
-          guard(async () => ({
-            tradeId: input.tradeId,
-            unread: await p2p.unreadChat({
-              tradeId: input.tradeId,
-              viewerId: ctx.principal.userId,
-              asModerator: isModerator(ctx.principal, moderatorUserIds),
-            }),
-          })),
-        ),
-    }),
-
-    /**
-     * P-ads-merchant-21. One review per party on a released trade. The order
-     * page and the counterparty card read these. A second leave returns the
-     * first. Edit needs an owner window; a blank window refuses.
-     */
-    reviews: router({
-      leave: merchantApiProcedure('p2p:write')
-        .input(
-          z.object({
-            tradeId: z.string().guid(),
-            rating: z.enum(['good', 'bad']),
-            comment: z.string().max(2000).optional(),
-            explanation: z.string().max(2000).optional(),
-          }),
-        )
-        .output(reviewOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toReviewOut(
-              await p2p.leaveOrderReview({
-                tradeId: input.tradeId,
-                authorId: requireUser(ctx),
-                rating: input.rating,
-                ...(input.comment === undefined ? {} : { comment: input.comment }),
-                ...(input.explanation === undefined ? {} : { explanation: input.explanation }),
-              }),
-            ),
-          ),
-        ),
-
-      edit: merchantApiProcedure('p2p:write')
-        .input(
-          z.object({
-            tradeId: z.string().guid(),
-            rating: z.enum(['good', 'bad']).optional(),
-            comment: z.string().max(2000).optional(),
-            explanation: z.string().max(2000).optional(),
-          }),
-        )
-        .output(reviewOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toReviewOut(
-              await p2p.editOrderReview({
-                tradeId: input.tradeId,
-                authorId: requireUser(ctx),
-                ...(input.rating === undefined ? {} : { rating: input.rating }),
-                ...(input.comment === undefined ? {} : { comment: input.comment }),
-                ...(input.explanation === undefined ? {} : { explanation: input.explanation }),
-              }),
-            ),
-          ),
-        ),
-
-      reply: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().guid(), text: z.string().max(2000) }))
-        .output(reviewOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toReviewOut(await p2p.replyOrderReview({ tradeId: input.tradeId, subjectId: requireUser(ctx), text: input.text })),
-          ),
-        ),
-
-      list: merchantApiProcedure('p2p:read')
-        .input(
-          z.object({
-            userId: z.string().guid(),
-            /** Omitted so a missing page reaches `p2p.review_list_limit_unset`, not a Zod "Required". Blank is not 50. */
-            limit: z.number().int().min(1).max(200).optional(),
-            cursor: z.string().max(200).nullable().optional(),
-          }),
-        )
-        .output(z.object({ reviews: z.array(reviewOutput), nextCursor: z.string().nullable() }))
-        .query(async ({ ctx, input }) =>
-          guard(async () => {
-            const viewer = requireUser(ctx);
-            // The same block reputation.get honours: a blocked pair reads neither the card nor the reviews behind it.
-            await p2p.assertNotBlocked(viewer, input.userId);
-            const page = await p2p.listOrderReviews({
-              subjectId: input.userId,
-              viewerId: viewer,
-              ...(input.limit === undefined ? {} : { limit: input.limit }),
-              ...(input.cursor ? { cursor: input.cursor } : {}),
-            });
-            // Who reviewed and on which order stays with the two people on it; anyone else reads the words and the rating.
-            return { reviews: page.reviews.map((row) => toReviewOut(row, viewer)), nextCursor: page.nextCursor };
-          }),
-        ),
-
-      /** The order page's review panel: the viewer's own review of this trade and the visible one about them. */
-      forTrade: merchantApiProcedure('p2p:read')
-        .input(z.object({ tradeId: z.string().guid() }))
-        .output(z.object({ mine: reviewOutput.nullable(), theirs: reviewOutput.nullable() }))
-        .query(async ({ ctx, input }) =>
-          guard(async () => {
-            const both = await p2p.orderReviewsForTrade({ tradeId: input.tradeId, viewerId: requireUser(ctx) });
-            return { mine: both.mine && toReviewOut(both.mine), theirs: both.theirs && toReviewOut(both.theirs) };
-          }),
-        ),
-
-      moderate: merchantApiProcedure('p2p:read')
-        .input(z.object({ reviewId: z.string().guid(), reason: z.string().min(1).max(2000) }))
-        .output(reviewOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            assertModerator(ctx.principal, moderatorUserIds);
-            return toReviewOut(
-              await p2p.moderateOrderReview({ reviewId: input.reviewId, actorId: requireUser(ctx), reason: input.reason }),
-            );
-          }),
-        ),
-    }),
-
-    reputation: router({
-      /** P-trade-orders-21: the caller's one-time completion appeal; null while still available. */
-      myAppeal: merchantApiProcedure('p2p:read')
-        .output(appealOutput.nullable())
-        .query(async ({ ctx }) => guard(async () => p2p.myCompletionAppeal(requireUser(ctx)))),
-
-      appeal: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().guid(), reason: z.string().max(2000) }))
-        .output(appealOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => p2p.submitCompletionAppeal({ userId: requireUser(ctx), tradeId: input.tradeId, reason: input.reason })),
-        ),
-
-      /**
-       * P-trade-orders-21: support's decision on one submitted appeal (support-agent plane, compliance scope). Decided
-       * once; the actor comes from the principal, never the body, so the audit row names who really decided.
-       */
-      decideAppeal: scopedProcedure('admin:compliance', { module: 'p2p' })
-        .input(
-          z.object({
-            appealId: z.string().guid(),
-            decision: z.enum(['accepted', 'rejected']),
-            reason: z.string().max(2000),
-          }),
-        )
-        .output(appealOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            try {
-              requireMfa(ctx.principal);
-            } catch (err) {
-              if (err instanceof AuthError && err.code === 'mfa.required') {
-                throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
-              }
-              throw err;
-            }
-            return p2p.decideCompletionAppeal({
-              appealId: input.appealId,
-              actorId: requireUser(ctx),
-              decision: input.decision,
-              reason: input.reason,
-            });
-          }),
-        ),
-
-      /**
-       * §6.2 → §4.1. The numbers a counterparty sees before they trade with
-       * you, and the same numbers that feed the XP graph raising limits
-       * everywhere else.
-       */
-      get: merchantApiProcedure('p2p:read')
-        .input(z.object({ userId: z.string().guid() }))
-        .output(reputationOutput)
-        .query(async ({ ctx, input }) =>
-          guard(async () => {
-            // A blocked pair cannot see each other's card: the block is the
-            // viewer's (or the subject's) decision not to deal, and a profile is
-            // the first step of a deal.
-            await p2p.assertNotBlocked(requireUser(ctx), input.userId);
-            const r = await p2p.reputationOf(input.userId);
-            const record = merchants ? await merchants.get(input.userId) : null;
-            const rates = await p2p.completionRatesOf(input.userId);
-            const reputationDoor = {
-              ...reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants))),
-              completionRate30d: rates.completionRate30d,
-              completionRateTotal: rates.completionRateTotal,
-              completionDefinition: COMPLETION_DEFINITION,
-            };
-            const trades30d = await p2p.tradesInWindow(input.userId);
-            const { avgPaySecs } = await p2p.payTimingOf(input.userId);
-            const rating = await p2p.reviewRating(input.userId);
-            const door = { ...reputationDoor, avgPaySecs, rating, verification: null as { level: string } | null };
-            if (!publicProfile) {
-              return {
-                ...door,
-                handle: null,
-                memberSince: null,
-                profile: { status: 'unwired' as const, code: 'p2p.public_profile_unwired' as const },
-                trades30d,
-              };
-            }
-            const found = await publicProfile.lookup(input.userId);
-            if (!found && r.tradesTotal === 0) {
-              // Identity knows no such person and this service has no trade
-              // with them: there is no counterparty, not an empty one.
-              throw new P2pError('p2p.user_not_found', 'p2p.user_not_found');
-            }
-            if (!found) {
-              return {
-                ...door,
-                handle: null,
-                memberSince: null,
-                profile: { status: 'absent' as const, code: 'p2p.public_profile_absent' as const },
-                trades30d,
-              };
-            }
-            return {
-              ...door,
-              verification: found.verificationLevel ? { level: found.verificationLevel } : null,
-              handle: found.handle,
-              memberSince: found.memberSince,
-              profile: { status: 'found' as const, code: 'p2p.public_profile_found' as const },
-              trades30d,
-            };
-          }),
-        ),
-    }),
-
-    /**
-     * THE MERCHANT PROGRAMME (TRK-p2p.merchants Stage 1).
-     *
-     * Membership only. Badges and limit ENFORCEMENT are Stage 2 and read this;
-     * escrow still moves every coin through ledger recipes, so nothing here is
-     * a balance or a custody grant.
-     *
-     * `merchants` is undefined when the service was not wired, and every
-     * procedure then refuses honestly rather than pretending the programme is
-     * empty — the same shape `moderationConfigured` uses above.
-     */
-    merchants: router({
-      /**
-       * P-ads-merchant-08: the caller's presence. Offline, or scheduled outside every window, takes their ads off the
-       * board for others; open orders carry on. `nextChangeAt` is when a schedule next puts them on or off the board.
-       */
-      presence: merchantApiProcedure('p2p:read')
-        .output(presenceOutput)
-        .query(async ({ ctx }) => guard(async () => presentPresence(await p2p.presence(requireUser(ctx))))),
-
-      setPresence: merchantApiProcedure('p2p:write')
-        .input(
-          z.object({
-            mode: z.enum(PRESENCE_MODES),
-            timezone: z.string().min(1).max(64).optional(),
-            windows: z
-              .array(z.object({ day: z.number().int().min(1).max(7), start: z.string().max(5), end: z.string().max(5) }))
-              .max(MAX_PRESENCE_WINDOWS)
-              .optional(),
-          }),
-        )
-        .output(presenceOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            presentPresence(
-              await p2p.setPresence(requireUser(ctx), {
-                mode: input.mode,
-                ...(input.timezone ? { timezone: input.timezone } : {}),
-                ...(input.windows ? { windows: input.windows } : {}),
-              }),
-            ),
-          ),
-        ),
-
-      /**
-       * P-ads-merchant-08: the console to-do list. The caller's open orders that wait on someone, soonest deadline
-       * first: pay, release, the other side's move, an open dispute. Each item links to its order.
-       */
-      todos: merchantApiProcedure('p2p:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(
-          z.object({
-            items: z.array(
-              z.object({
-                kind: z.enum(TODO_KINDS),
-                tradeId: z.string(),
-                role: z.enum(['buyer', 'seller']),
-                status: z.string(),
-                asset: z.string(),
-                amount: amountString,
-                fiatCurrency: z.string(),
-                fiatAmount: amountString,
-                deadlineAt: z.string().nullable(),
-                link: z.string(),
-              }),
-            ),
-          }),
-        )
-        .query(async ({ ctx, input }) =>
-          guard(async () => ({
-            items: (await p2p.todos(requireUser(ctx), input.limit)).map((item) => ({
-              ...item,
-              amount: formatAmount(parseAmount(item.amount)),
-              fiatAmount: formatAmount(parseAmount(item.fiatAmount)),
-              deadlineAt: item.deadlineAt ? item.deadlineAt.toISOString() : null,
-            })),
-          })),
-        ),
-
-      /**
-       * P-ads-merchant-20: the caller's own P2P performance for the user
-       * center. Any signed-in trader, merchant or not; recomputed from trades.
-       * Volume is decimal strings per (asset, fiat), never a JS number.
-       */
-      stats: merchantApiProcedure('p2p:read')
-        .output(ownStatsOutput)
-        .query(async ({ ctx }) => guard(async () => p2p.ownStats(requireUser(ctx)))),
-
-      /**
-       * Check whether current standing unlocks the merchant API.
-       *
-       * This procedure deliberately uses the base scoped guard, not the
-       * merchant API guard, so a suspended key can learn why it was refused.
-       */
-      apiAccess: scopedProcedure('p2p:read', { module: 'p2p' })
-        .output(merchantApiAccessOutput)
-        .query(async ({ ctx }) =>
-          guard(async () => {
-            const record = await requireMerchants().get(requireUser(ctx));
-            return {
-              eligible: record !== null && isActiveMerchant(record.status),
-              credential: ctx.principal.kid ? ('api_key' as const) : ('session' as const),
-              merchantStatus: record?.status ?? null,
-              keyPlane: 'identity' as const,
-              rateLimitPlane: 'edge' as const,
-              disputeResolution: 'interactive_human_only' as const,
-            };
-          }),
-        ),
-
-      /**
-       * P-ads-merchant-01. The advertiser terms: the owner-published version and when the caller accepted it, or null.
-       * A blank version refuses `p2p.config_unset` naming the setting.
-       */
-      advertiserTerms: merchantApiProcedure('p2p:read')
-        .output(z.object({ version: z.string(), acceptedAt: z.string().nullable() }))
-        .query(async ({ ctx }) =>
-          guard(async () => {
-            const terms = await p2p.advertiserTermsState(requireUser(ctx));
-            return { version: terms.version, acceptedAt: terms.acceptedAt?.toISOString() ?? null };
-          }),
-        ),
-
-      /**
-       * Accept exactly the version shown; any other refuses `p2p.terms_version_stale`. Accepting again returns the
-       * first acceptance. A person's own act: an API key, or a service holding a forwarded principal, cannot do it.
-       */
-      acceptAdvertiserTerms: scopedProcedure('p2p:write', { module: 'p2p', person: true })
-        .input(z.object({ version: z.string().min(1).max(64) }))
-        .output(z.object({ version: z.string(), acceptedAt: z.string() }))
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            if (ctx.principal.kid) {
-              throw new TRPCError({ code: 'FORBIDDEN', message: 'Accepting the advertiser terms is interactive only.' });
-            }
-            const accepted = await p2p.acceptAdvertiserTerms(requireUser(ctx), input.version);
-            return { version: accepted.version, acceptedAt: accepted.acceptedAt.toISOString() };
-          }),
-        ),
-
-      /**
-       * P-ads-merchant-12. The posting checklist for one fiat: what compliance published for it (`thresholds`, `none`,
-       * `unset` or `invalid`) and every check, met, not met or unknown, with the caller's value and the target as strings.
-       * Posting in that fiat refuses on the same checks. The thresholds are per fiat, the same for every coin.
-       */
-      postingEligibility: merchantApiProcedure('p2p:read')
-        .input(z.object({ fiatCurrency: z.string().length(3) }))
-        .output(
-          z.object({
-            fiatCurrency: z.string(),
-            policy: z.enum(POSTING_POLICIES),
-            checks: z.array(
-              z.object({
-                id: z.enum(POSTING_CHECK_IDS),
-                state: z.enum(POSTING_CHECK_STATES),
-                current: z.string().nullable(),
-                required: z.string().nullable(),
-                reason: z.string(),
-              }),
-            ),
-          }),
-        )
-        .query(async ({ ctx, input }) =>
-          guard(async () => {
-            const eligibility = await p2p.postingEligibility({
-              userId: requireUser(ctx),
-              tier: ctx.principal.tier,
-              fiatCurrency: input.fiatCurrency,
-            });
-            return { fiatCurrency: input.fiatCurrency.toUpperCase(), ...eligibility };
-          }),
-        ),
-
-      /** Your own standing. Null means never applied — not "rejected". */
-      me: merchantApiProcedure('p2p:read')
-        .output(merchantOutput.nullable())
-        .query(async ({ ctx }) =>
-          guard(async () => {
-            const record = await requireMerchants().get(requireUser(ctx));
-            return record ? toMerchantOut(record) : null;
-          }),
-        ),
-
-      /**
-       * Deployment offer ceilings (TRK-p2p.merchants Stage 2 honest API).
-       *
-       * Policy, not standing: any reader with `p2p:read` can see what the
-       * house has armed. Null maxes mean unlimited — the badge buys nothing
-       * until an operator sets env. Magnitudes are never invented here.
-       */
-      offerLimits: merchantApiProcedure('p2p:read')
-        .output(offerLimitsOutput)
-        .query(() => limitsOnWire(offerLimits)),
-
-      /**
-       * The ceiling that binds the CALLER right now.
-       *
-       * Combines standing (from the programme) with the deployment policy so
-       * a maker can show "you may offer up to X" before they type a size that
-       * will refuse. Never applied → standard band; approved → merchant band.
-       */
-      myOfferCeiling: merchantApiProcedure('p2p:read')
-        .output(myOfferCeilingOutput)
-        .query(async ({ ctx }) =>
-          guard(async () => {
-            const userId = requireUser(ctx);
-            const record = await requireMerchants().get(userId);
-            return ceilingOnWire(record?.status ?? null, offerLimits);
-          }),
-        ),
-
-      /**
-       * Apply on your own behalf. The user id comes from the PRINCIPAL, never
-       * from the input — an applicant who could name the account would be
-       * applying for somebody else's.
-       */
-      // `submitApplication`, not `apply` — tRPC reserves that name because it
-      // collides with Function.prototype.apply on the router object.
-      submitApplication: merchantApiProcedure('p2p:write')
-        .output(merchantOutput)
-        .mutation(async ({ ctx }) => guard(async () => toMerchantOut(await requireMerchants().apply(requireUser(ctx), 'p2p:write')))),
-
-      /** Leave the programme. Self-service, and terminal — re-entry is a new application. */
-      withdraw: merchantApiProcedure('p2p:write')
-        .input(z.object({ reason: z.string().min(1) }))
-        .output(merchantOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            const userId = requireUser(ctx);
-            return toMerchantOut(
-              await requireMerchants().transition({
-                userId,
-                to: 'withdrawn',
-                by: 'self',
-                reason: input.reason,
-                actorId: userId,
-                actorScope: 'p2p:write',
-              }),
-            );
-          }),
-        ),
-
-      /**
-       * Operator freeze / restore / reject. Dual-control: signed
-       * `admin:compliance` + MFA + identity-consumed approval. A typed-in
-       * `confirmOperatorId` is not a second person. Missing approval ids refuse
-       * — one operator cannot grant or revoke programme privileges a stranger
-       * relies on. `admin:compliance` is not in INTERACTIVE_ONLY_SCOPES
-       * (value-off-platform test); MFA is applied locally, same as edge
-       * kill-switch / kyc.approve. First approval and unfreeze re-check the
-       * live reputation snapshot; they do not stamp badges.
-       */
-      decide: scopedProcedure('admin:compliance', { module: 'p2p' })
-        .input(
-          z.object({
-            userId: z.string().guid(),
-            to: z.enum(['approved', 'rejected', 'suspended']),
-            reason: z.string().min(1),
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
-        .output(merchantOutput.extend({ confirmOperatorId: z.string() }))
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            try {
-              requireMfa(ctx.principal);
-            } catch (err) {
-              if (err instanceof AuthError && err.code === 'mfa.required') {
-                throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
-              }
-              throw err;
-            }
-            const actorId = requireUser(ctx);
-            const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.merchants_decide', {
-              userId: input.userId,
-              to: input.to,
-              reason: input.reason,
-            });
-            return {
-              ...toMerchantOut(
-                await requireMerchants().transition({
-                  userId: input.userId,
-                  to: input.to,
-                  by: 'operator',
-                  reason: input.reason,
-                  // From the principal, never the body: otherwise the history
-                  // records who the caller said they were.
-                  actorId,
-                  actorScope: 'admin:compliance',
-                }),
-              ),
-              confirmOperatorId,
-            };
-          }),
-        ),
-
-      /** Why this merchant stands where they do. Newest first. */
-      history: scopedProcedure('admin:compliance', { module: 'p2p' })
-        .input(
-          z.object({
-            userId: z.string().guid(),
-            /**
-             * Page size. Optional here so omit reaches the service named
-             * refuse (`p2p.merchant_history_limit_unset`) instead of a Zod
-             * "Required" that looks like a typo. Blank is not 50; pass 50
-             * explicitly when that is the page you want.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(z.array(merchantEventOutput))
-        .query(async ({ input }) =>
-          guard(async () =>
-            (await requireMerchants().history(input.userId, input.limit)).map((e: MerchantEvent) => ({
-              seq: e.seq,
-              fromStatus: e.fromStatus,
-              toStatus: e.toStatus,
-              reason: e.reason,
-              actorId: e.actorId,
-              actorScope: e.actorScope,
-              createdAt: e.createdAt.toISOString(),
-            })),
-          ),
-        ),
-    }),
   });
 
   /**
@@ -4200,6 +3338,354 @@ export function createP2pRouter(
       'p2p.contacts.unfollow': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'follow', present: false }),
       'p2p.contacts.block': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'block', present: true }),
       'p2p.contacts.unblock': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'block', present: false }),
+      'p2p.chat.messages.list': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const viewer = signed(ctx).principal;
+        const page = await p2p.listChatMessages({
+          tradeId: input.tradeId,
+          viewerId: viewer.userId,
+          asModerator: isModerator(viewer, moderatorUserIds),
+          cursor: input.cursor ?? null,
+          limit: input.limit,
+        });
+        return {
+          messages: page.messages.map((message) => ({
+            id: message.id,
+            tradeId: message.tradeId,
+            senderId: message.senderId,
+            clientId: message.clientId,
+            text: message.text,
+            createdAt: message.createdAt.toISOString(),
+          })),
+          nextCursor: page.nextCursor,
+          unread: page.unread,
+        };
+      },
+      'p2p.chat.messages.send': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const sender = signed(ctx).principal;
+        const moderator = isModerator(sender, moderatorUserIds);
+        if (!sender.scopes.includes('p2p:write')) {
+          const disputeOpen = moderator && (await p2p.disputeOpen(input.tradeId));
+          if (!disputeOpen) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sending in a trade chat requires p2p:write.' });
+        }
+        const sent = await p2p.sendChatMessage({
+          tradeId: input.tradeId,
+          senderId: sender.userId,
+          clientId: input.clientId,
+          text: input.text,
+          asModerator: moderator,
+          ...(input.attachment !== undefined ? { attachment: input.attachment } : {}),
+        });
+        let notify: { delivered: boolean; code: 'p2p.chat_notify_delivered' | 'p2p.chat_notify_unwired' | 'p2p.chat_notify_failed' } = {
+          delivered: false,
+          code: 'p2p.chat_notify_unwired',
+        };
+        if (sent.created && chatNotify) {
+          const trade = await p2p.getTrade(input.tradeId);
+          const recipientIds = [trade.buyerId, trade.sellerId].filter((id) => id !== sender.userId);
+          try {
+            await chatNotify.messageSent({ tradeId: input.tradeId, messageId: sent.message.id, senderId: sender.userId, recipientIds });
+            notify = { delivered: true, code: 'p2p.chat_notify_delivered' };
+          } catch {
+            notify = { delivered: false, code: 'p2p.chat_notify_failed' };
+          }
+        }
+        return {
+          id: sent.message.id,
+          tradeId: sent.message.tradeId,
+          senderId: sent.message.senderId,
+          clientId: sent.message.clientId,
+          text: sent.message.text,
+          createdAt: sent.message.createdAt.toISOString(),
+          created: sent.created,
+          notify,
+        };
+      },
+      'p2p.chat.unread': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const viewer = signed(ctx).principal;
+        return {
+          tradeId: input.tradeId,
+          unread: await p2p.unreadChat({
+            tradeId: input.tradeId,
+            viewerId: viewer.userId,
+            asModerator: isModerator(viewer, moderatorUserIds),
+          }),
+        };
+      },
+      /** One review per party on a released trade (P-ads-merchant-21). A second leave returns the first. */
+      'p2p.reviews.leave': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return toReviewOut(
+          await p2p.leaveOrderReview({
+            tradeId: input.tradeId,
+            authorId: requireUser(ctx),
+            rating: input.rating,
+            ...(input.comment === undefined ? {} : { comment: input.comment }),
+            ...(input.explanation === undefined ? {} : { explanation: input.explanation }),
+          }),
+        );
+      },
+      'p2p.reviews.edit': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return toReviewOut(
+          await p2p.editOrderReview({
+            tradeId: input.tradeId,
+            authorId: requireUser(ctx),
+            ...(input.rating === undefined ? {} : { rating: input.rating }),
+            ...(input.comment === undefined ? {} : { comment: input.comment }),
+            ...(input.explanation === undefined ? {} : { explanation: input.explanation }),
+          }),
+        );
+      },
+      'p2p.reviews.reply': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return toReviewOut(await p2p.replyOrderReview({ tradeId: input.tradeId, subjectId: requireUser(ctx), text: input.text }));
+      },
+      'p2p.reviews.list': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const viewer = requireUser(ctx);
+        // The same block reputation.get honours: a blocked pair reads neither the card nor the reviews behind it.
+        await p2p.assertNotBlocked(viewer, input.userId);
+        const page = await p2p.listOrderReviews({
+          subjectId: input.userId,
+          viewerId: viewer,
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...(input.cursor ? { cursor: input.cursor } : {}),
+        });
+        // Who reviewed and on which order stays with the two people on it; anyone else reads the words and the rating.
+        return { reviews: page.reviews.map((row) => toReviewOut(row, viewer)), nextCursor: page.nextCursor };
+      },
+      'p2p.reviews.forTrade': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const both = await p2p.orderReviewsForTrade({ tradeId: input.tradeId, viewerId: requireUser(ctx) });
+        return { mine: both.mine && toReviewOut(both.mine), theirs: both.theirs && toReviewOut(both.theirs) };
+      },
+      'p2p.reviews.moderate': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        assertModerator(signed(ctx).principal, moderatorUserIds);
+        return toReviewOut(await p2p.moderateOrderReview({ reviewId: input.reviewId, actorId: requireUser(ctx), reason: input.reason }));
+      },
+      /** P-trade-orders-21: the caller's one-time completion appeal; null while still available. */
+      'p2p.reputation.myAppeal': async ({ ctx }) => {
+        await merchantApi(ctx);
+        return p2p.myCompletionAppeal(requireUser(ctx));
+      },
+      'p2p.reputation.appeal': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return p2p.submitCompletionAppeal({ userId: requireUser(ctx), tradeId: input.tradeId, reason: input.reason });
+      },
+      /** Support's decision on one submitted appeal; the actor comes from the principal, never the body. */
+      'p2p.reputation.decideAppeal': async ({ ctx, input }) => {
+        try {
+          requireMfa(signed(ctx).principal);
+        } catch (err) {
+          if (err instanceof AuthError && err.code === 'mfa.required') {
+            throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+          }
+          throw err;
+        }
+        return p2p.decideCompletionAppeal({
+          appealId: input.appealId,
+          actorId: requireUser(ctx),
+          decision: input.decision,
+          reason: input.reason,
+        });
+      },
+      /** P-ads-merchant-08: offline, or scheduled outside every window, takes the caller's ads off the board. */
+      'p2p.merchants.presence': async ({ ctx }) => {
+        await merchantApi(ctx);
+        return presentPresence(await p2p.presence(requireUser(ctx)));
+      },
+      'p2p.merchants.setPresence': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return presentPresence(
+          await p2p.setPresence(requireUser(ctx), {
+            mode: input.mode,
+            ...(input.timezone ? { timezone: input.timezone } : {}),
+            ...(input.windows ? { windows: input.windows } : {}),
+          }),
+        );
+      },
+      /** P-ads-merchant-08: the console to-do list, soonest deadline first. */
+      'p2p.merchants.todos': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return {
+          items: (await p2p.todos(requireUser(ctx), input.limit)).map((item) => ({
+            ...item,
+            amount: formatAmount(parseAmount(item.amount)),
+            fiatAmount: formatAmount(parseAmount(item.fiatAmount)),
+            deadlineAt: item.deadlineAt ? item.deadlineAt.toISOString() : null,
+          })),
+        };
+      },
+      /** P-ads-merchant-20: the caller's own P2P performance, recomputed from trades. */
+      'p2p.merchants.stats': async ({ ctx }) => {
+        await merchantApi(ctx);
+        return p2p.ownStats(requireUser(ctx));
+      },
+      /** No merchantApi guard here, so a suspended key can learn why it was refused. */
+      'p2p.merchants.apiAccess': async ({ ctx }) => {
+        const record = await requireMerchants().get(requireUser(ctx));
+        return {
+          eligible: record !== null && isActiveMerchant(record.status),
+          credential: signed(ctx).principal.kid ? ('api_key' as const) : ('session' as const),
+          merchantStatus: record?.status ?? null,
+          keyPlane: 'identity' as const,
+          rateLimitPlane: 'edge' as const,
+          disputeResolution: 'interactive_human_only' as const,
+        };
+      },
+      /** P-ads-merchant-01: the published advertiser terms and when the caller accepted them. */
+      'p2p.merchants.advertiserTerms': async ({ ctx }) => {
+        await merchantApi(ctx);
+        const terms = await p2p.advertiserTermsState(requireUser(ctx));
+        return { version: terms.version, acceptedAt: terms.acceptedAt?.toISOString() ?? null };
+      },
+      'p2p.merchants.acceptAdvertiserTerms': async ({ ctx, input }) => {
+        if (signed(ctx).principal.kid) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Accepting the advertiser terms is interactive only.' });
+        }
+        const accepted = await p2p.acceptAdvertiserTerms(requireUser(ctx), input.version);
+        return { version: accepted.version, acceptedAt: accepted.acceptedAt.toISOString() };
+      },
+      /** P-ads-merchant-12: the posting checklist for one fiat; posting there refuses on the same checks. */
+      'p2p.merchants.postingEligibility': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const eligibility = await p2p.postingEligibility({
+          userId: requireUser(ctx),
+          tier: signed(ctx).principal.tier,
+          fiatCurrency: input.fiatCurrency,
+        });
+        return { fiatCurrency: input.fiatCurrency.toUpperCase(), ...eligibility };
+      },
+      'p2p.merchants.me': async ({ ctx }) => {
+        await merchantApi(ctx);
+        const record = await requireMerchants().get(requireUser(ctx));
+        return record ? toMerchantOut(record) : null;
+      },
+      /** Policy, not standing: what the house has armed. Magnitudes are never invented here. */
+      'p2p.merchants.offerLimits': async ({ ctx }) => {
+        await merchantApi(ctx);
+        return limitsOnWire(offerLimits);
+      },
+      'p2p.merchants.myOfferCeiling': async ({ ctx }) => {
+        await merchantApi(ctx);
+        const record = await requireMerchants().get(requireUser(ctx));
+        return ceilingOnWire(record?.status ?? null, offerLimits);
+      },
+      /** The applicant is the principal, never the input: one who could name the account would apply for someone else. */
+      'p2p.merchants.submitApplication': async ({ ctx }) => {
+        await merchantApi(ctx);
+        return toMerchantOut(await requireMerchants().apply(requireUser(ctx), 'p2p:write'));
+      },
+      'p2p.merchants.withdraw': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const userId = requireUser(ctx);
+        return toMerchantOut(
+          await requireMerchants().transition({
+            userId,
+            to: 'withdrawn',
+            by: 'self',
+            reason: input.reason,
+            actorId: userId,
+            actorScope: 'p2p:write',
+          }),
+        );
+      },
+      /**
+       * Operator approve, reject or suspend: `admin:compliance`, MFA and an approval consumed from a second person. First
+       * approval and unfreeze re-check the live reputation snapshot; they do not stamp badges.
+       */
+      'p2p.merchants.decide': async ({ ctx, input }) => {
+        try {
+          requireMfa(signed(ctx).principal);
+        } catch (err) {
+          if (err instanceof AuthError && err.code === 'mfa.required') {
+            throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+          }
+          throw err;
+        }
+        const actorId = requireUser(ctx);
+        const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.merchants_decide', {
+          userId: input.userId,
+          to: input.to,
+          reason: input.reason,
+        });
+        return {
+          ...toMerchantOut(
+            await requireMerchants().transition({
+              userId: input.userId,
+              to: input.to,
+              by: 'operator',
+              reason: input.reason,
+              // From the principal, never the body: otherwise the history records who the caller said they were.
+              actorId,
+              actorScope: 'admin:compliance',
+            }),
+          ),
+          confirmOperatorId,
+        };
+      },
+      'p2p.merchants.history': async ({ input }) =>
+        (await requireMerchants().history(input.userId, input.limit)).map((e: MerchantEvent) => ({
+          seq: e.seq,
+          fromStatus: e.fromStatus,
+          toStatus: e.toStatus,
+          reason: e.reason,
+          actorId: e.actorId,
+          actorScope: e.actorScope,
+          createdAt: e.createdAt.toISOString(),
+        })),
+      /** §6.2 → §4.1: the numbers a counterparty sees before they trade with you. */
+      'p2p.reputation.get': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        // A blocked pair cannot see each other's card: a profile is the first step of a deal.
+        await p2p.assertNotBlocked(requireUser(ctx), input.userId);
+        const r = await p2p.reputationOf(input.userId);
+        const record = merchants ? await merchants.get(input.userId) : null;
+        const rates = await p2p.completionRatesOf(input.userId);
+        const reputationDoor = {
+          ...reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants))),
+          completionRate30d: rates.completionRate30d,
+          completionRateTotal: rates.completionRateTotal,
+          completionDefinition: COMPLETION_DEFINITION,
+        };
+        const trades30d = await p2p.tradesInWindow(input.userId);
+        const { avgPaySecs } = await p2p.payTimingOf(input.userId);
+        const rating = await p2p.reviewRating(input.userId);
+        const door = { ...reputationDoor, avgPaySecs, rating, verification: null as { level: string } | null };
+        if (!publicProfile) {
+          return {
+            ...door,
+            handle: null,
+            memberSince: null,
+            profile: { status: 'unwired' as const, code: 'p2p.public_profile_unwired' as const },
+            trades30d,
+          };
+        }
+        const found = await publicProfile.lookup(input.userId);
+        // Identity knows no such person and this service has no trade with them: there is no counterparty, not an empty one.
+        if (!found && r.tradesTotal === 0) throw new P2pError('p2p.user_not_found', 'p2p.user_not_found');
+        if (!found) {
+          return {
+            ...door,
+            handle: null,
+            memberSince: null,
+            profile: { status: 'absent' as const, code: 'p2p.public_profile_absent' as const },
+            trades30d,
+          };
+        }
+        return {
+          ...door,
+          verification: found.verificationLevel ? { level: found.verificationLevel } : null,
+          handle: found.handle,
+          memberSince: found.memberSince,
+          profile: { status: 'found' as const, code: 'p2p.public_profile_found' as const },
+          trades30d,
+        };
+      },
     },
     p2pRefusal,
   );

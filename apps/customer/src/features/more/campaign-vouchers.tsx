@@ -1,12 +1,11 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { type MyVoucher, type VoucherValidation } from '@intafaced/contracts/campaigns-catalogue';
 import {
-  myVoucherSchema,
-  myVouchersSchema,
-  voucherRedeemResultSchema,
-  voucherValidationSchema,
-  type MyVoucher,
-  type VoucherValidation,
-} from '@intafaced/contracts/campaigns-catalogue';
+  CAMPAIGNS_VOUCHERS_CLAIM,
+  CAMPAIGNS_VOUCHERS_MINE,
+  CAMPAIGNS_VOUCHERS_REDEEM,
+  CAMPAIGNS_VOUCHERS_VALIDATE,
+} from '@intafaced/contracts/campaigns-procedures';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
@@ -83,7 +82,7 @@ export function MyVouchers() {
   const api = useApi();
   const { t } = campaignVouchersCopy.useCopy();
   const when = useWhen();
-  const wallet = useResource((signal) => api.query('campaigns', 'vouchers.mine', {}, myVouchersSchema, { signal }), 'campaign-vouchers');
+  const wallet = useResource((signal) => api.call(CAMPAIGNS_VOUCHERS_MINE, {}, { signal }), 'campaign-vouchers');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<'check' | 'claim' | null>(null);
   const [refusal, setRefusal] = useState<Failed | null>(null);
@@ -93,14 +92,14 @@ export function MyVouchers() {
 
   const check = async () => {
     setBusy('check');
-    const result = await api.query('campaigns', 'vouchers.validate', { code: code.trim() }, voucherValidationSchema);
+    const result = await api.call(CAMPAIGNS_VOUCHERS_VALIDATE, { code: code.trim() });
     setBusy(null);
     setChecked(result.ok ? result.data : null);
     setRefusal(result.ok ? null : result);
   };
   const claim = async () => {
     setBusy('claim');
-    const result = await api.mutate('campaigns', 'vouchers.claim', { code: code.trim() }, myVoucherSchema);
+    const result = await api.call(CAMPAIGNS_VOUCHERS_CLAIM, { code: code.trim() });
     setBusy(null);
     setChecked(null);
     setRefusal(result.ok ? null : result);
@@ -204,12 +203,11 @@ function VoucherRow({
   const open = v.kind === 'cash' && (v.state === 'claimed' || v.state === 'partially_used') && v.remaining !== '0';
   const redeem = async () => {
     setBusy(true);
-    const result = await api.mutate(
-      'campaigns',
-      'vouchers.redeem',
-      { voucherId: v.id, amount: amount.trim(), sequence: v.redemptions.length + 1 },
-      voucherRedeemResultSchema,
-    );
+    const result = await api.call(CAMPAIGNS_VOUCHERS_REDEEM, {
+      voucherId: v.id,
+      amount: amount.trim(),
+      sequence: v.redemptions.length + 1,
+    });
     setBusy(false);
     if (result.ok) setAmount('');
     answered(result.ok ? null : result);

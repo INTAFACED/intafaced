@@ -293,7 +293,7 @@ function NumberField({ label, value, onChange }: { label: string; value: string;
 }
 
 /** The agent permission our engine needs: the spot-order key approved on the person's venue account, once. */
-function AgentPermission({ owner }: { owner: string }) {
+export function AgentPermission({ owner }: { owner: string }) {
   const { t } = spotConditionalCopy.useCopy();
   const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
@@ -383,7 +383,7 @@ function PendingList({
 }
 
 const LIVE = new Set(['entry', 'placing', 'open', 'armed']);
-const REASONS = ['entry_filled_nothing', 'take_profit_ended', 'cancelled'] as const;
+const REASONS = ['entry_filled_nothing', 'take_profit_ended', 'cancelled', 'ended_on_venue'] as const;
 const isReason = (r: string | null): r is (typeof REASONS)[number] => REASONS.includes(r as (typeof REASONS)[number]);
 
 function legLine(t: CT, leg: SpotLegView, asset: (leg: SpotLegView) => string): string {
@@ -443,6 +443,12 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
         {t(`status_${o.status}`)}
         {o.failure ? <span className="failure"> · {t('Failure', { failure: o.failure })}</span> : null}
         {o.status === 'cancelled' && isReason(o.cancelReason) ? <span> · {t(`Cancel reason ${o.cancelReason}`)}</span> : null}
+        {o.expireAt ? (
+          <span data-expire-at={o.expireAt}>
+            {' · '}
+            {t(o.status === 'expired' ? 'Expired at' : 'Expires at', { at: new Date(o.expireAt).toLocaleString() })}
+          </span>
+        ) : null}
       </td>
       <td data-cell="where">{o.label}</td>
       <td data-cell="legs">

@@ -22,6 +22,8 @@ export const totpStatusSchema = z.object({
 });
 export const stepUpBegunSchema = z.object({ challengeId: z.string().guid() }).passthrough();
 export const stepUpDoneSchema = z.object({ stepUpApprovalId: z.string().min(1) }).passthrough();
+/** `auth.stepUp`: the short token a fresh factor buys, and the scopes it carries. */
+export const stepUpTokenSchema = z.object({ accessToken: z.string().min(1), expiresAt: z.string().min(1), scopes: z.array(z.string()) });
 export const totpDisabledSchema = z.object({ disabled: z.literal(true), recoveryCodeSpent: z.boolean() });
 export const totpReplaceStartedSchema = z.object({ secret: z.string().regex(/^[A-Z2-7]{16,}$/), uri: z.string() });
 export const totpReplacedSchema = z.object({

@@ -33,6 +33,11 @@ const api = {
     world.asked.push({ kind: 'mutate', procedure, input });
     return Promise.resolve(world.mutate.shift());
   },
+  // The API version panel's read (J-developer-16 #5): no account default yet.
+  call: (record: { name: string }) => {
+    world.asked.push({ kind: 'call', procedure: record.name, input: undefined });
+    return Promise.resolve({ ok: true, data: { version: null, setAt: null } });
+  },
   // The usage panel's read of the edge (J-developer-06 #3): no calls counted yet for this key.
   plain: (_module: string, path: string) => {
     const keyId = /keys\/([^/]+)\/usage/.exec(path)?.[1] ?? '';

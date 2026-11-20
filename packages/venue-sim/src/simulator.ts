@@ -10,6 +10,7 @@ import {
   ordersTakenTogether,
   type AsOf,
   type MaybeKnown,
+  type VenueBuilderAccountMode,
   type VenueBuilderTotals,
   type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
@@ -39,6 +40,8 @@ import {
   type UserVenueLeverageChange,
   type UserVenueIsolatedMargin,
   type UserVenueAccountSummary,
+  type UserVenueAccountMode,
+  type VenueAccountMode,
   type UserVenueCrossMargin,
   type UserVenueAdlRules,
   type UserVenueDeleverage,
@@ -49,6 +52,7 @@ import {
   type VenueLiquidationAlert,
   type UserVenueListing,
   type UserVenueMarginAccountRule,
+  type UserVenueLongShort,
   type UserVenueMarginTier,
   type UserVenueCollateral,
   type UserVenueMarketMargin,
@@ -170,6 +174,10 @@ export const MAX_AGENT_VALIDITY_MS = 180 * 24 * 60 * 60 * 1000;
 
 const BPS = parseAmount('10000');
 const QUOTE_ROUND = 'ceil' as const;
+/** Where a spot order of a standard-mode account locks and settles: its spot balance, apart from perps (J-derivatives-29). */
+const SPOT_POCKET = '\u0000spot';
+/** The daily action limit of unified and portfolio margin accounts (Hyperliquid account-abstraction-modes, read 20 Nov 2026). */
+const DAILY_ACTION_LIMIT = 50_000;
 
 export interface SimMarketConfig {
   readonly symbol: string;
@@ -353,11 +361,21 @@ export interface SimSwitches {
   unpublishedTakerFeeBps: Amount;
   /** The venue publishes no settlement or other fees beside its trading fees (J-derivatives-12 #2); it still charges them. */
   otherFeesUnpublished: boolean;
+  /** The venue publishes no account mode its builder addresses must be in to accrue builder fees (J-ops-console-28). */
+  builderModeRequirementUnpublished: boolean;
   loseAnswers: number;
 }
 
+/** As the venue it stands for publishes: "Builder code addresses must be in standard mode to accrue builder fees". */
+const TEST_VENUE_BUILDER_REQUIRED_MODE: VenueAccountMode = 'standard';
+
 export interface SimOptions {
   readonly id?: string;
+  /**
+   * What each builder fee claim id starts with; the claim's number follows. A real venue never reuses a claim id, and
+   * a restarted TEST venue counts from one again, so a server names each start apart. Default `sim-builder-claim`.
+   */
+  readonly claimIdPrefix?: string;
   /** The venue's published fee tiers (J-cex-spot-10). Default: none published. */
   readonly feeSchedule?: VenueFeeTiers;
   readonly displayName?: string;
@@ -422,6 +440,17 @@ interface AccountState {
    * the volume it counted and when. `null` until the venue's first update: the base tier.
    */
   feeTier: { index: number; volume: Amount; updatedAt: Date } | null;
+  /**
+   * The venue's account mode (J-derivatives-29): `unified` (one balance for each asset, in `balances`) until the owner's
+   * signed `set_account_mode` changes it. In `standard` mode `balances` is the perps balance and `spot` the spot balance,
+   * apart: a spot order locks and settles in `spot`.
+   */
+  mode: VenueAccountMode;
+  readonly spot: Map<string, { free: Amount; locked: Amount }>;
+  /** Every signed action the venue received on the account today, accepted or refused (its daily action count). */
+  actionsToday: number;
+  /** TEST switches (J-derivatives-29 #7 #11): the mode not reported, and a mode switch the venue refuses, in its words. */
+  modeTest: { unreported: boolean; refuseSwitch: string | null };
   /** Its liquidations, oldest first, each with the parts the venue closed (J-derivatives-07 #2). */
   readonly liquidations: {
     liquidationId: string;
@@ -588,6 +617,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** Builder fee claims, by builder address, oldest first: the venue's own claim record (J-derivatives-17). */
   private readonly builderClaimRecord = new Map<string, UserVenueBuilderClaim[]>();
   private builderClaimCounter = 0;
+  private readonly claimIdPrefix: string;
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
@@ -636,6 +666,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly indexUnpublished = new Set<string>();
 
   constructor(options: SimOptions) {
+    this.claimIdPrefix = options.claimIdPrefix ?? 'sim-builder-claim';
     const id = options.id ?? 'test-venue-sim';
     this.venue = {
       id,
@@ -671,6 +702,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
       otherFeesUnpublished: false,
+      builderModeRequirementUnpublished: false,
       loseAnswers: 0,
       ...options.switches,
     };
@@ -1227,6 +1259,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       openInterest: this.openInterestCaps.has(m.symbol)
         ? { known: true, value: { size: this.openInterestOf(m.symbol), capSize: this.openInterestCaps.get(m.symbol) ?? null } }
         : { known: false },
+      // Counted from the venue's own positions where it reports open interest (J-derivatives-14 #4).
+      longShort: this.openInterestCaps.has(m.symbol) ? { known: true, value: this.longShortOf(m.symbol) } : { known: false },
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: this.publishedFunding(m),
@@ -1667,6 +1701,30 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       case 'sub_account_transfer':
         this.subAccountOf(account.owner, intent.subAccount);
         return;
+      case 'spot_perps_transfer': {
+        if (state.mode !== 'standard')
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the account is in ${state.mode} mode, which holds one balance for each asset: there is nothing to move between spot and perps`,
+          );
+        if (intent.asset !== 'USDC') refuse(this.venue.id, 'venue_rejected', 'only USDC moves between perps and spot');
+        const fromSpot = intent.direction === 'spot_to_perps';
+        const free = (fromSpot ? state.spot : state.balances).get(intent.asset)?.free ?? ZERO;
+        if (compare(intent.amount, free) > 0)
+          refuse(
+            this.venue.id,
+            'insufficient_balance',
+            `${fromSpot ? 'spot' : 'perps'} holds ${formatAmount(free)} ${intent.asset} free; ${formatAmount(intent.amount)} is more than that`,
+          );
+        return;
+      }
+      case 'set_account_mode': {
+        if (intent.mode === state.mode) refuse(this.venue.id, 'venue_rejected', `the account is already in ${intent.mode} mode`);
+        if ([...state.orders.values()].some(isLive))
+          refuse(this.venue.id, 'venue_rejected', 'TEST rule: cancel every open order before the account mode changes');
+        return;
+      }
       case 'market_margin_transfer': {
         const rule = this.marginAccountOf(intent.symbol);
         if (intent.asset !== rule.collateralAsset)
@@ -1762,6 +1820,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       return seen.outcome;
     }
 
+    // Every signed action the venue receives counts toward the account's day (J-derivatives-29 #9 #10).
+    this.account(prepared.account).actionsToday += 1;
     const outcome = this.apply(prepared);
     // A fill moves the mark and the last price: any trigger order they now cross fires before the answer goes back.
     this.runTriggers();
@@ -2058,6 +2118,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   /**
+   * `builder`'s account mode on the TEST venue (J-ops-console-28): its main account's mode, the one `accountMode` reports
+   * and `/test/account-mode` moves (J-derivatives-29), beside the mode the venue requires for it to accrue builder fees;
+   * the `builderModeRequirementUnpublished` switch leaves the requirement unpublished.
+   */
+  async builderAccountMode(builder: string): Promise<AsOf<VenueBuilderAccountMode>> {
+    this.up();
+    const b = builder.toLowerCase();
+    const state = this.account({ venueId: this.venue.id, owner: b, subAccount: null });
+    return this.asOf({
+      builder: b,
+      mode: state.modeTest.unreported ? { known: false } : { known: true, value: state.mode },
+      required: this.switches.builderModeRequirementUnpublished
+        ? { known: false }
+        : { known: true, value: TEST_VENUE_BUILDER_REQUIRED_MODE },
+    });
+  }
+
+  /**
    * TEST control: `builder` claims every builder fee it has not claimed yet, one claim per fee asset, paid into the
    * builder's own main account at this venue (free to withdraw). Returns the claims it made; nothing unclaimed makes
    * none. Never part of `UserVenue`.
@@ -2075,7 +2153,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (compare(unclaimed, ZERO) <= 0) continue;
       this.builderClaimCounter += 1;
       const claim = {
-        claimId: `sim-builder-claim-${this.builderClaimCounter}`,
+        claimId: `${this.claimIdPrefix}-${this.builderClaimCounter}`,
         builder: b,
         asset,
         amount: unclaimed,
@@ -2154,6 +2232,45 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * The account's margin summary in its perpetual collateral (J-derivatives-06 #1): equity is every unit of collateral it
    * holds, free and locked, plus each position's unrealised result at the mark; used margin is the positions' margin.
    */
+  /**
+   * The account's mode as the venue reports it (J-derivatives-29 #1 #9 #11): in standard mode its spot and perps
+   * balances apart, and the day's action count against the mode's limit. `mode: null` while the TEST switch withholds it.
+   */
+  async accountMode(account: UserVenueAccount): Promise<AsOf<UserVenueAccountMode>> {
+    this.up();
+    const state = this.account(account);
+    if (state.modeTest.unreported) return this.asOf({ mode: null, spot: null, perps: null, actions: null });
+    const standard = state.mode === 'standard';
+    const spot = [...state.spot.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([asset, b]) => ({ asset, free: b.free, locked: b.locked, total: add(b.free, b.locked) }));
+    return this.asOf({
+      mode: state.mode,
+      spot: standard ? spot : null,
+      perps: standard ? (await this.balances(account)).value : null,
+      actions: { usedToday: state.actionsToday, dailyLimit: this.dailyActionLimit(state.mode) },
+    });
+  }
+
+  /**
+   * TEST control (J-derivatives-29): hold the account in `mode` (as the venue would after the owner's own switch; the
+   * balances move as `changeMode` moves them), set the day's action count, withhold the mode from reads, or make the
+   * venue refuse the next mode switches with `refuseSwitch` (null: take them). A key left out keeps its setting.
+   */
+  testAccountMode(
+    account: UserVenueAccount,
+    set: { mode?: VenueAccountMode; actionsToday?: number; unreported?: boolean; refuseSwitch?: string | null },
+  ): void {
+    const state = this.account(account);
+    if (set.mode !== undefined && set.mode !== state.mode) {
+      if ([...state.orders.values()].some(isLive)) throw new VenueWireError('TEST: cancel the open orders before the mode changes');
+      this.changeMode(state, set.mode);
+    }
+    if (set.actionsToday !== undefined) state.actionsToday = set.actionsToday;
+    if (set.unreported !== undefined) state.modeTest.unreported = set.unreported;
+    if (set.refuseSwitch !== undefined) state.modeTest.refuseSwitch = set.refuseSwitch;
+  }
+
   async accountSummary(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>> {
     this.up();
     const state = this.account(account);
@@ -2471,7 +2588,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** A balance below zero is money the venue made up: fail loudly, never report it. */
   private assertNoNegativeBalance(): void {
     for (const state of this.accounts.values()) {
-      for (const [asset, b] of [...state.balances, ...state.marketMargins]) {
+      for (const [asset, b] of [...state.balances, ...state.marketMargins, ...state.spot]) {
         if (compare(b.free, ZERO) < 0 || compare(b.locked, ZERO) < 0) {
           throw new Error(`TEST simulator invariant: ${state.key} ${asset} free ${b.free} locked ${b.locked}`);
         }
@@ -2690,6 +2807,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         settlements: [],
         scheduled: { cancelsAt: null, lastFired: null },
         feeTier: null,
+        mode: 'unified',
+        spot: new Map(),
+        actionsToday: 0,
+        modeTest: { unreported: false, refuseSwitch: null },
         liquidations: [],
         deleverages: [],
         fundingPayments: [],
@@ -2949,6 +3070,22 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   private apply(prepared: PreparedVenueAction): VenueSubmitOutcome {
+    // The venue's daily action limit for the account's mode (J-derivatives-29 #10): an order past it is refused in the
+    // venue's words, and nothing is placed. `submit` has already counted this action.
+    const counted = this.account(prepared.account);
+    const limit = this.dailyActionLimit(counted.mode);
+    const kind = prepared.intent.kind;
+    if ((kind === 'place_order' || kind === 'place_orders' || kind === 'replace_order') && limit !== null && counted.actionsToday > limit)
+      return {
+        definite: true,
+        accepted: false,
+        refusal: {
+          venueId: this.venue.id,
+          code: 'venue_rejected',
+          detail: `the account has used its ${limit.toLocaleString('en-US')} actions for today in ${counted.mode} mode; the venue takes no more orders until the day resets (standard mode has no such limit)`,
+        },
+        asOf: this.clock(),
+      };
     if (prepared.intent.kind === 'place_orders') return this.applyTogether(prepared, prepared.intent);
     if (prepared.intent.kind === 'replace_order') return this.applyReplace(prepared, prepared.intent);
     if (prepared.intent.kind === 'cancel_orders') return this.applyCancels(prepared, prepared.intent);
@@ -3171,6 +3308,19 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         });
         return accepted(prepared.nonce, null);
       }
+      case 'spot_perps_transfer': {
+        // validate() above refused a move past the source's free balance, and any mode but standard.
+        const toSpot = intent.direction === 'perps_to_spot';
+        const from = toSpot ? this.balance(state, intent.asset) : this.spotOf(state, intent.asset);
+        const to = toSpot ? this.spotOf(state, intent.asset) : this.balance(state, intent.asset);
+        from.free = sub(from.free, intent.amount);
+        to.free = add(to.free, intent.amount);
+        return accepted(prepared.nonce, null);
+      }
+      case 'set_account_mode':
+        if (state.modeTest.refuseSwitch !== null) return refused('venue_rejected', state.modeTest.refuseSwitch);
+        this.changeMode(state, intent.mode);
+        return accepted(null, null);
       case 'market_margin_transfer': {
         const rule = this.marginAccountOf(intent.symbol);
         const into = intent.direction === 'into_market';
@@ -3203,7 +3353,47 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /** Where an order's lock and a position's margin sit: the market's own margin account, or the main balance of `asset`. */
   private lockBalance(state: AccountState, marginAccount: string | null, asset: string): { free: Amount; locked: Amount } {
+    if (marginAccount === SPOT_POCKET) return this.spotOf(state, asset);
     return marginAccount === null ? this.balance(state, asset) : this.marketMarginOf(state, marginAccount);
+  }
+
+  /** Standard mode's spot balance of `asset`, apart from the perps balance (J-derivatives-29), made on first use. */
+  private spotOf(state: AccountState, asset: string): { free: Amount; locked: Amount } {
+    let b = state.spot.get(asset);
+    if (!b) {
+      b = { free: ZERO, locked: ZERO };
+      state.spot.set(asset, b);
+    }
+    return b;
+  }
+
+  /**
+   * The account's mode changes (J-derivatives-29 #8): to one balance for each asset, the spot balances join the perps
+   * balances; to standard, every asset but USDC moves to spot and USDC stays the perps balance. No order is open
+   * (`validate`), so nothing is locked in spot.
+   */
+  private changeMode(state: AccountState, mode: VenueAccountMode): void {
+    if (mode === 'standard') {
+      for (const [asset, b] of state.balances) {
+        if (asset === 'USDC' || b.free === ZERO) continue;
+        const spot = this.spotOf(state, asset);
+        spot.free = add(spot.free, b.free);
+        b.free = ZERO;
+      }
+    } else if (state.mode === 'standard') {
+      for (const [asset, b] of state.spot) {
+        const main = this.balance(state, asset);
+        main.free = add(main.free, b.free);
+        main.locked = add(main.locked, b.locked);
+      }
+      state.spot.clear();
+    }
+    state.mode = mode;
+  }
+
+  /** The daily action limit the venue sets for a mode (Hyperliquid: 50k for unified and portfolio margin), or none. */
+  private dailyActionLimit(mode: VenueAccountMode): number | null {
+    return mode === 'standard' ? null : DAILY_ACTION_LIMIT;
   }
 
   /** A market's open interest: the long size open across every account (equal to the short size), in base units. */
@@ -3214,6 +3404,19 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (p && p.side === 'long') open = add(open, p.size);
     }
     return open;
+  }
+
+  /** How many accounts hold a long and how many a short on `symbol`: the venue's own open positions, counted. */
+  private longShortOf(symbol: string): UserVenueLongShort {
+    let longAccounts = 0;
+    let shortAccounts = 0;
+    for (const state of this.accounts.values()) {
+      const p = state.positions.get(symbol);
+      if (!p || p.size === ZERO) continue;
+      if (p.side === 'long') longAccounts += 1;
+      else shortAccounts += 1;
+    }
+    return { longAccounts, shortAccounts };
   }
 
   private place(
@@ -3260,15 +3463,17 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       return refused('venue_rejected', 'post-only order would take liquidity');
 
     const { lockAsset, lockPerUnit, lockAmount } = this.orderLock(market, intent, setting, builderFee, state);
-    // A market with its deployer's own margin account locks there, never on the main account.
-    const marginAccount = perp && market.marginAccount ? market.marginAccount.name : null;
+    // A market with its deployer's own margin account locks there, never on the main account; a spot order in standard
+    // mode locks in the spot balance (J-derivatives-29).
+    const marginAccount =
+      perp && market.marginAccount ? market.marginAccount.name : !perp && state.mode === 'standard' ? SPOT_POCKET : null;
     const balance = this.lockBalance(state, marginAccount, lockAsset);
     // A cross opening order can't spend what a cross loss at the mark already takes (J-derivatives-26).
     const crossLoss = perp && !marginAccount && !intent.reduceOnly ? this.crossLoss(state, lockAsset) : ZERO;
     if (compare(add(balance.free, crossLoss), lockAmount) < 0)
       return refused(
         'insufficient_balance',
-        `free ${lockAsset}${marginAccount ? ` in ${marginAccount}` : ''} does not cover ${perp ? 'the margin and fees' : 'what'} this order locks`,
+        `free ${lockAsset}${marginAccount === SPOT_POCKET ? ' in spot' : marginAccount ? ` in ${marginAccount}` : ''} does not cover ${perp ? 'the margin and fees' : 'what'} this order locks`,
       );
     // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled now.
     for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');
@@ -3750,8 +3955,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     side.order = { ...o, locked: sub(o.locked, lockForQty) };
 
     if (market.kind === 'spot') {
-      const base = this.balance(state, market.baseAsset);
-      const quote = this.balance(state, market.quoteAsset);
+      // In standard mode a spot order settles in the spot balance it locked in (J-derivatives-29 #5).
+      const pocket = side.marginAccount === SPOT_POCKET ? SPOT_POCKET : null;
+      const base = this.lockBalance(state, pocket, market.baseAsset);
+      const quote = this.lockBalance(state, pocket, market.quoteAsset);
       const notional = mul(price, qty, QUOTE_ROUND);
       if (o.side === 'buy') {
         quote.free = add(quote.free, sub(lockForQty, notional)); // price improvement returns to free

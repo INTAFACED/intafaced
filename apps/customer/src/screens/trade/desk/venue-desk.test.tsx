@@ -6,6 +6,9 @@ import { VenueReviewRows } from './VenueReviewRows';
 import { VenueVerifyDesk } from './VenueVerifyDesk';
 import { WithdrawalLine } from './VenueAccountPanel';
 import {
+  deskTif,
+  gtdClientId,
+  venueTifOf,
   HeldDraft,
   amountForValue,
   depositTransfer,
@@ -255,6 +258,18 @@ describe('J-cex-spot-03: market by spend, every time in force, self-trade, tag a
     expect(offeredTif(MARKET, 'ALO')).toBe('ALO');
     expect(offeredTif(MARKET, 'FOK')).toBeNull();
     expect(offeredTif(MARKET, 'GTD')).toBeNull();
+  });
+
+  it('good till date the venue lacks is run by our engine: it rests good till cancelled; fill-or-kill stays not offered', () => {
+    expect(deskTif(MARKET, 'GTD')).toBe('GTD');
+    expect(deskTif(MARKET, 'FOK')).toBeNull();
+    expect(deskTif(MARKET, 'ALO')).toBe('ALO');
+    expect(venueTifOf('GTD')).toBe('GTC');
+    expect(venueTifOf('IOC')).toBe('IOC');
+    const id = gtdClientId('order:0xabc:BTC-USDC:1763640000000:3');
+    expect(id).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    expect(gtdClientId('order:0xabc:BTC-USDC:1763640000000:3')).toBe(id);
+    expect(gtdClientId('order:0xabc:BTC-USDC:1763640000000:4')).not.toBe(id);
   });
 
   it('the self-trade rule is the venue’s own, or none where it publishes none', () => {

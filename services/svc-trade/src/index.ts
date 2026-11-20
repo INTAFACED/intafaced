@@ -121,7 +121,7 @@ import { endExpiredPasses } from './spot/tier-passes.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
-import { UserVenueDoorError } from './venue/user-venue-door.js';
+import { UserVenueDoorError, parseBuilderFee } from './venue/user-venue-door.js';
 import { wireUserVenue } from './venue/wire.js';
 import { wireVenueAgents } from './venue/agents-wire.js';
 import { LiveRuns, parseLiveRunValues } from './quant/live-run/live-runs.js';
@@ -133,7 +133,10 @@ import { SqlEngineProtectionStore } from './venue/protection-store.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
-import { wireBuilderFees } from './builder-fee/wire.js';
+import { claimReader, wireBuilderFees } from './builder-fee/wire.js';
+import { runVenueFeeShares } from './copy/venue-fee-share.js';
+import { SqlVenueFeeShareStore } from './copy/venue-fee-share-store.js';
+import { sqlCopyShares } from './copy/my-copy-fees.js';
 import { VenueRefusalError, isTestVenue } from '@intafaced/venue-contracts';
 import {
   parseDataTerms,
@@ -631,6 +634,18 @@ const engineFlatten = createFollowerFlattenPort({
 const engineCopiedPositions = sqlCopiedPositions(sql);
 const copy = new CopyService(ledger, {
   ...(venueCopy ? { venueFollows: venueCopy } : {}),
+  // A follower's copied venue fills and what each cost (J-copy-bots-otc-06 #1): read from the venue and our own rows.
+  ...(venueCopy
+    ? {
+        myCopyFees: {
+          copiedFills: (followerId: string) => venueCopy.copiedFills(followerId),
+          venueLabel: () => venueCopy.venueLabel(),
+          shares: sqlCopyShares(sql),
+          leadName: (leaderId: string) => leaderDirectory.listingName(leaderId),
+          now: () => new Date(),
+        },
+      }
+    : {}),
   copiedPositions: async (input) => {
     const v = await onVenue(input.followId);
     return (v ? await v.positions(input) : null) ?? engineCopiedPositions(input);
@@ -1047,6 +1062,26 @@ subscriptions.push(await subscribeSelfFreeze(bus, { liveRuns, agentOrders, ownAg
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 builderFeeWiring.scheduleJobs(futuresJobs.host);
+// The lead's share of our builder fee on each copied venue fill (J-copy-bots-otc-06 #1 #3; copy/venue-fee-share.ts): recorded
+// once the fill's Earn is booked, set aside from each collected claim, then owed to the lead, with the collect job's cadence.
+// Blank share rate: it waits and records nothing.
+if (venueCopy && userVenue && env.TRADE_BUILDER_FEE_COLLECT === 'on') {
+  const venueFeeShareStore = new SqlVenueFeeShareStore(sql);
+  const feeShareBuilder = parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS)?.address ?? '';
+  futuresJobs.host.every('copy.venue_fee_shares', env.TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS, async () => {
+    const run = await runVenueFeeShares({
+      law: copyFeeShareLaw,
+      ledger,
+      store: venueFeeShareStore,
+      copyFills: () => venueCopy.copiedFills(),
+      claims: claimReader(await userVenue.venue()),
+      builder: feeShareBuilder,
+    });
+    if (run.status === 'waiting') app.log.warn({ job: 'copy.venue_fee_shares', reason: run.reason }, 'copy fee shares: nothing recorded');
+    else if (run.budgetShort > 0 || run.claimNotBooked > 0)
+      app.log.warn({ job: 'copy.venue_fee_shares', ...run }, 'copy fee shares: some wait for a booked claim or budget');
+  });
+}
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
 // orders and waiting fills exist whenever matched orders have been placed: resting orders whose limit has left the band
 // around the mark come off the book, and fills that arrived while a position was busy are settled once it is free.

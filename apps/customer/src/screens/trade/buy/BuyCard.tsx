@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ArrowDownUp } from 'lucide-react';
 import './buy.css';
+import './ember.css';
 import { AssetPicker, type PickerItem } from './AssetPicker';
 import { BuyReview, type ReviewState } from './BuyReview';
 import { recheckCancel } from './cancel-recheck';

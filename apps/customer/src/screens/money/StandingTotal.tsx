@@ -1,7 +1,7 @@
-import { Badge, HeroNumber, Money } from '@intafaced/ui';
+import { Badge, HeldMark, HeroNumber, Money, heldStateOf, totalFreshness, useFreshnessClock, type HeldState } from '@intafaced/ui';
 import type { UiDisplayCurrency } from '@intafaced/contracts/ui-view-preferences';
 import { useAsOfText } from '../../features/trade/venue/VenueKit';
-import { shownUsd, type PartId, type Standing, type ValuedPart } from './standing';
+import { STANDING_STALE_AFTER_MS, shownUsd, type PartId, type Standing, type ValuedPart } from './standing';
 import { standingCopy } from './standing-copy';
 
 type T = ReturnType<typeof standingCopy.useCopy>['t'];
@@ -10,6 +10,11 @@ const PART_LABEL = { wallet: 'Part wallet', venue: 'Part venue', partner: 'Part 
 /** A part's name: the source's own name, or for a partner that did not answer, its plain role. */
 function partName(part: ValuedPart, t: T): string {
   return part.id === 'partner' && !part.label ? t('Part partner unnamed') : t(PART_LABEL[part.id], { name: part.label });
+}
+
+/** The kit's words for a figure's state, from this room's copy. */
+function heldLabels(t: T): Partial<Record<HeldState, string>> {
+  return { stale: t('Held stale'), unknown: t('Held unknown'), transit: t('Held transit') };
 }
 
 const PART_SOURCE = { wallet: 'Source wallet', venue: 'Source venue', partner: 'Source partner' } as const satisfies Record<PartId, string>;
@@ -67,6 +72,7 @@ export function StandingTotal({
           </Badge>
         ) : null}
       </div>
+      {totalUsd === null ? null : <TotalAsOf standing={standing} t={t} asOfText={asOfText} />}
       <p data-testid="standing-prices" className="muted" data-state={pricesFailed ? 'failed' : prices ? 'published' : 'unpublished'}>
         {pricesFailed ? (
           t('Prices failed')
@@ -107,6 +113,34 @@ export function StandingTotal({
   );
 }
 
+/**
+ * The total's own time: the oldest as-of time among the parts it adds up, stale when that part is stale. A part
+ * that couldn't be read is left out of the total and named below (J-home-ia-01 #1), so it is not one of these parts.
+ */
+function TotalAsOf({ standing, t, asOfText }: { standing: Standing; t: T; asOfText: (iso: string) => string }) {
+  const read = standing.parts.filter((part): part is ValuedPart & { asOf: string } => part.state === 'read' && part.asOf !== null);
+  const oldest = read.reduce<string | null>(
+    (min, part) => (min === null || Date.parse(part.asOf) < Date.parse(min) ? part.asOf : min),
+    null,
+  );
+  const now = useFreshnessClock({ asOf: oldest, staleAfterMs: STANDING_STALE_AFTER_MS, enabled: oldest !== null });
+  const total = totalFreshness(
+    read.map((part) => ({ state: heldStateOf({ asOf: part.asOf, now, staleAfterMs: STANDING_STALE_AFTER_MS }), asOf: part.asOf })),
+  );
+  return (
+    <p data-testid="standing-as-of" data-held={total.state} className="muted">
+      {t('Total as of')}{' '}
+      <HeldMark
+        state={total.state}
+        asOf={total.asOf}
+        asOfText={total.asOf ? asOfText(total.asOf) : undefined}
+        labels={heldLabels(t)}
+        timeProps={{ 'data-testid': 'standing-as-of-time' } as object}
+      />
+    </p>
+  );
+}
+
 function UnitNote({
   standing,
   displayCurrency,
@@ -143,8 +177,20 @@ function UnitNote({
 }
 
 function Part({ part, hidden, t, asOfText }: { part: ValuedPart; hidden: boolean; t: T; asOfText: (iso: string) => string }) {
+  const read = part.state === 'read';
+  const now = useFreshnessClock({ asOf: part.asOf, staleAfterMs: STANDING_STALE_AFTER_MS, enabled: read && part.asOf !== null });
+  const held: HeldState | null =
+    part.state === 'reading'
+      ? null
+      : heldStateOf({ asOf: part.asOf, now, staleAfterMs: STANDING_STALE_AFTER_MS, unknown: part.state === 'unread' });
   return (
-    <li data-testid="standing-part" data-part={part.id} data-state={part.state} data-value-usd={part.valueUsd ?? ''}>
+    <li
+      data-testid="standing-part"
+      data-part={part.id}
+      data-state={part.state}
+      data-held={held ?? undefined}
+      data-value-usd={part.valueUsd ?? ''}
+    >
       <span data-testid="standing-part-label">{partName(part, t)}</span>
       {part.test ? (
         <>
@@ -154,19 +200,25 @@ function Part({ part, hidden, t, asOfText }: { part: ValuedPart; hidden: boolean
       ) : null}
       {' · '}
       <span data-testid="standing-part-source">{t(PART_SOURCE[part.id])}</span>
-      {part.asOf ? (
+      {held !== null && held !== 'unknown' && part.asOf ? (
         <>
           {' · '}
-          <time dateTime={part.asOf} data-testid="standing-part-as-of">
-            {asOfText(part.asOf)}
-          </time>
+          <HeldMark
+            state={held}
+            asOf={part.asOf}
+            asOfText={asOfText(part.asOf)}
+            labels={heldLabels(t)}
+            timeProps={{ 'data-testid': 'standing-part-as-of' } as object}
+          />
         </>
       ) : null}
       {': '}
       {part.state === 'reading' ? (
         <span className="muted">{t('Part reading')}</span>
       ) : part.state === 'unread' ? (
-        <span data-testid="standing-part-unread">{t('Part unread')}</span>
+        <>
+          <HeldMark state="unknown" labels={heldLabels(t)} /> <span data-testid="standing-part-unread">{t('Part unread')}</span>
+        </>
       ) : part.rows.length === 0 ? (
         <span className="muted">{t('Part empty')}</span>
       ) : part.valueUsd === null ? (
