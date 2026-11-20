@@ -160,7 +160,10 @@ describe('saved strategies are per account', () => {
       .map((rel) => readFileSync(join(HERE, rel), 'utf8'))
       .join('\n');
     expect(routerSrc).not.toMatch(/studio\.list\(\)/);
-    const metaSchema = routerSrc.slice(routerSrc.indexOf('const strategyMetadata'), routerSrc.indexOf('const accountField'));
+    const metaSchema = routerSrc.slice(
+      routerSrc.indexOf('const strategyMetadata'),
+      routerSrc.indexOf('});', routerSrc.indexOf('const strategyMetadata')),
+    );
     expect(metaSchema).not.toMatch(/\bsource\b/);
     expect(metaSchema).not.toMatch(/\bblocks\b/);
 

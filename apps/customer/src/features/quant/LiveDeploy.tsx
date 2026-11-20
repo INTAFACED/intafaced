@@ -4,9 +4,10 @@ import {
   type QuantLiveCheck,
   type QuantLiveOrderType,
 } from '@intafaced/contracts/quant-algo';
+import { QUANT_STUDIO_GET } from '@intafaced/contracts/quant-studio-procedures';
 import { useState } from 'react';
 import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { Read, Select } from '../more';
@@ -58,7 +59,7 @@ function Wizard({ strategyId }: { strategyId: string }) {
   const api = useApi();
   const { t } = liveDeployCopy.useCopy();
   const read = useResource(
-    (signal) => api.query('quant', 'studio.get', { id: strategyId }, quantStrategyDetailSchema, { signal }),
+    (signal) => api.call(QUANT_STUDIO_GET, { id: strategyId }, { signal, accept: parsesAs(quantStrategyDetailSchema) }),
     `quant-live-deploy:${strategyId}`,
   );
   const [version, setVersion] = useState<string | null>(null);
