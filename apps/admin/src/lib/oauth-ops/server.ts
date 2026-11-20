@@ -1,8 +1,7 @@
 import 'server-only';
 import { IDENTITY_OAUTH_APPS_QUEUE, IDENTITY_OAUTH_APPS_REVIEW } from '@intafaced/contracts/identity-oauth-procedures';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
-import { type FounderCallContext, type FounderCallResult, partFrom, type Part, type PartLabels } from '@/lib/desk';
-import { founderRecordCall } from '@/lib/desk/founder-call';
+import { founderRecordCall, type FounderCallContext, type FounderCallResult, partFrom, type Part, type PartLabels } from '@/lib/desk';
 import { OAUTH_OPS_FORBIDDEN } from './refusal';
 import { QUEUE_PAGE, type OAuthQueueApp, type OAuthReviewRequest, type OAuthReviewStatus } from './model';
 
