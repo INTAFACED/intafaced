@@ -404,6 +404,15 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
   );
 
+  // J-derivatives-14 #4: a perpetual's open interest and the venue's long and short count, and its risk-limit tiers (or
+  // `ladder_unset`): public market data, as the price history is; no account and no sign-in.
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/open-interest', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.openInterestStats(symbolOf(req.query.symbol)), req.query.venueId);
+  });
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/risk-limits', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => d.riskLimits(symbolOf(req.query.symbol)), req.query.venueId);
+  });
+
   // J-cex-spot-10 #2: the public fee page, signed in or not: the venue's tiers and rates, its builder-fee cap and ours.
   app.get<{ Querystring: Query }>('/api/v1/venue/fees', publicRead, async (req, reply) => {
     return answer(reply, async (d) => d.publicFees(), req.query.venueId);
