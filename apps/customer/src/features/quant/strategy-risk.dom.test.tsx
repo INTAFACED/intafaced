@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { QuantRiskScreen, QuantStrategyDetail } from '@intafaced/contracts/quant-algo';
-import { QUANT_RISK_TRADING } from '@intafaced/contracts/quant-strategy-settings-procedures';
+import { QUANT_RISK_GET, QUANT_RISK_TRADING } from '@intafaced/contracts/quant-strategy-settings-procedures';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -47,6 +47,7 @@ describe('the risk screen trading switch', () => {
   it('starts off, and a refusal for a blank cap names it and leaves the switch off', async () => {
     const host = await mount();
     const toggle = host.querySelector<HTMLInputElement>('input[role="switch"]')!;
+    expect(call).toHaveBeenCalledWith(QUANT_RISK_GET, { strategyId: 's-test' }, expect.anything());
     expect(toggle.getAttribute('aria-checked')).toBe('false');
     expect(host.querySelector('[data-testid="quant-risk-unset"]')?.textContent).toBe('Still blank: Deposit-percentage cap.');
     await act(async () => toggle.click());
