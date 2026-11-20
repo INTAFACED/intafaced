@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import {
   PAY_ALLOWLIST_CHANGE_STATUSES,
   payAllowlistChangeSchema,
@@ -28,7 +29,7 @@ const amount = z
     new RegExp(`^(\\d*[1-9]\\d*(\\.\\d{1,18})?|\\d+\\.(${nonZeroPlaces}))$`),
     'amounts are positive unsigned decimal strings with at most 18 decimal places',
   );
-const assetId = z.string().min(1).max(32);
+const assetId = assetIdSchema.min(1).max(32);
 const id = z.string().guid();
 const limit = z.number().int().min(1).max(200);
 const clientRef = z.string().min(1).max(64);

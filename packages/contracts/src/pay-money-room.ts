@@ -180,11 +180,11 @@ export const payAllowlistEntrySchema = z.object({
 const payAllowlistSubjectSchema = z.union([
   z.strictObject({
     group: z.enum(['internal_wallet', 'external_wallet', 'contract']),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     address: z.string(),
     label: z.string(),
   }),
-  z.strictObject({ enabled: z.boolean(), assetId: z.string(), maxAmount: z.string() }),
+  z.strictObject({ enabled: z.boolean(), assetId: assetIdSchema, maxAmount: z.string() }),
   z.strictObject({}),
 ]);
 
