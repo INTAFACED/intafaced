@@ -79,7 +79,7 @@
  * exactly what the turbo `typecheck` task already guarantees. Every package's
  * script is now:
  *
- *     tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs
+ *     node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs
  *
  * so `pnpm typecheck`, `pnpm verify` and CI all run it, in parallel, cached, with
  * the dependency graph already resolved. `tooling/ci/gates.mjs` lists it under
@@ -280,7 +280,8 @@ function repoRoot(from) {
 }
 
 const ROOT = repoRoot(process.cwd());
-const TSC = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+// The repo's one type-check command: incremental, one at a time per project (tooling/scripts/tsc.mjs).
+const TSC = join(ROOT, 'tooling', 'scripts', 'tsc.mjs');
 
 /** `packages/contracts` — the key PINNED uses, on any platform. */
 function keyFor(dir) {
@@ -306,7 +307,7 @@ function normalise(line) {
 }
 
 function run(dir) {
-  const res = spawnSync(process.execPath, [TSC, '-p', 'tsconfig.test.json'], { cwd: dir, encoding: 'utf8' });
+  const res = spawnSync(process.execPath, [TSC, '-p', 'tsconfig.test.json', '--noEmit'], { cwd: dir, encoding: 'utf8' });
   const out = ((res.stdout ?? '') + (res.stderr ?? '')).trim();
 
   const found = new Map();
