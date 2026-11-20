@@ -1,16 +1,18 @@
 // World: book, restart
+// Stack: fresh
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, fund, journeyState, ORIGIN, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
-import { approvedSeller, testStrategyListing } from './market-listing.mjs';
+import { approvedSeller, publishStrategyListing } from './market-listing.mjs';
 
 // J-more-catalogue-02, in the running app (docs/roadmap/journeys.json): find a strategy in the Market and buy it. One test
 // per step, titled "J-more-catalogue-02 #<n>". The buyer is a TEST account on the local stack, verified and funded with
 // TEST USDT through the real ledger. The listing is a TEST strategy listing this run publishes through the product's own
 // doors (market-listing.mjs: a TEST seller stakes, applies, is approved by the stack's TEST operators, and lists). The
-// purchase is held, then released or refunded once; the steps read the buyer's ledger
+// file runs on a fresh stack (`// Stack: fresh`, world-line.mjs), so #1 first sees svc-market's catalogue empty, and the
+// seller lists only then. The purchase is held, then released or refunded once; the steps read the buyer's ledger
 // balance to check each moves once.
 const J = 'J-more-catalogue-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -61,29 +63,47 @@ async function listingRead(who) {
 /** The typed code of a refused tRPC call, as svc-market sends it. */
 const codeOf = (reply) => reply.body?.error?.message ?? reply.body?.error?.json?.message;
 
-test(`${J} starts: a verified TEST account with 100 USDT, and an approved TEST seller's TEST strategy listing`, async ({ page }) => {
+test(`${J} starts: a verified TEST account with 100 USDT, and an approved TEST seller who lists a TEST strategy in #1`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   const title = `TEST strategy with a refund window ${Date.now().toString(36)}`;
-  const { seller, listing } = await testStrategyListing(page, { title });
-  expect(listing).toMatchObject({ title, offerType: 'subscription', status: 'active' });
+  const { seller } = await approvedSeller(page);
   const who = await signUp(page, 'mk');
   await verify(page, who);
   expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  run.reset({ who, seller, title, listingId: listing.id });
+  run.reset({ who, seller, title });
 });
 
 test(`${J} #1 opens /market: listings with terms, a listing-type switch and four entry points to their own rooms, ordered by registration, price or title, never by returns`, async ({
   page,
 }) => {
-  const { title, listingId } = run.read();
-  await openMarket(page);
-  const catalogue = (await marketRead(null, 'listings', { limit: 50 })).body.result.data;
-  const mine = catalogue.find((row) => row.id === listingId);
-  expect(mine, 'the run listing is in the public catalogue').toBeDefined();
+  test.setTimeout(120_000);
+  const { title, seller } = run.read();
   const cards = page
     .getByRole('main')
     .getByRole('article')
     .filter({ has: page.getByRole('button', { name: /^View / }) });
+
+  // An empty state when none: on this fresh stack svc-market's public catalogue holds no listing yet, and the Market says
+  // so rather than drawing a blank. Soft, so the listing below is still published for the later steps if this fails.
+  const none = await marketRead(null, 'listings', { limit: 50 });
+  expect.soft(none.status, JSON.stringify(none.body).slice(0, 300)).toBe(200);
+  expect.soft(none.body?.result?.data, 'svc-market lists nothing on a fresh stack').toEqual([]);
+  await openMarket(page);
+  await expect.soft(page.getByRole('main').getByText('No listings are available', { exact: true })).toBeVisible();
+  await expect.soft(cards).toHaveCount(0);
+
+  // The approved TEST seller lists the run's TEST strategy with a refund window; the catalogue now holds it.
+  const listing = await publishStrategyListing(await api(seller), { title });
+  expect(listing).toMatchObject({ title, offerType: 'subscription', status: 'active' });
+  run.write({ listingId: listing.id });
+  const listingId = listing.id;
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Market', level: 1 })).toBeVisible();
+  const catalogue = (await marketRead(null, 'listings', { limit: 50 })).body.result.data;
+  const mine = catalogue.find((row) => row.id === listingId);
+  expect(mine, 'the run listing is in the public catalogue').toBeDefined();
 
   // Listings with their terms: the run's card shows its price and asset as the service stores them.
   const card = cards.filter({ hasText: title });
@@ -133,27 +153,32 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
   await sort.selectOption({ label: 'Newest' });
   expect(await shownTitles()).toEqual(byRegistration.map((row) => row.title));
 
-  // An empty state when nothing matches.
+  // And when the filters match none of the loaded listings.
   await page.getByRole('textbox', { name: 'Search listings' }).fill(`no listing is called this ${Date.now()}`);
   await expect(cards).toHaveCount(0);
   await expect(page.getByRole('main').getByText('No loaded listing matches these filters.')).toBeVisible();
 
-  // Four entry points, each opening its own section of the copy room that runs it.
+  // Four entry points, each linking to its owning room. All four rooms are built (the copy room's sections), so each door
+  // names no blocker, and following it opens that room's own section with its own heading.
   const doors = page.getByRole('navigation', { name: 'More in the Market' });
   await expect(doors.getByRole('link')).toHaveCount(4);
-  for (const [name, tab, href] of [
-    ['Spot copy trading', 'Spot', '/trade/copy?tab=spot'],
-    ['Futures copy trading', 'Futures', '/trade/copy?tab=futures'],
-    ['Bot marketplace', 'Bots', '/trade/copy?tab=bots'],
-    ['Signal marketplace', 'Signal', '/trade/copy?tab=signal'],
+  await expect(doors).not.toContainText(/blocked|not built|coming soon|unavailable/i);
+  for (const [name, note, tab, heading, href] of [
+    ['Spot copy trading', 'Follow a spot leader.', 'Spot', 'Spot leaders', '/trade/copy?tab=spot'],
+    ['Futures copy trading', 'Follow a futures leader.', 'Futures', 'Futures leaders', '/trade/copy?tab=futures'],
+    ['Bot marketplace', 'Copy a listed trading bot.', 'Bots', 'Bot leaders', '/trade/copy?tab=bots'],
+    ['Signal marketplace', 'Follow a listed signal.', 'Signal', 'Signal leaders', '/trade/copy?tab=signal'],
   ]) {
     await page.goto('/market');
-    const door = page.getByRole('navigation', { name: 'More in the Market' }).getByRole('link', { name });
+    const entry = page.getByRole('navigation', { name: 'More in the Market' }).getByRole('listitem').filter({ hasText: name });
+    await expect(entry).toHaveText(`${name}${note}`);
+    const door = entry.getByRole('link', { name, exact: true });
     await expect(door).toHaveAttribute('href', href);
     await door.click();
     await expect(page).toHaveURL((url) => url.pathname + url.search === href);
     await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('#main')).not.toContainText('No customer route');
+    const section = page.getByRole('tabpanel');
+    await expect(section.getByRole('heading', { level: 2, name: heading, exact: true })).toBeVisible();
   }
 });
 
