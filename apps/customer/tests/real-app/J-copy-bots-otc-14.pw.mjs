@@ -532,7 +532,9 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
   expect(setup.body.result.data.boundsMaxDistanceBps).toBe(1000);
   const wallet = await openGridVenue(page, s);
   await expect(wizard(page)).toContainText(/Bounds allowed\s*Within 10% of the market price/);
-  await wizard(page).getByRole('combobox', { name: 'Market', exact: true }).selectOption(market.symbol);
+  await wizard(page).getByRole('combobox', { name: 'Market', exact: true }).click();
+  await page.getByRole('option', { name: market.symbol, exact: true }).click();
+  await expect(wizard(page).getByRole('combobox', { name: 'Market', exact: true })).toContainText(market.symbol);
   await expect(page.getByTestId('grid-last-price')).toHaveText(/^60,?000(\.0+)? USDC$/);
   const field = (name) => wizard(page).getByRole('textbox', { name });
   await field('Investment').fill(range.investment);
