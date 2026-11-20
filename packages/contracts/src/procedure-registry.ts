@@ -76,6 +76,16 @@ import {
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
+import {
+  DEX_HEALTH,
+  DEX_QUOTE,
+  DEX_AUTH_CHALLENGE,
+  DEX_AUTH_VERIFY,
+  DEX_AUTH_REFRESH,
+  DEX_AUTH_LOGOUT,
+  DEX_AUTH_LOGOUT_ALL,
+  DEX_ORDERS_COUNT,
+} from './dex-procedures.js';
 import { EXECUTION_SPINE } from './execution-procedures.js';
 import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
 import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from './identity-api-version-procedures.js';
@@ -384,6 +394,14 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BLUEPRINT_MENTORS,
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
+  DEX_HEALTH,
+  DEX_QUOTE,
+  DEX_AUTH_CHALLENGE,
+  DEX_AUTH_VERIFY,
+  DEX_AUTH_REFRESH,
+  DEX_AUTH_LOGOUT,
+  DEX_AUTH_LOGOUT_ALL,
+  DEX_ORDERS_COUNT,
   EXECUTION_SPINE,
   FIX_ADAPTER_STATUS,
   FIX_DROP_COPY_FILL,

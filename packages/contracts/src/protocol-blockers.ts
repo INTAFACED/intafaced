@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { DexHealth } from './dex-procedures.js';
 
 /**
  * PROTOCOL BLOCKERS — the one engine that says what stands in front of each Protocol action, and the wire contract of the
@@ -86,16 +87,10 @@ export const indexerStatusSchema = z.object({
   chain: z.object({ reachable: z.boolean(), chainHeight: z.number().nullable(), reason: z.string().nullable() }).nullable(),
   clob: z.object({ live: z.boolean(), kind: z.enum(['unset', 'fixture', 'sovereign-venue', 'unpublished']) }),
 });
-export const dexHealthSchema = z.object({
-  ammVenueWired: z.boolean(),
-  externalVenueWired: z.boolean(),
-  internalBook: z.object({ enabled: z.boolean() }).passthrough(),
-});
 export type ProtocolChainStatus = z.infer<typeof protocolChainStatusSchema>;
 export type ProtocolAuditStatus = z.infer<typeof protocolAuditStatusSchema>;
 export type ProtocolServiceHealth = z.infer<typeof protocolServiceHealthSchema>;
 export type IndexerStatus = z.infer<typeof indexerStatusSchema>;
-export type DexHealth = z.infer<typeof dexHealthSchema>;
 
 /** `code` is the gateway's own refusal code when there was one. */
 export type BlockerSource<T> =

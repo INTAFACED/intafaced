@@ -38,11 +38,9 @@ import {
   PROTOCOL_VENUE_BUILD_WITHDRAW,
   PROTOCOL_VENUE_READS,
 } from '@intafaced/contracts/protocol-chain-procedures';
-import { z } from 'zod';
 import type { ProtocolAddressReportInput } from '@intafaced/contracts/protocol-address-risk';
 import { PROTOCOL_ADDRESS_REPORTS_SUBMIT, PROTOCOL_ADDRESS_RISK_READ } from '@intafaced/contracts/protocol-wallet-procedures';
 import {
-  dexHealthSchema,
   type IndexerStatus,
   type ProtocolAuditStatus,
   type ProtocolChainStatus,
@@ -70,14 +68,14 @@ import { type ProtocolFeeSwapSubmitInput } from '@intafaced/contracts/protocol-s
 import type { TokenWindowId } from '@intafaced/contracts/protocol-tokens';
 import type { ProtocolReplacementInput } from '@intafaced/contracts/protocol-wallet-tx';
 import type { ProtocolEscrowBuildInput } from '@intafaced/contracts/protocol-escrow';
-import { dexQuoteSchema } from '@intafaced/contracts/dex-quote';
+import { DEX_HEALTH, DEX_QUOTE, type DexHealth, type DexQuote } from '@intafaced/contracts/dex-procedures';
 import type { ApiClient } from '../../shared/api';
 
 /**
  * svc-protocol's own reads are called by their records (`@intafaced/contracts/protocol-procedures`), which parse each answer;
  * `audited` is a literal false there, so a response that ever claims otherwise fails validation and shows as a refusal
- * instead of a badge. svc-indexer `status` and svc-dex `health` / `quote` parse with their contracts schemas, which keep only the fields
- * this room renders.
+ * instead of a badge. svc-indexer's `status` and svc-dex's `health` and `quote` are called by their records too
+ * (`@intafaced/contracts/indexer-procedures`, `@intafaced/contracts/dex-procedures`).
  */
 /** A session key's scope as `buildSessionGrant` takes it: unix seconds, wei as a decimal string, exact targets and selectors. */
 export type SessionGrantSpec = {
@@ -87,13 +85,11 @@ export type SessionGrantSpec = {
   targets: string[];
   selectors: string[];
 };
-export { dexHealthSchema, dexQuoteSchema };
 export type ChainStatus = ProtocolChainStatus;
 export type AuditStatus = ProtocolAuditStatus;
 export type ProtocolHealth = ProtocolServiceHealth;
 export type { IndexerStatus };
-export type DexHealth = z.infer<typeof dexHealthSchema>;
-export type DexQuote = z.infer<typeof dexQuoteSchema>;
+export type { DexHealth, DexQuote };
 export type NetworksList = ProtocolNetworksListOutput;
 export type Deployments = ProtocolDeploymentsOutput;
 export type RepresentationStatus = ProtocolRepresentationStatus;
@@ -125,7 +121,7 @@ export function createProtocolApi(api: ApiClient) {
     auditProducts: (signal?: AbortSignal) => api.call(PROTOCOL_AUDIT_PRODUCTS, undefined, { signal }),
     health: (signal?: AbortSignal) => api.call(PROTOCOL_HEALTH, undefined, { signal }),
     indexerStatus: (signal?: AbortSignal) => api.call(INDEXER_STATUS, undefined, { signal }),
-    dexHealth: (signal?: AbortSignal) => api.query('dex', 'health', undefined, dexHealthSchema, { signal }),
+    dexHealth: (signal?: AbortSignal) => api.call(DEX_HEALTH, undefined, { signal }),
     /** A contract's source status, its proxy and the interface its Read and Write tabs use (D-explorer-06). */
     contractInspect: (address: string, signal?: AbortSignal) => api.call(PROTOCOL_CONTRACT_INSPECT, { address }, { signal }),
     /** One read function called at the contract's address, at one block. */
@@ -225,7 +221,7 @@ export function createProtocolApi(api: ApiClient) {
       api.call(PROTOCOL_AMM_BUILD_REVOKE, input, { signal }),
     /** A read-only quote. It moves nothing; the service refuses with a `dex.quote.*` code when no venue can be read fresh. */
     dexQuote: (input: { symbol: string; side: 'buy' | 'sell'; qty: string }, signal?: AbortSignal) =>
-      api.query('dex', 'quote', input, dexQuoteSchema, { signal }),
+      api.call(DEX_QUOTE, input, { signal }),
   };
 }
 export type ProtocolApi = ReturnType<typeof createProtocolApi>;

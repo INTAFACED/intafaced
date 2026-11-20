@@ -11923,6 +11923,1123 @@
         }
       ]
     },
+    "dex.auth.challenge": {
+      "service": "svc-dex",
+      "module": "dex",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "auth.challenge",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "dex",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "dex.auth.session_unset": "PRECONDITION_FAILED",
+        "dex.auth.lifetime_unset": "PRECONDITION_FAILED",
+        "dex.order.cap_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["address", "chainId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string"
+          },
+          "typedData": {
+            "type": "object",
+            "properties": {
+              "types": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["name", "type"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "primaryType": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "chainId": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["name", "version", "chainId"],
+                "additionalProperties": false
+              },
+              "message": {
+                "type": "object",
+                "properties": {
+                  "wallet": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-fA-F]{40}$"
+                  },
+                  "scope": {
+                    "type": "string"
+                  },
+                  "cap": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "pattern": "^\\d+$"
+                  },
+                  "nonce": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-fA-F]{64}$"
+                  }
+                },
+                "required": ["wallet", "scope", "cap", "expiresAt", "nonce"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["types", "primaryType", "domain", "message"],
+            "additionalProperties": false
+          },
+          "scope": {
+            "type": "string"
+          },
+          "sessionExpiresAt": {
+            "type": "string"
+          },
+          "cap": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "max": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?$"
+                }
+              },
+              "required": ["token", "symbol", "max"],
+              "additionalProperties": false
+            }
+          },
+          "challengeExpiresAt": {
+            "type": "string"
+          }
+        },
+        "required": ["challenge", "typedData", "scope", "sessionExpiresAt", "cap", "challengeExpiresAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "chainId": 84532
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "address": "not-a-wallet",
+            "chainId": 84532
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "chainId": 0
+          }
+        }
+      ]
+    },
+    "dex.auth.logout": {
+      "service": "svc-dex",
+      "module": "dex",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "auth.logout",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "dex",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "dex.auth.session_unset": "PRECONDITION_FAILED",
+        "dex.auth.lifetime_unset": "PRECONDITION_FAILED",
+        "dex.order.cap_unset": "PRECONDITION_FAILED",
+        "dex.auth.unauthenticated": "UNAUTHORIZED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": ["accessToken"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "boolean",
+            "const": true
+          },
+          "wallet": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["revoked", "wallet"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accessToken": "sealed"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "accessToken": ""
+          }
+        }
+      ]
+    },
+    "dex.auth.logoutAll": {
+      "service": "svc-dex",
+      "module": "dex",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "auth.logoutAll",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "dex",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "dex.auth.session_unset": "PRECONDITION_FAILED",
+        "dex.auth.lifetime_unset": "PRECONDITION_FAILED",
+        "dex.order.cap_unset": "PRECONDITION_FAILED",
+        "dex.auth.unauthenticated": "UNAUTHORIZED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": ["accessToken"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "boolean",
+            "const": true
+          },
+          "wallet": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["revoked", "wallet"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accessToken": "sealed"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "accessToken": ""
+          }
+        }
+      ]
+    },
+    "dex.auth.refresh": {
+      "service": "svc-dex",
+      "module": "dex",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "auth.refresh",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "dex",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "dex.auth.session_unset": "PRECONDITION_FAILED",
+        "dex.auth.lifetime_unset": "PRECONDITION_FAILED",
+        "dex.order.cap_unset": "PRECONDITION_FAILED",
+        "dex.auth.unauthenticated": "UNAUTHORIZED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": ["refreshToken"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "wallet": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "accessToken": {
+            "type": "string"
+          },
+          "accessExpiresAt": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "refreshExpiresAt": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "cap": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "max": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?$"
+                }
+              },
+              "required": ["token", "symbol", "max"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["wallet", "accessToken", "accessExpiresAt", "refreshToken", "refreshExpiresAt", "scope", "cap"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "refreshToken": "sealed"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "refreshToken": ""
+          }
+        }
+      ]
+    },
+    "dex.auth.verify": {
+      "service": "svc-dex",
+      "module": "dex",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "auth.verify",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "dex",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "dex.auth.session_unset": "PRECONDITION_FAILED",
+        "dex.auth.lifetime_unset": "PRECONDITION_FAILED",
+        "dex.order.cap_unset": "PRECONDITION_FAILED",
+        "dex.auth.challenge_invalid": "BAD_REQUEST",
+        "dex.auth.challenge_replayed": "CONFLICT",
+        "dex.auth.signature_not_owner": "UNAUTHORIZED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]+$"
+          }
+        },
+        "required": ["challenge", "signature"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "wallet": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "accessToken": {
+            "type": "string"
+          },
+          "accessExpiresAt": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "refreshExpiresAt": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "cap": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "max": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d+)?$"
+                }
+              },
+              "required": ["token", "symbol", "max"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["wallet", "accessToken", "accessExpiresAt", "refreshToken", "refreshExpiresAt", "scope", "cap"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "challenge": "sealed",
+            "signature": "0xababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "challenge": "sealed",
+            "signature": "unsigned"
+          }
+        }
+      ]
+    },
+    "dex.health": {
+      "service": "svc-dex",
+      "module": "dex",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "health",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "service": {
+            "type": "string",
+            "const": "svc-dex"
+          },
+          "serviceHoldsBalances": {
+            "type": "boolean",
+            "const": false
+          },
+          "internalBook": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "priced": {
+                    "type": "boolean"
+                  },
+                  "custodial": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "plane": {
+                    "type": "string",
+                    "const": "fiat"
+                  },
+                  "venueKind": {
+                    "type": "string",
+                    "const": "internal"
+                  },
+                  "amm": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                },
+                "required": ["enabled", "custodial", "plane", "venueKind", "amm"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "amm": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                },
+                "required": ["enabled", "amm"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "ammVenueWired": {
+            "type": "boolean"
+          },
+          "externalVenueWired": {
+            "type": "boolean"
+          },
+          "bestEx": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "ok": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "claimed": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                },
+                "required": ["ok", "claimed"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "ok": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "claimed": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "ownerBestExLaw": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["ok", "claimed", "ownerBestExLaw"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "ok": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "reason": {
+                    "type": "string",
+                    "const": "best_ex_unset"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "venue.best_ex_claim_unset"
+                  },
+                  "detail": {
+                    "type": "string"
+                  }
+                },
+                "required": ["ok", "reason", "code", "detail"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["ok", "service", "serviceHoldsBalances", "internalBook", "ammVenueWired", "externalVenueWired", "bestEx"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "dex.orders.count": {
+      "service": "svc-dex",
+      "module": "dex",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "orders.count",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "dex",
+        "plane": "protocol"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "wallet": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["wallet"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "wallet": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["wallet", "count"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "wallet": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "wallet": "0x1"
+          }
+        }
+      ]
+    },
+    "dex.quote": {
+      "service": "svc-dex",
+      "module": "dex",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "quote",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "dex",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "dex.quote.no_venue_configured": "SERVICE_UNAVAILABLE",
+        "dex.quote.no_venue_available": "SERVICE_UNAVAILABLE",
+        "dex.quote.stale": "SERVICE_UNAVAILABLE",
+        "dex.quote.no_liquidity": "NOT_FOUND",
+        "dex.quote.depth_unset": "PRECONDITION_FAILED",
+        "dex.quote.max_age_unset": "PRECONDITION_FAILED",
+        "dex.quote.missing_finality": "SERVICE_UNAVAILABLE",
+        "dex.quote.reorg_unconfirmed": "SERVICE_UNAVAILABLE",
+        "dex.quote.unknown": "SERVICE_UNAVAILABLE",
+        "dex.quote.hide_list_unset": "PRECONDITION_FAILED",
+        "dex.quote.hide_list_unavailable": "SERVICE_UNAVAILABLE",
+        "dex.quote.market_hidden": "NOT_FOUND",
+        "dex.quote.pool_hidden": "NOT_FOUND",
+        "dex.internal_book_fee_unset": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "qty": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["symbol", "side", "qty"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "route": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["quote", "preview"]
+              },
+              "executable": {
+                "type": "boolean"
+              },
+              "legs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "venue": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": ["book", "pool"]
+                    },
+                    "qty": {
+                      "type": "string"
+                    },
+                    "quoteAmount": {
+                      "type": "string"
+                    },
+                    "effectivePrice": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["venue", "kind", "qty", "quoteAmount", "effectivePrice"],
+                  "additionalProperties": false
+                }
+              },
+              "filledQty": {
+                "type": "string"
+              },
+              "unfilledQty": {
+                "type": "string"
+              },
+              "totalQuoteAmount": {
+                "type": "string"
+              }
+            },
+            "required": ["kind", "executable", "legs", "filledQty", "unfilledQty", "totalQuoteAmount"],
+            "additionalProperties": false
+          },
+          "venues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "venueId": {
+                  "type": "string"
+                },
+                "venueKind": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["book", "pool"]
+                },
+                "plane": {
+                  "type": "string",
+                  "enum": ["protocol", "fiat", "external"]
+                },
+                "custodial": {
+                  "type": "boolean"
+                },
+                "feeBps": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "settlementCost": {
+                  "type": "string"
+                },
+                "fillableQty": {
+                  "type": "string"
+                },
+                "quoteAmount": {
+                  "type": "string"
+                },
+                "observedAt": {
+                  "type": "string"
+                },
+                "ageMs": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "latencyMs": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "venueId",
+                "venueKind",
+                "kind",
+                "plane",
+                "custodial",
+                "feeBps",
+                "settlementCost",
+                "fillableQty",
+                "quoteAmount",
+                "observedAt",
+                "ageMs",
+                "latencyMs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "venueId": {
+                  "type": "string"
+                },
+                "plane": {
+                  "type": "string",
+                  "enum": ["protocol", "fiat", "external"]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "unreachable",
+                    "malformed",
+                    "not_ready",
+                    "stale",
+                    "clock_skew",
+                    "no_depth",
+                    "unknown",
+                    "missing_finality",
+                    "reorg_unconfirmed"
+                  ]
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "required": ["venueId", "plane", "reason", "detail"],
+              "additionalProperties": false
+            }
+          },
+          "venuesConfigured": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "singleVenue": {
+            "type": "boolean"
+          },
+          "asOf": {
+            "type": "string"
+          },
+          "ageMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "maxAgeMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "custodialLegs": {
+            "type": "boolean"
+          },
+          "executable": {
+            "type": "boolean"
+          },
+          "comparableSettlement": {
+            "type": "boolean"
+          },
+          "nonExecutableReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["custodial_settlement", "incomparable_settlement", "degraded", "not_final"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "serviceHoldsBalances": {
+            "type": "boolean",
+            "const": false
+          },
+          "internalBook": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "priced": {
+                    "type": "boolean"
+                  },
+                  "custodial": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "plane": {
+                    "type": "string",
+                    "const": "fiat"
+                  },
+                  "venueKind": {
+                    "type": "string",
+                    "const": "internal"
+                  },
+                  "amm": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                },
+                "required": ["enabled", "custodial", "plane", "venueKind", "amm"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "amm": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                },
+                "required": ["enabled", "amm"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "ammVenueWired": {
+            "type": "boolean"
+          },
+          "externalVenueWired": {
+            "type": "boolean"
+          },
+          "bestEx": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "ok": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "claimed": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                },
+                "required": ["ok", "claimed"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "ok": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "claimed": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "ownerBestExLaw": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["ok", "claimed", "ownerBestExLaw"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "ok": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "reason": {
+                    "type": "string",
+                    "const": "best_ex_unset"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "venue.best_ex_claim_unset"
+                  },
+                  "detail": {
+                    "type": "string"
+                  }
+                },
+                "required": ["ok", "reason", "code", "detail"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "symbol",
+          "side",
+          "route",
+          "venues",
+          "unavailable",
+          "venuesConfigured",
+          "degraded",
+          "singleVenue",
+          "asOf",
+          "ageMs",
+          "maxAgeMs",
+          "custodialLegs",
+          "executable",
+          "comparableSettlement",
+          "nonExecutableReason",
+          "serviceHoldsBalances",
+          "internalBook",
+          "ammVenueWired",
+          "externalVenueWired",
+          "bestEx"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "symbol": "ETH-USDC",
+            "side": "buy",
+            "qty": "1.5"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "symbol": "ETH-USDC",
+            "side": "buy",
+            "qty": "1.0000000000000000001"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "symbol": "",
+            "side": "sell",
+            "qty": "1"
+          }
+        }
+      ]
+    },
     "execution.spine": {
       "service": "svc-execution",
       "module": "execution",
