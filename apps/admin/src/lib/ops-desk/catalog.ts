@@ -1,3 +1,4 @@
+import { DEX_HEALTH } from '@intafaced/contracts/dex-procedures';
 import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
@@ -2467,9 +2468,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.dex',
         title: 'DEX health',
         note: 'Configuration facts from svc-dex. A venue that is not wired is not a venue that is down.',
-        module: 'dex',
+        ...readOf(DEX_HEALTH),
         plainName: 'DEX health',
-        procedure: 'health',
         shape: 'record',
         columns: [
           bool('ammVenueWired', 'AMM venue wired'),
