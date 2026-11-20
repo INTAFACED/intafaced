@@ -17,7 +17,7 @@
  * and blur are only on the nav and sheet layers, and text roles meet 4.5:1 on every solid surface.
  */
 import { cssValue } from '../theme/tokens.js';
-import { accents, LIT_LOOK, roleNames, roleVar, type Accent, type Role, type TypeRole } from './contracts.js';
+import { accents, directions, LIT_LOOK, roleNames, roleVar, type Accent, type Direction, type Role, type TypeRole } from './contracts.js';
 
 type RoleMap = Record<Role, string>;
 
@@ -74,6 +74,11 @@ export const flat: RoleMap = {
   'key-shadow': 'none',
   'key-lit-bg': v('lime'),
   'key-lit-shadow': 'none',
+  'object-bg': v('panel'),
+  'object-fg': v('fg'),
+  'object-shadow': 'none',
+  'object-spark-bg': v('lime'),
+  'object-spark-fg': v('on-lime'),
   'control-bg': v('field'),
   'control-rim': v('line-strong'),
   'control-rim-active': v('fg-2'),
@@ -173,6 +178,12 @@ export const lit: RoleMap = {
     'radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--lit-accent) 34%, transparent), transparent 75%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015) 70%), #11131A',
   'key-lit-shadow':
     'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 0 0 #0A0C11, 0 0 22px color-mix(in srgb, var(--lit-accent) 45%, transparent), 0 0 60px color-mix(in srgb, var(--lit-accent) 18%, transparent)',
+  'object-bg':
+    'radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, 0.08), transparent 55%), linear-gradient(160deg, #1A1C24, #07080C 72%)',
+  'object-fg': '#F4F5F8',
+  'object-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 30px 50px -24px rgba(0, 0, 0, 1)',
+  'object-spark-bg': 'linear-gradient(160deg, var(--lit-accent-hot), var(--lit-accent) 60%)',
+  'object-spark-fg': '#04050A',
   'control-bg': '#0A0C11',
   'control-rim': 'rgba(255, 255, 255, 0.36)',
   'control-rim-active': 'rgba(255, 255, 255, 0.56)',
@@ -324,6 +335,190 @@ export const accentTextLight: Record<Accent, string> = {
   violet: '#6A2FD1',
   emerald: '#00754B',
 };
+
+/**
+ * A look direction drawn over the lit roles (intafaced #9227): its own material, type and spark, dark and light.
+ * `today` re-points today's `--if-*` names for rooms not yet on a template (values are role references only), and
+ * `type` re-values the type roles.
+ */
+export type DirectionSet = {
+  dark: Partial<RoleMap>;
+  light: Partial<RoleMap>;
+  today: Record<string, string>;
+  type: Partial<Record<TypeRole, Partial<{ size: string; line: string; weight: string; tracking: string }>>>;
+};
+
+/**
+ * Volt: matte black and stone, heavy and tactile, with one electric citron spark used once per screen as light on the
+ * one thing that matters. The citron (#FAF33E) is moved off today's lime (#C8F64A, CIEDE2000 10.8) and Robinhood's
+ * Robin Neon (#CCFF00, 10.2) toward yellow, which also keeps it far from gain green (#3DDC97, 33+) so gains read as
+ * gains next to it; it stays 17+ from warning amber. Today's lime everywhere (pills, ticks, progress) is drawn in ink
+ * instead, so the spark is the only colour on a screen. Figures are Archivo at its widest (a wide grotesk).
+ */
+const volt: DirectionSet = {
+  dark: {
+    page: '#0A0A09',
+    'page-2': '#0E0E0D',
+    field:
+      'radial-gradient(120% 60% at 50% -12%, rgba(255, 255, 255, 0.055), transparent 62%), radial-gradient(80% 50% at 100% 100%, rgba(255, 255, 255, 0.02), transparent 70%)',
+    'text-1': '#F3F2EC',
+    'text-2': '#AAA9A1',
+    'text-3': '#8F8E87',
+    'text-disabled': '#4E4D49',
+    line: 'rgba(243, 242, 236, 0.07)',
+    'line-strong': 'rgba(243, 242, 236, 0.13)',
+    accent: '#FAF33E',
+    'accent-hot': '#FFFBB8',
+    'accent-deep': '#3A3706',
+    'accent-pair': '#F3F2EC',
+    'accent-text': '#FAF33E',
+    'accent-fill': '#FAF33E',
+    'accent-fill-2': '#E2DA1E',
+    'on-accent': '#0A0A09',
+    up: '#3DDC97',
+    down: '#FF5E57',
+    'up-text': '#3DDC97',
+    'down-text': '#FF7A73',
+    'solid-bg': '#141413',
+    'solid-bg-raised': '#1C1C1A',
+    'solid-bg-sunken': '#080807',
+    'solid-lip': 'inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 -1px 0 rgba(0, 0, 0, 0.6)',
+    'solid-rim': 'rgba(255, 255, 255, 0.16)',
+    'solid-rim-dim': 'rgba(255, 255, 255, 0.035)',
+    'solid-wall': '#050505',
+    'solid-shadow': '0 2px 0 0 var(--lit-solid-wall), 0 30px 50px -28px rgba(0, 0, 0, 1)',
+    sheen: 'linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 60%)',
+    'fill-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 0 18px color-mix(in srgb, var(--lit-accent) 30%, transparent)',
+    'corner-glow': 'color-mix(in srgb, var(--lit-accent) 22%, transparent)',
+    'glass-bg': 'linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01) 70%), rgba(18, 18, 17, 0.88)',
+    'glass-blur': 'blur(20px) saturate(120%)',
+    'glass-rim': 'rgba(255, 255, 255, 0.14)',
+    'glass-rim-dim': 'rgba(255, 255, 255, 0.04)',
+    'glass-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 18px 40px -12px rgba(0, 0, 0, 0.9)',
+    scrim: 'rgba(0, 0, 0, 0.72)',
+    veil: 'rgba(10, 10, 9, 0.6)',
+    'primary-bg': 'linear-gradient(180deg, #FCF76E, #FAF33E 45%, #EEE62A)',
+    'primary-fg': '#0A0A09',
+    'primary-shadow':
+      'inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -2px 0 rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(250, 243, 62, 0.35), 0 10px 32px -10px rgba(250, 243, 62, 0.45)',
+    'secondary-bg': 'linear-gradient(180deg, #1F1F1D, #161615)',
+    'secondary-fg': '#F3F2EC',
+    'secondary-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(255, 255, 255, 0.05)',
+    'key-bg': 'linear-gradient(180deg, #1F1F1D, #161615)',
+    'key-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 0 0 #050505',
+    'key-lit-bg': 'linear-gradient(180deg, #2A2A27, #1E1E1C)',
+    'key-lit-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 0 #050505',
+    'object-bg':
+      'radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 55%), linear-gradient(160deg, #1D1D1B, #050505 72%)',
+    'object-fg': '#F3F2EC',
+    'object-shadow':
+      'inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 0 0 #000000, 0 30px 50px -24px rgba(0, 0, 0, 1)',
+    'object-spark-bg': 'linear-gradient(180deg, #FCF76E, #FAF33E 45%, #EEE62A)',
+    'object-spark-fg': '#0A0A09',
+    'control-bg': '#0E0E0D',
+    'control-rim': 'rgba(243, 242, 236, 0.36)',
+    'control-rim-active': 'rgba(243, 242, 236, 0.6)',
+    focus: '#FFFFFF',
+    'legal-bg': '#161615',
+    'legal-border': '#B8B7B0',
+    'refusal-bg': '#121211',
+    'refusal-fg': '#E8E7E1',
+    'test-tag-bg': 'rgba(243, 242, 236, 0.08)',
+    'test-tag-fg': '#AAA9A1',
+    'status-done': '#3DDC97',
+    'status-unknown': '#AAA9A1',
+    'font-ui': "'Archivo Variable', Archivo, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
+    'font-figure': "'Archivo Variable', Archivo, ui-sans-serif, system-ui, sans-serif",
+    'radius-panel': '28px',
+    'radius-tile': '20px',
+    'radius-key': '999px',
+    'radius-control': '999px',
+  },
+  light: {
+    page: '#E7E5DF',
+    'page-2': '#DDDBD4',
+    field: 'radial-gradient(120% 60% at 50% -12%, rgba(255, 255, 255, 0.7), transparent 62%)',
+    'text-1': '#0D0D0C',
+    'text-2': '#44433E',
+    'text-3': '#575650',
+    'text-disabled': '#9C9B94',
+    line: 'rgba(13, 13, 12, 0.08)',
+    'line-strong': 'rgba(13, 13, 12, 0.15)',
+    'accent-text': '#575200',
+    'on-accent': '#0A0A09',
+    'up-text': '#086340',
+    'down-text': '#A82226',
+    'solid-bg': '#F5F4F0',
+    'solid-bg-raised': '#EDECE7',
+    'solid-bg-sunken': '#DCDAD3',
+    'solid-lip': 'inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(13, 13, 12, 0.06)',
+    'solid-wall': '#C9C7BF',
+    'solid-rim': 'rgba(255, 255, 255, 0.95)',
+    'solid-rim-dim': 'rgba(13, 13, 12, 0.08)',
+    'solid-shadow': '0 2px 0 0 var(--lit-solid-wall), 0 24px 40px -26px rgba(30, 28, 20, 0.45)',
+    'glass-bg': 'linear-gradient(180deg, rgba(251, 250, 247, 0.94), rgba(237, 236, 231, 0.9))',
+    'glass-rim': 'rgba(255, 255, 255, 0.95)',
+    'glass-rim-dim': 'rgba(13, 13, 12, 0.1)',
+    'glass-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 16px 32px -14px rgba(30, 28, 20, 0.4)',
+    scrim: 'rgba(13, 13, 12, 0.4)',
+    veil: 'rgba(231, 229, 223, 0.7)',
+    'primary-bg': 'linear-gradient(180deg, #2A2A27, #0D0D0C)',
+    'primary-fg': '#FAF33E',
+    'primary-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 8px 22px -10px rgba(13, 13, 12, 0.6)',
+    'secondary-bg': 'linear-gradient(180deg, #FBFAF7, #EFEEE9)',
+    'secondary-fg': '#0D0D0C',
+    'secondary-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(13, 13, 12, 0.08)',
+    'key-bg': 'linear-gradient(180deg, #FBFAF7, #EFEEE9)',
+    'key-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #C9C7BF',
+    'key-lit-bg': 'linear-gradient(180deg, #FFFFFF, #F3F2EE)',
+    'key-lit-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #C9C7BF',
+    'object-bg':
+      'radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 55%), linear-gradient(160deg, #262624, #0A0A09 72%)',
+    'object-fg': '#F3F2EC',
+    'object-shadow':
+      'inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 0 0 #000000, 0 26px 40px -22px rgba(30, 28, 20, 0.6)',
+    'control-bg': '#FBFAF7',
+    'control-rim': 'rgba(13, 13, 12, 0.5)',
+    'control-rim-active': 'rgba(13, 13, 12, 0.7)',
+    focus: '#0D0D0C',
+    'legal-bg': '#FBFAF7',
+    'legal-fg': '#0D0D0C',
+    'legal-border': '#44433E',
+    'refusal-bg': '#EDECE7',
+    'refusal-fg': '#0D0D0C',
+    'refusal-border': 'rgba(13, 13, 12, 0.2)',
+    'warn-text': '#7E5300',
+    'error-text': '#B3261E',
+    'test-tag-bg': 'rgba(13, 13, 12, 0.06)',
+    'test-tag-fg': '#44433E',
+    'status-pending': '#7E5300',
+    'status-failed': '#B3261E',
+    'status-done': '#086340',
+    'status-unknown': '#44433E',
+    'status-stale': '#7E5300',
+  },
+  // Today's lime is drawn in ink: the spark is placed by the direction's own sheet, once per screen.
+  today: {
+    '--if-lime': 'var(--lit-text-1)',
+    '--if-lime-hover': 'color-mix(in srgb, var(--lit-text-1) 88%, var(--lit-page))',
+    '--if-lime-press': 'color-mix(in srgb, var(--lit-text-1) 76%, var(--lit-page))',
+    '--if-on-lime': 'var(--lit-page)',
+    '--if-lime-soft': 'color-mix(in srgb, var(--lit-text-1) 10%, transparent)',
+    '--if-accent-text': 'var(--lit-text-1)',
+    '--if-alloc-1': 'var(--lit-text-1)',
+    '--color-accent': 'var(--lit-text-1)',
+    '--color-selected': 'color-mix(in srgb, var(--lit-text-1) 10%, var(--lit-solid-bg))',
+    '--if-font-mono': 'var(--lit-font-figure)',
+  },
+  type: {
+    hero: { size: '56px', line: '56px', weight: '600', tracking: '-0.04em' },
+    figure: { size: '26px', line: '30px', weight: '600', tracking: '-0.02em' },
+    title: { size: '30px', line: '34px', weight: '600', tracking: '-0.025em' },
+    heading: { size: '17px', line: '24px', weight: '600', tracking: '-0.01em' },
+  },
+};
+
+export const directionSets: Record<Direction, DirectionSet> = { volt };
 
 /** Solid surfaces: no translucency and no blur anywhere; glass layers become opaque panels. */
 export const solid: Partial<RoleMap> = {
@@ -482,6 +677,29 @@ ${decl(roleVars(litLight))}
 }
 
 ${lightAccentBlocks}
+${directions
+  .map((d) => {
+    const set = directionSets[d];
+    const D = L.replace('])', `][data-direction='${d}'])`);
+    const type: Record<string, string> = {};
+    for (const [k, t] of Object.entries(set.type)) for (const [p, val] of Object.entries(t)) type[`--lit-type-${k}-${p}`] = val;
+    return `/* The ${d} direction, dark. */
+${D} {
+${decl({ ...roleVars(set.dark), ...type })}
+}
+
+/* The ${d} direction, light. */
+${D.replace('])', "][data-theme='light'])")} {
+${decl(roleVars(set.light))}
+}
+
+/* The ${d} direction: today's names. */
+:root[data-look='${LIT_LOOK}'][data-direction='${d}'] {
+${decl(set.today)}
+}
+`;
+  })
+  .join('\n')}
 /* Solid surfaces: the in-app switch, and automatically for more contrast, forced colours or reduced transparency. */
 ${L.replace('])', "][data-surfaces='solid'])")} {
 ${decl(roleVars(solid))}

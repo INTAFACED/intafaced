@@ -1,0 +1,143 @@
+/*
+ * The Volt direction on Home (intafaced #9227): only under data-direction="volt"; nothing here applies by default.
+ * The balance comes first and largest, in the wide grotesk with its decimals quieter; the money object (VoltStack) is a
+ * matte black card in front of a citron one, the screen's one spark; the inbox and the getting-started list follow.
+ * Role tokens only. Unlayered on purpose: Home's own sheet is in `@layer components`, which this must override.
+ */
+[data-direction='volt'] .if-home {
+  display: flex;
+  flex-direction: column;
+}
+[data-direction='volt'] .if-home > .home-grid {
+  order: 1;
+}
+[data-direction='volt'] .if-home > .home-inbox {
+  order: 2;
+  margin-block-start: var(--lit-gap-section);
+}
+@media (max-width: 1279px) {
+  [data-direction='volt'] .home-started-slot {
+    order: 1;
+  }
+}
+
+/* The balance: a quiet label, then the figure, heavy and wide, its cents a step back. */
+[data-direction='volt'] .home-label {
+  font-size: var(--lit-type-micro-size);
+  letter-spacing: var(--lit-type-micro-tracking);
+  text-transform: uppercase;
+  color: var(--lit-text-2);
+}
+[data-direction='volt'] .home-total {
+  block-size: auto;
+  margin-block-start: var(--if-space-3);
+  flex-wrap: wrap;
+  row-gap: var(--if-space-2);
+}
+[data-direction='volt'] .home-total [data-slot='hero-number'] {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: clamp(2.75rem, 12.5vw, 4.5rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+  color: var(--lit-text-1);
+}
+[data-direction='volt'] .home-total [data-slot='hero-number'] ::part(fraction),
+[data-direction='volt'] .home-total [data-slot='hero-number'] ::part(decimal) {
+  color: var(--lit-text-3);
+  font-weight: 500;
+}
+[data-direction='volt'] .home-change {
+  margin-block-start: var(--if-space-3);
+}
+
+/* The actions: stone keys, all equal; no colour, the spark is the money object's. */
+[data-direction='volt'] .home-actions {
+  margin-block-start: var(--lit-gap-section);
+  gap: var(--if-space-2);
+}
+[data-direction='volt'] .home-actions > * {
+  border-radius: 999px;
+  background: var(--lit-secondary-bg);
+  color: var(--lit-secondary-fg);
+  box-shadow: var(--lit-secondary-shadow);
+  font-weight: 600;
+}
+[data-direction='volt'] .home-actions > :first-child {
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+  box-shadow: none;
+}
+
+/* The money object: two cards, cash in front as matte black metal, crypto behind it lit in citron. */
+.volt-stack {
+  position: relative;
+  display: grid;
+  margin-block-start: var(--lit-gap-section);
+  padding-block-start: 2.75rem;
+  max-inline-size: 30rem;
+}
+.volt-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: var(--lit-radius-panel);
+  text-decoration: none;
+}
+.volt-card--back {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 1rem;
+  block-size: 6rem;
+  flex-direction: row;
+  align-items: flex-start;
+  padding: 0.875rem 1.25rem;
+  background: var(--lit-object-spark-bg);
+  color: var(--lit-object-spark-fg);
+  box-shadow: var(--lit-fill-shadow);
+}
+.volt-card--back .volt-card__label,
+.volt-card--back .volt-card__peek {
+  font-weight: 600;
+}
+.volt-card--back .volt-card__peek {
+  margin-inline-start: auto;
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+}
+.volt-card--front {
+  position: relative;
+  min-block-size: 12.5rem;
+  padding: 1.25rem 1.375rem 1.375rem;
+  /* matte black metal in both schemes: a soft top light, a hairline lip and a heavy shadow under it */
+  background: var(--lit-object-bg);
+  color: var(--lit-object-fg);
+  box-shadow: var(--lit-object-shadow);
+}
+.volt-card__top {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+.volt-card__mark {
+  opacity: 0.9;
+}
+.volt-card--front .volt-card__label {
+  font-size: var(--lit-type-label-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+.volt-card__figure {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+.volt-card:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 3px;
+}

@@ -18,16 +18,21 @@ const out = process.env.LOOK_OPTIONS_OUT;
  * (`intafaced.surfaces`).
  */
 export const DIRECTIONS = [
-  { id: 'today', query: 'look=off&accent=off', solid: false, schemes: ['dark'] },
-  { id: 'lit-glass', query: 'look=lit&accent=blue', solid: false },
-  { id: 'ember', query: 'look=lit&accent=ember', solid: false },
-  { id: 'emerald-solid', query: 'look=lit&accent=emerald', solid: true },
+  { id: 'today', query: 'look=off&accent=off&direction=off', solid: false, schemes: ['dark'] },
+  { id: 'lit-glass', query: 'look=lit&accent=blue&direction=off', solid: false },
+  { id: 'ember', query: 'look=lit&accent=ember&direction=off', solid: false },
+  { id: 'emerald-solid', query: 'look=lit&accent=emerald&direction=off', solid: true },
+  // The real directions (intafaced #9227): each its own folder, named `<screen>--<size>--<scheme>.png`.
+  { id: 'volt', query: 'look=lit&accent=off&direction=volt', solid: false, screens: ['home', 'money', 'buy'], own: true },
 ];
 export const SCREENS = [
   { id: 'home', path: '/home' },
   { id: 'desk', path: deskPath('BTC/USDT') },
   { id: 'money', path: '/money' },
+  // The simple buy, as Home's Buy opens it.
+  { id: 'buy', path: '/trade/buy' },
 ];
+const DEFAULT_SCREENS = ['home', 'desk', 'money'];
 export const SIZES = [
   { id: 'phone', width: 390, height: 844 },
   { id: 'computer', width: 1440, height: 900 },
@@ -54,13 +59,16 @@ test('look options', async ({ page }) => {
       }, d.solid);
       for (const size of only('LOOK_OPTIONS_SIZES', SIZES)) {
         await page.setViewportSize({ width: size.width, height: size.height });
-        for (const s of only('LOOK_OPTIONS_SCREENS', SCREENS)) {
+        for (const s of only(
+          'LOOK_OPTIONS_SCREENS',
+          SCREENS.filter((x) => (d.screens ?? DEFAULT_SCREENS).includes(x.id)),
+        )) {
           const res = await page.goto(s.path);
           expect(res?.status() ?? 0, `${s.path} answered`).toBeLessThan(400);
           await page.waitForLoadState('networkidle').catch(() => {});
           await page.evaluate(() => document.fonts.ready);
           const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
-          const file = `${d.id}--${s.id}--${size.id}--${scheme}.png`;
+          const file = `${d.own ? '' : `${d.id}--`}${s.id}--${size.id}--${scheme}.png`;
           await page.screenshot({ path: path.join(out, file), animations: 'disabled' });
           shots.push({ file, direction: d.id, screen: s.id, size: size.id, scheme, url: page.url(), root });
         }

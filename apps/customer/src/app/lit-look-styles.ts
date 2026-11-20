@@ -10,3 +10,4 @@ import '@intafaced/ui/lit/fonts.css';
 import '@intafaced/ui/lit/components.css';
 import '@intafaced/ui/a11y/a11y.css';
 import '@intafaced/ui/lit/templates.css';
+import './volt.css';

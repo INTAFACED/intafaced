@@ -1,0 +1,73 @@
+/*
+ * The Volt direction's shell (intafaced #9227): only under data-direction="volt", which look.ts sets only with the look
+ * on; nothing here applies by default. Matte black and stone, a floating pill tab bar on phone, Archivo for type and
+ * its widest cut for figures. Role tokens only (--lit-*); colour lives in packages/ui/src/lit/tokens.ts.
+ */
+:root[data-direction='volt'] body {
+  background: var(--lit-field), var(--lit-page);
+  background-attachment: fixed;
+  font-family: var(--lit-font-ui);
+}
+[data-direction='volt'] .if-app {
+  font-family: var(--lit-font-ui);
+}
+
+/* The top bar: the page's own matte black, no rule under it. */
+[data-direction='volt'] .tb {
+  background: color-mix(in srgb, var(--lit-page) 94%, transparent);
+  border-block-end-color: transparent;
+  box-shadow: none;
+}
+
+/* Every money figure in the wide grotesk. */
+[data-direction='volt'] .if-num,
+[data-direction='volt'] [data-slot='hero-number'],
+[data-direction='volt'] [data-slot='money'] {
+  font-family: var(--lit-font-figure);
+  font-stretch: 112%;
+}
+
+/* Phone: the doors float as one pill above the page, the open door a solid ink pill inside it. */
+@media (max-width: 767px) {
+  [data-direction='volt'] .if-app {
+    padding-block-end: 7rem;
+  }
+  [data-direction='volt'] .mobile-doors {
+    inset-inline: 0.875rem;
+    inset-block-end: max(0.875rem, env(safe-area-inset-bottom));
+    gap: 0.125rem;
+    padding: 0.375rem;
+    border: 1px solid var(--lit-glass-rim-dim);
+    border-radius: 999px;
+    background: var(--lit-glass-bg);
+    -webkit-backdrop-filter: var(--lit-glass-blur);
+    backdrop-filter: var(--lit-glass-blur);
+    box-shadow: var(--lit-glass-shadow);
+  }
+  [data-direction='volt'] .mobile-doors a {
+    min-block-size: 3.25rem;
+    border-radius: 999px;
+    color: var(--lit-text-2);
+    font-weight: 500;
+    font-size: 0.6875rem;
+    letter-spacing: 0.01em;
+    transition:
+      background-color var(--lit-t-quick) var(--lit-ease),
+      color var(--lit-t-quick) var(--lit-ease);
+  }
+  [data-direction='volt'] .mobile-doors a[aria-current='page'] {
+    background: var(--lit-text-1);
+    color: var(--lit-page);
+    font-weight: 600;
+  }
+}
+
+/* The one primary action of a view is where the spark lands (the kit keeps one primary per view). A room whose spark is
+   elsewhere (Home's money object) draws its primary in ink instead. */
+[data-direction='volt'] [data-slot='button'][data-variant='primary']:not(:disabled, [data-disabled]) {
+  background: var(--lit-primary-bg);
+  color: var(--lit-primary-fg);
+  box-shadow: var(--lit-primary-shadow);
+  border-radius: 999px;
+  font-weight: 600;
+}

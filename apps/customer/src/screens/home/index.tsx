@@ -46,6 +46,8 @@ import { useStartedTile } from './started-data';
 import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
 import { LitSphere } from './LitSphere';
+import { VoltStack } from './VoltStack';
+import { isDirectionOn } from '../../app/look';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
@@ -308,6 +310,8 @@ function HomeSimple() {
   const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
   const home = useHomeLayout();
+  // The Volt direction (intafaced #9227) draws its card stack where the lit sphere and the holdings rows stand.
+  const volt = isDirectionOn('volt');
   const main = shownTiles(home.layout, 'simple', 'main');
   const side = shownTiles(home.layout, 'simple', 'side');
   const started = useStartedTile(portfolio, side.includes('started'));
@@ -349,7 +353,9 @@ function HomeSimple() {
                 return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
               case 'holdings':
                 // On the launch model the holdings are the parts of the total above, each read from its own source.
-                return launch ? null : portfolio.status === 'loading' ? (
+                return launch ? null : volt ? (
+                  <VoltStack key={id} portfolio={portfolio} hidden={hideBalances} />
+                ) : portfolio.status === 'loading' ? (
                   // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
                   // arrive late and push the rows below it down
                   <Fragment key={id}>
