@@ -690,7 +690,7 @@ export function MarketChart({
           if (comparison.resource.status === 'ready' && compare) {
             const other = chartBars(comparison.resource.data.rows, 'Line');
             chart
-              .addSeries(engine.LineSeries, { color: '#80b7e0', priceScaleId: 'comparison', priceLineVisible: false, title: compare })
+              .addSeries(engine.LineSeries, { color: '#80b7e0', priceScaleId: 'comparison', priceLineVisible: false, title: compare }) // look-drift-allow: moved unchanged into the chart binding; the same study colour as lines 285 and 318, no role token for it yet
               .setData(other.map((bar) => ({ time: bar.time, value: bar.close })));
           }
           if (viewport.current) chart.timeScale().setVisibleLogicalRange(viewport.current);
