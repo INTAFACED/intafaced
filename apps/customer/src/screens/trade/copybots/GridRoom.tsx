@@ -123,8 +123,14 @@ export function GridRoom({ path }: { path: string }) {
       reason={t('Sign in to set up a bot.')}
       action={{ label: t('Sign in'), href: '/login?redirect=%2Ftrade%2Fbots%2Fgrid' }}
     />
+  ) : botId && venueUp ? (
+    // A venue bot's own wallet signs its agent permission here, so the detail carries the wallet bar too.
+    <>
+      <GridWallet status={venueUp} />
+      <GridDetail botId={botId} api={api} guard={guard} venue />
+    </>
   ) : botId ? (
-    <GridDetail botId={botId} api={api} guard={guard} venue={venueUp !== null} />
+    <GridDetail botId={botId} api={api} guard={guard} venue={false} />
   ) : setup.status === 'loading' || venueMode.mode === 'checking' ? (
     <InfoNote>{t('Checking')}</InfoNote>
   ) : setup.failure && !setup.data ? (
