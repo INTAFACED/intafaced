@@ -365,9 +365,10 @@ test(`${J} #8 with the margin warning level blank, a loan as close to its margin
   expect(products.status, JSON.stringify(products.body).slice(0, 300)).toBe(200);
   const product = products.body.result.data.find((row) => row.collateralAssetId === 'BTC' && row.debtAssetId === 'USDT');
   expect(product, 'the TEST content seed publishes a BTC-backed USDT loan product').toBeTruthy();
-  // The level blank, established: the margin warning level is an owner value svc-bank has no value for (no setting holds
-  // it: services/svc-bank/src/home/work-items.ts), so the bank publishes only its call and liquidation bands, no warning.
-  expect(Object.keys(product).filter((key) => /warn/i.test(key))).toEqual([]);
+  // The level blank, read from the bank's own record: svc-bank publishes the owner's margin warning level
+  // (BANK_MARGIN_WARNING_LTV_BPS) on each loan product, and this stack sets none, so the bank says it is blank (null),
+  // not a number and not a missing field.
+  expect(product).toHaveProperty('marginWarningLtvBps', null);
   expect(product.maxLtvBps).toBeLessThan(product.marginCallLtvBps);
 
   // A loan opened near the product's maximum loan-to-value: the bank's own quote for 100 USDT names the smallest pledge
