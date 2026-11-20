@@ -308,7 +308,7 @@ export function journeysProblems(text) {
   if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
     problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');
   // GitHub refuses to start a run whose group passes DISPATCH_GROUP_MAX characters, so the seal splits a long list into
-  // runs by hand that each fit (journey-touch.mjs dispatchBatches), measuring each by dispatchGroup: it must be this
+  // runs by hand that each stay within it (journey-touch.mjs dispatchBatches), measuring each by dispatchGroup: it must be this
   // workflow's own group, or a split it prints may still not start (run 44766798876, 20 Nov 2026).
   const sel = 'J-a-01.pw.mjs J-b-02.pw.mjs';
   for (const b of ['fix/ps-3298', 'b1'])
