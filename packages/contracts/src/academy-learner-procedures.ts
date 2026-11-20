@@ -13,7 +13,6 @@ import {
   academyProgressPageSchema,
   academyQuizAttemptSchema,
   academyQuizReviewSchema,
-  type AcademyProgressPage,
   academyRemoveTodoInputSchema,
   academySetGoalInputSchema,
   academySetTodoDoneInputSchema,
@@ -134,7 +133,15 @@ export const ACADEMY_ROOMS = defineProcedure({
   refusals: refuse(),
   input: z.object({ kind: roomKind.optional(), limit: z.number().optional() }).optional(),
   output: z.array(academyRoomSchema),
-  accept: { stakeIsAmount: { says: STAKE_SAYS, holds: (rooms) => (rooms as AcademyRoom[]).every(stakeIsAmount) } },
+  accept: {
+    stakeIsAmount: {
+      says: STAKE_SAYS,
+      holds: (rooms) => {
+        const read = z.array(academyRoomSchema).safeParse(rooms);
+        return read.success && read.data.every(stakeIsAmount);
+      },
+    },
+  },
   samples: [
     { verdict: 'accept' },
     { verdict: 'accept', input: { limit: 50, kind: 'forex' } },
@@ -233,7 +240,15 @@ export const ACADEMY_CREATE_ROOM = defineProcedure({
     capacity: z.number().int().min(1),
   }),
   output: academyRoomSchema,
-  accept: { stakeIsAmount: { says: STAKE_SAYS, holds: (room) => stakeIsAmount(room as AcademyRoom) } },
+  accept: {
+    stakeIsAmount: {
+      says: STAKE_SAYS,
+      holds: (room) => {
+        const read = academyRoomSchema.safeParse(room);
+        return read.success && stakeIsAmount(read.data);
+      },
+    },
+  },
   samples: [
     { verdict: 'accept', input: { slug: 'futures-desk', name: 'Futures desk', kind: 'futures', access: 'free', capacity: 20 } },
     { verdict: 'accept', input: { slug: 'whales', name: 'Whales', kind: 'general', access: 'staked', minStake: '10.5', capacity: 5 } },
@@ -735,7 +750,10 @@ export const ACADEMY_MY_PROGRESS = defineProcedure({
   accept: {
     progressAddsUp: {
       says: 'every course row has no more completed than visible items, and one item per visible item',
-      holds: (page) => (page as AcademyProgressPage).courses.every(academyCourseProgressAddsUp),
+      holds: (page) => {
+        const read = academyProgressPageSchema.safeParse(page);
+        return read.success && read.data.courses.every(academyCourseProgressAddsUp);
+      },
     },
   },
   samples: [{ verdict: 'accept' }],
