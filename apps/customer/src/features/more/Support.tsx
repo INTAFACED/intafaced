@@ -5,7 +5,7 @@ import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field, Tabs } from '../../shared/ui';
 import { isHiddenPath } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { t as copyText } from './copy';
 import { categoryLabel, topicFromAddress } from './support-category';
 import { Details, Read, Select, useAction } from './common';

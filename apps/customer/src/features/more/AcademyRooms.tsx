@@ -1,7 +1,7 @@
 import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import { Button, Field, Panel } from '../../shared/ui';

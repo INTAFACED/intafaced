@@ -5,7 +5,7 @@ import { usePreferences } from '../../shared/preferences';
 import './agents-session.css';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';

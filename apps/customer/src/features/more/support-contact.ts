@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supportContactChannelsSchema, supportContactProblem } from '@intafaced/contracts/support-contact';
 import { contractProcedure, readContract } from '../../shared/contract-call';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { supportEmail } from './support-desk';
 
 const contactChannels = contractProcedure('support', 'contactChannels', { output: supportContactChannelsSchema });

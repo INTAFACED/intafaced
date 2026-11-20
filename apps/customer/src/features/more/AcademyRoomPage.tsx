@@ -4,7 +4,7 @@ import { academyCurriculumSummarySchema } from '@intafaced/contracts/academy-cat
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button } from '../../shared/ui';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { academyRoomPageCopy as copy } from './academy-room-page-copy';
 import { lessonHref } from './AcademyLearning';
 import { Select, type ActionControls } from './common';
