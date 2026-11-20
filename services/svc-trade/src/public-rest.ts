@@ -502,6 +502,14 @@ export function presentCcxtMarket(
      */
     openingWindowEndsAt: openingWindowEndsAtOf(market, nowMs),
     /**
+     * The higher-risk zone (J-cex-spot-14 #7): `higher_risk` when the market sits in it, else null. A zone market takes
+     * limit orders only, each worth at most `zoneOrderCap` in the quote asset; a null cap there means unset, and the
+     * market takes no order (`trade.zone_setting_unset`).
+     */
+    zone: market.zone === 'higher_risk' ? ('higher_risk' as const) : null,
+    zoneOrderCap:
+      market.zone === 'higher_risk' && market.zoneOrderCap != null ? formatAmount(market.zoneOrderCap) : (null as string | null),
+    /**
      * TRUE = the order path will accept a new order/open here (subject to
      * session, paper, risk). FALSE = listed but refused — futures kill-switch
      * or options until an engine exists. Distinct from `active` (listing).
@@ -1260,6 +1268,8 @@ export function fakeMarket(partial: {
   assetClass?: Market['assetClass'];
   delistsAt?: Date | null;
   openingWindowEndsAt?: Date | null;
+  zone?: Market['zone'];
+  zoneOrderCap?: Amount | null;
 }): Market {
   return {
     id: partial.id ?? '00000000-0000-4000-8000-000000000001',
@@ -1281,6 +1291,8 @@ export function fakeMarket(partial: {
     paper: partial.paper ?? false,
     ...(partial.delistsAt !== undefined ? { delistsAt: partial.delistsAt } : {}),
     ...(partial.openingWindowEndsAt !== undefined ? { openingWindowEndsAt: partial.openingWindowEndsAt } : {}),
+    ...(partial.zone !== undefined ? { zone: partial.zone } : {}),
+    ...(partial.zoneOrderCap !== undefined ? { zoneOrderCap: partial.zoneOrderCap } : {}),
   };
 }
 
