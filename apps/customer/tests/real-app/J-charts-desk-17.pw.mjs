@@ -229,7 +229,7 @@ test(`${J} #2 turns percent mode on and every series is rebased to the same star
   await expect(item).toHaveAttribute('data-first-percent', '0.00');
 });
 
-test(`${J} #4 takes a snapshot, copies a share link and prints, with no account detail`, async ({ page, context }) => {
+test(`${J} #4 takes a snapshot, copies a share link and prints, with no account detail`, async ({ page, context, stepPicture }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   // Signed in, so there is an account the snapshot and the link could leak.
   const who = await signUp(page, 'cs');
@@ -279,18 +279,32 @@ test(`${J} #4 takes a snapshot, copies a share link and prints, with no account 
   // Nothing of the signed-in account: not its handle, its email or its id.
   for (const detail of [who.handle, who.email, encodeURIComponent(who.email)]) expect(link).not.toContain(detail);
   expect(new URL(link).searchParams.toString()).toBe('interval=1h&style=candles');
+  // The picture: the chart with its snapshot taken and its link copied, before the link is opened.
+  await stepPicture(page);
   // The link opens the same chart.
   await page.goto(link);
   await expect(page.getByTestId('chart-title').first()).toHaveText('BTC/USDT · 1h');
-  // Print opens the browser's print for the page.
+  // Print opens the browser's own print for the page: the browser fires `beforeprint` as it lays the page out to print,
+  // and the page's print is left as the browser gives it.
   await page.evaluate(() => {
     window.__printed = 0;
-    window.print = () => {
+    window.addEventListener('beforeprint', () => {
       window.__printed += 1;
-    };
+    });
   });
   await tools(page).getByRole('button', { name: 'Print' }).click();
-  expect(await page.evaluate(() => window.__printed)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__printed)).toBe(1);
+  // What the print puts on paper is the page laid out for print: the chart is on it, drawn, and no text on it carries the
+  // account's handle, email or id.
+  await page.emulateMedia({ media: 'print' });
+  await expect(canvas(page)).toBeVisible();
+  const printedBox = await canvas(page).boundingBox();
+  expect(printedBox.width).toBeGreaterThan(100);
+  expect(printedBox.height).toBeGreaterThan(100);
+  const printedText = await page.evaluate(() => document.body.innerText);
+  expect(printedText).toContain('BTC/USDT');
+  for (const detail of details) expect(printedText).not.toContain(detail);
+  await page.emulateMedia({ media: null });
   // A public page is refused: there is no publishing store.
   await tools(page).getByRole('button', { name: 'Public page' }).click();
   await expect(page.getByTestId('compare-note')).toHaveAttribute('data-code', 'trade.chart.publish_unavailable');
