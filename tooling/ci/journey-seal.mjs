@@ -1183,15 +1183,29 @@ export async function rangeFromCommits(get, repo, from, to) {
  * request changes no product path or the seal can't read main's runs or the head's journey files (then product code is
  * full). The map is this script's own copy (the default branch's); its age is counted from main's runs; the journey
  * files and whether a changed service file subscribes to bus events are read at the head. A read that fails leaves
- * the input unknown, which the map reads as full. The map is the build the head's newest journeys run chose when it
- * was created (io.reachMap(before)), so the seal holds the run to the journeys it was told to run.
+ * the input unknown, which the map reads as full. The map is the build the head's journeys runs chose (mapChosenAt), so
+ * the seal holds the runs to the journeys they were told to run.
  */
-/** The map the head's newest journeys run chose when it was created (io.reachMap(before)), else this script's copy. */
+/**
+ * When the map was chosen for `runs` (the head's journeys runs): the head's first pull request run, which every later
+ * run on the same head reads its map at too (journey-touch.mjs mapTime), else the newest run, else null. (Failure it
+ * prevents: the seal read the map at the head's newest run, so a map rebuilt between a draft's run and its
+ * `ready_for_review` widened the bounded set; the ready run then ran the extra journey files after the first had
+ * finished: 18 to 25 more minutes on #9244, #9248 and #9251, 20 Nov 2026.) Pure.
+ */
+export function mapChosenAt(runs) {
+  const made = (rs) => rs.map((r) => Date.parse(r?.created_at)).filter(Number.isFinite);
+  const pulls = made((runs ?? []).filter((r) => r?.event === 'pull_request'));
+  if (pulls.length) return Math.min(...pulls);
+  const any = made(runs ?? []);
+  return any.length ? Math.max(...any) : null;
+}
+
+/** The map the head's journeys runs chose (mapChosenAt, io.reachMap(before)), else this script's copy. */
 async function runMap(io, head) {
   let before = Date.now();
   try {
-    const made = ((io.runs ? await io.runs(head) : []) ?? []).map((r) => Date.parse(r?.created_at)).filter(Number.isFinite);
-    if (made.length) before = Math.max(...made);
+    before = mapChosenAt((io.runs ? await io.runs(head) : []) ?? []) ?? before;
   } catch {}
   return io.reachMap ? await io.reachMap(before) : loadMap();
 }
