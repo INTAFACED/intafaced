@@ -339,9 +339,7 @@ test('J-p2p-21 #4 the seller opens the deal on mainnet: the audit.external notic
   await expect(fundButton).toBeVisible({ timeout: 30_000 });
   await expect(notice).toHaveCount(0);
 
-  // The buyer cancels this unfunded order, so #5 starts from an order of its own.
-  const cancelled = await p2p(await api(state.buyer)).mutate('trades.cancel', { tradeId, reason: `${J} #4: the deal on mainnet is off` });
-  expect(cancelled).toMatchObject({ status: 'cancelled', contract: { dealId: null } });
+  // This unfunded order is left to its escrow window: a contract order is not cancelled in svc-p2p, and #5 takes its own.
   await buyerSide.context.close();
   await sellerSide.context.close();
 });
