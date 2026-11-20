@@ -1893,7 +1893,7 @@ test("the lint config, the lint plugins and the agents' files run no journeys; a
   for (const f of readers)
     for (const line of readFileSync(join(ROOT, f), 'utf8')
       .split('\n')
-      .filter((l) => /tooling\/lint|\.oxlintrc|\.claude\//.test(l)))
+      .filter((l) => /tooling\/lint|\.oxlintrc/.test(l) || l.includes('.claude/')))
       assert.match(line.trim(), /^(\/\/|\*|\/\*)/, `${f} names one outside a comment: ${line.trim()}`);
   // A crate is read as its service by the map.
   assert.deepEqual(CRATE.exec('crates/svc-tax/src/wire.rs').slice(1), ['svc-tax', 'src/wire.rs']);

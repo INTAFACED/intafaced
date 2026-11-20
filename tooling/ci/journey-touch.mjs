@@ -246,7 +246,7 @@ const NONE_RULES = [
   (p) => /^[^/]+\.md$/.test(p),
   // A doc outside DOCS_READ (that list is full, and is checked first).
   (p) => p.startsWith('docs/'),
-  // The linter's config and plugins (.oxlintrc.json, tooling/lint) and the agents' skills and rules (.claude): CI's lint
+  // The linter's config and plugins (.oxlintrc.json, tooling/lint) and the agents' skills and rules (`.claude/`): CI's lint
   // and the agents read them; no journey, stack script or app build does (a journey helper names a lint rule only in a
   // comment). (Before 20 Nov 2026 each was "a path no rule places", so a full run: 15 of the 110 full picks on 19 Nov.)
   (p) => p === '.oxlintrc.json' || p.startsWith('tooling/lint/') || p.startsWith('.claude/'),
