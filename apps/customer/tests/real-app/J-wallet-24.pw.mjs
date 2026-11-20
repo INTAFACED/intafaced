@@ -1,7 +1,7 @@
 // World: restart
 import { formatUnits } from 'viem';
 import { test, expect } from './journey.mjs';
-import { signUp } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { journeyState } from './stack.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import { TOKEN_USD, fundOnTestChain } from './dex.mjs';
@@ -96,6 +96,11 @@ test(`${J} #1 opens Deposit to the venue: the chain and asset the venue's bridge
   await expect(shownAddress).toHaveText(/^0x[0-9a-fA-F]{40}$/, { timeout: 20_000 });
   const { wallet } = await recorded(who);
   const [credential] = await phone.held();
+  // The venue door reads an account for a verified person only (the trade jurisdiction's tier), as J-wallet-22's person
+  // verifies before trading there; this person verifies once, then comes back to the room.
+  await verify(page, who);
+  await signIn(page, who);
+  await page.goto('/wallet/embedded');
   // TEST USD on the venue bridge's chain, and none of that chain's gas token.
   fundOnTestChain(wallet.address, 'stable');
   // The TEST venue publishes another route for one asset its bridge does not take, and none for a second.

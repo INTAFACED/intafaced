@@ -231,6 +231,7 @@ export function VenueDeposit(props: {
             ) : null}
           </dl>
           {!paid ? <p role="status">{t('sentWaiting', { network })}</p> : null}
+          {credit.failure ? <p role="alert">{t('creditUnread', { message: credit.failure.message })}</p> : null}
           {paid?.status === 'reverted' ? <p role="alert">{t('reverted', { asset: route.asset })}</p> : null}
           {venueRead?.deposit?.status === 'confirming' ? (
             <p role="status" data-deposit-status="confirming">
@@ -282,6 +283,9 @@ export function VenueDeposit(props: {
               ))}
             </select>
           </label>
+          {routes.resource.status === 'failed' ? (
+            <p role="alert">{t('routesUnread', { message: routes.resource.failure.message })}</p>
+          ) : null}
           {way.kind === 'other_route' ? (
             <div role="status" data-asset-way="other_route">
               <p>{t('wayOther', { asset, network, route: way.network })}</p>

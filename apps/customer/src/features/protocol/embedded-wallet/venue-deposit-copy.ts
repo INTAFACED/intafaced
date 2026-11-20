@@ -50,6 +50,8 @@ const en = {
   credited: 'Credited by the venue.',
   venueFigure: 'Your {asset} at the venue',
   venueAsOf: 'As of',
+  routesUnread: 'The venue’s routes for its other assets could not be read: {message}',
+  creditUnread: 'The venue’s record of this deposit could not be read: {message}. Your transfer is on the chain; nothing more was sent.',
   chainRefused: 'The chain refused this transfer before it was sent. Nothing was sent.',
   nonceUnread: 'Your wallet could not be read from the chain, so nothing was signed.',
 } as const;
