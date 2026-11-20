@@ -230,6 +230,8 @@ import { freeSpotBalance } from './copy/follow-gate.js';
 import { GridService } from './grid/grid-service.js';
 import { loadGridPolicy } from './grid/policy.js';
 import { SqlGridStore } from './grid/store.js';
+import { VenueGrid } from './grid/venue-grid.js';
+import { SqlVenueGridStore } from './grid/venue-grid-store.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
@@ -766,6 +768,22 @@ const grid = new GridService({
   stepUp,
   platformPauses: readPlatformPauses,
 });
+// The spot grid on the person's own venue account (J-copy-bots-otc-14): with the door on, every new grid is
+// one, its levels venue orders signed by the grid agent key the person's wallet approves; its rows are svc-trade's own.
+const venueGridTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const venueGrid = userVenue
+  ? new VenueGrid({
+      door: userVenue,
+      store: new SqlVenueGridStore(sql),
+      policy: loadGridPolicy(process.env),
+      verification: () => botVerification,
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      liveTier: (userId) => venueGridTier.tierOf(userId),
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      platformPauses: readPlatformPauses,
+      now: () => new Date(),
+    })
+  : null;
 // Chart alert webhooks (CB-bots-api-signal-01): an alert's order is prepared through the user-venue door as the webhook's
 // creator, under the alert's own business key, for the person's wallet to sign and send; the door holds no key that signs.
 const signalLiveTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
@@ -872,6 +890,7 @@ export const appRouter = createTradeRouter(
   signalDesk,
   agentDesk,
   quantHalts,
+  venueGrid,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1267,6 +1286,8 @@ if (env.TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS !== null) {
 // The grid's tick runs with the algo scheduler: off, a grid places its first levels and then waits.
 const gridJobs = createJobHost({ onError: (name, err) => app.log.error({ err, job: name }, 'grid tick failed') });
 if (env.TRADE_ALGO_JOBS_ENABLED) gridJobs.every('trade.grid_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => grid.tickAll());
+if (env.TRADE_ALGO_JOBS_ENABLED && venueGrid)
+  gridJobs.every('trade.venue_grid_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => venueGrid.tickAll());
 const algoJobs = startAlgoJobs({
   trade,
   config: { enabled: env.TRADE_ALGO_JOBS_ENABLED, intervalMs: env.TRADE_ALGO_JOBS_INTERVAL_MS },

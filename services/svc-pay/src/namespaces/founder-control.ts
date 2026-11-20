@@ -19,6 +19,7 @@ import {
   founderLimitRequestCloseInputSchema,
   founderLimitRequestCloseResultSchema,
   payoutApprovalSchema,
+  payControlUsageSchema,
 } from '@intafaced/contracts';
 import type { ChangeOutcome } from '../control/changes.js';
 import { toContractApproval } from '../control/approvals.js';
@@ -32,7 +33,6 @@ import {
   pricingRuleViewSchema,
   tierListInputSchema,
   tierViewSchema,
-  usageViewSchema,
 } from '../control/schemas.js';
 import { guarded } from './control-errors.js';
 import type { founderProcedure } from './founder-procedure.js';
@@ -134,7 +134,7 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
         .query(({ input }) => guarded(() => control.profile(input.merchantId))),
       usage: founder
         .input(merchantControlGetInputSchema)
-        .output(usageViewSchema)
+        .output(payControlUsageSchema)
         .query(({ input }) => guarded(() => control.usage(input.merchantId))),
     }),
     configure: router({

@@ -21,18 +21,23 @@ import { navigate } from '../../../app/location';
 import { useTicker } from '../../../data';
 import { useApi, useSession } from '../../../features/session/session';
 import { createTradeApi } from '../../../features/trade/trade-api';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueFrame } from '../../../features/trade/venue/VenueKit';
+import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
-import { createRoomApi, type GridBot } from './api';
+import { createRoomApi, type GridBot, type GridRequest } from './api';
 import { roomCopy } from './copy';
 import { useWriteGuard } from './guard';
 import { GridSettings, GridTopUp } from './GridManage';
 import { GridWithdraw } from './GridWithdraw';
+import { GridWallet, VenueGridFacts, VenueGridWithdraw, WALLET_CODES, useVenueGrid, venueFeeItems } from './GridVenue';
 import { parseGridCount, previewGridPrices } from './grid-plan';
 import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote, SelectField } from './parts';
 
 /** A grid bot's state in words, the same in the room and in My bots. */
 export const GRID_WORD: Record<GridBot['status'], string> = {
+  signing: 'Waiting for your wallet',
   initializing: 'Starting',
   running: 'Bot running',
   paused_range: 'Paused: the price is outside the range',
@@ -40,6 +45,7 @@ export const GRID_WORD: Record<GridBot['status'], string> = {
   stopped: 'Stopped',
 };
 export const GRID_TONE: Record<GridBot['status'], BadgeTone> = {
+  signing: 'warn',
   initializing: 'neutral',
   running: 'lime',
   paused_range: 'warn',
@@ -64,6 +70,9 @@ export function GridRoom({ path }: { path: string }) {
   const guard = useWriteGuard();
   const [checking, setChecking] = useState(false);
   const [verdict, setVerdict] = useState<string | null>(null);
+  // The user-venue door on: a new grid trades on the person's own venue account (J-copy-bots-otc-14).
+  const venueMode = useVenueMode();
+  const venueUp = venueMode.mode === 'on' && venueMode.status.available ? venueMode.status : null;
 
   // The wizard's first read: the service refuses it below the owner's verification level, as it refuses a create.
   const setup = useLive(
@@ -106,6 +115,50 @@ export function GridRoom({ path }: { path: string }) {
     if (found && !pending.operation) navigate(`/trade/bots/grid?bot=${encodeURIComponent(found.botId)}`, true);
   };
 
+  const onCreated = (bot: GridBot) => navigate(`/trade/bots/grid?bot=${encodeURIComponent(bot.botId)}`, true);
+  const body = !session ? (
+    <EmptyState
+      variant="refused"
+      title={t('You are signed out')}
+      reason={t('Sign in to set up a bot.')}
+      action={{ label: t('Sign in'), href: '/login?redirect=%2Ftrade%2Fbots%2Fgrid' }}
+    />
+  ) : botId && venueUp ? (
+    // A venue bot's own wallet signs its agent permission here, so the detail carries the wallet bar too.
+    <>
+      <GridWallet status={venueUp} />
+      <GridDetail botId={botId} api={api} guard={guard} venue />
+    </>
+  ) : botId ? (
+    <GridDetail botId={botId} api={api} guard={guard} venue={false} />
+  ) : setup.status === 'loading' || venueMode.mode === 'checking' ? (
+    <InfoNote>{t('Checking')}</InfoNote>
+  ) : setup.failure && !setup.data ? (
+    // Refused (below the owner's level, or the level is blank): no form is offered and nothing can be written.
+    <RefusalNote failure={setup.failure} retry={setup.reload} />
+  ) : setup.data && venueUp ? (
+    <>
+      <GridWallet status={venueUp} />
+      <VenueGridWizard
+        api={api}
+        guard={guard}
+        status={venueUp}
+        range={setup.data.countRange}
+        band={setup.data.boundsMaxDistanceBps}
+        onCreated={onCreated}
+      />
+    </>
+  ) : setup.data ? (
+    <GridWizard
+      api={api}
+      guard={guard}
+      range={setup.data.countRange}
+      band={setup.data.boundsMaxDistanceBps}
+      markets={spot}
+      onCreated={onCreated}
+    />
+  ) : null;
+
   return (
     <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
@@ -125,32 +178,24 @@ export function GridRoom({ path }: { path: string }) {
           {t('Back to Bots')}
         </Button>
       </div>
-      {!session ? (
-        <EmptyState
-          variant="refused"
-          title={t('You are signed out')}
-          reason={t('Sign in to set up a bot.')}
-          action={{ label: t('Sign in'), href: '/login?redirect=%2Ftrade%2Fbots%2Fgrid' }}
-        />
-      ) : botId ? (
-        <GridDetail botId={botId} api={api} guard={guard} />
-      ) : setup.status === 'loading' ? (
-        <InfoNote>{t('Checking')}</InfoNote>
-      ) : setup.failure && !setup.data ? (
-        // Refused (below the owner's level, or the level is blank): no form is offered and nothing can be written.
-        <RefusalNote failure={setup.failure} retry={setup.reload} />
-      ) : setup.data ? (
-        <GridWizard
-          api={api}
-          guard={guard}
-          range={setup.data.countRange}
-          band={setup.data.boundsMaxDistanceBps}
-          markets={spot}
-          onCreated={(bot) => navigate(`/trade/bots/grid?bot=${encodeURIComponent(bot.botId)}`, true)}
-        />
-      ) : null}
+      {venueMode.mode === 'on' ? <VenueFrame mode={venueMode}>{body}</VenueFrame> : body}
     </Page>
   );
+}
+
+type WizardProps = {
+  api: ReturnType<typeof createRoomApi>;
+  guard: ReturnType<typeof useWriteGuard>;
+  range: { min: number; max: number } | null;
+  band: number | null;
+  onCreated: (bot: GridBot) => void;
+};
+
+/** The wizard on the venue: its spot markets and mid, and a create that asks the wallet for what the bot needs. */
+function VenueGridWizard({ status, ...props }: WizardProps & { status: Parameters<typeof useVenueGrid>[1] }) {
+  const [symbol, setSymbol] = useState('BTC-USDC');
+  const venue = useVenueGrid(props.api, status, symbol);
+  return <GridWizard {...props} markets={venue.markets} venue={{ symbol, onSymbol: setSymbol, last: venue.last, create: venue.create }} />;
 }
 
 function GridWizard({
@@ -160,17 +205,22 @@ function GridWizard({
   band,
   markets,
   onCreated,
-}: {
-  api: ReturnType<typeof createRoomApi>;
-  guard: ReturnType<typeof useWriteGuard>;
-  range: { min: number; max: number } | null;
-  band: number | null;
+  venue,
+}: WizardProps & {
   markets: Array<{ symbol: string; base: string; quote: string; precision: { price: string; amount: string } }>;
-  onCreated: (bot: GridBot) => void;
+  /** Set on the venue: the market is chosen there, its price is the venue's, and the create goes through the wallet. */
+  venue?: {
+    symbol: string;
+    onSymbol: (symbol: string) => void;
+    last: string | null;
+    create: (input: GridRequest) => Promise<ApiResult<GridBot>>;
+  };
 }) {
   const { t } = roomCopy.useCopy();
   const [tab, setTab] = useState('setup');
-  const [symbol, setSymbol] = useState('BTC/USDT');
+  const [ownSymbol, setOwnSymbol] = useState('BTC/USDT');
+  const symbol = venue?.symbol ?? ownSymbol;
+  const setSymbol = venue?.onSymbol ?? setOwnSymbol;
   const [investment, setInvestment] = useState('');
   const [grids, setGrids] = useState('');
   const [lower, setLower] = useState('');
@@ -179,7 +229,7 @@ function GridWizard({
   const presets = useLive((signal) => api.gridPresets(signal), 'grid-presets', 300_000);
   const market = markets.find((m) => m.symbol === symbol) ?? null;
   const ticker = useTicker(symbol, { intervalMs: 15_000 });
-  const last = ticker.status === 'ready' ? ticker.data.last : null;
+  const last = venue ? venue.last : ticker.status === 'ready' ? ticker.data.last : null;
   const count = parseGridCount(grids);
   const preview = market ? previewGridPrices({ lower, upper, count, tick: market.precision.price, range }) : { kind: 'none' as const };
 
@@ -188,14 +238,18 @@ function GridWizard({
     void guard.run(
       { kind: 'grid', id: requestKey, symbol },
       // Blank and out-of-range fields go to the service as typed, so its refusal names the field.
-      () => api.gridCreate({ clientRequestId: requestKey, symbol, lowerPrice: lower, upperPrice: upper, gridCount: count, investment }),
+      () => {
+        const input = { clientRequestId: requestKey, symbol, lowerPrice: lower, upperPrice: upper, gridCount: count, investment };
+        return venue ? venue.create(input) : api.gridCreate(input);
+      },
       onCreated,
     );
   };
-  // A definite refusal ends this intent, so the next try is a new request; a lost reply keeps the key for the check.
+  // A definite refusal ends this intent, so the next try is a new request; a lost reply keeps the key for the check, and
+  // so does a signature the wallet did not give: the bot waits in signing, and the same key finds it again.
   const failure = guard.failure;
   useEffect(() => {
-    if (failure && failure.reason !== 'uncertain') setRequestKey(newRequestKey());
+    if (failure && failure.reason !== 'uncertain' && !WALLET_CODES.has(failure.code ?? '')) setRequestKey(newRequestKey());
   }, [failure]);
 
   return (
@@ -294,10 +348,13 @@ function GridDetail({
   botId,
   api,
   guard,
+  venue,
 }: {
   botId: string;
   api: ReturnType<typeof createRoomApi>;
   guard: ReturnType<typeof useWriteGuard>;
+  /** The venue door is on, so the wallet is here to sign a venue bot's permission. */
+  venue: boolean;
 }) {
   const { t } = roomCopy.useCopy();
   const [tab, setTab] = useState('levels');
@@ -360,13 +417,14 @@ function GridDetail({
           { label: t('Bot ID'), value: data.botId },
         ]}
       />
+      {data.venue && venue ? <VenueGridFacts bot={data} api={api} onDone={bot.reload} /> : null}
       {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
-      {data.status === 'initializing' || data.status === 'running' || data.status === 'paused_range' ? (
+      {data.status === 'signing' || data.status === 'initializing' || data.status === 'running' || data.status === 'paused_range' ? (
         <div className="cb-action-row">
           <Button variant="secondary" onClick={stop} disabled={guard.busy || guard.locked}>
             {t('Stop bot')}
           </Button>
-          {data.status === 'running' || data.status === 'paused_range' ? (
+          {!data.venue && (data.status === 'running' || data.status === 'paused_range') ? (
             <>
               <GridTopUp bot={data} api={api} onDone={bot.reload} />
               <GridSettings bot={data} api={api} />
@@ -397,9 +455,10 @@ function GridDetail({
                 value:
                   data.gridApr.state === 'set' ? `${displayAmount(data.gridApr.percent)}%` : t('Not set: the bot has run less than a day'),
               },
+              ...(data.venue ? venueFeeItems(data, t) : []),
             ]}
           />
-          <GridWithdraw bot={data} api={api} onDone={bot.reload} />
+          {data.venue ? <VenueGridWithdraw bot={data} api={api} /> : <GridWithdraw bot={data} api={api} onDone={bot.reload} />}
         </TabsPanel>
       </Tabs>
     </PageSection>

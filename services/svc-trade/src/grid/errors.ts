@@ -49,7 +49,14 @@ export type GridErrorCode =
   | 'trade.bots_grid_min_count_invalid'
   | 'trade.bots_grid_min_count_above_count'
   | 'trade.bots_grid_trailing_not_built'
-  | 'trade.api_withdraw_not_allowed';
+  | 'trade.api_withdraw_not_allowed'
+  // The venue grid (venue-grid.ts; J-copy-bots-otc-14 on the venue).
+  | 'trade.bots_grid_wallet_required'
+  | 'trade.bots_grid_agent_key_unset'
+  | 'trade.bots_grid_builder_fee_unapproved'
+  | 'trade.bots_grid_not_signing'
+  | 'trade.bots_grid_venue_unreadable'
+  | 'trade.bots_grid_withdraw_not_permitted';
 
 /** Codes the tRPC door answers as NOT_FOUND / CONFLICT; every other grid code is BAD_REQUEST. */
 export const GRID_NOT_FOUND_CODES: ReadonlySet<GridErrorCode> = new Set(['trade.grid_not_found', 'trade.grid_market_not_found']);
@@ -59,6 +66,7 @@ export const GRID_CONFLICT_CODES: ReadonlySet<GridErrorCode> = new Set([
   'trade.bots_withdraw_reserve_released',
   'trade.bots_withdraw_conflict',
   'trade.bots_grid_topup_conflict',
+  'trade.bots_grid_not_signing',
 ]);
 
 export class GridError extends Error {
