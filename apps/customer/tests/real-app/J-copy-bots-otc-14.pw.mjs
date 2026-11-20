@@ -418,7 +418,14 @@ async function bookAt(mid) {
     run.write({ ...run.read(), makerFunded: true });
   }
   // A key already filled or cancelled is refused by the venue; only what still rests matters, and that is cancelled.
-  for (const key of s.makerKeys ?? []) await otherTraderRun(name, { kind: 'cancel_order', symbol: market.symbol, clientOrderKey: key });
+  // The grid's mark is the venue's mid, and the bot's own resting buys are bids in that book. Moving down, the maker's
+  // asks go first: cancelling its bids first would leave the bot's highest buy against the maker's old asks, a mid
+  // between the two prices that the price never meant to pass, where a running grid buys (#5, 61500 back to 60000,
+  // saw mid 60730 and buys at levels 10 to 12). Moving up, its bids go first, for the same reason the other way round.
+  const down = s.makerMid !== undefined && toUnits(mid) < toUnits(s.makerMid);
+  const first = down ? ':sell' : ':buy';
+  const stale = [...(s.makerKeys ?? [])].sort((a, b) => Number(!a.includes(first)) - Number(!b.includes(first)));
+  for (const key of stale) await otherTraderRun(name, { kind: 'cancel_order', symbol: market.symbol, clientOrderKey: key });
   const tag = Date.now().toString(36);
   const keys = [];
   for (const side of ['buy', 'sell'])
@@ -441,7 +448,7 @@ async function bookAt(mid) {
       expect(rested.definite && rested.accepted, JSON.stringify(rested).slice(0, 300)).toBe(true);
       keys.push(clientOrderKey);
     }
-  run.write({ ...run.read(), makerKeys: keys });
+  run.write({ ...run.read(), makerKeys: keys, makerMid: mid });
   const open = (await venueRecord(maker, '/open-orders')).value.filter((o) => o.symbol === market.symbol);
   expect(open.length, `the maker rests round ${mid}`).toBeGreaterThan(0);
 }

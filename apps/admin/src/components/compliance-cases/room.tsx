@@ -3,7 +3,7 @@ import type { ComplianceCase } from '@intafaced/contracts';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { REVIEW_LABEL, STATUS_LABEL, TYPE_LABEL, dueText, roomHref, type RoomQuery } from '@/lib/compliance-cases/model';
 import type { CaseRoom } from '@/lib/compliance-cases/read';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { DefineQueue, FavouriteButton } from './actions';
 import '../desk.css';
 

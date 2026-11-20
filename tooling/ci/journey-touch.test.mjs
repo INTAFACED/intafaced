@@ -1928,9 +1928,9 @@ test("real-app-journeys.yml: a pull request's run is never the full suite", () =
 
 // The bar of project-state#3377: every pull request merged on 19 Nov 2026 (147, fixtures/journey-touch-19-nov.json),
 // replayed through the touch job's rules with the committed map and this checkout's journey files: none would run the
-// full suite or need more than 12 shards (planned with every step at UNTIMED_STEP_MS, as the planner counts an untimed
+// full suite or need more than PR_MAX_SHARDS (30) shards (planned with every step at UNTIMED_STEP_MS, as the planner counts an untimed
 // file), each still runs every journey it names, and a planted copy of the old rule (journeyTouch alone) fails.
-test('replay, 19 Nov 2026: no merged pull request picks the full suite or more than 12 shards, and each keeps the journeys it names', async () => {
+test('replay, 19 Nov 2026: no merged pull request picks the full suite or more than PR_MAX_SHARDS shards, and each keeps the journeys it names', async () => {
   const { loadMap } = await import('./journey-reach-map.mjs');
   const { PR_MAX_SHARDS, UNTIMED_STEP_MS, planShards, shardTarget, stepCounts, targetedShards } =
     await import('../scripts/journey-shards.mjs');
@@ -1957,7 +1957,7 @@ test('replay, 19 Nov 2026: no merged pull request picks the full suite or more t
     const n = targetedShards(files, durations, shardTarget(durations), limit, true);
     const plan = planShards(files, durations, n);
     const longest = Math.max(...plan.map((b) => b.ms));
-    assert.ok(n <= 12, `#${pr.number}: ${n} shards`);
+    assert.ok(n <= PR_MAX_SHARDS, `#${pr.number}: ${n} shards`);
     assert.ok(longest <= limit, `#${pr.number}: a shard of ${Math.round(longest / 60_000)} minutes`);
     worst = Math.max(worst, n);
   }

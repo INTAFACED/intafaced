@@ -523,6 +523,7 @@ export const appRouter = createBankRouter(bank, {
   interestAccrualEnabled: env.INTEREST_ACCRUAL_ENABLED,
   loanAccrualEnabled: env.LOAN_ACCRUAL_ENABLED,
   loanRiskSweepEnabled: env.LOAN_RISK_SWEEP_ENABLED,
+  marginWarningLtvBps: env.BANK_MARGIN_WARNING_LTV_BPS,
   autoInvestEnabled: env.AUTO_INVEST_ENABLED,
   autoInvestConvertWired: usableTradeConvertUrl(env.TRADE_URL),
   approvals: approvalConsumer,

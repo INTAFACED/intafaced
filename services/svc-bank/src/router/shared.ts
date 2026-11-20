@@ -293,6 +293,8 @@ export type BankRouterOptions = {
   extraControls?: ExtraControlsPort;
   /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
   loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
+  /** Home's margin warning level (`BANK_MARGIN_WARNING_LTV_BPS`), blank today: `loans.products` publishes it as null. */
+  marginWarningLtvBps?: null;
 };
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */

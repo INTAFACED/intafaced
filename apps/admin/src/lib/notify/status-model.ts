@@ -17,7 +17,7 @@ import {
   type StatusPage,
   type StatusPageState,
 } from '@intafaced/contracts/status-page';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { isRecord } from '@intafaced/contracts/guards';
 
 export interface StatusDefinition {

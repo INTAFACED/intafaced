@@ -22,6 +22,8 @@
         "tooling/ci/look-gate/rooms.mjs",
         "tooling/infra/*.mjs",
         "tooling/t3/setup-worktree.mjs",
+        // Started by path: `verify look` (verify-app.mjs) and the look options' pictures, each through its own config.
+        "tooling/scripts/{verify-look,look-options}.{pw,config}.mjs",
         "*.{mjs,js,cjs,ts}",
       ],
       "project": ["tooling/**/*.{mjs,cjs,js,ts}", "*.{mjs,js,cjs,ts}", "!tooling/pay-sim/**"],

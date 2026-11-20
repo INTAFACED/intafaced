@@ -5,7 +5,7 @@
  * An incident is its first entry and the updates that name it. Nothing is published by one person: the author asks
  * identity for an approval bound to the exact draft, a different founder approves it, and svc-notify spends it once.
  */
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { isRecord } from '@intafaced/contracts/guards';
 
 export const IMPACTS = ['none', 'minor', 'major', 'critical'] as const;
