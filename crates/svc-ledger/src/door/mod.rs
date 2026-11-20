@@ -9,7 +9,8 @@
 //! 4. the door's first input check, where the handler parses its body, path or query with one schema before it
 //!    reaches the ledger (`schemas.json`).
 //!
-//! Past those the call is its slice's: [`Outcome::Owed`] names which. Nothing here reads or writes the book.
+//! Past those the call is its slice's: [`Outcome::Owed`] names which. The door itself reads the book only for
+//! `/health` and `/ready` (the `store` slice, `crate::status`).
 
 mod callers;
 
@@ -21,7 +22,7 @@ use service_kit::json::{self, Json};
 use service_kit::s2s::Mode;
 use service_kit::s2s_verify::{self, BodyBind, Incoming, ServiceVerifier};
 use service_kit::schema::{self, Outcome as Parsed, Schema, Value};
-use service_kit::server::{Request, Response};
+use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::tokens::{self, TokenConfig};
 
 use crate::errors::{self, Failure};
@@ -384,11 +385,16 @@ pub struct DoorConfig {
     pub tokens: TokenConfig,
     /// Seconds since the epoch.
     pub clock: fn() -> i64,
+    /// The book: one pool for every slice.
+    pub store: crate::db::Store,
+    /// `SERVICE_NAME`, as `/health` names it.
+    pub service_name: String,
 }
 
 /// The door.
 pub struct LedgerDoor {
     cfg: DoorConfig,
+    ids: RequestIds,
 }
 
 /// The recorded input schemas and which part each door starts at.
@@ -570,7 +576,32 @@ impl LedgerDoor {
     /// The door; fails when the recorded schemas do not read.
     pub fn new(cfg: DoorConfig) -> Result<LedgerDoor, String> {
         INPUTS.as_ref().map_err(Clone::clone)?;
-        Ok(LedgerDoor { cfg })
+        Ok(LedgerDoor {
+            cfg,
+            ids: RequestIds::new(),
+        })
+    }
+
+    /// The book every slice reads and writes.
+    pub fn store(&self) -> &crate::db::Store {
+        &self.cfg.store
+    }
+
+    /// `sql.end()`.
+    pub fn end(&self) {
+        self.cfg.store.end();
+    }
+
+    /// A route the door opens to anyone: the store slice's status doors.
+    fn open(&self, route: &Route) -> Outcome {
+        match route.path {
+            "/health" => Outcome::Answer(crate::status::health(
+                &self.cfg.store,
+                &self.cfg.service_name,
+            )),
+            "/ready" => Outcome::Answer(crate::status::ready(&self.cfg.store)),
+            _ => Outcome::Owed(route.slice),
+        }
     }
 
     /// Decides one request, or names the slice that owes its answer.
@@ -595,7 +626,7 @@ impl LedgerDoor {
             Err(refused) => return Outcome::Answer(refused),
         };
         match route.guard {
-            Guard::Open => Outcome::Owed(route.slice),
+            Guard::Open => self.open(route),
             Guard::Service(door) => self.service(req, route, door, &body, raw.as_deref()),
             Guard::Operator(authority) => self.operator(req, route, authority, &body, &params),
         }
@@ -799,5 +830,24 @@ pub fn not_ported(slice: Slice) -> Response {
     Response {
         status: 503,
         body: body.compact(),
+    }
+}
+
+impl Door for LedgerDoor {
+    fn next_request_id(&self) -> String {
+        self.ids.next()
+    }
+
+    /// The door's answer; a call its slice has not ported yet is [`not_ported`].
+    fn handle_as(&self, req: &Request<'_>, _request_id: &str) -> Response {
+        match self.decide(req) {
+            Outcome::Answer(r) => r,
+            Outcome::Owed(slice) => not_ported(slice),
+        }
+    }
+
+    /// `/health` and `/ready` read the freeze from the book, so the door answers them, not the kit's fixed bodies.
+    fn status(&self, req: &Request<'_>) -> Option<Response> {
+        Some(self.handle_as(req, ""))
     }
 }

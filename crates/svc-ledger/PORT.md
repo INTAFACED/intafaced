@@ -8,6 +8,21 @@ Each slice of svc-ledger's move to Rust starts here, in a fresh thread. `service
 
 `scripts/record-door.mjs` writes the recorded files from the TypeScript. Its `--check` fails when one is stale.
 
+The `store` slice is ported. It added:
+
+- `src/db.rs`: the one pool, opened as `ledgerPostgresOptions` opens it (`search_path`, `application_name`, the statement, idle and connect timeouts), and the transaction helper. `DATABASE_SSL=true` refuses to start: the kit's pool has no TLS yet.
+- `migrations/`: the 66 files of `services/svc-ledger/drizzle`, held byte for byte by `migrate.rs`'s tests.
+- `src/migrate.rs`: `svc-ledger migrate [--down]`, the TypeScript runner's guards included.
+- `src/status.rs`: `/health` and `/ready`, read from the database on every call. The door answers them through the kit's `Door::status`.
+- `src/boot.rs` and `src/main.rs`: the chain-tip check, the custody boot check, the startup freeze, and the outbox recovery at boot and every five seconds.
+- `tests/store_pg.rs`: `scripts/migrate.test.ts` case for case, and the boot and status doors, on a real Postgres.
+
+Left to later slices:
+
+- The recovery's relays are empty. `posting` adds the `ledgerTxPosted` relay and `freeze` the `ledgerFreezeUpdated` one. Until then a committed intent, the startup freeze's included, waits unsent.
+- The reconcile timer is `reconcile`'s.
+- `/metrics` is in no slice yet. The switch needs it, since Prometheus scrapes it.
+
 ## What the shell holds, and how it is proved
 
 - **`tests/wire_replay.rs`** sends every request of `services/svc-ledger/src/wire-replay.golden/` to the door. That is 11,772 answers over 44 routes, three settings and every caller.
@@ -19,7 +34,7 @@ Each slice of svc-ledger's move to Rust starts here, in a fresh thread. `service
 - **`tests/tokens.rs`**: 41 access tokens, against `verifyAccessToken`. The verifier is the kit's `service_kit::tokens`.
 - **`tests/env_parity.rs`**: 36 environments, against `env.ts`.
 
-The replay never gets past the input check of `post`, the balance reads or `/operator/reconcile`: every recorded sample is refused there. For those slices the proof is the TypeScript database tests named below, run against the Rust code.
+The replay's store refuses every query, so `/health` and `/ready` answer its 500 there; `tests/store_pg.rs` proves their real answers. The replay never gets past the input check of `post`, the balance reads or `/operator/reconcile`: every recorded sample is refused there. For those slices the proof is the TypeScript database tests named below, run against the Rust code.
 
 ## The doors
 
