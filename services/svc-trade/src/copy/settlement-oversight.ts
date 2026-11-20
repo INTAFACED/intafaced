@@ -1,5 +1,6 @@
 import { formatAmount, parseAmount, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { CopyError } from './errors.js';
 import { copyFeeShareLedgerKeys } from './fee-share.js';
 import { venueFeeShareFundKey, venueFeeShareOweKey } from './venue-fee-share.js';
@@ -276,6 +277,15 @@ type ShareSqlRow = {
   claim_id: string | null;
 };
 
+const VenueFeeRow = z.object({
+  venue_id: z.string(),
+  venue_account: z.string(),
+  fill_id: z.string(),
+  asset_id: z.string(),
+  amount: z.string(),
+  recorded_at: z.union([z.date(), z.string()]).transform((v) => (v instanceof Date ? v : new Date(v))),
+});
+
 /** The SQL reads behind the oversight: svc-trade's own copy tables and the builder-fee log, never another service's. */
 export function sqlSettlementOversight(sql: Sql, ledger: Pick<LedgerClient, 'getTxByKey'>): SettlementOversightDeps {
   return {
@@ -331,19 +341,18 @@ export function sqlSettlementOversight(sql: Sql, ledger: Pick<LedgerClient, 'get
          WHERE p.follow_id = ANY(${follows}::text[])
       `;
       // A venue copy's share: the builder fee the poster recorded for the very fill the share is of.
-      const onVenue = shares.filter((s) => s.venue);
+      const onVenue = shares.flatMap((s) => (s.venue ? [{ share: s, venue: s.venue }] : []));
       if (onVenue.length > 0) {
-        const fees = await sql<
-          { venue_id: string; venue_account: string; fill_id: string; asset_id: string; amount: string; recorded_at: Date }[]
-        >`
-          SELECT v.venue_id, v.venue_account, v.fill_id, v.asset_id, v.amount, v.recorded_at
-            FROM trade.venue_builder_fees v
-            JOIN unnest(${onVenue.map((s) => s.venue!.venueId)}::text[], ${onVenue.map((s) => s.venue!.venueAccount)}::text[],
-                        ${onVenue.map((s) => s.venue!.venueFillId)}::text[]) AS k(venue_id, venue_account, fill_id)
-              ON k.venue_id = v.venue_id AND k.venue_account = v.venue_account AND k.fill_id = v.fill_id
-           WHERE v.status = 'posted'`;
-        for (const s of onVenue) {
-          const v = s.venue!;
+        const fees = VenueFeeRow.array().parse(
+          await sql`
+            SELECT v.venue_id, v.venue_account, v.fill_id, v.asset_id, v.amount::text AS amount, v.recorded_at
+              FROM trade.venue_builder_fees v
+              JOIN unnest(${onVenue.map((o) => o.venue.venueId)}::text[], ${onVenue.map((o) => o.venue.venueAccount)}::text[],
+                          ${onVenue.map((o) => o.venue.venueFillId)}::text[]) AS k(venue_id, venue_account, fill_id)
+                ON k.venue_id = v.venue_id AND k.venue_account = v.venue_account AND k.fill_id = v.fill_id
+             WHERE v.status = 'posted'`,
+        );
+        for (const { share: s, venue: v } of onVenue) {
           const list = fees
             .filter((f) => f.venue_id === v.venueId && f.venue_account === v.venueAccount && f.fill_id === v.venueFillId)
             .map((f) => ({

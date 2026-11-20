@@ -36,6 +36,7 @@ import {
   type UserVenueOrder,
 } from '@intafaced/venue-contracts';
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import type { AgentAccountRecord, AgentAccountStore } from '../venue/agent-account-store.js';
 import { AgentVenueRefusal, type AgentOrders } from '../venue/agent-orders.js';
 import type { PreparedActionStore, StoredVenueAction } from '../venue/prepared-action-store.js';
@@ -109,6 +110,12 @@ export class InMemoryVenueFollowStore implements VenueFollowStore {
 }
 
 type BindingRow = { follow_id: string; follower_id: string; account_id: string; created_at: Date };
+const BindingRowSchema = z.object({
+  follow_id: z.string(),
+  follower_id: z.string(),
+  account_id: z.string(),
+  created_at: z.union([z.date(), z.string()]).transform((v) => (v instanceof Date ? v : new Date(v))),
+});
 const bindingOf = (r: BindingRow): VenueFollowBinding => ({
   followId: r.follow_id,
   followerId: r.follower_id,
@@ -132,10 +139,12 @@ export class SqlVenueFollowStore implements VenueFollowStore {
     return (await this.get(b.followId))!;
   }
   async list(followerId?: string) {
-    const rows = await this.sql<BindingRow[]>`
-      SELECT follow_id, follower_id, account_id::text AS account_id, created_at FROM trade.copy_venue_follows
-       WHERE ${followerId === undefined} OR follower_id = ${followerId ?? ''}
-       ORDER BY created_at ASC, follow_id ASC`;
+    const rows = BindingRowSchema.array().parse(
+      await this.sql`
+        SELECT follow_id, follower_id, account_id::text AS account_id, created_at FROM trade.copy_venue_follows
+         WHERE ${followerId === undefined} OR follower_id = ${followerId ?? ''}
+         ORDER BY created_at ASC, follow_id ASC`,
+    );
     return rows.map(bindingOf);
   }
 }
