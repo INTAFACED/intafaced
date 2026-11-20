@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { competitionBoardSchema, type CampaignView, type CompetitionBoard } from '@intafaced/contracts/campaigns-catalogue';
+import { type CampaignView, type CompetitionBoard } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGNS_COMPETITION_BOARD } from '@intafaced/contracts/campaigns-procedures';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
@@ -16,7 +17,7 @@ export function CampaignCompetition({ campaign, version }: { campaign: CampaignV
   const api = useApi();
   const { t, renderedLocale } = campaignCompetitionCopy.useCopy();
   const board = useResource(
-    (signal) => api.query('campaigns', 'competition.board', { campaignId: campaign.id }, competitionBoardSchema, { signal }),
+    (signal) => api.call(CAMPAIGNS_COMPETITION_BOARD, { campaignId: campaign.id }, { signal }),
     `competition-${campaign.id}-${version}`,
   );
   const when = useMemo(() => {

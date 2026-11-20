@@ -16,6 +16,7 @@ export { failureRefusal } from './failure-refusal';
 export {
   edgeCall,
   founderCall,
+  founderRecordCall,
   parseWith,
   type FounderCallContext,
   type DeskModule,

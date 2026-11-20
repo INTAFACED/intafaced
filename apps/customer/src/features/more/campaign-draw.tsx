@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { drawBoardSchema, type CampaignView, type DrawBoard } from '@intafaced/contracts/campaigns-catalogue';
+import { type CampaignView, type DrawBoard } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGNS_DRAW_BOARD } from '@intafaced/contracts/campaigns-procedures';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { DataTable, Failure, Loading, Panel } from '../../shared/ui';
@@ -16,7 +17,7 @@ export function CampaignDraw({ campaign, version }: { campaign: CampaignView; ve
   const api = useApi();
   const { t, renderedLocale } = campaignDrawCopy.useCopy();
   const board = useResource(
-    (signal) => api.query('campaigns', 'draw.board', { campaignId: campaign.id }, drawBoardSchema, { signal }),
+    (signal) => api.call(CAMPAIGNS_DRAW_BOARD, { campaignId: campaign.id }, { signal }),
     `draw-${campaign.id}-${version}`,
   );
   const when = useMemo(() => {
