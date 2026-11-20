@@ -373,10 +373,14 @@ test(`${J} #2 opens a copied position with two fills and no funding data: averag
   page,
 }) => {
   const follower = state('follower');
-  // The follower's own fills, as the spot API reports them: the follower is new, so these are the two copied buys.
-  const { body } = await (await api(follower)).get('/api/v1/account/trades?symbol=BTC%2FUSDT&limit=100');
-  const fills = (Array.isArray(body) ? body : (body.trades ?? [])).filter((f) => f.side === 'buy');
-  expect(fills, JSON.stringify(body).slice(0, 300)).toHaveLength(2);
+  // The follower's own fills, as the spot API reports them: the follower is new, so these are the two copied buys. #1
+  // waits for the two copied orders; their fills reach the trades read a moment later, so this waits for both.
+  let fills = [];
+  await expect(async () => {
+    const { body } = await (await api(follower)).get('/api/v1/account/trades?symbol=BTC%2FUSDT&limit=100');
+    fills = (Array.isArray(body) ? body : (body.trades ?? [])).filter((f) => f.side === 'buy');
+    expect(fills, JSON.stringify(body).slice(0, 300)).toHaveLength(2);
+  }).toPass({ timeout: 30_000 });
   const expected = averageEntry(fills);
 
   await signIn(page, follower);
