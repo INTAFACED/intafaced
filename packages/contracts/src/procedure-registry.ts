@@ -37,6 +37,7 @@ import {
   DEX_AUTH_LOGOUT_ALL,
   DEX_ORDERS_COUNT,
 } from './dex-procedures.js';
+import { EXECUTION_SPINE } from './execution-procedures.js';
 import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
 import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from './identity-api-version-procedures.js';
 import { IDENTITY_RECIPIENTS_LIST, IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_REMOVE } from './identity-recipients-procedures.js';
@@ -262,6 +263,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   DEX_AUTH_LOGOUT,
   DEX_AUTH_LOGOUT_ALL,
   DEX_ORDERS_COUNT,
+  EXECUTION_SPINE,
   FIX_ADAPTER_STATUS,
   FIX_DROP_COPY_FILL,
   IDENTITY_API_VERSION_GET,
