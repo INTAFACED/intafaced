@@ -46,6 +46,9 @@ export type RefusalKind =
   | 'orderTypeUnsupported'
   | 'marketLimitOnly'
   | 'openingWindow'
+  | 'higherRiskZone'
+  | 'zoneSettingUnset'
+  | 'zoneCapExceeded'
   | 'marketCancelOnly'
   | 'marketPostOnly'
   | 'optionUnsupported'
@@ -222,6 +225,9 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.order_type_unsupported': 'orderTypeUnsupported',
   'trade.mode_limit_only': 'marketLimitOnly',
   'trade.opening_window': 'openingWindow',
+  'trade.higher_risk_zone': 'higherRiskZone',
+  'trade.zone_setting_unset': 'zoneSettingUnset',
+  'trade.zone_cap_exceeded': 'zoneCapExceeded',
   'trade.rpi_unavailable': 'optionUnsupported',
   'trade.mode_cancel_only': 'marketCancelOnly',
   'trade.mode_post_only': 'marketPostOnly',

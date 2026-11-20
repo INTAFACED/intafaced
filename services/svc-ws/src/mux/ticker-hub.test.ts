@@ -25,6 +25,9 @@ function row(market: string, last: string, extra: Partial<TickerRow> = {}): Tick
     low: '90',
     volume: '12',
     quoteVolume: '1200',
+    bid: '99',
+    ask: '101',
+    spread: '2',
     ...extra,
   };
 }
@@ -267,5 +270,23 @@ describe('TickerHub — resync', () => {
     h.attach(null, sink, 0);
     expect(h.resync(sink, 5)).toBe('absent');
     expect(sink.frames).toEqual([]);
+  });
+});
+
+// J-cex-spot-14 #8: the ticker channel is the live spread too: a move of the book's top alone sends the row again.
+describe('TickerHub — the top of the book', () => {
+  it('sends a row again when only its bid, ask and spread move', () => {
+    const h = hub();
+    const sink = new FakeSink();
+    h.attach(null, sink, 0);
+    h.ingest([row('BTC', '100')], 0);
+    expect(sink.frames).toHaveLength(1);
+    // The same last price and 24 h facts; only the book's top moved.
+    h.ingest([row('BTC', '100', { bid: '99.5', ask: '101', spread: '1.5' })], 2_000);
+    h.flush(2_000);
+    expect(sink.frames).toHaveLength(2);
+    const last = sink.frames[1];
+    expect(last.type).toBe('update');
+    expect(last.tickers).toEqual([expect.objectContaining({ market: 'BTC', bid: '99.5', ask: '101', spread: '1.5' })]);
   });
 });

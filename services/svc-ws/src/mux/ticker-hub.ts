@@ -7,7 +7,7 @@ import { isPublishedMaxLagTicks } from '../max-lag-ticks.js';
 /**
  * ALL-MARKETS TICKER FAN-OUT.
  *
- * One row per market: last price, 24 h change, high, low, volume. The rows come
+ * One row per market: last price, 24 h change, high, low, volume, and the top of the book (bid, ask, spread). The rows come
  * from svc-trade's `GET /api/v1/tickers` (real, non-seeded taker fills — the
  * same numbers the REST ticker and the market table already show), polled by
  * `mux/poller.ts` only while somebody is subscribed. This hub owns no timer and
@@ -57,6 +57,13 @@ export interface TickerRow {
   /** Base-asset volume over the 24 h window. */
   readonly volume: string | null;
   readonly quoteVolume: string | null;
+  /**
+   * Best bid and best ask on the book, and the spread between them (best ask minus best bid, exact in decimal), as
+   * svc-trade's ticker read publishes them (SP-markets-data-01 d; J-cex-spot-14 #8). `null` without both sides.
+   */
+  readonly bid: string | null;
+  readonly ask: string | null;
+  readonly spread: string | null;
 }
 
 export interface TickerHubOptions {
@@ -90,7 +97,10 @@ function sameRow(a: TickerRow | undefined, b: TickerRow): boolean {
     a.high === b.high &&
     a.low === b.low &&
     a.volume === b.volume &&
-    a.quoteVolume === b.quoteVolume
+    a.quoteVolume === b.quoteVolume &&
+    a.bid === b.bid &&
+    a.ask === b.ask &&
+    a.spread === b.spread
   );
 }
 
