@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import { createEdgeContext, encodePrincipal, router, signPrincipalHeader } from '@intafaced/contracts';
+import { createEdgeContext, encodePrincipal, router, signPrincipalHeader, TRPCError } from '@intafaced/contracts';
 import type { ProcedureRecord, ProcedureSample } from '@intafaced/contracts/procedure';
 import { PROTOCOL_AMM_PROCEDURES } from '@intafaced/contracts/protocol-amm-procedures';
 import {
