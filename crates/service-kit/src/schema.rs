@@ -262,6 +262,11 @@ impl Issue {
     pub fn message(&self) -> &str {
         &self.message
     }
+
+    /// The issue's path (`issue.path`).
+    pub fn path(&self) -> &[Json] {
+        &self.path
+    }
 }
 
 /// The message tRPC sends for a refused input: zod's `error.message`, the issues as pretty JSON.
