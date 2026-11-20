@@ -82,6 +82,18 @@ describe('market vendor decision', () => {
     );
     expect(await opsExecute(ctx)(vet('approved'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
   });
+  it('reads the answer strictly: a wrong-typed field or a vendor missing its fields is an unknown outcome', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ...vetAnswer('approved'), changed: 'no' })),
+    );
+    expect(await opsExecute(ctx)(vet('approved'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ...vetAnswer('approved'), vendor: {} })),
+    );
+    expect(await opsExecute(ctx)(vet('approved'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+  });
   it('a founder session without the operator scope gets a plain refusal that changes nothing', async () => {
     vi.stubGlobal(
       'fetch',
@@ -389,6 +401,11 @@ describe('listing takedown', () => {
       );
       expect(await opsExecute(ctx)(takedown, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
     }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ listingId: LISTING })),
+    );
+    expect(await opsExecute(ctx)(takedown, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
   });
   it('an approval for another listing is refused in words and the listing is left as it was', async () => {
     vi.stubGlobal(
