@@ -346,7 +346,16 @@ function ContractEscrowInner({
         </p>
       ) : null}
       {(seller || buyer) && !['released', 'cancelled'].includes(trade.status) ? (
-        !connected ? (
+        wallet.status === 'connected' && wallet.guard && !wallet.guard.ok ? (
+          <div className="stack" data-testid="order-contract-network">
+            <p role="alert">
+              {t('wrongNetwork', { network })} {t('mainnetOff')}
+            </p>
+            <Button type="button" variant="secondary" onClick={() => void wallet.switchNetwork()}>
+              {t('escrowSwitchNetwork')}
+            </Button>
+          </div>
+        ) : !connected ? (
           <div className="stack">
             {wallet.wallets.map((entry) => (
               <Button
