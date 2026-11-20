@@ -87,6 +87,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # Main as it is now (project-state#3035): main fetched afresh and the pull request's head merged onto it again, in
+      # the shape of GitHub's merge commit (main the first parent, the head the second, so the steps below that read
+      # HEAD^1 as the base still see only the pull request's own change, and origin/main is that main). So this job runs
+      # the gate list and the gates main holds when it starts, and a gate-list change on main after CI began is answered
+      # by re-running this job alone, not by merging main, pushing and running everything again (the merge seal reads
+      # this step by its name: ci-jobs-seal.mjs FRESH_MAIN_STEP; on 20 Nov 2026 #9170, #9171 and #9176 took 41 to 97
+      # minutes from their first push that way). Before any of the pull request's code runs. A conflict stops it here.
+      - name: Judge on main as it is now
+        if: github.event_name == 'pull_request'
+        run: |
+          head=$(git rev-parse --verify HEAD^2)
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          git checkout --quiet --detach refs/remotes/origin/main
+          if ! git -c user.name=ci -c user.email=ci@invalid merge --quiet --no-ff --no-edit "$head"; then
+            echo "::error title=Doctrine gates::$head no longer merges with main: merge origin/main and push"
+            exit 1
+          fi
+          echo "judging $head merged onto main $(git rev-parse HEAD^1)"
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
