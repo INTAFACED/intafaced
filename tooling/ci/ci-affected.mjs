@@ -3,11 +3,12 @@
  * CI affected-path classifier.
  *
  * A pull request runs the tests of what it changed, not the whole suite:
- *   full     — a change on the run-everything list (contracts, events, ledger-client, config, auth, lockfile,
- *              turbo and tsconfig, tooling, workflows, gate files) or any path outside the product dirs;
+ *   full     — a change on the run-everything list (events, ledger-client, config, auth, lockfile, turbo and
+ *              tsconfig, tooling, workflows, gate files) or any path outside the product dirs;
  *   affected — turbo runs the changed packages, their dependents and the readers listed in
  *              tooling/ci/test-read-edges.json (`--filters` prints the turbo filters);
- *   neither  — docs only; the seal then needs no test job.
+ *              A lint rule or a gate's baseline file (isGateOnlyTooling) runs only the product tests that read it.
+ *   neither  — docs only, or gate-only tooling no product test reads; the seal then needs no test job.
  * Apart from those, `rust` says whether CI's Rust job runs (format, clippy, tests: `pnpm rust:check`): a change to a
  * Rust file (isRustFile), to a TypeScript service a crate replaces (its code and the recorded answers the crate's tests
  * read: rustCrates), to what defines that job, and every run-everything run. A change to Rust files alone runs no
@@ -23,7 +24,7 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { allEdges } from './cross-package-reads.mjs';
+import { allEdges, pathReadEdges } from './cross-package-reads.mjs';
 import { SPLIT } from './test-shards.mjs';
 
 /** Run-everything list: a change here can break a consumer in any package, so the whole suite runs. */
@@ -35,7 +36,7 @@ export const FULL_TRIGGERS = [
   'pnpm-workspace.yaml',
   'turbo.json',
   'tsconfig.base.json',
-  'packages/contracts/',
+  // Not packages/contracts/: its dependents are turbo's to pick, and the readers of its files the read scan's.
   'packages/events/',
   // Imported by dozens of services (27 workspaces depend on ledger-client, 33 on config).
   'packages/ledger-client/',
@@ -58,6 +59,24 @@ export const GATE_FILES = [
 const GATE_BASENAMES = new Set(['AGENTS.md', 'CLAUDE.md', 'SKILL.md']);
 
 const PRODUCT_DIRS = /^(apps|services|packages)\//;
+
+/**
+ * Tooling only the Doctrine gates job judges, which runs on every pull request: the lint rules (`tooling/lint/`, whose
+ * own tests are tooling tests) and a gate's baseline file (`tooling/ci/*baseline*.json`, read by its gate). A change
+ * there runs the product tests that read it (GATE_ONLY_READS through pathReadEdges: packages/config's copy-rule test
+ * reads tooling/lint/), never the whole suite. Before this, 26 bug fixes a day took all sixteen shards only for deleting
+ * lines from tooling/ci/conflict-keys-baseline.json, which no unit test reads (project-state#3379).
+ */
+export const GATE_ONLY_TOOLING = ['tooling/lint/'];
+const BASELINE = /^tooling\/ci\/[^/]*baseline[^/]*\.json$/;
+export const isGateOnlyTooling = (file) => BASELINE.test(posix(file)) || GATE_ONLY_TOOLING.some((d) => matchesPrefix(file, d));
+/** The paths a product test may read that isGateOnlyTooling covers: the lint folder and today's baseline files. */
+function gateOnlyReads(root = fileURLToPath(new URL('../..', import.meta.url))) {
+  const baselines = readdirSync(`${root}/tooling/ci`)
+    .filter((n) => BASELINE.test(`tooling/ci/${n}`))
+    .map((n) => `tooling/ci/${n}`);
+  return [...GATE_ONLY_TOOLING, ...baselines];
+}
 
 /** Rust's own files: the code, every crate's manifest, the lock file, and the workspace's toolchain and lint config. */
 const RUST_ROOT_FILES = new Set(['Cargo.lock', 'rust-toolchain.toml', 'clippy.toml', 'rustfmt.toml', 'deny.toml']);
@@ -122,8 +141,9 @@ const isDoc = (file) => file.startsWith('docs/') || file.endsWith('.md');
  */
 export function readEdges() {
   // Reads the scan finds count too, so a test that reads another package needs no edge-list entry to be selected. The
-  // same function feeds turbo.json's generated inputs (cross-package-reads.mjs turboReadInputs), so the two agree.
-  return allEdges();
+  // same function feeds turbo.json's generated inputs (cross-package-reads.mjs turboReadInputs), so the two agree. The
+  // reads of gate-only tooling are added here only: a test reads them when it runs, which no typecheck or build hashes.
+  return mergeEdges(allEdges(), pathReadEdges(gateOnlyReads()));
 }
 
 export function mergeEdges(a, b) {
@@ -136,14 +156,20 @@ export function mergeEdges(a, b) {
 /**
  * full     — run every test (run-everything list, gate files, anything outside the product dirs, push to main).
  * affected — run the tests of the changed packages, their dependents, and the readers of what they changed.
- * Neither  — nothing to test (docs only); the seal then needs no test job.
+ * Neither  — nothing to test (docs only, or gate-only tooling no test reads); the seal then needs no test job.
+ * `edges` (readEdges' shape) says who reads gate-only tooling; read from the tree when one changed and none is given.
  */
-export function classify(files, { forceFull = false, crates = rustCrates() } = {}) {
+export function classify(files, { forceFull = false, crates = rustCrates(), edges } = {}) {
   if (forceFull) return { full: true, affected: false, rust: true };
   const list = (files || []).map(posix).filter(Boolean);
   const rust = list.some((f) => reachesRust(f, crates) || RUST_JOB_FILES.includes(f));
   let affected = false;
   for (const file of list) {
+    if (isGateOnlyTooling(file)) {
+      edges ??= readEdges();
+      if (Object.values(edges).some((reads) => reads.some((d) => matchesPrefix(file, d)))) affected = true;
+      continue;
+    }
     if (isGateFile(file)) return { full: true, affected: false, rust };
     if (isDoc(file)) continue;
     if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) return { full: true, affected: false, rust };
