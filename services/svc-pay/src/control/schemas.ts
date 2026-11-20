@@ -12,7 +12,6 @@ import {
   payTimestampSchema,
   payVersionSchema,
   payoutApprovalSchema,
-  payBpsSchema,
   payPayoutFeeSchema,
 } from '@intafaced/contracts';
 
