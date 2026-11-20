@@ -181,9 +181,10 @@ export const ALLOWED_METHODS = 'GET, POST, OPTIONS';
  * (`/developers/explorer`, DV-console-01) sends: a write's business key, and the
  * tag that lets the edge refuse the explorer's writes with a live key
  * (`explorer-guard.ts`). With a sandbox key the explorer calls the sandbox
- * address, another origin, so both must be named here.
+ * address, another origin, so both must be named here. `intafaced-version` is the dated API version every key caller
+ * sends on `/api/v1` (`api-version.ts`), the explorer included.
  */
-export const ALLOWED_REQUEST_HEADERS = 'authorization, content-type, idempotency-key, x-api-explorer';
+export const ALLOWED_REQUEST_HEADERS = 'authorization, content-type, idempotency-key, x-api-explorer, intafaced-version';
 
 /**
  * Ten minutes. Long enough that a terminal firing many calls preflights once,

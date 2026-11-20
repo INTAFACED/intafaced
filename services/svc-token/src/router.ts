@@ -10,9 +10,7 @@ import {
   type StepUpCheck,
 } from '@intafaced/contracts';
 import {
-  tokenAccessViewSchema,
   tokenAmountSchema as amountString,
-  tokenBurnedSupplySchema,
   tokenBallotSchema as ballotWire,
   tokenPowerHistorySchema,
   tokenProposalClosedSchema,
@@ -64,6 +62,18 @@ import { MAX_CHOICES, type ChoiceTally } from './ballot-tally.js';
 import type { SnapshotSeal } from './governance-vote.js';
 import { voteMessage } from './vote-signature.js';
 import { feeDiscountSchedulePayload } from './economics/staking.js';
+import { mountTokenRecord } from './record-mount.js';
+import {
+  TOKEN_ACCESS_OF,
+  TOKEN_BUYBACK_RUNS,
+  TOKEN_BURNED_SUPPLY,
+  TOKEN_EMISSION_SCHEDULE,
+  TOKEN_LIST_STAKES,
+  TOKEN_REVENUE_SHARE_HISTORY,
+  TOKEN_TREASURY,
+  tokenHistoryInputSchema,
+  tokenPayoutHistorySchema,
+} from '@intafaced/contracts/token-procedures';
 import { createLaunchRouter, type LaunchRouterOptions } from './launch/router.js';
 import type { LaunchService } from './launch/launch-service.js';
 
@@ -123,31 +133,6 @@ export {
  *
  * Say so wherever these are described. An operator mutation is not a flywheel.
  */
-
-/**
- * Page size is optional so an omit reaches the named refuse
- * (`token.history_list_limit_unset`) instead of a Zod "Required".
- * Blank is not 50. Cursor omit is the first page.
- */
-const historyInput = z
-  .object({
-    limit: z.number().int().min(1).max(200).optional(),
-    cursor: z.string().min(1).max(512).optional(),
-  })
-  .default({});
-
-const payoutHistoryOutput = z.object({
-  items: z.array(
-    z.object({
-      windowId: z.string(),
-      amount: amountString.nullable(),
-      assetId: z.string().nullable(),
-      ledgerTxId: z.string().nullable(),
-      reason: z.literal('ledger_tx_unread').nullable(),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
-});
 
 /** A whole number of milliseconds as a decimal string; the door checks its range. */
 const msWire = z.string().regex(/^\d{1,15}$/);
@@ -448,21 +433,18 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    accessOf: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({}).optional())
-      .output(tokenAccessViewSchema)
-      .query(async ({ ctx }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          const access = await token.accessOf(userId);
-          return {
-            staked: formatAmount(access.staked),
-            tier: access.tier.name,
-            feeDiscountBps: access.feeDiscountBps,
-          };
-        }),
-      ),
+    accessOf: mountTokenRecord(TOKEN_ACCESS_OF, async ({ ctx }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        const access = await token.accessOf(userId);
+        return {
+          staked: formatAmount(access.staked),
+          tier: access.tier.name,
+          feeDiscountBps: access.feeDiscountBps,
+        };
+      }),
+    ),
 
     terms: scopedProcedure('token:read', { module: 'token' })
       .output(
@@ -582,30 +564,14 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    listStakes: scopedProcedure('token:read', { module: 'token' })
-      .input(
-        z
-          .object({
-            status: z.enum(['active', 'closed', 'pending', 'all']).default('active'),
-            /**
-             * Page size. Optional here so omit reaches the service named
-             * refuse (`token.stakes_list_limit_unset`) instead of a Zod
-             * "Required" that looks like a typo. Blank is not 50; pass 50
-             * explicitly when that is the page you want.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          })
-          .default({ status: 'active' }),
-      )
-      .output(z.array(stakeOutput))
-      .query(async ({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          const stakes = await token.listStakes(userId, input.status, input.limit);
-          return stakes.map(stakeToWire);
-        }),
-      ),
+    listStakes: mountTokenRecord(TOKEN_LIST_STAKES, async ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        const stakes = await token.listStakes(userId, input.status, input.limit);
+        return stakes.map(stakeToWire);
+      }),
+    ),
 
     // ── Emissions ──────────────────────────────────────────────────────────
 
@@ -629,34 +595,11 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       .output(z.object({ epoch: z.number().int().nonnegative() }))
       .query(async () => guard(async () => ({ epoch: await token.nextEmissionEpoch() }))),
 
-    emissionSchedule: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ count: z.number().int().min(1).max(200).optional() }).default({}))
-      .output(
-        z.object({
-          params: z
-            .object({
-              initialEpochReward: amountString,
-              halvingIntervalEpochs: z.number().int().positive(),
-              maxSupply: amountString,
-            })
-            .nullable(),
-          epochs: z
-            .array(
-              z.object({
-                epoch: z.number().int().nonnegative(),
-                reward: amountString,
-              }),
-            )
-            .nullable(),
-          missing: z.string().nullable(),
-          reason: z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']).nullable(),
-        }),
-      )
-      .query(({ input }) => guard(async () => token.emissionSchedule(input.count))),
+    emissionSchedule: mountTokenRecord(TOKEN_EMISSION_SCHEDULE, ({ input }) => guard(async () => token.emissionSchedule(input.count))),
 
     yieldHistory: scopedProcedure('token:read', { module: 'token' })
-      .input(historyInput)
-      .output(payoutHistoryOutput)
+      .input(tokenHistoryInputSchema)
+      .output(tokenPayoutHistorySchema)
       .query(({ ctx, input }) =>
         guard(async () => {
           const userId = ctx.principal.userId;
@@ -665,19 +608,16 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    revenueShareHistory: scopedProcedure('token:read', { module: 'token' })
-      .input(historyInput)
-      .output(payoutHistoryOutput)
-      .query(({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          return token.revenueShareHistory(userId, input.limit, input.cursor);
-        }),
-      ),
+    revenueShareHistory: mountTokenRecord(TOKEN_REVENUE_SHARE_HISTORY, ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return token.revenueShareHistory(userId, input.limit, input.cursor);
+      }),
+    ),
 
     myVotes: scopedProcedure('token:read', { module: 'token' })
-      .input(historyInput)
+      .input(tokenHistoryInputSchema)
       .output(
         z.object({
           items: z.array(
@@ -1031,70 +971,24 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
      * Null on those sums, and a null `lastBuyback`, means no rows, not zero.
      * Does not price the token and does not post a new recipe.
      */
-    treasury: scopedProcedure('token:read', { module: 'token' })
-      .output(
-        z.object({
-          minted: amountString.nullable(),
-          burned: amountString,
-          bought: amountString.nullable(),
-          toRewards: amountString.nullable(),
-          distributed: amountString.nullable(),
-          lastBuyback: z
-            .object({
-              bought: amountString,
-              burned: amountString,
-              toRewards: amountString,
-              executedAt: z.string().datetime({ offset: true }),
-            })
-            .nullable(),
-        }),
-      )
-      .query(({ ctx }) => {
-        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return guard(() => token.treasuryView());
-      }),
+    treasury: mountTokenRecord(TOKEN_TREASURY, ({ ctx }) => {
+      if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+      return guard(() => token.treasuryView());
+    }),
 
-    buybackRuns: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ limit: z.number().int().min(1).max(200) }))
-      .output(
-        z.object({
-          job: z.enum(['set', 'unset']),
-          runs: z.array(
-            z.object({
-              id: z.string().min(1),
-              bought: amountString,
-              burned: amountString,
-              toRewards: amountString,
-              executedAt: z.string().datetime({ offset: true }),
-              windowFrom: z.string().datetime({ offset: true }),
-              windowTo: z.string().datetime({ offset: true }),
-            }),
-          ),
-          rate: z
-            .object({
-              buybackBps: z.number().int().min(0).max(10_000),
-              burnSplitBps: z.number().int().min(0).max(10_000),
-            })
-            .nullable(),
-          missing: z.string().nullable(),
-          reason: z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']).nullable(),
-        }),
-      )
-      .query(({ ctx, input }) => {
-        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return guard(async () => {
-          const read = await token.buybackRuns(input.limit);
-          return { job: buybackJobSet && read.rate ? ('set' as const) : ('unset' as const), ...read };
-        });
-      }),
+    buybackRuns: mountTokenRecord(TOKEN_BUYBACK_RUNS, ({ ctx, input }) => {
+      if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+      return guard(async () => {
+        const read = await token.buybackRuns(input.limit);
+        return { job: buybackJobSet && read.rate ? ('set' as const) : ('unset' as const), ...read };
+      });
+    }),
 
-    burnedSupply: scopedProcedure('token:read')
-      .output(tokenBurnedSupplySchema)
-      .query(async () =>
-        guard(async () => ({
-          burned: formatAmount(await token.burnedSupply()),
-        })),
-      ),
+    burnedSupply: mountTokenRecord(TOKEN_BURNED_SUPPLY, async () =>
+      guard(async () => ({
+        burned: formatAmount(await token.burnedSupply()),
+      })),
+    ),
 
     // ── Governance — ballots + close tally (§4.3) ──────────────────────────
     //

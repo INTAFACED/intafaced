@@ -1088,6 +1088,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-ledger"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "hmac 0.12.1",
+ "postgres",
+ "service-kit",
+ "sha2 0.10.9",
+ "signal-hook",
+ "tiny_http",
+ "url",
+]
+
+[[package]]
 name = "svc-tax"
 version = "0.0.0"
 dependencies = [

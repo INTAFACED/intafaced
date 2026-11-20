@@ -15,6 +15,9 @@ export const deskListingSchema = listingSchema.extend({
   nextSessionChange: z.object({ open: z.boolean(), timestamp: z.number() }).passthrough().nullish(),
   /** A new listing's opening window end, while it is ahead (J-cex-spot-14 #7); null or absent when there is none. */
   openingWindowEndsAt: z.string().datetime({ offset: true }).nullish(),
+  /** The higher-risk zone (J-cex-spot-14 #7) and its owner cap on one order's value; null outside the zone or unset. */
+  zone: z.enum(['higher_risk']).nullish(),
+  zoneOrderCap: z.string().nullish(),
   // The operator limits as published for the pair; "not set" where the owner published none.
   pairRules: z
     .object({ protection: z.object({ collar: z.string(), openOrdersPerMarket: z.string() }).passthrough() })
@@ -53,6 +56,10 @@ export interface DeskMarket {
   opensAt?: number | null;
   /** Epoch ms a new listing's opening window ends (J-cex-spot-14 #7): limit orders only until then; null when none. */
   openingWindowEndsAt?: number | null;
+  /** In the higher-risk zone (J-cex-spot-14 #7): limit orders only, each worth at most `zoneOrderCap`. */
+  zone?: 'higher_risk' | null;
+  /** The zone's cap on one order's value in the quote asset, as a decimal string; null: unset, no order is taken. */
+  zoneOrderCap?: string | null;
 }
 
 /** A published operator value, or null for "not set" (or no rules read at all): never a default. */
@@ -76,6 +83,8 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
     sessionShut: listing.sessionOpen === false,
     opensAt: listing.sessionOpen === false && listing.nextSessionChange?.open ? listing.nextSessionChange.timestamp : null,
     openingWindowEndsAt: listing.openingWindowEndsAt ? Date.parse(listing.openingWindowEndsAt) : null,
+    zone: listing.zone ?? null,
+    zoneOrderCap: listing.zone ? (listing.zoneOrderCap ?? null) : null,
   };
 }
 

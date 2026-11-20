@@ -7,7 +7,8 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { SessionProvider } from '../session';
-import { BuybackRunsView, buybackRunsSchema, type BuybackRunsRead } from './BuybackRuns';
+import { TOKEN_BUYBACK_RUNS } from '@intafaced/contracts/token-procedures';
+import { BuybackRunsView, buybackRunsAddUp, type BuybackRunsRead } from './BuybackRuns';
 
 const html = (data: BuybackRunsRead) =>
   renderToStaticMarkup(
@@ -56,7 +57,9 @@ describe('burn page buyback runs', () => {
 
   it('refuses a read whose run does not add up, so it is never drawn', () => {
     const read = { job: 'unset', runs: [{ ...run, toRewards: '400.1' }], ...blankRate };
-    expect(buybackRunsSchema.safeParse(read).success).toBe(false);
-    expect(buybackRunsSchema.safeParse({ ...read, runs: [run] }).success).toBe(true);
+    const good = { ...read, runs: [run] };
+    expect(TOKEN_BUYBACK_RUNS.output.safeParse(read).success).toBe(true);
+    expect(buybackRunsAddUp(TOKEN_BUYBACK_RUNS.output.parse(read))).toBe(false);
+    expect(buybackRunsAddUp(TOKEN_BUYBACK_RUNS.output.parse(good))).toBe(true);
   });
 });

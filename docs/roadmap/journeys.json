@@ -1550,6 +1550,21 @@
     ]
   },
   {
+    "id": "J-bank-32",
+    "title": "I take cash from an ATM with my card",
+    "module": "bank",
+    "persona": "retail",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
+    ]
+  },
+  {
     "id": "J-campaigns-01",
     "title": "Find a campaign I can take part in and join it",
     "module": "campaigns",
@@ -2245,6 +2260,25 @@
       { "n": 8, "slices": ["RC-cex-spot-09", "RC-cex-spot-06"], "noSlice": false }
     ],
     "later": "custody"
+  },
+  {
+    "id": "J-cex-spot-21",
+    "title": "I stake HYPE with a validator, see my trading-fee discount, and unstake",
+    "module": "cex-spot",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true },
+      { "n": 8, "slices": [], "noSlice": true },
+      { "n": 9, "slices": [], "noSlice": true }
+    ]
   },
   {
     "id": "J-charts-desk-01",
@@ -3513,7 +3547,8 @@
       { "n": 10, "slices": ["D-cross-01", "D-cross-03"], "noSlice": false },
       { "n": 11, "slices": ["D-cross-01"], "noSlice": false },
       { "n": 12, "slices": ["D-cross-05"], "noSlice": false },
-      { "n": 13, "slices": [], "noSlice": true }
+      { "n": 13, "slices": [], "noSlice": true },
+      { "n": 14, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -3571,6 +3606,57 @@
       { "n": 6, "slices": ["D-venue-05", "D-venue-07"], "noSlice": false },
       { "n": 7, "slices": ["D-venue-08"], "noSlice": false, "later": "custody" },
       { "n": 8, "slices": ["D-venue-06"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-derivatives-29",
+    "title": "My venue account's mode decides whether my spot and perps money is one balance or two",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true },
+      { "n": 8, "slices": [], "noSlice": true },
+      { "n": 9, "slices": [], "noSlice": true },
+      { "n": 10, "slices": [], "noSlice": true },
+      { "n": 11, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-derivatives-30",
+    "title": "I see the builder-fee approval I gave INTAFACED, revoke it, and know why an approval can fail",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-derivatives-31",
+    "title": "I put money in a venue vault, see it counted, and take it out after its lock-up",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -6729,6 +6815,19 @@
     ]
   },
   {
+    "id": "J-ops-console-28",
+    "title": "Our builder fees keep coming in because our builder address stays in the venue's required mode",
+    "module": "ops-console",
+    "persona": "operator:founder",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true }
+    ]
+  },
+  {
     "id": "J-p2p-01",
     "title": "Buy crypto from an ad, pay the seller outside, and receive the coins",
     "module": "p2p",
@@ -7536,7 +7635,8 @@
       { "n": 1, "slices": ["PF-balances-03"], "noSlice": false },
       { "n": 2, "slices": ["PF-balances-03"], "noSlice": false },
       { "n": 3, "slices": ["PF-balances-03"], "noSlice": false },
-      { "n": 4, "slices": ["PF-balances-03"], "noSlice": false }
+      { "n": 4, "slices": ["PF-balances-03"], "noSlice": false },
+      { "n": 5, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -8208,7 +8308,8 @@
       { "n": 3, "slices": ["W-balances-06"], "noSlice": false },
       { "n": 4, "slices": ["W-balances-02"], "noSlice": false },
       { "n": 5, "slices": ["W-balances-02"], "noSlice": false },
-      { "n": 6, "slices": [], "noSlice": true }
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -8436,6 +8537,37 @@
       { "n": 6, "slices": [], "noSlice": true },
       { "n": 7, "slices": [], "noSlice": true },
       { "n": 8, "slices": ["D-venue-09"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-wallet-24",
+    "title": "My new wallet's first deposit reaches the venue: the right chain, the right asset and gas",
+    "module": "wallet",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-wallet-25",
+    "title": "Money I sent to the venue's own chain shows up, and I move it back to trading",
+    "module": "wallet",
+    "persona": "retail",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true }
     ]
   }
 ]

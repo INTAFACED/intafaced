@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { API_VERSION_HEADER } from '@intafaced/contracts/api-versions';
 import { AuthError, type Principal } from '@intafaced/auth';
 import { assertNoLocalTestFixtures, assertScreeningConfigured } from '@intafaced/config';
 import { createAdminApi, httpLedgerOperator } from './admin-api.js';
@@ -42,6 +43,7 @@ import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCo
 import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, upstreamRedirectMode } from './hosted-checkout-proxy.js';
 import { statusBadgeHeaders } from './status-badge-proxy.js';
 import { idempotencyHeaders } from './idempotency-headers.js';
+import { advisoriesFor, advisoryReplyHeaders, negotiateApiVersion, versionReplyHeaders } from './api-version.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
 import { edgeS2sFromEnv } from './s2s.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
@@ -620,6 +622,26 @@ await app.register(async (api) => {
     });
     if (csrf) {
       return reply.code(403).send({ error: userCopy(csrf.code), code: csrf.code });
+    }
+
+    // The dated API version on /api/v1 (`api-version.ts`): an unknown value, or a key call with neither a header nor an
+    // account default, is refused here and forwarded nowhere.
+    const version = negotiateApiVersion({
+      pathname: url.pathname,
+      header: req.headers[API_VERSION_HEADER],
+      apiKey: Boolean(exchanged.principal?.kid),
+      accountDefault: exchanged.apiVersionDefault ?? null,
+    });
+    if (version.kind === 'refuse') {
+      return reply.code(version.status).send({ error: version.message, message: version.message, code: version.code });
+    }
+    // The service is told the version that applies (the account default too), so it can answer that version's behaviour.
+    if (version.kind === 'apply') exchanged.headers[API_VERSION_HEADER] = version.version;
+    for (const [name, value] of Object.entries({
+      ...versionReplyHeaders(version),
+      ...advisoryReplyHeaders(advisoriesFor({ method: req.method, pathname: url.pathname, body: rawBody })),
+    })) {
+      reply.header(name, value);
     }
 
     const body = upstreamBody(req.method, req.body);

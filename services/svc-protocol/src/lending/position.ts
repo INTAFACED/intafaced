@@ -1,14 +1,9 @@
 import { formatUnits, getAddress, parseAbi, type Address, type PublicClient } from 'viem';
-import {
-  LENDING_MARKET_UNSET,
-  protocolLendingPositionInputSchema,
-  protocolLendingPositionOutputSchema,
-  publicJurisdictionProcedure,
-  router,
-  TRPCError,
-  type ProtocolLendingPosition,
-} from '@intafaced/contracts';
+import { LENDING_MARKET_UNSET, router, TRPCError, type ProtocolLendingPosition } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { PROTOCOL_LENDING_POSITION } from '@intafaced/contracts/protocol-chain-procedures';
 import { isZeroAddress } from '../chain/availability.js';
+import { protocolRefusal } from '../refusal.js';
 
 /**
  * One account's position in the isolated lending market (D-portfolio-wallet-04, J-dex-protocol-06 #4).
@@ -88,16 +83,17 @@ export async function lendingPosition(deps: LendingPositionDeps, accountInput: s
 /** `protocol.lending.*`: public chain reads only, behind the same permissionless guard as the venue's balances. */
 export function createLendingRouter(deps: LendingPositionDeps & { toTrpcError: (err: unknown) => TRPCError }) {
   return router({
-    position: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolLendingPositionInputSchema)
-      .output(protocolLendingPositionOutputSchema)
-      .query(async ({ input }) => {
+    position: mountRecord(
+      PROTOCOL_LENDING_POSITION,
+      async ({ input }) => {
         try {
           return await lendingPosition(deps, input.account);
         } catch (err) {
           if (err instanceof LendingMarketUnset) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
           throw deps.toTrpcError(err);
         }
-      }),
+      },
+      protocolRefusal,
+    ),
   });
 }

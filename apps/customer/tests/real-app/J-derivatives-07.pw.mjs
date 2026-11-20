@@ -6,7 +6,7 @@ import { EDGE, ORIGIN, api, fromUnits, journeyState, toUnits } from './stack.mjs
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { doorCalls, ledgerUntouched, ledgerView, openVenueRoom, signedOnVenue, venueAt, venueNow, walletOwner } from './venue-door.mjs';
-import { TEST_VENUE, testVenueAt, venueForThisFile } from './venue.mjs';
+import { TEST_VENUE, testVenueAt, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-derivatives-07, "I understand a liquidation on the venue and its aftermath: fee, insurance fund and
 // auto-deleveraging", on the person's own venue account (the launch money model: the venue liquidates, charges its fee and
@@ -31,14 +31,17 @@ venueForThisFile(test);
 // ── the TEST venue, read and signed on directly ──
 
 const accountOf = (venue, owner) => ({ venueId: venue.id, owner, subAccount: null });
-/** The venue's own record for the account (`/positions`, `/balances`, `/liquidations`, ...). */
-const record = async (venue, owner, path, extra = {}) => (await venueAt(path, { account: accountOf(venue, owner), ...extra })).value;
+/**
+ * The venue's own record (`/positions`, `/liquidations`, `/insurance-fund`, ...), read by the venue fixture straight from
+ * the TEST venue (venue.mjs venueRecord), never through our door. The public reads (the fund, the ADL rules, the alerts)
+ * take no account: the venue ignores the one the fixture sends.
+ */
+const record = async (venue, owner, path, extra = {}) => (await venueRecord(owner, path, extra)).value;
 const positionOn = async (venue, owner) => (await record(venue, owner, '/positions')).find((p) => p.symbol === LIQ) ?? null;
-const usdcOn = async (venue, owner) =>
-  (await record(venue, owner, '/balances')).find((b) => b.asset === 'USDC') ?? { free: '0', locked: '0', total: '0' };
+const usdcOn = (owner) => venueBalance(owner, 'USDC');
 const liquidationOn = async (venue, owner, id) =>
   (await record(venue, owner, '/liquidations', { since: new Date(0).toISOString() })).find((l) => l.liquidationId === id);
-const fundNow = async () => (await venueAt('/insurance-fund', {})).value;
+const fundNow = (venue, owner) => record(venue, owner, '/insurance-fund');
 const setMark = (price) => venueAt('/test/set-mark', { symbol: LIQ, price });
 
 const order = (side, price, clientOrderKey) => ({
@@ -88,7 +91,7 @@ async function startsLine(browser) {
     expect(p).toMatchObject({ side: 'long', marginMode: 'isolated', leverageBps: 100_000 });
     expect(same(p.size, '1')).toBe(true);
     expect(p.liquidationPrice.known).toBe(true);
-    const fund = await fundNow();
+    const fund = await fundNow(venue, owner);
     expect(fund.known).toBe(true);
     run.reset({ account, walletKey, tag, ledger: await ledgerView(account), fundBefore: fund.value.balance });
   } finally {
@@ -209,7 +212,7 @@ test(`${J} #3 reads the fee charged: the venue's liquidation fee as the venue re
   // other TEST accounts on the market, the TEST makers', whose fees go in too).
   const fees = l.parts.reduce((sum, x) => sum + toUnits(x.fee), 0n);
   expect(fees).toBeGreaterThan(0n);
-  const fund = await fundNow();
+  const fund = await fundNow(venue, s.owner);
   expect(toUnits(fund.value.balance) - toUnits(s.fundBefore)).toBeGreaterThanOrEqual(fees);
   // The venue's fee rule, in its own words, is the one the position's panel showed in #1.
   expect(status.feeRule).toBe(s.feeRule);
@@ -225,13 +228,13 @@ test(`${J} #4 opens the insurance fund: the venue's fund and where to read it; I
   await openVenueRoom(page, s, ROOM);
   const region = page.getByRole('region', { name: 'Insurance fund', exact: true });
   await expect(region).toContainText(`${venue.name} runs its own insurance fund. INTAFACED runs no fund.`);
-  const fund = await fundNow();
+  const fund = await fundNow(venue, s.owner);
   expect(fund.known).toBe(true);
   await expect(region.locator('[data-line="fund-name"]')).toHaveText(fund.value.name, { timeout: 20_000 });
   await expect(region.locator('[data-line="fund-where"]')).toHaveText(fund.value.whereToRead);
   await expect(region.locator('[data-line="fund-rule"]')).toHaveText(fund.value.rule);
   await expect(async () => {
-    const now = await fundNow();
+    const now = await fundNow(venue, s.owner);
     expect(await region.locator('[data-line="fund-balance"]').innerText()).toBe(`${now.value.balance} ${now.value.asset}`);
   }).toPass({ timeout: 20_000 });
 
@@ -254,7 +257,7 @@ test(`${J} #5 acknowledges the auto-deleveraging disclosure: "I have read this" 
   const s = state();
   const venue = await venueNow();
   await openVenueRoom(page, s, ROOM);
-  const rules = (await venueAt('/adl-rules', {})).value;
+  const rules = await record(venue, s.owner, '/adl-rules');
   expect(rules).toBeTruthy();
   const region = page.getByRole('region', { name: 'Auto-deleveraging', exact: true });
   await expect(region.locator('[data-line="adl-version"]')).toHaveText(`Version ${rules.version}`, { timeout: 20_000 });
@@ -308,7 +311,7 @@ test(`${J} #6 is deleveraged by the venue: the close and the venue's notice, rea
   await signedOnVenue(venue, s.key, order('sell', '99', `order:jd7:${s.tag}:short`));
   const p = await positionOn(venue, s.owner);
   expect(p).toMatchObject({ side: 'short' });
-  const before = await usdcOn(venue, s.owner);
+  const before = await usdcOn(s.owner);
   const price = fromUnits(toUnits(p.entryPrice) - toUnits('5'));
   await openVenueRoom(page, s, ROOM);
   await expect(rowOf(page, venue)).toBeVisible({ timeout: 20_000 });
@@ -329,7 +332,7 @@ test(`${J} #6 is deleveraged by the venue: the close and the venue's notice, rea
   // The venue closed it and settled it on the venue: margin and result back to free, no fee.
   expect(await positionOn(venue, s.owner)).toBeNull();
   await expect(rowOf(page, venue)).toHaveCount(0, { timeout: 20_000 });
-  expect((await usdcOn(venue, s.owner)).free).toBe(fromUnits(toUnits(before.free) + toUnits(p.margin) + toUnits(theirs.realisedPnl)));
+  expect((await usdcOn(s.owner)).free).toBe(fromUnits(toUnits(before.free) + toUnits(p.margin) + toUnits(theirs.realisedPnl)));
   run.write({ adlId: theirs.adlId, adlPrice: theirs.price });
   // INTAFACED pays nothing: our ledger posted nothing.
   await ledgerUntouched(s);
@@ -344,7 +347,7 @@ test(`${J} #7 reads the public liquidation and ADL alert streams: symbol, side, 
   await openVenueRoom(page, s, ROOM);
   const l = await liquidationOn(venue, s.owner, s.liquidationId);
   // The venue's own public alerts for the market.
-  const alerts = (await venueAt('/liquidation-alerts', { symbol: LIQ, limit: 50 })).value;
+  const alerts = await record(venue, s.owner, '/liquidation-alerts', { symbol: LIQ, limit: 50 });
   const ofPart = (part) =>
     alerts.find((a) => a.kind === 'liquidation' && a.side === l.side && a.size === part.size && a.price === part.price);
   for (const part of l.parts) expect(ofPart(part)).toBeTruthy();

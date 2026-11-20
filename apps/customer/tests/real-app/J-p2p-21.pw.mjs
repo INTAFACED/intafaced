@@ -72,9 +72,9 @@ async function personPage(browser, who, walletKey, { passkey = null } = {}) {
   const context = await browser.newContext({ baseURL: passkey ? PASSKEY_ORIGIN : ORIGIN });
   const page = await context.newPage();
   if (passkey) await browserHoldsPasskey(page, passkey);
-  await installTestWallet(page, { chainId: 84532, privateKey: walletKey, rpcUrl: testChain().gateUrl });
+  const wallet = await installTestWallet(page, { chainId: 84532, privateKey: walletKey, rpcUrl: testChain().gateUrl });
   await signIn(page, who);
-  return { context, page };
+  return { context, page, wallet };
 }
 
 /** Continues one wallet sequence as the person does: the representation once for a fresh wallet, then the sheet. */
@@ -285,17 +285,63 @@ test('J-p2p-21 #3 the buyer marks paid and the seller releases: the contract rel
   await sellerSide.context.close();
 });
 
-test('J-p2p-21 #4 the deal on mainnet shows the audit.external notice, switched off in this build', async ({ browser }) => {
+const MAINNET_OFF = 'audit.external: the escrow contract has no external audit, so a mainnet deal is switched off in this build.';
+/** Base mainnet, the network a person's wallet is on when they open the deal on mainnet. */
+const BASE_MAINNET = 8453;
+
+test('J-p2p-21 #4 the seller opens the deal on mainnet: the audit.external notice, switched off in this build', async ({ browser }) => {
+  test.setTimeout(300_000);
   const state = journey();
-  const buyerSide = await personPage(browser, state.buyer, buyerRun.key());
-  await buyerSide.page.goto(`/uc/order?tradeId=${state.tradeId}`);
-  const mainnet = buyerSide.page.getByTestId('order-contract-escrow').getByTestId('order-escrow-mainnet');
-  await expect(mainnet).toHaveText(
-    'audit.external: the escrow contract has no external audit, so a mainnet deal is switched off in this build.',
+  // A fresh contract order still waiting for its deal: the same TEST passkey as #2, its counter moved past #2's answer.
+  const passkey = { ...state.passkey, signCount: state.passkey.signCount + 10 };
+  const sellerSide = await personPage(browser, state.seller, state.sellerWallet);
+  const buyerSide = await personPage(browser, state.buyer, buyerRun.key(), { passkey });
+  const tradeId = await takeWithContract(buyerSide.page);
+  const s = p2p(await api(state.seller));
+
+  // What svc-p2p offers: mainnet is off, blocked by audit.external, and nothing claims an audit.
+  expect(await s.query('trades.contractEscrow', { asset: 'USDT' })).toMatchObject({
+    mainnet: { available: false, blocker: 'audit.external' },
+    audited: false,
+  });
+
+  // The seller opens the order with their wallet connected, then moves the wallet to Base mainnet to open the deal there.
+  await sellerSide.page.goto(`/uc/order?tradeId=${tradeId}`);
+  const panel = sellerSide.page.getByTestId('order-contract-escrow');
+  const fundButton = panel.getByRole('button', { name: 'Open and fund the deal in your wallet', exact: true });
+  await connectIn(panel, fundButton);
+  await expect(panel.getByTestId('order-escrow-mainnet')).toHaveText(MAINNET_OFF);
+  const sellerAddress = privateKeyToAccount(state.sellerWallet).address;
+  const sellerBefore = await usdOf(sellerAddress);
+  await sellerSide.wallet.setChain(BASE_MAINNET);
+
+  // The deal on mainnet is switched off: the notice names audit.external, and no deal can be opened or funded.
+  const notice = panel.getByTestId('order-contract-network');
+  await expect(notice.getByRole('alert')).toHaveText(
+    `Your wallet is on another network, so nothing was sent: this deal opens only on Base Sepolia testnet, not INTACHAIN. ${MAINNET_OFF}`,
   );
-  const offered = await p2p(await api(state.buyer)).query('trades.contractEscrow', { asset: 'USDT' });
-  expect(offered).toMatchObject({ mainnet: { available: false, blocker: 'audit.external' }, audited: false });
+  await expect(fundButton).toHaveCount(0);
+  await expect(panel.getByTestId('order-contract-actions')).toHaveCount(0);
+  await expect(panel.getByTestId('order-deal-id')).toHaveText('Waiting for the seller to open and fund the deal');
+
+  // Nothing moved: the seller's TEST coins are where they were, the order has no deal, and the ledger holds nothing.
+  expect(await usdOf(sellerAddress)).toBe(sellerBefore);
+  expect(await s.query('trades.get', { tradeId })).toMatchObject({
+    status: 'created',
+    escrowKind: 'contract',
+    escrowHeld: '0',
+    contract: { dealId: null },
+  });
+  expect(await ledgerTradeEscrow(state.sellerId, tradeId)).toBeNull();
+
+  // Back on the TEST network the deal can be opened again: it is the mainnet that is off, not the order.
+  await notice.getByRole('button', { name: 'Switch network', exact: true }).click();
+  await expect(fundButton).toBeVisible({ timeout: 30_000 });
+  await expect(notice).toHaveCount(0);
+
+  // This unfunded order is left to its escrow window: a contract order is not cancelled in svc-p2p, and #5 takes its own.
   await buyerSide.context.close();
+  await sellerSide.context.close();
 });
 
 test('J-p2p-21 #5 after the buyer marked paid, the seller finds no Cancel: release or a dispute only, and the coins stay in the contract', async ({
@@ -303,9 +349,9 @@ test('J-p2p-21 #5 after the buyer marked paid, the seller finds no Cancel: relea
 }) => {
   test.setTimeout(300_000);
   const state = journey();
-  // The same TEST passkey as #2, its counter moved past the answer #2's browser gave (identity needs it to rise; a
-  // second passkey would need the account's second factor).
-  const passkey = { ...state.passkey, signCount: state.passkey.signCount + 10 };
+  // The same TEST passkey as #2 and #4, its counter moved past the answer #4's browser gave (identity needs it to rise;
+  // a second passkey would need the account's second factor).
+  const passkey = { ...state.passkey, signCount: state.passkey.signCount + 20 };
   const sellerSide = await personPage(browser, state.seller, state.sellerWallet);
   const buyerSide = await personPage(browser, state.buyer, buyerRun.key(), { passkey });
   const tradeId = await takeWithContract(buyerSide.page);

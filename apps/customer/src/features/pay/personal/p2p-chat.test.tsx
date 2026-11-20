@@ -6,7 +6,7 @@ vi.mock('../../../shared/preferences', async (original) => {
 });
 import { createApiClient } from '../../../shared/api';
 import { createPayMutationGuard, createPersonalPayApi } from '../pay-api';
-import type { ChatMessage } from '../schemas';
+import type { ChatMessage, Reputation } from '../schemas';
 import { BlockConfirmBody, ContactButtons, type ContactsView } from './ContactActions';
 import { ChatView } from './OrderChat';
 import { UnreadBadge } from './Unread';
@@ -673,6 +673,7 @@ describe('the order timeline says what is being waited for', () => {
 describe('who a counterparty is', () => {
   it('shows the handle when there is one, a dash only when identity says there is none, and “Member” when it cannot say', async () => {
     const { TraderName } = await import('./Trader');
+    // `profile` absent is a reply the record refuses; the name still reads "Member" if one ever reached it.
     const record = (handle: string | null, profile?: 'unwired' | 'absent' | 'found') => ({
       ok: true as const,
       data: {
@@ -687,8 +688,15 @@ describe('who a counterparty is', () => {
         merchant: null,
         handle,
         memberSince: null,
-        ...(profile ? { profile: { status: profile } } : {}),
-      },
+        trades30d: 0,
+        completionRate30d: null,
+        completionRateTotal: null,
+        completionDefinition: { numerator: 'completed', denominator: 'escrowed', window30d: '30 days', noHistory: 'none yet' },
+        avgPaySecs: null,
+        rating: null,
+        verification: null,
+        ...(profile ? { profile: { status: profile, code: `p2p.public_profile_${profile}` as const } } : {}),
+      } as Reputation,
     });
     expect(renderToString(<TraderName record={record('test_friend', 'found')} />)).toContain('@test_friend');
     const absent = renderToString(<TraderName record={record(null, 'absent')} />);
@@ -702,8 +710,8 @@ describe('who a counterparty is', () => {
   });
 
   it('reads the profile status the service sends alongside a missing handle', async () => {
-    const { reputationSchema } = await import('../schemas');
-    const parsed = reputationSchema.safeParse({
+    const { P2P_REPUTATION_GET } = await import('@intafaced/contracts/p2p-procedures');
+    const parsed = P2P_REPUTATION_GET.output.safeParse({
       tradesTotal: 0,
       completed: 0,
       cancelled: 0,
@@ -717,8 +725,15 @@ describe('who a counterparty is', () => {
       memberSince: null,
       profile: { status: 'unwired', code: 'p2p.public_profile_unwired' },
       trades30d: 0,
+      completionRate30d: null,
+      completionRateTotal: null,
+      completionDefinition: { numerator: 'completed', denominator: 'escrowed', window30d: '30 days', noHistory: 'none yet' },
+      avgPaySecs: null,
+      rating: null,
+      verification: null,
     });
     expect(parsed.success).toBe(true);
+    expect(parsed.data?.profile.status).toBe('unwired');
   });
 });
 

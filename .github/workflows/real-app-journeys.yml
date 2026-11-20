@@ -54,7 +54,7 @@ on:
   workflow_dispatch:
     inputs:
       journeys:
-        description: 'Journey files to run, separated by spaces or commas (e.g. J-wallet-05.pw.mjs). Ignored on main.'
+        description: 'Journey files to run, separated by spaces or commas (e.g. J-wallet-05.pw.mjs). Ignored on main. With the branch name, at most about 350 characters (GitHub starts no run whose concurrency group passes 400): split a longer list over several runs, as the seal prints them.'
         required: false
         default: ''
         type: string
@@ -108,6 +108,9 @@ on:
 # selection on the same branch is in another group and finishes. A `:` splits the branch from the selection, since a
 # git ref never holds one, so branch `x` with `J-a` and branch `x-J` with `a` never share a group. On 7 Nov at 11:01 UTC, 8 waiting branch runs were for
 # a head already superseded by a newer run on the same branch. tooling/ci/workflow-concurrency.test.mjs holds both rules.
+# GitHub starts no run whose group passes 400 characters (it ends "failure" with no jobs, as 63 files did on 20 Nov 2026,
+# run 44766798876), and an expression can neither measure nor hash the input, so the seal and journey-touch.mjs split a
+# long list into runs that each fit (journey-touch.mjs dispatchBatches, whose dispatchGroup the test holds to this one).
 concurrency:
   group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review') && format('real-app-journeys-ready-{0}', github.run_id) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -1102,17 +1105,20 @@ jobs:
 
       # A journey that failed leaves the shard green (the run's verdict judges it), so the logs print then too: otherwise a
       # flaky step's service-side cause goes with the runner (#8044: svc-ledger did not answer, and nothing kept why).
+      # A step that failed and passed on its retry counts as `flaky`, not `unexpected`, so both print (#9235: two
+      # J-cex-spot-16 sign-ins waited over 5 s on identity, and no log was kept). 200 lines covered about a minute of
+      # identity, too little to reach a failure minutes before the shard ended (#8299), so each log keeps 2000.
       - name: Stack logs on failure
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
-          if [ "$JOB_STATUS" = success ] && ! jq -e '(.stats.unexpected // 0) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
+          if [ "$JOB_STATUS" = success ] && ! jq -e '((.stats.unexpected // 0) + (.stats.flaky // 0)) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
             exit 0
           fi
           for f in "$LOCAL_STACK_STATE"/logs/*.log; do
             [ -f "$f" ] || continue
-            echo "::group::$f"; tail -200 "$f" || true; echo "::endgroup::"
+            echo "::group::$f"; tail -2000 "$f" || true; echo "::endgroup::"
           done
 
       - name: Stop the stack

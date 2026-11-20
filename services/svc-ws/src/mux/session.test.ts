@@ -77,6 +77,9 @@ function tickerRow(market: string, last: string): TickerRow {
     low: null,
     volume: null,
     quoteVolume: null,
+    bid: null,
+    ask: null,
+    spread: null,
   };
 }
 

@@ -7,7 +7,7 @@ import {
 } from './venue-eligibility.js';
 import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { div, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, tradeTier, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
@@ -211,6 +211,7 @@ export type UserVenueDoorCode =
   | 'trade.venue_order_amount_raise'
   // J-derivatives-04 #6: a whole-position take profit and stop loss rest, and another whole close was asked for.
   | 'trade.venue_whole_close_taken'
+  | 'trade.venue_account_mode_unknown'
   | 'trade.venue_action_key_invalid'
   | 'idempotency.conflict'
   | 'idempotency.in_progress'
@@ -1187,6 +1188,56 @@ export class UserVenueDoor {
   }
 
   /**
+   * A perpetual's open interest and the venue's count of accounts long and short on it, with the ratio of the two
+   * (J-derivatives-14 #4): every figure the venue's own, from its positions. A count the venue does not publish is `null`
+   * with the venue's reason, never one of ours; the ratio is `null` while no account is short.
+   */
+  async openInterestStats(symbol: string) {
+    const venue = await this.venue();
+    const read = await this.markets();
+    const perp = read.value.find((m) => m.kind === 'perpetual' && m.symbol === symbol);
+    if (!perp)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: `${symbol} is not a perpetual we list` });
+    const name = venue.venue.displayName;
+    const longShort = perp.longShort?.known ? perp.longShort.value : null;
+    return {
+      venueId: read.venueId,
+      asOf: read.asOf,
+      symbol: perp.symbol,
+      openInterest: perp.openInterest.known ? perp.openInterest.value : null,
+      longAccounts: longShort?.longAccounts ?? null,
+      shortAccounts: longShort?.shortAccounts ?? null,
+      longShortRatio:
+        longShort === null || longShort.shortAccounts === 0
+          ? null
+          : div(parseAmount(String(longShort.longAccounts)), parseAmount(String(longShort.shortAccounts))),
+      reason: longShort === null ? `${name} publishes no long and short count for ${perp.symbol}` : null,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
+  /**
+   * A perpetual's risk-limit tiers as the venue publishes them, lowest notional first (J-derivatives-14 #4). While the
+   * venue publishes no ladder the tiers are `null` with the reason `ladder_unset`, never a ladder of ours.
+   */
+  async riskLimits(symbol: string) {
+    const venue = await this.venue();
+    const read = await this.markets();
+    const perp = read.value.find((m) => m.kind === 'perpetual' && m.symbol === symbol);
+    if (!perp)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: `${symbol} is not a perpetual we list` });
+    const tiers = perp.marginTiers?.known ? perp.marginTiers.value : null;
+    return {
+      venueId: read.venueId,
+      asOf: read.asOf,
+      symbol: perp.symbol,
+      tiers,
+      reason: tiers === null ? ('ladder_unset' as const) : null,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
+  /**
    * The venue's public book, prints and candles on a market we list (J-cex-spot-01 #5: the spot desk's book, tape, ticker
    * and chart). A market we do not list is refused `not_offered`, as a venue (or adapter) that does not read its prints or
    * candles is; the venue's own refusals pass through.
@@ -1379,7 +1430,8 @@ export class UserVenueDoor {
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
-    else if (intent.kind === 'update_isolated_margin') key = intent.changeKey;
+    else if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') key = intent.changeKey;
+    else if (intent.kind === 'spot_perps_transfer') key = intent.moveKey;
     else key = actionKey;
     const k = (key ?? '').trim();
     if (k.length < 3 || k.length > 200 || UUID_RE.test(k) || !BUSINESS_KEY_RE.test(k)) {
@@ -1494,6 +1546,20 @@ export class UserVenueDoor {
     const venue = await this.venue();
     const account = await this.account(req.owner, req.subAccount);
     const signer: VenueSigner = { role: req.signer.role, address: req.signer.address.toLowerCase() };
+    // A move between spot and perps and a mode switch depend on the account's mode (J-derivatives-29 #11): while the venue
+    // does not report it, each is refused here, naming the unknown mode, before anything is signed.
+    if (intent.kind === 'spot_perps_transfer' || intent.kind === 'set_account_mode') {
+      const reported = venue.accountMode ? (await venue.accountMode(account)).value.mode : null;
+      if (reported === null) {
+        throw new UserVenueDoorError(
+          `${venue.venue.displayName} does not report this account's mode (not known), so ${
+            intent.kind === 'set_account_mode' ? 'a mode switch' : 'a move between spot and perps'
+          } is refused. Nothing was signed or sent`,
+          'trade.venue_account_mode_unknown',
+          409,
+        );
+      }
+    }
     let finalIntent: VenueIntent = intent;
     finalIntent = await eachOrder(finalIntent, (order) => this.withBuilderFee(venue, order));
     await this.assertEligible(principal, venue, finalIntent);

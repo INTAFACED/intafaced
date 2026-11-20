@@ -1,9 +1,12 @@
 import { z } from 'zod';
-import { publicJurisdictionProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts';
+import { publicJurisdictionProcedure, router, TRPCError } from '@intafaced/contracts';
+import { DEX_HEALTH, DEX_QUOTE, dexRouteSchema } from '@intafaced/contracts/dex-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { presentRoute, route, type VenueQuote } from './router-quote.js';
 import type { QuoteVenue } from './quote/venue.js';
-import { dexDoorHonestySchema, dexHealthHonesty } from './quote/door-honesty.js';
+import { dexHealthHonesty } from './quote/door-honesty.js';
+import { dexRefusal } from './refusal.js';
 import { QuoteRefusedError, sourceQuote } from './quote/quote-service.js';
 import { InternalBookFeeUnconfiguredError } from './quote/venue-set.js';
 import {
@@ -80,87 +83,6 @@ const quoteInput = z.object({
   quoteAmount: z.string(),
   feeBps: z.number().int().min(0).max(9_999),
   settlementCost: z.string(),
-});
-
-/** Decimal string. The same rule the rest of the platform states. */
-const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are decimal strings with at most 18 decimal places');
-
-const unavailableReasonSchema = z.enum([
-  'unreachable',
-  'malformed',
-  'not_ready',
-  'stale',
-  'clock_skew',
-  'no_depth',
-  'unknown',
-  'missing_finality',
-  'reorg_unconfirmed',
-]);
-
-const routeSchema = z.object({
-  /** A plan is never a fill. Preview arithmetic is never a live quote. */
-  kind: z.enum(['quote', 'preview']),
-  executable: z.boolean(),
-  legs: z.array(
-    z.object({
-      venue: z.string(),
-      kind: z.enum(['book', 'pool']),
-      qty: z.string(),
-      quoteAmount: z.string(),
-      effectivePrice: z.string(),
-    }),
-  ),
-  filledQty: z.string(),
-  unfilledQty: z.string(),
-  totalQuoteAmount: z.string(),
-});
-
-const sourcedQuoteSchema = z.object({
-  symbol: z.string(),
-  side: z.enum(['buy', 'sell']),
-  route: routeSchema,
-  venues: z.array(
-    z.object({
-      venueId: z.string(),
-      venueKind: z.string(),
-      kind: z.enum(['book', 'pool']),
-      plane: z.enum(['protocol', 'fiat', 'external']),
-      custodial: z.boolean(),
-      feeBps: z.number().int(),
-      settlementCost: z.string(),
-      fillableQty: z.string(),
-      quoteAmount: z.string(),
-      observedAt: z.string(),
-      ageMs: z.number().int(),
-      latencyMs: z.number().int(),
-    }),
-  ),
-  unavailable: z.array(
-    z.object({
-      venueId: z.string(),
-      plane: z.enum(['protocol', 'fiat', 'external']),
-      reason: unavailableReasonSchema,
-      detail: z.string(),
-    }),
-  ),
-  /**
-   * Ranking denominator. Not a certified best-execution claim — see `bestEx`.
-   *
-   * `degraded` and `singleVenue` exist so a client cannot accidentally present
-   * the only venue that answered as the best of several. That is the quiet
-   * failure mode of every cross-venue router.
-   */
-  venuesConfigured: z.number().int(),
-  degraded: z.boolean(),
-  singleVenue: z.boolean(),
-  asOf: z.string(),
-  ageMs: z.number().int(),
-  maxAgeMs: z.number().int(),
-  custodialLegs: z.boolean(),
-  executable: z.boolean(),
-  comparableSettlement: z.boolean(),
-  nonExecutableReason: z.enum(['custodial_settlement', 'incomparable_settlement', 'degraded', 'not_final']).nullable(),
-  ...dexDoorHonestySchema.shape,
 });
 
 export interface DexRouterDeps {
@@ -244,21 +166,16 @@ export function createDexRouter(deps: DexRouterDeps) {
     now: deps.now,
   });
   return router({
-    health: publicProcedure
-      .output(
-        z.object({
-          ok: z.literal(true),
-          service: z.literal('svc-dex'),
-          ...dexDoorHonestySchema.shape,
-        }),
-      )
-      .query(() =>
+    health: mountRecord(
+      DEX_HEALTH,
+      () =>
         dexHealthHonesty({
           internalBookEnabled: deps.internalBookEnabled ?? false,
           ammVenueWired: deps.ammVenueWired ?? false,
           externalVenueWired: deps.externalVenueWired ?? false,
         }),
-      ),
+      dexRefusal,
+    ),
 
     /**
      * A LIVE quote: ranked observed books across the venues we can actually read.
@@ -275,10 +192,9 @@ export function createDexRouter(deps: DexRouterDeps) {
      * here. A JSON number would round the 18th decimal away, and the 18th
      * decimal is where a split route stops adding up.
      */
-    quote: publicJurisdictionProcedure('dex', 'protocol')
-      .input(z.object({ symbol: z.string().min(1).max(64), side: z.enum(['buy', 'sell']), qty: decimal }))
-      .output(sourcedQuoteSchema)
-      .query(async ({ input, ctx }) => {
+    quote: mountRecord(
+      DEX_QUOTE,
+      async ({ input, ctx }) => {
         try {
           // After the owner settings (which refuse first when blank), before any venue is read.
           const hidden =
@@ -323,7 +239,9 @@ export function createDexRouter(deps: DexRouterDeps) {
           }
           throw err;
         }
-      }),
+      },
+      dexRefusal,
+    ),
 
     /**
      * The routing arithmetic, over quotes the CALLER supplies.
@@ -338,7 +256,7 @@ export function createDexRouter(deps: DexRouterDeps) {
      */
     routePreview: publicJurisdictionProcedure('dex', 'protocol')
       .input(z.object({ side: z.enum(['buy', 'sell']), qty: z.string(), quotes: z.array(quoteInput) }))
-      .output(routeSchema)
+      .output(dexRouteSchema)
       .query(({ input }) => {
         const quotes: VenueQuote[] = input.quotes.map((q) => ({
           venue: q.venue,

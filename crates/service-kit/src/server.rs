@@ -43,6 +43,12 @@ pub trait Door: Sync {
         let _ = peer;
         self.handle_as(req, request_id)
     }
+    /// `GET /health` and `GET /ready` (and their HEADs), when the door answers them from its own state. `None`, the
+    /// default, leaves the server's fixed answers: `{ ok, service }` and the app's `ready_body`.
+    fn status(&self, req: &Request<'_>) -> Option<Response> {
+        let _ = req;
+        None
+    }
 }
 
 /// Fastify's request ids: `req-1`, `req-2`, ... in base 36, one per request this process takes.
@@ -115,6 +121,17 @@ impl<D: Door> App<D> {
             content_type: FASTIFY_JSON,
             body,
         };
+        if matches!(method, "GET" | "HEAD") && matches!(path, "/health" | "/ready") {
+            let req = Request {
+                method,
+                url,
+                headers,
+                body,
+            };
+            if let Some(res) = self.wire.status(&req) {
+                return json(res.status, res.body);
+            }
+        }
         if matches!(method, "GET" | "HEAD") {
             if path == "/health" {
                 let body = Json::obj([

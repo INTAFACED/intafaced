@@ -8,11 +8,13 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
  * States: a bracket or a linked close waits on its `entry`; once the entry is final with something received, its exits
  * are `placing` and then `open`. An OCO is `open` (its take profit rests on the venue, its stop loss on our engine); a
  * lone stop is `armed`. A crossed stop is claimed `firing` by one worker; a cancel is claimed `cancelling` until the
- * venue has cancelled what rests there. It ends `fired`, `filled`, `failed` or `cancelled`, once.
+ * venue has cancelled what rests there. It ends `fired`, `filled`, `failed` or `cancelled`, once. A good-till-date order
+ * (J-cex-spot-03 #7; drizzle/20261120120000_spot_conditional_gtd.sql) waits on its `entry` too, the person's own limit on
+ * the venue, and ends `expired` once our engine has cancelled it there at its `expireAt`.
  */
-export type SpotConditionalKind = 'stop_limit' | 'stop_market' | 'oco' | 'bracket' | 'oto';
+export type SpotConditionalKind = 'stop_limit' | 'stop_market' | 'oco' | 'bracket' | 'oto' | 'gtd';
 export type SpotConditionalStatus =
-  'entry' | 'placing' | 'open' | 'armed' | 'firing' | 'cancelling' | 'fired' | 'filled' | 'failed' | 'cancelled';
+  'entry' | 'placing' | 'open' | 'armed' | 'firing' | 'cancelling' | 'fired' | 'filled' | 'failed' | 'cancelled' | 'expired';
 
 export const LIVE_SPOT_STATUSES: readonly SpotConditionalStatus[] = ['entry', 'placing', 'open', 'armed', 'firing', 'cancelling'];
 
@@ -33,6 +35,8 @@ export interface SpotConditional {
   readonly entryTif: 'GTC' | 'IOC' | null;
   readonly closePrice: Amount | null;
   readonly exitQuantity: Amount | null;
+  /** A good-till-date order's expiry: our engine cancels it on the venue then. Null for every other kind. */
+  readonly expireAt: Date | null;
   readonly agentAddress: string;
   readonly region: string;
   readonly status: SpotConditionalStatus;
@@ -121,6 +125,7 @@ type Row = {
   entry_tif: 'GTC' | 'IOC' | null;
   close_price: string | null;
   exit_quantity: string | null;
+  expire_at: Date | null;
   agent_address: string;
   region: string;
   status: SpotConditionalStatus;
@@ -151,6 +156,7 @@ function fromRow(r: Row): SpotConditional {
     entryTif: r.entry_tif,
     closePrice: amountOrNull(r.close_price),
     exitQuantity: amountOrNull(r.exit_quantity),
+    expireAt: r.expire_at,
     agentAddress: r.agent_address,
     region: r.region,
     status: r.status,
@@ -168,10 +174,10 @@ export class SqlSpotConditionalStore implements SpotConditionalStore {
     await this.sql`
       INSERT INTO trade.user_venue_spot_conditionals
         (id, user_id, venue_id, owner, client_key, kind, symbol, side, quantity, trigger_price, limit_price, take_profit_price,
-         entry_price, entry_tif, close_price, exit_quantity, agent_address, region, status, created_at, updated_at)
+         entry_price, entry_tif, close_price, exit_quantity, expire_at, agent_address, region, status, created_at, updated_at)
       VALUES (${p.id}, ${p.userId}, ${p.venueId}, ${p.owner}, ${p.clientKey}, ${p.kind}, ${p.symbol}, ${p.side},
         ${formatAmount(p.quantity)}, ${fmt(p.triggerPrice)}, ${fmt(p.limitPrice)}, ${fmt(p.takeProfitPrice)}, ${fmt(p.entryPrice)},
-        ${p.entryTif}, ${fmt(p.closePrice)}, ${fmt(p.exitQuantity)}, ${p.agentAddress}, ${p.region}, ${p.status},
+        ${p.entryTif}, ${fmt(p.closePrice)}, ${fmt(p.exitQuantity)}, ${p.expireAt}, ${p.agentAddress}, ${p.region}, ${p.status},
         ${p.createdAt}, ${p.createdAt})
       ON CONFLICT (user_id, owner, client_key) DO NOTHING`;
     const rows = await this.sql<Row[]>`

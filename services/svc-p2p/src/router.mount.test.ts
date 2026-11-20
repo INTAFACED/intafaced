@@ -1006,6 +1006,33 @@ describe('svc-p2p mount — merchant API access', () => {
     await expect(caller.offers.list({ limit: 50 })).resolves.toEqual([]);
   });
 
+  it('refuses a key without approved standing on every merchant door that needs it, and still answers it on apiAccess', async () => {
+    const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read', 'p2p:write'] }));
+    const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub('applied') as never).createCaller(keyCtx);
+    const doors: Array<[string, () => Promise<unknown>]> = [
+      ['presence', () => caller.merchants.presence()],
+      ['setPresence', () => caller.merchants.setPresence({ mode: 'online' })],
+      ['todos', () => caller.merchants.todos({ limit: 20 })],
+      ['stats', () => caller.merchants.stats()],
+      ['advertiserTerms', () => caller.merchants.advertiserTerms()],
+      ['postingEligibility', () => caller.merchants.postingEligibility({ fiatCurrency: 'EUR' })],
+      ['me', () => caller.merchants.me()],
+      ['offerLimits', () => caller.merchants.offerLimits()],
+      ['myOfferCeiling', () => caller.merchants.myOfferCeiling()],
+      ['submitApplication', () => caller.merchants.submitApplication()],
+      ['withdraw', () => caller.merchants.withdraw({ reason: 'Trading less' })],
+    ];
+    for (const [name, call] of doors) {
+      await expect(call(), name).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringMatching(/approved merchant/i) });
+    }
+    // The one door a refused key may still read: why it was refused.
+    await expect(caller.merchants.apiAccess()).resolves.toMatchObject({
+      eligible: false,
+      credential: 'api_key',
+      merchantStatus: 'applied',
+    });
+  });
+
   it('reports API eligibility from the same current standing that enforces it', async () => {
     const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read'] }));
     const sessionCtx = signed(principal({ scopes: ['p2p:read'] }));

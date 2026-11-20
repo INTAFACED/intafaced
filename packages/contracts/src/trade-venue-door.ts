@@ -455,6 +455,19 @@ export const venueAccountSummarySchema = z.object({
 });
 export type VenueAccountSummary = z.infer<typeof venueAccountSummarySchema>;
 
+/**
+ * The account's mode as the venue reports it (J-derivatives-29): `null` where it does not report it; in standard mode
+ * its spot and perps balances apart; the day's action count against the mode's limit (`dailyLimit` null: none).
+ */
+export const venueAccountModeSchema = z.object({
+  mode: z.enum(['standard', 'unified', 'portfolio_margin']).nullable(),
+  spot: z.array(venueBalanceSchema).nullable(),
+  perps: z.array(venueBalanceSchema).nullable(),
+  actions: z.object({ usedToday: z.number().int().nonnegative(), dailyLimit: z.number().int().positive().nullable() }).nullable(),
+});
+export type VenueAccountModeRead = z.infer<typeof venueAccountModeSchema>;
+export type VenueAccountMode = NonNullable<VenueAccountModeRead['mode']>;
+
 // ── J-derivatives-07: a liquidation and its aftermath, each the venue's own figure ────────────────────────────────
 
 /** One part of a liquidation the venue carried out, with its own id, size, price and fee. */
@@ -825,6 +838,12 @@ export interface ProtectionRequest {
 
 export const SPOT_CONDITIONAL_KINDS = ['stop_limit', 'stop_market', 'oco', 'bracket', 'oto'] as const;
 export type SpotConditionalKind = (typeof SPOT_CONDITIONAL_KINDS)[number];
+/**
+ * Every kind our engine keeps: the conditional kinds, and a good-till-date order (J-cex-spot-03 #7), which the desk's
+ * own ticket places (the person's limit on the venue, cancelled by our engine at its expiry).
+ */
+export const SPOT_ORDER_KINDS = [...SPOT_CONDITIONAL_KINDS, 'gtd'] as const;
+export type SpotOrderKind = (typeof SPOT_ORDER_KINDS)[number];
 export const SPOT_LEG_ROLES = ['stop', 'take_profit', 'stop_loss', 'entry', 'close'] as const;
 export type SpotLegRole = (typeof SPOT_LEG_ROLES)[number];
 
@@ -850,11 +869,11 @@ export type SpotLegView = z.infer<typeof spotLegSchema>;
 export const spotConditionalSchema = z.object({
   id: z.string(),
   clientOrderId: z.string(),
-  kind: z.enum(SPOT_CONDITIONAL_KINDS),
+  kind: z.enum(SPOT_ORDER_KINDS),
   symbol: z.string(),
   side: z.enum(['buy', 'sell']),
   quantity: decimalSchema,
-  status: z.enum(['entry', 'placing', 'open', 'armed', 'firing', 'cancelling', 'fired', 'filled', 'failed', 'cancelled']),
+  status: z.enum(['entry', 'placing', 'open', 'armed', 'firing', 'cancelling', 'fired', 'filled', 'failed', 'cancelled', 'expired']),
   restsOn: z.literal('engine'),
   label: z.string(),
   agentPermission: z.object({ agentAddress: z.string() }),
@@ -866,6 +885,8 @@ export const spotConditionalSchema = z.object({
   entryTif: z.enum(['GTC', 'IOC']).nullable(),
   closePrice: decimalSchema.nullable(),
   exitQuantity: decimalSchema.nullable(),
+  /** A good-till-date order's expiry (ISO), when our engine cancels it on the venue; null for every other kind. */
+  expireAt: z.string().nullable(),
   referencePrice: decimalSchema.nullable(),
   failure: z.string().nullable(),
   cancelReason: z.string().nullable(),

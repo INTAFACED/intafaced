@@ -441,7 +441,9 @@ describe('balances — authorisation', () => {
     const fetch = async () =>
       new Response(
         JSON.stringify({
-          result: { data: [{ market: 'IFC-USD', size: '1.5', entryPrice: '30.25' }] },
+          result: {
+            data: [{ market: 'IFC-USD', account: chainAccount, size: '1.5', entryPrice: '30.25', blockHeight: 3, blockHash: '0xab' }],
+          },
         }),
         { headers: { 'content-type': 'application/json' } },
       );

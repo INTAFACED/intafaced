@@ -40,7 +40,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
- *        /isolated-margin {account,symbol}, /account-summary {account}, /book {symbol,depth},
+ *        /isolated-margin {account,symbol}, /account-summary {account}, /account-mode {account}, /book {symbol,depth},
  *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
@@ -53,6 +53,9 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
  *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
  *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?}   each fee a MaybeKnown<Amount>
+ *        /test/account-mode {account,mode?,actionsToday?,unreported?,refuseSwitch?}   the account's mode (J-derivatives-29),
+ *                                                         the day's action count, the mode withheld from reads, a mode
+ *                                                         switch the venue refuses with that reason (null: takes it)
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -547,6 +550,60 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
         "into the venue's TEST insurance fund.",
     },
   },
+  {
+    // J-derivatives-14: a TEST perpetual of its own that a developer reads and trades through our API: its open interest
+    // and long/short count come from positions only this journey opens, its funding periods only it closes, and it
+    // publishes no margin tiers (the risk-limit ladder reads unset). Only J-derivatives-14 trades it, and it has no TEST
+    // makers' ladder, so every position on it is one the journey opened. Priced by its TEST oracle, so a fill never moves
+    // its mark.
+    symbol: 'XDEV-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XDEV',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    // TEST: open interest reported, with no deployer cap.
+    openInterestCap: null,
+    // TEST: hourly funding as on XFND-PERP.
+    funding: {
+      rate: ZERO,
+      intervalSeconds: 3600,
+      settles: {
+        interestRate: parseAmount('0.0000125'),
+        rateCap: parseAmount('0.04'),
+        rule:
+          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
+          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
+      },
+    },
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    // TEST: a limit price more than 5% from the middle of its book is refused (the order price limit a developer reads).
+    priceBandBps: parseAmount('500'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+    // TEST: liquidated as XBIL-PERP is, so the venue publishes its liquidation and auto-deleveraging alerts here.
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
+        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
+        "into the venue's TEST insurance fund.",
+    },
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
@@ -980,6 +1037,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.isolatedMargin(account(body), str(body, 'symbol'));
     case '/account-summary':
       return sim.accountSummary(account(body));
+    case '/account-mode':
+      return sim.accountMode(account(body));
     case '/sub-accounts':
       return sim.subAccounts(account(body));
     case '/transfer':
@@ -1086,6 +1145,32 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         otherFeesUnpublished: sim.switches.otherFeesUnpublished,
         label: 'TEST',
       };
+    }
+    case '/test/account-mode': {
+      // J-derivatives-29: the account's mode, its day's action count, a mode withheld from reads, a switch refused.
+      const set: Parameters<TestVenueSimulator['testAccountMode']>[1] = {};
+      if (body.mode !== undefined) {
+        if (body.mode !== 'standard' && body.mode !== 'unified' && body.mode !== 'portfolio_margin')
+          throw new VenueWireError("mode is 'standard', 'unified' or 'portfolio_margin'");
+        set.mode = body.mode;
+      }
+      if (body.actionsToday !== undefined) {
+        const n = body.actionsToday;
+        if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 1_000_000)
+          throw new VenueWireError('actionsToday is a whole number 0 to 1000000');
+        set.actionsToday = n;
+      }
+      if (body.unreported !== undefined) {
+        if (typeof body.unreported !== 'boolean') throw new VenueWireError('unreported is true or false');
+        set.unreported = body.unreported;
+      }
+      if (body.refuseSwitch !== undefined) {
+        if (body.refuseSwitch !== null && (typeof body.refuseSwitch !== 'string' || body.refuseSwitch.trim() === ''))
+          throw new VenueWireError("refuseSwitch is the venue's reason, or null");
+        set.refuseSwitch = body.refuseSwitch;
+      }
+      sim.testAccountMode(account(body), set);
+      return { label: 'TEST', ...(await sim.accountMode(account(body))) };
     }
     case '/test/account-switches':
       return { ...setAccountSwitches(sim, body), label: 'TEST' };
@@ -1365,6 +1450,8 @@ export async function startTestVenueServer(
     markets: TEST_VENUE_MARKETS,
     feeSchedule: TEST_VENUE_FEE_TIERS,
     chainId: opts.chainId,
+    // Each start names its claims apart: a restarted venue counts claims from one again, and our books key a claim by its id.
+    claimIdPrefix: `sim-builder-claim-${Date.now().toString(36)}`,
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),
     ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),

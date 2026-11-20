@@ -1,5 +1,16 @@
 import { useCallback, useState, type FormEvent } from 'react';
-import { z } from 'zod';
+import type { z } from 'zod';
+import {
+  bankAccountClosureRowSchema as closureRowSchema,
+  bankAccountClosureSchema as closureSchema,
+  bankAccountDataRowSchema as dataRowSchema,
+  bankAccountDataSchema as dataSchema,
+  bankAccountOnboardingSchema as onboardingSchema,
+  bankAccountRequestSchema as requestSchema,
+  bankAccountRequestsSchema as requestsSchema,
+  bankAccountReviewsSchema as reviewsSchema,
+  bankAccountReviewSchema as reviewSchema,
+} from '@intafaced/contracts/bank-money-room';
 import { useSession } from '../session';
 import { defineCopy } from '../../shared/i18n';
 import { useResource } from '../../shared/resource';
@@ -77,79 +88,6 @@ export const bankAccountCopy = defineCopy('bank-account', {
   unread: 'This could not be read from the bank: {message}',
   refused: '{message}',
 });
-
-const iso = z.string();
-// hand-declared-ok: svc-bank's bankAccount router has no browser-safe schema in packages/contracts yet
-const onboardingSchema = z.object({
-  label: z.string(),
-  steps: z.array(z.object({ id: z.string(), title: z.string(), status: z.enum(['done', 'open']), doneWith: z.string().nullable() })),
-  requirements: z.array(z.string()),
-  ownerRequirements: z.union([
-    z.object({ state: z.literal('published'), requirements: z.array(z.string()) }),
-    z.object({ state: z.literal('unset'), code: z.string() }),
-  ]),
-  identityCase: z.object({ tier: z.string(), accepted: z.boolean() }),
-  complete: z.boolean(),
-  openRequests: z.number(),
-  openReviews: z.number(),
-});
-const requestSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  detail: z.string(),
-  openedAt: iso,
-  dueAt: iso,
-  status: z.enum(['open', 'under_review']),
-  answeredAt: iso.nullable(),
-  file: z.object({ name: z.string(), type: z.string(), size: z.number(), sha256: z.string() }).nullable(),
-  label: z.string(),
-});
-const requestsSchema = z.object({
-  requests: z.array(requestSchema),
-  upload: z.union([
-    z.object({ state: z.literal('published'), allowedTypes: z.array(z.string()), maxBytes: z.number() }),
-    z.object({ state: z.literal('unset'), code: z.string() }),
-  ]),
-});
-const reviewSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  dueAt: iso,
-  missedEffect: z.string(),
-  status: z.enum(['open', 'answered']),
-  answeredAt: iso.nullable(),
-  label: z.string(),
-});
-const closureRowSchema = z.object({
-  id: z.string(),
-  state: z.enum(['pending', 'closed', 'reopened']),
-  requestedAt: iso,
-  balances: z.array(z.object({ assetId: z.string(), spaceId: z.string().nullable(), amount: z.string() })),
-  destination: z.object({ name: z.string(), accountRef: z.string() }).nullable(),
-  payoutMoveIds: z.array(z.string()),
-  paidOutAt: iso.nullable(),
-  closedAt: iso.nullable(),
-  reopenedAt: iso.nullable(),
-  label: z.string(),
-});
-const closureSchema = z.object({
-  state: z.enum(['open', 'pending', 'closed']),
-  closures: z.array(closureRowSchema),
-  reopenWindow: z.union([
-    z.object({ state: z.literal('published'), days: z.number(), until: iso.nullable() }),
-    z.object({ state: z.literal('unset'), code: z.string() }),
-  ]),
-});
-const dataRowSchema = z.object({
-  id: z.string(),
-  kind: z.enum(['access', 'portability']),
-  requestedAt: iso,
-  status: z.literal('received'),
-  partnerRef: z.string(),
-  label: z.string(),
-});
-const dataSchema = z.object({ requests: z.array(dataRowSchema) });
-const reviewsSchema = z.object({ reviews: z.array(reviewSchema) });
 
 type Failure = { code: string; message: string };
 type Read<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'failed'; failure: Failure };

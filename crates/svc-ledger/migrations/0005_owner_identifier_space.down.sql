@@ -1,0 +1,25 @@
+-- Reverses 0005_owner_identifier_space.sql
+--
+-- Dropping the constraint restores the old behaviour exactly: `owner_id` goes
+-- back to being `text` that accepts any identifier space, and an adapter
+-- handing over a vendored `member.id` where a user UUID belongs can once again
+-- open a second conformant account for the same human without anything raising.
+-- Reversible does not mean harmless — this is the door, re-opened.
+--
+-- WHAT THIS DELIBERATELY DOES NOT UNDO, and why that is correct:
+--
+--   STEP 1 (lowercasing UUID owner_ids) is NOT reversed. Re-uppercasing would
+--   have to invent which rows were previously spelled which way, and the whole
+--   reason for the change is that two spellings of one UUID are two rows for
+--   one human. Restoring that is restoring a bug, not restoring a state. The
+--   lowercase form is valid under the pre-0005 schema, so nothing here needs
+--   it undone.
+--
+--   STEP 2 (deleting accounts with zero balance, no entries and no snapshots)
+--   is NOT reversed. Those rows carried no value and appeared nowhere in the
+--   journal; there is nothing to restore and no audit trail was lost.
+--
+--   STEP 3 raises rather than writing, so it has nothing to reverse.
+--
+-- No data is therefore at risk in this direction — only the invariant.
+ALTER TABLE "ledger"."accounts" DROP CONSTRAINT IF EXISTS "accounts_owner_id_space_ck";

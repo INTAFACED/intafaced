@@ -86,6 +86,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
+import { TOUCH_JOB } from './main-first.mjs';
 import {
   REACH_MAP_MODE,
   alwaysRun,
@@ -595,6 +596,39 @@ export function pullPick(paths, touch, { atHead = () => true, reach = null, name
 
 /** A run by hand's title (real-app-journeys.yml `run-name`): the journeys it was given, or `full`. */
 export const DISPATCH_TITLE = /^Real-app journeys by hand, (.+)$/;
+
+/**
+ * GitHub refuses to start a run whose concurrency group is longer than 400 characters: the run ends "failure" with no
+ * jobs ("This run likely failed because of a workflow file issue"). real-app-journeys.yml's group for a run by hand
+ * holds the branch and the whole journeys input (one group per branch and selection, workflow-concurrency.test.mjs
+ * rule 3), and GitHub's expressions can neither measure nor hash a string, so a long input can't start: 63 files on
+ * fix/ps-3298 (1556 characters) failed in run 44766798876. Measured on 20 Nov 2026 with the same group expression:
+ * a 400-character group started (run 44768303533) and a 401-character one failed (run 44768324557).
+ */
+export const DISPATCH_GROUP_MAX = 400;
+/** real-app-journeys.yml's concurrency group for a run by hand on `branch` given `journeys` (workflow-concurrency.test.mjs holds it to the workflow's expression). */
+export const dispatchGroup = (branch, journeys) => `real-app-journeys-refs/heads/${branch}:${journeys}`;
+
+/**
+ * The runs by hand that run `files` on `branch`: the files in order, split into as few lists as keep each run's
+ * concurrency group within DISPATCH_GROUP_MAX, so every one starts. A file whose group passes it on its own still gets
+ * its own run (it can't start: the branch name is too long to dispatch any journey on). Returns [[file]].
+ */
+export function dispatchBatches(branch, files) {
+  const batches = [];
+  for (const f of files ?? []) {
+    const last = batches.at(-1);
+    if (last && dispatchGroup(branch, [...last, f].join(' ')).length <= DISPATCH_GROUP_MAX) last.push(f);
+    else batches.push([f]);
+  }
+  return batches;
+}
+
+/** The `gh workflow run` commands that run `files` on `branch`, one a batch (dispatchBatches); `repo` adds `-R`. */
+export const dispatchCommands = (branch, files, repo = '') =>
+  dispatchBatches(branch, files).map(
+    (b) => `gh workflow run real-app-journeys.yml${repo ? ` -R ${repo}` : ''} --ref ${branch} -f journeys="${b.join(' ')}"`,
+  );
 const JOURNEY_FILE_NAME = /^[A-Za-z0-9._-]+\.pw\.mjs$/;
 /** A shard job of the journeys run (real-app-journeys.yml `journeys` job). */
 export const SHARD_JOB = /^Journeys \(shard \d+ of \d+\)$/;
@@ -690,13 +724,26 @@ export function pullRunsCover(
   return { full, files };
 }
 
-/** The PICK_ARTIFACT a run kept during its current attempt (made at or after the attempt started, not expired), or null. */
-export function currentPickArtifact(run, artifacts) {
-  const start = Date.parse(run?.run_started_at ?? run?.created_at ?? '');
+/**
+ * The PICK_ARTIFACT a run kept during its current attempt, or null: made at or after `touchStart`, when its latest
+ * attempt's touch job (TOUCH_JOB) started, else the attempt's start, and not expired. A re-run of only the failed jobs
+ * keeps the touch job and the pick it made; a re-run of every job, or a deferred attempt, starts the touch job again,
+ * so an older pick counts for nothing. (Failure it prevents: a pick counted only when made after the attempt began,
+ * so #9255's re-run of one failed shard, 20 Nov 2026, left its pick out, and its ready run ran 62 of its 63 journey
+ * files again: 31 more minutes on a green head.)
+ */
+export function currentPickArtifact(run, artifacts, touchStart = null) {
+  const start = Date.parse(touchStart ?? run?.run_started_at ?? run?.created_at ?? '');
   const fits = (artifacts ?? []).filter(
     (a) => a?.name === PICK_ARTIFACT && !a.expired && Number.isFinite(start) && Date.parse(a.created_at ?? '') >= start,
   );
   return fits.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+}
+
+/** When the latest attempt's touch job of a run started (`jobs`: its jobs, filter=latest), or null. Pure. */
+export function touchStarted(jobs) {
+  const j = (jobs ?? []).find((x) => x?.name === TOUCH_JOB && x?.started_at);
+  return j ? j.started_at : null;
 }
 
 /** The .mjs files directly in a checkout's real-app folder, name to text, or null when they can't be read. */
@@ -801,15 +848,38 @@ function behindFromApi(map) {
 const ghApi = (path, encoding = 'utf8') =>
   execFileSync('gh', ['api', path], { encoding, maxBuffer: 64 * 2 ** 20, stdio: ['ignore', 'pipe', 'ignore'] });
 
-/** When this journeys run was created (GITHUB_RUN_ID, read with gh), so the seal can pick the same map build; now when
- *  it can't be read (a run by hand). */
-function runCreated() {
+/**
+ * When this journeys run reads main's touched-journeys map: the creation of the first pull request run of this workflow
+ * on its head (this run's own, when it is the first), so a draft's run, its `ready_for_review` run and the seal
+ * (journey-seal.mjs mapChosenAt) read one map build on one head; now when it can't be read (a run by hand). (Failure it
+ * prevents: each run read the map at its own creation, so a map rebuilt between a draft's run and its ready run
+ * widened the bounded set, and the ready run ran the extra journey files after the first run had finished: 18 to 25
+ * more minutes on #9244, #9248 and #9251, 20 Nov 2026.)
+ */
+function mapTime() {
   try {
     const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
-    const at = Date.parse(JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(process.env.GITHUB_RUN_ID)}`)).created_at);
-    if (process.env.GITHUB_RUN_ID && Number.isFinite(at)) return at;
+    const self = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(process.env.GITHUB_RUN_ID)}`));
+    const at = Date.parse(self.created_at);
+    if (!process.env.GITHUB_RUN_ID || !Number.isFinite(at)) return Date.now();
+    if (self.event !== 'pull_request' || !/^[0-9a-f]{40}$/.test(String(self.head_sha))) return at;
+    try {
+      return firstPullRunAt(pullRunsOnHead(repo, self.head_sha), self) ?? at;
+    } catch {
+      return at;
+    }
   } catch {}
   return Date.now();
+}
+
+/** The creation time of the first of `runs` (this workflow's pull request runs on `self`'s head) and `self`, or null,
+ *  as mapChosenAt reads the same runs. Pure. */
+export function firstPullRunAt(runs, self, workflow = '.github/workflows/real-app-journeys.yml') {
+  const made = [...(runs ?? []), self]
+    .filter((r) => r?.event === 'pull_request' && r?.head_sha === self?.head_sha && (r?.path ?? workflow) === workflow)
+    .map((r) => Date.parse(r?.created_at))
+    .filter(Number.isFinite);
+  return made.length ? Math.min(...made) : null;
 }
 
 /** --reuse: the pull request run's target after reusableRuns (env TARGET, HEAD_SHA, GITHUB_REPOSITORY, GH_TOKEN), as
@@ -897,7 +967,11 @@ function readPicks(repo, sha, runs, self) {
         continue;
       try {
         const arts = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/artifacts?name=${PICK_ARTIFACT}&per_page=20`)).artifacts;
-        const art = currentPickArtifact(r, arts);
+        let touch = null;
+        try {
+          touch = touchStarted(JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?filter=latest&per_page=100`)).jobs);
+        } catch {}
+        const art = currentPickArtifact(r, arts, touch);
         if (!art) continue;
         const zip = join(dir, `${Number(r.id)}.zip`);
         writeFileSync(zip, ghApi(`repos/${repo}/actions/artifacts/${Number(art.id)}/zip`, 'buffer'));
@@ -943,8 +1017,8 @@ async function main() {
     process.exit(2);
   }
   // --reach: product paths run only the journeys main's touched-journeys map says reach them, judged against this
-  // checkout of the head. The map is the newest one main's map workflow built and verified before this run was created
-  // (journey-reach-map.mjs builtMap), or this file's own committed copy (the default branch's, in the journeys workflow)
+  // checkout of the head. The map is the newest one main's map workflow built and verified before the head's first pull
+  // request run was created (mapTime; journey-reach-map.mjs builtMap), or this file's own committed copy (the default branch's, in the journeys workflow)
   // when that one is newer or the build can't be read.
   const arg = (k) => (args.indexOf(k) >= 0 ? args[args.indexOf(k) + 1] : undefined);
   const ids = namedJourneyIds({
@@ -957,7 +1031,7 @@ async function main() {
     const built = await builtMap({
       get: (path) => JSON.parse(ghApi(path.replace(/^\//, ''))),
       raw: (path) => ghApi(path.replace(/^\//, ''), 'buffer'),
-      before: runCreated(),
+      before: mapTime(),
       repo,
     });
     const map = newerMap(built, loadMap());
@@ -985,7 +1059,12 @@ async function main() {
     if (t.named) console.log(`  named: ${t.named}`);
     if (t.bounded) console.log(`  bounded: ${t.bounded}`);
     for (const p of (t.mainJudges ?? []).slice(0, 20)) console.log(`  main's full run judges: ${printable(p)}`);
-    console.log(`files: gh workflow run real-app-journeys.yml -R INTAFACED/intafaced --ref <branch> -f journeys="${t.files.join(' ')}"`);
+    let branch = '';
+    try {
+      branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {}
+    for (const c of dispatchCommands(branch && branch !== 'HEAD' ? branch : '<branch>', t.files, 'INTAFACED/intafaced'))
+      console.log(`files: ${c}`);
   } else console.log('none: no journeys run executes or reads what this change touches');
 }
 
