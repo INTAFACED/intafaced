@@ -67,6 +67,27 @@ export function offeredTif(market: Pick<VenueMarket, 'timeInForce'>, name: TimeI
   return (market.timeInForce as readonly string[]).includes(name) ? (name as VenueTimeInForce) : null;
 }
 
+/**
+ * A time in force on the venue spot desk: the venue's own, or good-till-date, which the venue does not offer and our
+ * engine runs instead (J-cex-spot-03 #7, by the owner's choice): the order rests on the venue good
+ * till cancelled, and our engine cancels it at the expiry under the person's agent permission.
+ */
+export type DeskTif = VenueTimeInForce | 'GTD';
+
+/** What the desk lets the person pick for `name`: the venue's own offer, else good-till-date run by our engine, else null. */
+export function deskTif(market: Pick<VenueMarket, 'timeInForce'>, name: TimeInForceName): DeskTif | null {
+  return offeredTif(market, name) ?? (name === 'GTD' ? 'GTD' : null);
+}
+
+/** The venue's own time in force for a desk choice: a good-till-date order rests on the venue good till cancelled. */
+export const venueTifOf = (tif: DeskTif): VenueTimeInForce => (tif === 'GTD' ? 'GTC' : tif);
+
+/** A good-till-date order's client id for our engine, from the ticket's held order key: one id per drafted order. */
+export function gtdClientId(orderKey: string): string {
+  const tail = orderKey.replace(/[^A-Za-z0-9_-]+/g, '-').slice(-56);
+  return `gtd-${tail}`.replace(/-+/g, '-');
+}
+
 /** Order types the desk names beside limit and market; a type the venue does not list is shown disabled. */
 export const OTHER_ORDER_TYPES = ['stop_limit', 'stop', 'take_profit', 'trailing_stop'] as const;
 
