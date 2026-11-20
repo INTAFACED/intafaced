@@ -54,7 +54,7 @@ export function VerifyEmail() {
     if (!userId) return;
     const controller = new AbortController();
     void fetchMe(api, controller.signal).then((me) => {
-      if (controller.signal.aborted || me.kind !== 'ok' || me.userId !== userId || me.emailVerified === undefined) return;
+      if (controller.signal.aborted || me.kind !== 'ok' || me.userId !== userId) return;
       setStatus(me.emailVerified ? 'verified' : 'unverified');
     });
     return () => controller.abort();

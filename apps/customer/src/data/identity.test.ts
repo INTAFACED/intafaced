@@ -29,8 +29,8 @@ describe('cleanHandle', () => {
 
 describe('fetchMe', () => {
   it('reads the caller own handle', async () => {
-    const { api, urls } = client(() => trpc({ userId: ID, handle: 'test_friend' }));
-    expect(await fetchMe(api)).toEqual({ kind: 'ok', userId: ID, handle: 'test_friend' });
+    const { api, urls } = client(() => trpc({ userId: ID, handle: 'test_friend', emailVerified: true }));
+    expect(await fetchMe(api)).toEqual({ kind: 'ok', userId: ID, handle: 'test_friend', emailVerified: true });
     expect(urls[0]).toBe('/api/identity/trpc/me');
   });
   it('passes through emailVerified when the server sends it', async () => {
@@ -44,6 +44,9 @@ describe('fetchMe', () => {
   it('is "failed" on a server error or an answer of the wrong shape', async () => {
     expect(await fetchMe(client(() => error(500)).api)).toEqual({ kind: 'failed' });
     expect(await fetchMe(client(() => trpc({ userId: 'nope', handle: 'a' })).api)).toEqual({ kind: 'failed' });
+    // svc-identity always says whether the email is confirmed; an answer that does not is not the record's.
+    expect(await fetchMe(client(() => trpc({ userId: ID, handle: 'a' })).api)).toEqual({ kind: 'failed' });
+    expect(await fetchMe(client(() => trpc({ userId: ID, handle: '', emailVerified: true })).api)).toEqual({ kind: 'failed' });
   });
 });
 

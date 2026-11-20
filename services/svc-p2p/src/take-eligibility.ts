@@ -20,7 +20,9 @@
  * (erasure.ts) list and delete the caller's own rows.
  */
 import { checkAccess, type KycTier } from '@intafaced/config';
-import { forwardedPrincipalHeaders, unwrapTrpcData, type Context } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders, type Context } from '@intafaced/contracts';
+import { IDENTITY_ME } from '@intafaced/contracts/identity-handles';
+import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
 import type { P2P_ELIGIBILITY_CHECK_IDS, P2P_ELIGIBILITY_STATES } from '@intafaced/contracts/p2p-procedures';
 
 export type EligibilityCheckId = (typeof P2P_ELIGIBILITY_CHECK_IDS)[number];
@@ -75,7 +77,7 @@ export function createIdentityContactReader(options: { identityUrl: string; fetc
       }
       let body: unknown;
       try {
-        const response = await (options.fetcher ?? fetch)(`${base}/trpc/me`, {
+        const response = await (options.fetcher ?? fetch)(trpcRecordRequest(IDENTITY_ME, base, undefined).url, {
           method: 'GET',
           redirect: 'error',
           headers,
@@ -89,11 +91,11 @@ export function createIdentityContactReader(options: { identityUrl: string; fetc
           'p2p.contact_unverifiable',
         );
       }
-      const confirmed = (unwrapTrpcData(body) as { emailVerified?: unknown } | null)?.emailVerified;
-      if (typeof confirmed !== 'boolean') {
+      const me = trpcRecordReply(IDENTITY_ME, body);
+      if (me === null) {
         throw new TakeGateError('p2p.contact_unverifiable: identity me carried no emailVerified', 'p2p.contact_unverifiable');
       }
-      return confirmed;
+      return me.emailVerified;
     },
   };
 }

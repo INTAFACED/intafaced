@@ -14,7 +14,10 @@ vi.mock('../features/session/session', () => ({
   useSession: () => ({
     userId: USER,
     profiles: world.profiles,
-    api: { query: (_module: string, procedure: string) => world.reads[procedure]!() },
+    api: {
+      query: (_module: string, procedure: string) => world.reads[procedure]!(),
+      call: (record: { path: string }) => world.reads[record.path]!(),
+    },
   }),
 }));
 vi.mock('./location', async (original) => {
@@ -60,7 +63,7 @@ beforeEach(() => {
   world.navigated = [];
   world.profiles = profiles();
   world.reads = {
-    me: ok({ userId: USER, handle: 'test_user' }),
+    me: ok({ userId: USER, handle: 'test_user', emailVerified: true }),
     'profile.get': ok({ displayName: 'TEST Person', locale: 'en', region: null, version: 1 }),
     'kyc.status': ok({ tier: 'basic', records: [] }),
   };

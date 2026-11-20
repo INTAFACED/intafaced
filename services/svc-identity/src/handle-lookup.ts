@@ -23,7 +23,7 @@ import type { Sql } from 'postgres';
 export const HANDLE_PATTERN = /^[a-zA-Z0-9_]{3,32}$/;
 
 /** Stable code the client can branch on. */
-export const HANDLE_LOOKUP_RATE_LIMITED = 'identity.handle_lookup_rate_limited';
+export { HANDLE_LOOKUP_RATE_LIMITED } from '@intafaced/contracts/identity-handles';
 
 export interface HandleLookupLimit {
   /** Lookups allowed per caller per window. */
