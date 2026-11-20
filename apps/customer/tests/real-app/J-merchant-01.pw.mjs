@@ -137,9 +137,13 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   // Each period's tiles: a money figure the service has no rows for reads "—" with "No payments in this period", never
   // 0.00; the payment count is the service's own measured count; refunds issued reads None while the refunds list is
   // empty; and the strip carries that period's own as-of.
-  await stored();
-  expect(refundLists.length).toBeGreaterThan(0);
   release();
+  await expect
+    .poll(async () => {
+      await stored();
+      return refundLists.length;
+    })
+    .toBeGreaterThan(0);
   const metrics = page.getByRole('region', { name: 'Reporting period' });
   for (const [preset, button] of [
     ['today', /^Today \(UTC\)/],
