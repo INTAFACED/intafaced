@@ -78,13 +78,14 @@ pub fn producer(settings: &Json) -> String {
     }
 }
 
-/// One issue sweep over the production catalogue: `academy.issueDueCertificates()`.
-pub fn sweep(
+/// The certificate half of the service over the production catalogue, as `index.ts` builds it, for one use.
+pub fn with_certs<T>(
     store: &crate::db::Store,
     ports: &Ports,
     settings: &Json,
     clock: fn() -> Instant,
-) -> Result<i64, crate::errors::Refusal> {
+    f: impl FnOnce(&service::Certs<'_>) -> T,
+) -> T {
     let owner = Owner::from_settings(settings);
     let publisher = xp::BusPublisher {
         bus: &*ports.bus,
@@ -100,5 +101,33 @@ pub fn sweep(
         issued_rows: owner.issued_rows,
         wall: clock,
     };
-    certs.issue_due_certificates(clock().0)
+    f(&certs)
+}
+
+/// One issue sweep over the production catalogue: `academy.issueDueCertificates()`.
+pub fn sweep(
+    store: &crate::db::Store,
+    ports: &Ports,
+    settings: &Json,
+    clock: fn() -> Instant,
+) -> Result<i64, crate::errors::Refusal> {
+    with_certs(store, ports, settings, clock, |certs| {
+        certs.issue_due_certificates(clock().0)
+    })
+}
+
+/// `settleCertificatesNeeding(userId, requirement, now)` over the production catalogue: what a completion, an Undo or
+/// an assessment result in another slice starts. A failure is logged and never refuses the call that started it.
+pub fn settle_needing(
+    store: &crate::db::Store,
+    ports: &Ports,
+    settings: &Json,
+    clock: fn() -> Instant,
+    user_id: &str,
+    requirement: &str,
+    now: i64,
+) {
+    with_certs(store, ports, settings, clock, |certs| {
+        certs.settle_certificates_needing(user_id, requirement, now);
+    });
 }

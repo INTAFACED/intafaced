@@ -2,9 +2,9 @@
 //! access records, the progress page, the video position and its completions, and Complete and Undo.
 //!
 //! Settling certificates and programmes after a completion (`settleCertificatesNeeding`, `settleProgrammesHolding`) is
-//! the certificate and programme slices' work: it is called here through [`Settle`], which those slices fill. Until
-//! they do, it settles nothing (the TypeScript catches and logs every failure of both, so a completion's answer never
-//! depends on them).
+//! the certificate and programme slices' work: it is called here through [`Settle`], which the learner slice fills with
+//! theirs (`slices/learner.rs`). Each logs its own failure, so a completion's answer never depends on them, as in the
+//! TypeScript.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,10 +13,13 @@ use postgres::GenericClient;
 use service_kit::json::Json;
 use service_kit::schema::js_trim;
 
-use super::reads::{self, Grade};
+use super::reads;
 use super::sql::{self, cell, exec, first, iso, ms, q};
 use super::store::{Enrollment, Store};
 use super::video;
+use crate::assessment::reads::{self as quiz, Grade};
+use crate::authoring::release::course_start;
+use crate::authoring::terms::{self as course_terms, Terms};
 use crate::curriculum::{gates, links, spine};
 use crate::errors::{AcademyError, Refusal};
 use crate::ports::Ports;
@@ -27,28 +30,30 @@ pub fn curriculum_not_found() -> Refusal {
 }
 
 /// The certificate and programme settling a completion or an Undo starts (`settleCertificatesNeeding`,
-/// `settleProgrammesHolding`). Each failure is the settler's to log, never the completion's.
-pub struct Settle {
-    pub certificates_needing: fn(&Pool, &str, &str, i64),
-    pub programmes_holding: fn(&Pool, &str, &str, i64),
+/// `settleProgrammesHolding`), each called as `(userId, itemSlug, now)`. Each failure is the settler's to log, never the
+/// completion's.
+pub struct Settle<'a> {
+    pub certificates_needing: &'a dyn Fn(&str, &str, i64),
+    pub programmes_holding: &'a dyn Fn(&str, &str, i64),
 }
 
-fn settle_nothing(_: &Pool, _: &str, _: &str, _: i64) {}
+fn settle_nothing(_: &str, _: &str, _: i64) {}
 
-impl Settle {
-    /// Nothing settles yet: the certificate and programme slices own both.
-    pub const NONE: Settle = Settle {
-        certificates_needing: settle_nothing,
-        programmes_holding: settle_nothing,
+impl Settle<'_> {
+    /// Settles nothing: for a test of the learner's own rows alone.
+    pub const NONE: Settle<'static> = Settle {
+        certificates_needing: &settle_nothing,
+        programmes_holding: &settle_nothing,
     };
 }
 
 /// What the service is built with that the learner calls read (`AcademyServiceOptions`).
 pub struct Options<'a> {
     pub watch_threshold_seconds: Option<i64>,
-    pub video_min_tier: &'a str,
-    pub video_min_stake: &'a str,
-    pub settle: &'a Settle,
+    /// The video store and gate the library is built with (`videoStorageFromEnv`, `videoGateFromEnv`).
+    pub video_storage: Option<&'a crate::authoring::storage::Storage>,
+    pub video_gate: &'a crate::authoring::video::Gate,
+    pub settle: &'a Settle<'a>,
 }
 
 /// A completion: `{ userId, itemSlug, completedAt }`.
@@ -133,7 +138,7 @@ pub fn course_enrolment_view(
     path: &str,
     active: Option<&Enrollment>,
     starts_at: Option<i64>,
-    terms: &reads::Terms,
+    terms: &Terms,
     seats_taken: i64,
     now: i64,
 ) -> Json {
@@ -143,21 +148,16 @@ pub fn course_enrolment_view(
             "startsAt",
             starts_at.map_or(Json::Null, |s| Json::str(iso(s))),
         ),
-        (
-            "seatCap",
-            terms
-                .seat_cap
-                .map_or(Json::Null, |c| Json::int(i64::from(c))),
-        ),
+        ("seatCap", terms.seat_cap.map_or(Json::Null, Json::int)),
         (
             "seatsRemaining",
-            terms.seat_cap.map_or(Json::Null, |c| {
-                Json::int((i64::from(c) - seats_taken).max(0))
-            }),
+            terms
+                .seat_cap
+                .map_or(Json::Null, |c| Json::int((c - seats_taken).max(0))),
         ),
         (
             "closed",
-            reads::closed_reason(terms, seats_taken, now).map_or(Json::Null, Json::str),
+            course_terms::closed_reason(terms, seats_taken, now).map_or(Json::Null, Json::str),
         ),
         ("tracks", tracks()),
         (
@@ -254,8 +254,8 @@ impl Learning<'_> {
     pub fn course_enrolment(&self, user_id: &str, slug: &str, now: i64) -> Result<Json, Refusal> {
         let path = links::published_course(slug)?;
         let enrolments = self.store().my_enrollments(user_id)?;
-        let starts_at = sql::on_pool(self.pool, |c| reads::course_starts_at(c, path))?;
-        let terms = sql::on_pool(self.pool, |c| reads::course_terms(c, path))?;
+        let starts_at = sql::on_pool(self.pool, |c| course_start(c, path))?;
+        let terms = sql::on_pool(self.pool, |c| course_terms::read(c, path))?;
         let taken = self.store().seats_taken(path)?;
         let active = enrolments.iter().find(|e| e.path_slug == path);
         Ok(course_enrolment_view(
@@ -284,25 +284,24 @@ impl Learning<'_> {
         path: &str,
         now: i64,
     ) -> Result<Enrollment, Refusal> {
-        let terms = sql::on_pool(self.pool, |c| reads::course_terms(c, path))?;
+        let terms = sql::on_pool(self.pool, |c| course_terms::read(c, path))?;
         let mine = self.store().my_enrollments(user_id)?;
         if let Some(active) = mine.into_iter().find(|e| e.path_slug == path) {
             return Ok(active);
         }
-        if let Some(closed) = reads::closed_reason(&terms, 0, now) {
+        if let Some(closed) = course_terms::closed_reason(&terms, 0, now) {
             return Err(AcademyError::new(
                 format!("academy.enrolment_closed track=audit reason={closed}"),
                 "academy.enrolment_closed",
             )
             .into());
         }
-        self.store()
-            .enroll_cert_path(user_id, path, terms.seat_cap.map(i64::from))
+        self.store().enroll_cert_path(user_id, path, terms.seat_cap)
     }
 
     /// `publicCourses()`: the catalogue's cards, without a course staff hid or unpublished.
     pub fn public_courses(&self) -> Result<Json, Refusal> {
-        let unlisted = reads::unlisted(self.pool)?;
+        let unlisted = sql::on_pool(self.pool, course_terms::unlisted)?;
         Ok(Json::Array(
             links::public_courses()
                 .into_iter()
@@ -320,10 +319,13 @@ impl Learning<'_> {
 
     /// `publicCourse(slug, now)`: the published quizzes first, then the page.
     pub fn public_course(&self, slug: &str, now: i64) -> Result<Json, Refusal> {
-        let quizzes = reads::published_slugs(self.pool)?;
+        let quizzes = sql::on_pool(self.pool, quiz::published_slugs)?;
         links::public_course(
             slug,
-            reads::certificate_title,
+            |path: &str| {
+                crate::certs::catalog::for_path(path, crate::certs::catalog::production())
+                    .map(|c| c.title.clone())
+            },
             |item| gates::opens_signed_out(self.pool.pool()?, item, now),
             &quizzes,
         )
@@ -372,7 +374,7 @@ impl Learning<'_> {
         let mut out = Vec::new();
         for row in &enrolments {
             let path = row.path_slug.as_str();
-            let starts_at = sql::on_pool(self.pool, |c| reads::course_starts_at(c, path))?;
+            let starts_at = sql::on_pool(self.pool, |c| course_start(c, path))?;
             let mut open = Vec::new();
             for item in spine::list(Some(path), None) {
                 if gates::item_release(self.pool.pool()?, user_id, &item.slug, now, starts_at)?
@@ -423,7 +425,7 @@ impl Learning<'_> {
     /// `progressPage(userId, now)`.
     pub fn progress_page(&self, user_id: &str, now: i64) -> Result<Json, Refusal> {
         let enrolments = self.published_enrolments(user_id)?;
-        let all_grades = reads::grades(self.pool, user_id, now)?;
+        let all_grades = sql::on_pool(self.pool, |c| quiz::grades(c, user_id, now))?;
         let course_grades = reads::course_grades(self.pool, user_id)?;
         let grades: Vec<Grade> = all_grades
             .into_iter()
@@ -556,8 +558,8 @@ impl Learning<'_> {
     fn assert_may_watch(&self, user_id: &str, tier: &str) -> Result<(), Refusal> {
         video::assert_entitled(
             self.ports,
-            self.options.video_min_tier,
-            self.options.video_min_stake,
+            self.options.video_storage,
+            self.options.video_gate,
             user_id,
             tier,
         )
@@ -647,7 +649,7 @@ impl Learning<'_> {
         let quizzes = if attached.is_empty() {
             BTreeSet::new()
         } else {
-            reads::published_slugs(self.pool)?
+            sql::on_pool(self.pool, quiz::published_slugs)?
         };
         let items: Vec<String> = attached
             .into_iter()
@@ -666,7 +668,7 @@ impl Learning<'_> {
                     Err(e) => return Err(e),
                 }
                 self.record_completion(user_id, slug, now, None)?;
-                (self.options.settle.programmes_holding)(self.pool, user_id, slug, now);
+                (self.options.settle.programmes_holding)(user_id, slug, now);
             }
         }
         let mut completed = Vec::new();
@@ -694,7 +696,7 @@ impl Learning<'_> {
             return Ok(existing.json());
         }
         gates::assert_may_read(self.pool.pool()?, user_id, slug, now)?;
-        let quiz = reads::quiz_pass_mark(self.pool, slug)?;
+        let quiz = sql::on_pool(self.pool, |c| quiz::pass_mark(c, slug))?;
         if quiz == Some(None) {
             return Err(AcademyError::new(
                 format!("academy.pass_mark_unset slug={slug}"),
@@ -726,7 +728,9 @@ impl Learning<'_> {
         }
         let met = match (rule, &video) {
             ("view", _) => true,
-            ("score", _) => reads::passed_slugs(self.pool, user_id, now)?.contains(slug),
+            ("score", _) => {
+                sql::on_pool(self.pool, |c| quiz::passed_slugs(c, user_id, now))?.contains(slug)
+            }
             (_, Some(v)) => self
                 .watched_items(user_id, &[(slug.to_owned(), v.clone())])?
                 .contains(slug),
@@ -740,8 +744,8 @@ impl Learning<'_> {
             .into());
         }
         let (record, _) = self.record_completion(user_id, slug, now, None)?;
-        (self.options.settle.certificates_needing)(self.pool, user_id, slug, now);
-        (self.options.settle.programmes_holding)(self.pool, user_id, slug, now);
+        (self.options.settle.certificates_needing)(user_id, slug, now);
+        (self.options.settle.programmes_holding)(user_id, slug, now);
         Ok(record.json())
     }
 
@@ -875,24 +879,14 @@ impl Learning<'_> {
         })?;
         // A delayed certificate waiting on this item stops waiting (a replay settles again, as the TypeScript does).
         if undone.is_some() {
-            (self.options.settle.certificates_needing)(self.pool, user_id, &slug, now);
+            (self.options.settle.certificates_needing)(user_id, &slug, now);
         }
         Ok(answer(undone.map_or(Json::Null, Json::String)))
     }
 }
 
-/// `requireReason(reason)` (`learners/learner-desk.ts`).
-pub fn require_reason(reason: &str) -> Result<String, Refusal> {
-    let trimmed = js_trim(reason);
-    if trimmed.is_empty() {
-        return Err(AcademyError::new(
-            "academy.reason_required a reason is required",
-            "academy.reason_required",
-        )
-        .into());
-    }
-    Ok(trimmed.to_owned())
-}
+/// `requireReason(reason)` (`learners/learner-desk.ts`): the learner desk's one rule.
+pub use crate::community::learner_desk::require_reason;
 
 /// The learner desk's stored key of an item staff marked complete (`LearnerDesk.markKey`).
 pub fn mark_key(user_id: &str, item_slug: &str, key: &str) -> String {
@@ -954,8 +948,8 @@ impl Learning<'_> {
         if !recorded {
             return Ok(done("the item was already complete"));
         }
-        (self.options.settle.certificates_needing)(self.pool, user_id, &slug, now);
-        (self.options.settle.programmes_holding)(self.pool, user_id, &slug, now);
+        (self.options.settle.certificates_needing)(user_id, &slug, now);
+        (self.options.settle.programmes_holding)(user_id, &slug, now);
         Ok(done("marked complete for the learner"))
     }
 }

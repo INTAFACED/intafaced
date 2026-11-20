@@ -20,6 +20,7 @@ pub mod grading;
 pub mod legacy;
 pub mod peer;
 pub mod quizzes;
+pub mod reads;
 pub mod release;
 pub mod reports;
 pub mod score;

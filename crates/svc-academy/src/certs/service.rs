@@ -328,20 +328,7 @@ impl Certs<'_> {
 
     /// `assessments.passedSlugs(userId, now)`: the passed, unvoided assessments whose result shows by `now`.
     pub fn passed_slugs(&self, user_id: &str, now: i64) -> Result<BTreeSet<String>, Refusal> {
-        self.with(|c| {
-            q(
-                c,
-                "SELECT DISTINCT a.slug FROM academy.assessment_attempts a \
-                   LEFT JOIN academy.quizzes q ON q.slug = a.slug \
-                  WHERE a.user_id = $1::text::uuid AND a.passed = true AND a.voided_at IS NULL \
-                    AND CASE WHEN GREATEST(a.hidden_until, q.results_hidden_until) > $2::text::timestamptz \
-                             THEN GREATEST(a.hidden_until, q.results_hidden_until) END IS NULL",
-                &[&user_id, &iso(now)],
-            )?
-            .iter()
-            .map(|r| cell(r, 0))
-            .collect()
-        })
+        self.with(|c| crate::assessment::reads::passed_slugs(c, user_id, now))
     }
 
     /// `existingGrant(userId, certId)`.
@@ -1055,22 +1042,16 @@ impl Certs<'_> {
         let Some(slug) = cert_id.strip_prefix(PROGRAMME_CERT_PREFIX) else {
             return Ok(self.definition(cert_id).map(|c| c.title.clone()));
         };
-        // `programmeRecords.get(slug)`: the record's select, of which the title is read.
+        // `programmeRecords.get(slug)`: the programme slice's read, of which the title is read.
         self.with(|c| {
-            q(
-                c,
-                "SELECT p.slug, p.title, p.summary, p.revision, p.updated_at, \
-                        (SELECT array_agg(c.course_slug ORDER BY c.position) FROM academy.programme_courses c WHERE c.programme_slug = p.slug) \
-                          AS course_slugs \
-                   FROM academy.programmes p \
-                  WHERE p.slug = $1 AND TRUE AND TRUE \
-                  ORDER BY p.created_at DESC, p.slug \
-                  LIMIT ALL",
-                &[&slug],
-            )?
-            .first()
-            .map(|r| cell(r, 1))
-            .transpose()
+            let w = crate::authoring::programmes::Where {
+                slug: Some(slug),
+                ..Default::default()
+            };
+            Ok(crate::authoring::programmes::select(c, &w)?
+                .into_iter()
+                .next()
+                .map(|r| r.title))
         })
     }
 

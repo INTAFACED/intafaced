@@ -35,9 +35,10 @@ fn listing() -> MemoryPaperFlags {
 /// The door as `index.ts` builds it with `TRADE_URL` set: trade's listing verifies every `paper: true`.
 fn door_with(extra: &[(&str, Json)], trade_url: bool) -> AcademyDoor {
     let mut ports = Ports::unwired();
-    ports.paper_flags = Box::new(listing());
     let mut pairs: Vec<(&str, Json)> = extra.to_vec();
     if trade_url {
+        // `index.ts` builds the trade port only when TRADE_URL is set.
+        ports.paper_flags = Box::new(listing());
         pairs.push(("TRADE_URL", Json::str("http://svc-trade:4004")));
     }
     support::door_over(

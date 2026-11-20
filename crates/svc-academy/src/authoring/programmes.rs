@@ -49,6 +49,8 @@ impl Record {
 #[derive(Default)]
 pub struct Where<'a> {
     pub slug: Option<&'a str>,
+    /// Only the programmes holding this course (`holding(course)`).
+    pub course: Option<&'a str>,
     pub limit: Option<i64>,
     pub mine: Option<(Vec<String>, Vec<String>)>,
 }
@@ -60,6 +62,13 @@ pub fn select<C: GenericClient>(c: &mut C, w: &Where<'_>) -> Result<Vec<Record>,
     if let Some(s) = w.slug {
         params.push(Box::new(s.to_owned()));
         clauses.push(format!("p.slug = ${}::text", params.len()));
+    }
+    if let Some(course) = w.course {
+        params.push(Box::new(course.to_owned()));
+        clauses.push(format!(
+            "EXISTS (SELECT 1 FROM academy.programme_courses c WHERE c.programme_slug = p.slug AND c.course_slug = ${}::text)",
+            params.len()
+        ));
     }
     if let Some((earned, courses)) = &w.mine {
         params.push(Box::new(earned.clone()));
@@ -530,6 +539,52 @@ pub fn programmes(
         }
         Ok(Json::Array(out))
     })
+}
+
+/// `settleProgrammesHolding(userId, itemSlug, now)`: after a completion, issues the certificate of every programme
+/// holding the item's course that the learner has now finished. The completion is already recorded and stays so; a
+/// failure here is logged, and the learner's next programme read issues what this could not.
+pub fn settle_programmes_holding(pool: &Store, user_id: &str, item_slug: &str, now: i64) {
+    let Some(course) = spine::get(item_slug).map(|i| i.path.clone()) else {
+        return;
+    };
+    let settled = sql::client(pool, |c| {
+        let completed: Vec<String> = query(
+            c,
+            "SELECT item_slug FROM academy.cert_item_completions WHERE user_id = $1::text::uuid",
+            &[&user_id],
+        )?
+        .iter()
+        .map(|r| get(r, "item_slug"))
+        .collect::<Result<_, _>>()?;
+        // A programme can only be finished by the completion that finished its course.
+        let items = spine::list(Some(&course), None);
+        if items.is_empty() || !items.iter().all(|i| completed.contains(&i.slug)) {
+            return Ok(());
+        }
+        let held = select(
+            c,
+            &Where {
+                course: Some(&course),
+                ..Where::default()
+            },
+        )?;
+        if held.is_empty() {
+            return Ok(());
+        }
+        let l = learner(c, user_id)?;
+        for record in &held {
+            standing(c, user_id, record, &l, now)?;
+        }
+        Ok(())
+    });
+    if let Err(err) = settled {
+        crate::certs::service::log_error(
+            &err,
+            &[("course", &course)],
+            "programme certificate issue failed; the next programme read retries it",
+        );
+    }
 }
 
 /// `PROGRAMME_SLUGS` (`curriculum/programmes.ts`): the four Blueprint paths a programme definition names.

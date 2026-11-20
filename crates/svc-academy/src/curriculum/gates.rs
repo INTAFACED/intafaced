@@ -150,20 +150,12 @@ fn cell<'a, T: postgres::types::FromSql<'a>>(
     row.try_get(i).map_err(|e| db::refusal(&e))
 }
 
-/// `readCourseStart(sql, path)` for the item's path.
+/// `readCourseStart(sql, path)` for the item's path (authoring's read).
 fn course_starts_at(c: &mut Client, item_slug: &str) -> Result<Option<i64>, Refusal> {
     let Some(item) = spine::get(item_slug) else {
         return Ok(None);
     };
-    let rows = q(
-        c,
-        &format!(
-            "SELECT {} FROM academy.course_starts WHERE path = $1",
-            ms("starts_at")
-        ),
-        &[&item.path],
-    )?;
-    rows.first().map_or(Ok(None), |r| cell(r, 0))
+    crate::authoring::release::course_start(c, &item.path)
 }
 
 fn window_of(c: &mut Client, item_slug: &str) -> Result<Option<Window>, Refusal> {

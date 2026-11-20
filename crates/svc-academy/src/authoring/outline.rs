@@ -8,7 +8,7 @@ use service_kit::json::Json;
 use service_kit::schema::js_trim;
 
 use super::release::{self, course_start};
-use super::sql::{self, at, get, iso, ms, query};
+use super::sql::{self, get, iso, ms, query};
 use super::{refuse, tracks};
 use crate::curriculum::spine;
 use crate::errors::Refusal;
@@ -58,22 +58,8 @@ pub fn course_outline(
             .map(|r| Ok((get(r, "item_slug")?, get(r, "completed_at")?)))
             .collect::<Result<_, Refusal>>()?
         };
-        let passed: Vec<String> = query(
-            c,
-            "SELECT DISTINCT a.slug FROM academy.assessment_attempts a LEFT JOIN academy.quizzes q ON q.slug = a.slug \
-             WHERE a.user_id = $1::text::uuid AND a.passed = true AND a.voided_at IS NULL \
-               AND CASE WHEN GREATEST(a.hidden_until, q.results_hidden_until) > $2::text::timestamptz \
-                        THEN GREATEST(a.hidden_until, q.results_hidden_until) END IS NULL",
-            &[&user_id, &at(now)],
-        )?
-        .iter()
-        .map(|r| get(r, "slug"))
-        .collect::<Result<_, _>>()?;
-        // The code catalog of assessments is empty; the published ones are the rows.
-        let quizzes: Vec<String> = query(c, "SELECT slug FROM academy.quizzes", &[])?
-            .iter()
-            .map(|r| get(r, "slug"))
-            .collect::<Result<_, _>>()?;
+        let passed = crate::assessment::reads::passed_slugs(c, user_id, now)?;
+        let quizzes = crate::assessment::reads::published_slugs(c)?;
         let videos = tracks::item_videos(c, &slugs)?;
         let watched: Vec<String> = match watch_threshold {
             Some(t) if !videos.is_empty() => {

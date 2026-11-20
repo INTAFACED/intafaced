@@ -11,6 +11,7 @@ use service_kit::time::v8_date_parse;
 
 use super::service::{Certs, sql_list_limit};
 use super::sql::{self, cell, iso, lock, ms, q};
+use crate::authoring::terms::{closed_reason as course_closed_reason, read as course_terms};
 use crate::curriculum::{links, spine};
 use crate::db;
 use crate::errors::{AcademyError, Refusal};
@@ -62,61 +63,6 @@ fn first(rows: &[postgres::Row]) -> Result<Enrolment, Refusal> {
             "Cannot read properties of undefined (reading 'user_id')",
             None,
         )
-    })
-}
-
-/// `CourseTerms`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Terms {
-    pub seat_cap: Option<i64>,
-    pub opens_at: Option<i64>,
-    pub closes_at: Option<i64>,
-    pub visibility: String,
-}
-
-/// `courseClosedReason(terms, seatsTaken, now)`.
-pub fn course_closed_reason(t: &Terms, seats_taken: i64, now: i64) -> Option<&'static str> {
-    match t.visibility.as_str() {
-        "unpublished" => return Some("unpublished"),
-        "hidden" => return Some("hidden"),
-        _ => {}
-    }
-    if t.opens_at.is_some_and(|o| now < o) {
-        return Some("window_not_started");
-    }
-    if t.closes_at.is_some_and(|c| now >= c) {
-        return Some("window_ended");
-    }
-    if t.seat_cap.is_some_and(|cap| seats_taken >= cap) {
-        return Some("full");
-    }
-    None
-}
-
-/// `CourseTermsStore.read(path)`: the stored terms, or open terms when none are stored.
-pub fn course_terms<C: GenericClient>(c: &mut C, path: &str) -> Result<Terms, Refusal> {
-    let rows = q(
-        c,
-        &format!(
-            "SELECT seat_cap, {}, {}, visibility FROM academy.course_enrolment_terms WHERE path = $1",
-            ms("opens_at"),
-            ms("closes_at")
-        ),
-        &[&path],
-    )?;
-    Ok(match rows.first() {
-        Some(r) => Terms {
-            seat_cap: cell::<Option<i32>>(r, 0)?.map(sql::int),
-            opens_at: cell(r, 1)?,
-            closes_at: cell(r, 2)?,
-            visibility: cell(r, 3)?,
-        },
-        None => Terms {
-            seat_cap: None,
-            opens_at: None,
-            closes_at: None,
-            visibility: "published".to_owned(),
-        },
     })
 }
 

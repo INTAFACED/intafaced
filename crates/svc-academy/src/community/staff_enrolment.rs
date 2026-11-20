@@ -147,30 +147,14 @@ pub struct Terms {
     pub visibility: String,
 }
 
-/// `CourseTermsStore.read(path)`.
+/// `CourseTermsStore.read(path)`, authoring's read, with its times as instants.
 fn read_terms<C: GenericClient>(db: &mut C, path: &str) -> Result<Terms, Refusal> {
-    let row = first(
-        db,
-        &format!(
-            "SELECT seat_cap, {}, {}, visibility FROM academy.course_enrolment_terms WHERE path = $1::text",
-            ms("opens_at"),
-            ms("closes_at")
-        ),
-        &[&path],
-    )?;
-    Ok(match row {
-        Some(r) => Terms {
-            seat_cap: col::<Option<i32>>(&r, 0)?.map(i64::from),
-            opens_at: at_opt(&r, 1)?,
-            closes_at: at_opt(&r, 2)?,
-            visibility: col(&r, 3)?,
-        },
-        None => Terms {
-            seat_cap: None,
-            opens_at: None,
-            closes_at: None,
-            visibility: "published".to_owned(),
-        },
+    let t = crate::authoring::terms::read(db, path)?;
+    Ok(Terms {
+        seat_cap: t.seat_cap,
+        opens_at: t.opens_at.map(Instant),
+        closes_at: t.closes_at.map(Instant),
+        visibility: t.visibility,
     })
 }
 
