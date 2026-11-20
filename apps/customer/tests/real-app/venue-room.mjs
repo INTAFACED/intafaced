@@ -35,7 +35,7 @@ export async function connections(who) {
 export const sheet = (page) => page.locator('[data-sheet="sign"]');
 
 /** The room has read the connection back: Connected, Connection expired, or Connect. */
-export async function roomSettled(page) {
+async function roomSettled(page) {
   await expect(
     page
       .getByRole('heading', { name: 'Connected' })
