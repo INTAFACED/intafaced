@@ -7,7 +7,7 @@ import type {
   OpsPlatformIncidents,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { RefusalView } from '@/lib/refusal-copy';
 import { NOTICE_WORDS, TEAM_WORDS, closeBlocked, refusalWords } from '@/lib/recon-alerts/model';
 import type { AlertsRoom as Room } from '@/lib/recon-alerts/read';

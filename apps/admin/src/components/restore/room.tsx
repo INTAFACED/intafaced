@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { DISAGREE_WORDS, RESTORE_SERVICES, SERVICE_LABEL, STEP_LABEL, refusalWords, runHref, type RunDetail } from '@/lib/restore/model';
 import type { RestoreRoom as Room } from '@/lib/restore/read';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { RefusalView } from '@/lib/refusal-copy';
 import { FinalizeDesk, RecordStamp, StartRun, StepButton } from './actions';
 import '../desk.css';
