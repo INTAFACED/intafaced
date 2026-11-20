@@ -42,11 +42,14 @@ const APPROVAL = {
   assetCode: 'USDT',
   payloadHash: `sha256:${'a'.repeat(64)}`,
   status: 'pending',
-  makerUserId: 'u1',
+  makerUserId: 'b1111111-1111-4111-8111-111111111111',
   checkerUserId: null,
   createdAt: '2026-10-15T00:00:00.000Z',
   decidedAt: null,
   expiresAt: '2026-10-16T00:00:00.000Z',
+  railId: 'crypto-native',
+  destinationKind: 'crypto',
+  destinationMasked: '0x7a3f…4421',
 };
 
 describe('portal api (W3b reads)', () => {
