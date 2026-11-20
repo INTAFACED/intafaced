@@ -20,10 +20,10 @@ use svc_academy::curriculum::{internal::ServiceAuth, spine};
 use svc_academy::db::Store;
 use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
 use svc_academy::env::{self, AcademyEnv};
-use svc_academy::lobbies::clients::{HttpHostRights, HttpStake};
-use svc_academy::lobbies::stream::stream_from_env;
 use svc_academy::learner::purchases::chain::RpcChain;
 use svc_academy::learner::purchases::clients::{IdentityWallets, LedgerHttp, RefundHttp};
+use svc_academy::lobbies::clients::{HttpHostRights, HttpStake};
+use svc_academy::lobbies::stream::stream_from_env;
 use svc_academy::migrate;
 use svc_academy::ports::{JetStreamBus, PaymentSettings, Ports};
 use svc_academy::settings::Settings;
@@ -115,15 +115,29 @@ fn door(
     // is set, the refund signer while its URL is set, and svc-identity's linked wallets always.
     ports.payment_settings = payment_settings(env);
     if ports.payment_settings.is_some() {
-        ports.chain = Some(Box::new(RpcChain::new(&str_of("ACADEMY_PAYMENT_RPC_URL"), fetch.clone())));
+        ports.chain = Some(Box::new(RpcChain::new(
+            &str_of("ACADEMY_PAYMENT_RPC_URL"),
+            fetch.clone(),
+        )));
     }
     if let Some(url) = env.str("LEDGER_URL").filter(|u| !u.is_empty()) {
-        ports.ledger = Some(Box::new(LedgerHttp::new(url, signer("svc-ledger"), fetch.clone())));
+        ports.ledger = Some(Box::new(LedgerHttp::new(
+            url,
+            signer("svc-ledger"),
+            fetch.clone(),
+        )));
     }
-    if let Some(url) = env.str("ACADEMY_REFUND_SIGNER_URL").filter(|u| !u.is_empty()) {
+    if let Some(url) = env
+        .str("ACADEMY_REFUND_SIGNER_URL")
+        .filter(|u| !u.is_empty())
+    {
         ports.refunds = Some(Box::new(RefundHttp::new(url, fetch.clone())));
     }
-    ports.wallets = Box::new(IdentityWallets::new(&str_of("IDENTITY_URL"), signer("svc-identity"), fetch.clone()));
+    ports.wallets = Box::new(IdentityWallets::new(
+        &str_of("IDENTITY_URL"),
+        signer("svc-identity"),
+        fetch.clone(),
+    ));
     if let Some(bus) = bus {
         ports.bus = Box::new(bus);
     }
@@ -244,12 +258,18 @@ fn reconcile_purchases(door: &AcademyDoor, seconds: i64, stop: &AtomicBool, log:
         }
         let mut one = |key: &str, err: &svc_academy::errors::Refusal| {
             log.error(
-                vec![("err", Json::str(format!("{err:?}"))), ("key", Json::str(key))],
+                vec![
+                    ("err", Json::str(format!("{err:?}"))),
+                    ("key", Json::str(key)),
+                ],
                 "purchase reconcile failed on one purchase; the next pass retries it",
             );
         };
         if let Err(err) = door.reconcile_course_purchases(&mut one) {
-            log.error(vec![("err", Json::str(format!("{err:?}")))], "purchase reconcile failed; the next pass retries");
+            log.error(
+                vec![("err", Json::str(format!("{err:?}")))],
+                "purchase reconcile failed; the next pass retries",
+            );
         }
     }
 }
