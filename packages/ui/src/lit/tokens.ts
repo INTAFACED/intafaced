@@ -374,7 +374,7 @@ const typeVars = (flatMode: boolean) => {
  * reach those rooms too. Up and down stay today's, and their tints are mixed from them, so the red-for-up preference keeps working. Emitted on
  * `:root[data-look]`, above the app's own light-theme overrides of the same names.
  */
-export const todayInLookRoles: Record<string, string> = {
+const todayInLookRoles: Record<string, string> = {
   '--if-bg': 'var(--lit-page)',
   '--if-panel': 'var(--lit-solid-bg)',
   '--if-field': 'var(--lit-solid-bg-raised)',

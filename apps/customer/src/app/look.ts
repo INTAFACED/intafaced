@@ -44,8 +44,8 @@ export function resolveLook(search: string): LookId | null {
  * light values (`?scheme=dark` forgets it). Both are remembered like the look and off by default, so nobody sees light
  * or another accent without asking for it; light stays unshipped (preferences.ts draws dark for every stored theme).
  */
-export const ACCENT_KEY = 'intafaced.look.accent';
-export const SCHEME_KEY = 'intafaced.look.scheme';
+const ACCENT_KEY = 'intafaced.look.accent';
+const SCHEME_KEY = 'intafaced.look.scheme';
 /** Held equal to `accents` in `@intafaced/ui/lit` by look.test.ts. */
 export const LOOK_ACCENTS = ['blue', 'ember', 'violet', 'emerald'] as const;
 export type LookAccent = (typeof LOOK_ACCENTS)[number];

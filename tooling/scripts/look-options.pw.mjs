@@ -58,10 +58,10 @@ test('look options', async ({ page }) => {
           const res = await page.goto(s.path);
           expect(res?.status() ?? 0, `${s.path} answered`).toBeLessThan(400);
           await page.waitForLoadState('networkidle').catch(() => {});
-          await page.waitForTimeout(1500);
+          await page.evaluate(() => document.fonts.ready);
           const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
           const file = `${d.id}--${s.id}--${size.id}--${scheme}.png`;
-          await page.screenshot({ path: path.join(out, file) });
+          await page.screenshot({ path: path.join(out, file), animations: 'disabled' });
           shots.push({ file, direction: d.id, screen: s.id, size: size.id, scheme, url: page.url(), root });
         }
       }
