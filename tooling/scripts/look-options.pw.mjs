@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '../../apps/customer/tests/real-app/journey.mjs';
 import { deskPath, fundedTrader, signIn } from '../../apps/customer/tests/real-app/desk.mjs';
+import { fund } from '../../apps/customer/tests/real-app/stack.mjs';
 
 const out = process.env.LOOK_OPTIONS_OUT;
 
@@ -29,8 +30,8 @@ export const SCREENS = [
   { id: 'home', path: '/home' },
   { id: 'desk', path: deskPath('BTC/USDT') },
   { id: 'money', path: '/money' },
-  // The simple buy, as Home's Buy opens it.
-  { id: 'buy', path: '/trade/buy' },
+  // The simple buy, as Home's Buy opens it, with an amount typed so its quote and its action are live.
+  { id: 'buy', path: '/trade/buy', amount: '100' },
 ];
 const DEFAULT_SCREENS = ['home', 'desk', 'money'];
 export const SIZES = [
@@ -48,6 +49,8 @@ test('look options', async ({ page }) => {
   expect(out, 'LOOK_OPTIONS_OUT names the folder').toBeTruthy();
   fs.mkdirSync(out, { recursive: true });
   const who = await fundedTrader(page, 'look', '2500');
+  // Some TEST BTC too, through the same real ledger, so the screens show cash and crypto, as a customer's would.
+  expect(fund(who.email, 'BTC', '0.015').tx).toBeTruthy();
   await signIn(page, who);
   const shots = [];
   for (const d of only('LOOK_OPTIONS_DIRECTIONS', DIRECTIONS)) {
@@ -66,6 +69,12 @@ test('look options', async ({ page }) => {
           const res = await page.goto(s.path);
           expect(res?.status() ?? 0, `${s.path} answered`).toBeLessThan(400);
           await page.waitForLoadState('networkidle').catch(() => {});
+          if (s.amount) {
+            const amount = page.getByRole('textbox', { name: /^Amount in/ }).first();
+            await amount.fill(s.amount);
+            await amount.blur();
+            await page.waitForLoadState('networkidle').catch(() => {});
+          }
           await page.evaluate(() => document.fonts.ready);
           const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
           const file = `${d.own ? '' : `${d.id}--`}${s.id}--${size.id}--${scheme}.png`;

@@ -52,19 +52,42 @@
   margin-block-start: var(--if-space-3);
 }
 
-/* The actions: stone keys, all equal; no colour, the spark is the money object's. */
+/* The money object follows the actions directly; the rest of Home comes after it. */
+[data-direction='volt'] .home-main {
+  display: flex;
+  flex-direction: column;
+}
+[data-direction='volt'] .home-actions ~ * {
+  order: 2;
+}
+[data-direction='volt'] .home-main > .volt-stack {
+  order: 1;
+}
+
+/* The actions: one row of stone keys on the page itself (no panel); no colour, the spark is the money object's. */
 [data-direction='volt'] .home-actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  max-inline-size: 36rem;
   margin-block-start: var(--lit-gap-section);
+  padding: 0;
   gap: var(--if-space-2);
+  background: none;
+  box-shadow: none;
+}
+[data-direction='volt'] .home-actions::before {
+  content: none;
 }
 [data-direction='volt'] .home-actions > * {
-  border-radius: 999px;
+  padding-inline: 0.5rem;
+  border-radius: var(--lit-radius-key);
   background: var(--lit-secondary-bg);
   color: var(--lit-secondary-fg);
   box-shadow: var(--lit-secondary-shadow);
   font-weight: 600;
 }
-[data-direction='volt'] .home-actions > :first-child {
+[data-direction='volt'] .if-home .home-actions > [data-slot='button']:first-child {
   background: var(--lit-text-1);
   color: var(--lit-page);
   box-shadow: none;
@@ -75,7 +98,7 @@
   position: relative;
   display: grid;
   margin-block-start: var(--lit-gap-section);
-  padding-block-start: 2.75rem;
+  padding-block-start: 2.25rem;
   max-inline-size: 30rem;
 }
 .volt-card {
@@ -88,11 +111,11 @@
 .volt-card--back {
   position: absolute;
   inset-block-start: 0;
-  inset-inline: 1rem;
+  inset-inline: 1.5rem;
   block-size: 6rem;
   flex-direction: row;
   align-items: flex-start;
-  padding: 0.875rem 1.25rem;
+  padding: 0.625rem 1.25rem;
   background: var(--lit-object-spark-bg);
   color: var(--lit-object-spark-fg);
   box-shadow: var(--lit-fill-shadow);
@@ -137,7 +160,18 @@
   line-height: 1;
   letter-spacing: -0.035em;
 }
+@media (min-width: 768px) {
+  .volt-stack {
+    max-inline-size: 36rem;
+  }
+  .volt-card--front {
+    min-block-size: 14rem;
+  }
+  .volt-card__figure {
+    font-size: 2.5rem;
+  }
+}
 .volt-card:focus-visible {
   outline: 2px solid var(--lit-focus);
-  outline-offset: 3px;
+  outline-offset: 0.1875rem;
 }

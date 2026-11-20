@@ -38,7 +38,7 @@
     gap: 0.125rem;
     padding: 0.375rem;
     border: 1px solid var(--lit-glass-rim-dim);
-    border-radius: 999px;
+    border-radius: var(--lit-radius-key);
     background: var(--lit-glass-bg);
     -webkit-backdrop-filter: var(--lit-glass-blur);
     backdrop-filter: var(--lit-glass-blur);
@@ -46,7 +46,7 @@
   }
   [data-direction='volt'] .mobile-doors a {
     min-block-size: 3.25rem;
-    border-radius: 999px;
+    border-radius: var(--lit-radius-key);
     color: var(--lit-text-2);
     font-weight: 500;
     font-size: 0.6875rem;
@@ -68,6 +68,6 @@
   background: var(--lit-primary-bg);
   color: var(--lit-primary-fg);
   box-shadow: var(--lit-primary-shadow);
-  border-radius: 999px;
+  border-radius: var(--lit-radius-key);
   font-weight: 600;
 }
