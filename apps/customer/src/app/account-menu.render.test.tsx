@@ -63,7 +63,7 @@ beforeEach(() => {
   world.navigated = [];
   world.profiles = profiles();
   world.reads = {
-    me: ok({ userId: USER, handle: 'test_user', emailVerified: true }),
+    me: ok({ userId: USER, handle: 'test_user' }),
     'profile.get': ok({ displayName: 'TEST Person', locale: 'en', region: null, version: 1 }),
     'kyc.status': ok({ tier: 'basic', records: [] }),
   };

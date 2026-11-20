@@ -22,7 +22,8 @@ export const IDENTITY_ME = defineProcedure({
   access: { caller: 'signedIn' },
   refusals: {},
   input: NO_INPUT,
-  output: z.object({ userId: z.string().guid(), handle: z.string(), emailVerified: z.boolean() }),
+  // svc-identity always sends `emailVerified`; a reader that needs it checks it is there (an older answer had none).
+  output: z.object({ userId: z.string().guid(), handle: z.string(), emailVerified: z.boolean().optional() }),
   samples: [{ verdict: 'accept' }],
 });
 

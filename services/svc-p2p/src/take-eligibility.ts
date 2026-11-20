@@ -92,7 +92,7 @@ export function createIdentityContactReader(options: { identityUrl: string; fetc
         );
       }
       const me = trpcRecordReply(IDENTITY_ME, body);
-      if (me === null) {
+      if (me?.emailVerified === undefined) {
         throw new TakeGateError('p2p.contact_unverifiable: identity me carried no emailVerified', 'p2p.contact_unverifiable');
       }
       return me.emailVerified;

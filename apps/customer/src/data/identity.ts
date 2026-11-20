@@ -31,7 +31,7 @@ export const handleNamed = (reply: object): boolean => !('handle' in reply) || r
 export const HANDLE_PATTERN = /^[a-zA-Z0-9_]{3,32}$/;
 
 export type MeOutcome =
-  | { kind: 'ok'; userId: string; handle: string; emailVerified: boolean }
+  | { kind: 'ok'; userId: string; handle: string; emailVerified?: boolean }
   /** The server has no `identity.me` yet. */
   | { kind: 'unavailable' }
   | { kind: 'failed' };
@@ -57,7 +57,14 @@ export function procedureMissing(result: Extract<ApiResult<unknown>, { ok: false
 
 export async function fetchMe(api: ApiClient, signal?: AbortSignal): Promise<MeOutcome> {
   const result = await api.call(IDENTITY_ME, undefined, { signal, accept: handleNamed });
-  if (result.ok) return { kind: 'ok', userId: result.data.userId, handle: result.data.handle, emailVerified: result.data.emailVerified };
+  if (result.ok) {
+    return {
+      kind: 'ok',
+      userId: result.data.userId,
+      handle: result.data.handle,
+      ...(result.data.emailVerified === undefined ? {} : { emailVerified: result.data.emailVerified }),
+    };
+  }
   return procedureMissing(result) ? { kind: 'unavailable' } : { kind: 'failed' };
 }
 
