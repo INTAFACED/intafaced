@@ -179,9 +179,9 @@ function HeldFigures() {
               <HeldMark state={part.state} asOf={part.asOf} asOfText={part.asOf ? asOfText(part.asOf) : undefined} route={part.route} />
             </span>
             {part.value === null ? (
-              <span className="text-sm text-fg-2">Not known</span>
+              <span className="shrink-0 whitespace-nowrap text-sm text-fg-2">Not known</span>
             ) : (
-              <span className="if-num text-sm tabular-nums">{part.value}</span>
+              <span className="if-num shrink-0 whitespace-nowrap text-sm tabular-nums">{part.value}</span>
             )}
           </li>
         ))}
