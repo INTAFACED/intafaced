@@ -37,7 +37,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   GET  /health, GET /venue                         descriptor, chain id, label TEST, and the deposit route (or null)
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
- *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
+ *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account}, /deposit-routes {},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
  *        /builder-account-mode {builder}   the address's account mode and the mode required to accrue builder fees
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
@@ -51,6 +51,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /insurance-fund {}, /adl-rules {}, /liquidation-alerts {symbol|null,limit}   public, no account
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
+ *   POST /test/deposit-route {asset, route: {network,how} | null}   the venue's route for an asset its bridge does not take
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
  *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
  *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?,builderModeRequirementUnpublished?}   each fee a MaybeKnown<Amount>
@@ -939,17 +940,17 @@ export async function answerTestVenue(
     if (path === '/submit' && mine && mine.submitDelayMs > 0) await new Promise((r) => setTimeout(r, mine.submitDelayMs));
     if (path === '/submit' && mine && mine.loseAnswers > 0) {
       // Applied, then the answer is lost, as a timeout after the bytes reached the venue.
-      await route(sim, path, body);
+      await route(sim, path, body, deposit);
       mine.loseAnswers -= 1;
       return [200, encodeVenueWire({ definite: false, reason: 'timeout' })];
     }
     if (path === '/submit' && mine && mine.failAfterSend > 0) {
       // Applied, then the venue answers a 5xx: an error after the bytes reached the venue.
-      await route(sim, path, body);
+      await route(sim, path, body, deposit);
       mine.failAfterSend -= 1;
       return [500, { error: 'TEST venue error after the submit was applied (TEST switch)' }];
     }
-    const value = await route(sim, path, body);
+    const value = await route(sim, path, body, deposit);
     return value === undefined ? [404, { error: `no route ${path}` }] : [200, encodeVenueWire(value)];
   } catch (err) {
     if (err instanceof VenueRefusalError) return [422, { refusal: err.refusal }];
@@ -958,7 +959,12 @@ export async function answerTestVenue(
   }
 }
 
-async function route(sim: TestVenueSimulator, path: string, body: Record<string, unknown>): Promise<unknown> {
+async function route(
+  sim: TestVenueSimulator,
+  path: string,
+  body: Record<string, unknown>,
+  deposit: UserVenueDepositRoute | null,
+): Promise<unknown> {
   switch (path) {
     case '/markets':
       return sim.markets(body.account ? account(body) : null);
@@ -1019,6 +1025,15 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.withdrawal(account(body), str(body, 'nonce'));
     case '/withdrawal-terms':
       return sim.withdrawalTerms(str(body, 'asset'));
+    case '/deposit-routes': {
+      // The bridge's own asset takes the route the server publishes (`deposit`); the rest are the simulator's.
+      const routes = await sim.depositRoutes();
+      if (!deposit) return routes;
+      const how = `The venue's deposit address on ${deposit.network ?? `chain ${deposit.chainId}`}`;
+      const rows = routes.value.filter((r) => r.asset !== deposit.asset);
+      rows.push({ asset: deposit.asset, network: deposit.network ?? `chain ${deposit.chainId}`, how });
+      return { ...routes, value: rows.sort((a, b) => (a.asset < b.asset ? -1 : a.asset > b.asset ? 1 : 0)) };
+    }
     case '/deposits':
       return sim.deposits(account(body));
     case '/arrivals':
@@ -1089,6 +1104,18 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const amount = body.amount;
       if (typeof amount !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
       return { booked: sim.bookDeficit(account(body), str(body, 'asset'), amount as Amount, str(body, 'lossRef')), label: 'TEST' };
+    }
+    case '/test/deposit-route': {
+      // TEST: the venue's route for one asset its bridge does not take, in its own words; null withdraws it (J-wallet-24 #5).
+      const route = body.route;
+      if (route !== null && typeof route !== 'object') throw new VenueWireError('route is required: { network, how } or null');
+      sim.setAssetRoute(
+        str(body, 'asset'),
+        route === null
+          ? null
+          : { network: str(route as Record<string, unknown>, 'network'), how: str(route as Record<string, unknown>, 'how') },
+      );
+      return { ok: true, label: 'TEST' };
     }
     case '/test/switches': {
       if (typeof body.venueDown === 'boolean') sim.switches.venueDown = body.venueDown;
